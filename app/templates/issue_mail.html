@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>WoodPower - Szablon</title>
+    <style type="text/css">
+        /* Reset dla klientów poczty */
+        body, table, td, p {
+            margin: 0;
+            padding: 0;
+        }
+
+        img {
+            border: 0;
+            display: block;
+            line-height: 100%;
+        }
+
+        a {
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body style="margin: 0; padding: 0; background-color: #F8F8F8;">
+    <!-- Główna tabela - pełna szerokość -->
+    <table width="100%"
+           border="0"
+           cellspacing="0"
+           cellpadding="0"
+           align="center"
+           style="border-collapse: collapse; background-color: #F8F8F8;">
+        <tr>
+            <td align="center" style="padding: 30px 0;">
+                <!-- Biały kontener (szerokość 604px) -->
+                <table width="604"
+                       border="0"
+                       cellspacing="0"
+                       cellpadding="0"
+                       style="
+              border-collapse: collapse;
+              border-radius: 8px;
+              background: #ffffff;
+              box-shadow: 0px 50px 14px 0px rgba(237, 107, 36, 0.00),
+                          0px 32px 13px 0px rgba(237, 107, 36, 0.01),
+                          0px 18px 11px 0px rgba(0, 0, 0, 0.03),
+                          0px 8px 8px 0px rgba(0, 0, 0, 0.04),
+                          0px 2px 4px 0px rgba(0, 0, 0, 0.05);
+              overflow: hidden;
+
+            ">
+                    <!-- [header] -->
+                    <tr>
+                        <td style="
+                  background: #ED6B24;
+                  height: 80px;
+                  padding: 0 26px;
+                  vertical-align: middle;
+                ">
+                            <!-- Logo -->
+                            <a href="https://woodpower.pl"
+                               target="_blank"
+                               style="display: block;">
+                                <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/logowhite.png"
+                                     alt="WoodPower"
+                                     width="200"
+                                     height="36" />
+                            </a>
+                        </td>
+                    </tr>
+
+                    <!-- [content] -->
+                    <tr>
+                        <td>
+                            <!-- [main-content] -->
+                            <table width="100%"
+                                   border="0"
+                                   cellspacing="0"
+                                   cellpadding="0"
+                                   style="border-collapse: collapse; margin-bottom: 20px;">
+                                <!-- heading-cover -->
+                                <tr>
+                                    <td style="padding: 50px 40px 0;">
+                                        <p style="
+                          font-family: Poppins, Arial, sans-serif;
+                          font-size: 24px;
+                          font-weight: 600;
+                          color: #1F2020;
+                          margin: 0;
+                        ">
+                                            Nowe zgłoszenie błędu
+                                        </p>
+                                        <div style="
+                          width: 70px;
+                          height: 4px;
+                          background-color: #ED6B24;
+                          border-radius: 2px;
+                          margin-top: 6px;
+                        "></div>
+                                    </td>
+                                </tr>
+                                <!-- sign-in (kreska po lewej) - Dane klienta -->
+                                <tr>
+                                    <td style="padding: 30px 0 0;">
+                                        <table width="100%"
+                                               border="0"
+                                               cellspacing="0"
+                                               cellpadding="0"
+                                               style="border-collapse: collapse;">
+                                            <tr>
+                                                <td style="
+                              border-left: 6px solid #ED6B24;
+                              padding: 0 33px;
+                            ">
+                                                    <table width="100%"
+                                                           border="0"
+                                                           cellspacing="0"
+                                                           cellpadding="0"
+                                                           style="border-collapse: collapse;">
+                                                        <tr>
+                                                            <td style="padding-top: 0;">
+                                                                <p style="
+                                      font-family: Poppins, Arial, sans-serif;
+                                      font-size: 18px;
+                                      font-weight: 600;
+                                      color: #1F2020;
+                                      margin: 0;
+                                    ">
+                                                                    Szczegóły zgłoszenia
+                                                                </p>
+                                                                <div style="
+                                      width: 70px;
+                                      height: 2px;
+                                      background-color: #ED6B24;
+                                      border-radius: 2px;
+                                      margin: 0 0 18px;
+                                    "></div>
+                                                                <p style="
+                                      font-family: Poppins, Arial, sans-serif;
+                                      font-size: 14px;
+                                      font-weight: 600;
+                                      color: #1F2020;
+                                      margin: 0;
+                                      text-align: justify;
+                                    ">
+                                                                    Zgłaszający:
+                                                                    <span style="font-weight: 400;">
+                                                                        {{ user_email }}
+                                                                    </span>
+                                                                </p>
+                                                                <p style="
+                                      font-family: Poppins, Arial, sans-serif;
+                                      font-size: 14px;
+                                      font-weight: 600;
+                                      color: #1F2020;
+                                      margin: 0;
+                                      text-align: justify;
+                                    ">
+                                                                    Miejsce problemu:
+                                                                    <span style="font-weight: 400;">
+                                                                        {{ problem_location }}
+                                                                    </span>
+                                                                </p>
+                                                                <p style="
+                                      font-family: Poppins, Arial, sans-serif;
+                                      font-size: 14px;
+                                      font-weight: 600;
+                                      color: #1F2020;
+                                      margin: 0;
+                                      text-align: justify;
+                                    ">
+                                                                    Priorytet:
+                                                                    <span style="font-weight: 400;">
+                                                                        {{ priority }}
+                                                                    </span>
+                                                                </p>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- sign-in (kreska po lewej) - Wiadomość klienta -->
+                                <tr>
+                                    <td style="padding: 30px 0 0;">
+                                        <table width="100%"
+                                               border="0"
+                                               cellspacing="0"
+                                               cellpadding="0"
+                                               style="border-collapse: collapse;">
+                                            <tr>
+                                                <td style="
+                              border-left: 6px solid #ED6B24;
+                              padding: 0 33px;
+                            ">
+                                                    <table width="100%"
+                                                           border="0"
+                                                           cellspacing="0"
+                                                           cellpadding="0"
+                                                           style="border-collapse: collapse;">
+                                                        <tr>
+                                                            <td style="padding-top: 0;">
+                                                                <p style="
+                                      font-family: Poppins, Arial, sans-serif;
+                                      font-size: 18px;
+                                      font-weight: 600;
+                                      color: #1F2020;
+                                      margin: 0;
+                                    ">
+                                                                    Opis problemu
+                                                                </p>
+                                                                <div style="
+                                      width: 70px;
+                                      height: 2px;
+                                      background-color: #ED6B24;
+                                      border-radius: 2px;
+                                      margin: 0 0 18px;
+                                    "></div>
+                                                            </td>
+                                                        </tr>
+                                                        <!-- NOWA TABELA Z TŁEM #FFF4EE -->
+                                                        <tr>
+                                                            <td>
+                                                                <table width="100%"
+                                                                       border="0"
+                                                                       cellspacing="0"
+                                                                       cellpadding="0"
+                                                                       style="
+                                      border-collapse: collapse;
+                                      background: #FFF4EE;
+                                      border-radius: 8px;
+                                    ">
+                                                                    <tr>
+                                                                        <td style="
+                                          padding: 15px 10px;
+                                        ">
+                                                                            <p style="
+                                            color: #1F2020;
+                                            text-align: justify;
+                                            leading-trim: both;
+                                            text-edge: cap;
+                                            font-family: Poppins, Arial, sans-serif;
+                                            font-size: 14px;
+                                            font-style: normal;
+                                            font-weight: 400;
+                                            line-height: normal;
+                                            margin: 0
+                                          ">
+                                                                                {{ problem_description }}
+                                                                            </p>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            <!-- Koniec main-content -->
+                        </td>
+                    </tr>
+                </table>
+                <!-- Koniec białego kontenera -->
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

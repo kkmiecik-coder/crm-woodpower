@@ -1,0 +1,2 @@
+PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/3.9/bin/python
+PassengerStartupFile passenger_wsgi.py

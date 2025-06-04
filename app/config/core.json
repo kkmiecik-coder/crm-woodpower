@@ -1,0 +1,18 @@
+{
+    "DEBUG": true,
+    "DATABASE_URI": "mysql+pymysql://woodpower_crm:Chcialbymmiecpieska56-@127.0.0.1/woodpower_crm",
+    "MAIL_SERVER": "serwer2100532.home.pl",
+    "MAIL_PORT": 587,
+    "MAIL_USE_TLS": true,
+    "MAIL_USERNAME": "powiadomienia@woodpower.pl",
+    "MAIL_PASSWORD": "4jY15bC8",
+    "API_BASELINKER": {
+        "api_key": "5006051-5017287-5AZVGZPCZ7LGEGTQ1HBO481Z6VT9YOV24DZREEU6PZKHGW3W91XEUFTC1HJ6GPHU",
+        "endpoint": "https://api.baselinker.com/connector.php"
+    },
+    "GLOB_KURIER": {
+        "login": "logistyka@woodpower.pl",
+        "password": "Wood2023!",
+        "endpoint": "https://api.globkurier.pl/v1"
+    }
+}

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Statystyki - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <h1 class="title-with-underline">Statystyki</h1>
+
+            <div class="tabs">
+                <div class="tab active" data-tab="public-calc">Kalkulator publiczny</div>
+            </div>
+
+            <div id="public-calc" class="tab-content active">
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Podsumowanie sesji</h2>
+                    </div>
+                    <div class="analytics-stat-card-group">
+                        <div class="analytics-stat-card">
+                            <h3>🔢 Liczba sesji</h3>
+                            <p>{{ total_sessions }}</p>
+                        </div>
+                        <div class="analytics-stat-card">
+                            <h3>⏱ Średni czas sesji</h3>
+                            <p>{{ avg_duration_sec }} sek.</p>
+                        </div>
+                        <div class="analytics-stat-card">
+                            <h3>🧠 Sesje z wyborem koloru</h3>
+                            <p>{{ color_sessions }}</p>
+                        </div>
+                        <div class="analytics-stat-card">
+                            <h3>🎯 Sesje z wariantem</h3>
+                            <p>{{ variant_sessions }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Warianty i wykończenia</h2>
+                        <div class="analytics-sub-tabs">
+                            <button class="analytics-sub-tab active" data-target="variantChart">Warianty</button>
+                            <button class="analytics-sub-tab" data-target="finishingChart">Wykończenia</button>
+                        </div>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="variantChart" class="analytics-sub-chart visible" width="300" height="150"></canvas>
+                        <canvas id="finishingChart" class="analytics-sub-chart" width="300" height="150"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Wymiary</h2>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="dimensionChart" width="300" height="150"></canvas>
+                    </div>
+                </div>
+
+                <div class="analytics-box">
+                    <div class="analytics-box-header">
+                        <h2>Najczęściej wybierane kolory</h2>
+                    </div>
+                    <div class="analytics-box-content">
+                        <canvas id="colorChart" width="300" height="150"></canvas>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('analytics.static', filename='js/public_analytics.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
