@@ -1,6 +1,10 @@
+# modules/calculator/models.py
+
 from extensions import db
 from datetime import datetime
 from sqlalchemy.dialects.mysql import DECIMAL
+import secrets
+import string
 
 class Multiplier(db.Model):
     __tablename__ = 'multipliers'
@@ -65,7 +69,7 @@ class Quote(db.Model):
 
     def get_selected_items(self):
         """Zwraca tylko wybrane pozycje wyceny"""
-        return self.items.filter_by(is_selected=True).all()
+        return [item for item in self.items if item.is_selected]
 
     def get_total_original_price_netto(self):
         """Zwraca oryginalną cenę netto wszystkich wybranych pozycji"""
@@ -97,10 +101,18 @@ class Quote(db.Model):
 
     def apply_total_discount(self, discount_percentage, reason_id=None):
         """Zastosowuje rabat do wszystkich wybranych pozycji"""
-        selected_items = self.get_selected_items()
+        selected_items = db.session.query(QuoteItem).filter_by(
+        quote_id=self.id, 
+        is_selected=True
+        ).all()
+    
+        affected_count = 0
+    
         for item in selected_items:
             item.apply_discount(discount_percentage, reason_id)
-        return len(selected_items)
+            affected_count += 1
+    
+        return affected_count
 
     def __repr__(self):
         return f"<Quote {self.quote_number}>"
@@ -186,6 +198,7 @@ class QuoteItem(db.Model):
             'thickness_cm': float(self.thickness_cm) if self.thickness_cm else None,
             'volume_m3': float(self.volume_m3) if self.volume_m3 else None,
             'price_per_m3': float(self.price_per_m3) if self.price_per_m3 else None,
+            'multiplier': float(self.multiplier) if self.multiplier else None,
             'is_selected': self.is_selected,
             'show_on_client_page': self.show_on_client_page,
             'original_price_netto': float(self.original_price_netto) if self.original_price_netto else None,

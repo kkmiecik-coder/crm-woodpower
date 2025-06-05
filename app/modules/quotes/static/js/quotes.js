@@ -177,9 +177,10 @@ function showDetailsModal(quoteData) {
         return;
     }
 
-    // Dane klienta
+    // POPRAWIONE dane klienta - właściwe mapowanie pól
+    document.getElementById('quotes-details-modal-client-number').textContent = quoteData.client?.client_number || '-';
     document.getElementById('quotes-details-modal-client-name').textContent = quoteData.client?.client_name || '-';
-    document.getElementById('quotes-details-modal-client-fullname').textContent = `${quoteData.user?.first_name || ''} ${quoteData.user?.last_name || ''}`.trim();
+    document.getElementById('quotes-details-modal-client-fullname').textContent = quoteData.client?.client_delivery_name || '-';
     document.getElementById('quotes-details-modal-client-email').textContent = quoteData.client?.email || '-';
     document.getElementById('quotes-details-modal-client-phone').textContent = quoteData.client?.phone || '-';
     document.getElementById('quotes-details-modal-client-company').textContent = quoteData.client?.company || '-';
@@ -189,17 +190,18 @@ function showDetailsModal(quoteData) {
     document.getElementById('quotes-details-modal-quote-number').textContent = quoteData.quote_number || '-';
     document.getElementById('quotes-details-modal-quote-date').textContent = parsedDate;
     document.getElementById('quotes-details-modal-quote-source').textContent = quoteData.source || '-';
+
+    // POPRAWIONE dane pracownika
+    const employeeName = `${quoteData.user?.first_name || ''} ${quoteData.user?.last_name || ''}`.trim() || '-';
+    document.getElementById('quotes-details-modal-employee-name').textContent = employeeName;
+
     document.getElementById("download-details-btn").dataset.id = quoteData.id;
 
-    // POPRAWIONA LOGIKA KOSZTÓW
+    // Reszta funkcji pozostaje bez zmian...
     updateCostsDisplay(quoteData);
-
-    // STATUS – inicjalizacja dropdowna
     setupStatusDropdown(quoteData, optionsContainer, selectedDiv, dropdownWrap);
-
-    // Produkty
     setupProductTabs(quoteData, tabsContainer, itemsContainer);
-    addTotalDiscountButton(quoteData)
+    addTotalDiscountButton(quoteData);
 
     const summaryContainer = document.getElementById("quotes-details-selected-summary");
     if (summaryContainer) {
@@ -210,7 +212,6 @@ function showDetailsModal(quoteData) {
     modal.classList.add('active');
     console.log('[MODAL] Modal powinien być teraz widoczny!');
 
-    // Event listener dla zamykania przez kliknięcie tła
     modal.addEventListener("click", (e) => {
         if (e.target === modal) {
             modal.classList.remove("active");
@@ -990,6 +991,7 @@ function setupTotalDiscountModal() {
     const saveBtn = document.getElementById('save-total-discount');
     const cancelBtn = document.getElementById('cancel-total-discount');
     const discountInput = document.getElementById('total-discount-percentage');
+    const finishingCheckbox = document.getElementById('include-finishing-discount');
 
     if (!modal) return;
 
@@ -1002,6 +1004,7 @@ function setupTotalDiscountModal() {
 
     // Live preview cen
     discountInput?.addEventListener('input', () => updateTotalPricePreview());
+    finishingCheckbox?.addEventListener('change', () => updateTotalPricePreview());
 
     // Zamykanie przez kliknięcie tła
     modal.addEventListener('click', (e) => {
@@ -1133,12 +1136,13 @@ function updatePricePreview() {
 // Aktualizacja podglądu cen dla rabatu całkowitego
 function updateTotalPricePreview() {
     const discountPercentage = parseFloat(document.getElementById('total-discount-percentage').value) || 0;
+    const includeFinishing = document.getElementById('include-finishing-discount').checked;
 
     if (!currentQuoteData) return;
 
     const selectedItems = currentQuoteData.items.filter(item => item.is_selected);
 
-    // Oblicz oryginalne wartości
+    // Oblicz oryginalne wartości TYLKO produktów
     const originalNetto = selectedItems.reduce((sum, item) => {
         return sum + (item.original_price_netto || item.final_price_netto || 0);
     }, 0);
@@ -1147,7 +1151,7 @@ function updateTotalPricePreview() {
         return sum + (item.original_price_brutto || item.final_price_brutto || 0);
     }, 0);
 
-    // Oblicz wartości po rabacie
+    // Oblicz wartości po rabacie TYLKO dla produktów
     const discountMultiplier = 1 - (discountPercentage / 100);
     const finalNetto = originalNetto * discountMultiplier;
     const finalBrutto = originalBrutto * discountMultiplier;
@@ -1158,22 +1162,37 @@ function updateTotalPricePreview() {
     document.getElementById('total-final-products-netto').textContent = `${finalNetto.toFixed(2)} PLN`;
     document.getElementById('total-final-products-brutto').textContent = `${finalBrutto.toFixed(2)} PLN`;
 
-    // Dodaj wykończenie i wysyłkę
-    const finishingCost = currentQuoteData.costs?.finishing?.brutto || 0;
+    // Wykończenie - z rabatem lub bez, w zależności od checkboxa
+    let finishingCost = currentQuoteData.costs?.finishing?.brutto || 0;
+    if (includeFinishing && discountPercentage !== 0) {
+        finishingCost = finishingCost * discountMultiplier;
+    }
+
+    // Wysyłka ZAWSZE bez rabatu
     const shippingCost = currentQuoteData.costs?.shipping?.brutto || 0;
+
+    // Suma końcowa
     const totalFinal = finalBrutto + finishingCost + shippingCost;
 
     document.getElementById('total-finishing-cost').textContent = `${finishingCost.toFixed(2)} PLN`;
     document.getElementById('total-shipping-cost').textContent = `${shippingCost.toFixed(2)} PLN`;
     document.getElementById('total-final-value').textContent = `${totalFinal.toFixed(2)} PLN`;
 
-    // Pokaż/ukryj oszczędności
+    // Pokaż/ukryj oszczędności - tylko na produktach
     const discountAmount = document.getElementById('total-discount-amount');
     const discountValue = document.getElementById('total-discount-value');
 
     if (discountPercentage !== 0) {
-        const difference = originalBrutto - finalBrutto;
-        discountValue.textContent = `${Math.abs(difference).toFixed(2)} PLN ${difference >= 0 ? '(oszczędność)' : '(dopłata)'}`;
+        let totalSavings = originalBrutto - finalBrutto;
+
+        // Dodaj oszczędności z wykończenia jeśli jest checkbox
+        if (includeFinishing) {
+            const originalFinishing = currentQuoteData.costs?.finishing?.brutto || 0;
+            const finishingSavings = originalFinishing - finishingCost;
+            totalSavings += finishingSavings;
+        }
+
+        discountValue.textContent = `${Math.abs(totalSavings).toFixed(2)} PLN ${totalSavings >= 0 ? '(oszczędność)' : '(dopłata)'}`;
         discountAmount.style.display = 'block';
     } else {
         discountAmount.style.display = 'none';
@@ -1247,6 +1266,7 @@ async function saveTotalDiscount() {
     const saveBtn = document.getElementById('save-total-discount');
     const discountPercentage = parseFloat(document.getElementById('total-discount-percentage').value) || 0;
     const reasonId = document.getElementById('total-discount-reason').value || null;
+    const includeFinishing = document.getElementById('include-finishing-discount').checked;
 
     // Walidacja
     if (Math.abs(discountPercentage) > 100) {
@@ -1260,7 +1280,12 @@ async function saveTotalDiscount() {
     }
 
     // Confirm action
-    if (!confirm(`Na pewno zastosować rabat ${discountPercentage}% do wszystkich produktów w wycenie?`)) {
+    let confirmMessage = `Na pewno zastosować rabat ${discountPercentage}% do wszystkich produktów w wycenie?`;
+    if (includeFinishing) {
+        confirmMessage += '\n\nRabat zostanie również zastosowany do wykończenia.';
+    }
+
+    if (!confirm(confirmMessage)) {
         return;
     }
 
@@ -1277,7 +1302,8 @@ async function saveTotalDiscount() {
             },
             body: JSON.stringify({
                 discount_percentage: discountPercentage,
-                reason_id: reasonId
+                reason_id: reasonId,
+                include_finishing: includeFinishing
             })
         });
 
@@ -1295,7 +1321,11 @@ async function saveTotalDiscount() {
         refreshQuoteDetailsModal();
 
         // Pokaż toast sukcesu
-        showToast(`Rabat został zastosowany do ${result.affected_items} pozycji`, 'success');
+        let message = `Rabat został zastosowany do ${result.affected_items} pozycji`;
+        if (includeFinishing) {
+            message += ' (włącznie z wykończeniem)';
+        }
+        showToast(message, 'success');
 
     } catch (error) {
         console.error("[saveTotalDiscount] Błąd:", error);

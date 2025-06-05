@@ -348,7 +348,9 @@ def get_quote_details(quote_id):
                 } for detail in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
             ],
             "client": {
+                "client_number": quote.client.client_number if quote.client else "-",
                 "client_name": quote.client.client_name if quote.client else "-",
+                "client_delivery_name": quote.client.client_delivery_name if quote.client else "-",
                 "email": quote.client.email if quote.client else "-",
                 "phone": quote.client.phone if quote.client else "-",
                 "company": quote.client.invoice_company or quote.client.delivery_company or "-"
@@ -436,21 +438,36 @@ def apply_total_discount(quote_id):
         data = request.get_json()
         discount_percentage = data.get("discount_percentage", 0)
         reason_id = data.get("reason_id")
+        include_finishing = data.get("include_finishing", False)  # NOWY parametr
 
         # Walidacja danych
         if not isinstance(discount_percentage, (int, float)) or discount_percentage < -100 or discount_percentage > 100:
             return jsonify({"error": "Rabat musi być liczbą między -100 a 100"}), 400
 
         quote = Quote.query.get_or_404(quote_id)
+        
+        # Zastosuj rabat do produktów
         affected_items = quote.apply_total_discount(discount_percentage, reason_id)
+        
+        # NOWA FUNKCJONALNOŚĆ: Jeśli include_finishing=True, zastosuj rabat również do wykończenia
+        if include_finishing and discount_percentage != 0:
+            finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote_id).all()
+            for detail in finishing_details:
+                if detail.finishing_price_netto and detail.finishing_price_brutto:
+                    # Oblicz nowe ceny wykończenia
+                    discount_multiplier = 1 - (discount_percentage / 100)
+                    detail.finishing_price_netto = detail.finishing_price_netto * discount_multiplier
+                    detail.finishing_price_brutto = detail.finishing_price_brutto * discount_multiplier
         
         db.session.commit()
         
-        print(f"[apply_total_discount] Zastosowano rabat {discount_percentage}% do {affected_items} pozycji w wycenie {quote_id}", file=sys.stderr)
+        finishing_info = " (włącznie z wykończeniem)" if include_finishing else ""
+        print(f"[apply_total_discount] Zastosowano rabat {discount_percentage}% do {affected_items} pozycji w wycenie {quote_id}{finishing_info}", file=sys.stderr)
         
         return jsonify({
-            "message": f"Rabat został zastosowany do {affected_items} pozycji",
+            "message": f"Rabat został zastosowany do {affected_items} pozycji{finishing_info}",
             "affected_items": affected_items,
+            "include_finishing": include_finishing,
             "total_discount_netto": quote.get_total_discount_amount_netto(),
             "total_discount_brutto": quote.get_total_discount_amount_brutto()
         })
