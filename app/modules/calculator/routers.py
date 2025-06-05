@@ -374,7 +374,7 @@ def latest_quotes():
             "client_name": client.client_name if client else "-",
             "quote_source": q.source or "-",
             "status": q.quote_status.name if q.quote_status else "-",
+            "status_color": q.quote_status.color_hex if q.quote_status else "#ccc"
         })
 
     return jsonify(result)
-

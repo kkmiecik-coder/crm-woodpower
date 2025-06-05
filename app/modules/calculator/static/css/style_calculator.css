@@ -270,7 +270,7 @@
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    gap: 20px;
+    gap: 12px;
     padding-top: 24px;
   }
   
@@ -289,17 +289,21 @@
     background: #0177D9;
   }
 
+/* [order] */
+.quotes-btn-download {
+    background: #ED6B24;
+}
+
 .order,
 .calculate-delivery,
 .save-quote,
-.download,
+.quotes-btn-download,
 .go-ahead {
     display: flex;
-    padding: 5px 16px;
+    padding: 4px 8px;
     justify-content: center;
     align-items: center;
-    gap: 10px;
-    border-radius: 16px;
+    border-radius: 6px;
     border: none;
     color: #FFF;
     cursor: pointer;
@@ -326,6 +330,10 @@
     }
 
     .go-ahead:hover {
+        background-color: #BD4D0F;
+    }
+
+    .quotes-btn-download:hover {
         background-color: #BD4D0F;
     }
 
@@ -377,10 +385,11 @@
 .order::after,
 .go-ahead::after,
 .calculate-delivery::after,
-.save-quote::after {
+.save-quote::after,
+.fa-download::after {
     content: "";
     position: absolute;
-    right: 11px; /* ustawienie ikony od prawej */
+    right: 9px; /* ustawienie ikony od prawej */
     top: 50%; /* wyśrodkowanie pionowe */
     transform: translateY(-50%);
     width: 16px; /* maksymalna szerokość ikony */
@@ -407,6 +416,10 @@
 
 .save-quote::after {
     background-image: url('/static/icons/save-quote.svg');
+}
+
+.fa-download::after {
+    background-image: url('/static/icons/download.svg');
 }
 
   /* [summary] */
@@ -625,7 +638,7 @@
     justify-content: center;
     align-items: center;
     gap: 10px;
-    border-radius: 16px;
+    border-radius: 6px;
     background-color: #D32F2F;
     border: none;
     color: #FFF;
@@ -1762,3 +1775,206 @@ select.select-small option {
     text-align: right;
     font-weight: 600;
 }
+
+.quote-status {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.clients-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+/* Styl dla modala */
+.clients-modal {
+    background: white;
+    border-radius: 12px;
+    max-width: 700px;
+    width: 90%;
+    padding: 24px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+}
+
+    .clients-modal .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .clients-modal .modal-title {
+        font-size: 20px;
+        font-weight: bold;
+    }
+
+    .clients-modal .close-modal {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+    }
+
+.clients-modal-section {
+    margin-bottom: 16px;
+}
+
+.clients-modal iframe {
+    width: 100%;
+    height: 90vh;
+    border: none;
+    background-color: #fff;
+}
+
+.clients-modal-section {
+    margin-bottom: 16px;
+}
+
+.clients-modal iframe {
+    width: 100%;
+    height: 90vh;
+    border: none;
+    background-color: #fff;
+}
+
+.center-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.download-buttons {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+.quotes-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border: none;
+    color: white;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    background-color: #ED6B24;
+    transition: background-color 0.2s;
+}
+
+    .quotes-btn:hover {
+        background-color: #B84D13;
+    }
+
+    .quotes-btn::before {
+        content: none;
+    }
+
+    .quotes-btn::after {
+        content: "";
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: contain;
+    }
+
+
+.quotes-btn-detail::after {
+    background-image: url('/static/icons/go.svg');
+}
+
+.quotes-btn-download::after {
+    background-image: url('/static/icons/download.svg');
+}
+
+.quotes-btn-detail {
+    min-width: 106px;
+}
+
+.quotes-btn-download {
+    min-width: 90px;
+}
+
+/* Przyciski akcji */
+.quotes-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 2px 6px;
+    background-color: #ED6B24;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+    .quotes-btn::after {
+        content: "";
+        display: inline-block;
+        background-size: contain;
+        background-repeat: no-repeat;
+        width: 16px;
+        height: 16px;
+    }
+
+/* Ukrywamy tekst w wąskich ekranach */
+@media (max-width: 820px) {
+    .quotes-btn {
+        padding: 6px;
+    }
+
+        .quotes-btn::before {
+            display: none;
+        }
+
+        .quotes-btn::after {
+            margin: 0;
+        }
+}
+
+.quotes-btn-download::after {
+    background-image: url('/static/icons/download.svg');
+}
+
+.quotes-btn-detail {
+    min-width: 106px;
+}
+
+.quotes-btn-download {
+    min-width: 90px;
+}
+
+.close-modal {
+    position: static;
+}
+
+.delivery-logo {
+    max-width: 40px;
+}
+
