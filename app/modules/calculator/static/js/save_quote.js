@@ -131,9 +131,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const selectedProducts = data.products;
         const summary = data.summary;
-
         console.log("[renderSummaryValues] Podsumowanie:", summary);
 
         const setText = (id, value) => {
@@ -145,10 +143,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         };
 
-        if (selectedProducts.length === 0) {
+        // Sprawdź czy są jakieś wybrane produkty
+        const hasSelectedProducts = data.products.some(p => p.variants.length > 0);
+
+        if (!hasSelectedProducts) {
             setText("summary-products-brutto", 0);
             const elNet = document.getElementById("summary-products-netto");
-            if (elNet) elNet.textContent = "Nie wybrano wariantu";
+            if (elNet) elNet.textContent = "0.00 PLN";
         } else {
             setText("summary-products-brutto", summary.products_brutto);
             setText("summary-products-netto", summary.products_netto);
@@ -163,24 +164,40 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             const elBrutto = document.getElementById("summary-shipping-brutto");
             const elNetto = document.getElementById("summary-shipping-netto");
-            if (elBrutto) elBrutto.textContent = "";
-            if (elNetto) elNetto.textContent = "Brak wyceny wysyłki";
+            if (elBrutto) elBrutto.textContent = "0.00 PLN";
+            if (elNetto) elNetto.textContent = "0.00 PLN";
         }
 
-        if (selectedProducts.length === 0) {
-            const elBrutto = document.getElementById("summary-total-brutto");
-            const elNetto = document.getElementById("summary-total-netto");
-            if (elBrutto) elBrutto.textContent = "";
-            if (elNetto) elNetto.textContent = "Nie wybrano wariantu";
-        } else {
-            setText("summary-total-brutto", summary.total_brutto);
-            setText("summary-total-netto", summary.total_netto);
-        }
+        setText("summary-total-brutto", summary.total_brutto);
+        setText("summary-total-netto", summary.total_netto);
     }
 
 
     saveQuoteBtn?.addEventListener('click', () => {
         console.log("[save_quote.js] Kliknięto Zapisz wycenę");
+
+        // Sprawdź czy wszystkie formularze mają wybrane warianty
+        const forms = document.querySelectorAll('.quote-form');
+        let allVariantsSelected = true;
+        let missingVariants = [];
+
+        forms.forEach((form, index) => {
+            const selectedRadio = form.querySelector('.variants input[type="radio"]:checked');
+            if (!selectedRadio) {
+                allVariantsSelected = false;
+                missingVariants.push(index + 1);
+            }
+        });
+
+        if (!allVariantsSelected) {
+            const err = document.createElement('p');
+            err.textContent = `Wybierz wariant dla produktu: ${missingVariants.join(', ')}`;
+            err.style.color = 'red';
+            renderFeedback(err);
+            console.warn("[save_quote.js] Brak wybranych wariantów dla produktów:", missingVariants);
+            return;
+        }
+
         renderFeedback(loadingText);
 
         const clientIdInput = document.querySelector('[name="client_id"]');
@@ -303,6 +320,8 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // [save_quote.js] - Zbieranie danych z formularzy do zapisu wyceny (wersja z wariantami)
+// Poprawiona funkcja collectQuoteData() w save_quote.js
+// Poprawiona funkcja collectQuoteData() - zbiera wszystkie warianty, ale sumuje tylko wybrane
 function collectQuoteData() {
     console.log("[collectQuoteData] Start zbierania danych z formularzy");
 
@@ -325,13 +344,17 @@ function collectQuoteData() {
         const finishingColor = form.querySelector('[data-finishing-color].active')?.dataset.finishingColor || null;
         const finishingGloss = form.querySelector('[data-finishing-gloss].active')?.dataset.finishingGloss || null;
 
+        // Zbierz WSZYSTKIE warianty do zapisu
         const variants = Array.from(form.querySelectorAll('.variants input[type="radio"]')).map(radio => {
             const brutto = parseFloat(radio.dataset.totalBrutto || 0);
             const netto = parseFloat(radio.dataset.totalNetto || 0);
             const volume = (length / 100) * (width / 100) * (thickness / 100);
 
-            sumProductBrutto += brutto;
-            sumProductNetto += netto;
+            // Jeśli to wybrany wariant, dodaj do sumy
+            if (radio.checked) {
+                sumProductBrutto += brutto;
+                sumProductNetto += netto;
+            }
 
             return {
                 variant_code: radio.value,
@@ -351,6 +374,7 @@ function collectQuoteData() {
             };
         });
 
+        // Dodaj koszty wykończenia do sumy
         if (form.dataset.finishingBrutto) sumFinishingBrutto += parseFloat(form.dataset.finishingBrutto);
         if (form.dataset.finishingNetto) sumFinishingNetto += parseFloat(form.dataset.finishingNetto);
 
@@ -360,12 +384,12 @@ function collectQuoteData() {
             width,
             thickness,
             quantity,
-            variants: variants.length > 0 ? variants : []
+            variants: variants // Wszystkie warianty
         });
     });
 
-    const shippingBrutto = parseFloat(document.getElementById('delivery-brutto')?.textContent) || 0;
-    const shippingNetto = parseFloat(document.getElementById('delivery-netto')?.textContent) || 0;
+    const shippingBrutto = parseFloat(document.getElementById('delivery-brutto')?.textContent.replace(" PLN", "")) || 0;
+    const shippingNetto = parseFloat(document.getElementById('delivery-netto')?.textContent.replace(" PLN", "")) || 0;
 
     console.log(`[collectQuoteData] SUMA produktów brutto=${sumProductBrutto}, netto=${sumProductNetto}`);
     console.log(`[collectQuoteData] SUMA wykończenia brutto=${sumFinishingBrutto}, netto=${sumFinishingNetto}`);

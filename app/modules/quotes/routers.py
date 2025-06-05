@@ -14,6 +14,49 @@ import sys
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func
 
+
+def calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto):
+    """
+    Oblicza koszty brutto i netto dla wyceny
+    Założenia:
+    - cost_products_netto i cost_finishing_netto są wartościami netto
+    - cost_shipping_brutto jest wartością brutto
+    - VAT = 23%
+    """
+    VAT_RATE = 0.23
+    
+    # Produkty surowe
+    products_brutto = cost_products_netto * (1 + VAT_RATE)
+    
+    # Wykończenie
+    finishing_brutto = cost_finishing_netto * (1 + VAT_RATE)
+    
+    # Wysyłka - konwersja z brutto na netto
+    shipping_netto = cost_shipping_brutto / (1 + VAT_RATE)
+    
+    # Suma
+    total_netto = cost_products_netto + cost_finishing_netto + shipping_netto
+    total_brutto = products_brutto + finishing_brutto + cost_shipping_brutto
+    
+    return {
+        'products': {
+            'netto': round(cost_products_netto, 2),
+            'brutto': round(products_brutto, 2)
+        },
+        'finishing': {
+            'netto': round(cost_finishing_netto, 2),
+            'brutto': round(finishing_brutto, 2)
+        },
+        'shipping': {
+            'netto': round(shipping_netto, 2),
+            'brutto': round(cost_shipping_brutto, 2)
+        },
+        'total': {
+            'netto': round(total_netto, 2),
+            'brutto': round(total_brutto, 2)
+        }
+    }
+
 def login_required(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -273,16 +316,31 @@ def get_quote_details(quote_id):
         for idx, i in enumerate(quote.items[:2]):
             print(f"[get_quote_details] item[{idx}]: id={i.id}, price={i.final_price_netto}", file=sys.stderr)
 
+        # Oblicz koszty produktów i wykończenia
+        cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
+        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+        
+        # Oblicz wszystkie warianty kosztów
+        costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
+        
         all_statuses = QuoteStatus.query.all()
+        
         return jsonify({
             "id": quote.id,
             "quote_number": quote.quote_number,
             "created_at": quote.created_at.isoformat() if quote.created_at else None,
             "source": quote.source or "-",
-            "cost_products": round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2),
-            "cost_finishing": round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2),
-            "cost_shipping": quote.shipping_cost_brutto or 0.0,
-            "cost_total": quote.total_price or 0.0,
+            
+            # Nowa struktura kosztów
+            "costs": costs,
+            
+            # Zachowaj stare pola dla kompatybilności
+            "cost_products": costs['products']['netto'],
+            "cost_finishing": costs['finishing']['netto'], 
+            "cost_shipping": costs['shipping']['brutto'],
+            "cost_total": costs['total']['brutto'],
+            
             "courier_name": quote.courier_name or "-",
             "status_name": quote.quote_status.name if quote.quote_status else "-",
             "status_color": quote.quote_status.color_hex if quote.quote_status else "#999",
@@ -328,7 +386,6 @@ def get_quote_details(quote_id):
     except Exception as e:
         print(f"[get_quote_details] Błąd podczas budowania JSON: {e}", file=sys.stderr)
         return jsonify({"error": "Błąd serwera"}), 500
-
 
 @quotes_bp.route("/api/quote_items/<int:item_id>/select", methods=["PATCH"])
 @login_required

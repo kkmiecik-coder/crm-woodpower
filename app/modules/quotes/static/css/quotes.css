@@ -1116,3 +1116,23 @@
 .close-modal {
     position: static;
 }
+
+/* Style dla kwot netto - mniejszy, szary tekst */
+.cost-netto {
+    font-size: 12px;
+    color: #777;
+    font-weight: normal;
+    margin-left: 8px;
+    display: inline-block;
+}
+
+    /* Opcjonalnie: dodaj separatory dla lepszej czytelności */
+    .cost-netto::before {
+        content: "(";
+        color: #999;
+    }
+
+    .cost-netto::after {
+        content: " netto)";
+        color: #999;
+    }

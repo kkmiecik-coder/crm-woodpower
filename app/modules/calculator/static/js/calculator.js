@@ -8,6 +8,119 @@ console.log("calculator.js załadowany!");
 const DEBUG = true;
 function dbg(...args) { if (DEBUG) console.log(...args); }
 
+// Dodaj na początku pliku
+const shippingMessages = [
+    { text: "Wyceniam wysyłkę, proszę czekać...", delay: 0 },
+    { text: "Sprawdzam dostępnych kurierów...", delay: 3000 },
+    { text: "Wycena mniejszych produktów trwa zwykle dłużej...", delay: 6000 },
+    { text: "Jeszcze chwilka...", delay: 9000 },
+    { text: "Już widzę kuriera! 🚚", delay: 12000 },
+    { text: "Negocjuję najlepszą cenę...", delay: 15000 },
+    { text: "Prawie gotowe...", delay: 18000 }
+];
+
+let messageTimeouts = [];
+
+// Funkcja do pokazywania rotujących komunikatów
+function showRotatingMessages(overlay) {
+    // Wyczyść poprzednie timeouty
+    messageTimeouts.forEach(timeout => clearTimeout(timeout));
+    messageTimeouts = [];
+
+    // Pokaż pierwszy komunikat od razu
+    overlay.innerHTML = `
+        <div class="spinner"></div>
+        <div class="loading-text">${shippingMessages[0].text}</div>
+    `;
+
+    // Zaplanuj kolejne komunikaty
+    shippingMessages.slice(1).forEach((message, index) => {
+        const timeout = setTimeout(() => {
+            const loadingText = overlay.querySelector('.loading-text');
+            if (loadingText) {
+                loadingText.style.opacity = '0';
+                setTimeout(() => {
+                    loadingText.textContent = message.text;
+                    loadingText.style.opacity = '1';
+                }, 300);
+            }
+        }, message.delay);
+
+        messageTimeouts.push(timeout);
+    });
+}
+
+// Funkcja do zatrzymania komunikatów
+function stopRotatingMessages() {
+    messageTimeouts.forEach(timeout => clearTimeout(timeout));
+    messageTimeouts = [];
+}
+
+// Zmodyfikowana funkcja calculateDelivery
+async function calculateDelivery() {
+    dbg("Przycisk 'Oblicz wysyłkę' kliknięty");
+    const overlay = document.getElementById('loadingOverlay');
+
+    if (overlay) {
+        overlay.style.display = 'flex';
+        showRotatingMessages(overlay);
+    }
+
+    const shippingParams = computeAggregatedData();
+    if (!shippingParams) {
+        console.error("Brak danych wysyłki");
+        if (overlay) {
+            stopRotatingMessages();
+            overlay.style.display = 'none';
+        }
+        return;
+    }
+
+    try {
+        const response = await fetch('/calculator/shipping_quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(shippingParams)
+        });
+
+        if (response.ok) {
+            const quotesData = await response.json();
+            const quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
+            const quotes = quotesList.map(option => {
+                const rawGross = option.grossPrice;
+                const rawNet = option.netPrice;
+                return {
+                    carrierName: option.carrierName,
+                    rawGrossPrice: rawGross,
+                    rawNetPrice: rawNet,
+                    grossPrice: rawGross * shippingPackingMultiplier,
+                    netPrice: rawNet * shippingPackingMultiplier,
+                    carrierLogoLink: option.carrierLogoLink || ""
+                };
+            });
+
+            dbg("Otrzymane wyceny wysyłki:", quotes);
+
+            if (quotes.length === 0) {
+                showDeliveryErrorModal("Brak dostępnych metod dostawy.");
+            } else {
+                showDeliveryModal(quotes);
+            }
+        } else {
+            console.error("Błąd w żądaniu wyceny wysyłki:", response.status);
+            showDeliveryErrorModal("Błąd serwera przy wycenie wysyłki.");
+        }
+    } catch (error) {
+        console.error("Wyjątek przy wycenie wysyłki:", error);
+        showDeliveryErrorModal("Błąd sieci przy wycenie wysyłki.");
+    } finally {
+        stopRotatingMessages();
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+    }
+}
+
 const variantMapping = {
     'dab-lity-ab': { species: 'Dąb', technology: 'Lity', wood_class: 'A/B' },
     'dab-lity-bb': { species: 'Dąb', technology: 'Lity', wood_class: 'B/B' },

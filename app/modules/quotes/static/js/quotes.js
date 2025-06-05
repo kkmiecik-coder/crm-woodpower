@@ -20,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initClearFiltersButton();
     updateClearFiltersButtonState();
 
-    // ⬇️ Dodaj ten kod tu na końcu:
+    // Event listeners dla modala
     const closeBtn = document.getElementById("close-details-modal");
     const modal = document.getElementById("quote-details-modal");
     if (closeBtn && modal) {
@@ -106,6 +106,7 @@ function initDownloadModal() {
         }
     });
 }
+
 function fetchQuotes() {
     console.info("[fetchQuotes] Pobieranie wycen z /quotes/api/quotes");
 
@@ -122,6 +123,7 @@ function fetchQuotes() {
             console.error("[fetchQuotes] Błąd pobierania wycen:", err);
         });
 }
+
 function fetchUsers() {
     fetch("/quotes/api/users")
         .then(res => res.json())
@@ -130,7 +132,7 @@ function fetchUsers() {
             const select = document.getElementById("employee-filter");
             if (!select) return;
 
-            // 💥 TO BYŁO BRAK – reset opcji przed dodaniem nowych
+            // Reset opcji przed dodaniem nowych
             select.innerHTML = '<option value="">Wszyscy</option>';
 
             data.forEach(user => {
@@ -142,7 +144,7 @@ function fetchUsers() {
         })
         .catch(err => console.error("Błąd pobierania użytkowników:", err));
 }
-// Zakładamy że quoteData zawiera pełne dane z backendu (łącznie z items[])
+
 function showDetailsModal(quoteData) {
     console.log('[MODAL] Otwieranie szczegółów wyceny:', quoteData);
 
@@ -172,19 +174,125 @@ function showDetailsModal(quoteData) {
     document.getElementById('quotes-details-modal-quote-source').textContent = quoteData.source || '-';
     document.getElementById("download-details-btn").dataset.id = quoteData.id;
 
+    // POPRAWIONA LOGIKA KOSZTÓW
+    updateCostsDisplay(quoteData);
+
+    // STATUS – inicjalizacja dropdowna
+    setupStatusDropdown(quoteData, optionsContainer, selectedDiv, dropdownWrap);
+
+    // Produkty
+    setupProductTabs(quoteData, tabsContainer, itemsContainer);
+
+    const summaryContainer = document.getElementById("quotes-details-selected-summary");
+    if (summaryContainer) {
+        const grouped = groupItemsByProductIndex(quoteData.items || []);
+        renderSelectedSummary(grouped, summaryContainer);
+    }
+
+    modal.classList.add('active');
+    console.log('[MODAL] Modal powinien być teraz widoczny!');
+
+    // Event listener dla zamykania przez kliknięcie tła
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            modal.classList.remove("active");
+            console.log('[MODAL] Zamykam modal przez kliknięcie tła');
+        }
+    });
+}
+
+// POPRAWIONA funkcja wyświetlania kosztów
+function updateCostsDisplay(quoteData) {
+    console.log('[updateCostsDisplay] Aktualizuję wyświetlanie kosztów', quoteData);
+
+    // Sprawdź czy istnieją elementy DOM dla nowej struktury
+    const productsBrutto = document.getElementById('quotes-details-modal-cost-products-brutto');
+    const productsNetto = document.getElementById('quotes-details-modal-cost-products-netto');
+
+    if (productsBrutto && productsNetto) {
+        // NOWA STRUKTURA - elementy istnieją
+        if (quoteData.costs) {
+            // Użyj nowej struktury z backendu
+            const costs = quoteData.costs;
+
+            document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
+
+            document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
+
+            document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
+
+            document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+        } else {
+            // Oblicz VAT po stronie frontend
+            const costs = calculateCostsClientSide(quoteData);
+
+            document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
+
+            document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
+
+            document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
+
+            document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+        }
+    } else {
+        // STARA STRUKTURA - fallback do starych elementów
+        console.warn('[updateCostsDisplay] Używam starej struktury DOM');
+
+        const costs = quoteData.costs || calculateCostsClientSide(quoteData);
+
+        // Spróbuj znaleźć stare elementy
+        const oldProducts = document.getElementById('quotes-details-modal-cost-products');
+        const oldFinishing = document.getElementById('quotes-details-modal-cost-finishing');
+        const oldShipping = document.getElementById('quotes-details-modal-cost-shipping');
+        const oldTotal = document.getElementById('quotes-details-modal-cost-total');
+
+        if (oldProducts) oldProducts.textContent = `${costs.products?.brutto?.toFixed(2) || '0.00'} PLN`;
+        if (oldFinishing) oldFinishing.textContent = `${costs.finishing?.brutto?.toFixed(2) || '0.00'} PLN`;
+        if (oldShipping) oldShipping.textContent = `${costs.shipping?.brutto?.toFixed(2) || '0.00'} PLN`;
+        if (oldTotal) oldTotal.textContent = `${costs.total?.brutto?.toFixed(2) || '0.00'} PLN`;
+    }
+
+    // Kurier
+    const courierElement = document.getElementById('quotes-details-modal-courier-name');
+    if (courierElement) {
+        courierElement.textContent = quoteData.courier_name || '-';
+    }
+}
+
+function calculateCostsClientSide(quoteData) {
+    const VAT_RATE = 0.23;
+
     const costProducts = parseFloat(quoteData.cost_products || 0);
     const costFinishing = parseFloat(quoteData.cost_finishing || 0);
     const costShipping = parseFloat(quoteData.cost_shipping || 0);
-    const total = costProducts + costFinishing + costShipping;
 
-    // Koszty
-    document.getElementById('quotes-details-modal-courier-name').textContent = quoteData.courier_name || '-';
-    document.getElementById('quotes-details-modal-cost-products').textContent = `${quoteData.cost_products?.toFixed(2) || '0.00'} PLN`;
-    document.getElementById('quotes-details-modal-cost-finishing').textContent = `${quoteData.cost_finishing?.toFixed(2) || '0.00'} PLN`;
-    document.getElementById('quotes-details-modal-cost-shipping').textContent = `${quoteData.cost_shipping?.toFixed(2) || '0.00'} PLN`;
-    document.getElementById('quotes-details-modal-cost-total').textContent = `${total.toFixed(2)} PLN`;
+    // Oblicz brutto dla produktów i wykończenia (zakładamy że są netto)
+    const productsBrutto = costProducts * (1 + VAT_RATE);
+    const finishingBrutto = costFinishing * (1 + VAT_RATE);
 
-    // STATUS – inicjalizacja dropdowna
+    // Dla wysyłki zakładamy że jest brutto, więc oblicz netto
+    const shippingNetto = costShipping / (1 + VAT_RATE);
+
+    const totalNetto = costProducts + costFinishing + shippingNetto;
+    const totalBrutto = productsBrutto + finishingBrutto + costShipping;
+
+    return {
+        products: { netto: costProducts, brutto: productsBrutto },
+        finishing: { netto: costFinishing, brutto: finishingBrutto },
+        shipping: { netto: shippingNetto, brutto: costShipping },
+        total: { netto: totalNetto, brutto: totalBrutto }
+    };
+}
+
+function setupStatusDropdown(quoteData, optionsContainer, selectedDiv, dropdownWrap) {
     optionsContainer.innerHTML = '';
     Object.values(quoteData.all_statuses).forEach(s => {
         const opt = document.createElement('div');
@@ -202,7 +310,7 @@ function showDetailsModal(quoteData) {
 
     dropdownWrap.classList.remove('open');
 
-    // delegacja kliknięcia na opcje statusów
+    // Event handlers
     optionsContainer.onclick = (e) => {
         const opt = e.target.closest('.option');
         if (!opt) return;
@@ -232,21 +340,27 @@ function showDetailsModal(quoteData) {
             dropdownWrap.classList.remove('open');
         }
     });
+}
 
-    function getStatusIdByName(name, statuses) {
-        for (const key in statuses) {
-            if (statuses[key].name === name) return statuses[key].id;
-        }
-        return null;
+function getStatusIdByName(name, statuses) {
+    for (const key in statuses) {
+        if (statuses[key].name === name) return statuses[key].id;
     }
+    return null;
+}
 
-    // Produkty
-    const items = quoteData.items || [];
+function groupItemsByProductIndex(items) {
     const grouped = {};
     items.forEach(item => {
         if (!grouped[item.product_index]) grouped[item.product_index] = [];
         grouped[item.product_index].push(item);
     });
+    return grouped;
+}
+
+function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
+    const items = quoteData.items || [];
+    const grouped = groupItemsByProductIndex(items);
 
     tabsContainer.innerHTML = '';
     itemsContainer.innerHTML = '';
@@ -312,6 +426,7 @@ function showDetailsModal(quoteData) {
         itemsContainer.appendChild(tabContent);
     });
 
+    // Tab switching
     tabsContainer.querySelectorAll('button').forEach(btn => {
         btn.addEventListener('click', () => {
             const activeIdx = btn.dataset.tabIndex;
@@ -319,21 +434,11 @@ function showDetailsModal(quoteData) {
             itemsContainer.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
 
             btn.classList.add('active');
-            itemsContainer.querySelector(`.tab-content[data-tab-index='${activeIdx}']`).style.display = 'block';
+            const activeContent = itemsContainer.querySelector(`.tab-content[data-tab-index='${activeIdx}']`);
+            if (activeContent) {
+                activeContent.style.display = 'block';
+            }
         });
-    });
-
-    const summaryContainer = document.getElementById("quotes-details-selected-summary");
-    renderSelectedSummary(grouped, summaryContainer);
-
-    modal.classList.add('active');
-    console.log('[MODAL] Powinien być teraz widoczny!');
-
-    modal.addEventListener("click", (e) => {
-        if (e.target === modal) {
-            modal.classList.remove("active");
-            console.log('[MODAL] Kliknięto tło – zamykam szczegóły wyceny');
-        }
     });
 }
 
@@ -364,12 +469,12 @@ function filterQuotes() {
     });
 
     console.log(`[filterQuotes] Wszystkich wyników: ${filtered.length}, currentPage: ${currentPage}, resultsPerPage: ${resultsPerPage}`);
-    console.log("Filtrujemy daty od:", dateFrom, "do:", dateTo);
     const paginated = filtered.slice((currentPage - 1) * resultsPerPage, currentPage * resultsPerPage);
 
     renderQuotesTable(paginated);
     renderPagination(filtered.length);
 }
+
 function renderQuotesTable(quotes) {
     const wrapper = document.getElementById("quotes-table-body");
     const noResults = document.getElementById("no-results-message");
@@ -436,9 +541,8 @@ function renderQuotesTable(quotes) {
             console.log(`Kliknięto pobierz dla ID ${id}`);
         });
     });
-
-    renderPagination(quotes.length);
 }
+
 function renderStatusButton(name, count, color, isActive = false) {
     const btn = document.createElement("div");
     btn.className = "status-button";
@@ -448,7 +552,6 @@ function renderStatusButton(name, count, color, isActive = false) {
     countSpan.className = "status-count";
     countSpan.textContent = count > 0 ? count : "-";
 
-    // Ustaw kolor tła, nawet jeśli liczba to "-"
     if (color) {
         countSpan.style.backgroundColor = color;
     }
@@ -472,32 +575,30 @@ function renderStatusButton(name, count, color, isActive = false) {
     return btn;
 }
 
-
 async function initStatusPanel() {
     const statusPanel = document.getElementById("status-filters-container");
-
-    // Wyczyszczenie kontenera na statusy
     statusPanel.innerHTML = "";
 
-    // FETCH
-    const [counts, statuses] = await Promise.all([
-        fetch("/quotes/api/quotes/status-counts").then(res => res.json()),
-        fetch("/quotes/api/quotes").then(res => res.json())
-    ]);
+    try {
+        const [counts, statuses] = await Promise.all([
+            fetch("/quotes/api/quotes/status-counts").then(res => res.json()),
+            fetch("/quotes/api/quotes").then(res => res.json())
+        ]);
 
-    const allStatusesList = Object.values(statuses[0].all_statuses);
+        const totalCount = counts.reduce((sum, s) => sum + s.count, 0);
+        const allBtn = renderStatusButton("Wszystkie", totalCount, "#999", true);
+        statusPanel.appendChild(allBtn);
 
-    // PRZYCISK "WSZYSTKIE"
-    const totalCount = counts.reduce((sum, s) => sum + s.count, 0);
-    const allBtn = renderStatusButton("Wszystkie", totalCount, "#999", true);
-    statusPanel.appendChild(allBtn);
-
-    counts.forEach(status => {
-        const btn = renderStatusButton(status.name, status.count, status.color);
-        statusPanel.appendChild(btn);
-    });
+        counts.forEach(status => {
+            const btn = renderStatusButton(status.name, status.count, status.color);
+            statusPanel.appendChild(btn);
+        });
+    } catch (error) {
+        console.error("Błąd inicjalizacji panelu statusów:", error);
+    }
 }
 
+// Event listeners dla filtrów
 document.addEventListener("DOMContentLoaded", () => {
     ["quote-number-filter", "client-number-filter", "client-name-filter", "source-filter"].forEach(id => {
         const el = document.getElementById(id);
@@ -529,7 +630,6 @@ function renderPagination(total) {
     container.innerHTML = "";
 
     const totalPages = Math.ceil(total / resultsPerPage);
-    console.log(`[renderPagination] Liczba stron: ${totalPages}, Aktualna strona: ${currentPage}`);
 
     // Selektor ilości wyników na stronę
     const select = document.createElement("select");
@@ -546,7 +646,6 @@ function renderPagination(total) {
     select.addEventListener("change", () => {
         resultsPerPage = parseInt(select.value);
         currentPage = 1;
-        console.log(`[renderPagination] Zmieniono ilość wyników na stronę: ${resultsPerPage}`);
         filterQuotes();
     });
 
@@ -560,7 +659,6 @@ function renderPagination(total) {
         if (i === currentPage) btn.classList.add("active");
         btn.addEventListener("click", () => {
             currentPage = i;
-            console.log(`[renderPagination] Przełączono na stronę: ${currentPage}`);
             filterQuotes();
         });
         pagination.appendChild(btn);
@@ -569,6 +667,7 @@ function renderPagination(total) {
     container.appendChild(pagination);
     container.appendChild(select);
 }
+
 function initClearFiltersButton() {
     const btn = document.getElementById("clear-filters");
     if (!btn) {
@@ -576,11 +675,7 @@ function initClearFiltersButton() {
         return;
     }
 
-    console.log("[initClearFiltersButton] Przycisk znaleziony");
-
     btn.addEventListener("click", () => {
-        console.log("[clear-filters] Czyszczenie filtrów");
-
         ["quote-number-filter", "client-number-filter", "client-name-filter", "source-filter", "employee-filter"].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = "";
@@ -596,7 +691,7 @@ function initClearFiltersButton() {
         updateClearFiltersButtonState();
     });
 
-    // Triggeruje update na zmianę filtrów
+    // Event listeners dla aktualizacji stanu przycisku
     ["quote-number-filter", "client-number-filter", "client-name-filter", "source-filter", "employee-filter", "date-from-filter", "date-to-filter"]
         .forEach(id => {
             const el = document.getElementById(id);
@@ -606,6 +701,7 @@ function initClearFiltersButton() {
             }
         });
 }
+
 function updateClearFiltersButtonState() {
     const filters = [
         "quote-number-filter", "client-number-filter", "client-name-filter",
@@ -621,15 +717,14 @@ function updateClearFiltersButtonState() {
     if (!btn) return;
 
     if (anyActive || activeStatus !== null) {
-        console.log("[updateClearFiltersButtonState] Filtry aktywne – pokazuję przycisk");
         btn.classList.remove("hidden");
         btn.classList.add("active");
     } else {
-        console.log("[updateClearFiltersButtonState] Brak aktywnych filtrów – chowam przycisk");
         btn.classList.remove("active");
         btn.classList.add("hidden");
     }
 }
+
 function renderSelectedSummary(groupedItems, container) {
     container.innerHTML = "";
     Object.keys(groupedItems).forEach((index, idx) => {
@@ -659,20 +754,40 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const volume = item.volume_m3 ? `${item.volume_m3.toFixed(3)} m³` : '-';
 
     const finishing = (quoteData.finishing || []).find(f => f.product_index == productIndex);
-    let finish = 'Brak wykończenia';
     let finishingHTML = '';
+
     if (finishing) {
-        const parts = [finishing.type, finishing.gloss, finishing.color, finishing.variant].filter(Boolean);
-        finish = parts.length > 0 ? parts.join(' • ') : 'Brak wykończenia';
+        // Nowa kolejność: variant - type - color - gloss
+        const finishingParts = [
+            finishing.variant,
+            finishing.type,
+            finishing.color,
+            finishing.gloss
+        ].filter(Boolean);
+
+        const finishingDisplay = finishingParts.length > 0 ? finishingParts.join(' - ') : 'Brak wykończenia';
         const brutto = finishing.brutto?.toFixed(2) || '0.00';
         const netto = finishing.netto?.toFixed(2) || '0.00';
 
         finishingHTML = `
-            <div><strong>Wykończenie:</strong> ${brutto} PLN brutto<br>
-            <span style="font-size: 12px; color: #777; padding-left: 105px; display: inline-block">${netto} PLN netto</span></div>
+            <div>
+                <strong>Wykończenie:</strong> ${finishingDisplay}
+            </div>
+            <div>
+                <strong>Koszt wykończenia:</strong> 
+                <span>${brutto} PLN</span>
+                <span class="cost-netto">${netto} PLN</span>
+            </div>
         `;
     } else {
-        finishingHTML = `<div><strong>Wykończenie:</strong> Brak wykończenia</div>`;
+        finishingHTML = `
+            <div><strong>Wykończenie:</strong> Brak wykończenia</div>
+            <div>
+                <strong>Koszt wykończenia:</strong> 
+                <span>0.00 PLN</span>
+                <span class="cost-netto">0.00 PLN</span>
+            </div>
+        `;
     }
 
     wrap.innerHTML = `
