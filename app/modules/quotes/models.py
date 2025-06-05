@@ -1,5 +1,8 @@
 # modules/quotes/models.py
 from extensions import db
+import secrets
+import string
+from datetime import datetime
 
 class QuoteStatus(db.Model):
     __tablename__ = 'quote_statuses'
@@ -10,3 +13,41 @@ class QuoteStatus(db.Model):
 
     def __repr__(self):
         return f"<QuoteStatus {self.name}>"
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'color': self.color_hex
+        }
+
+class DiscountReason(db.Model):
+    __tablename__ = 'discount_reasons'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp())
+    updated_at = db.Column(db.DateTime, server_default=db.func.current_timestamp(), server_onupdate=db.func.current_timestamp())
+
+    def __repr__(self):
+        return f"<DiscountReason {self.name}>"
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'is_active': self.is_active
+        }
+
+    @classmethod
+    def get_active_reasons(cls):
+        """Zwraca wszystkie aktywne powody rabatów"""
+        return cls.query.filter_by(is_active=True).order_by(cls.name).all()
+
+    @classmethod
+    def get_active_reasons_dict(cls):
+        """Zwraca aktywne powody rabatów jako słownik"""
+        return [reason.to_dict() for reason in cls.get_active_reasons()]

@@ -8,6 +8,10 @@ let activeStatus = null;
 let currentPage = 1;
 let resultsPerPage = 20;
 let allUsers = [];
+let currentEditingItem = null;
+let currentQuoteData = null;
+let discountReasons = [];
+let originalPrices = {};
 
 document.addEventListener("DOMContentLoaded", () => {
     console.log("[DOMContentLoaded] Inicjalizacja komponentów");
@@ -19,6 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchUsers();
     initClearFiltersButton();
     updateClearFiltersButtonState();
+    initEditModals();
 
     // Event listeners dla modala
     const closeBtn = document.getElementById("close-details-modal");
@@ -48,6 +53,18 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 });
+
+// Inicjalizacja modali edycji - dodaj do DOMContentLoaded
+function initEditModals() {
+    console.log("[initEditModals] Inicjalizacja modali edycji");
+
+    // Pobierz powody rabatów
+    fetchDiscountReasons();
+
+    // Event listeners dla modali
+    setupVariantEditModal();
+    setupTotalDiscountModal();
+}
 
 function initDownloadModal() {
     const modal = document.getElementById("download-modal");
@@ -182,6 +199,7 @@ function showDetailsModal(quoteData) {
 
     // Produkty
     setupProductTabs(quoteData, tabsContainer, itemsContainer);
+    addTotalDiscountButton(quoteData)
 
     const summaryContainer = document.getElementById("quotes-details-selected-summary");
     if (summaryContainer) {
@@ -357,7 +375,24 @@ function groupItemsByProductIndex(items) {
     });
     return grouped;
 }
+/**
+ * Zwraca URL do pliku edit.svg na podstawie URL skryptu quotes.js
+ */
+function getEditIconURL() {
+    const scripts = document.querySelectorAll('script');
+    for (let i = 0; i < scripts.length; i++) {
+        const src = scripts[i].src;
+        if (!src) continue;
+        if (src.match(/\/js\/quotes\.js(\?.*)?$/) || src.match(/quotes\.js(\?.*)?$/)) {
+            return src.replace(/\/js\/quotes\.js(\?.*)?$/, '/img/edit.svg');
+        }
+    }
+    return '/quotes/static/img/edit.svg';
+}
 
+/**
+ * Główna funkcja budująca zakładki produktów i listę wariantów
+ */
 function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
     const items = quoteData.items || [];
     const grouped = groupItemsByProductIndex(items);
@@ -365,8 +400,12 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
     tabsContainer.innerHTML = '';
     itemsContainer.innerHTML = '';
 
+    // Wyliczamy URL do SVG raz i użyjemy dalej
+    const editIconURL = getEditIconURL();
+
     const indexes = Object.keys(grouped);
     indexes.forEach((index, idx) => {
+        // ——— 1. Tworzenie przycisku zakładki ———
         const tabBtn = document.createElement('button');
         tabBtn.className = 'tab-button';
         tabBtn.textContent = `Produkt ${idx + 1}`;
@@ -374,40 +413,102 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
         if (idx === 0) tabBtn.classList.add('active');
         tabsContainer.appendChild(tabBtn);
 
+        // ——— 2. Tworzenie kontenera z zawartością zakładki ———
         const tabContent = document.createElement('div');
         tabContent.className = 'tab-content';
         tabContent.style.display = idx === 0 ? 'block' : 'none';
         tabContent.dataset.tabIndex = index;
 
+        // Jeżeli istnieje nagłówek z podsumowaniem wariantów
         const summaryHeader = renderVariantSummary(grouped[index], quoteData, index);
         if (summaryHeader) {
             tabContent.appendChild(summaryHeader);
         }
 
+        // ——— 3. Lista wariantów ———
         const list = document.createElement('ul');
         list.className = 'variant-list';
 
         grouped[index].forEach(item => {
             const li = document.createElement('li');
+
+            // Dodaj klasę jeśli wariant ma rabat
+            if (item.has_discount) {
+                li.classList.add('has-discount');
+            }
+
+            // — Dane wariantu: nazwa i ceny — 
             const variantName = translateVariantCode(item.variant_code);
-            const pricePerM3 = item.price_per_m3 ? `${item.price_per_m3.toFixed(2)} PLN` : 'Brak informacji';
-            const netto = item.final_price_netto !== null ? `${item.final_price_netto.toFixed(2)} PLN` : 'Brak informacji';
-            const brutto = item.final_price_brutto !== null ? `${item.final_price_brutto.toFixed(2)} PLN` : 'Brak informacji';
+            const pricePerM3 = item.price_per_m3
+                ? `${item.price_per_m3.toFixed(2)} PLN`
+                : 'Brak informacji';
+
+            // Sprawdź czy są oryginalne ceny (czy był rabat)
+            const hasOriginalPrices = item.original_price_netto && item.original_price_brutto;
+
+            let priceDisplay = '';
+            if (hasOriginalPrices && item.discount_percentage !== 0) {
+                // Pokaż oryginalne i obecne ceny
+                priceDisplay = `
+                    <p><strong>Cena netto:</strong> 
+                        <span class="original-price">${item.original_price_netto.toFixed(2)} PLN</span>
+                        <span class="discounted-price">${item.final_price_netto.toFixed(2)} PLN</span>
+                    </p>
+                    <p><strong>Cena brutto:</strong> 
+                        <span class="original-price">${item.original_price_brutto.toFixed(2)} PLN</span>
+                        <span class="discounted-price">${item.final_price_brutto.toFixed(2)} PLN</span>
+                    </p>
+                `;
+            } else {
+                // Pokaż zwykłe ceny
+                const netto = item.final_price_netto !== null
+                    ? `${item.final_price_netto.toFixed(2)} PLN`
+                    : 'Brak informacji';
+                const brutto = item.final_price_brutto !== null
+                    ? `${item.final_price_brutto.toFixed(2)} PLN`
+                    : 'Brak informacji';
+
+                priceDisplay = `
+                    <p><strong>Cena netto:</strong> ${netto}</p>
+                    <p><strong>Cena brutto:</strong> ${brutto}</p>
+                `;
+            }
 
             li.innerHTML = `
                 <p><strong>Wariant:</strong> ${variantName}</p>
                 <p><strong>Cena za m³:</strong> ${pricePerM3}</p>
-                <p><strong>Cena netto:</strong> ${netto}</p>
-                <p><strong>Cena brutto:</strong> ${brutto}</p>
+                ${priceDisplay}
             `;
 
-            if (item.is_selected) {
-                li.classList.add("selected");
-                li.innerHTML += `<p class="selected-tag">✓ Wybrany wariant</p>`;
-            } else {
-                const btn = document.createElement('button');
-                btn.textContent = 'Ustaw jako wybrany';
-                btn.onclick = () => {
+            // Dodaj etykietę "Edytowane" jeśli wariant ma rabat
+            if (item.has_discount && item.discount_percentage !== 0) {
+                const editedBadge = document.createElement('div');
+                editedBadge.className = 'edited-badge';
+                editedBadge.textContent = 'Edytowane';
+                li.appendChild(editedBadge);
+            }
+
+            // Dodaj informacje o rabacie jeśli istnieje
+            if (item.discount_percentage !== 0) {
+                const discountInfo = document.createElement('div');
+                discountInfo.className = 'discount-info';
+                discountInfo.innerHTML = `
+                    <span class="discount-label">Rabat: ${item.discount_percentage}%</span>
+                    ${item.discount_reason_id ? `<br><small>Powód: ${getDiscountReasonName(item.discount_reason_id)}</small>` : ''}
+                `;
+                li.appendChild(discountInfo);
+            }
+
+            // ——— 4. Wrapper na przyciski + oznaczenie ———
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'variant-actions';
+
+            // (a) jeśli wariant nie jest wybrany → dodajemy przycisk "Ustaw jako wybrany"
+            if (!item.is_selected) {
+                const chooseBtn = document.createElement('button');
+                chooseBtn.className = 'choose-btn';
+                chooseBtn.textContent = 'Ustaw jako wybrany';
+                chooseBtn.onclick = () => {
                     if (!confirm('Na pewno zmienić wybór wariantu?')) return;
                     fetch(`/quotes/api/quote_items/${item.id}/select`, { method: 'PATCH' })
                         .then(res => res.json())
@@ -416,9 +517,39 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
                         .then(fullData => showDetailsModal(fullData))
                         .catch(err => console.error('[MODAL] Błąd zmiany wariantu:', err));
                 };
-                li.appendChild(btn);
+                actionsDiv.appendChild(chooseBtn);
             }
 
+            // (b) zawsze dodajemy oznaczenie „Wybrany wariant" do środka actionsDiv,
+            //     ale tylko gdy item.is_selected === true
+            if (item.is_selected) {
+                const selectedTag = document.createElement('p');
+                selectedTag.className = 'selected-tag';
+                selectedTag.textContent = '✓ Wybrany wariant';
+                actionsDiv.appendChild(selectedTag);
+            }
+
+            // (c) zawsze dopisujemy przycisk z ikoną SVG edycji
+            const editBtn = document.createElement('button');
+            editBtn.className = 'edit-btn';
+            editBtn.innerHTML = `
+                <img 
+                    src="${editIconURL}" 
+                    alt="Edytuj wariant"
+                    title="Edytuj rabat wariantu"
+                >
+            `;
+
+            // NOWA FUNKCJONALNOŚĆ: Podłączenie do modala edycji
+            editBtn.onclick = () => {
+                console.log('[EDIT] Kliknięto edycję wariantu:', item);
+                openVariantEditModal(item, quoteData);
+            };
+
+            actionsDiv.appendChild(editBtn);
+
+            // ——— 5. Dopinamy wrapper actionsDiv do <li> i <li> do <ul> ———
+            li.appendChild(actionsDiv);
             list.appendChild(li);
         });
 
@@ -426,7 +557,7 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
         itemsContainer.appendChild(tabContent);
     });
 
-    // Tab switching
+    // ——— 6. Obsługa przełączania zakładek ———
     tabsContainer.querySelectorAll('button').forEach(btn => {
         btn.addEventListener('click', () => {
             const activeIdx = btn.dataset.tabIndex;
@@ -441,7 +572,6 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
         });
     });
 }
-
 function filterQuotes() {
     console.log("Filtrujemy wyceny...");
 
@@ -811,4 +941,467 @@ function translateVariantCode(code) {
         'buk-micro-ab': 'Buk mikrowczep A/B'
     };
     return dict[code] || code || 'Nieznany wariant';
+}
+
+// Pobieranie powodów rabatów z API
+async function fetchDiscountReasons() {
+    try {
+        const response = await fetch('/quotes/api/discount-reasons');
+        discountReasons = await response.json();
+        console.log("[fetchDiscountReasons] Pobrano powody rabatów:", discountReasons);
+    } catch (error) {
+        console.error("[fetchDiscountReasons] Błąd pobierania powodów rabatów:", error);
+        discountReasons = [];
+    }
+}
+
+// Konfiguracja modala edycji wariantu
+function setupVariantEditModal() {
+    const modal = document.getElementById('edit-variant-modal');
+    const closeBtn = document.getElementById('close-edit-variant-modal');
+    const saveBtn = document.getElementById('save-variant-changes');
+    const cancelBtn = document.getElementById('cancel-variant-changes');
+    const discountInput = document.getElementById('discount-percentage');
+
+    if (!modal) return;
+
+    // Zamykanie modala
+    closeBtn?.addEventListener('click', () => closeVariantEditModal());
+    cancelBtn?.addEventListener('click', () => closeVariantEditModal());
+
+    // Zapisywanie zmian
+    saveBtn?.addEventListener('click', () => saveVariantChanges());
+
+    // Live preview cen podczas wpisywania rabatu
+    discountInput?.addEventListener('input', () => updatePricePreview());
+
+    // Zamykanie przez kliknięcie tła
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeVariantEditModal();
+        }
+    });
+}
+
+// Konfiguracja modala rabatu całkowitego
+function setupTotalDiscountModal() {
+    const modal = document.getElementById('edit-total-discount-modal');
+    const closeBtn = document.getElementById('close-edit-total-discount-modal');
+    const saveBtn = document.getElementById('save-total-discount');
+    const cancelBtn = document.getElementById('cancel-total-discount');
+    const discountInput = document.getElementById('total-discount-percentage');
+
+    if (!modal) return;
+
+    // Zamykanie modala
+    closeBtn?.addEventListener('click', () => closeTotalDiscountModal());
+    cancelBtn?.addEventListener('click', () => closeTotalDiscountModal());
+
+    // Zapisywanie zmian
+    saveBtn?.addEventListener('click', () => saveTotalDiscount());
+
+    // Live preview cen
+    discountInput?.addEventListener('input', () => updateTotalPricePreview());
+
+    // Zamykanie przez kliknięcie tła
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeTotalDiscountModal();
+        }
+    });
+}
+
+// Otwieranie modala edycji wariantu
+function openVariantEditModal(item, quoteData) {
+    console.log("[openVariantEditModal] Otwieranie modala dla wariantu:", item);
+
+    currentEditingItem = item;
+    currentQuoteData = quoteData;
+
+    // Zapisz oryginalne ceny
+    originalPrices = {
+        netto: item.original_price_netto || item.final_price_netto,
+        brutto: item.original_price_brutto || item.final_price_brutto
+    };
+
+    // Wypełnij informacje o wariancie
+    document.getElementById('edit-variant-name').textContent = translateVariantCode(item.variant_code);
+    document.getElementById('edit-variant-dimensions').textContent = `${item.length_cm}×${item.width_cm}×${item.thickness_cm} cm`;
+    document.getElementById('edit-variant-volume').textContent = `${item.volume_m3?.toFixed(3) || '0.000'} m³`;
+
+    // Wypełnij formularz
+    document.getElementById('discount-percentage').value = item.discount_percentage || 0;
+    document.getElementById('show-on-client-page').checked = item.show_on_client_page !== false;
+
+    // Wypełnij dropdown powodów
+    populateDiscountReasons('discount-reason', item.discount_reason_id);
+
+    // Aktualizuj podgląd cen
+    updatePricePreview();
+
+    // Pokaż modal
+    const modal = document.getElementById('edit-variant-modal');
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+// Otwieranie modala rabatu całkowitego
+function openTotalDiscountModal(quoteData) {
+    console.log("[openTotalDiscountModal] Otwieranie modala rabatu całkowitego");
+
+    currentQuoteData = quoteData;
+
+    // Pobierz wybrane produkty
+    const selectedItems = quoteData.items.filter(item => item.is_selected);
+
+    // Wypełnij informacje
+    document.getElementById('total-quote-number').textContent = quoteData.quote_number;
+    document.getElementById('total-products-count').textContent = selectedItems.length;
+
+    // Oblicz oryginalną wartość
+    const originalValue = selectedItems.reduce((sum, item) => {
+        return sum + (item.original_price_brutto || item.final_price_brutto || 0);
+    }, 0);
+
+    document.getElementById('total-original-value').textContent = `${originalValue.toFixed(2)} PLN`;
+
+    // Wypełnij formularz
+    document.getElementById('total-discount-percentage').value = 0;
+
+    // Wypełnij dropdown powodów
+    populateDiscountReasons('total-discount-reason');
+
+    // Aktualizuj podgląd cen
+    updateTotalPricePreview();
+
+    // Pokaż modal
+    const modal = document.getElementById('edit-total-discount-modal');
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+// Wypełnianie dropdown powodów rabatu
+function populateDiscountReasons(selectId, selectedReasonId = null) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    // Wyczyść opcje
+    select.innerHTML = '<option value="">Wybierz powód...</option>';
+
+    // Dodaj powody rabatów
+    discountReasons.forEach(reason => {
+        const option = document.createElement('option');
+        option.value = reason.id;
+        option.textContent = reason.name;
+        if (reason.id === selectedReasonId) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    });
+}
+
+// Aktualizacja podglądu cen dla pojedynczego wariantu
+function updatePricePreview() {
+    const discountPercentage = parseFloat(document.getElementById('discount-percentage').value) || 0;
+
+    const originalNetto = originalPrices.netto || 0;
+    const originalBrutto = originalPrices.brutto || 0;
+
+    const discountMultiplier = 1 - (discountPercentage / 100);
+    const finalNetto = originalNetto * discountMultiplier;
+    const finalBrutto = originalBrutto * discountMultiplier;
+
+    // Aktualizuj wyświetlanie
+    document.getElementById('original-price-netto').textContent = `${originalNetto.toFixed(2)} PLN`;
+    document.getElementById('original-price-brutto').textContent = `${originalBrutto.toFixed(2)} PLN`;
+    document.getElementById('final-price-netto').textContent = `${finalNetto.toFixed(2)} PLN`;
+    document.getElementById('final-price-brutto').textContent = `${finalBrutto.toFixed(2)} PLN`;
+
+    // Pokaż/ukryj różnicę
+    const discountAmount = document.getElementById('discount-amount');
+    const discountValue = document.getElementById('discount-value');
+
+    if (discountPercentage !== 0) {
+        const difference = originalBrutto - finalBrutto;
+        discountValue.textContent = `${Math.abs(difference).toFixed(2)} PLN ${difference >= 0 ? '(oszczędność)' : '(dopłata)'}`;
+        discountAmount.style.display = 'block';
+    } else {
+        discountAmount.style.display = 'none';
+    }
+}
+
+// Aktualizacja podglądu cen dla rabatu całkowitego
+function updateTotalPricePreview() {
+    const discountPercentage = parseFloat(document.getElementById('total-discount-percentage').value) || 0;
+
+    if (!currentQuoteData) return;
+
+    const selectedItems = currentQuoteData.items.filter(item => item.is_selected);
+
+    // Oblicz oryginalne wartości
+    const originalNetto = selectedItems.reduce((sum, item) => {
+        return sum + (item.original_price_netto || item.final_price_netto || 0);
+    }, 0);
+
+    const originalBrutto = selectedItems.reduce((sum, item) => {
+        return sum + (item.original_price_brutto || item.final_price_brutto || 0);
+    }, 0);
+
+    // Oblicz wartości po rabacie
+    const discountMultiplier = 1 - (discountPercentage / 100);
+    const finalNetto = originalNetto * discountMultiplier;
+    const finalBrutto = originalBrutto * discountMultiplier;
+
+    // Aktualizuj wyświetlanie
+    document.getElementById('total-original-products-netto').textContent = `${originalNetto.toFixed(2)} PLN`;
+    document.getElementById('total-original-products-brutto').textContent = `${originalBrutto.toFixed(2)} PLN`;
+    document.getElementById('total-final-products-netto').textContent = `${finalNetto.toFixed(2)} PLN`;
+    document.getElementById('total-final-products-brutto').textContent = `${finalBrutto.toFixed(2)} PLN`;
+
+    // Dodaj wykończenie i wysyłkę
+    const finishingCost = currentQuoteData.costs?.finishing?.brutto || 0;
+    const shippingCost = currentQuoteData.costs?.shipping?.brutto || 0;
+    const totalFinal = finalBrutto + finishingCost + shippingCost;
+
+    document.getElementById('total-finishing-cost').textContent = `${finishingCost.toFixed(2)} PLN`;
+    document.getElementById('total-shipping-cost').textContent = `${shippingCost.toFixed(2)} PLN`;
+    document.getElementById('total-final-value').textContent = `${totalFinal.toFixed(2)} PLN`;
+
+    // Pokaż/ukryj oszczędności
+    const discountAmount = document.getElementById('total-discount-amount');
+    const discountValue = document.getElementById('total-discount-value');
+
+    if (discountPercentage !== 0) {
+        const difference = originalBrutto - finalBrutto;
+        discountValue.textContent = `${Math.abs(difference).toFixed(2)} PLN ${difference >= 0 ? '(oszczędność)' : '(dopłata)'}`;
+        discountAmount.style.display = 'block';
+    } else {
+        discountAmount.style.display = 'none';
+    }
+}
+
+// Zapisywanie zmian wariantu
+async function saveVariantChanges() {
+    if (!currentEditingItem || !currentQuoteData) return;
+
+    const saveBtn = document.getElementById('save-variant-changes');
+    const discountPercentage = parseFloat(document.getElementById('discount-percentage').value) || 0;
+    const reasonId = document.getElementById('discount-reason').value || null;
+    const showOnClientPage = document.getElementById('show-on-client-page').checked;
+
+    // Walidacja
+    if (Math.abs(discountPercentage) > 100) {
+        showToast('Rabat nie może być większy niż 100% lub mniejszy niż -100%', 'error');
+        return;
+    }
+
+    // Disable przycisk i pokaż loading
+    saveBtn.disabled = true;
+    saveBtn.querySelector('.btn-text').style.display = 'none';
+    saveBtn.querySelector('.btn-loading').style.display = 'inline';
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}/variant/${currentEditingItem.id}/discount`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                discount_percentage: discountPercentage,
+                reason_id: reasonId,
+                show_on_client_page: showOnClientPage
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Błąd podczas zapisywania zmian');
+        }
+
+        const result = await response.json();
+        console.log("[saveVariantChanges] Zapisano zmiany:", result);
+
+        // Zamknij modal
+        closeVariantEditModal();
+
+        // Odśwież modal szczegółów wyceny
+        refreshQuoteDetailsModal();
+
+        // Pokaż toast sukcesu
+        showToast('Zmiany zostały zapisane pomyślnie', 'success');
+
+    } catch (error) {
+        console.error("[saveVariantChanges] Błąd:", error);
+        showToast('Błąd podczas zapisywania zmian', 'error');
+    } finally {
+        // Przywróć przycisk
+        saveBtn.disabled = false;
+        saveBtn.querySelector('.btn-text').style.display = 'inline';
+        saveBtn.querySelector('.btn-loading').style.display = 'none';
+    }
+}
+
+// Zapisywanie rabatu całkowitego
+async function saveTotalDiscount() {
+    if (!currentQuoteData) return;
+
+    const saveBtn = document.getElementById('save-total-discount');
+    const discountPercentage = parseFloat(document.getElementById('total-discount-percentage').value) || 0;
+    const reasonId = document.getElementById('total-discount-reason').value || null;
+
+    // Walidacja
+    if (Math.abs(discountPercentage) > 100) {
+        showToast('Rabat nie może być większy niż 100% lub mniejszy niż -100%', 'error');
+        return;
+    }
+
+    if (discountPercentage !== 0 && !reasonId) {
+        showToast('Wybierz powód zmiany ceny', 'warning');
+        return;
+    }
+
+    // Confirm action
+    if (!confirm(`Na pewno zastosować rabat ${discountPercentage}% do wszystkich produktów w wycenie?`)) {
+        return;
+    }
+
+    // Disable przycisk i pokaż loading
+    saveBtn.disabled = true;
+    saveBtn.querySelector('.btn-text').style.display = 'none';
+    saveBtn.querySelector('.btn-loading').style.display = 'inline';
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}/apply-total-discount`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                discount_percentage: discountPercentage,
+                reason_id: reasonId
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Błąd podczas stosowania rabatu');
+        }
+
+        const result = await response.json();
+        console.log("[saveTotalDiscount] Zastosowano rabat:", result);
+
+        // Zamknij modal
+        closeTotalDiscountModal();
+
+        // Odśwież modal szczegółów wyceny
+        refreshQuoteDetailsModal();
+
+        // Pokaż toast sukcesu
+        showToast(`Rabat został zastosowany do ${result.affected_items} pozycji`, 'success');
+
+    } catch (error) {
+        console.error("[saveTotalDiscount] Błąd:", error);
+        showToast('Błąd podczas stosowania rabatu', 'error');
+    } finally {
+        // Przywróć przycisk
+        saveBtn.disabled = false;
+        saveBtn.querySelector('.btn-text').style.display = 'inline';
+        saveBtn.querySelector('.btn-loading').style.display = 'none';
+    }
+}
+
+// Zamykanie modala edycji wariantu
+function closeVariantEditModal() {
+    const modal = document.getElementById('edit-variant-modal');
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        currentEditingItem = null;
+    }, 300);
+}
+
+// Zamykanie modala rabatu całkowitego
+function closeTotalDiscountModal() {
+    const modal = document.getElementById('edit-total-discount-modal');
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        currentQuoteData = null;
+    }, 300);
+}
+
+// Odświeżanie modala szczegółów wyceny
+async function refreshQuoteDetailsModal() {
+    if (!currentQuoteData) return;
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}`);
+        const updatedData = await response.json();
+        showDetailsModal(updatedData);
+    } catch (error) {
+        console.error("[refreshQuoteDetailsModal] Błąd:", error);
+    }
+}
+
+// Funkcja toast notifications
+function showToast(message, type = 'success') {
+    // Usuń istniejące toasty
+    const existingToasts = document.querySelectorAll('.toast-notification');
+    existingToasts.forEach(toast => toast.remove());
+
+    // Utwórz nowy toast
+    const toast = document.createElement('div');
+    toast.className = `toast-notification ${type}`;
+    toast.textContent = message;
+
+    document.body.appendChild(toast);
+
+    // Pokaż toast
+    setTimeout(() => toast.classList.add('show'), 100);
+
+    // Ukryj toast po 3 sekundach
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// Funkcja do pobierania nazwy powodu rabatu
+function getDiscountReasonName(reasonId) {
+    if (!reasonId || !discountReasons.length) return 'Nie podano';
+
+    const reason = discountReasons.find(r => r.id === reasonId);
+    return reason ? reason.name : 'Nieznany powód';
+}
+
+// Funkcja dodawania przycisku rabatu całkowitego
+function addTotalDiscountButton(quoteData) {
+    // Sprawdź czy przycisk już istnieje
+    let totalDiscountBtn = document.getElementById('total-discount-btn');
+
+    if (!totalDiscountBtn) {
+        // Znajdź kontener dla przycisków w headerze
+        const headerActions = document.querySelector('.quotes-details-modal-header-actions');
+
+        if (headerActions) {
+            // Utwórz przycisk
+            totalDiscountBtn = document.createElement('button');
+            totalDiscountBtn.id = 'total-discount-btn';
+            totalDiscountBtn.className = 'quotes-btn total-discount-btn';
+            totalDiscountBtn.innerHTML = '<span>Rabat całkowity</span>';
+            totalDiscountBtn.title = 'Zastosuj rabat do wszystkich produktów';
+
+            // Dodaj event listener
+            totalDiscountBtn.onclick = () => {
+                console.log('[TOTAL DISCOUNT] Otwieranie modala rabatu całkowitego');
+                openTotalDiscountModal(quoteData);
+            };
+
+            // Wstaw przycisk przed przyciskiem "Pełny ekran"
+            const fullscreenBtn = document.getElementById('toggle-fullscreen-modal');
+            if (fullscreenBtn) {
+                headerActions.insertBefore(totalDiscountBtn, fullscreenBtn);
+            } else {
+                headerActions.appendChild(totalDiscountBtn);
+            }
+        }
+    }
 }
