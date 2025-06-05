@@ -451,14 +451,15 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
             if (hasOriginalPrices && item.discount_percentage !== 0) {
                 // Pokaż oryginalne i obecne ceny
                 priceDisplay = `
-                    <p><strong>Cena netto:</strong> 
-                        <span class="original-price">${item.original_price_netto.toFixed(2)} PLN</span>
-                        <span class="discounted-price">${item.final_price_netto.toFixed(2)} PLN</span>
-                    </p>
-                    <p><strong>Cena brutto:</strong> 
-                        <span class="original-price">${item.original_price_brutto.toFixed(2)} PLN</span>
+                <p><strong>Cena brutto:</strong>
                         <span class="discounted-price">${item.final_price_brutto.toFixed(2)} PLN</span>
+                        <span class="original-price">${item.original_price_brutto.toFixed(2)} PLN</span>
                     </p>
+                    <p><strong>Cena netto:</strong> 
+                        <span class="discounted-price">${item.final_price_netto.toFixed(2)} PLN</span>
+                        <span class="original-price">${item.original_price_netto.toFixed(2)} PLN</span>
+                    </p>
+                    
                 `;
             } else {
                 // Pokaż zwykłe ceny
@@ -1076,61 +1077,41 @@ function openTotalDiscountModal(quoteData) {
 
     currentQuoteData = quoteData;
 
-    // Pobierz wybrane produkty (is_selected=true)
-    const selectedItems = quoteData.items.filter(item => item.is_selected);
+    // Teraz bierzemy pod uwagę WSZYSTKIE pozycje (warianty) w wycenie, a nie tylko te z is_selected
+    const allItems = quoteData.items;
 
-    // Pogrupuj po product_index aby zobaczyć ile produktów ma wybrane warianty
-    const selectedProductsCount = [...new Set(selectedItems.map(item => item.product_index))].length;
-    const totalProductsCount = [...new Set(quoteData.items.map(item => item.product_index))].length;
+    // Grupujemy po product_index, żeby zobaczyć, ile unikalnych produktów w wycenie
+    const allProductsCount = [...new Set(allItems.map(item => item.product_index))].length;
 
-    console.log(`[openTotalDiscountModal] Wybrane pozycje: ${selectedItems.length}, Wybrane produkty: ${selectedProductsCount}/${totalProductsCount}`);
+    console.log(`[openTotalDiscountModal] Wszystkich wariantów: ${allItems.length}, Unikalnych produktów: ${allProductsCount}`);
 
-    // Wypełnij informacje
+    // Wypełnij podstawowe informacje w modalu
     document.getElementById('total-quote-number').textContent = quoteData.quote_number;
-    document.getElementById('total-products-count').textContent = `${selectedProductsCount} z ${totalProductsCount}`;
+    // Pokazujemy, że liczymy rabat od wszystkich produktów (np. "3 z 3")
+    document.getElementById('total-products-count').textContent = `${allProductsCount} z ${allProductsCount}`;
 
-    // DODAJ ostrzeżenie jeśli nie wszystkie produkty mają wybrany wariant
-    const warningElement = document.getElementById('products-selection-warning');
-    if (!warningElement) {
-        // Stwórz element ostrzeżenia jeśli nie istnieje
-        const warning = document.createElement('div');
-        warning.id = 'products-selection-warning';
-        warning.className = 'warning-box';
-        warning.style.display = 'none';
-        warning.style.marginTop = '10px';
-
-        // Wstaw przed formularzem edycji
-        const formSection = document.querySelector('#edit-total-discount-modal .edit-form-section');
-        if (formSection) {
-            formSection.parentNode.insertBefore(warning, formSection);
-        }
-    }
-
+    // Jeżeli w HTML jest element służący do ostrzeżenia o niewybranych wariantach,
+    // teraz go ukrywamy, bo robimy rabat na wszystkie.
     const warningBox = document.getElementById('products-selection-warning');
-    if (selectedProductsCount < totalProductsCount) {
-        warningBox.style.display = 'block';
-        warningBox.innerHTML = `
-            <strong>⚠️ Uwaga:</strong> W wycenie ${totalProductsCount} produktów, ale tylko ${selectedProductsCount} ma wybrany wariant. 
-            Rabat zostanie zastosowany tylko do produktów z wybranym wariantem.
-        `;
-    } else {
+    if (warningBox) {
         warningBox.style.display = 'none';
     }
 
-    // Oblicz oryginalną wartość wybranych pozycji
-    const originalValue = selectedItems.reduce((sum, item) => {
+    // Oblicz oryginalną wartość BRUTTO dla wszystkich wariantów:
+    const originalValue = allItems.reduce((sum, item) => {
+        // Jeśli item.original_price_brutto jest undefined, użyjemy item.final_price_brutto
         return sum + (item.original_price_brutto || item.final_price_brutto || 0);
     }, 0);
 
     document.getElementById('total-original-value').textContent = `${originalValue.toFixed(2)} PLN`;
 
-    // Wypełnij formularz
+    // Zerujemy pole procentu rabatu
     document.getElementById('total-discount-percentage').value = 0;
 
-    // Wypełnij dropdown powodów
+    // Wypełnij dropdown powodów (jak dotychczas)
     populateDiscountReasons('total-discount-reason');
 
-    // Aktualizuj podgląd cen
+    // Wywołaj updateTotalPricePreview(), aby uaktualnić podgląd
     updateTotalPricePreview();
 
     // Pokaż modal
@@ -1138,6 +1119,7 @@ function openTotalDiscountModal(quoteData) {
     modal.style.display = 'flex';
     setTimeout(() => modal.classList.add('active'), 10);
 }
+
 
 // Wypełnianie dropdown powodów rabatu
 function populateDiscountReasons(selectId, selectedReasonId = null) {
@@ -1229,23 +1211,22 @@ function updateTotalPricePreview() {
 
     if (!currentQuoteData) return;
 
-    const selectedItems = currentQuoteData.items.filter(item => item.is_selected);
+    // **Użyj wszystkich pozycji, nie tylko is_selected**
+    const allItems = currentQuoteData.items;
 
-    // Oblicz oryginalne wartości TYLKO produktów
-    const originalNetto = selectedItems.reduce((sum, item) => {
+    // Oblicz oryginalne wartości NETTO i BRUTTO dla wszystkich produktów:
+    const originalNetto = allItems.reduce((sum, item) => {
         return sum + (item.original_price_netto || item.final_price_netto || 0);
     }, 0);
 
-    const originalBrutto = selectedItems.reduce((sum, item) => {
+    const originalBrutto = allItems.reduce((sum, item) => {
         return sum + (item.original_price_brutto || item.final_price_brutto || 0);
     }, 0);
 
-    // Oblicz wartości po rabacie TYLKO dla produktów
     const discountMultiplier = 1 - (discountPercentage / 100);
     const finalNetto = originalNetto * discountMultiplier;
     const finalBrutto = originalBrutto * discountMultiplier;
 
-    // Aktualizuj wyświetlanie
     document.getElementById('total-original-products-netto').textContent = `${originalNetto.toFixed(2)} PLN`;
     document.getElementById('total-original-products-brutto').textContent = `${originalBrutto.toFixed(2)} PLN`;
     document.getElementById('total-final-products-netto').textContent = `${finalNetto.toFixed(2)} PLN`;

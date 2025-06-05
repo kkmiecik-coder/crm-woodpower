@@ -433,81 +433,57 @@ def update_variant_discount(quote_id, item_id):
 @quotes_bp.route("/api/quotes/<int:quote_id>/apply-total-discount", methods=["PATCH"])
 @login_required
 def apply_total_discount(quote_id):
-    """Zastosowuje rabat do wszystkich wybranych wariantów w wycenie"""
+    """Zastosowuje rabat do wszystkich wariantów (nie tylko is_selected) w wycenie"""
     try:
         data = request.get_json()
         discount_percentage = data.get("discount_percentage", 0)
         reason_id = data.get("reason_id")
         include_finishing = data.get("include_finishing", False)
 
-        print(f"[apply_total_discount] START - quote_id={quote_id}, discount={discount_percentage}%, reason_id={reason_id}, include_finishing={include_finishing}", file=sys.stderr)
-
-        # Walidacja danych
+        # --- WALIDACJA RABATU ---
         if not isinstance(discount_percentage, (int, float)) or discount_percentage < -100 or discount_percentage > 100:
-            print(f"[apply_total_discount] BŁĄD: Nieprawidłowy rabat {discount_percentage}", file=sys.stderr)
             return jsonify({"error": "Rabat musi być liczbą między -100 a 100"}), 400
 
+        # --- POBIERAMY DANE WYceny ---
         quote = Quote.query.get_or_404(quote_id)
-        print(f"[apply_total_discount] Znaleziono wycenę: {quote.quote_number}", file=sys.stderr)
-        
-        # DODAJ SPRAWDZENIE pozycji przed zastosowaniem rabatu
-        selected_items_before = db.session.query(QuoteItem).filter(
-            QuoteItem.quote_id == quote_id,
-            QuoteItem.is_selected == True
-        ).all()
-        
-        print(f"[apply_total_discount] Pozycje przed rabatem: {len(selected_items_before)}", file=sys.stderr)
-        for item in selected_items_before:
-            print(f"[apply_total_discount] - Item ID={item.id}, variant={item.variant_code}, is_selected={item.is_selected}, product_index={item.product_index}", file=sys.stderr)
-        
-        # Zastosuj rabat do produktów
+
+        # --- RABAT DO WSZYSTKICH WARIANTóW ---
+        # W metodzie quote.apply_total_discount musi być już zmiana, która nie filtruje po is_selected,
+        # tylko pobiera wszystkie QuoteItem z tej wyceny.
         affected_items = quote.apply_total_discount(discount_percentage, reason_id)
-        print(f"[apply_total_discount] apply_total_discount zwrócił: {affected_items}", file=sys.stderr)
-        
-        # NOWA FUNKCJONALNOŚĆ: Jeśli include_finishing=True, zastosuj rabat również do wykończenia
+
+        # --- OPCJONALNY RABAT DO WYKOŃCZENIA ---
         if include_finishing and discount_percentage != 0:
-            print(f"[apply_total_discount] Aplikuję rabat też do wykończenia", file=sys.stderr)
-            finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote_id).all()
-            print(f"[apply_total_discount] Znaleziono {len(finishing_details)} detali wykończenia", file=sys.stderr)
-            
+            finishing_details = (
+                db.session.query(QuoteItemDetails)
+                .filter_by(quote_id=quote_id)
+                .all()
+            )
             for detail in finishing_details:
-                if detail.finishing_price_netto and detail.finishing_price_brutto:
-                    old_netto = detail.finishing_price_netto
-                    old_brutto = detail.finishing_price_brutto
-                    
-                    # Oblicz nowe ceny wykończenia
-                    discount_multiplier = 1 - (discount_percentage / 100)
-                    detail.finishing_price_netto = detail.finishing_price_netto * discount_multiplier
-                    detail.finishing_price_brutto = detail.finishing_price_brutto * discount_multiplier
-                    
-                    print(f"[apply_total_discount] Wykończenie - było: {old_netto}/{old_brutto}, jest: {detail.finishing_price_netto}/{detail.finishing_price_brutto}", file=sys.stderr)
-        
+                if detail.finishing_price_netto is not None and detail.finishing_price_brutto is not None:
+                    multiplier = 1 - (discount_percentage / 100)
+                    detail.finishing_price_netto = detail.finishing_price_netto * multiplier
+                    detail.finishing_price_brutto = detail.finishing_price_brutto * multiplier
+
+        # --- ZAPIS DO BAZY ---
         db.session.commit()
-        
-        # SPRAWDŹ pozycje po zastosowaniu rabatu
-        selected_items_after = db.session.query(QuoteItem).filter(
-            QuoteItem.quote_id == quote_id,
-            QuoteItem.is_selected == True
-        ).all()
-        
-        print(f"[apply_total_discount] Pozycje po rabacie: {len(selected_items_after)}", file=sys.stderr)
-        
-        finishing_info = " (włącznie z wykończeniem)" if include_finishing else ""
-        print(f"[apply_total_discount] SUKCES - Zastosowano rabat {discount_percentage}% do {affected_items} pozycji w wycenie {quote_id}{finishing_info}", file=sys.stderr)
-        
+
+        # --- ODPOWIEDŹ JSON ---
         return jsonify({
-            "message": f"Rabat został zastosowany do {affected_items} pozycji{finishing_info}",
+            "message": f"Rabat został zastosowany do {affected_items} pozycji",
             "affected_items": affected_items,
             "include_finishing": include_finishing,
+            # Jeżeli masz w modelu metody get_total_discount_amount_netto / brutto, to możesz je tu zwrócić
             "total_discount_netto": quote.get_total_discount_amount_netto(),
             "total_discount_brutto": quote.get_total_discount_amount_brutto()
-        })
+        }), 200
 
     except Exception as e:
-        print(f"[apply_total_discount] BŁĄD: {e}", file=sys.stderr)
+        # loguj błąd na stderr i zwróć 500
         import traceback
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Błąd podczas aktualizacji rabatu całkowitego"}), 500
+
 
 @quotes_bp.route("/wycena/<quote_number>/<token>")
 def client_quote_view(quote_number, token):

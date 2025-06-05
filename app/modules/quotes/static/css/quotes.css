@@ -334,58 +334,6 @@
         background-color: #ff8000;
     }
 
-.quotes-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 2px 10px;
-    border: none;
-    color: white;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    font-family: 'Poppins', sans-serif;
-    cursor: pointer;
-    background-color: #ED6B24;
-    transition: background-color 0.2s;
-}
-
-    .quotes-btn:hover {
-        background-color: #B84D13;
-    }
-
-    .quotes-btn::before {
-        content: none;
-    }
-
-    .quotes-btn::after {
-        content: "";
-        display: inline-block;
-        width: 16px;
-        height: 16px;
-        background-repeat: no-repeat;
-        background-position: center;
-        background-size: contain;
-    }
-
-
-.quotes-btn-detail::after {
-    background-image: url('/static/icons/go.svg');
-}
-
-.quotes-btn-download::after {
-    background-image: url('/static/icons/download.svg');
-}
-
-.quotes-btn-detail {
-    min-width: 106px;
-}
-
-.quotes-btn-download {
-    min-width: 90px;
-}
-
 /* Styl dla tła */
 .clients-modal-overlay {
     position: fixed;
@@ -503,7 +451,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 2px 6px;
+    padding: 2px 8px;
     background-color: #ED6B24;
     color: white;
     border: none;
@@ -512,6 +460,7 @@
     font-weight: 500;
     cursor: pointer;
     transition: background 0.2s ease;
+    font-family: 'Poppins', sans-serif;
 }
 
     .quotes-btn::after {
@@ -741,11 +690,6 @@
     z-index: 10;
     padding-bottom: 10px;
     border-bottom: 1px solid #E3E3E3;
-}
-
-.quotes-details-modal-header-actions {
-    display: flex;
-    gap: 12px;
 }
 
 .quotes-details-summary {
@@ -1079,11 +1023,11 @@
     }
 
 .quotes-btn-order::after {
-    background-image: url('/static/icons/download.svg');
+    background-image: url('/static/icons/baselinker.svg');
 }
 
 .quotes-btn-client-page::after {
-    background-image: url('/static/icons/download.svg');
+    background-image: url('/static/icons/client.svg');
 }
 
 .quotes-btn-full-screen::after {
@@ -1094,8 +1038,25 @@
     background-image: url('/static/icons/discount.svg');
 }
 
+.quotes-btn-detail::after {
+    background-image: url('/static/icons/go.svg');
+}
+
+.quotes-btn-download::after {
+    background-image: url('/static/icons/download.svg');
+}
+
+.quotes-btn-detail {
+    min-width: 106px;
+}
+
+.quotes-btn-download {
+    min-width: 90px;
+}
+
 .quotes-btn-client-page {
     background-color: #48C989;
+    align-self: stretch;
 }
 
     .quotes-btn-client-page:hover {
@@ -1107,7 +1068,6 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 2px 6px;
     background-color: #48C989;
     color: white;
     border: none;
@@ -1115,12 +1075,21 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
+    padding: 6px;
     transition: background 0.2s ease;
 }
 
     .quotes-btn-client-page-copy:hover {
         background-color: #0C8D4D;
     }
+
+.quotes-btn-full-screen:hover {
+    background-color: #d8571a;
+}
+
+.quotes-btn-download:hover {
+    background-color: #d8571a;
+}
 
 .close-modal {
     position: static;
@@ -1722,7 +1691,6 @@
     background-color: #28a745;
     color: white;
     border: none;
-    padding: 8px 16px;
     border-radius: 6px;
     font-size: 12px;
     font-weight: 500;
@@ -1954,3 +1922,26 @@
     .edit-modal-overlay.no-close-on-click .edit-modal-box {
         pointer-events: all;
     }
+
+.discounted-price {
+    font-weight: 600;
+    color: #ED6B24;
+}
+
+.original-price {
+    font-size: 11px;
+    color: darkgray;
+}
+
+.quotes-client-sfere {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+}
+
+/* Przykładowe dostosowanie rozmiaru SVG */
+.quote-icon-copy {
+    width: 16px;
+    height: 16px;
+    vertical-align: middle;
+}

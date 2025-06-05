@@ -6,8 +6,16 @@
             <div class="quotes-details-modal-header-actions">
                 <button class="quotes-btn quotes-btn-download" data-id="" id="download-details-btn">Pobierz</button>
                 <button id="quote-order-btn" class="quotes-btn quotes-btn-order">Zamów</button>
-                <button id="quote-client-page-btn" class="quotes-btn quotes-btn-client-page">Strona klienta</button>
-                <button id="quote-link-btn" class="quotes-btn-client-page-copy" title="Skopiuj link">🔗</button>
+                <div class="quotes-client-sfere">
+                    <button id="quote-client-page-btn" class="quotes-btn quotes-btn-client-page">
+                        Strona klienta
+                    </button>
+                    <button id="quote-link-btn" class="quotes-btn-client-page-copy" title="Skopiuj link">
+                        <img src="{{ url_for('static', filename='icons/copy_link.svg') }}"
+                             alt="Kopiuj link"
+                             class="quote-icon-copy" />
+                    </button>
+                </div>
                 <button class="quotes-btn quotes-btn-full-screen" id="toggle-fullscreen-modal">Pełny ekran</button>
                 <button class="quotes-details-modal-close" id="close-details-modal">&times;</button>
             </div>
