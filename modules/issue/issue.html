@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Zgłoś błąd - Wood Power CRM</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content">
+            <h1 class="title-with-underline">Zgłoś błąd</h1>
+            <p class="issues-p">
+                Jeśli zauważyłeś błąd w systemie, użyj poniższego formularza do jego zgłoszenia.
+            </p>
+
+            <form action="{{ url_for('issue') }}" method="post" enctype="multipart/form-data" class="issue-form">
+                <div class="form-section">
+                    <label for="problem-location" class="form-label">Miejsce problemu</label>
+                    <select id="problem-location" name="problem_location" class="select-input" required>
+                        <option value="" disabled selected></option>
+                        <option value="CRM">CRM</option>
+                        <option value="Baselinker">Baselinker</option>
+                        <option value="Responso">Responso</option>
+                        <option value="strona_www">Strona WWW</option>
+                        <option value="inne">Inne</option>
+                    </select>
+                </div>
+
+                <div class="form-section">
+                    <label for="priority" class="form-label">Priorytet</label>
+                    <select id="priority" name="priority" class="select-input" required>
+                        <option value="" disabled selected></option>
+                        <option value="niski">Niski</option>
+                        <option value="sredni">Średni</option>
+                        <option value="wysoki">Wysoki</option>
+                    </select>
+                </div>
+
+                <div class="form-section">
+                    <label for="problem-description" class="form-label">Opis problemu</label>
+                    <textarea id="problem-description" name="problem_description" class="issue-textarea-input" placeholder="Opisz najbardziej szczegółowo problem" required></textarea>
+                </div>
+
+                <div class="file-upload">
+                    <label for="attachment" class="file-upload-label">Załącz pliki</label>
+                    <input type="file" id="attachment" name="attachments" class="file-upload-input" multiple>
+                    <ul class="file-list" id="file-list">
+                        <li class="file-name">Nie dodano jeszcze żadnych plików.</li>
+                    </ul>
+                </div>
+
+                <button type="submit" class="login-button">Zgłoś problem</button>
+            </form>
+            <div id="loadingOverlay" class="overlay" style="display: none;">
+                <div class="overlay-content">
+                    <div class="spinner"></div>
+                    <p class="loading-text" id="overlayMessage">Wysyłanie zgłoszenia...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='js/issue.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+</body>
+</html>

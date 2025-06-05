@@ -1112,3 +1112,7 @@
     .quotes-btn-client-page-copy:hover {
         background-color: #0C8D4D;
     }
+
+.close-modal {
+    position: static;
+}

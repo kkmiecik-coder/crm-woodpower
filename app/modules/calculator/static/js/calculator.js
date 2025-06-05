@@ -969,18 +969,6 @@ document.addEventListener('DOMContentLoaded', function () {
     } else {
         console.warn("Nie znaleziono przycisku #openEdgesModal");
     }
-
-    const closeModalBtn = document.getElementById("closeDownloadModal");
-    if (closeModalBtn) {
-        closeModalBtn.addEventListener("click", () => {
-            const modal = document.getElementById("download-modal");
-            const iframe = document.getElementById("quotePreview");
-            if (modal && iframe) {
-                iframe.src = "";
-                modal.style.display = "none";
-            }
-        });
-    }
 });
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -1315,19 +1303,12 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 function loadLatestQuotes() {
-    console.info("[loadLatestQuotes] Startuję ładowanie ostatnich wycen...");
-
     const container = document.getElementById('latestQuotesList');
-    if (!container) {
-        console.warn("[loadLatestQuotes] Brak kontenera #latestQuotesList – przerywam");
-        return;
-    }
+    if (!container) return;
 
     fetch('/calculator/latest_quotes')
         .then(res => res.json())
         .then(data => {
-            console.info(`[loadLatestQuotes] Otrzymano ${data.length} wycen`);
-
             if (!data.length) {
                 container.innerHTML = '<p>Brak wycen do wyświetlenia.</p>';
                 return;
@@ -1339,40 +1320,83 @@ function loadLatestQuotes() {
                     <div class="quote-cell">${q.created_at}</div>
                     <div class="quote-cell">${q.client_name}</div>
                     <div class="quote-cell">${q.quote_source}</div>
-                    <div class="quote-cell">
-                        <span class="quote-status" style="background-color: ${q.status_color};">${q.status}</span>
-                    </div>
+                    <div class="quote-cell">${q.status}</div>
                     <div class="quote-actions">
                         <button class="go-ahead" data-id="${q.id}">Przejdź</button>
-                        <button class="quotes-btn-download" data-id="${q.id}">
-                            <i class="fa fa-download"></i> Pobierz
-                        </button>
+                        <button class="download" data-id="${q.id}">Pobierz</button>
+                        <div class="download-menu">
+                            <button data-format="jpg">JPG</button>
+                            <button data-format="pdf">PDF</button>
+                        </div>
                         <button class="order" data-id="${q.id}">Zamów</button>
                     </div>
                 </div>
             `).join('');
 
-            console.log("[loadLatestQuotes] Wyrenderowano HTML z ostatnimi wycenami");
+            document.querySelectorAll('.download-menu').forEach(menu => {
+                menu.style.display = 'none';
+            });
 
-            document.querySelectorAll('.quotes-btn-download').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const id = btn.dataset.id;
-                    console.log(`[quotes-btn-download] Klik na przycisk pobierz – ID: ${id}`);
+            // Obsługa rozwijanego menu "Pobierz"
+            document.querySelectorAll('.download').forEach(btn => {
+                const menu = btn.nextElementSibling;
+                const wrapper = btn.parentElement;
 
-                    const modal = document.getElementById("download-modal");
-                    const iframe = document.getElementById("quotePreview");
+                let hideTimeout;
 
-                    if (modal && iframe) {
-                        iframe.src = `/quotes/api/quotes/${id}/pdf.pdf`;
-                        modal.style.display = "flex";
-                    }
+                btn.addEventListener('click', e => {
+                    e.stopPropagation();
+
+                    // Zamknij inne
+                    document.querySelectorAll('.download-menu').forEach(m => {
+                        if (m !== menu) m.style.display = 'none';
+                    });
+
+                    // Toggle menu
+                    menu.style.display = (menu.style.display === 'flex') ? 'none' : 'flex';
                 });
+
+                // Schowanie gdy opuszczasz wrapper+menu
+                wrapper.addEventListener('mouseleave', () => {
+                    hideTimeout = setTimeout(() => {
+                        if (!wrapper.matches(':hover') && !menu.matches(':hover')) {
+                            menu.style.display = 'none';
+                        }
+                    }, 500);
+                });
+
+                wrapper.addEventListener('mouseenter', () => {
+                    clearTimeout(hideTimeout);
+                });
+
+                menu.addEventListener('mouseenter', () => {
+                    clearTimeout(hideTimeout);
+                });
+
+                menu.addEventListener('mouseleave', () => {
+                    hideTimeout = setTimeout(() => {
+                        if (!wrapper.matches(':hover') && !menu.matches(':hover')) {
+                            menu.style.display = 'none';
+                        }
+                    }, 500);
+                });
+            });
+
+
+            // Zamykanie dropdownów globalnie przy kliknięciu poza
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.download') && !e.target.closest('.download-menu')) {
+                    document.querySelectorAll('.download-menu').forEach(menu => {
+                        menu.style.display = 'none';
+                    });
+                }
             });
         })
         .catch(err => {
-            console.error("[loadLatestQuotes] Błąd podczas ładowania wycen:", err);
+            console.error("Błąd podczas ładowania wycen:", err);
         });
 }
+
 
 document.addEventListener('DOMContentLoaded', loadLatestQuotes);
 

@@ -328,6 +328,13 @@ function showDetailsModal(quoteData) {
 
     modal.classList.add('active');
     console.log('[MODAL] Powinien być teraz widoczny!');
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            modal.classList.remove("active");
+            console.log('[MODAL] Kliknięto tło – zamykam szczegóły wyceny');
+        }
+    });
 }
 
 function filterQuotes() {

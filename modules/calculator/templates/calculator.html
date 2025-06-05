@@ -51,22 +51,22 @@
                                     <!-- Długość -->
                                     <div class="lenght">
                                         <label for="length" class="input-txt">Długość (cm):</label>
-                                        <input type="number" data-field="length" id="length" class="input-window">
+                                        <input type="number" step="0.1" min="4" max="450" data-field="length" id="length" class="input-window">
                                     </div>
                                     <!-- Szerokość -->
                                     <div class="width">
                                         <label for="width" class="input-txt">Szerokość (cm):</label>
-                                        <input type="number" data-field="width" id="width" class="input-window">
+                                        <input type="number" step="0.1" min="4" max="120" data-field="width" id="width" class="input-window">
                                     </div>
                                     <!-- Grubość -->
                                     <div class="thickness">
                                         <label for="thickness" class="input-txt">Grubość (cm):</label>
-                                        <input type="number" data-field="thickness" id="thickness" class="input-window">
+                                        <input type="number" step="0.1" min="0.5" max="" data-field="thickness" id="thickness" class="input-window">
                                     </div>
                                     <!-- Ilość -->
                                     <div class="quantity">
                                         <label for="quantity" class="input-txt">Ilość:</label>
-                                        <input type="number" data-field="quantity" id="quantity" class="input-window">
+                                        <input type="number" step="1" data-field="quantity" id="quantity" class="input-window">
                                     </div>
                                 </div>
                             </section>
@@ -241,8 +241,8 @@
                     <div class="quote-summary">
                         <div class="order-summary">
                             <span class="input-txt-bold" style="padding-right: 110px;">Koszt surowego:</span>
-                            <span class="order-brutto">---.-- PLN</span>
-                            <span class="order-netto">---.-- PLN</span>
+                            <span class="order-brutto">0.00 PLN</span>
+                            <span class="order-netto">0.00 PLN</span>
                         </div>
                         <div class="finishing-summary">
                             <span class="input-txt-bold" style="padding-right: 110px;">Koszty wykończenia:</span>
@@ -251,14 +251,14 @@
                         </div>
                         <div class="delivery-summary">
                             <span class="input-txt-bold">Koszt wysyłki wszystkich produktów:</span>
-                            <span class="courier" id="courier-name">Oblicz kuriera</span>
-                            <span class="delivery-brutto" id="delivery-brutto">Oblicz kuriera</span>
-                            <span class="delivery-netto" id="delivery-netto">Oblicz kuriera</span>
+                            <span class="courier" id="courier-name">0.00 PLN</span>
+                            <span class="delivery-brutto" id="delivery-brutto">0.00 PLN</span>
+                            <span class="delivery-netto" id="delivery-netto">0.00 PLN</span>
                         </div>
                         <div class="final-summary">
                             <span class="input-txt-bold" style="padding-right: 110px;">Suma:</span>
-                            <span class="final-brutto">---.-- PLN</span>
-                            <span class="final-netto">---.-- PLN</span>
+                            <span class="final-brutto">0.00 PLN</span>
+                            <span class="final-netto">0.00 PLN</span>
                         </div>
                         <div class="action-buttons">
                             <div class="remove-product-container" style="display:none;">
@@ -334,6 +334,7 @@
         </div>
     </div>
     {% include 'save_modal.html' %}
+    {% include 'download_quote_modal.html' %}
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/save_quote.js') }}"></script>
