@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy.dialects.mysql import DECIMAL
 import secrets
 import string
+import sys
 
 class Multiplier(db.Model):
     __tablename__ = 'multipliers'
@@ -100,18 +101,34 @@ class Quote(db.Model):
         return self.get_total_original_price_brutto() - self.get_total_current_price_brutto()
 
     def apply_total_discount(self, discount_percentage, reason_id=None):
-        """Zastosowuje rabat do wszystkich wybranych pozycji"""
-        selected_items = db.session.query(QuoteItem).filter_by(
-        quote_id=self.id, 
-        is_selected=True
+        """Zastosowuje rabat do wszystkich wybranych pozycji w wycenie"""
+    
+        # Znajdź wszystkie wybrane pozycje (jedna na każdy product_index)
+        selected_items = db.session.query(QuoteItem).filter(
+            QuoteItem.quote_id == self.id,
+            QuoteItem.is_selected == True
         ).all()
+    
+        print(f"[apply_total_discount] Znaleziono {len(selected_items)} wybranych pozycji dla quote_id={self.id}", file=sys.stderr)
+    
+        # DODAJ sprawdzenie czy to rzeczywiście wszystkie produkty
+        total_products = db.session.query(QuoteItem.product_index).filter(
+            QuoteItem.quote_id == self.id
+        ).distinct().count()
+    
+        print(f"[apply_total_discount] Łączna liczba produktów w wycenie: {total_products}", file=sys.stderr)
+    
+        if len(selected_items) < total_products:
+            print(f"[apply_total_discount] UWAGA: Nie wszystkie produkty mają wybrany wariant! Wybrane: {len(selected_items)}, Produkty: {total_products}", file=sys.stderr)
     
         affected_count = 0
     
         for item in selected_items:
+            print(f"[apply_total_discount] Przetwarzam item ID={item.id}, variant={item.variant_code}, product_index={item.product_index}, is_selected={item.is_selected}", file=sys.stderr)
             item.apply_discount(discount_percentage, reason_id)
             affected_count += 1
     
+        print(f"[apply_total_discount] Zaktualizowano {affected_count} pozycji", file=sys.stderr)
         return affected_count
 
     def __repr__(self):

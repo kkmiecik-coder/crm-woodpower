@@ -50,4 +50,4 @@ class DiscountReason(db.Model):
     @classmethod
     def get_active_reasons_dict(cls):
         """Zwraca aktywne powody rabatów jako słownik"""
-        return [reason.to_dict() for reason in cls.get_active_reasonsson in cls.get_active_reasons()]
+        return [reason.to_dict() for reason in cls.get_active_reasons()]

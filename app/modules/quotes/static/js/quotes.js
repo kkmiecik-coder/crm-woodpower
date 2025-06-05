@@ -948,8 +948,30 @@ function translateVariantCode(code) {
 async function fetchDiscountReasons() {
     try {
         const response = await fetch('/quotes/api/discount-reasons');
-        discountReasons = await response.json();
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Sprawdź czy response zawiera błąd
+        if (data.error) {
+            console.error("[fetchDiscountReasons] Błąd z API:", data.error);
+            discountReasons = [];
+            return;
+        }
+
+        // Sprawdź czy data jest tablicą
+        if (!Array.isArray(data)) {
+            console.error("[fetchDiscountReasons] Nieprawidłowy format danych - oczekiwano tablicy:", data);
+            discountReasons = [];
+            return;
+        }
+
+        discountReasons = data;
         console.log("[fetchDiscountReasons] Pobrano powody rabatów:", discountReasons);
+
     } catch (error) {
         console.error("[fetchDiscountReasons] Błąd pobierania powodów rabatów:", error);
         discountReasons = [];
@@ -1054,14 +1076,48 @@ function openTotalDiscountModal(quoteData) {
 
     currentQuoteData = quoteData;
 
-    // Pobierz wybrane produkty
+    // Pobierz wybrane produkty (is_selected=true)
     const selectedItems = quoteData.items.filter(item => item.is_selected);
+
+    // Pogrupuj po product_index aby zobaczyć ile produktów ma wybrane warianty
+    const selectedProductsCount = [...new Set(selectedItems.map(item => item.product_index))].length;
+    const totalProductsCount = [...new Set(quoteData.items.map(item => item.product_index))].length;
+
+    console.log(`[openTotalDiscountModal] Wybrane pozycje: ${selectedItems.length}, Wybrane produkty: ${selectedProductsCount}/${totalProductsCount}`);
 
     // Wypełnij informacje
     document.getElementById('total-quote-number').textContent = quoteData.quote_number;
-    document.getElementById('total-products-count').textContent = selectedItems.length;
+    document.getElementById('total-products-count').textContent = `${selectedProductsCount} z ${totalProductsCount}`;
 
-    // Oblicz oryginalną wartość
+    // DODAJ ostrzeżenie jeśli nie wszystkie produkty mają wybrany wariant
+    const warningElement = document.getElementById('products-selection-warning');
+    if (!warningElement) {
+        // Stwórz element ostrzeżenia jeśli nie istnieje
+        const warning = document.createElement('div');
+        warning.id = 'products-selection-warning';
+        warning.className = 'warning-box';
+        warning.style.display = 'none';
+        warning.style.marginTop = '10px';
+
+        // Wstaw przed formularzem edycji
+        const formSection = document.querySelector('#edit-total-discount-modal .edit-form-section');
+        if (formSection) {
+            formSection.parentNode.insertBefore(warning, formSection);
+        }
+    }
+
+    const warningBox = document.getElementById('products-selection-warning');
+    if (selectedProductsCount < totalProductsCount) {
+        warningBox.style.display = 'block';
+        warningBox.innerHTML = `
+            <strong>⚠️ Uwaga:</strong> W wycenie ${totalProductsCount} produktów, ale tylko ${selectedProductsCount} ma wybrany wariant. 
+            Rabat zostanie zastosowany tylko do produktów z wybranym wariantem.
+        `;
+    } else {
+        warningBox.style.display = 'none';
+    }
+
+    // Oblicz oryginalną wartość wybranych pozycji
     const originalValue = selectedItems.reduce((sum, item) => {
         return sum + (item.original_price_brutto || item.final_price_brutto || 0);
     }, 0);
@@ -1086,19 +1142,52 @@ function openTotalDiscountModal(quoteData) {
 // Wypełnianie dropdown powodów rabatu
 function populateDiscountReasons(selectId, selectedReasonId = null) {
     const select = document.getElementById(selectId);
-    if (!select) return;
+    if (!select) {
+        console.warn(`[populateDiscountReasons] Element #${selectId} nie znaleziony`);
+        return;
+    }
 
     // Wyczyść opcje
     select.innerHTML = '<option value="">Wybierz powód...</option>';
 
+    // Sprawdź czy discountReasons jest tablicą
+    if (!Array.isArray(discountReasons)) {
+        console.warn("[populateDiscountReasons] discountReasons nie jest tablicą:", discountReasons);
+
+        // Dodaj opcję informującą o błędzie
+        const errorOption = document.createElement('option');
+        errorOption.value = '';
+        errorOption.textContent = 'Błąd ładowania powodów rabatów';
+        errorOption.disabled = true;
+        select.appendChild(errorOption);
+        return;
+    }
+
+    // Sprawdź czy mamy powody rabatów
+    if (discountReasons.length === 0) {
+        const noDataOption = document.createElement('option');
+        noDataOption.value = '';
+        noDataOption.textContent = 'Brak dostępnych powodów';
+        noDataOption.disabled = true;
+        select.appendChild(noDataOption);
+        return;
+    }
+
     // Dodaj powody rabatów
     discountReasons.forEach(reason => {
+        if (!reason || typeof reason !== 'object') {
+            console.warn("[populateDiscountReasons] Nieprawidłowy obiekt powodu:", reason);
+            return;
+        }
+
         const option = document.createElement('option');
-        option.value = reason.id;
-        option.textContent = reason.name;
+        option.value = reason.id || '';
+        option.textContent = reason.name || 'Nieznany powód';
+
         if (reason.id === selectedReasonId) {
             option.selected = true;
         }
+
         select.appendChild(option);
     });
 }
@@ -1261,12 +1350,18 @@ async function saveVariantChanges() {
 
 // Zapisywanie rabatu całkowitego
 async function saveTotalDiscount() {
-    if (!currentQuoteData) return;
+    if (!currentQuoteData) {
+        console.error("[saveTotalDiscount] Brak currentQuoteData");
+        return;
+    }
 
     const saveBtn = document.getElementById('save-total-discount');
     const discountPercentage = parseFloat(document.getElementById('total-discount-percentage').value) || 0;
     const reasonId = document.getElementById('total-discount-reason').value || null;
     const includeFinishing = document.getElementById('include-finishing-discount').checked;
+
+    // DODAJ logowanie aby sprawdzić ID wyceny
+    console.log(`[saveTotalDiscount] Zapisuję rabat dla wyceny ID: ${currentQuoteData.id} (${currentQuoteData.quote_number})`);
 
     // Walidacja
     if (Math.abs(discountPercentage) > 100) {
@@ -1280,7 +1375,7 @@ async function saveTotalDiscount() {
     }
 
     // Confirm action
-    let confirmMessage = `Na pewno zastosować rabat ${discountPercentage}% do wszystkich produktów w wycenie?`;
+    let confirmMessage = `Na pewno zastosować rabat ${discountPercentage}% do wszystkich produktów w wycenie ${currentQuoteData.quote_number}?`;
     if (includeFinishing) {
         confirmMessage += '\n\nRabat zostanie również zastosowany do wykończenia.';
     }
@@ -1317,8 +1412,8 @@ async function saveTotalDiscount() {
         // Zamknij modal
         closeTotalDiscountModal();
 
-        // Odśwież modal szczegółów wyceny
-        refreshQuoteDetailsModal();
+        // UPEWNIJ SIĘ, że odświeżamy tę samą wycenę
+        await refreshQuoteDetailsModal();
 
         // Pokaż toast sukcesu
         let message = `Rabat został zastosowany do ${result.affected_items} pozycji`;
@@ -1360,14 +1455,35 @@ function closeTotalDiscountModal() {
 
 // Odświeżanie modala szczegółów wyceny
 async function refreshQuoteDetailsModal() {
-    if (!currentQuoteData) return;
+    // SPRAWDŹ czy currentQuoteData jest ustawiona prawidłowo
+    if (!currentQuoteData || !currentQuoteData.id) {
+        console.error("[refreshQuoteDetailsModal] Brak currentQuoteData lub currentQuoteData.id");
+        return;
+    }
+
+    const quoteId = currentQuoteData.id;
+    console.log(`[refreshQuoteDetailsModal] Odświeżam modal dla wyceny ID: ${quoteId}`);
 
     try {
-        const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}`);
+        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const updatedData = await response.json();
+
+        // UPEWNIJ SIĘ, że odświeżamy ten sam modal
+        console.log(`[refreshQuoteDetailsModal] Otrzymano dane dla wyceny: ${updatedData.quote_number}`);
+
+        // Aktualizuj currentQuoteData
+        currentQuoteData = updatedData;
+
         showDetailsModal(updatedData);
+
     } catch (error) {
         console.error("[refreshQuoteDetailsModal] Błąd:", error);
+        showToast('Błąd podczas odświeżania danych wyceny', 'error');
     }
 }
 
