@@ -48,7 +48,7 @@ def verify_reset_token(token, secret_key, salt='password-reset-salt', expiration
 
 def create_app():
     app = Flask(__name__)
-    app.secret_key = ""
+    app.secret_key = "65d769148feb6bc476c6d2120d4abb40069cdfd919c37f99"
     app.jinja_loader = ChoiceLoader([
         app.jinja_loader,
         FileSystemLoader(os.path.join(app.root_path, 'modules'))

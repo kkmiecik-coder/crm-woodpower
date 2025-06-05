@@ -1,6 +1,6 @@
 {
     "DEBUG": true,
-    "DATABASE_URI": "mysql+pymysql://",
+    "DATABASE_URI": "",
     "MAIL_SERVER": "",
     "MAIL_PORT": 587,
     "MAIL_USE_TLS": true,
@@ -13,6 +13,6 @@
     "GLOB_KURIER": {
         "login": "",
         "password": "",
-        "endpoint": "https://api.globkurier.pl/v1"
+        "endpoint": ""
     }
 }
