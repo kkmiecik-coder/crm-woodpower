@@ -233,11 +233,14 @@ def create_app():
         
     import logging
 
-    # Konfiguracja loggera (możesz to zrobić globalnie w aplikacji)
+    # Konfiguracja logowania na początku app.py
     logging.basicConfig(
-        filename="stderr.log",
         level=logging.DEBUG,
-        format="%(asctime)s %(levelname)s: %(message)s"
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('flask_debug.log'),
+            logging.StreamHandler(sys.stdout)
+        ]
     )
 
     @app.route("/settings/prices", methods=["GET", "POST"])
@@ -677,6 +680,21 @@ def create_app():
         formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
         file_handler.setFormatter(formatter)
         app.logger.addHandler(file_handler)
+
+    # LOGI DEBUG na końcu create_app()
+    print("=== FLASK APP DEBUG ===", file=sys.stderr)
+    print(f"Flask app created: {app}", file=sys.stderr)
+    
+    # Sprawdź zarejestrowane blueprinty
+    print("=== REGISTERED BLUEPRINTS ===", file=sys.stderr)
+    for name, blueprint in app.blueprints.items():
+        print(f"Blueprint: {name} -> {blueprint}", file=sys.stderr)
+    
+    # Sprawdź routy związane z wycenami
+    print("=== WYCENA ROUTES ===", file=sys.stderr)
+    for rule in app.url_map.iter_rules():
+        if 'wycena' in str(rule.rule) or 'quotes' in str(rule.endpoint):
+            print(f"Route: {rule.rule} -> {rule.endpoint} [{', '.join(rule.methods)}]", file=sys.stderr)
 
     return app
 

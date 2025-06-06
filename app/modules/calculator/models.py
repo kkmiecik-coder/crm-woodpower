@@ -61,8 +61,14 @@ class Quote(db.Model):
                 return token
 
     def get_public_url(self):
-        """Zwraca URL do publicznej strony wyceny"""
-        return f"/wycena/{self.quote_number}/{self.public_token}"
+        """Generuje publiczny URL dla klienta"""
+        if not self.public_token:
+            self.generate_public_token()
+            # Zapisz token do bazy danych
+            from extensions import db
+            db.session.commit()
+    
+        return f"/quotes/wycena/{self.quote_number}/{self.public_token}"
 
     def disable_client_editing(self):
         """Wyłącza możliwość edycji przez klienta (np. po akceptacji)"""

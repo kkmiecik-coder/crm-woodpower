@@ -17,19 +17,6 @@ import re
 from datetime import datetime
 
 def render_client_error(error_type, error_code=None, error_message=None, error_details=None, quote_number=None):
-    """
-    Renderuje stronę błędu dla klienta z odpowiednimi parametrami
-    
-    Args:
-        error_type (str): Typ błędu ('expired', 'not_found', 'access_denied', 'already_accepted', 'general')
-        error_code (int, optional): Kod błędu HTTP
-        error_message (str, optional): Niestandardowa wiadomość błędu
-        error_details (str, optional): Szczegóły techniczne błędu
-        quote_number (str, optional): Numer wyceny dla kontekstu
-    
-    Returns:
-        Flask response z renderowanym szablonem błędu
-    """
     return render_template(
         'quotes/templates/client_error.html',
         error_type=error_type,
@@ -40,13 +27,6 @@ def render_client_error(error_type, error_code=None, error_message=None, error_d
     ), error_code or 400
 
 def calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto):
-    """
-    Oblicza koszty brutto i netto dla wyceny
-    Założenia:
-    - cost_products_netto i cost_finishing_netto są wartościami netto
-    - cost_shipping_brutto jest wartością brutto
-    - VAT = 23%
-    """
     VAT_RATE = 0.23
     
     # Produkty surowe
@@ -507,30 +487,63 @@ def apply_total_discount(quote_id):
         return jsonify({"error": "Błąd podczas aktualizacji rabatu całkowitego"}), 500
 
 
-@quotes_bp.route("/wycena/<quote_number>/<token>")
+
+@quotes_bp.route("/wycena/<path:quote_number>/<token>", methods=['GET'])
 def client_quote_view(quote_number, token):
-    """Publiczna strona wyceny dla klienta"""
-    print(f"[client_quote_view] Dostęp do wyceny {quote_number} z tokenem {token}", file=sys.stderr)
+    """Publiczna strona wyceny dla klienta - z debugiem"""
+    
+    # SZCZEGÓŁOWE LOGI
+    print(f"[client_quote_view] ===== ROUTING DEBUG =====", file=sys.stderr)
+    print(f"[client_quote_view] Otrzymano quote_number: '{quote_number}' (type: {type(quote_number)})", file=sys.stderr)
+    print(f"[client_quote_view] Otrzymano token: '{token}' (type: {type(token)})", file=sys.stderr)
+    print(f"[client_quote_view] Request path: {request.path}", file=sys.stderr)
+    print(f"[client_quote_view] Request URL: {request.url}", file=sys.stderr)
+    print(f"[client_quote_view] Request method: {request.method}", file=sys.stderr)
     
     try:
+        # Log przed query
+        print(f"[client_quote_view] Szukam w bazie: quote_number='{quote_number}', public_token='{token}'", file=sys.stderr)
+        
+        # Sprawdź ile wycen jest w bazie z tym numerem
+        quotes_with_number = Quote.query.filter_by(quote_number=quote_number).all()
+        print(f"[client_quote_view] Znaleziono {len(quotes_with_number)} wycen z numerem '{quote_number}'", file=sys.stderr)
+        
+        for q in quotes_with_number:
+            print(f"[client_quote_view] Wycena ID={q.id}, quote_number='{q.quote_number}', public_token='{q.public_token}'", file=sys.stderr)
+        
         quote = Quote.query.filter_by(quote_number=quote_number, public_token=token).first()
         
         if not quote:
-            print(f"[client_quote_view] Nie znaleziono wyceny dla numeru {quote_number} i tokenu {token}", file=sys.stderr)
+            print(f"[client_quote_view] ❌ NIE ZNALEZIONO wyceny dla numeru '{quote_number}' i tokenu '{token}'", file=sys.stderr)
+            
+            # Sprawdź wszystkie wyceny z tym tokenem
+            quotes_with_token = Quote.query.filter_by(public_token=token).all()
+            print(f"[client_quote_view] Znaleziono {len(quotes_with_token)} wycen z tokenem '{token}'", file=sys.stderr)
+            
+            for q in quotes_with_token:
+                print(f"[client_quote_view] Token match - ID={q.id}, quote_number='{q.quote_number}'", file=sys.stderr)
+            
             return render_client_error(
                 error_type='not_found',
                 error_code=404,
                 quote_number=quote_number
             )
         
-        # Sprawdź czy wycena nie została już zaakceptowana i wyłączona edycja
-        if not quote.is_client_editable:
+        print(f"[client_quote_view] ✅ ZNALEZIONO wycenę ID={quote.id}", file=sys.stderr)
+        
+        # Sprawdź czy wycena jest edytowalna
+        is_editable = getattr(quote, 'is_client_editable', True)  # domyślnie True jeśli pole nie istnieje
+        print(f"[client_quote_view] is_client_editable: {is_editable}", file=sys.stderr)
+        
+        if not is_editable:
             print(f"[client_quote_view] Wycena {quote_number} została już zaakceptowana", file=sys.stderr)
             return render_client_error(
                 error_type='already_accepted',
                 error_code=403,
                 quote_number=quote_number
             )
+        
+        print(f"[client_quote_view] Renderuję szablon client_quote.html", file=sys.stderr)
         
         # Przekierowanie na szablon strony klienta
         return render_template("quotes/templates/client_quote.html", 
@@ -539,7 +552,10 @@ def client_quote_view(quote_number, token):
                              token=token)
         
     except Exception as e:
-        print(f"[client_quote_view] Błąd: {e}", file=sys.stderr)
+        print(f"[client_quote_view] ❌ BŁĄD: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        
         return render_client_error(
             error_type='general',
             error_code=500,
@@ -821,3 +837,8 @@ def send_acceptance_emails(quote):
         print(f"[send_acceptance_emails] Email do klienta wysłany pomyślnie", file=sys.stderr)
     except Exception as e:
         print(f"[send_acceptance_emails] Błąd wysyłki maila do klienta: {e}", file=sys.stderr)
+
+@quotes_bp.route("/test-routing")
+def test_quotes_routing():
+    """Test czy quotes blueprint działa"""
+    return "Quotes routing działa!"
