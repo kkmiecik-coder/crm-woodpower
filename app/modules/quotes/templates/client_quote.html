@@ -228,344 +228,278 @@
                                 </button>
                             </div>
                         </div>
-                    </section>20 20" fill="currentColor">
-                    <svg>
-                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                    </svg>
-                    <span class="btn-text">Akceptuję wycenę</span>
-                    <span class="btn-loading" style="display: none;">
-                        <span class="spinner-small"></span>
-                        Przetwarzanie...
-                    </span>
+                    </section>
+                </div>
+
+                <!-- Prawa kolumna - podsumowanie (sticky sidebar) -->
+                <aside class="summary-sidebar" id="summary-sidebar" style="display: none;">
+                    <div class="sidebar-content">
+                        <!-- Quote summary -->
+                        <div class="quote-summary-card">
+                            <div class="summary-header">
+                                <h2 class="summary-title">
+                                    <svg class="summary-icon" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
+                                    </svg>
+                                    Podsumowanie
+                                </h2>
+                                <button id="download-pdf-btn" class="btn btn-secondary btn-small" title="Pobierz PDF">
+                                    <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                    PDF
+                                </button>
+                            </div>
+
+                            <div class="summary-content">
+                                <!-- Basic info -->
+                                <div class="summary-basic-info">
+                                    <div class="info-row">
+                                        <span class="info-label">Klient:</span>
+                                        <span class="info-value" id="client-name">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Opiekun:</span>
+                                        <span class="info-value" id="employee-name">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Data:</span>
+                                        <span class="info-value" id="quote-created-date">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Dostawa:</span>
+                                        <span class="info-value" id="courier-name">-</span>
+                                    </div>
+                                </div>
+
+                                <!-- Products breakdown -->
+                                <div class="products-breakdown" id="products-breakdown">
+                                    <!-- Będzie wypełniane przez JavaScript -->
+                                </div>
+
+                                <!-- Price summary -->
+                                <div class="price-summary">
+                                    <div class="price-item">
+                                        <span class="price-label">Wykończenie:</span>
+                                        <div class="price-values">
+                                            <span class="price-brutto" id="finishing-price-brutto">0.00 PLN</span>
+                                            <span class="price-netto" id="finishing-price-netto">0.00 PLN netto</span>
+                                        </div>
+                                    </div>
+                                    <div class="price-item">
+                                        <span class="price-label">Wysyłka:</span>
+                                        <div class="price-values">
+                                            <span class="price-brutto" id="shipping-price-brutto">0.00 PLN</span>
+                                            <span class="price-netto" id="shipping-price-netto">0.00 PLN netto</span>
+                                        </div>
+                                    </div>
+                                    <div class="price-total">
+                                        <span class="total-label">Razem do zapłaty:</span>
+                                        <div class="total-values">
+                                            <span class="total-brutto" id="total-price-brutto">0.00 PLN</span>
+                                            <span class="total-netto" id="total-price-netto">0.00 PLN netto</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Accept section - w sidebar na desktop -->
+                        <div class="sidebar-accept-section" id="sidebar-accept-section" style="display: none;">
+                            <div class="accept-card">
+                                <div class="accept-header">
+                                    <h3 class="accept-title">
+                                        <svg class="accept-icon" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                        </svg>
+                                        Akceptacja wyceny
+                                    </h3>
+                                    <p class="accept-description">
+                                        Jeśli wybrane produkty odpowiadają Twoim oczekiwaniom, możesz zaakceptować wycenę.
+                                    </p>
+                                </div>
+
+                                <!-- Acceptance form -->
+                                <form id="sidebar-acceptance-form" class="acceptance-form">
+                                    <div class="form-group">
+                                        <label for="sidebar-email-phone" class="form-label">
+                                            Email lub numer telefonu *
+                                            <span class="form-hint">Do weryfikacji tożsamości</span>
+                                        </label>
+                                        <input type="text"
+                                               id="sidebar-email-phone"
+                                               name="email_phone"
+                                               class="form-input"
+                                               placeholder="Wpisz swój email lub numer telefonu"
+                                               required>
+                                        <div class="form-error" id="sidebar-email-phone-error"></div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="sidebar-comments" class="form-label">
+                                            Dodatkowe uwagi lub pytania
+                                            <span class="form-hint">Opcjonalne</span>
+                                        </label>
+                                        <textarea id="sidebar-comments"
+                                                  name="comments"
+                                                  class="form-textarea"
+                                                  rows="3"
+                                                  placeholder="Możesz dodać swoje uwagi..."></textarea>
+                                        <div class="character-counter">
+                                            <span id="sidebar-char-count">0</span>/500
+                                        </div>
+                                    </div>
+
+                                    <div class="form-actions">
+                                        <button type="submit" class="btn btn-primary btn-large" id="sidebar-accept-btn">
+                                            <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                            </svg>
+                                            <span class="btn-text">Akceptuję wycenę</span>
+                                            <span class="btn-loading" style="display: none;">
+                                                <span class="spinner-small"></span>
+                                                Przetwarzanie...
+                                            </span>
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Accepted section - w sidebar po akceptacji -->
+                        <div class="sidebar-accepted-section" id="sidebar-accepted-section" style="display: none;">
+                            <div class="accepted-card">
+                                <div class="accepted-icon">
+                                    <svg viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                                    </svg>
+                                </div>
+                                <h3 class="accepted-title">Dziękujemy!</h3>
+                                <p class="accepted-description">
+                                    Wycena została zaakceptowana i przekazana do realizacji.
+                                </p>
+
+                                <!-- Kontakt po akceptacji -->
+                                <div class="contact-info">
+                                    <h4>Kontakt:</h4>
+                                    <div class="contact-methods">
+                                        <a href="mailto:biuro@woodpower.pl" class="contact-method">
+                                            <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                                                <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                                            </svg>
+                                            <span>biuro@woodpower.pl</span>
+                                        </a>
+                                        <a href="tel:+48690002109" class="contact-method">
+                                            <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                                            </svg>
+                                            <span>+48 690 002 109</span>
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <!-- Notatki klienta po akceptacji w sidebar -->
+                                <div class="client-notes" id="sidebar-client-notes" style="display: none;">
+                                    <h4>Twoje uwagi:</h4>
+                                    <div class="notes-content" id="sidebar-client-notes-content">
+                                        <!-- Notatki klienta będą wczytane przez JavaScript -->
+                                    </div>
+                                </div>
+
+                                <div class="accepted-actions">
+                                    <button id="sidebar-download-final-pdf" class="btn btn-secondary">
+                                        <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                        Pobierz PDF
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+
+            <!-- Mobile bottom panel -->
+            <div class="mobile-summary-panel" id="mobile-summary-panel">
+                <div class="panel-toggle" id="panel-toggle">
+                    <div class="panel-summary">
+                        <span class="panel-total" id="mobile-total">0.00 PLN</span>
+                        <span class="panel-items" id="mobile-items-count">0 produktów</span>
+                    </div>
+                    <button class="panel-expand-btn" id="panel-expand-btn">
+                        <svg class="expand-icon" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd" />
+                        </svg>
                     </button>
                 </div>
-                </form>
-            </div>
-            </section>
 
-            <!-- Quote accepted section - pokazuje się po akceptacji -->
-            <section class="accepted-section" id="accepted-section" style="display: none;">
-                <div class="accepted-card">
-                    <div class="accepted-icon">
-                        <svg viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                        </svg>
-                    </div>
-                    <h2 class="accepted-title">Dziękujemy za akceptację!</h2>
-                    <p class="accepted-description">
-                        Twoja wycena została zaakceptowana i przekazana do realizacji.
-                        Wkrótce skontaktujemy się z Tobą w sprawie dalszych kroków.
-                    </p>
-
-                    <!-- Kontakt po akceptacji -->
-                    <div class="contact-info">
-                        <h3>W razie pytań jesteśmy do dyspozycji:</h3>
-                        <div class="contact-methods">
-                            <a href="mailto:biuro@woodpower.pl" class="contact-method">
-                                <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
-                                    <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
-                                    <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-                                </svg>
-                                <span>biuro@woodpower.pl</span>
-                            </a>
-                            <a href="tel:+48690002109" class="contact-method">
-                                <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
-                                    <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
-                                </svg>
-                                <span>+48 690 002 109</span>
-                            </a>
-                        </div>
-                    </div>
-
-                    <!-- Notatki klienta po akceptacji -->
-                    <div class="client-notes" id="client-notes" style="display: none;">
-                        <h3>Twoje uwagi:</h3>
-                        <div class="notes-content" id="client-notes-content">
-                            <!-- Notatki klienta będą wczytane przez JavaScript -->
-                        </div>
-                    </div>
-
-                    <div class="accepted-actions">
-                        <button id="download-final-pdf" class="btn btn-secondary">
-                            <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                            </svg>
-                            Pobierz potwierdzenie PDF
-                        </button>
-                    </div>
-                </div>
-            </section>
-        </div>
-
-        <!-- Prawa kolumna - podsumowanie (sticky sidebar) -->
-        <aside class="summary-sidebar" id="summary-sidebar" style="display: none;">
-            <div class="sidebar-content">
-                <!-- Quote summary -->
-                <div class="quote-summary-card">
-                    <div class="summary-header">
-                        <h2 class="summary-title">
-                            <svg class="summary-icon" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
-                            </svg>
-                            Podsumowanie
-                        </h2>
-                        <button id="download-pdf-btn" class="btn btn-secondary btn-small" title="Pobierz PDF">
-                            <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                            </svg>
-                            PDF
-                        </button>
-                    </div>
-
-                    <div class="summary-content">
+                <div class="panel-details" id="panel-details">
+                    <!-- Kopia podsumowania z sidebar dla mobile -->
+                    <div class="mobile-summary-content">
                         <!-- Basic info -->
-                        <div class="summary-basic-info">
+                        <div class="mobile-summary-basic-info">
                             <div class="info-row">
                                 <span class="info-label">Klient:</span>
-                                <span class="info-value" id="client-name">-</span>
+                                <span class="info-value" id="mobile-client-name">-</span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Opiekun:</span>
-                                <span class="info-value" id="employee-name">-</span>
+                                <span class="info-value" id="mobile-employee-name">-</span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Data:</span>
-                                <span class="info-value" id="quote-created-date">-</span>
+                                <span class="info-value" id="mobile-quote-created-date">-</span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Dostawa:</span>
-                                <span class="info-value" id="courier-name">-</span>
+                                <span class="info-value" id="mobile-courier-name">-</span>
                             </div>
                         </div>
 
-                        <!-- Products breakdown -->
-                        <div class="products-breakdown" id="products-breakdown">
+                        <!-- Products breakdown mobile -->
+                        <div class="mobile-products-breakdown" id="mobile-products-breakdown">
                             <!-- Będzie wypełniane przez JavaScript -->
                         </div>
 
-                        <!-- Price summary -->
-                        <div class="price-summary">
+                        <!-- Price summary mobile -->
+                        <div class="mobile-price-summary">
                             <div class="price-item">
                                 <span class="price-label">Wykończenie:</span>
                                 <div class="price-values">
-                                    <span class="price-brutto" id="finishing-price-brutto">0.00 PLN</span>
-                                    <span class="price-netto" id="finishing-price-netto">0.00 PLN netto</span>
+                                    <span class="price-brutto" id="mobile-finishing-price-brutto">0.00 PLN</span>
+                                    <span class="price-netto" id="mobile-finishing-price-netto">0.00 PLN netto</span>
                                 </div>
                             </div>
                             <div class="price-item">
                                 <span class="price-label">Wysyłka:</span>
                                 <div class="price-values">
-                                    <span class="price-brutto" id="shipping-price-brutto">0.00 PLN</span>
-                                    <span class="price-netto" id="shipping-price-netto">0.00 PLN netto</span>
+                                    <span class="price-brutto" id="mobile-shipping-price-brutto">0.00 PLN</span>
+                                    <span class="price-netto" id="mobile-shipping-price-netto">0.00 PLN netto</span>
                                 </div>
                             </div>
                             <div class="price-total">
                                 <span class="total-label">Razem:</span>
                                 <div class="total-values">
-                                    <span class="total-brutto" id="total-price-brutto">0.00 PLN</span>
-                                    <span class="total-netto" id="total-price-netto">0.00 PLN netto</span>
+                                    <span class="total-brutto" id="mobile-total-price-brutto">0.00 PLN</span>
+                                    <span class="total-netto" id="mobile-total-price-netto">0.00 PLN netto</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <!-- Accept section - w sidebar na desktop -->
-                <div class="sidebar-accept-section" id="sidebar-accept-section" style="display: none;">
-                    <div class="accept-card">
-                        <div class="accept-header">
-                            <h3 class="accept-title">
-                                <svg class="accept-icon" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                </svg>
-                                Akceptacja wyceny
-                            </h3>
-                            <p class="accept-description">
-                                Jeśli wybrane produkty odpowiadają Twoim oczekiwaniom, możesz zaakceptować wycenę.
-                            </p>
-                        </div>
-
-                        <!-- Acceptance form -->
-                        <form id="sidebar-acceptance-form" class="acceptance-form">
-                            <div class="form-group">
-                                <label for="sidebar-email-phone" class="form-label">
-                                    Email lub numer telefonu *
-                                    <span class="form-hint">Do weryfikacji tożsamości</span>
-                                </label>
-                                <input type="text"
-                                       id="sidebar-email-phone"
-                                       name="email_phone"
-                                       class="form-input"
-                                       placeholder="Wpisz swój email lub numer telefonu"
-                                       required>
-                                <div class="form-error" id="sidebar-email-phone-error"></div>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="sidebar-comments" class="form-label">
-                                    Dodatkowe uwagi lub pytania
-                                    <span class="form-hint">Opcjonalne</span>
-                                </label>
-                                <textarea id="sidebar-comments"
-                                          name="comments"
-                                          class="form-textarea"
-                                          rows="3"
-                                          placeholder="Możesz dodać swoje uwagi..."></textarea>
-                                <div class="character-counter">
-                                    <span id="sidebar-char-count">0</span>/500
-                                </div>
-                            </div>
-
-                            <div class="form-actions">
-                                <button type="submit" class="btn btn-primary btn-large" id="sidebar-accept-btn">
-                                    <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                    </svg>
-                                    <span class="btn-text">Akceptuję wycenę</span>
-                                    <span class="btn-loading" style="display: none;">
-                                        <span class="spinner-small"></span>
-                                        Przetwarzanie...
-                                    </span>
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- Accepted section - w sidebar po akceptacji -->
-                <div class="sidebar-accepted-section" id="sidebar-accepted-section" style="display: none;">
-                    <div class="accepted-card">
-                        <div class="accepted-icon">
-                            <svg viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                            </svg>
-                        </div>
-                        <h3 class="accepted-title">Dziękujemy!</h3>
-                        <p class="accepted-description">
-                            Wycena została zaakceptowana i przekazana do realizacji.
-                        </p>
-
-                        <!-- Kontakt po akceptacji -->
-                        <div class="contact-info">
-                            <h4>Kontakt:</h4>
-                            <div class="contact-methods">
-                                <a href="mailto:biuro@woodpower.pl" class="contact-method">
-                                    <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
-                                        <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
-                                        <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-                                    </svg>
-                                    <span>biuro@woodpower.pl</span>
-                                </a>
-                                <a href="tel:+48690002109" class="contact-method">
-                                    <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
-                                        <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
-                                    </svg>
-                                    <span>+48 690 002 109</span>
-                                </a>
-                            </div>
-                        </div>
-
-                        <!-- Notatki klienta po akceptacji w sidebar -->
-                        <div class="client-notes" id="sidebar-client-notes" style="display: none;">
-                            <h4>Twoje uwagi:</h4>
-                            <div class="notes-content" id="sidebar-client-notes-content">
-                                <!-- Notatki klienta będą wczytane przez JavaScript -->
-                            </div>
-                        </div>
-
-                        <div class="accepted-actions">
-                            <button id="sidebar-download-final-pdf" class="btn btn-secondary">
+                        <!-- Mobile actions -->
+                        <div class="mobile-panel-actions">
+                            <button id="mobile-download-pdf-btn" class="btn btn-secondary btn-small" title="Pobierz PDF">
                                 <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
                                 </svg>
-                                Pobierz PDF
+                                PDF
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
-        </aside>
-        </div>
-
-        <!-- Mobile bottom panel -->
-        <div class="mobile-summary-panel" id="mobile-summary-panel">
-            <div class="panel-toggle" id="panel-toggle">
-                <div class="panel-summary">
-                    <span class="panel-total" id="mobile-total">0.00 PLN</span>
-                    <span class="panel-items" id="mobile-items-count">0 produktów</span>
-                </div>
-                <button class="panel-expand-btn" id="panel-expand-btn">
-                    <svg class="expand-icon" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd" />
-                    </svg>
-                </button>
-            </div>
-
-            <div class="panel-details" id="panel-details">
-                <!-- Kopia podsumowania z sidebar dla mobile -->
-                <div class="mobile-summary-content">
-                    <!-- Basic info -->
-                    <div class="mobile-summary-basic-info">
-                        <div class="info-row">
-                            <span class="info-label">Klient:</span>
-                            <span class="info-value" id="mobile-client-name">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Opiekun:</span>
-                            <span class="info-value" id="mobile-employee-name">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Data:</span>
-                            <span class="info-value" id="mobile-quote-created-date">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Dostawa:</span>
-                            <span class="info-value" id="mobile-courier-name">-</span>
-                        </div>
-                    </div>
-
-                    <!-- Products breakdown mobile -->
-                    <div class="mobile-products-breakdown" id="mobile-products-breakdown">
-                        <!-- Będzie wypełniane przez JavaScript -->
-                    </div>
-
-                    <!-- Price summary mobile -->
-                    <div class="mobile-price-summary">
-                        <div class="price-item">
-                            <span class="price-label">Wykończenie:</span>
-                            <div class="price-values">
-                                <span class="price-brutto" id="mobile-finishing-price-brutto">0.00 PLN</span>
-                                <span class="price-netto" id="mobile-finishing-price-netto">0.00 PLN netto</span>
-                            </div>
-                        </div>
-                        <div class="price-item">
-                            <span class="price-label">Wysyłka:</span>
-                            <div class="price-values">
-                                <span class="price-brutto" id="mobile-shipping-price-brutto">0.00 PLN</span>
-                                <span class="price-netto" id="mobile-shipping-price-netto">0.00 PLN netto</span>
-                            </div>
-                        </div>
-                        <div class="price-total">
-                            <span class="total-label">Razem:</span>
-                            <div class="total-values">
-                                <span class="total-brutto" id="mobile-total-price-brutto">0.00 PLN</span>
-                                <span class="total-netto" id="mobile-total-price-netto">0.00 PLN netto</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Mobile actions -->
-                    <div class="mobile-panel-actions">
-                        <button id="mobile-download-pdf-btn" class="btn btn-secondary btn-small" title="Pobierz PDF">
-                            <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                            </svg>
-                            PDF
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
         </div>
     </main>
 
@@ -620,7 +554,7 @@
 
             <div class="footer-bottom">
                 <p class="footer-copyright">
-                    © 2024 Wood Power. Wszystkie prawa zastrzeżone.
+                    © 2025 Wood Power. Wszystkie prawa zastrzeżone.
                 </p>
             </div>
         </div>
