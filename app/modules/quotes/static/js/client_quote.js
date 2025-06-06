@@ -1,387 +1,90 @@
-// ===================================
-// CLIENT QUOTE JS - Wood Power
-// Main logic for client quote page
-// ===================================
+// Aktualizujemy klasy CSS
+banner.className = `quote-status-banner ${statusClass}`;
 
-console.log("[ClientQuote] Script loaded");
+// Aktualizujemy teksty
+if (statusTitle) {
+    statusTitle.textContent = title;
+}
+if (statusDescription) {
+    statusDescription.textContent = description;
+}
 
-// Global state
-let quoteData = null;
-let isLoading = false;
-let selectedVariants = new Map(); // product_index -> item_id
+// Pokazujemy banner
+banner.style.display = 'flex';
 
-// DOM elements
-const elements = {
-    loadingOverlay: null,
-    alertContainer: null,
-    quoteSummary: null,
-    productsSection: null,
-    acceptSection: null,
-    successSection: null,
+/**
+ * Renderuje notatki sprzedawcy jeśli istnieją
+ */
+renderSellerNotes: () => {
+    const data = globalState.quoteData;
+    const notesSection = utils.getCachedElement('seller-notes');
+    const notesContent = utils.getCachedElement('seller-notes-content');
 
-    // Summary elements
-    quoteNumber: null,
-    quoteStatus: null,
-    quoteDate: null,
-    clientName: null,
-    employeeName: null,
-    courierName: null,
-    quoteCreatedDate: null,
-    productsPrice: null,
-    finishingPrice: null,
-    shippingPrice: null,
-    totalPrice: null,
+    if (!notesSection || !notesContent) return;
 
-    // Products
-    productsContainer: null,
-
-    // Form elements
-    acceptanceForm: null,
-    emailPhoneInput: null,
-    commentsInput: null,
-    acceptBtn: null,
-
-    // PDF buttons
-    downloadPdfBtn: null,
-    downloadFinalPdf: null
-};
-
-// Utility functions
-const utils = {
-    // Format currency
-    formatCurrency: (amount) => {
-        if (amount === null || amount === undefined) return "0.00 PLN";
-        return `${parseFloat(amount).toFixed(2)} PLN`;
-    },
-
-    // Format date
-    formatDate: (dateString) => {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('pl-PL', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    },
-
-    // Format short date
-    formatShortDate: (dateString) => {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('pl-PL');
-    },
-
-    // Translate variant codes
-    translateVariantCode: (code) => {
-        const translations = {
-            'dab-lity-ab': 'Dąb lity A/B',
-            'dab-lity-bb': 'Dąb lity B/B',
-            'dab-micro-ab': 'Dąb mikrowczep A/B',
-            'dab-micro-bb': 'Dąb mikrowczep B/B',
-            'jes-lity-ab': 'Jesion lity A/B',
-            'jes-micro-ab': 'Jesion mikrowczep A/B',
-            'buk-lity-ab': 'Buk lity A/B',
-            'buk-micro-ab': 'Buk mikrowczep A/B'
-        };
-        return translations[code] || code || 'Nieznany wariant';
-    },
-
-    // Validate email
-    isValidEmail: (email) => {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
-    },
-
-    // Validate phone
-    isValidPhone: (phone) => {
-        const phoneRegex = /^[0-9+\s\-()]{7,}$/;
-        return phoneRegex.test(phone.trim());
-    },
-
-    // Debounce function
-    debounce: (func, wait) => {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    },
-
-    // Show/hide loading overlay
-    setLoading: (loading) => {
-        isLoading = loading;
-        if (elements.loadingOverlay) {
-            if (loading) {
-                elements.loadingOverlay.classList.remove('hide');
-            } else {
-                elements.loadingOverlay.classList.add('hide');
-            }
-        }
+    // Sprawdzamy czy są notatki sprzedawcy (będzie dodane w backend)
+    if (data.seller_notes && data.seller_notes.trim()) {
+        notesContent.innerHTML = data.seller_notes.replace(/\n/g, '<br>');
+        notesSection.style.display = 'block';
+    } else {
+        notesSection.style.display = 'none';
     }
-};
 
-// Alert system
-const alerts = {
-    show: (message, type = 'info', duration = 5000) => {
-        if (!elements.alertContainer) return;
-
-        console.log(`[Alert] ${type.toUpperCase()}: ${message}`);
-
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type}`;
-
-        const icon = alerts.getIcon(type);
-
-        alert.innerHTML = `
-            ${icon}
-            <div class="alert-content">
-                <p>${message}</p>
-            </div>
-            <button class="alert-close" aria-label="Zamknij alert">
-                <svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                </svg>
-            </button>
-        `;
-
-        // Add close functionality
-        const closeBtn = alert.querySelector('.alert-close');
-        closeBtn.addEventListener('click', () => alerts.hide(alert));
-
-        elements.alertContainer.appendChild(alert);
-
-        // Auto-hide after duration
-        if (duration > 0) {
-            setTimeout(() => alerts.hide(alert), duration);
-        }
-
-        return alert;
-    },
-
-    hide: (alertElement) => {
-        if (alertElement && alertElement.parentNode) {
-            alertElement.style.opacity = '0';
-            alertElement.style.transform = 'translateY(-20px)';
-            setTimeout(() => {
-                if (alertElement.parentNode) {
-                    alertElement.parentNode.removeChild(alertElement);
-                }
-            }, 300);
-        }
-    },
-
-    clear: () => {
-        if (elements.alertContainer) {
-            elements.alertContainer.innerHTML = '';
-        }
-    },
-
-    getIcon: (type) => {
-        const icons = {
-            success: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-            </svg>`,
-            error: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-            </svg>`,
-            warning: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-            </svg>`,
-            info: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
-            </svg>`
-        };
-        return icons[type] || icons.info;
-    }
-};
-
-// API functions
-const api = {
-    // Base API call with error handling
-    call: async (url, options = {}) => {
-        try {
-            console.log(`[API] ${options.method || 'GET'} ${url}`);
-
-            const defaultOptions = {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            };
-
-            const response = await fetch(url, { ...defaultOptions, ...options });
-            const data = await response.json();
-
-            if (!response.ok) {
-                console.error(`[API] Error ${response.status}:`, data);
-                throw new Error(data.message || `HTTP error ${response.status}`);
-            }
-
-            console.log(`[API] Success:`, data);
-            return data;
-        } catch (error) {
-            console.error(`[API] Request failed:`, error);
-            throw error;
-        }
-    },
-
-    // Get quote data
-    getQuoteData: async (token) => {
-        return api.call(`/quotes/api/client/quote/${token}`);
-    },
-
-    // Update variant selection (tylko item_id)
-    updateVariant: async (token, itemId) => {
-        return api.call(`/quotes/api/client/quote/${token}/update-variant`, {
-            method: 'PATCH',
-            body: JSON.stringify({
-                item_id: itemId
-            })
-        });
-    },
-
-    // Accept quote
-    acceptQuote: async (token, emailOrPhone, comments = '') => {
-        return api.call(`/quotes/api/client/quote/${token}/accept`, {
-            method: 'POST',
-            body: JSON.stringify({
-                email_or_phone: emailOrPhone,
-                comments: comments
-            })
-        });
-    }
-};
-
-// Quote data management
-const quote = {
-    // Load quote data from API
-    load: async () => {
-        try {
-            utils.setLoading(true);
-            alerts.clear();
-
-            const token = window.QUOTE_TOKEN;
-            if (!token) {
-                throw new Error('Brak tokenu wyceny');
-            }
-
-            quoteData = await api.getQuoteData(token);
-            console.log('[Quote] Data loaded:', quoteData);
-
-            // Initialize selected variants map
-            selectedVariants.clear();
-            if (quoteData.items) {
-                quoteData.items.forEach(item => {
-                    if (item.is_selected) {
-                        selectedVariants.set(item.product_index, item.id);
-                    }
-                });
-            }
-
-            quote.render();
-
-        } catch (error) {
-            console.error('[Quote] Failed to load data:', error);
-            quote.handleError(error);
-        } finally {
-            utils.setLoading(false);
-        }
-    },
-
-    // Render quote data to DOM
-    render: () => {
-        if (!quoteData) return;
-
-        console.log('[Quote] Rendering data');
-
-        // Update summary
-        quote.renderSummary();
-
-        // Update products
-        quote.renderProducts();
-
-        // Show sections
-        quote.showSections();
-    },
-
-    // Render summary section
-    renderSummary: () => {
-        if (!quoteData) return;
-
-        // Basic info
-        if (elements.quoteNumber) elements.quoteNumber.textContent = quoteData.quote_number || '-';
-        if (elements.quoteStatus) elements.quoteStatus.textContent = quoteData.status_name || 'Aktywna';
-        if (elements.quoteDate) elements.quoteDate.textContent = utils.formatShortDate(quoteData.created_at);
-
-        // Client and employee info
-        if (elements.clientName) elements.clientName.textContent = quoteData.client?.client_name || '-';
-        if (elements.employeeName) {
-            const firstName = quoteData.user?.first_name || '';
-            const lastName = quoteData.user?.last_name || '';
-            elements.employeeName.textContent = `${firstName} ${lastName}`.trim() || '-';
-        }
-        if (elements.courierName) elements.courierName.textContent = quoteData.courier_name || '-';
-        if (elements.quoteCreatedDate) elements.quoteCreatedDate.textContent = utils.formatDate(quoteData.created_at);
-
-        // Pricing
-        if (quoteData.costs) {
-            if (elements.productsPrice) elements.productsPrice.textContent = utils.formatCurrency(quoteData.costs.products?.brutto);
-            if (elements.finishingPrice) elements.finishingPrice.textContent = utils.formatCurrency(quoteData.costs.finishing?.brutto);
-            if (elements.shippingPrice) elements.shippingPrice.textContent = utils.formatCurrency(quoteData.costs.shipping?.brutto);
-            if (elements.totalPrice) elements.totalPrice.textContent = utils.formatCurrency(quoteData.costs.total?.brutto);
-        }
-    },
-
-    // Render products section
-    renderProducts: () => {
-        if (!quoteData || !elements.productsContainer) return;
+    /**
+     * Renderuje sekcję produktów
+     */
+    renderProducts; () => {
+        const container = utils.getCachedElement('products-container');
+        if (!container || !globalState.quoteData) return;
 
         console.log('[Quote] Rendering products');
 
-        // Group items by product_index
+        // Grupujemy pozycje według product_index
         const groupedItems = {};
-        quoteData.items.forEach(item => {
+        globalState.quoteData.items.forEach(item => {
             if (!groupedItems[item.product_index]) {
                 groupedItems[item.product_index] = [];
             }
             groupedItems[item.product_index].push(item);
         });
 
-        // Clear container
-        elements.productsContainer.innerHTML = '';
+        // Czyścimy kontener
+        container.innerHTML = '';
 
-        // Render each product group
-        Object.keys(groupedItems).sort((a, b) => parseInt(a) - parseInt(b)).forEach(productIndex => {
-            const items = groupedItems[productIndex];
-            const productGroup = quote.createProductGroup(parseInt(productIndex), items);
-            elements.productsContainer.appendChild(productGroup);
-        });
+        // Renderujemy każdą grupę produktów
+        Object.keys(groupedItems)
+            .sort((a, b) => parseInt(a) - parseInt(b))
+            .forEach(productIndex => {
+                const items = groupedItems[productIndex];
+                const productGroup = quote.createProductGroup(parseInt(productIndex), items);
+                container.appendChild(productGroup);
+            });
     },
 
-    // Create product group element
-    createProductGroup: (productIndex, items) => {
+        /**
+         * Tworzy grupę produktów (jeden produkt z wariantami)
+         * @param {number} productIndex - Indeks produktu
+         * @param {Array} items - Lista wariantów produktu
+         * @returns {HTMLElement} Element grupy produktów
+         */
+    createProductGroup; (productIndex, items) => {
         const selectedItem = items.find(item => item.is_selected) || items[0];
-        const finishing = quoteData.finishing?.find(f => f.product_index === productIndex);
+        const finishing = globalState.quoteData.finishing?.find(f => f.product_index === productIndex);
 
         const group = document.createElement('div');
         group.className = 'product-group';
+
+        // Header produktu z podstawowymi informacjami
+        const headerHTML = quote.createProductHeaderHTML(productIndex, selectedItem, finishing);
+
+        // Grid wariantów
+        const variantsHTML = items.map(item => quote.createVariantCardHTML(item)).join('');
+
         group.innerHTML = `
-            <div class="product-header">
-                <h3 class="product-title">Produkt ${productIndex}</h3>
-                <div class="product-summary">
-                    <div><strong>Wymiary:</strong> ${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm</div>
-                    <div><strong>Objętość:</strong> ${selectedItem.volume_m3?.toFixed(3) || '0.000'} m³</div>
-                    ${finishing ? `<div><strong>Wykończenie:</strong> ${quote.formatFinishing(finishing)}</div>` : ''}
-                </div>
-            </div>
+            ${headerHTML}
             <div class="product-variants">
-                <div class="variant-grid" id="variants-${productIndex}">
-                    ${items.map(item => quote.createVariantCard(item)).join('')}
+                <div class="variant-grid">
+                    ${variantsHTML}
                 </div>
             </div>
         `;
@@ -389,79 +92,122 @@ const quote = {
         return group;
     },
 
-    // Create variant card element
-    createVariantCard: (item) => {
-        const isSelected = selectedVariants.get(item.product_index) === item.id;
-        const variantName = utils.translateVariantCode(item.variant_code);
+        /**
+         * Tworzy HTML nagłówka produktu
+         * @param {number} productIndex - Indeks produktu
+         * @param {Object} selectedItem - Wybrany wariant
+         * @param {Object} finishing - Dane wykończenia
+         * @returns {string} HTML nagłówka
+         */
+    createProductHeaderHTML; (productIndex, selectedItem, finishing) => {
+        const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
+        const volume = selectedItem.volume_m3?.toFixed(3) || '0.000';
 
-        // Calculate prices
-        const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
-        const originalPrice = hasDiscount ? (item.original_price_brutto || item.final_price_brutto) : null;
-        const finalPrice = item.final_price_brutto;
+        let finishingHTML = '';
+        if (finishing) {
+            const finishingParts = [
+                finishing.variant,
+                finishing.type,
+                finishing.color,
+                finishing.gloss
+            ].filter(Boolean);
+
+            const finishingDisplay = finishingParts.length > 0 ? finishingParts.join(' - ') : 'Brak wykończenia';
+            finishingHTML = `<div><strong>Wykończenie:</strong> ${finishingDisplay}</div>`;
+        }
 
         return `
-            <div class="variant-card ${isSelected ? 'selected' : ''}" 
-                 data-item-id="${item.id}" 
-                 data-product-index="${item.product_index}"
-                 onclick="quote.selectVariant(${item.id}, ${item.product_index})">
-                
-                <div class="variant-header">
-                    <div>
-                        <div class="variant-name">${variantName}</div>
-                    </div>
-                    <div class="variant-badge ${isSelected ? 'selected' : 'available'}">
-                        ${isSelected ? 'Wybrane' : 'Dostępne'}
-                    </div>
-                </div>
-                
-                <div class="variant-details">
-                    <div class="variant-detail">
-                        <span class="detail-label">Cena za m³</span>
-                        <span class="detail-value">${utils.formatCurrency(item.price_per_m3)}</span>
-                    </div>
-                    <div class="variant-detail">
-                        <span class="detail-label">Objętość</span>
-                        <span class="detail-value">${item.volume_m3?.toFixed(3) || '0.000'} m³</span>
-                    </div>
-                    <div class="variant-detail">
-                        <span class="detail-label">Wymiary</span>
-                        <span class="detail-value">${item.length_cm}×${item.width_cm}×${item.thickness_cm} cm</span>
-                    </div>
-                    <div class="variant-detail">
-                        <span class="detail-label">Mnożnik</span>
-                        <span class="detail-value">${item.multiplier || '1.0'}</span>
-                    </div>
-                </div>
-                
-                <div class="variant-price">
-                    ${hasDiscount && originalPrice ? `
-                        <div class="price-original">${utils.formatCurrency(originalPrice)}</div>
-                        <div class="price-discount">Rabat ${item.discount_percentage}%</div>
-                    ` : ''}
-                    <div class="price-final">${utils.formatCurrency(finalPrice)}</div>
+            <div class="product-header">
+                <div class="product-title">Produkt ${productIndex}</div>
+                <div class="product-summary">
+                    <div><strong>Wymiary:</strong> ${dimensions}</div>
+                    <div><strong>Objętość:</strong> ${volume} m³</div>
+                    ${finishingHTML}
                 </div>
             </div>
         `;
     },
 
-    // Format finishing details
-    formatFinishing: (finishing) => {
-        const parts = [
-            finishing.variant,
-            finishing.type,
-            finishing.color,
-            finishing.gloss
-        ].filter(Boolean);
+        /**
+         * Tworzy HTML karty wariantu - KOMPAKTOWY DESIGN
+         * @param {Object} item - Dane wariantu
+         * @returns {string} HTML karty wariantu
+         */
+    createVariantCardHTM; (item) => {
+        const isSelected = globalState.selectedVariants.get(item.product_index) === item.id;
+        const variantName = utils.translateVariantCode(item.variant_code);
 
-        return parts.length > 0 ? parts.join(' - ') : 'Brak wykończenia';
+        // Sprawdzamy czy wariant ma rabat
+        const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
+        const originalPrice = hasDiscount ? (item.original_price_brutto || item.final_price_brutto) : null;
+        const finalPrice = item.final_price_brutto;
+
+        // Badge status - zmieniony tekst
+        const badgeText = isSelected ? 'Wybrane' : 'Kliknij, aby wybrać';
+        const badgeClass = isSelected ? 'selected' : 'available';
+
+        // Kompaktowe wyświetlanie cen - tylko najważniejsze
+        let priceHTML = `<div class="price-final">${utils.formatCurrency(finalPrice)}</div>`;
+
+        if (hasDiscount && originalPrice) {
+            priceHTML = `
+                <div class="price-final">${utils.formatCurrency(finalPrice)}</div>
+                <div class="price-breakdown">
+                    <span class="price-original">${utils.formatCurrency(originalPrice)}</span>
+                    <span class="price-discount">Rabat ${item.discount_percentage}%</span>
+                </div>
+            `;
+        } else {
+            // Pokazujemy brutto i netto w kompaktowy sposób
+            priceHTML += `
+                <div class="price-breakdown">
+                    <span>Brutto: ${utils.formatCurrency(finalPrice)}</span>
+                    <span>Netto: ${utils.formatCurrency(item.final_price_netto)}</span>
+                </div>
+            `;
+        }
+
+        // Sprawdzamy czy wariant jest edytowalny
+        const isEditable = globalState.isQuoteEditable ? 'true' : 'false';
+        const clickHandler = globalState.isQuoteEditable ? `onclick="quote.selectVariant(${item.id}, ${item.product_index})"` : '';
+
+        return `
+            <div class="variant-card ${isSelected ? 'selected' : ''}" 
+                 data-item-id="${item.id}" 
+                 data-product-index="${item.product_index}"
+                 data-editable="${isEditable}"
+                 ${clickHandler}>
+                
+                <div class="variant-header">
+                    <div class="variant-name">${variantName}</div>
+                    <div class="variant-badge ${badgeClass}">
+                        ${badgeText}
+                    </div>
+                </div>
+                
+                <div class="variant-price">
+                    ${priceHTML}
+                </div>
+            </div>
+        `;
     },
 
-    // Select variant
-    selectVariant: async (itemId, productIndex) => {
-        if (isLoading) return;
+        /**
+         * Wybiera wariant produktu
+         * @param {number} itemId - ID wariantu do wybrania
+         * @param {number} productIndex - Indeks produktu
+         */
+        selectVariant; async (itemId, productIndex) => {
+        // Sprawdzamy czy wycena jest edytowalna
+        if (!globalState.isQuoteEditable) {
+            alerts.show('Wycena została już zaakceptowana i nie można jej modyfikować.', 'info');
+            return;
+        }
 
-        // Check if already selected
-        if (selectedVariants.get(productIndex) === itemId) {
+        if (globalState.isLoading) return;
+
+        // Sprawdzamy czy wariant jest już wybrany
+        if (globalState.selectedVariants.get(productIndex) === itemId) {
             console.log('[Quote] Variant already selected');
             return;
         }
@@ -469,19 +215,19 @@ const quote = {
         try {
             console.log(`[Quote] Selecting variant ${itemId} for product ${productIndex}`);
 
-            // Set loading state for variant card
+            // Ustawiamy stan loading dla karty wariantu
             const variantCard = document.querySelector(`[data-item-id="${itemId}"]`);
             if (variantCard) {
                 variantCard.setAttribute('data-loading', 'true');
             }
 
-            // Make API call (tylko item_id, bez email/phone)
+            // Wykonujemy żądanie API
             await api.updateVariant(window.QUOTE_TOKEN, itemId);
 
-            // Update local state
-            selectedVariants.set(productIndex, itemId);
+            // Aktualizujemy lokalny stan
+            globalState.selectedVariants.set(productIndex, itemId);
 
-            // Reload quote data to get updated prices
+            // Przeładowujemy dane wyceny dla zaktualizowanych cen
             await quote.load();
 
             console.log('[Quote] Variant changed successfully');
@@ -491,7 +237,7 @@ const quote = {
             console.error('[Quote] Failed to select variant:', error);
             alerts.show(error.message || 'Nie udało się zmienić wariantu', 'error');
 
-            // Remove loading state
+            // Usuwamy stan loading
             const variantCard = document.querySelector(`[data-item-id="${itemId}"]`);
             if (variantCard) {
                 variantCard.removeAttribute('data-loading');
@@ -499,82 +245,274 @@ const quote = {
         }
     },
 
-    // Show sections after data is loaded
-    showSections: () => {
-        if (elements.quoteSummary) elements.quoteSummary.style.display = 'block';
-        if (elements.productsSection) elements.productsSection.style.display = 'block';
-        if (elements.acceptSection) elements.acceptSection.style.display = 'block';
+        /**
+         * Pokazuje odpowiednie sekcje po załadowaniu danych
+         */
+    showSections; () => {
+        // Zawsze pokazujemy sekcję produktów
+        const productsSection = utils.getCachedElement('products-section');
+        if (productsSection) {
+            productsSection.style.display = 'block';
+        }
+
+        // Pokazujemy sidebar (desktop) lub mobile panel
+        const sidebar = utils.getCachedElement('summary-sidebar');
+        const mobilePanel = utils.getCachedElement('mobile-summary-panel');
+
+        if (utils.isMobileView()) {
+            // Mobile view
+            if (sidebar) sidebar.style.display = 'none';
+            if (mobilePanel) mobilePanel.style.display = 'block';
+        } else {
+            // Desktop view
+            if (sidebar) sidebar.style.display = 'block';
+            if (mobilePanel) mobilePanel.style.display = 'none';
+        }
     },
 
-    // Handle API errors
-    handleError: (error) => {
-        console.error('[Quote] Error:', error);
+        /**
+         * Obsługuje stan akceptacji wyceny
+         */
+        handleAcceptanceState; () => {
+        const isMobile = utils.isMobileView();
 
-        let message = 'Wystąpił błąd podczas ładowania wyceny';
-        let type = 'error';
+        if (globalState.isQuoteAccepted) {
+            // Wycena zaakceptowana - pokazujemy sekcję accepted
+            quote.showAcceptedSections(isMobile);
+        } else {
+            // Wycena edytowalna - pokazujemy formularz akceptacji
+            quote.showAcceptanceSections(isMobile);
+        }
+    },
 
-        if (error.message) {
-            if (error.message.includes('not_found')) {
-                message = 'Wycena nie została znaleziona';
-            } else if (error.message.includes('already_accepted')) {
-                message = 'Ta wycena została już zaakceptowana';
-                type = 'info';
-            } else if (error.message.includes('expired')) {
-                message = 'Link do wyceny wygasł';
-            } else {
-                message = error.message;
+        /**
+         * Pokazuje sekcje po akceptacji wyceny
+         * @param {boolean} isMobile - Czy to widok mobilny
+         */
+    showAcceptedSections; (isMobile) => {
+        if (isMobile) {
+            const mobileAcceptedSection = utils.getCachedElement('mobile-accepted-section');
+            if (mobileAcceptedSection) {
+                mobileAcceptedSection.style.display = 'block';
+            }
+
+            // Ukrywamy formularz akceptacji
+            const mobileAcceptSection = utils.getCachedElement('mobile-accept-section');
+            if (mobileAcceptSection) {
+                mobileAcceptSection.style.display = 'none';
+            }
+        } else {
+            const sidebarAcceptedSection = utils.getCachedElement('sidebar-accepted-section');
+            if (sidebarAcceptedSection) {
+                sidebarAcceptedSection.style.display = 'block';
+            }
+
+            // Ukrywamy formularz akceptacji w sidebar
+            const sidebarAcceptSection = utils.getCachedElement('sidebar-accept-section');
+            if (sidebarAcceptSection) {
+                sidebarAcceptSection.style.display = 'none';
             }
         }
 
-        alerts.show(message, type, 0); // Don't auto-hide error messages
-    }
-};
+        // Pokazujemy notatki klienta jeśli istnieją
+        quote.showClientNotes();
+    },
 
-// Form handling
-const form = {
-    // Initialize form
-    init: () => {
-        if (!elements.acceptanceForm) return;
+        /**
+         * Pokazuje sekcje z formularzem akceptacji
+         * @param {boolean} isMobile - Czy to widok mobilny
+         */
+    showAcceptanceSections; (isMobile) => {
+        if (isMobile) {
+            const mobileAcceptSection = utils.getCachedElement('mobile-accept-section');
+            if (mobileAcceptSection) {
+                mobileAcceptSection.style.display = 'block';
+            }
 
-        console.log('[Form] Initializing');
+            // Ukrywamy sekcję accepted
+            const mobileAcceptedSection = utils.getCachedElement('mobile-accepted-section');
+            if (mobileAcceptedSection) {
+                mobileAcceptedSection.style.display = 'none';
+            }
+        } else {
+            const sidebarAcceptSection = utils.getCachedElement('sidebar-accept-section');
+            if (sidebarAcceptSection) {
+                sidebarAcceptSection.style.display = 'block';
+            }
 
-        // Add event listeners
-        elements.acceptanceForm.addEventListener('submit', form.handleSubmit);
-
-        if (elements.emailPhoneInput) {
-            elements.emailPhoneInput.addEventListener('input', utils.debounce(form.validateEmailPhone, 300));
-            elements.emailPhoneInput.addEventListener('blur', form.validateEmailPhone);
+            // Ukrywamy sekcję accepted w sidebar
+            const sidebarAcceptedSection = utils.getCachedElement('sidebar-accepted-section');
+            if (sidebarAcceptedSection) {
+                sidebarAcceptedSection.style.display = 'none';
+            }
         }
     },
 
-    // Handle form submission
-    handleSubmit: async (event) => {
+        /**
+         * Pokazuje notatki klienta po akceptacji
+         */
+    showClientNotes; () => {
+        const data = globalState.quoteData;
+        if (!data || !data.client_comments) return;
+
+        // Desktop - sidebar
+        const sidebarClientNotes = utils.getCachedElement('sidebar-client-notes');
+        const sidebarClientNotesContent = utils.getCachedElement('sidebar-client-notes-content');
+
+        if (sidebarClientNotes && sidebarClientNotesContent) {
+            sidebarClientNotesContent.innerHTML = data.client_comments.replace(/\n/g, '<br>');
+            sidebarClientNotes.style.display = 'block';
+        }
+
+        // Mobile
+        const mobileClientNotes = utils.getCachedElement('mobile-client-notes');
+        const mobileClientNotesContent = utils.getCachedElement('mobile-client-notes-content');
+
+        if (mobileClientNotes && mobileClientNotesContent) {
+            mobileClientNotesContent.innerHTML = data.client_comments.replace(/\n/g, '<br>');
+            mobileClientNotes.style.display = 'block';
+        }
+    },
+
+        /**
+         * Obsługuje błędy ładowania wyceny
+         * @param {Error} error - Błąd do obsłużenia
+         */
+        handleError; (error) => {
+                                                console.error('[Quote] Error:', error);
+
+                                                let message = 'Wystąpił błąd podczas ładowania wyceny';
+                                                let type = 'error';
+
+                                                if (error.message) {
+                                                    if (error.message.includes('not_found')) {
+                                                        message = 'Wycena nie została znaleziona';
+                                                    } else if (error.message.includes('already_accepted')) {
+                                                        message = 'Ta wycena została już zaakceptowana';
+                                                        type = 'info';
+                                                    } else if (error.message.includes('expired')) {
+                                                        message = 'Link do wyceny wygasł';
+                                                    } else {
+                                                        message = error.message;
+                                                    }
+                                                }
+
+                                                alerts.show(message, type, 0); // Nie ukrywaj automatycznie błędów
+                                            }
+};
+
+// ===================================
+// FORM HANDLING
+// Obsługa formularzy akceptacji
+// ===================================
+
+/**
+ * Form module - obsługuje formularze akceptacji wyceny
+ * Zarządza walidacją i wysyłaniem formularzy
+ */
+const form = {
+    /**
+     * Inicjalizuje obsługę formularzy
+     */
+    init: () => {
+        console.log('[Form] Initializing forms');
+
+        // Inicjalizujemy formularze desktop i mobile
+        form.initDesktopForm();
+        form.initMobileForm();
+    },
+
+    /**
+     * Inicjalizuje formularz desktop (sidebar)
+     */
+    initDesktopForm: () => {
+        const desktopForm = utils.getCachedElement('sidebar-acceptance-form');
+        const emailInput = utils.getCachedElement('sidebar-email-phone');
+        const commentsInput = utils.getCachedElement('sidebar-comments');
+
+        if (desktopForm) {
+            desktopForm.addEventListener('submit', form.handleDesktopSubmit);
+        }
+
+        if (emailInput) {
+            emailInput.addEventListener('input', utils.debounce(() => form.validateEmailPhone('sidebar'), 300));
+            emailInput.addEventListener('blur', () => form.validateEmailPhone('sidebar'));
+        }
+
+        if (commentsInput) {
+            form.setupCharacterCounter('sidebar');
+        }
+    },
+
+    /**
+     * Inicjalizuje formularz mobile
+     */
+    initMobileForm: () => {
+        const mobileForm = utils.getCachedElement('mobile-acceptance-form');
+        const emailInput = utils.getCachedElement('mobile-email-phone');
+        const commentsInput = utils.getCachedElement('mobile-comments');
+
+        if (mobileForm) {
+            mobileForm.addEventListener('submit', form.handleMobileSubmit);
+        }
+
+        if (emailInput) {
+            emailInput.addEventListener('input', utils.debounce(() => form.validateEmailPhone('mobile'), 300));
+            emailInput.addEventListener('blur', () => form.validateEmailPhone('mobile'));
+        }
+
+        if (commentsInput) {
+            form.setupCharacterCounter('mobile');
+        }
+    },
+
+    /**
+     * Obsługuje wysłanie formularza desktop
+     * @param {Event} event - Event formularza
+     */
+    handleDesktopSubmit: async (event) => {
         event.preventDefault();
+        await form.handleSubmit('sidebar');
+    },
 
-        if (isLoading) return;
+    /**
+     * Obsługuje wysłanie formularza mobile
+     * @param {Event} event - Event formularza
+     */
+    handleMobileSubmit: async (event) => {
+        event.preventDefault();
+        await form.handleSubmit('mobile');
+    },
 
-        console.log('[Form] Submitting acceptance form');
+    /**
+     * Główna logika obsługi wysłania formularza
+     * @param {string} prefix - Prefiks elementów (sidebar/mobile)
+     */
+    handleSubmit: async (prefix) => {
+        if (globalState.isLoading) return;
 
-        // Validate form
-        if (!form.validate()) {
+        console.log(`[Form] Submitting ${prefix} acceptance form`);
+
+        // Walidujemy formularz
+        if (!form.validate(prefix)) {
             return;
         }
 
         try {
-            // Set loading state
-            form.setSubmitting(true);
+            // Ustawiamy stan loading
+            form.setSubmitting(prefix, true);
             alerts.clear();
 
-            const emailOrPhone = elements.emailPhoneInput.value.trim();
-            const comments = elements.commentsInput?.value?.trim() || '';
+            const emailOrPhone = utils.getCachedElement(`${prefix}-email-phone`).value.trim();
+            const comments = utils.getCachedElement(`${prefix}-comments`)?.value?.trim() || '';
 
-            // Submit acceptance
+            // Wysyłamy akceptację
             await api.acceptQuote(window.QUOTE_TOKEN, emailOrPhone, comments);
 
             console.log('[Form] Quote accepted successfully');
 
-            // Show success section
-            form.showSuccess();
+            // Przeładowujemy dane wyceny
+            await quote.load();
 
             alerts.show('Dziękujemy! Wycena została zaakceptowana i przekazana do realizacji.', 'success');
 
@@ -582,49 +520,61 @@ const form = {
             console.error('[Form] Acceptance failed:', error);
             alerts.show(error.message || 'Nie udało się zaakceptować wyceny', 'error');
         } finally {
-            form.setSubmitting(false);
+            form.setSubmitting(prefix, false);
         }
     },
 
-    // Validate entire form
-    validate: () => {
+    /**
+     * Waliduje formularz
+     * @param {string} prefix - Prefiks elementów (sidebar/mobile)
+     * @returns {boolean} Czy formularz jest prawidłowy
+     */
+    validate: (prefix) => {
         let isValid = true;
 
-        // Validate email/phone
-        if (!form.validateEmailPhone()) {
+        // Walidujemy email/telefon
+        if (!form.validateEmailPhone(prefix)) {
             isValid = false;
         }
 
         return isValid;
     },
 
-    // Validate email/phone field
-    validateEmailPhone: () => {
-        if (!elements.emailPhoneInput) return true;
+    /**
+     * Waliduje pole email/telefon
+     * @param {string} prefix - Prefiks elementów (sidebar/mobile)
+     * @returns {boolean} Czy pole jest prawidłowe
+     */
+    validateEmailPhone: (prefix) => {
+        const input = utils.getCachedElement(`${prefix}-email-phone`);
+        const errorElement = utils.getCachedElement(`${prefix}-email-phone-error`);
 
-        const value = elements.emailPhoneInput.value.trim();
-        const errorElement = document.getElementById('email-phone-error');
+        if (!input) return true;
 
-        // Clear previous error
-        elements.emailPhoneInput.classList.remove('error');
-        if (errorElement) errorElement.classList.remove('show');
+        const value = input.value.trim();
+
+        // Czyścimy poprzednie błędy
+        input.classList.remove('error');
+        if (errorElement) {
+            errorElement.classList.remove('show');
+        }
 
         if (!value) {
-            form.showFieldError('email-phone', 'To pole jest wymagane');
+            form.showFieldError(prefix, 'email-phone', 'To pole jest wymagane');
             return false;
         }
 
-        // Check if it's email or phone
+        // Sprawdzamy czy to email czy telefon
         const isEmail = value.includes('@');
 
         if (isEmail) {
             if (!utils.isValidEmail(value)) {
-                form.showFieldError('email-phone', 'Wprowadź prawidłowy adres email');
+                form.showFieldError(prefix, 'email-phone', 'Wprowadź prawidłowy adres email');
                 return false;
             }
         } else {
             if (!utils.isValidPhone(value)) {
-                form.showFieldError('email-phone', 'Wprowadź prawidłowy numer telefonu');
+                form.showFieldError(prefix, 'email-phone', 'Wprowadź prawidłowy numer telefonu');
                 return false;
             }
         }
@@ -632,10 +582,15 @@ const form = {
         return true;
     },
 
-    // Show field error
-    showFieldError: (fieldId, message) => {
-        const field = document.getElementById(fieldId);
-        const errorElement = document.getElementById(`${fieldId}-error`);
+    /**
+     * Pokazuje błąd pola
+     * @param {string} prefix - Prefiks elementów
+     * @param {string} fieldName - Nazwa pola
+     * @param {string} message - Komunikat błędu
+     */
+    showFieldError: (prefix, fieldName, message) => {
+        const field = utils.getCachedElement(`${prefix}-${fieldName}`);
+        const errorElement = utils.getCachedElement(`${prefix}-${fieldName}-error`);
 
         if (field) field.classList.add('error');
         if (errorElement) {
@@ -644,14 +599,19 @@ const form = {
         }
     },
 
-    // Set form submitting state
-    setSubmitting: (submitting) => {
-        if (!elements.acceptBtn) return;
+    /**
+     * Ustawia stan wysyłania formularza
+     * @param {string} prefix - Prefiks elementów
+     * @param {boolean} submitting - Czy formularz jest wysyłany
+     */
+    setSubmitting: (prefix, submitting) => {
+        const btn = utils.getCachedElement(`${prefix}-accept-btn`);
+        if (!btn) return;
 
-        elements.acceptBtn.disabled = submitting;
+        btn.disabled = submitting;
 
-        const btnText = elements.acceptBtn.querySelector('.btn-text');
-        const btnLoading = elements.acceptBtn.querySelector('.btn-loading');
+        const btnText = btn.querySelector('.btn-text');
+        const btnLoading = btn.querySelector('.btn-loading');
 
         if (btnText && btnLoading) {
             if (submitting) {
@@ -664,639 +624,990 @@ const form = {
         }
     },
 
-    // Show success section
-    showSuccess: () => {
-        // Hide other sections
-        if (elements.quoteSummary) elements.quoteSummary.style.display = 'none';
-        if (elements.productsSection) elements.productsSection.style.display = 'none';
-        if (elements.acceptSection) elements.acceptSection.style.display = 'none';
-
-        // Show success section
-        if (elements.successSection) {
-            elements.successSection.style.display = 'block';
-            elements.successSection.scrollIntoView({ behavior: 'smooth' });
-        }
-    }
-};
-
-// PDF functionality
-const pdf = {
-    // Download PDF
-    download: (type = 'pdf') => {
-        if (!quoteData) return;
-
-        console.log(`[PDF] Downloading ${type}`);
-
-        const url = `/quotes/api/quotes/${quoteData.id}/pdf.${type}`;
-        window.open(url, '_blank');
-    },
-
-    // Initialize PDF buttons
-    init: () => {
-        if (elements.downloadPdfBtn) {
-            elements.downloadPdfBtn.addEventListener('click', () => pdf.download('pdf'));
-        }
-
-        if (elements.downloadFinalPdf) {
-            elements.downloadFinalPdf.addEventListener('click', () => pdf.download('pdf'));
-        }
-    }
-};
-
-// Initialize everything when DOM is ready
-document.addEventListener('DOMContentLoaded', async () => {
-    console.log('[ClientQuote] DOM ready, initializing...');
-
-    // Cache DOM elements
-    elements.loadingOverlay = document.getElementById('loading-overlay');
-    elements.alertContainer = document.getElementById('alert-container');
-    elements.quoteSummary = document.getElementById('quote-summary');
-    elements.productsSection = document.getElementById('products-section');
-    elements.acceptSection = document.getElementById('accept-section');
-    elements.successSection = document.getElementById('success-section');
-
-    // Summary elements
-    elements.quoteNumber = document.getElementById('quote-number');
-    elements.quoteStatus = document.getElementById('quote-status');
-    elements.quoteDate = document.getElementById('quote-date');
-    elements.clientName = document.getElementById('client-name');
-    elements.employeeName = document.getElementById('employee-name');
-    elements.courierName = document.getElementById('courier-name');
-    elements.quoteCreatedDate = document.getElementById('quote-created-date');
-    elements.productsPrice = document.getElementById('products-price');
-    elements.finishingPrice = document.getElementById('finishing-price');
-    elements.shippingPrice = document.getElementById('shipping-price');
-    elements.totalPrice = document.getElementById('total-price');
-
-    // Products
-    elements.productsContainer = document.getElementById('products-container');
-
-    // Form elements
-    elements.acceptanceForm = document.getElementById('acceptance-form');
-    elements.emailPhoneInput = document.getElementById('email-phone');
-    elements.commentsInput = document.getElementById('comments');
-    elements.acceptBtn = document.getElementById('accept-btn');
-
-    // PDF buttons
-    elements.downloadPdfBtn = document.getElementById('download-pdf-btn');
-    elements.downloadFinalPdf = document.getElementById('download-final-pdf');
-
-    // Initialize modules
-    form.init();
-    pdf.init();
-
-    // Load quote data
-    await quote.load();
-
-    console.log('[ClientQuote] Initialization complete');
-});
-
-// Global functions for inline event handlers
-window.quote = quote;
-
-// Error handling for unhandled promise rejections
-window.addEventListener('unhandledrejection', event => {
-    console.error('[ClientQuote] Unhandled promise rejection:', event.reason);
-    alerts.show('Wystąpił nieoczekiwany błąd', 'error');
-});
-
-// ===================================
-// ADDITIONAL FEATURES - Wood Power
-// Copy link, Progress indicator, Tooltips
-// ===================================
-
-// Dodaj do client_quote.js (na końcu pliku, przed debug helpers)
-
-// Link copying functionality
-const linkCopy = {
-    // Copy current page URL to clipboard
-    copyCurrentLink: async () => {
-        try {
-            const url = window.location.href;
-
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                // Modern clipboard API
-                await navigator.clipboard.writeText(url);
-                alerts.show('Link został skopiowany do schowka! 📋', 'success', 3000);
-            } else {
-                // Fallback for older browsers
-                linkCopy.fallbackCopyTextToClipboard(url);
-            }
-
-            console.log('[LinkCopy] URL copied to clipboard:', url);
-
-        } catch (error) {
-            console.error('[LinkCopy] Failed to copy:', error);
-            alerts.show('Nie udało się skopiować linku', 'error');
-        }
-    },
-
-    // Fallback method for older browsers
-    fallbackCopyTextToClipboard: async (text) => {
-        // Jeżeli dostępne jest nowoczesne API, użyj go
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            try {
-                await navigator.clipboard.writeText(text);
-                alerts.show('Link został skopiowany do schowka! 📋', 'success', 3000);
-                return;
-            } catch (err) {
-                console.error('[LinkCopy] Clipboard API failed:', err);
-                // Przejdź dalej do manualnego kopiowania
-            }
-        }
-
-        // Fallback do execCommand
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.top = '0';
-        textArea.style.left = '0';
-        textArea.style.position = 'fixed';
-        textArea.style.opacity = '0';
-
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-
-        try {
-            // @ts-ignore: potrzebne dla starszych przeglądarek, mimo że execCommand jest deprecated
-            const successful = document.execCommand('copy');
-            if (successful) {
-                alerts.show('Link został skopiowany do schowka! 📋', 'success', 3000);
-            } else {
-                throw new Error('Copy command failed');
-            }
-        } catch (error) {
-            console.error('[LinkCopy] Fallback copy failed:', error);
-
-            // Pokaż instrukcję ręcznego kopiowania
-            const shortUrl = text.length > 50 ? text.substring(0, 50) + '...' : text;
-            alerts.show(`Skopiuj link ręcznie: ${shortUrl}`, 'info', 8000);
-        }
-
-        document.body.removeChild(textArea);
-    },
-
-    // Initialize copy link functionality
-    init: () => {
-        // Add copy button to header if not exists
-        const headerActions = document.querySelector('.summary-actions');
-        if (headerActions && !document.getElementById('copy-link-btn')) {
-            const copyBtn = document.createElement('button');
-            copyBtn.id = 'copy-link-btn';
-            copyBtn.className = 'btn btn-secondary';
-            copyBtn.title = 'Skopiuj link do wyceny';
-            copyBtn.innerHTML = `
-                <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z"/>
-                    <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z"/>
-                </svg>
-                Kopiuj link
-            `;
-            copyBtn.addEventListener('click', linkCopy.copyCurrentLink);
-            headerActions.appendChild(copyBtn);
-        }
-
-        // Add keyboard shortcut (Ctrl+K or Cmd+K)
-        document.addEventListener('keydown', (event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
-                event.preventDefault();
-                linkCopy.copyCurrentLink();
-            }
-        });
-
-        console.log('[LinkCopy] Initialized (Ctrl+K to copy)');
-    }
-};
-
-// Progress indicator for multi-step process
-const progressIndicator = {
-    steps: [
-        { id: 'review', label: 'Przeglądanie', description: 'Sprawdź szczegóły wyceny' },
-        { id: 'select', label: 'Wybór wariantów', description: 'Wybierz odpowiednie warianty produktów' },
-        { id: 'accept', label: 'Akceptacja', description: 'Zaakceptuj wycenę i złóż zamówienie' },
-        { id: 'complete', label: 'Zakończone', description: 'Wycena została zaakceptowana' }
-    ],
-
-    currentStep: 0,
-
-    // Create progress indicator HTML
-    create: () => {
-        const progressHTML = `
-            <div class="progress-indicator" id="progress-indicator">
-                ${progressIndicator.steps.map((step, index) => `
-                    <div class="progress-step ${index === 0 ? 'active' : ''}" data-step="${step.id}">
-                        <div class="progress-dot"></div>
-                        <span class="progress-label">${step.label}</span>
-                    </div>
-                    ${index < progressIndicator.steps.length - 1 ? '<div class="progress-line"></div>' : ''}
-                `).join('')}
-            </div>
-        `;
-
-        return progressHTML;
-    },
-
-    // Update progress step
-    setStep: (stepIndex) => {
-        if (stepIndex < 0 || stepIndex >= progressIndicator.steps.length) return;
-
-        progressIndicator.currentStep = stepIndex;
-        const indicator = document.getElementById('progress-indicator');
-        if (!indicator) return;
-
-        const steps = indicator.querySelectorAll('.progress-step');
-        steps.forEach((step, index) => {
-            step.classList.remove('active', 'completed');
-
-            if (index < stepIndex) {
-                step.classList.add('completed');
-            } else if (index === stepIndex) {
-                step.classList.add('active');
-            }
-        });
-
-        console.log(`[Progress] Step ${stepIndex}: ${progressIndicator.steps[stepIndex].label}`);
-    },
-
-    // Initialize progress indicator
-    init: () => {
-        // Add progress indicator to page
-        const mainContent = document.querySelector('.client-main .container');
-        if (mainContent && !document.getElementById('progress-indicator')) {
-            const progressDiv = document.createElement('div');
-            progressDiv.innerHTML = progressIndicator.create();
-
-            // Insert after breadcrumb
-            const breadcrumb = document.querySelector('.breadcrumb');
-            if (breadcrumb) {
-                breadcrumb.parentNode.insertBefore(progressDiv.firstElementChild, breadcrumb.nextSibling);
-            } else {
-                mainContent.insertBefore(progressDiv.firstElementChild, mainContent.firstChild);
-            }
-        }
-
-        // Set initial step
-        progressIndicator.setStep(0);
-
-        console.log('[Progress] Initialized');
-    },
-
-    // Auto-advance based on user actions
-    autoAdvance: () => {
-        // Advance to step 1 (Select) when user scrolls to products
-        const productsSection = document.getElementById('products-section');
-        if (productsSection) {
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting && progressIndicator.currentStep === 0) {
-                        progressIndicator.setStep(1);
-                    }
-                });
-            }, { threshold: 0.3 });
-
-            observer.observe(productsSection);
-        }
-
-        // Advance to step 2 (Accept) when user scrolls to form
-        const acceptSection = document.getElementById('accept-section');
-        if (acceptSection) {
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting && progressIndicator.currentStep <= 1) {
-                        progressIndicator.setStep(2);
-                    }
-                });
-            }, { threshold: 0.3 });
-
-            observer.observe(acceptSection);
-        }
-    }
-};
-
-// Enhanced tooltips system
-const tooltips = {
-    // Add tooltip to element
-    add: (element, text, position = 'top') => {
-        if (!element) return;
-
-        element.setAttribute('data-tooltip', text);
-        element.setAttribute('data-tooltip-position', position);
-        element.classList.add('tooltip');
-
-        // Add event listeners
-        element.addEventListener('mouseenter', tooltips.show);
-        element.addEventListener('mouseleave', tooltips.hide);
-        element.addEventListener('focus', tooltips.show);
-        element.addEventListener('blur', tooltips.hide);
-    },
-
-    // Show tooltip
-    show: (event) => {
-        const element = event.target;
-        const text = element.getAttribute('data-tooltip');
-        const position = element.getAttribute('data-tooltip-position') || 'top';
-
-        if (!text) return;
-
-        // Remove existing tooltip
-        tooltips.hide();
-
-        // Create tooltip element
-        const tooltip = document.createElement('div');
-        tooltip.className = `tooltip-popup tooltip-${position}`;
-        tooltip.textContent = text;
-        tooltip.id = 'active-tooltip';
-
-        document.body.appendChild(tooltip);
-
-        // Position tooltip
-        const rect = element.getBoundingClientRect();
-        const tooltipRect = tooltip.getBoundingClientRect();
-
-        let top, left;
-
-        switch (position) {
-            case 'top':
-                top = rect.top - tooltipRect.height - 8;
-                left = rect.left + (rect.width - tooltipRect.width) / 2;
-                break;
-            case 'bottom':
-                top = rect.bottom + 8;
-                left = rect.left + (rect.width - tooltipRect.width) / 2;
-                break;
-            case 'left':
-                top = rect.top + (rect.height - tooltipRect.height) / 2;
-                left = rect.left - tooltipRect.width - 8;
-                break;
-            case 'right':
-                top = rect.top + (rect.height - tooltipRect.height) / 2;
-                left = rect.right + 8;
-                break;
-        }
-
-        // Keep tooltip within viewport
-        top = Math.max(8, Math.min(top, window.innerHeight - tooltipRect.height - 8));
-        left = Math.max(8, Math.min(left, window.innerWidth - tooltipRect.width - 8));
-
-        tooltip.style.top = `${top}px`;
-        tooltip.style.left = `${left}px`;
-
-        // Animate in
-        requestAnimationFrame(() => {
-            tooltip.classList.add('visible');
-        });
-    },
-
-    // Hide tooltip
-    hide: () => {
-        const existingTooltip = document.getElementById('active-tooltip');
-        if (existingTooltip) {
-            existingTooltip.classList.remove('visible');
-            setTimeout(() => {
-                if (existingTooltip.parentNode) {
-                    existingTooltip.parentNode.removeChild(existingTooltip);
-                }
-            }, 200);
-        }
-    },
-
-    // Initialize tooltips for common elements
-    init: () => {
-        // Add tooltips to buttons
-        const downloadBtn = document.getElementById('download-pdf-btn');
-        if (downloadBtn) {
-            tooltips.add(downloadBtn, 'Pobierz wycenę w formacie PDF');
-        }
-
-        const copyBtn = document.getElementById('copy-link-btn');
-        if (copyBtn) {
-            tooltips.add(copyBtn, 'Skopiuj link do tej wyceny (Ctrl+K)');
-        }
-
-        // Add tooltips to variant cards (will be added dynamically)
-        document.addEventListener('click', (event) => {
-            if (event.target.closest('.variant-card')) {
-                const card = event.target.closest('.variant-card');
-                if (!card.getAttribute('data-tooltip')) {
-                    tooltips.add(card, 'Kliknij, aby wybrać ten wariant', 'bottom');
-                }
-            }
-        });
-
-        console.log('[Tooltips] Initialized');
-    }
-};
-
-// Enhanced form experience
-const formEnhancements = {
-    // Add form progress saving
-    saveProgress: () => {
-        if (!elements.emailPhoneInput) return;
-
-        const formData = {
-            emailPhone: elements.emailPhoneInput.value,
-            comments: elements.commentsInput?.value || '',
-            timestamp: Date.now()
-        };
-
-        try {
-            localStorage.setItem('quoteFormProgress', JSON.stringify(formData));
-        } catch (error) {
-            console.warn('[FormEnhancements] Could not save progress:', error);
-        }
-    },
-
-    // Restore form progress
-    restoreProgress: () => {
-        try {
-            const saved = localStorage.getItem('quoteFormProgress');
-            if (!saved) return;
-
-            const formData = JSON.parse(saved);
-            const ageHours = (Date.now() - formData.timestamp) / (1000 * 60 * 60);
-
-            // Only restore if less than 24 hours old
-            if (ageHours > 24) {
-                localStorage.removeItem('quoteFormProgress');
-                return;
-            }
-
-            if (elements.emailPhoneInput && formData.emailPhone) {
-                elements.emailPhoneInput.value = formData.emailPhone;
-            }
-
-            if (elements.commentsInput && formData.comments) {
-                elements.commentsInput.value = formData.comments;
-            }
-
-            console.log('[FormEnhancements] Progress restored');
-
-        } catch (error) {
-            console.warn('[FormEnhancements] Could not restore progress:', error);
-            localStorage.removeItem('quoteFormProgress');
-        }
-    },
-
-    // Add real-time character counter for comments
-    addCharacterCounter: () => {
-        if (!elements.commentsInput) return;
+    /**
+     * Konfiguruje licznik znaków dla textarea
+     * @param {string} prefix - Prefiks elementów
+     */
+    setupCharacterCounter: (prefix) => {
+        const textarea = utils.getCachedElement(`${prefix}-comments`);
+        const counter = utils.getCachedElement(`${prefix}-char-count`);
+
+        if (!textarea || !counter) return;
 
         const maxLength = 500;
-        const counter = document.createElement('div');
-        counter.className = 'character-counter';
-        counter.innerHTML = `<span id="char-count">0</span>/${maxLength}`;
+        textarea.setAttribute('maxlength', maxLength);
 
-        elements.commentsInput.parentNode.appendChild(counter);
-        elements.commentsInput.setAttribute('maxlength', maxLength);
+        textarea.addEventListener('input', () => {
+            const count = textarea.value.length;
+            counter.textContent = count;
 
-        elements.commentsInput.addEventListener('input', () => {
-            const count = elements.commentsInput.value.length;
-            document.getElementById('char-count').textContent = count;
-
-            counter.classList.toggle('near-limit', count > maxLength * 0.9);
+            const counterElement = counter.parentElement;
+            if (counterElement) {
+                counterElement.classList.toggle('near-limit', count > maxLength * 0.9);
+            }
         });
+    }
+};
+
+// ===================================
+// MOBILE PANEL MANAGEMENT
+// Zarządzanie mobile bottom panel
+// ===================================
+
+/**
+ * MobilePanel - zarządza dolnym panelem na urządzeniach mobilnych
+ */
+const mobilePanel = {
+    /**
+     * Inicjalizuje mobile panel
+     */
+    init: () => {
+        const panel = utils.getCachedElement('mobile-summary-panel');
+        const toggleBtn = utils.getCachedElement('panel-expand-btn');
+
+        if (!panel || !toggleBtn) return;
+
+        toggleBtn.addEventListener('click', mobilePanel.toggle);
+
+        console.log('[MobilePanel] Initialized');
     },
 
-    // Initialize form enhancements
-    init: () => {
-        // Restore previous progress
-        formEnhancements.restoreProgress();
+    /**
+     * Przełącza stan rozwinięcia panelu
+     */
+    toggle: () => {
+        const panel = utils.getCachedElement('mobile-summary-panel');
+        if (!panel) return;
 
-        // Save progress on input
-        if (elements.emailPhoneInput) {
-            elements.emailPhoneInput.addEventListener('input',
-                utils.debounce(formEnhancements.saveProgress, 1000)
-            );
+        globalState.isMobilePanelExpanded = !globalState.isMobilePanelExpanded;
+
+        if (globalState.isMobilePanelExpanded) {
+            panel.classList.add('expanded');
+        } else {
+            panel.classList.remove('expanded');
         }
 
-        if (elements.commentsInput) {
-            elements.commentsInput.addEventListener('input',
-                utils.debounce(formEnhancements.saveProgress, 1000)
-            );
-        }
-
-        // Add character counter
-        formEnhancements.addCharacterCounter();
-
-        // Clear saved progress on successful submission
-        const originalShowSuccess = form.showSuccess;
-        form.showSuccess = () => {
-            localStorage.removeItem('quoteFormProgress');
-            originalShowSuccess();
-        };
-
-        console.log('[FormEnhancements] Initialized');
+        console.log('[MobilePanel] Toggled:', globalState.isMobilePanelExpanded);
     }
 };
 
-// Performance monitoring
-const performance = {
-    startTime: Date.now(),
+// ===================================
+// PDF FUNCTIONALITY
+// Obsługa pobierania PDF
+// ===================================
 
-    // Mark performance milestones
-    mark: (label) => {
-        const time = Date.now() - performance.startTime;
-        console.log(`[Performance] ${label}: ${time}ms`);
+/**
+ * PDF module - obsługuje pobieranie wyceny w formacie PDF
+ */
+const pdf = {
+    /**
+     * Inicjalizuje obsługę PDF
+     */
+    init: () => {
+        // Desktop PDF button
+        const desktopBtn = utils.getCachedElement('download-pdf-btn');
+        if (desktopBtn) {
+            desktopBtn.addEventListener('click', () => pdf.download('pdf'));
+        }
 
-        // Send to analytics if available
-        if (window.gtag) {
-            window.gtag('event', 'timing_complete', {
-                name: label,
-                value: time
-            });
+        // Mobile PDF button
+        const mobileBtn = utils.getCachedElement('mobile-download-pdf-btn');
+        if (mobileBtn) {
+            mobileBtn.addEventListener('click', () => pdf.download('pdf'));
+        }
+
+        // Final PDF buttons (po akceptacji)
+        const sidebarFinalBtn = utils.getCachedElement('sidebar-download-final-pdf');
+        if (sidebarFinalBtn) {
+            sidebarFinalBtn.addEventListener('click', () => pdf.download('pdf'));
+        }
+
+        const mobileFinalBtn = utils.getCachedElement('mobile-download-final-pdf');
+        if (mobileFinalBtn) {
+            mobileFinalBtn.addEventListener('click', () => pdf.download('pdf'));
+        }
+
+        console.log('[PDF] Initialized');
+    },
+
+    /**
+     * Pobiera PDF wyceny
+     * @param {string} format - Format pliku (pdf/png)
+     */
+    download: (format = 'pdf') => {
+        if (!globalState.quoteData) {
+            alerts.show('Brak danych wyceny do pobrania', 'error');
+            return;
+        }
+
+        console.log(`[PDF] Downloading ${format}`);
+
+        const url = `/quotes/api/quotes/${globalState.quoteData.id}/pdf.${format}`;
+
+        // Otwieramy w nowej karcie
+        window.open(url, '_blank');
+    }
+};
+
+// ===================================
+// RESPONSIVE BEHAVIOR
+// Obsługa responsywności
+// ===================================
+
+/**
+ * Responsive module - zarządza zachowaniem responsywnym
+ */
+const responsive = {
+    /**
+     * Inicjalizuje obsługę responsywności
+     */
+    init: () => {
+        // Sprawdzamy rozmiar ekranu przy ładowaniu
+        responsive.handleResize();
+
+        // Nasłuchujemy zmian rozmiaru okna
+        window.addEventListener('resize', utils.debounce(responsive.handleResize, 250));
+
+        console.log('[Responsive] Initialized');
+    },
+
+    /**
+     * Obsługuje zmianę rozmiaru okna
+     */
+    handleResize: () => {
+        const wasMobile = globalState.isMobileView;
+        globalState.isMobileView = utils.isMobileView();
+
+        // Jeśli zmieniło się z mobile na desktop lub odwrotnie
+        if (wasMobile !== globalState.isMobileView) {
+            console.log('[Responsive] View changed to:', globalState.isMobileView ? 'mobile' : 'desktop');
+
+            // Przełączamy widoczność elementów
+            responsive.toggleViewElements();
+
+            // Aktualizujemy stan akceptacji
+            if (globalState.quoteData) {
+                quote.handleAcceptanceState();
+            }
         }
     },
 
-    // Monitor page load performance
-    init: () => {
-        // Mark when DOM is ready
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                performance.mark('DOM_Ready');
-            });
-        } else {
-            performance.mark('DOM_Ready');
-        }
+    /**
+     * Przełącza widoczność elementów między desktop a mobile
+     */
+    toggleViewElements: () => {
+        const sidebar = utils.getCachedElement('summary-sidebar');
+        const mobilePanel = utils.getCachedElement('mobile-summary-panel');
 
-        // Mark when page is fully loaded
-        if (document.readyState === 'complete') {
-            performance.mark('Page_Loaded');
+        if (globalState.isMobileView) {
+            // Mobile view
+            if (sidebar) sidebar.style.display = 'none';
+            if (mobilePanel) mobilePanel.style.display = 'block';
         } else {
-            window.addEventListener('load', () => {
-                performance.mark('Page_Loaded');
-            });
-        }
+            // Desktop view
+            if (sidebar) sidebar.style.display = 'block';
+            if (mobilePanel) mobilePanel.style.display = 'none';
 
-        // Mark when quote data is loaded
-        const originalLoad = quote.load;
-        quote.load = async () => {
-            const start = Date.now();
-            const result = await originalLoad();
-            performance.mark('Quote_Data_Loaded');
-            return result;
-        };
+            // Zamykamy mobile panel jeśli był otwarty
+            if (globalState.isMobilePanelExpanded) {
+                mobilePanel?.classList.remove('expanded');
+                globalState.isMobilePanelExpanded = false;
+            }
+        }
     }
 };
 
-// Initialize all additional features
-const additionalFeatures = {
-    init: () => {
-        console.log('[AdditionalFeatures] Initializing...');
+// ===================================
+// APPLICATION INITIALIZATION
+// Inicjalizacja aplikacji
+// ===================================
 
-        // Initialize all features
-        linkCopy.init();
-        progressIndicator.init();
-        tooltips.init();
-        formEnhancements.init();
-        performance.init();
+/**
+ * Główna funkcja inicjalizacyjna aplikacji
+ * Uruchamiana po załadowaniu DOM
+ */
+const initializeApp = async () => {
+    console.log('[ClientQuote] Initializing application...');
 
-        // Setup auto-advance for progress indicator
-        setTimeout(() => {
-            progressIndicator.autoAdvance();
-        }, 1000);
+    try {
+        // Inicjalizujemy wszystkie moduły
+        responsive.init();
+        mobilePanel.init();
+        pdf.init();
+        form.init();
 
-        // Mark initialization complete
-        performance.mark('Additional_Features_Ready');
+        // Ładujemy dane wyceny
+        await quote.load();
 
-        console.log('[AdditionalFeatures] All features initialized');
+        console.log('[ClientQuote] Application initialized successfully');
+
+    } catch (error) {
+        console.error('[ClientQuote] Application initialization failed:', error);
+        alerts.show('Wystąpił błąd podczas inicjalizacji aplikacji', 'error');
     }
 };
 
-// Auto-initialize when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', additionalFeatures.init);
-} else {
-    additionalFeatures.init();
-}
+// ===================================
+// EVENT LISTENERS & DOM READY
+// Nasłuchiwanie eventów i inicjalizacja po załadowaniu DOM
+// ===================================
 
-// Expose for external use
-window.ClientQuote = {
-    ...window.ClientQuote,
-    copyLink: linkCopy.copyCurrentLink,
-    setProgress: progressIndicator.setStep,
-    showTooltip: tooltips.show,
-    hideTooltip: tooltips.hide
-};
+/**
+ * Inicjalizacja po załadowaniu DOM
+ */
+document.addEventListener('DOMContentLoaded', initializeApp);
 
-// Debug helpers (only in development)
-if (window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1')) {
-    window.clientQuoteDebug = {
-        quoteData: () => quoteData,
-        selectedVariants: () => selectedVariants,
-        elements: () => elements,
-        utils,
-        alerts,
-        api,
-        quote,
-        form,
-        pdf
+/**
+ * Obsługa błędów JavaScript
+ */
+window.addEventListener('error', (event) => {
+    console.error('[ClientQuote] Global// ===================================');
+// CLIENT QUOTE JS - Wood Power
+// Kompletna logika strony klienta z obsługą desktop/mobile
+// ===================================
+
+console.log('[ClientQuote]  Script loaded - Wood Power v2.0');
+
+    // ===================================
+    // GLOBAL STATE MANAGEMENT
+    // Centralne zarządzanie stanem aplikacji
+    // ===================================
+
+    /**
+     * Globalny stan aplikacji
+     * Przechowuje wszystkie dane wyceny i stan UI
+     */
+    let globalState = {
+        // Dane wyceny załadowane z API
+        quoteData: null,
+
+        // Stan UI
+        isLoading: false,
+        isMobileView: false,
+        isMobilePanelExpanded: false,
+
+        // Wybrane warianty (product_index -> item_id)
+        selectedVariants: new Map(),
+
+        // Cache dla optymalizacji
+        cachedElements: new Map(),
+
+        // Flagi stanu
+        isQuoteAccepted: false,
+        isQuoteEditable: true
     };
-    console.log('[ClientQuote] Debug helpers available at window.clientQuoteDebug');
-}
 
-// Expose minimal global API for external use
-window.ClientQuote = {
-    reload: quote.load,
-    showAlert: alerts.show,
-    isLoading: () => isLoading
-};
+    // ===================================
+    // UTILITY FUNCTIONS
+    // Funkcje pomocnicze używane w całej aplikacji
+    // ===================================
+
+    /**
+     * Utilities - zbiór funkcji pomocniczych
+     * Te funkcje są używane w różnych miejscach aplikacji
+     */
+    const utils = {
+        /**
+         * Formatuje kwotę do wyświetlenia z walutą
+         * @param {number} amount - Kwota do sformatowania
+         * @returns {string} Sformatowana kwota z PLN
+         */
+        formatCurrency: (amount) => {
+            if (amount === null || amount === undefined) return "0.00 PLN";
+            return `${parseFloat(amount).toFixed(2)} PLN`;
+        },
+
+        /**
+         * Formatuje datę do polskiego formatu
+         * @param {string} dateString - Data w formacie ISO
+         * @returns {string} Sformatowana data
+         */
+        formatDate: (dateString) => {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('pl-PL', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        },
+
+        /**
+         * Formatuje datę do krótkiego formatu
+         * @param {string} dateString - Data w formacie ISO
+         * @returns {string} Krótka data (dd.mm.yyyy)
+         */
+        formatShortDate: (dateString) => {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('pl-PL');
+        },
+
+        /**
+         * Tłumaczy kody wariantów na czytelne nazwy
+         * @param {string} code - Kod wariantu z bazy danych
+         * @returns {string} Przetłumaczona nazwa wariantu
+         */
+        translateVariantCode: (code) => {
+            const translations = {
+                'dab-lity-ab': 'Dąb lity A/B',
+                'dab-lity-bb': 'Dąb lity B/B',
+                'dab-micro-ab': 'Dąb mikrowczep A/B',
+                'dab-micro-bb': 'Dąb mikrowczep B/B',
+                'jes-lity-ab': 'Jesion lity A/B',
+                'jes-micro-ab': 'Jesion mikrowczep A/B',
+                'buk-lity-ab': 'Buk lity A/B',
+                'buk-micro-ab': 'Buk mikrowczep A/B'
+            };
+            return translations[code] || code || 'Nieznany wariant';
+        },
+
+        /**
+         * Waliduje adres email
+         * @param {string} email - Email do walidacji
+         * @returns {boolean} Czy email jest prawidłowy
+         */
+        isValidEmail: (email) => {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+        },
+
+        /**
+         * Waliduje numer telefonu
+         * @param {string} phone - Telefon do walidacji
+         * @returns {boolean} Czy telefon jest prawidłowy
+         */
+        isValidPhone: (phone) => {
+            const phoneRegex = /^[0-9+\s\-()]{7,}$/;
+            return phoneRegex.test(phone.trim());
+        },
+
+        /**
+         * Debounce - opóźnia wykonanie funkcji
+         * @param {Function} func - Funkcja do wykonania
+         * @param {number} wait - Czas opóźnienia w ms
+         * @returns {Function} Funkcja z debounce
+         */
+        debounce: (func, wait) => {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        },
+
+        /**
+         * Sprawdza czy użytkownik jest na urządzeniu mobilnym
+         * @returns {boolean} Czy to widok mobilny
+         */
+        isMobileView: () => {
+            return window.innerWidth <= 1024;
+        },
+
+        /**
+         * Cachuje element DOM dla wydajności
+         * @param {string} id - ID elementu
+         * @returns {Element|null} Element DOM lub null
+         */
+        getCachedElement: (id) => {
+            if (globalState.cachedElements.has(id)) {
+                return globalState.cachedElements.get(id);
+            }
+            const element = document.getElementById(id);
+            if (element) {
+                globalState.cachedElements.set(id, element);
+            }
+            return element;
+        },
+
+        /**
+         * Pokazuje/ukrywa loading overlay
+         * @param {boolean} loading - Czy pokazać loading
+         */
+        setLoading: (loading) => {
+            globalState.isLoading = loading;
+            const overlay = utils.getCachedElement('loading-overlay');
+            if (overlay) {
+                if (loading) {
+                    overlay.classList.remove('hide');
+                } else {
+                    overlay.classList.add('hide');
+                }
+            }
+        }
+    };
+
+    // ===================================
+    // ALERT SYSTEM
+    // System powiadomień dla użytkownika
+    // ===================================
+
+    /**
+     * Alert system - zarządza powiadomieniami użytkownika
+     * Pokazuje komunikaty sukcesu, błędów, ostrzeżeń i informacji
+     */
+    const alerts = {
+        /**
+         * Pokazuje alert użytkownikowi
+         * @param {string} message - Treść wiadomości
+         * @param {string} type - Typ alertu (success, error, warning, info)
+         * @param {number} duration - Czas wyświetlania w ms (0 = nie ukrywaj)
+         * @returns {HTMLElement} Element alertu
+         */
+        show: (message, type = 'info', duration = 5000) => {
+            const container = utils.getCachedElement('alert-container');
+            if (!container) return;
+
+            console.log(`[Alert] ${type.toUpperCase()}: ${message}`);
+
+            // Tworzymy element alertu z odpowiednią ikoną
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+
+            const icon = alerts.getIcon(type);
+
+            alert.innerHTML = `
+            ${icon}
+            <div class="alert-content">
+                <p>${message}</p>
+            </div>
+            <button class="alert-close" aria-label="Zamknij alert">
+                <svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                </svg>
+            </button>
+        `;
+
+            // Dodajemy funkcjonalność zamykania
+            const closeBtn = alert.querySelector('.alert-close');
+            closeBtn.addEventListener('click', () => alerts.hide(alert));
+
+            container.appendChild(alert);
+
+            // Auto-ukrywanie po określonym czasie
+            if (duration > 0) {
+                setTimeout(() => alerts.hide(alert), duration);
+            }
+
+            return alert;
+        },
+
+        /**
+         * Ukrywa alert z animacją
+         * @param {HTMLElement} alertElement - Element alertu do ukrycia
+         */
+        hide: (alertElement) => {
+            if (alertElement && alertElement.parentNode) {
+                alertElement.style.opacity = '0';
+                alertElement.style.transform = 'translateY(-20px)';
+                setTimeout(() => {
+                    if (alertElement.parentNode) {
+                        alertElement.parentNode.removeChild(alertElement);
+                    }
+                }, 300);
+            }
+        },
+
+        /**
+         * Usuwa wszystkie alerty
+         */
+        clear: () => {
+            const container = utils.getCachedElement('alert-container');
+            if (container) {
+                container.innerHTML = '';
+            }
+        },
+
+        /**
+         * Zwraca ikonę SVG dla danego typu alertu
+         * @param {string} type - Typ alertu
+         * @returns {string} HTML ikony SVG
+         */
+        getIcon: (type) => {
+            const icons = {
+                success: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+            </svg>`,
+                error: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>`,
+                warning: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>`,
+                info: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+            </svg>`
+            };
+            return icons[type] || icons.info;
+        }
+    };
+
+    // ===================================
+    // API COMMUNICATION
+    // Komunikacja z backendem
+    // ===================================
+
+    /**
+     * API module - obsługuje komunikację z serwerem
+     * Wszystkie żądania HTTP przechodzą przez ten moduł
+     */
+    const api = {
+        /**
+         * Bazowa funkcja do wykonywania żądań API
+         * @param {string} url - URL endpointu
+         * @param {Object} options - Opcje żądania (method, body, etc.)
+         * @returns {Promise} Promise z odpowiedzią API
+         */
+        call: async (url, options = {}) => {
+            try {
+                console.log(`[API] ${options.method || 'GET'} ${url}`);
+
+                const defaultOptions = {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                };
+
+                const response = await fetch(url, { ...defaultOptions, ...options });
+
+                // Próbujemy sparsować JSON, ale obsługujemy też inne formaty
+                let data;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+
+                if (!response.ok) {
+                    console.error(`[API] Error ${response.status}:`, data);
+                    const errorMessage = typeof data === 'object' && data.message
+                        ? data.message
+                        : `Błąd serwera (${response.status})`;
+                    throw new Error(errorMessage);
+                }
+
+                console.log(`[API] Success:`, data);
+                return data;
+            } catch (error) {
+                console.error(`[API] Request failed:`, error);
+                throw error;
+            }
+        },
+
+        /**
+         * Pobiera dane wyceny dla klienta
+         * @param {string} token - Token publiczny wyceny
+         * @returns {Promise} Dane wyceny
+         */
+        getQuoteData: async (token) => {
+            return api.call(`/quotes/api/client/quote/${token}`);
+        },
+
+        /**
+         * Aktualizuje wybór wariantu (tylko item_id, bez walidacji email/telefon)
+         * @param {string} token - Token publiczny wyceny
+         * @param {number} itemId - ID pozycji do wybrania
+         * @returns {Promise} Odpowiedź serwera
+         */
+        updateVariant: async (token, itemId) => {
+            return api.call(`/quotes/api/client/quote/${token}/update-variant`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    item_id: itemId
+                })
+            });
+        },
+
+        /**
+         * Akceptuje wycenę przez klienta
+         * @param {string} token - Token publiczny wyceny
+         * @param {string} emailOrPhone - Email lub telefon do weryfikacji
+         * @param {string} comments - Komentarze klienta (opcjonalne)
+         * @returns {Promise} Odpowiedź serwera
+         */
+        acceptQuote: async (token, emailOrPhone, comments = '') => {
+            return api.call(`/quotes/api/client/quote/${token}/accept`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    email_or_phone: emailOrPhone,
+                    comments: comments
+                })
+            });
+        }
+    };
+
+    // ===================================
+    // DATA SYNCHRONIZATION
+    // Synchronizacja danych między desktop a mobile
+    // ===================================
+
+    /**
+     * DataSync - synchronizuje dane między różnymi widokami
+     * Zapewnia spójność między desktop sidebar a mobile panel
+     */
+    const dataSync = {
+        /**
+         * Synchronizuje wszystkie dane między desktop a mobile
+         */
+        syncAll: () => {
+            if (!globalState.quoteData) return;
+
+            dataSync.syncBasicInfo();
+            dataSync.syncProductsBreakdown();
+            dataSync.syncPriceSummary();
+            dataSync.syncMobilePanelSummary();
+        },
+
+        /**
+         * Synchronizuje podstawowe informacje o wycenie
+         */
+        syncBasicInfo: () => {
+            const data = globalState.quoteData;
+            if (!data) return;
+
+            // Desktop elements
+            const desktopElements = {
+                clientName: utils.getCachedElement('client-name'),
+                employeeName: utils.getCachedElement('employee-name'),
+                quoteCreatedDate: utils.getCachedElement('quote-created-date'),
+                courierName: utils.getCachedElement('courier-name')
+            };
+
+            // Mobile elements (z prefiksem mobile-)
+            const mobileElements = {
+                clientName: utils.getCachedElement('mobile-client-name'),
+                employeeName: utils.getCachedElement('mobile-employee-name'),
+                quoteCreatedDate: utils.getCachedElement('mobile-quote-created-date'),
+                courierName: utils.getCachedElement('mobile-courier-name')
+            };
+
+            // Przygotowujemy dane
+            const syncData = {
+                clientName: data.client?.client_name || '-',
+                employeeName: `${data.user?.first_name || ''} ${data.user?.last_name || ''}`.trim() || '-',
+                quoteCreatedDate: utils.formatDate(data.created_at),
+                courierName: data.courier_name || '-'
+            };
+
+            // Synchronizujemy desktop
+            Object.keys(desktopElements).forEach(key => {
+                const element = desktopElements[key];
+                if (element) {
+                    element.textContent = syncData[key];
+                }
+            });
+
+            // Synchronizujemy mobile
+            Object.keys(mobileElements).forEach(key => {
+                const element = mobileElements[key];
+                if (element) {
+                    element.textContent = syncData[key];
+                }
+            });
+        },
+
+        /**
+         * Synchronizuje breakdown produktów
+         */
+        syncProductsBreakdown: () => {
+            const data = globalState.quoteData;
+            if (!data || !data.items) return;
+
+            // Grupujemy produkty według product_index
+            const groupedProducts = {};
+            data.items.forEach(item => {
+                if (!groupedProducts[item.product_index]) {
+                    groupedProducts[item.product_index] = [];
+                }
+                groupedProducts[item.product_index].push(item);
+            });
+
+            const breakdownHTML = dataSync.generateProductsBreakdownHTML(groupedProducts);
+
+            // Aktualizujemy desktop
+            const desktopBreakdown = utils.getCachedElement('products-breakdown');
+            if (desktopBreakdown) {
+                desktopBreakdown.innerHTML = breakdownHTML;
+            }
+
+            // Aktualizujemy mobile
+            const mobileBreakdown = utils.getCachedElement('mobile-products-breakdown');
+            if (mobileBreakdown) {
+                mobileBreakdown.innerHTML = breakdownHTML;
+            }
+        },
+
+        /**
+         * Generuje HTML dla breakdown produktów
+         * @param {Object} groupedProducts - Produkty zgrupowane według indeksu
+         * @returns {string} HTML breakdown
+         */
+        generateProductsBreakdownHTML: (groupedProducts) => {
+            return Object.keys(groupedProducts)
+                .sort((a, b) => parseInt(a) - parseInt(b))
+                .map(productIndex => {
+                    const items = groupedProducts[productIndex];
+                    const selectedItem = items.find(item => item.is_selected) || items[0];
+
+                    if (!selectedItem) return '';
+
+                    const variantName = utils.translateVariantCode(selectedItem.variant_code);
+                    const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
+                    const priceBrutto = utils.formatCurrency(selectedItem.final_price_brutto);
+                    const priceNetto = utils.formatCurrency(selectedItem.final_price_netto);
+
+                    return `
+                    <div class="product-breakdown-item">
+                        <div class="product-breakdown-info">
+                            <div class="product-breakdown-name">Produkt ${productIndex}: ${variantName}</div>
+                            <div class="product-breakdown-details">${dimensions}</div>
+                        </div>
+                        <div class="product-breakdown-price">
+                            <span class="breakdown-price-brutto">${priceBrutto}</span>
+                            <span class="breakdown-price-netto">${priceNetto}</span>
+                        </div>
+                    </div>
+                `;
+                }).join('');
+        },
+
+        /**
+         * Synchronizuje podsumowanie cen
+         */
+        syncPriceSummary: () => {
+            const data = globalState.quoteData;
+            if (!data || !data.costs) return;
+
+            const costs = data.costs;
+
+            // Desktop elements
+            const desktopElements = {
+                finishingBrutto: utils.getCachedElement('finishing-price-brutto'),
+                finishingNetto: utils.getCachedElement('finishing-price-netto'),
+                shippingBrutto: utils.getCachedElement('shipping-price-brutto'),
+                shippingNetto: utils.getCachedElement('shipping-price-netto'),
+                totalBrutto: utils.getCachedElement('total-price-brutto'),
+                totalNetto: utils.getCachedElement('total-price-netto')
+            };
+
+            // Mobile elements
+            const mobileElements = {
+                finishingBrutto: utils.getCachedElement('mobile-finishing-price-brutto'),
+                finishingNetto: utils.getCachedElement('mobile-finishing-price-netto'),
+                shippingBrutto: utils.getCachedElement('mobile-shipping-price-brutto'),
+                shippingNetto: utils.getCachedElement('mobile-shipping-price-netto'),
+                totalBrutto: utils.getCachedElement('mobile-total-price-brutto'),
+                totalNetto: utils.getCachedElement('mobile-total-price-netto')
+            };
+
+            // Przygotowujemy dane
+            const syncData = {
+                finishingBrutto: utils.formatCurrency(costs.finishing?.brutto),
+                finishingNetto: utils.formatCurrency(costs.finishing?.netto),
+                shippingBrutto: utils.formatCurrency(costs.shipping?.brutto),
+                shippingNetto: utils.formatCurrency(costs.shipping?.netto),
+                totalBrutto: utils.formatCurrency(costs.total?.brutto),
+                totalNetto: utils.formatCurrency(costs.total?.netto)
+            };
+
+            // Synchronizujemy desktop
+            Object.keys(desktopElements).forEach(key => {
+                const element = desktopElements[key];
+                if (element) {
+                    element.textContent = syncData[key];
+                }
+            });
+
+            // Synchronizujemy mobile
+            Object.keys(mobileElements).forEach(key => {
+                const element = mobileElements[key];
+                if (element) {
+                    element.textContent = syncData[key];
+                }
+            });
+        },
+
+        /**
+         * Synchronizuje podsumowanie w mobile panel
+         */
+        syncMobilePanelSummary: () => {
+            const data = globalState.quoteData;
+            if (!data) return;
+
+            const mobileTotal = utils.getCachedElement('mobile-total');
+            const mobileItemsCount = utils.getCachedElement('mobile-items-count');
+
+            if (mobileTotal && data.costs?.total?.brutto) {
+                mobileTotal.textContent = utils.formatCurrency(data.costs.total.brutto);
+            }
+
+            if (mobileItemsCount && data.items) {
+                // Liczmy unikalne produkty (product_index)
+                const uniqueProducts = new Set(data.items.map(item => item.product_index));
+                const count = uniqueProducts.size;
+                mobileItemsCount.textContent = `${count} ${count === 1 ? 'produkt' : count < 5 ? 'produkty' : 'produktów'}`;
+            }
+        }
+    };
+
+    // ===================================
+    // QUOTE DATA MANAGEMENT
+    // Zarządzanie danymi wyceny
+    // ===================================
+
+    /**
+     * Quote module - zarządza danymi wyceny i ich wyświetlaniem
+     * Główny moduł odpowiedzialny za logikę biznesową wyceny
+     */
+    const quote = {
+        /**
+         * Ładuje dane wyceny z API
+         */
+        load: async () => {
+            try {
+                utils.setLoading(true);
+                alerts.clear();
+
+                const token = window.QUOTE_TOKEN;
+                if (!token) {
+                    throw new Error('Brak tokenu wyceny');
+                }
+
+                console.log('[Quote] Loading data for token:', token);
+                globalState.quoteData = await api.getQuoteData(token);
+
+                console.log('[Quote] Data loaded:', globalState.quoteData);
+
+                // Aktualizujemy stan aplikacji na podstawie danych
+                quote.updateApplicationState();
+
+                // Inicjalizujemy mapę wybranych wariantów
+                quote.initializeSelectedVariants();
+
+                // Renderujemy interfejs
+                quote.render();
+
+            } catch (error) {
+                console.error('[Quote] Failed to load data:', error);
+                quote.handleError(error);
+            } finally {
+                utils.setLoading(false);
+            }
+        },
+
+        /**
+         * Aktualizuje stan aplikacji na podstawie załadowanych danych
+         */
+        updateApplicationState: () => {
+            const data = globalState.quoteData;
+            if (!data) return;
+
+            // Sprawdzamy czy wycena jest zaakceptowana
+            globalState.isQuoteAccepted = !data.is_client_editable;
+            globalState.isQuoteEditable = data.is_client_editable;
+
+            // Aktualizujemy klasę body dla CSS
+            const body = document.body;
+            if (globalState.isQuoteAccepted) {
+                body.classList.add('quote-accepted');
+            } else {
+                body.classList.remove('quote-accepted');
+            }
+
+            console.log('[Quote] Application state updated:', {
+                isAccepted: globalState.isQuoteAccepted,
+                isEditable: globalState.isQuoteEditable
+            });
+        },
+
+        /**
+         * Inicjalizuje mapę wybranych wariantów
+         */
+        initializeSelectedVariants: () => {
+            globalState.selectedVariants.clear();
+
+            if (globalState.quoteData && globalState.quoteData.items) {
+                globalState.quoteData.items.forEach(item => {
+                    if (item.is_selected) {
+                        globalState.selectedVariants.set(item.product_index, item.id);
+                    }
+                });
+            }
+
+            console.log('[Quote] Selected variants initialized:', globalState.selectedVariants);
+        },
+
+        /**
+         * Renderuje cały interfejs wyceny
+         */
+        render: () => {
+            if (!globalState.quoteData) return;
+
+            console.log('[Quote] Rendering interface');
+
+            // Renderujemy wszystkie sekcje
+            quote.renderHeader();
+            quote.renderStatusBanner();
+            quote.renderSellerNotes();
+            quote.renderProducts();
+
+            // Synchronizujemy dane między desktop a mobile
+            dataSync.syncAll();
+
+            // Pokazujemy odpowiednie sekcje
+            quote.showSections();
+
+            // Ustawiamy odpowiedni stan akceptacji
+            quote.handleAcceptanceState();
+        },
+
+        /**
+         * Renderuje header z podstawowymi informacjami
+         */
+        renderHeader: () => {
+            const data = globalState.quoteData;
+            if (!data) return;
+
+            // Aktualizujemy numer wyceny w header
+            const quoteNumber = utils.getCachedElement('quote-number');
+            if (quoteNumber) {
+                quoteNumber.textContent = data.quote_number || window.QUOTE_NUMBER;
+            }
+
+            // Aktualizujemy datę w header
+            const quoteDate = utils.getCachedElement('quote-date');
+            if (quoteDate) {
+                quoteDate.textContent = utils.formatShortDate(data.created_at);
+            }
+        },
+
+        /**
+         * Renderuje banner statusu wyceny
+         */
+        renderStatusBanner: () => {
+            const data = globalState.quoteData;
+            const banner = utils.getCachedElement('quote-status-banner');
+
+            if (!banner || !data) return;
+
+            const statusTitle = utils.getCachedElement('status-title');
+            const statusDescription = utils.getCachedElement('status-description');
+
+            let statusClass = 'status-pending';
+            let title = 'Wycena aktywna';
+            let description = 'Wycena oczekuje na Twoją akceptację.';
+
+            if (globalState.isQuoteAccepted) {
+                statusClass = 'status-accepted';
+                title = 'Wycena zaakceptowana';
+                description = 'Dziękujemy! Wycena została zaakceptowana i przekazana do realizacji.';
+            }
+
+            // Aktualizujemy klasy CSS
+            banner.className = `quote-status-banner ${statusClass}`;
