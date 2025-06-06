@@ -209,6 +209,9 @@ function showDetailsModal(quoteData) {
         renderSelectedSummary(grouped, summaryContainer);
     }
 
+    // Inicjalizuj przyciski strony klienta
+    initializeClientPageButtons(quoteData);
+
     modal.classList.add('active');
     console.log('[MODAL] Modal powinien być teraz widoczny!');
 
@@ -218,199 +221,6 @@ function showDetailsModal(quoteData) {
             console.log('[MODAL] Zamykam modal przez kliknięcie tła');
         }
     });
-
-    // Client page functionality for employee interface
-    const clientPageIntegration = {
-        // Generate client page URL
-        generateClientUrl: (quoteNumber, token) => {
-            const baseUrl = window.location.origin;
-            return `${baseUrl}/quotes/wycena/${quoteNumber}/${token}`;
-        },
-
-        // Open client page in new tab
-        openClientPage: (quoteNumber, token) => {
-            if (!quoteNumber || !token) {
-                console.error('[ClientPage] Missing quote number or token');
-                showToast('Brak danych do wygenerowania strony klienta', 'error');
-                return;
-            }
-
-            const url = clientPageIntegration.generateClientUrl(quoteNumber, token);
-            console.log('[ClientPage] Opening client page:', url);
-
-            // Open in new tab
-            window.open(url, '_blank', 'noopener,noreferrer');
-
-            // Show toast notification
-            showToast('Otwarto stronę klienta w nowej karcie', 'success');
-        },
-
-        // Copy client page link to clipboard
-        copyClientLink: async (quoteNumber, token) => {
-            if (!quoteNumber || !token) {
-                console.error('[ClientPage] Missing quote number or token');
-                showToast('Brak danych do skopiowania linku', 'error');
-                return;
-            }
-
-            const url = clientPageIntegration.generateClientUrl(quoteNumber, token);
-
-            try {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    // Modern clipboard API
-                    await navigator.clipboard.writeText(url);
-                    showToast('Link do strony klienta skopiowany! 📋', 'success');
-                } else {
-                    // Fallback for older browsers
-                    clientPageIntegration.fallbackCopyToClipboard(url);
-                }
-
-                console.log('[ClientPage] Link copied to clipboard:', url);
-
-                // Add visual feedback to button
-                const copyBtn = document.getElementById('quote-link-copy-btn');
-                if (copyBtn) {
-                    copyBtn.classList.add('copy-success');
-                    copyBtn.innerHTML = '<span>✅</span>';
-                    setTimeout(() => {
-                        copyBtn.classList.remove('copy-success');
-                        copyBtn.innerHTML = '<span>🔗</span>';
-                    }, 2000);
-                }
-
-            } catch (error) {
-                console.error('[ClientPage] Failed to copy link:', error);
-                showToast('Nie udało się skopiować linku', 'error');
-            }
-        },
-
-        // Fallback copy method for older browsers
-        fallbackCopyToClipboard: (text) => {
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.style.position = 'fixed';
-            textArea.style.left = '-9999px';
-            textArea.style.top = '-9999px';
-
-            document.body.appendChild(textArea);
-            textArea.select();
-            textArea.setSelectionRange(0, 99999);
-
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
-                    showToast('Link do strony klienta skopiowany! 📋', 'success');
-                } else {
-                    throw new Error('Copy command failed');
-                }
-            } catch (error) {
-                console.error('[ClientPage] Fallback copy failed:', error);
-                showToast('Skopiuj link ręcznie: ' + text.substring(0, 50) + '...', 'info');
-            }
-
-            document.body.removeChild(textArea);
-        },
-
-        // Initialize client page buttons
-        initializeButtons: (quoteData) => {
-            const clientPageBtn = document.getElementById('quote-client-page-btn');
-            const copyLinkBtn = document.getElementById('quote-link-copy-btn');
-
-            if (!quoteData || !quoteData.public_url) {
-                console.warn('[ClientPage] No public URL available for quote');
-
-                // Disable buttons if no public URL
-                if (clientPageBtn) {
-                    clientPageBtn.disabled = true;
-                    clientPageBtn.title = 'Wycena nie ma publicznego linku';
-                    clientPageBtn.style.opacity = '0.5';
-                }
-                if (copyLinkBtn) {
-                    copyLinkBtn.disabled = true;
-                    copyLinkBtn.title = 'Wycena nie ma publicznego linku';
-                    copyLinkBtn.style.opacity = '0.5';
-                }
-                return;
-            }
-
-            // Extract quote number and token from public URL
-            const urlMatch = quoteData.public_url.match(/\/wycena\/([^\/]+)\/([^\/]+)$/);
-            if (!urlMatch) {
-                console.error('[ClientPage] Cannot parse public URL:', quoteData.public_url);
-                return;
-            }
-
-            const [, quoteNumber, token] = urlMatch;
-
-            console.log('[ClientPage] Initializing buttons for quote:', quoteNumber);
-
-            // Setup client page button
-            if (clientPageBtn) {
-                clientPageBtn.dataset.quoteNumber = quoteNumber;
-                clientPageBtn.dataset.token = token;
-                clientPageBtn.disabled = false;
-                clientPageBtn.style.opacity = '1';
-                clientPageBtn.title = 'Otwórz stronę klienta w nowej karcie';
-
-                // Remove existing event listeners
-                clientPageBtn.replaceWith(clientPageBtn.cloneNode(true));
-                const newClientPageBtn = document.getElementById('quote-client-page-btn');
-
-                newClientPageBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    clientPageIntegration.openClientPage(quoteNumber, token);
-                });
-            }
-
-            // Setup copy link button
-            if (copyLinkBtn) {
-                copyLinkBtn.dataset.quoteNumber = quoteNumber;
-                copyLinkBtn.dataset.token = token;
-                copyLinkBtn.disabled = false;
-                copyLinkBtn.style.opacity = '1';
-                copyLinkBtn.title = 'Skopiuj link do strony klienta';
-
-                // Remove existing event listeners
-                copyLinkBtn.replaceWith(copyLinkBtn.cloneNode(true));
-                const newCopyLinkBtn = document.getElementById('quote-link-copy-btn');
-
-                newCopyLinkBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    clientPageIntegration.copyClientLink(quoteNumber, token);
-                });
-            }
-        },
-
-        // Check if quote is client-accessible
-        isClientAccessible: (quoteData) => {
-            return quoteData &&
-                quoteData.public_url &&
-                quoteData.is_client_editable !== false;
-        },
-
-        // Update button states based on quote status
-        updateButtonStates: (quoteData) => {
-            const clientPageBtn = document.getElementById('quote-client-page-btn');
-            const copyLinkBtn = document.getElementById('quote-link-copy-btn');
-
-            const isAccessible = clientPageIntegration.isClientAccessible(quoteData);
-
-            if (!isAccessible) {
-                // Show disabled state for accepted quotes
-                if (clientPageBtn) {
-                    clientPageBtn.disabled = true;
-                    clientPageBtn.title = 'Wycena została już zaakceptowana';
-                    clientPageBtn.style.opacity = '0.5';
-                    clientPageBtn.innerHTML = '<span>Zaakceptowana</span>';
-                }
-                if (copyLinkBtn) {
-                    copyLinkBtn.disabled = true;
-                    copyLinkBtn.title = 'Wycena została już zaakceptowana';
-                    copyLinkBtn.style.opacity = '0.5';
-                }
-            }
-        }
-    };
 }
 
 // POPRAWIONA funkcja wyświetlania kosztów
@@ -1724,4 +1534,197 @@ function addTotalDiscountButton(quoteData) {
             }
         }
     }
+}
+function initializeClientPageButtons(quoteData) {
+    console.log('[ClientPage] Inicjalizacja przycisków strony klienta dla:', quoteData.quote_number);
+
+    const clientPageBtn = document.getElementById('quote-client-page-btn');
+    const copyLinkBtn = document.getElementById('quote-link-copy-btn');
+
+    if (!quoteData || !quoteData.public_url) {
+        console.warn('[ClientPage] Brak public_url dla wyceny');
+
+        if (clientPageBtn) {
+            clientPageBtn.disabled = true;
+            clientPageBtn.title = 'Wycena nie ma publicznego linku';
+            clientPageBtn.style.opacity = '0.5';
+        }
+        if (copyLinkBtn) {
+            copyLinkBtn.disabled = true;
+            copyLinkBtn.title = 'Wycena nie ma publicznego linku';
+            copyLinkBtn.style.opacity = '0.5';
+        }
+        return;
+    }
+
+    console.log('[ClientPage] Analizuję public_url:', quoteData.public_url);
+
+    // Użyj bezpośrednio public_url lub skonstruuj URL
+    const baseUrl = window.location.origin;
+    const fullUrl = `${baseUrl}${quoteData.public_url}`;
+
+    console.log('[ClientPage] Pełny URL strony klienta:', fullUrl);
+
+    // Wyodrębnij quote_number i token dla celów debugowania
+    const urlMatch = quoteData.public_url.match(/\/wycena\/(.+)\/([A-F0-9]+)$/);
+    if (urlMatch) {
+        const [, quoteNumber, token] = urlMatch;
+        console.log('[ClientPage] Parsowanie OK:', { quoteNumber, token });
+    }
+
+    // Skonfiguruj przycisk "Strona klienta"
+    if (clientPageBtn) {
+        const newClientPageBtn = clientPageBtn.cloneNode(true);
+        clientPageBtn.parentNode.replaceChild(newClientPageBtn, clientPageBtn);
+
+        newClientPageBtn.disabled = false;
+        newClientPageBtn.style.opacity = '1';
+        newClientPageBtn.title = 'Otwórz stronę klienta w nowej karcie';
+
+        newClientPageBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            console.log('[ClientPage] Kliknięto przycisk strony klienta');
+            console.log('[ClientPage] Otwieranie URL:', fullUrl);
+
+            // Otwórz stronę używając pełnego URL
+            window.open(fullUrl, '_blank', 'noopener,noreferrer');
+            showToast('Otwarto stronę klienta w nowej karcie', 'success');
+        });
+
+        console.log('[ClientPage] Skonfigurowano przycisk strony klienta');
+    }
+
+    // Skonfiguruj przycisk kopiowania linku
+    if (copyLinkBtn) {
+        const newCopyLinkBtn = copyLinkBtn.cloneNode(true);
+        copyLinkBtn.parentNode.replaceChild(newCopyLinkBtn, copyLinkBtn);
+
+        newCopyLinkBtn.disabled = false;
+        newCopyLinkBtn.style.opacity = '1';
+        newCopyLinkBtn.title = 'Skopiuj link do strony klienta';
+
+        newCopyLinkBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            console.log('[ClientPage] Kliknięto przycisk kopiowania linku');
+            console.log('[ClientPage] Kopiowanie URL:', fullUrl);
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(fullUrl);
+                    showToast('Link do strony klienta skopiowany! 📋', 'success');
+                } else {
+                    // Fallback
+                    const textArea = document.createElement('textarea');
+                    textArea.value = fullUrl;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-9999px';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    showToast('Link do strony klienta skopiowany! 📋', 'success');
+                }
+
+                // Wizualna informacja zwrotna
+                const originalContent = newCopyLinkBtn.innerHTML;
+                newCopyLinkBtn.innerHTML = '✅';
+                newCopyLinkBtn.style.backgroundColor = '#28a745';
+
+                setTimeout(() => {
+                    newCopyLinkBtn.innerHTML = originalContent;
+                    newCopyLinkBtn.style.backgroundColor = '';
+                }, 2000);
+
+            } catch (error) {
+                console.error('[ClientPage] Błąd kopiowania:', error);
+                showToast('Nie udało się skopiować linku', 'error');
+            }
+        });
+
+        console.log('[ClientPage] Skonfigurowano przycisk kopiowania linku');
+    }
+}
+function generateClientUrl(quoteNumber, token) {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/wycena/${quoteNumber}/${token}`;
+}
+function openClientPage(quoteNumber, token) {
+    if (!quoteNumber || !token) {
+        console.error('[ClientPage] Brak quote number lub token');
+        showToast('Brak danych do wygenerowania strony klienta', 'error');
+        return;
+    }
+
+    const url = generateClientUrl(quoteNumber, token);
+    console.log('[ClientPage] Otwieranie strony klienta:', url);
+
+    // Otwórz w nowej karcie
+    window.open(url, '_blank', 'noopener,noreferrer');
+
+    // Pokaż powiadomienie
+    showToast('Otwarto stronę klienta w nowej karcie', 'success');
+}
+async function copyClientLink(quoteNumber, token) {
+    if (!quoteNumber || !token) {
+        console.error('[ClientPage] Brak quote number lub token');
+        showToast('Brak danych do skopiowania linku', 'error');
+        return;
+    }
+
+    const url = generateClientUrl(quoteNumber, token);
+
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            // Nowoczesne API schowka
+            await navigator.clipboard.writeText(url);
+            showToast('Link do strony klienta skopiowany! 📋', 'success');
+        } else {
+            // Fallback dla starszych przeglądarek
+            fallbackCopyToClipboard(url);
+        }
+
+        console.log('[ClientPage] Link skopiowany do schowka:', url);
+
+        // Wizualna informacja zwrotna na przycisku
+        const copyBtn = document.getElementById('quote-link-copy-btn');
+        if (copyBtn) {
+            const originalContent = copyBtn.innerHTML;
+            copyBtn.innerHTML = '✅';
+            copyBtn.style.backgroundColor = '#28a745';
+
+            setTimeout(() => {
+                copyBtn.innerHTML = originalContent;
+                copyBtn.style.backgroundColor = '';
+            }, 2000);
+        }
+
+    } catch (error) {
+        console.error('[ClientPage] Nie udało się skopiować linku:', error);
+        showToast('Nie udało się skopiować linku', 'error');
+    }
+}
+function fallbackCopyToClipboard(text) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    textArea.style.top = '-9999px';
+
+    document.body.appendChild(textArea);
+    textArea.select();
+    textArea.setSelectionRange(0, 99999);
+
+    try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+            showToast('Link do strony klienta skopiowany! 📋', 'success');
+        } else {
+            throw new Error('Copy command failed');
+        }
+    } catch (error) {
+        console.error('[ClientPage] Fallback copy failed:', error);
+        showToast('Skopiuj link ręcznie: ' + text.substring(0, 50) + '...', 'info');
+    }
+
+    document.body.removeChild(textArea);
 }
