@@ -1609,17 +1609,19 @@ function initializeClientPageButtons(quoteData) {
             console.log('[ClientPage] Kopiowanie URL:', fullUrl);
 
             try {
+                // Najpierw próbujemy Clipboard API
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     await navigator.clipboard.writeText(fullUrl);
                     showToast('Link do strony klienta skopiowany! 📋', 'success');
                 } else {
-                    // Fallback
+                    // Fallback: fallbackCopyToClipboard (własna funkcja z execCommand)
                     const textArea = document.createElement('textarea');
                     textArea.value = fullUrl;
                     textArea.style.position = 'fixed';
                     textArea.style.left = '-9999px';
                     document.body.appendChild(textArea);
                     textArea.select();
+                    // @ts-ignore: document.execCommand jest zdeprecjonowane, ale tutaj wciąż działa
                     document.execCommand('copy');
                     document.body.removeChild(textArea);
                     showToast('Link do strony klienta skopiowany! 📋', 'success');
@@ -1643,6 +1645,7 @@ function initializeClientPageButtons(quoteData) {
 
         console.log('[ClientPage] Skonfigurowano przycisk kopiowania linku');
     }
+
 }
 function generateClientUrl(quoteNumber, token) {
     const baseUrl = window.location.origin;
@@ -1728,6 +1731,7 @@ function fallbackCopyToClipboard(text) {
 
     document.body.removeChild(textArea);
 }
+
 
 // TESTY DO WYKONANIA W KONSOLI PRZEGLĄDARKI
 

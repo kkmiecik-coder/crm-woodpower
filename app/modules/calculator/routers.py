@@ -24,11 +24,11 @@ def calculator_home():
     if not user_email:
         return redirect(url_for('login'))
 
-    current_app.logger.info(">>> calculator_home: Użytkownik zalogowany: %s", user_email)
+    current_app.logger.info(">>> calculator_home: Uzytkownik zalogowany: %s", user_email)
     user = User.query.filter_by(email=user_email).first()
     user_role = user.role
     user_multiplier = user.multiplier.multiplier if user.multiplier else 1.0
-    current_app.logger.info(">>> calculator_home: Rola użytkownika: %s, mnożnik: %s", user_role, user_multiplier)
+    current_app.logger.info(">>> calculator_home: Rola użytkownika: %s, mnoznik: %s", user_role, user_multiplier)
     
     prices_query = db.session.execute(text("""
         SELECT species, technology, wood_class, thickness_min, thickness_max, 
@@ -71,8 +71,8 @@ def shipping_quote():
         return jsonify({"error": "Błędne dane wejściowe"}), 400
 
     if original_length <= 0 or original_width <= 0 or original_height <= 0 or weight <= 0:
-        current_app.logger.error(">>> shipping_quote: Nieprawidłowe wymiary lub waga")
-        return jsonify({"error": "Nieprawidłowe wymiary lub waga"}), 400
+        current_app.logger.error(">>> shipping_quote: Nieprawidlowe wymiary lub waga")
+        return jsonify({"error": "Nieprawidlowe wymiary lub waga"}), 400
 
     # Dodajemy 5 cm do każdego wymiaru i konwertujemy na liczbę całkowitą
     length_int = int(round(original_length + 5))
@@ -121,8 +121,8 @@ def shipping_quote():
     try:
         auth_response = requests.post(auth_url, headers=headers, json=login_payload)
         if auth_response.status_code != 200:
-            current_app.logger.error(">>> shipping_quote: Błąd logowania, status: %s", auth_response.status_code)
-            return jsonify({"error": "Błąd logowania do GlobKurier", "status": auth_response.status_code}), 401
+            current_app.logger.error(">>> shipping_quote: Blad logowania, status: %s", auth_response.status_code)
+            return jsonify({"error": "Blad logowania do GlobKurier", "status": auth_response.status_code}), 401
         auth_data = auth_response.json()
         token = auth_data.get("token")
         if not token:
@@ -130,8 +130,8 @@ def shipping_quote():
             return jsonify({"error": "Nie otrzymano tokena"}), 401
         current_app.logger.info(">>> shipping_quote: Token otrzymany")
     except Exception as e:
-        current_app.logger.error(">>> shipping_quote: Wyjątek podczas logowania: %s", e)
-        return jsonify({"error": "Wyjątek podczas logowania: " + str(e)}), 500
+        current_app.logger.error(">>> shipping_quote: Wyjatek podczas logowania: %s", e)
+        return jsonify({"error": "Wyjatek podczas logowania: " + str(e)}), 500
 
     # Wysyłamy zapytanie do /products
     products_url = glob_config["endpoint"] + "/products"
@@ -142,7 +142,7 @@ def shipping_quote():
     try:
         quote_response = requests.get(products_url, headers=headers_quote, params=query_params)
         if quote_response.status_code != 200:
-            current_app.logger.error(">>> shipping_quote: Błąd pobierania wyceny, status: %s, treść: %s", 
+            current_app.logger.error(">>> shipping_quote: Blad pobierania wyceny, status: %s, treść: %s", 
                                        quote_response.status_code, quote_response.text)
             return jsonify({
                 "error": "Błąd pobierania wyceny",
@@ -172,8 +172,8 @@ def shipping_quote():
                 for product in all_products
             ]
     except Exception as e:
-        current_app.logger.error(">>> shipping_quote: Wyjątek podczas pobierania wyceny: %s", e)
-        return jsonify({"error": "Wyjątek podczas pobierania wyceny: " + str(e)}), 500
+        current_app.logger.error(">>> shipping_quote: Wyjatek podczas pobierania wyceny: %s", e)
+        return jsonify({"error": "Wyjatek podczas pobierania wyceny: " + str(e)}), 500
     
     return jsonify(result), 200
 
@@ -183,15 +183,15 @@ logger = logging.getLogger(__name__)
 def save_quote():
     user_email = session.get('user_email')
     if not user_email:
-        current_app.logger.warning("[save_quote_backend] Brak sesji użytkownika.")
-        return jsonify({"error": "Brak sesji użytkownika."}), 401
+        current_app.logger.warning("[save_quote_backend] Brak sesji uzytkownika.")
+        return jsonify({"error": "Brak sesji uzytkownika."}), 401
 
     try:
         data = request.get_json(force=True)
 
         client_id = data.get('client_id')
         products = data.get('products')
-        current_app.logger.info("[save_quote_backend] Liczba produktów do zapisania: %s", len(products))
+        current_app.logger.info("[save_quote_backend] Liczba produktow do zapisania: %s", len(products))
 
         for i, p in enumerate(products):
             current_app.logger.info("[save_quote_backend] Produkt #%s: %s", i + 1, json.dumps(p, indent=2, ensure_ascii=False))
@@ -222,8 +222,8 @@ def save_quote():
             current_app.logger.info("[save_quote_backend] Utworzono nowego klienta z ID: %s", client_id)
 
         if not products:
-            current_app.logger.warning("[save_quote_backend] Brak produktów w żądaniu.")
-            return jsonify({"error": "Brakuje produktów."}), 400
+            current_app.logger.warning("[save_quote_backend] Brak produktow w żądaniu.")
+            return jsonify({"error": "Brakuje produktow."}), 400
 
         now = datetime.utcnow()
         year = now.year
@@ -309,18 +309,18 @@ def save_quote():
             user_id=user_id,
             description=f"Utworzono wycenę {quote_number}"
         )
-        current_app.logger.info(f"[save_quote_backend] Łącznie dodano {len(products)} pozycji do QuoteItem.")
+        current_app.logger.info(f"[save_quote_backend] Lacznie dodano {len(products)} pozycji do QuoteItem.")
         db.session.add(log)
 
-        current_app.logger.info("[save_quot_backende] Zapisuję wycenę do bazy...")
+        current_app.logger.info("[save_quot_backende] Zapisuje wycenę do bazy...")
         db.session.commit()
-        current_app.logger.info(f"[save_quote_backend] Wycena {quote_number} zapisana pomyślnie dla klienta {client_id}")
+        current_app.logger.info(f"[save_quote_backend] Wycena {quote_number} zapisana pomyslnie dla klienta {client_id}")
 
         return jsonify({"message": "Wycena zapisana.", "quote_number": quote_number})
 
     except SQLAlchemyError as e:
         db.session.rollback()
-        current_app.logger.exception("[save_quote] Błąd podczas zapisu wyceny:")
+        current_app.logger.exception("[save_quote] Blad podczas zapisu wyceny:")
         return jsonify({"error": str(e)}), 500
 
 @calculator_bp.route('/search_clients', methods=['GET'])

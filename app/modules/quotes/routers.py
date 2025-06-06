@@ -632,43 +632,35 @@ def get_client_quote_data(token):
 
 @quotes_bp.route("/api/client/quote/<token>/update-variant", methods=["PATCH"])
 def client_update_variant(token):
-    """Zmiana wariantu przez klienta"""
+    """Zmiana wariantu przez klienta (bez walidacji e-mail/telefon)"""
     try:
         data = request.get_json()
         item_id = data.get("item_id")
-        email_or_phone = data.get("email_or_phone")
-        
-        if not item_id or not email_or_phone:
+
+        # Wymagamy tylko item_id
+        if not item_id:
             return jsonify({"error": "Brak wymaganych danych"}), 400
-        
+
         quote = Quote.query.filter_by(public_token=token).first_or_404()
-        
         if not quote.is_client_editable:
             return jsonify({"error": "Wycena nie może być już edytowana"}), 403
-        
-        # Walidacja email/telefon
-        if not validate_email_or_phone(email_or_phone, quote):
-            return jsonify({"error": "Nieprawidłowy email lub numer telefonu"}), 400
-        
+
         item = QuoteItem.query.filter_by(id=item_id, quote_id=quote.id).first_or_404()
-        
-        # Sprawdź czy pozycja jest widoczna dla klienta
         if not item.show_on_client_page:
             return jsonify({"error": "Pozycja nie jest dostępna"}), 403
-        
-        # Zmień wybór wariantu
+
+        # Odznacz wszystkie warianty w tej grupie i zaznacz wybrany
         QuoteItem.query.filter_by(quote_id=quote.id, product_index=item.product_index).update({QuoteItem.is_selected: False})
         item.is_selected = True
-        
         db.session.commit()
-        
+
         print(f"[client_update_variant] Klient zmienił wariant na {item_id} w wycenie {quote.id}", file=sys.stderr)
-        
         return jsonify({"message": "Wariant został zmieniony"})
-        
+
     except Exception as e:
         print(f"[client_update_variant] Błąd: {e}", file=sys.stderr)
         return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
+
 
 @quotes_bp.route("/api/client/quote/<token>/accept", methods=["POST"])
 def client_accept_quote(token):

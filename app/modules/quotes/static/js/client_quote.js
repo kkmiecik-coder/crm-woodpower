@@ -235,13 +235,12 @@ const api = {
         return api.call(`/quotes/api/client/quote/${token}`);
     },
 
-    // Update variant selection
-    updateVariant: async (token, itemId, emailOrPhone) => {
+    // Update variant selection (tylko item_id)
+    updateVariant: async (token, itemId) => {
         return api.call(`/quotes/api/client/quote/${token}/update-variant`, {
             method: 'PATCH',
             body: JSON.stringify({
-                item_id: itemId,
-                email_or_phone: emailOrPhone
+                item_id: itemId
             })
         });
     },
@@ -467,17 +466,6 @@ const quote = {
             return;
         }
 
-        // Get email/phone for validation
-        const emailOrPhone = elements.emailPhoneInput?.value?.trim();
-        if (!emailOrPhone) {
-            alerts.show('Wprowadź swój email lub numer telefonu, aby zmienić wariant', 'warning');
-            if (elements.emailPhoneInput) {
-                elements.emailPhoneInput.focus();
-                elements.emailPhoneInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-            return;
-        }
-
         try {
             console.log(`[Quote] Selecting variant ${itemId} for product ${productIndex}`);
 
@@ -487,8 +475,8 @@ const quote = {
                 variantCard.setAttribute('data-loading', 'true');
             }
 
-            // Make API call
-            await api.updateVariant(window.QUOTE_TOKEN, itemId, emailOrPhone);
+            // Make API call (tylko item_id, bez email/phone)
+            await api.updateVariant(window.QUOTE_TOKEN, itemId);
 
             // Update local state
             selectedVariants.set(productIndex, itemId);
@@ -496,6 +484,7 @@ const quote = {
             // Reload quote data to get updated prices
             await quote.load();
 
+            console.log('[Quote] Variant changed successfully');
             alerts.show('Wariant został zmieniony', 'success');
 
         } catch (error) {
@@ -803,7 +792,20 @@ const linkCopy = {
     },
 
     // Fallback method for older browsers
-    fallbackCopyTextToClipboard: (text) => {
+    fallbackCopyTextToClipboard: async (text) => {
+        // Jeżeli dostępne jest nowoczesne API, użyj go
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                alerts.show('Link został skopiowany do schowka! 📋', 'success', 3000);
+                return;
+            } catch (err) {
+                console.error('[LinkCopy] Clipboard API failed:', err);
+                // Przejdź dalej do manualnego kopiowania
+            }
+        }
+
+        // Fallback do execCommand
         const textArea = document.createElement('textarea');
         textArea.value = text;
         textArea.style.top = '0';
@@ -816,6 +818,7 @@ const linkCopy = {
         textArea.select();
 
         try {
+            // @ts-ignore: potrzebne dla starszych przeglądarek, mimo że execCommand jest deprecated
             const successful = document.execCommand('copy');
             if (successful) {
                 alerts.show('Link został skopiowany do schowka! 📋', 'success', 3000);
@@ -825,7 +828,7 @@ const linkCopy = {
         } catch (error) {
             console.error('[LinkCopy] Fallback copy failed:', error);
 
-            // Show manual copy instructions
+            // Pokaż instrukcję ręcznego kopiowania
             const shortUrl = text.length > 50 ? text.substring(0, 50) + '...' : text;
             alerts.show(`Skopiuj link ręcznie: ${shortUrl}`, 'info', 8000);
         }
