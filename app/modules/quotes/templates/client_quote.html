@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wycena {{ quote_number }} - Wood Power</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+
+    <!-- Poppins Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- CSS dla strony klienta -->
+    <link rel="stylesheet" href="{{ url_for('quotes.static', filename='css/client_quote.css') }}">
+
+    <!-- Meta tags dla lepszego SEO i social sharing -->
+    <meta name="description" content="Wycena Wood Power - wysokiej jakości produkty drewniane">
+    <meta property="og:title" content="Wycena {{ quote_number }} - Wood Power">
+    <meta property="og:description" content="Przeglądaj swoją wycenę i dokonaj wyboru wariantów produktów">
+    <meta property="og:type" content="website">
+    <meta name="robots" content="noindex, nofollow">
+</head>
+<body>
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>Ładowanie wyceny...</p>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="client-header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo-section">
+                    <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/logowhite.png"
+                         alt="Wood Power"
+                         class="logo">
+                </div>
+                <div class="quote-info">
+                    <h1 class="quote-title">Wycena <span id="quote-number">{{ quote_number }}</span></h1>
+                    <div class="quote-meta">
+                        <span class="quote-status" id="quote-status">Ładowanie...</span>
+                        <span class="quote-date" id="quote-date"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main content -->
+    <main class="client-main">
+        <div class="container">
+            <!-- Breadcrumb navigation -->
+            <nav class="breadcrumb">
+                <span class="breadcrumb-item">
+                    <svg class="breadcrumb-icon" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+                    </svg>
+                    Strona główna
+                </span>
+                <span class="breadcrumb-separator">→</span>
+                <span class="breadcrumb-item active">Wycena {{ quote_number }}</span>
+            </nav>
+
+            <!-- Alert messages -->
+            <div id="alert-container" class="alert-container"></div>
+
+            <!-- Quote summary -->
+            <section class="quote-summary" id="quote-summary" style="display: none;">
+                <div class="summary-card">
+                    <div class="summary-header">
+                        <h2 class="summary-title">
+                            <svg class="summary-icon" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
+                            </svg>
+                            Podsumowanie wyceny
+                        </h2>
+                        <div class="summary-actions">
+                            <button id="download-pdf-btn" class="btn btn-secondary" title="Pobierz PDF">
+                                <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                                PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="summary-content">
+                        <div class="summary-grid">
+                            <div class="summary-item">
+                                <span class="summary-label">Klient</span>
+                                <span class="summary-value" id="client-name">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Opiekun handlowy</span>
+                                <span class="summary-value" id="employee-name">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Data utworzenia</span>
+                                <span class="summary-value" id="quote-created-date">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Sposób dostawy</span>
+                                <span class="summary-value" id="courier-name">-</span>
+                            </div>
+                        </div>
+
+                        <!-- Price summary -->
+                        <div class="price-summary">
+                            <div class="price-breakdown">
+                                <div class="price-item">
+                                    <span class="price-label">Produkty</span>
+                                    <span class="price-value" id="products-price">0.00 PLN</span>
+                                </div>
+                                <div class="price-item">
+                                    <span class="price-label">Wykończenie</span>
+                                    <span class="price-value" id="finishing-price">0.00 PLN</span>
+                                </div>
+                                <div class="price-item">
+                                    <span class="price-label">Wysyłka</span>
+                                    <span class="price-value" id="shipping-price">0.00 PLN</span>
+                                </div>
+                            </div>
+                            <div class="price-total">
+                                <span class="total-label">Razem</span>
+                                <span class="total-value" id="total-price">0.00 PLN</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Products section -->
+            <section class="products-section" id="products-section" style="display: none;">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <svg class="section-icon" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 2L3 7v11a1 1 0 001 1h12a1 1 0 001-1V7l-7-5zM9 18v-6h2v6H9z" clip-rule="evenodd" />
+                        </svg>
+                        Twoje produkty
+                    </h2>
+                    <p class="section-description">
+                        Przeglądaj dostępne warianty i wybierz te, które najlepiej odpowiadają Twoim potrzebom.
+                    </p>
+                </div>
+
+                <!-- Products container -->
+                <div id="products-container" class="products-container">
+                    <!-- Products will be loaded here via JavaScript -->
+                </div>
+            </section>
+
+            <!-- Accept section -->
+            <section class="accept-section" id="accept-section" style="display: none;">
+                <div class="accept-card">
+                    <div class="accept-header">
+                        <h2 class="accept-title">
+                            <svg class="accept-icon" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                            </svg>
+                            Akceptacja wyceny
+                        </h2>
+                        <p class="accept-description">
+                            Jeśli wybrane produkty odpowiadają Twoim oczekiwaniom, możesz zaakceptować wycenę.
+                        </p>
+                    </div>
+
+                    <!-- Acceptance form -->
+                    <form id="acceptance-form" class="acceptance-form">
+                        <div class="form-group">
+                            <label for="email-phone" class="form-label">
+                                Email lub numer telefonu *
+                                <span class="form-hint">Do weryfikacji tożsamości</span>
+                            </label>
+                            <input type="text"
+                                   id="email-phone"
+                                   name="email_phone"
+                                   class="form-input"
+                                   placeholder="Wpisz swój email lub numer telefonu"
+                                   required>
+                            <div class="form-error" id="email-phone-error"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="comments" class="form-label">
+                                Dodatkowe uwagi lub pytania
+                                <span class="form-hint">Opcjonalne</span>
+                            </label>
+                            <textarea id="comments"
+                                      name="comments"
+                                      class="form-textarea"
+                                      rows="4"
+                                      placeholder="Możesz dodać swoje uwagi lub pytania dotyczące zamówienia..."></textarea>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary btn-large" id="accept-btn">
+                                <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                </svg>
+                                <span class="btn-text">Akceptuję wycenę</span>
+                                <span class="btn-loading" style="display: none;">
+                                    <span class="spinner-small"></span>
+                                    Przetwarzanie...
+                                </span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Quote accepted section (hidden by default) -->
+            <section class="success-section" id="success-section" style="display: none;">
+                <div class="success-card">
+                    <div class="success-icon">
+                        <svg viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <h2 class="success-title">Dziękujemy za akceptację!</h2>
+                    <p class="success-description">
+                        Twoja wycena została zaakceptowana i przekazana do realizacji.
+                        Wkrótce skontaktujemy się z Tobą w sprawie dalszych kroków.
+                    </p>
+                    <div class="success-actions">
+                        <button id="download-final-pdf" class="btn btn-secondary">
+                            <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                            Pobierz potwierdzenie PDF
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="client-footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3 class="footer-title">Kontakt</h3>
+                    <div class="contact-info">
+                        <a href="tel:+48690002109" class="contact-link">
+                            <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                            </svg>
+                            +48 690 002 109
+                        </a>
+                        <a href="mailto:biuro@woodpower.pl" class="contact-link">
+                            <svg class="contact-icon" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                                <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                            </svg>
+                            biuro@woodpower.pl
+                        </a>
+                    </div>
+                </div>
+
+                <div class="footer-section">
+                    <h3 class="footer-title">Wood Power</h3>
+                    <p class="footer-text">
+                        Bachórz 14N, 36-068 Bachórz<br>
+                        NIP: 8133787635<br>
+                        Wysokiej jakości produkty drewniane
+                    </p>
+                </div>
+
+                <div class="footer-section">
+                    <h3 class="footer-title">Śledź nas</h3>
+                    <div class="social-links">
+                        <a href="https://www.facebook.com/profile.php?id=100078058417309" target="_blank" class="social-link">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+                            </svg>
+                        </a>
+                        <a href="https://instagram.com/__wood_power__" target="_blank" class="social-link">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 6.62 5.367 11.987 11.988 11.987c6.62 0 11.987-5.367 11.987-11.987C24.014 5.367 18.637.001 12.017.001zM8.449 16.988c-1.297 0-2.448-.49-3.323-1.297C4.198 14.895 3.708 13.744 3.708 12.447s.49-2.448 1.297-3.323C5.832 8.297 6.983 7.807 8.28 7.807s2.448.49 3.323 1.297c.827.827 1.317 1.978 1.317 3.275s-.49 2.448-1.297 3.323c-.875.827-2.026 1.317-3.323 1.317zm7.718 0c-1.297 0-2.448-.49-3.323-1.297C11.917 14.895 11.427 13.744 11.427 12.447s.49-2.448 1.297-3.323C13.551 8.297 14.702 7.807 16 7.807s2.448.49 3.323 1.297c.827.827 1.317 1.978 1.317 3.275s-.49 2.448-1.297 3.323c-.875.827-2.026 1.317-3.323 1.317z" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p class="footer-copyright">
+                    © 2024 Wood Power. Wszystkie prawa zastrzeżone.
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // Pass data from Flask to JavaScript
+        window.QUOTE_TOKEN = "{{ token }}";
+        window.QUOTE_NUMBER = "{{ quote_number }}";
+    </script>
+    <script src="{{ url_for('quotes.static', filename='js/client_quote.js') }}"></script>
+</body>
+</html>

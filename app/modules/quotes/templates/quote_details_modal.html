@@ -7,10 +7,10 @@
                 <button class="quotes-btn quotes-btn-download" data-id="" id="download-details-btn">Pobierz</button>
                 <button id="quote-order-btn" class="quotes-btn quotes-btn-order">Zamów</button>
                 <div class="quotes-client-sfere">
-                    <button id="quote-client-page-btn" class="quotes-btn quotes-btn-client-page">
+                    <button id="quote-client-page-btn" class="quotes-btn quotes-btn-client-page" data-quote-number="" data-token="">
                         Strona klienta
                     </button>
-                    <button id="quote-link-btn" class="quotes-btn-client-page-copy" title="Skopiuj link">
+                    <button id="quote-link-copy-btn" class="quotes-btn-client-page-copy" data-quote-number="" data-token="" title="Skopiuj link do strony klienta">
                         <img src="{{ url_for('static', filename='icons/copy_link.svg') }}"
                              alt="Kopiuj link"
                              class="quote-icon-copy" />

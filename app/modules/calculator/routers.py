@@ -188,8 +188,6 @@ def save_quote():
 
     try:
         data = request.get_json(force=True)
-        current_app.logger.info("[save_quote_backend] Otrzymany payload:")
-        current_app.logger.info(json.dumps(data, indent=2, ensure_ascii=False))
 
         client_id = data.get('client_id')
         products = data.get('products')

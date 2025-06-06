@@ -16,6 +16,28 @@ from sqlalchemy import func
 import re
 from datetime import datetime
 
+def render_client_error(error_type, error_code=None, error_message=None, error_details=None, quote_number=None):
+    """
+    Renderuje stronę błędu dla klienta z odpowiednimi parametrami
+    
+    Args:
+        error_type (str): Typ błędu ('expired', 'not_found', 'access_denied', 'already_accepted', 'general')
+        error_code (int, optional): Kod błędu HTTP
+        error_message (str, optional): Niestandardowa wiadomość błędu
+        error_details (str, optional): Szczegóły techniczne błędu
+        quote_number (str, optional): Numer wyceny dla kontekstu
+    
+    Returns:
+        Flask response z renderowanym szablonem błędu
+    """
+    return render_template(
+        'quotes/templates/client_error.html',
+        error_type=error_type,
+        error_code=error_code,
+        error_message=error_message,
+        error_details=error_details,
+        quote_number=quote_number
+    ), error_code or 400
 
 def calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto):
     """
@@ -491,7 +513,24 @@ def client_quote_view(quote_number, token):
     print(f"[client_quote_view] Dostęp do wyceny {quote_number} z tokenem {token}", file=sys.stderr)
     
     try:
-        quote = Quote.query.filter_by(quote_number=quote_number, public_token=token).first_or_404()
+        quote = Quote.query.filter_by(quote_number=quote_number, public_token=token).first()
+        
+        if not quote:
+            print(f"[client_quote_view] Nie znaleziono wyceny dla numeru {quote_number} i tokenu {token}", file=sys.stderr)
+            return render_client_error(
+                error_type='not_found',
+                error_code=404,
+                quote_number=quote_number
+            )
+        
+        # Sprawdź czy wycena nie została już zaakceptowana i wyłączona edycja
+        if not quote.is_client_editable:
+            print(f"[client_quote_view] Wycena {quote_number} została już zaakceptowana", file=sys.stderr)
+            return render_client_error(
+                error_type='already_accepted',
+                error_code=403,
+                quote_number=quote_number
+            )
         
         # Przekierowanie na szablon strony klienta
         return render_template("quotes/templates/client_quote.html", 
@@ -501,13 +540,31 @@ def client_quote_view(quote_number, token):
         
     except Exception as e:
         print(f"[client_quote_view] Błąd: {e}", file=sys.stderr)
-        return render_template("error.html", message="Nie znaleziono wyceny"), 404
+        return render_client_error(
+            error_type='general',
+            error_code=500,
+            error_message="Wystąpił nieoczekiwany błąd podczas ładowania wyceny.",
+            error_details=str(e),
+            quote_number=quote_number
+        )
 
 @quotes_bp.route("/api/client/quote/<token>")
 def get_client_quote_data(token):
     """API dla strony klienta - dane wyceny"""
     try:
-        quote = Quote.query.filter_by(public_token=token).first_or_404()
+        quote = Quote.query.filter_by(public_token=token).first()
+        
+        if not quote:
+            return jsonify({
+                "error": "not_found", 
+                "message": "Wycena nie została znaleziona"
+            }), 404
+        
+        if not quote.is_client_editable:
+            return jsonify({
+                "error": "already_accepted", 
+                "message": "Wycena została już zaakceptowana"
+            }), 403
         
         # Oblicz koszty
         cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
@@ -551,7 +608,11 @@ def get_client_quote_data(token):
         
     except Exception as e:
         print(f"[get_client_quote_data] Błąd: {e}", file=sys.stderr)
-        return jsonify({"error": "Błąd podczas pobierania danych wyceny"}), 500
+        return jsonify({
+            "error": "general",
+            "message": "Wystąpił błąd podczas pobierania danych wyceny",
+            "details": str(e)
+        }), 500
 
 @quotes_bp.route("/api/client/quote/<token>/update-variant", methods=["PATCH"])
 def client_update_variant(token):
