@@ -50,18 +50,6 @@
     <!-- Main content -->
     <main class="client-main">
         <div class="container">
-            <!-- Breadcrumb navigation -->
-            <nav class="breadcrumb">
-                <span class="breadcrumb-item">
-                    <svg class="breadcrumb-icon" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
-                    </svg>
-                    Strona główna
-                </span>
-                <span class="breadcrumb-separator">→</span>
-                <span class="breadcrumb-item active">Wycena {{ quote_number }}</span>
-            </nav>
-
             <!-- Alert messages -->
             <div id="alert-container" class="alert-container"></div>
 
@@ -323,8 +311,8 @@
                                 <form id="sidebar-acceptance-form" class="acceptance-form">
                                     <div class="form-group">
                                         <label for="sidebar-email-phone" class="form-label">
-                                            Email lub numer telefonu *
-                                            <span class="form-hint">Do weryfikacji tożsamości</span>
+                                            Email lub numer telefonu<span style="color:red;">*</span>
+                                            <span class="form-hint">(Do weryfikacji tożsamości)</span>
                                         </label>
                                         <input type="text"
                                                id="sidebar-email-phone"
@@ -338,7 +326,7 @@
                                     <div class="form-group">
                                         <label for="sidebar-comments" class="form-label">
                                             Dodatkowe uwagi lub pytania
-                                            <span class="form-hint">Opcjonalne</span>
+                                            <span class="form-hint">(Opcjonalnie)</span>
                                         </label>
                                         <textarea id="sidebar-comments"
                                                   name="comments"

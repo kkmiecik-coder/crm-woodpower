@@ -259,7 +259,6 @@ body {
    Główny layout strony z dwukolumnowym układem
    =================================== */
 .client-main {
-    padding: var(--spacing-xl) 0;
     min-height: calc(100vh - 200px);
 }
 
@@ -478,9 +477,6 @@ body {
    PRODUCTS SECTION
    Sekcja z produktami - lewa kolumna
    =================================== */
-.products-section {
-    margin-bottom: var(--spacing-2xl);
-}
 
 .section-header {
     margin-bottom: var(--spacing-xl);
@@ -685,7 +681,6 @@ body {
 .quote-summary-card {
     background: var(--bg-card);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-medium);
     overflow: hidden;
     border: 1px solid var(--border-light);
 }
@@ -882,7 +877,6 @@ body {
 .sidebar-accept-section {
     background: var(--bg-card);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-medium);
     overflow: hidden;
     border: 1px solid var(--border-light);
 }
@@ -929,13 +923,12 @@ body {
     padding: var(--spacing-lg);
 }
 
-.form-group {
-    margin-bottom: var(--spacing-base);
-}
-
 .form-label {
-    display: block;
-    font-size: var(--font-size-xs);
+    display: flex;
+    gap: 8px;
+    margin-top: var(--spacing-xs);
+    align-items: baseline;
+    font-size: var(--font-size-sm);
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: var(--spacing-xs);
@@ -990,7 +983,7 @@ body {
     }
 
 .form-actions {
-    margin-top: var(--spacing-lg);
+    margin-top: var(--spacing-xs);
 }
 
 .character-counter {
