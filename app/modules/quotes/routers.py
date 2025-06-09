@@ -632,9 +632,15 @@ def client_update_variant(token):
         return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
 
 
+# POPRAWKA 1: W routers.py w funkcji client_accept_quote
+# Zmień tę część kodu:
+
+# GŁÓWNA POPRAWKA W app/modules/quotes/routers.py
+# Zastąp funkcję client_accept_quote:
+
 @quotes_bp.route("/api/client/quote/<token>/accept", methods=["POST"])
 def client_accept_quote(token):
-    """Akceptacja wyceny przez klienta - z poprawnym zapisem daty"""
+    """Akceptacja wyceny przez klienta - z poprawną zmianą statusu"""
     try:
         data = request.get_json()
         email_or_phone = data.get("email_or_phone")
@@ -652,34 +658,75 @@ def client_accept_quote(token):
         if not validate_email_or_phone(email_or_phone, quote):
             return jsonify({"error": "Nieprawidłowy email lub numer telefonu"}), 400
         
-        # Zmień status na "Zaakceptowana"
-        accepted_status = QuoteStatus.query.filter_by(name="Zaakceptowana").first()
-        if accepted_status:
-            quote.status_id = accepted_status.id
+        print(f"[client_accept_quote] PRZED zmianą - wycena {quote.id}, status_id: {quote.status_id}", file=sys.stderr)
         
-        # POPRAWKA: Zapisz wszystkie dane akceptacji
+        # KLUCZOWA POPRAWKA: Znajdź status "Zaakceptowane" (ID 3)
+        accepted_status = QuoteStatus.query.filter_by(id=3).first()
+        if not accepted_status:
+            # Fallback - spróbuj różne nazwy
+            accepted_status = QuoteStatus.query.filter(
+                QuoteStatus.name.in_(["Zaakceptowane", "Zaakceptowana", "Accepted", "Zatwierdzone"])
+            ).first()
+        
+        if accepted_status:
+            old_status_id = quote.status_id
+            quote.status_id = accepted_status.id
+            print(f"[client_accept_quote] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
+        else:
+            print(f"[client_accept_quote] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
+            # Wypisz wszystkie dostępne statusy dla debugowania
+            all_statuses = QuoteStatus.query.all()
+            print(f"[client_accept_quote] Dostępne statusy:", file=sys.stderr)
+            for status in all_statuses:
+                print(f"  ID: {status.id}, Nazwa: '{status.name}'", file=sys.stderr)
+        
+        # Zapisz pozostałe dane akceptacji
         quote.client_comments = comments
-        quote.acceptance_date = datetime.now()  # NOWE: data akceptacji
-        quote.accepted_by_email = email_or_phone  # NOWE: kto zaakceptował
+        quote.acceptance_date = datetime.now()
+        quote.accepted_by_email = email_or_phone
         quote.disable_client_editing()
         
-        db.session.commit()
+        # WAŻNE: Flush przed commit żeby zobaczyć błędy
+        try:
+            db.session.flush()
+            print(f"[client_accept_quote] Flush wykonany pomyślnie", file=sys.stderr)
+        except Exception as e:
+            print(f"[client_accept_quote] BŁĄD podczas flush: {e}", file=sys.stderr)
+            db.session.rollback()
+            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        
+        # Commit zmian
+        try:
+            db.session.commit()
+            print(f"[client_accept_quote] Commit wykonany pomyślnie", file=sys.stderr)
+        except Exception as e:
+            print(f"[client_accept_quote] BŁĄD podczas commit: {e}", file=sys.stderr)
+            db.session.rollback()
+            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        
+        # Sprawdź po zapisie
+        quote_after = Quote.query.get(quote.id)
+        print(f"[client_accept_quote] PO zapisie - wycena {quote_after.id}, status_id: {quote_after.status_id}", file=sys.stderr)
         
         # Wyślij emaile
         try:
             send_acceptance_emails(quote)
+            print(f"[client_accept_quote] Emaile wysłane pomyślnie", file=sys.stderr)
         except Exception as e:
             print(f"[client_accept_quote] Błąd wysyłki maili: {e}", file=sys.stderr)
         
-        print(f"[client_accept_quote] Wycena {quote.id} została zaakceptowana przez klienta", file=sys.stderr)
-        
         return jsonify({
             "message": "Wycena została zaakceptowana",
-            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None
+            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
+            "new_status": accepted_status.name if accepted_status else "Brak statusu",
+            "new_status_id": accepted_status.id if accepted_status else None
         })
         
     except Exception as e:
-        print(f"[client_accept_quote] Błąd: {e}", file=sys.stderr)
+        print(f"[client_accept_quote] WYJĄTEK: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        db.session.rollback()
         return jsonify({"error": "Błąd podczas akceptacji wyceny"}), 500
 
 def send_acceptance_email_to_salesperson(quote):

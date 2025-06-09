@@ -12,6 +12,7 @@ let currentEditingItem = null;
 let currentQuoteData = null;
 let discountReasons = [];
 let originalPrices = {};
+let acceptedQuotes = new Set(); // Set do śledzenia ID zaakceptowanych wycen
 
 document.addEventListener("DOMContentLoaded", () => {
     console.log("[DOMContentLoaded] Inicjalizacja komponentów");
@@ -166,6 +167,7 @@ function showDetailsModal(quoteData) {
     console.log('[MODAL] Otwieranie szczegółów wyceny:', quoteData);
 
     const modal = document.getElementById('quote-details-modal');
+    const modalBox = modal.querySelector('.quotes-details-modal-box');
     const itemsContainer = document.getElementById('quotes-details-modal-items-body');
     const tabsContainer = document.getElementById('quotes-details-tabs');
     const dropdownWrap = document.getElementById('quotes-details-modal-status-dropdown');
@@ -175,6 +177,31 @@ function showDetailsModal(quoteData) {
     if (!modal || !itemsContainer || !tabsContainer || !dropdownWrap || !selectedDiv || !optionsContainer) {
         console.warn('[MODAL] Brakuje elementów w DOM!');
         return;
+    }
+
+    // NOWE: Sprawdź czy wycena jest zaakceptowana
+    const isAccepted = checkIfQuoteAccepted(quoteData);
+
+    // NOWE: Dodaj/usuń klasę CSS dla zielonego obramowania
+    if (isAccepted) {
+        modalBox.classList.add('quote-accepted');
+        acceptedQuotes.add(quoteData.id);
+        console.log('[MODAL] Wycena zaakceptowana - dodano zielone obramowanie');
+
+        // Dodaj banner informacyjny o akceptacji
+        addAcceptanceBanner(modalBox, quoteData);
+
+        // Opcjonalna animacja pulsowania
+        setTimeout(() => {
+            modalBox.classList.add('pulse-animation');
+            setTimeout(() => {
+                modalBox.classList.remove('pulse-animation');
+            }, 6000);
+        }, 500);
+    } else {
+        modalBox.classList.remove('quote-accepted');
+        acceptedQuotes.delete(quoteData.id);
+        removeAcceptanceBanner(modalBox);
     }
 
     // POPRAWIONE dane klienta - właściwe mapowanie pól
@@ -221,6 +248,72 @@ function showDetailsModal(quoteData) {
             console.log('[MODAL] Zamykam modal przez kliknięcie tła');
         }
     });
+}
+
+function checkIfQuoteAccepted(quoteData) {
+    // Sprawdź po nazwie statusu
+    const statusName = quoteData.status_name ? quoteData.status_name.toLowerCase() : '';
+    const isAcceptedByName = statusName.includes('akceptow') ||
+        statusName.includes('accepted') ||
+        statusName.includes('zatwierdzono');
+
+    // Sprawdź po ID statusu (ID 3 = Zaakceptowane)
+    const isAcceptedById = quoteData.status_id === 3;
+
+    // Sprawdź po is_client_editable (false = zaakceptowane)
+    const isAcceptedByEditability = quoteData.is_client_editable === false;
+
+    console.log('[MODAL] Sprawdzanie akceptacji:', {
+        statusName: quoteData.status_name,
+        statusId: quoteData.status_id,
+        isClientEditable: quoteData.is_client_editable,
+        isAcceptedByName,
+        isAcceptedById,
+        isAcceptedByEditability
+    });
+
+    // Wycena jest zaakceptowana jeśli którykolwiek z warunków jest spełniony
+    return isAcceptedByName || isAcceptedById || isAcceptedByEditability;
+}
+
+// 4. DODAJ funkcję do dodawania bannera akceptacji
+function addAcceptanceBanner(modalBox, quoteData) {
+    // Usuń istniejący banner jeśli jest
+    removeAcceptanceBanner(modalBox);
+
+    // Sprawdź czy są dane o akceptacji
+    let acceptanceDate = '';
+    if (quoteData.acceptance_date) {
+        const date = new Date(quoteData.acceptance_date);
+        acceptanceDate = date.toLocaleString('pl-PL');
+    }
+
+    const banner = document.createElement('div');
+    banner.className = 'acceptance-banner';
+    banner.innerHTML = `
+        <svg class="banner-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        <div class="banner-text">
+            <div>Wycena została zaakceptowana przez klienta</div>
+            ${acceptanceDate ? `<div class="banner-date">Data akceptacji: ${acceptanceDate}</div>` : ''}
+        </div>
+    `;
+
+    // Wstaw banner na początku modalBox (po headerze)
+    const header = modalBox.querySelector('.sticky-header');
+    if (header && header.nextSibling) {
+        modalBox.insertBefore(banner, header.nextSibling);
+    } else {
+        modalBox.appendChild(banner);
+    }
+}
+
+function removeAcceptanceBanner(modalBox) {
+    const existingBanner = modalBox.querySelector('.acceptance-banner');
+    if (existingBanner) {
+        existingBanner.remove();
+    }
 }
 
 // POPRAWIONA funkcja wyświetlania kosztów
@@ -1439,7 +1532,6 @@ function closeTotalDiscountModal() {
 
 // Odświeżanie modala szczegółów wyceny
 async function refreshQuoteDetailsModal() {
-    // SPRAWDŹ czy currentQuoteData jest ustawiona prawidłowo
     if (!currentQuoteData || !currentQuoteData.id) {
         console.error("[refreshQuoteDetailsModal] Brak currentQuoteData lub currentQuoteData.id");
         return;
@@ -1456,9 +1548,16 @@ async function refreshQuoteDetailsModal() {
         }
 
         const updatedData = await response.json();
-
-        // UPEWNIJ SIĘ, że odświeżamy ten sam modal
         console.log(`[refreshQuoteDetailsModal] Otrzymano dane dla wyceny: ${updatedData.quote_number}`);
+
+        // NOWE: Sprawdź czy status się zmienił na zaakceptowany
+        const wasAccepted = acceptedQuotes.has(quoteId);
+        const isNowAccepted = checkIfQuoteAccepted(updatedData);
+
+        if (!wasAccepted && isNowAccepted) {
+            console.log('[refreshQuoteDetailsModal] Wycena została właśnie zaakceptowana!');
+            showToast('Wycena została zaakceptowana przez klienta! 🎉', 'success');
+        }
 
         // Aktualizuj currentQuoteData
         currentQuoteData = updatedData;
@@ -1731,142 +1830,3 @@ function fallbackCopyToClipboard(text) {
 
     document.body.removeChild(textArea);
 }
-
-
-// TESTY DO WYKONANIA W KONSOLI PRZEGLĄDARKI
-
-// 1. SPRAWDŹ DOKŁADNY URL
-console.log("=== URL DEBUG ===");
-console.log("Current URL:", window.location.href);
-console.log("Origin:", window.location.origin);
-console.log("Pathname:", window.location.pathname);
-
-// 2. TEST RÓŻNYCH WARIANTÓW URL
-const baseUrl = window.location.origin;
-const quoteNumber = "24/06/25/W";
-const token = "GEITMXXCEWE3FL2XMORQOJITUXEF7NO4";
-
-const testUrls = [
-    `${baseUrl}/wycena/${quoteNumber}/${token}`,
-    `${baseUrl}/wycena/${encodeURIComponent(quoteNumber)}/${token}`,
-    `${baseUrl}/wycena/${quoteNumber.replace(/\//g, '%2F')}/${token}`,
-    `${baseUrl}/quotes/wycena/${quoteNumber}/${token}`, // może jest prefix?
-    `${baseUrl}/wycena/test`, // test podstawowy
-];
-
-console.log("=== TEST RÓŻNYCH URL ===");
-testUrls.forEach((url, index) => {
-    console.log(`Test ${index + 1}: ${url}`);
-});
-
-// 3. FUNKCJA DO TESTOWANIA URL
-async function testUrl(url) {
-    try {
-        console.log(`Testing: ${url}`);
-        const response = await fetch(url, { method: 'HEAD' });
-        console.log(`✅ Status: ${response.status} - ${response.statusText}`);
-        return response.status;
-    } catch (error) {
-        console.log(`❌ Error: ${error.message}`);
-        return 'ERROR';
-    }
-}
-
-// 4. URUCHOM TESTY
-async function runAllTests() {
-    console.log("=== ROZPOCZYNAM TESTY ===");
-
-    for (let i = 0; i < testUrls.length; i++) {
-        const url = testUrls[i];
-        console.log(`\nTest ${i + 1}:`);
-        await testUrl(url);
-
-        // Czekaj chwilę między testami
-        await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    console.log("\n=== TESTY ZAKOŃCZONE ===");
-}
-
-// 5. SPRAWDŹ ROUTING PO STRONIE KLIENTA
-function checkClientRouting() {
-    console.log("=== ROUTING CLIENT-SIDE ===");
-
-    // Sprawdź czy aplikacja ma jakieś routingi
-    if (window.React && window.ReactRouter) {
-        console.log("Wykryto React Router");
-    }
-
-    if (window.Vue && window.VueRouter) {
-        console.log("Wykryto Vue Router");
-    }
-
-    // Sprawdź czy są jakieś historie w przeglądarce
-    console.log("History length:", window.history.length);
-    console.log("History state:", window.history.state);
-}
-
-// 6. SPRAWDŹ NETWORK TAB
-function analyzeNetworkRequests() {
-    console.log("=== ANALIZA NETWORK ===");
-    console.log("Otwórz Network tab w DevTools i spróbuj ponownie otworzyć link");
-    console.log("Sprawdź czy:");
-    console.log("1. Request jest wysyłany");
-    console.log("2. Jaki dokładnie URL jest requestowany");
-    console.log("3. Jaki status code jest zwracany");
-    console.log("4. Czy są jakieś przekierowania");
-}
-
-// 7. SPRAWDŹ CONSOLE ERRORS
-console.log("=== SPRAWDŹ BŁĘDY ===");
-window.addEventListener('error', function (e) {
-    console.error('Global error:', e.error);
-});
-
-window.addEventListener('unhandledrejection', function (e) {
-    console.error('Unhandled promise rejection:', e.reason);
-});
-
-// INSTRUKCJE:
-console.log(`
-=== INSTRUKCJE DEBUGOWANIA ===
-
-1. Uruchom w konsoli:
-   runAllTests()
-
-2. Sprawdź routing:
-   checkClientRouting()
-
-3. Otwórz Network tab i kliknij link strony klienta
-
-4. Sprawdź console serwera (terminal gdzie uruchomiona jest aplikacja Flask)
-
-5. Sprawdź logi w pliku flask_debug.log
-
-6. Uruchom w Flask shell:
-   flask shell
-   exec(open('debug_database.py').read())
-`);
-
-// DODATKOWE NARZĘDZIA
-window.debugQuote = {
-    testUrl,
-    runAllTests,
-    checkClientRouting,
-    analyzeNetworkRequests,
-
-    // Funkcja do łatwego testowania konkretnego URL
-    test: (quoteNumber, token) => {
-        const url = `${window.location.origin}/wycena/${quoteNumber}/${token}`;
-        return testUrl(url);
-    },
-
-    // Funkcja do otworzenia URL w nowej karcie
-    open: (quoteNumber, token) => {
-        const url = `${window.location.origin}/wycena/${quoteNumber}/${token}`;
-        console.log(`Opening: ${url}`);
-        window.open(url, '_blank');
-    }
-};
-
-console.log("Debug tools available as window.debugQuote");
