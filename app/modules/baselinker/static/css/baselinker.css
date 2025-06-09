@@ -248,21 +248,20 @@
     .bl-style-summary-row:last-child {
         border-bottom: none;
         font-weight: 600;
-        font-size: 16px;
+        font-size: 12px;
         color: #ED6B24;
-        padding-top: 12px;
-        margin-top: 8px;
-        border-top: 2px solid #ED6B24;
     }
 
     .bl-style-summary-row span:first-child {
         color: #666;
         font-weight: 500;
+        font-size: 12px;
     }
 
     .bl-style-summary-row strong {
         color: #1F2020;
         font-weight: 600;
+        font-size: 12px;
     }
 
 /* Products Container */
@@ -377,9 +376,10 @@
         box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
     }
 
-    .bl-style-form-input[readonly] {
-        background: #F5F5F5;
-        color: #666;
+    .bl-style-form-input {
+        background: white;
+        color: #333;
+        cursor: text;
     }
 
 /* Info Box */
@@ -965,3 +965,263 @@
     .bl-style-modal-content::-webkit-scrollbar-thumb:hover {
         background: #a8a8a8;
     }
+
+/* Review Grid - przegląd + finanse w jednym wierszu */
+.bl-style-review-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+/* Client Form Grid - siatka dla formularzy klienta */
+.bl-style-client-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* Invoice Section */
+.bl-style-invoice-section {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #E0E0E0;
+}
+
+.bl-style-checkbox-group {
+    margin-bottom: 16px;
+}
+
+.bl-style-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    color: #333;
+}
+
+.bl-style-checkbox {
+    width: 18px;
+    height: 18px;
+    accent-color: #ED6B24;
+}
+
+.bl-style-checkbox-text {
+    font-size: 14px;
+}
+
+.bl-style-invoice-data {
+    background: #F9F9F9;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 12px;
+    border-left: 4px solid #ED6B24;
+}
+
+/* Financial Summary - poprawione style */
+.bl-style-financial-summary .bl-style-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #E0E0E0;
+    font-size: 14px;
+}
+
+    .bl-style-financial-summary .bl-style-summary-row:last-child {
+        border-bottom: none;
+        font-weight: 600;
+        font-size: 16px;
+        color: #ED6B24;
+        padding-top: 12px;
+        margin-top: 8px;
+        border-top: 2px solid #ED6B24;
+    }
+
+    .bl-style-financial-summary .bl-style-summary-row span:first-child {
+        color: #666;
+        font-weight: 500;
+    }
+
+    .bl-style-financial-summary .bl-style-summary-row .bl-style-amount {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+    }
+
+    .bl-style-financial-summary, .bl-style-summary-row, .bl-style-amount-brutto {
+        font-weight: 600;
+        color: #1F2020;
+    }
+
+    .bl-style-financial-summary, .bl-style-summary-row, .bl-style-amount-netto {
+        font-size: 12px;
+        color: #666;
+        font-weight: 400;
+    }
+
+    .bl-style-financial-summary, .bl-style-summary-row:last-child, .bl-style-amount-brutto {
+        color: #ED6B24;
+        font-size: 16px;
+    }
+
+/* Status styling for summary box */
+.bl-style-summary-box .bl-style-summary-row .bl-style-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Error highlighting for required fields */
+.bl-style-form-select.bl-style-error,
+.bl-style-form-input.bl-style-error {
+    border-color: #E53935;
+    box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.1);
+}
+
+.bl-style-error-message {
+    color: #E53935;
+    font-size: 12px;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Responsive dla review grid */
+@media (max-width: 768px) {
+    .bl-style-review-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .bl-style-client-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* DODAJ TE STYLE NA KOŃCU pliku baselinker.css: */
+
+/* Review Grid - przegląd + finanse w jednym wierszu */
+.bl-style-review-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+/* Client Form Grid - siatka dla formularzy klienta */
+.bl-style-client-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* Invoice Section */
+.bl-style-invoice-section {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #E0E0E0;
+}
+
+.bl-style-checkbox-group {
+    margin-bottom: 16px;
+}
+
+.bl-style-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    color: #333;
+}
+
+.bl-style-checkbox {
+    width: 18px;
+    height: 18px;
+    accent-color: #ED6B24;
+}
+
+.bl-style-checkbox-text {
+    font-size: 14px;
+}
+
+.bl-style-invoice-data {
+    background: #F9F9F9;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 12px;
+    border-left: 4px solid #ED6B24;
+}
+
+/* Financial Summary - poprawione style */
+.bl-style-financial-summary .bl-style-summary-row .bl-style-amount {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.bl-style-financial-summary, .bl-style-summary-row, .bl-style-amount-brutto {
+    font-weight: 600;
+    color: #1F2020;
+}
+
+.bl-style-financial-summary, .bl-style-summary-row, .bl-style-amount-netto {
+    font-size: 12px;
+    color: #666;
+    font-weight: 400;
+}
+
+.bl-style-financial-summary, .bl-style-summary-row:last-child, .bl-style-amount-brutto {
+    color: #ED6B24;
+    font-size: 16px;
+}
+
+/* Status styling for summary box */
+.bl-style-summary-box .bl-style-summary-row .bl-style-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Error highlighting for required fields */
+.bl-style-form-select.bl-style-error,
+.bl-style-form-input.bl-style-error {
+    border-color: #E53935;
+    box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.1);
+}
+
+.bl-style-error-message {
+    color: #E53935;
+    font-size: 12px;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Responsive dla review grid */
+@media (max-width: 768px) {
+    .bl-style-review-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .bl-style-client-form-grid {
+        grid-template-columns: 1fr;
+    }
+}

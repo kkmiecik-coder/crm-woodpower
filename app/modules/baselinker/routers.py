@@ -55,6 +55,7 @@ def get_order_modal_data(quote_id):
         finishing_brutto = cost_finishing_netto * (1 + VAT_RATE) 
         shipping_netto = cost_shipping_brutto / (1 + VAT_RATE)
         total_brutto = products_brutto + finishing_brutto + cost_shipping_brutto
+        total_netto = cost_products_netto + cost_finishing_netto + shipping_netto
         
         return jsonify({
             'quote': {
@@ -101,6 +102,7 @@ def get_order_modal_data(quote_id):
                 'finishing_brutto': round(finishing_brutto, 2),
                 'shipping_netto': round(shipping_netto, 2),
                 'shipping_brutto': round(cost_shipping_brutto, 2),
+                'total_netto': round(total_netto, 2),      # <-- DODAJ TĘ LINIĘ
                 'total_brutto': round(total_brutto, 2)
             },
             'courier': quote.courier_name,

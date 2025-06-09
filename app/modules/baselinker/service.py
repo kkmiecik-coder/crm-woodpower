@@ -263,23 +263,23 @@ class BaselinkerService:
         """Przygotowuje dane zamówienia dla API Baselinker"""
         import time
         from modules.calculator.models import QuoteItemDetails
-        
+    
         # Pobierz wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
-        
+    
         # Przygotuj produkty
         products = []
         for i, item in enumerate(selected_items):
             # Nazwa produktu z wymiarami
-            product_name = f"{self._translate_variant_code(item.variant_code)} - {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
-            
+            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
+        
             # Dodaj informacje o wykończeniu jeśli istnieją
             finishing_details = QuoteItemDetails.query.filter_by(
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
-            
-            if finishing_details and finishing_details.finishing_type != 'Brak':
+        
+            if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
                     finishing_details.finishing_variant,
                     finishing_details.finishing_type,
@@ -288,8 +288,12 @@ class BaselinkerService:
                 ]
                 finishing_str = ' - '.join(filter(None, finishing_parts))
                 if finishing_str:
-                    product_name += f" - {finishing_str}"
-            
+                    product_name = f"{base_name} {finishing_str}"
+                else:
+                    product_name = f"{base_name} surowe"
+            else:
+                product_name = f"{base_name} surowe"
+        
             products.append({
                 'storage': 'db',
                 'storage_id': 0,
@@ -307,10 +311,10 @@ class BaselinkerService:
                 'quantity': 1,
                 'weight': self._calculate_item_weight(item)
             })
-        
+    
         # Dane klienta
         client = quote.client
-        
+    
         order_data = {
             'order_source_id': config.get('order_source_id', 1),
             'order_status_id': config.get('order_status_id', 1),
@@ -341,7 +345,7 @@ class BaselinkerService:
             'invoice_company': client.invoice_company or '',
             'invoice_nip': client.invoice_nip or '',
             'invoice_address': client.invoice_address or client.delivery_address or '',
-            'invoice_postcode': client.invoke_zip or client.delivery_zip or '',
+            'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
             'invoice_country_code': 'PL',
             'want_invoice': bool(client.invoice_nip),
@@ -349,22 +353,22 @@ class BaselinkerService:
             'extra_field_2': quote.source or '',
             'products': products
         }
-        
+    
         return order_data
     
     def _translate_variant_code(self, code: str) -> str:
-        """Tłumaczy kod wariantu na czytelną nazwę"""
+        """Tłumaczy kod wariantu na czytelną nazwę w nowym formacie"""
         translations = {
-            'dab-lity-ab': 'Dab lity A/B',
-            'dab-lity-bb': 'Dab lity B/B',
-            'dab-micro-ab': 'Dab mikrowczep A/B',
-            'dab-micro-bb': 'Dab mikrowczep B/B',
-            'jes-lity-ab': 'Jesion lity A/B',
-            'jes-micro-ab': 'Jesion mikrowczep A/B',
-            'buk-lity-ab': 'Buk lity A/B',
-            'buk-micro-ab': 'Buk mikrowczep A/B'
+            'dab-lity-ab': 'Klejonka dębowa lita A/B',
+            'dab-lity-bb': 'Klejonka dębowa lita B/B',
+            'dab-micro-ab': 'Klejonka dębowa mikrowczep A/B',
+            'dab-micro-bb': 'Klejonka dębowa mikrowczep B/B',
+            'jes-lity-ab': 'Klejonka jesionowa lita A/B',
+            'jes-micro-ab': 'Klejonka jesionowa mikrowczep A/B',
+            'buk-lity-ab': 'Klejonka bukowa lita A/B',
+            'buk-micro-ab': 'Klejonka bukowa mikrowczep A/B'
         }
-        return translations.get(code, code)
+        return translations.get(code, f'Klejonka {code}' if code else 'Nieznany produkt')
     
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""

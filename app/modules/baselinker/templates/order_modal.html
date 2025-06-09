@@ -42,8 +42,14 @@
                         Przegląd zamówienia
                     </h3>
 
-                    <div class="bl-style-summary-box" id="baselinker-order-summary">
-                        <!-- Wypełniane dynamicznie -->
+                    <div class="bl-style-review-grid">
+                        <div class="bl-style-summary-box" id="baselinker-order-summary">
+                            <!-- Wypełniane dynamicznie -->
+                        </div>
+
+                        <div class="bl-style-financial-summary" id="baselinker-financial-summary">
+                            <!-- Przeniesione z dalszej części -->
+                        </div>
                     </div>
                 </div>
 
@@ -63,17 +69,6 @@
                         <div class="bl-style-products-body" id="baselinker-products-list">
                             <!-- Wypełniane dynamicznie -->
                         </div>
-                    </div>
-                </div>
-
-                <div class="bl-style-section">
-                    <h3 class="bl-style-section-title">
-                        <span class="bl-style-icon">💰</span>
-                        Podsumowanie finansowe
-                    </h3>
-
-                    <div class="bl-style-financial-summary" id="baselinker-financial-summary">
-                        <!-- Wypełniane dynamicznie -->
                     </div>
                 </div>
             </div>
@@ -127,11 +122,78 @@
                 <div class="bl-style-section">
                     <h3 class="bl-style-section-title">
                         <span class="bl-style-icon">📍</span>
-                        Podgląd danych klienta
+                        Dane klienta
                     </h3>
 
-                    <div class="bl-style-client-grid" id="baselinker-client-preview">
-                        <!-- Wypełniane dynamicznie -->
+                    <h4 class="bl-style-section-subtitle">Adres dostawy</h4>
+                    <div class="bl-style-client-form-grid">
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Imię i nazwisko</label>
+                            <input type="text" id="delivery-fullname" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Firma</label>
+                            <input type="text" id="delivery-company" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Adres</label>
+                            <input type="text" id="delivery-address" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Kod pocztowy</label>
+                            <input type="text" id="delivery-postcode" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Miasto</label>
+                            <input type="text" id="delivery-city" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">E-mail</label>
+                            <input type="text" id="client-email" class="bl-style-form-input">
+                        </div>
+                        <div class="bl-style-form-group">
+                            <label class="bl-style-form-label">Telefon</label>
+                            <input type="text" id="client-phone" class="bl-style-form-input">
+                        </div>
+                    </div>
+
+                    <div class="bl-style-invoice-section">
+                        <div class="bl-style-form-group bl-style-checkbox-group">
+                            <label class="bl-style-checkbox-label">
+                                <input type="checkbox" id="want-invoice-checkbox" class="bl-style-checkbox">
+                                <span class="bl-style-checkbox-text">Klient chce fakturę</span>
+                            </label>
+                        </div>
+
+                        <div id="invoice-data-section" class="bl-style-invoice-data" style="display: none;">
+                            <h4 class="bl-style-section-subtitle">Dane do faktury</h4>
+                            <div class="bl-style-client-form-grid">
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Imię i nazwisko</label>
+                                    <input type="text" id="invoice-fullname" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Firma</label>
+                                    <input type="text" id="invoice-company" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">NIP</label>
+                                    <input type="text" id="invoice-nip" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Adres</label>
+                                    <input type="text" id="invoice-address" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Kod pocztowy</label>
+                                    <input type="text" id="invoice-postcode" class="bl-style-form-input">
+                                </div>
+                                <div class="bl-style-form-group">
+                                    <label class="bl-style-form-label">Miasto</label>
+                                    <input type="text" id="invoice-city" class="bl-style-form-input">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -165,7 +227,7 @@
             </div>
         </div>
 
-        <!-- Modal Footer Actions -->
+        <!-- Modal Footer Actions - POPRAWIONA WERSJA -->
         <div class="bl-style-modal-footer">
             <div class="bl-style-modal-actions">
                 <button class="bl-style-btn bl-style-btn-secondary" id="baselinker-close-modal-footer">
@@ -180,7 +242,7 @@
                 <button class="bl-style-btn bl-style-btn-order" id="baselinker-submit-order" style="display: none;">
                     <span class="bl-style-btn-text">Złóż zamówienie</span>
                     <span class="bl-style-btn-loading" style="display: none;">
-                        <div class="bl-style-spinner"></div>
+                        <span class="bl-style-spinner"></span>
                         Składanie...
                     </span>
                 </button>

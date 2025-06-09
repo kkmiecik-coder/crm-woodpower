@@ -170,7 +170,7 @@ class BaselinkerModal {
             </div>
             <div class="bl-style-summary-row">
                 <span>Status wyceny:</span>
-                <div class="bl-style-status-ready">✓ ${quote.status}</div>
+                <div class="bl-style-status-badge bl-style-status-ready">✓ ${quote.status}</div>
             </div>
             <div class="bl-style-summary-row">
                 <span>Źródło wyceny:</span>
@@ -193,17 +193,21 @@ class BaselinkerModal {
         container.innerHTML = products.map(product => `
             <div class="bl-style-product-item">
                 <div class="bl-style-product-name">
-                    ${this.translateVariantCode(product.variant_code)} - Produkt ${product.id}
+                    ${this.buildProductName(product)}
                     <div class="bl-style-product-details">
-                        Wymiary: ${product.dimensions}<br>
                         Objętość: ${product.volume ? product.volume.toFixed(3) : '0.000'} m³
                     </div>
                 </div>
                 <div>${product.dimensions}</div>
                 <div class="bl-style-product-finishing">
-                    ${product.finishing || 'Brak'}
+                    ${this.getFinishingDisplay(product.finishing)}
                 </div>
-                <div class="bl-style-product-price">${this.formatCurrency(product.price_brutto)}</div>
+                <div class="bl-style-product-price">
+                    <div class="bl-style-amount">
+                        <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
+                        <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
+                    </div>
+                </div>
             </div>
         `).join('');
     }
@@ -217,19 +221,31 @@ class BaselinkerModal {
         container.innerHTML = `
             <div class="bl-style-summary-row">
                 <span>Koszt produktów:</span>
-                <strong>${this.formatCurrency(costs.products_netto)} netto</strong>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.products_brutto)}</div>
+                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.products_netto)} netto</div>
+                </div>
             </div>
             <div class="bl-style-summary-row">
                 <span>Koszt wykończenia:</span>
-                <strong>${this.formatCurrency(costs.finishing_netto)} netto</strong>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.finishing_brutto)}</div>
+                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.finishing_netto)} netto</div>
+                </div>
             </div>
             <div class="bl-style-summary-row">
                 <span>Koszt wysyłki:</span>
-                <strong>${this.formatCurrency(costs.shipping_brutto)} brutto</strong>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.shipping_brutto)}</div>
+                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.shipping_netto)} netto</div>
+                </div>
             </div>
             <div class="bl-style-summary-row">
                 <span>Wartość całkowita:</span>
-                <strong>${this.formatCurrency(costs.total_brutto)} brutto</strong>
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-brutto">${this.formatCurrency(costs.total_brutto)}</div>
+                    <div class="bl-style-amount-netto">${this.formatCurrency(costs.total_netto)} netto</div>
+                </div>
             </div>
         `;
     }
@@ -288,40 +304,198 @@ class BaselinkerModal {
                 deliveryMethodSelect.appendChild(option);
             });
         }
+
+        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select'];
+
+        selectIds.forEach(selectId => {
+            const select = document.getElementById(selectId);
+            if (select) {
+                // Usuń stare event listenery (żeby nie duplikować)
+                select.replaceWith(select.cloneNode(true));
+                const newSelect = document.getElementById(selectId);
+
+                newSelect.addEventListener('change', () => {
+                    // Usuń błąd z tego pola
+                    newSelect.classList.remove('bl-style-error');
+
+                    // Usuń komunikat błędu dla tego pola
+                    const errorMsg = newSelect.parentNode?.querySelector('.bl-style-error-message');
+                    if (errorMsg) {
+                        errorMsg.remove();
+                    }
+                });
+            }
+        });
     }
 
     populateClientPreview() {
-        const container = document.getElementById('baselinker-client-preview');
-        if (!container) return;
+        // Nowa funkcja obsługująca formularze klienta
+        this.populateClientData();
+    }
 
+    populateClientData() {
         const client = this.modalData.client;
 
-        container.innerHTML = `
-            <div class="bl-style-client-field">
-                <div class="bl-style-client-label">Imię i nazwisko</div>
-                <div class="bl-style-client-value">${client.name || '-'}</div>
-            </div>
-            <div class="bl-style-client-field">
-                <div class="bl-style-client-label">Firma</div>
-                <div class="bl-style-client-value">${client.company || '-'}</div>
-            </div>
-            <div class="bl-style-client-field">
-                <div class="bl-style-client-label">E-mail</div>
-                <div class="bl-style-client-value">${client.email || '-'}</div>
-            </div>
-            <div class="bl-style-client-field">
-                <div class="bl-style-client-label">Telefon</div>
-                <div class="bl-style-client-value">${client.phone || '-'}</div>
-            </div>
-            <div class="bl-style-client-field">
-                <div class="bl-style-client-label">Adres dostawy</div>
-                <div class="bl-style-client-value">${client.delivery_address || '-'}</div>
-            </div>
-            <div class="bl-style-client-field">
-                <div class="bl-style-client-label">Miasto</div>
-                <div class="bl-style-client-value">${client.delivery_city || '-'}</div>
-            </div>
-        `;
+        // Wypełnij dane dostawy
+        this.setInputValue('delivery-fullname', client.delivery_name || client.name || '');
+        this.setInputValue('delivery-company', client.delivery_company || client.company || '');
+        this.setInputValue('delivery-address', client.delivery_address || '');
+        this.setInputValue('delivery-postcode', client.delivery_postcode || '');
+        this.setInputValue('delivery-city', client.delivery_city || '');
+        this.setInputValue('client-email', client.email || '');
+        this.setInputValue('client-phone', client.phone || '');
+
+        // Wypełnij dane faktury
+        this.setInputValue('invoice-fullname', client.invoice_name || client.name || '');
+        this.setInputValue('invoice-company', client.invoice_company || client.company || '');
+        this.setInputValue('invoice-nip', client.invoice_nip || '');
+        this.setInputValue('invoice-address', client.invoice_address || client.delivery_address || '');
+        this.setInputValue('invoice-postcode', client.invoice_postcode || client.delivery_postcode || '');
+        this.setInputValue('invoice-city', client.invoice_city || client.delivery_city || '');
+
+        // Checkbox faktury
+        const wantInvoiceCheckbox = document.getElementById('want-invoice-checkbox');
+        const invoiceSection = document.getElementById('invoice-data-section');
+
+        if (wantInvoiceCheckbox && invoiceSection) {
+            // Sprawdź czy klient ma NIP - jeśli tak, to prawdopodobnie chce fakturę
+            const hasNip = client.invoice_nip && client.invoice_nip.trim() !== '';
+            wantInvoiceCheckbox.checked = hasNip;
+            invoiceSection.style.display = hasNip ? 'block' : 'none';
+
+            // Event listener dla checkboxa
+            wantInvoiceCheckbox.addEventListener('change', (e) => {
+                invoiceSection.style.display = e.target.checked ? 'block' : 'none';
+            });
+        }
+    }
+
+    validateConfigurationForm() {
+        const orderSource = document.getElementById('order-source-select');
+        const orderStatus = document.getElementById('order-status-select');
+        const paymentMethod = document.getElementById('payment-method-select');
+
+        let isValid = true;
+        let errorMessages = [];
+
+        // Reset poprzednich błędów
+        this.clearValidationErrors();
+
+        if (!orderSource?.value) {
+            this.markFieldAsError(orderSource, 'Wybierz źródło zamówienia');
+            errorMessages.push('Źródło zamówienia jest wymagane');
+            isValid = false;
+        }
+
+        if (!orderStatus?.value) {
+            this.markFieldAsError(orderStatus, 'Wybierz status zamówienia');
+            errorMessages.push('Status zamówienia jest wymagany');
+            isValid = false;
+        }
+
+        if (!paymentMethod?.value) {
+            this.markFieldAsError(paymentMethod, 'Wybierz metodę płatności');
+            errorMessages.push('Metoda płatności jest wymagana');
+            isValid = false;
+        }
+
+        // Pokaż komunikat błędu jeśli potrzeba
+        if (!isValid) {
+            this.showValidationAlert(errorMessages);
+        }
+
+        return isValid;
+    }
+
+    async submitOrder() {
+        if (this.isSubmitting) return;
+
+        console.log('[Baselinker] Submitting order...');
+
+        // Walidacja końcowa
+        if (!this.validateConfigurationForm()) {
+            return;
+        }
+
+        // Potwierdzenie użytkownika
+        const confirmMessage = `Czy na pewno chcesz złożyć zamówienie w Baselinker dla wyceny ${this.modalData.quote.quote_number}?\n\nTej operacji nie można cofnąć.`;
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        this.isSubmitting = true;
+        const submitBtn = document.getElementById('baselinker-submit-order');
+
+        if (submitBtn) {
+            const btnText = submitBtn.querySelector('.bl-style-btn-text');
+            const btnLoading = submitBtn.querySelector('.bl-style-btn-loading');
+
+            submitBtn.disabled = true;
+            if (btnText) btnText.style.display = 'none';
+            if (btnLoading) btnLoading.style.display = 'flex';
+        }
+
+        try {
+            // Przygotuj dane
+            const orderData = {
+                order_source_id: parseInt(document.getElementById('order-source-select').value),
+                order_status_id: parseInt(document.getElementById('order-status-select').value),
+                payment_method: document.getElementById('payment-method-select').value,
+                delivery_method: document.getElementById('delivery-method-select').value || this.modalData.courier
+            };
+
+            console.log('[Baselinker] Sending order data:', orderData);
+
+            // Wyślij żądanie
+            const response = await fetch(`/baselinker/api/quote/${this.modalData.quote.id}/create-order`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(orderData)
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                console.log('[Baselinker] Order created successfully:', result);
+
+                // Pokaż komunikat sukcesu z linkiem do Baselinker
+                const baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${result.order_id}`;
+                const successMessage = `Zamówienie zostało utworzone pomyślnie!\n\nID zamówienia: ${result.order_id}\n\nKliknij OK, aby przejść do zamówienia w Baselinker.`;
+
+                this.showAlert(`Zamówienie ${result.order_id} zostało utworzone pomyślnie!`, 'success');
+
+                // Pokaż opcję przejścia do Baselinker
+                if (confirm(successMessage)) {
+                    window.open(baselinkerUrl, '_blank');
+                }
+
+                // Zamknij modal po 2 sekundach
+                setTimeout(() => {
+                    this.closeModal();
+                }, 2000);
+
+            } else {
+                console.error('[Baselinker] Order creation failed:', result);
+                this.showAlert(`Błąd podczas tworzenia zamówienia: ${result.error}`, 'error');
+            }
+
+        } catch (error) {
+            console.error('[Baselinker] Submit error:', error);
+            this.showAlert(`Błąd sieci: ${error.message}`, 'error');
+        } finally {
+            // Przywróć przycisk
+            this.isSubmitting = false;
+            if (submitBtn) {
+                const btnText = submitBtn.querySelector('.bl-style-btn-text');
+                const btnLoading = submitBtn.querySelector('.bl-style-btn-loading');
+
+                submitBtn.disabled = false;
+                if (btnText) btnText.style.display = 'flex';
+                if (btnLoading) btnLoading.style.display = 'none';
+            }
+        }
     }
 
     populateFinalSummary() {
@@ -416,19 +590,6 @@ class BaselinkerModal {
         }
     }
 
-    validateConfigurationForm() {
-        const orderSource = document.getElementById('order-source-select')?.value;
-        const orderStatus = document.getElementById('order-status-select')?.value;
-        const paymentMethod = document.getElementById('payment-method-select')?.value;
-
-        if (!orderSource || !orderStatus || !paymentMethod) {
-            this.showAlert('Wypełnij wszystkie wymagane pola konfiguracji', 'warning');
-            return false;
-        }
-
-        return true;
-    }
-
     validateConfiguration() {
         // Sprawdź czy wszystkie wymagane pola są wypełnione
         const isValid = this.validateConfigurationForm();
@@ -506,88 +667,6 @@ class BaselinkerModal {
         } catch (error) {
             console.error('[Baselinker] Sync error:', error);
             this.showAlert('Błąd połączenia podczas synchronizacji', 'error');
-        }
-    }
-
-    async submitOrder() {
-        if (this.isSubmitting) return;
-
-        console.log('[Baselinker] Submitting order...');
-
-        // Walidacja końcowa
-        if (!this.validateConfigurationForm()) {
-            this.showAlert('Wypełnij wszystkie wymagane pola', 'error');
-            return;
-        }
-
-        // Potwierdzenie użytkownika
-        const confirmMessage = `Czy na pewno chcesz złożyć zamówienie w Baselinker dla wyceny ${this.modalData.quote.quote_number}?\n\nTej operacji nie można cofnąć.`;
-        if (!confirm(confirmMessage)) {
-            return;
-        }
-
-        this.isSubmitting = true;
-        const submitBtn = document.getElementById('baselinker-submit-order');
-
-        if (submitBtn) {
-            const btnText = submitBtn.querySelector('.bl-style-btn-text');
-            const btnLoading = submitBtn.querySelector('.bl-style-btn-loading');
-
-            submitBtn.disabled = true;
-            if (btnText) btnText.style.display = 'none';
-            if (btnLoading) btnLoading.style.display = 'flex';
-        }
-
-        try {
-            // Przygotuj dane
-            const orderData = {
-                order_source_id: parseInt(document.getElementById('order-source-select').value),
-                order_status_id: parseInt(document.getElementById('order-status-select').value),
-                payment_method: document.getElementById('payment-method-select').value,
-                delivery_method: document.getElementById('delivery-method-select').value || this.modalData.courier
-            };
-
-            console.log('[Baselinker] Sending order data:', orderData);
-
-            // Wyślij żądanie
-            const response = await fetch(`/baselinker/api/quote/${this.modalData.quote.id}/create-order`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(orderData)
-            });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                console.log('[Baselinker] Order created successfully:', result);
-                this.showAlert(`Zamówienie zostało utworzone pomyślnie!\nID zamówienia: ${result.order_id}`, 'success');
-
-                // Zamknij modal po 2 sekundach
-                setTimeout(() => {
-                    this.closeModal();
-                }, 2000);
-
-            } else {
-                console.error('[Baselinker] Order creation failed:', result);
-                this.showAlert(`Błąd podczas tworzenia zamówienia: ${result.error}`, 'error');
-            }
-
-        } catch (error) {
-            console.error('[Baselinker] Submit error:', error);
-            this.showAlert(`Błąd sieci: ${error.message}`, 'error');
-        } finally {
-            // Przywróć przycisk
-            this.isSubmitting = false;
-            if (submitBtn) {
-                const btnText = submitBtn.querySelector('.bl-style-btn-text');
-                const btnLoading = submitBtn.querySelector('.bl-style-btn-loading');
-
-                submitBtn.disabled = false;
-                if (btnText) btnText.style.display = 'flex';
-                if (btnLoading) btnLoading.style.display = 'none';
-            }
         }
     }
 
@@ -690,14 +769,14 @@ class BaselinkerModal {
     // Utility methods
     translateVariantCode(code) {
         const translations = {
-            'dab-lity-ab': 'Dąb lity A/B',
-            'dab-lity-bb': 'Dąb lity B/B',
-            'dab-micro-ab': 'Dąb mikrowczep A/B',
-            'dab-micro-bb': 'Dąb mikrowczep B/B',
-            'jes-lity-ab': 'Jesion lity A/B',
-            'jes-micro-ab': 'Jesion mikrowczep A/B',
-            'buk-lity-ab': 'Buk lity A/B',
-            'buk-micro-ab': 'Buk mikrowczep A/B'
+            'dab-lity-ab': 'Klejonka dębowa lita A/B',
+            'dab-lity-bb': 'Klejonka dębowa lita B/B',
+            'dab-micro-ab': 'Klejonka dębowa mikrowczep A/B',
+            'dab-micro-bb': 'Klejonka dębowa mikrowczep B/B',
+            'jes-lity-ab': 'Klejonka jesionowa lita A/B',
+            'jes-micro-ab': 'Klejonka jesionowa mikrowczep A/B',
+            'buk-lity-ab': 'Klejonka bukowa lita A/B',
+            'buk-micro-ab': 'Klejonka bukowa mikrowczep A/B'
         };
         return translations[code] || code || 'Nieznany wariant';
     }
@@ -712,6 +791,91 @@ class BaselinkerModal {
         if (!select || !select.value) return '';
         const selectedOption = select.options[select.selectedIndex];
         return selectedOption ? selectedOption.textContent : '';
+    }
+
+    clearValidationErrors() {
+        // Usuń klasy błędów z wszystkich pól
+        document.querySelectorAll('.bl-style-form-select.bl-style-error').forEach(field => {
+            field.classList.remove('bl-style-error');
+        });
+
+        // Usuń komunikaty błędów
+        document.querySelectorAll('.bl-style-error-message').forEach(msg => {
+            msg.remove();
+        });
+    }
+
+    markFieldAsError(field, message) {
+        if (!field) return;
+
+        field.classList.add('bl-style-error');
+
+        // Dodaj komunikat błędu pod polem
+        const errorMsg = document.createElement('div');
+        errorMsg.className = 'bl-style-error-message';
+        errorMsg.innerHTML = `⚠️ ${message}`;
+
+        // Wstaw po polu
+        if (field.parentNode) {
+            field.parentNode.appendChild(errorMsg);
+        }
+    }
+
+    showValidationAlert(messages) {
+        const message = `Aby przejść dalej, wypełnij wymagane pola:\n\n• ${messages.join('\n• ')}`;
+        this.showAlert(message, 'warning');
+    }
+
+    // Utility methods
+    buildProductName(product) {
+        // Nowy format: Klejonka [gatunek]owa [technologia] [klasa] [wymiary] cm [wykończenie]
+        const variantInfo = this.parseVariantCode(product.variant_code);
+        const dimensions = product.dimensions;
+        const finishing = this.getFinishingDisplay(product.finishing);
+
+        return `Klejonka ${variantInfo.species}owa ${variantInfo.technology} ${variantInfo.woodClass} ${dimensions} ${finishing}`;
+    }
+
+    parseVariantCode(code) {
+        // Parsuj kod wariantu na komponenty
+        const translations = {
+            'dab': 'dęb',
+            'jes': 'jesion',
+            'buk': 'buk'
+        };
+
+        const techTranslations = {
+            'lity': 'lity',
+            'micro': 'mikrowczep'
+        };
+
+        const classTranslations = {
+            'ab': 'A/B',
+            'bb': 'B/B'
+        };
+
+        if (!code) return { species: 'nieznany', technology: '', woodClass: '' };
+
+        const parts = code.toLowerCase().split('-');
+        const species = translations[parts[0]] || parts[0];
+        const technology = techTranslations[parts[1]] || parts[1];
+        const woodClass = classTranslations[parts[2]] || parts[2];
+
+        return { species, technology, woodClass };
+    }
+
+    getFinishingDisplay(finishing) {
+        if (!finishing || finishing === 'Brak' || finishing.trim() === '') {
+            return 'surowe';
+        }
+        return finishing;
+    }
+
+    setInputValue(inputId, value) {
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.value = value || '';
+        }
     }
 }
 
