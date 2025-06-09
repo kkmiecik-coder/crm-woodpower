@@ -130,6 +130,27 @@ class Quote(db.Model):
     def __repr__(self):
         return f"<Quote {self.quote_number}>"
 
+    def is_eligible_for_order(self):
+    """Sprawdza czy wycena może być złożona jako zamówienie"""
+    # Wycena musi być zaakceptowana przez klienta
+    if self.is_client_editable:
+        return False
+    
+    # Musi mieć przypisanego klienta
+    if not self.client_id:
+        return False
+    
+    # Musi mieć wybrane produkty
+    selected_items = [item for item in self.items if item.is_selected]
+    if not selected_items:
+        return False
+    
+    return True
+
+    def get_selected_items(self):
+        """Zwraca listę wybranych pozycji wyceny"""
+        return [item for item in self.items if item.is_selected]
+
 
 class QuoteItem(db.Model):
     __tablename__ = 'quote_items'

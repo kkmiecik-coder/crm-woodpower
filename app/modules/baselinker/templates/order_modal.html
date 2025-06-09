@@ -1,0 +1,188 @@
+<!-- modules/baselinker/templates/order_modal.html -->
+<div id="baselinker-modal" class="quotes-details-modal-overlay" style="display: none;">
+    <div class="quotes-details-modal-box">
+        <div class="quotes-details-modal-header sticky-header">
+            <h2 class="quotes-details-modal-title title-with-underline-h2">
+                <span class="baselinker-icon">📦</span>
+                Składanie zamówienia w Baselinker
+            </h2>
+            <div class="quotes-details-modal-header-actions">
+                <button class="quotes-btn quotes-btn-full-screen" id="baselinker-sync-config" title="Synchronizuj konfigurację">
+                    <span>Sync</span>
+                </button>
+                <button class="quotes-details-modal-close" id="baselinker-close-modal">&times;</button>
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="baselinker-progress-section">
+            <div class="baselinker-progress-bar">
+                <div class="baselinker-progress-step active" data-step="1">
+                    <div class="step-number">1</div>
+                    <div class="step-label">Przegląd</div>
+                </div>
+                <div class="baselinker-progress-step" data-step="2">
+                    <div class="step-number">2</div>
+                    <div class="step-label">Konfiguracja</div>
+                </div>
+                <div class="baselinker-progress-step" data-step="3">
+                    <div class="step-number">3</div>
+                    <div class="step-label">Potwierdzenie</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Krok 1: Przegląd zamówienia -->
+        <div class="baselinker-step-content active" data-step="1">
+            <div class="quotes-details-modal-section">
+                <h3 class="quotes-details-modal-subtitle">
+                    <span class="section-icon">📋</span>
+                    Przegląd zamówienia
+                </h3>
+
+                <div class="quotes-details-summary" id="baselinker-order-summary">
+                    <!-- Wypełniane dynamicznie -->
+                </div>
+            </div>
+
+            <div class="quotes-details-modal-section">
+                <h3 class="quotes-details-modal-subtitle">
+                    <span class="section-icon">📦</span>
+                    Produkty do zamówienia
+                </h3>
+
+                <div class="baselinker-products-container">
+                    <div class="quotes-details-modal-items-header">
+                        <div>Produkt</div>
+                        <div>Wymiary</div>
+                        <div>Wykończenie</div>
+                        <div>Cena</div>
+                    </div>
+                    <div class="quotes-details-modal-items-body" id="baselinker-products-list">
+                        <!-- Wypełniane dynamicznie -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="quotes-details-modal-section">
+                <h3 class="quotes-details-modal-subtitle">
+                    <span class="section-icon">💰</span>
+                    Podsumowanie finansowe
+                </h3>
+
+                <div class="baselinker-financial-summary" id="baselinker-financial-summary">
+                    <!-- Wypełniane dynamicznie -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Krok 2: Konfiguracja -->
+        <div class="baselinker-step-content" data-step="2">
+            <div class="quotes-details-modal-section">
+                <h3 class="quotes-details-modal-subtitle">
+                    <span class="section-icon">⚙️</span>
+                    Konfiguracja zamówienia
+                </h3>
+
+                <div class="baselinker-config-grid">
+                    <div class="floating-label-input">
+                        <select id="order-source-select" class="styled-select" required>
+                            <option value="">Wybierz źródło...</option>
+                        </select>
+                        <label class="select-label static">Źródło zamówienia *</label>
+                    </div>
+
+                    <div class="floating-label-input">
+                        <select id="order-status-select" class="styled-select" required>
+                            <option value="">Wybierz status...</option>
+                        </select>
+                        <label class="select-label static">Status zamówienia</label>
+                    </div>
+
+                    <div class="floating-label-input">
+                        <select id="payment-method-select" class="styled-select" required>
+                            <option value="">Wybierz metodę...</option>
+                        </select>
+                        <label class="select-label static">Metoda płatności *</label>
+                    </div>
+
+                    <div class="floating-label-input">
+                        <select id="delivery-method-select" class="styled-select">
+                            <option value="">Wybierz metodę...</option>
+                        </select>
+                        <label class="select-label static">Metoda dostawy</label>
+                    </div>
+                </div>
+
+                <div class="baselinker-info-box">
+                    <div class="info-icon">ℹ️</div>
+                    <div class="info-text">
+                        <strong>Informacja:</strong> Dane klienta zostaną automatycznie przeniesione z wyceny do zamówienia w Baselinker.
+                        Status zamówienia został ustawiony na "Nowe - nieopłacone".
+                    </div>
+                </div>
+            </div>
+
+            <div class="quotes-details-modal-section">
+                <h3 class="quotes-details-modal-subtitle">
+                    <span class="section-icon">📍</span>
+                    Podgląd danych klienta
+                </h3>
+
+                <div class="baselinker-client-preview-grid" id="baselinker-client-preview">
+                    <!-- Wypełniane dynamicznie -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Krok 3: Potwierdzenie -->
+        <div class="baselinker-step-content" data-step="3">
+            <div class="quotes-details-modal-section">
+                <h3 class="quotes-details-modal-subtitle">
+                    <span class="section-icon">✅</span>
+                    Potwierdzenie składania zamówienia
+                </h3>
+
+                <div class="baselinker-warning-box">
+                    <div class="warning-icon">⚠️</div>
+                    <div class="warning-text">
+                        <strong>Uwaga!</strong> Po kliknięciu "Złóż zamówienie" dane zostaną wysłane do systemu Baselinker i utworzone zostanie nowe zamówienie. Tej operacji nie można cofnąć.
+                    </div>
+                </div>
+
+                <div class="quotes-details-summary" id="baselinker-final-summary">
+                    <!-- Wypełniane dynamicznie -->
+                </div>
+
+                <div class="quotes-details-modal-section" id="baselinker-validation-results">
+                    <h4 class="quotes-details-modal-subtitle">Wybrana konfiguracja:</h4>
+                    <div class="baselinker-config-summary" id="baselinker-config-display">
+                        <!-- Wypełniane dynamicznie -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="quotes-details-modal-footer">
+            <div class="quotes-details-modal-actions">
+                <button class="quotes-btn quotes-btn-secondary" id="baselinker-close-modal-footer">
+                    Anuluj
+                </button>
+                <button class="quotes-btn quotes-btn-secondary" id="baselinker-prev-step" style="display: none;">
+                    ← Poprzedni
+                </button>
+                <button class="quotes-btn quotes-btn-primary" id="baselinker-next-step">
+                    Następny →
+                </button>
+                <button class="quotes-btn quotes-btn-order" id="baselinker-submit-order" style="display: none;">
+                    <span class="btn-text">Złóż zamówienie</span>
+                    <span class="btn-loading" style="display: none;">
+                        <div class="spinner-small"></div>
+                        Składanie...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
