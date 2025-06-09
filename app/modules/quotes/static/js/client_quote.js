@@ -538,7 +538,6 @@ const quote = {
             acceptedVariantHTML = `
                 <div class="accepted-variant-main">
                     <div class="accepted-variant-header">
-                        <h4 class="accepted-variant-title">Wybrany wariant</h4>
                         <div class="accepted-variant-badge">✓ Zaakceptowano</div>
                     </div>
                     <div class="accepted-variant-details">
@@ -624,7 +623,7 @@ const quote = {
         const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
         const finalPrice = item.final_price_brutto;
 
-        let priceHTML = `<span class="compact-price">${utils.formatCurrency(finalPrice)}</span>`;
+        let priceHTML = `<span class="compact-price">${utils.formatCurrency(finalPrice)} brutto</span>`;
 
         if (hasDiscount) {
             const originalPrice = item.original_price_brutto || item.final_price_brutto;
@@ -912,33 +911,7 @@ const quote = {
         }
 
         alerts.show(message, type, 0); // Nie ukrywaj automatycznie błędów
-    },
-
-    /**
-     * NOWA METODA: Tworzy kompaktowy HTML wariantu (po akceptacji)
-     */
-    createCompactVariantHTML: (item) => {
-        const variantName = utils.translateVariantCode(item.variant_code);
-        const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
-        const originalPrice = hasDiscount ? (item.original_price_brutto || item.final_price_brutto) : null;
-        const finalPrice = item.final_price_brutto;
-
-        let priceHTML = `<span class="compact-price">${utils.formatCurrency(finalPrice)}</span>`;
-
-        if (hasDiscount && originalPrice) {
-            priceHTML = `
-                <span class="compact-price discounted">${utils.formatCurrency(finalPrice)}</span>
-                <span class="compact-price-original">${utils.formatCurrency(originalPrice)}</span>
-            `;
-        }
-
-        return `
-            <div class="compact-variant">
-                <div class="compact-variant-name">${variantName}</div>
-                <div class="compact-variant-price">${priceHTML}</div>
-            </div>
-        `;
-    },
+    }
 };
 
 // ===================================
