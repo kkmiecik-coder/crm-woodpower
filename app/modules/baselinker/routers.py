@@ -102,7 +102,7 @@ def get_order_modal_data(quote_id):
                 'finishing_brutto': round(finishing_brutto, 2),
                 'shipping_netto': round(shipping_netto, 2),
                 'shipping_brutto': round(cost_shipping_brutto, 2),
-                'total_netto': round(total_netto, 2),      # <-- DODAJ TĘ LINIĘ
+                'total_netto': round(total_netto, 2),
                 'total_brutto': round(total_brutto, 2)
             },
             'courier': quote.courier_name,
@@ -126,13 +126,12 @@ def get_order_modal_data(quote_id):
                 'payment_methods': [
                     'Przelew bankowy',
                     'Płatność przy odbiorze', 
-                    'Karta płatnicza',
-                    'BLIK'
+                    'Przelewy24.pl',
+                    'Gotówka'
                 ],
                 'delivery_methods': [
-                    quote.courier_name or 'DPD',
-                    'InPost',
-                    'UPS',
+                    quote.courier_name or 'Przesyłka kurierska',
+                    'Transport własny',
                     'Odbior osobisty'
                 ]
             }
