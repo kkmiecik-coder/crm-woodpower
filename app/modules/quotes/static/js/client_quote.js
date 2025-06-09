@@ -466,15 +466,23 @@ const quote = {
         // Header produktu z podstawowymi informacjami
         const headerHTML = quote.createProductHeaderHTML(productIndex, selectedItem, finishing);
 
-        // Grid wariantów
-        const variantsHTML = items.map(item => quote.createVariantCardHTML(item)).join('');
+        // Grid wariantów - RÓŻNY w zależności od stanu akceptacji
+        let variantsHTML;
+        if (globalState.isQuoteAccepted) {
+            // WIDOK PO AKCEPTACJI - kompaktowy, z wyróżnionym zaakceptowanym wariantem
+            variantsHTML = quote.createAcceptedVariantsHTML(items);
+        } else {
+            // WIDOK PRZED AKCEPTACJĄ - normalny z możliwością wyboru
+            variantsHTML = items.map(item => quote.createVariantCardHTML(item)).join('');
+        }
 
         group.innerHTML = `
             ${headerHTML}
             <div class="product-variants">
-                <div class="variant-grid">
-                    ${variantsHTML}
-                </div>
+                ${globalState.isQuoteAccepted ?
+                `<div class="accepted-variants-container">${variantsHTML}</div>` :
+                `<div class="variant-grid">${variantsHTML}</div>`
+            }
             </div>
         `;
 
@@ -482,7 +490,7 @@ const quote = {
     },
 
     /**
-     * Tworzy HTML nagłówka produktu
+     * Tworzy HTML nagłówka produktu - UPROSZCZONE (bez duplikacji)
      * @param {number} productIndex - Indeks produktu
      * @param {Object} selectedItem - Wybrany wariant
      * @param {Object} finishing - Dane wykończenia
@@ -492,6 +500,7 @@ const quote = {
         const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
         const volume = selectedItem.volume_m3?.toFixed(3) || '0.000';
 
+        // Informacje o wykończeniu (lewa strona)
         let finishingHTML = '';
         if (finishing) {
             const finishingParts = [
@@ -505,14 +514,131 @@ const quote = {
             finishingHTML = `<div><strong>Wykończenie:</strong> ${finishingDisplay}</div>`;
         }
 
+        // PO AKCEPTACJI: Pokazujemy wybrany wariant w header
+        // PRZED AKCEPTACJĄ: Tylko podstawowe informacje
+        let acceptedVariantHTML = '';
+        if (globalState.isQuoteAccepted) {
+            const variantName = utils.translateVariantCode(selectedItem.variant_code);
+            const priceBrutto = utils.formatCurrency(selectedItem.final_price_brutto);
+            const priceNetto = utils.formatCurrency(selectedItem.final_price_netto);
+
+            // Sprawdzamy czy był rabat
+            const hasDiscount = selectedItem.discount_percentage && selectedItem.discount_percentage !== 0;
+            let discountHTML = '';
+            if (hasDiscount) {
+                const originalPrice = utils.formatCurrency(selectedItem.original_price_brutto || selectedItem.final_price_brutto);
+                discountHTML = `
+                    <div class="accepted-variant-discount">
+                        <span class="original-price">${originalPrice}</span>
+                        <span class="discount-badge">Rabat ${selectedItem.discount_percentage}%</span>
+                    </div>
+                `;
+            }
+
+            acceptedVariantHTML = `
+                <div class="accepted-variant-main">
+                    <div class="accepted-variant-header">
+                        <h4 class="accepted-variant-title">Wybrany wariant</h4>
+                        <div class="accepted-variant-badge">✓ Zaakceptowano</div>
+                    </div>
+                    <div class="accepted-variant-details">
+                        <div class="accepted-variant-name">${variantName}</div>
+                        <div class="accepted-variant-price">
+                            <span class="price-main">${priceBrutto}</span>
+                            <span class="price-sub">${priceNetto} netto</span>
+                        </div>
+                        ${discountHTML}
+                    </div>
+                </div>
+            `;
+        }
+
         return `
             <div class="product-header">
                 <div class="product-title">Produkt ${productIndex}</div>
-                <div class="product-summary">
-                    <div><strong>Wymiary:</strong> ${dimensions}</div>
-                    <div><strong>Objętość:</strong> ${volume} m³</div>
-                    ${finishingHTML}
+                <div class="product-header-content">
+                    <div class="product-summary">
+                        <div><strong>Wymiary:</strong> ${dimensions}</div>
+                        <div><strong>Objętość:</strong> ${volume} m³</div>
+                        ${finishingHTML}
+                    </div>
+                    ${acceptedVariantHTML}
                 </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Tworzy widok wariantów po akceptacji wyceny - TYLKO POZOSTAŁE WARIANTY
+     * @param {Array} items - Lista wariantów produktu
+     * @returns {string} HTML z pozostałymi wariantami
+     */
+    createAcceptedVariantsHTML: (items) => {
+        const selectedItem = items.find(item => item.is_selected);
+        const otherItems = items.filter(item => !item.is_selected);
+
+        let html = '';
+
+        // TYLKO pozostałe warianty - zaakceptowany jest już w header
+        if (otherItems.length > 0) {
+            html += `
+                <div class="other-variants-section">
+                    <div class="other-variants-header">
+                        <h4>Pozostałe warianty</h4>
+                        <p class="change-info">
+                            <svg class="info-icon" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                            </svg>
+                            Zmiana wariantu jest jeszcze możliwa po kontakcie z Biurem Obsługi.
+                        </p>
+                    </div>
+                    <div class="other-variants-grid">
+                        ${otherItems.map(item => quote.createCompactVariantHTML(item)).join('')}
+                    </div>
+                </div>
+            `;
+        } else {
+            // Jeśli nie ma innych wariantów, pokaż informację
+            html += `
+                <div class="no-other-variants">
+                    <p class="no-variants-message">
+                        <svg class="check-icon" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                        </svg>
+                        Dla tego produktu dostępny jest tylko jeden wariant.
+                    </p>
+                </div>
+            `;
+        }
+
+        return html;
+    },
+
+    /**
+     * Tworzy kompaktowy HTML wariantu (po akceptacji)
+     * @param {Object} item - Dane wariantu
+     * @returns {string} HTML kompaktowego wariantu
+     */
+    createCompactVariantHTML: (item) => {
+        const variantName = utils.translateVariantCode(item.variant_code);
+        const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
+        const finalPrice = item.final_price_brutto;
+
+        let priceHTML = `<span class="compact-price">${utils.formatCurrency(finalPrice)}</span>`;
+
+        if (hasDiscount) {
+            const originalPrice = item.original_price_brutto || item.final_price_brutto;
+            priceHTML = `
+                <span class="compact-price discounted">${utils.formatCurrency(finalPrice)}</span>
+                <span class="compact-price-original">${utils.formatCurrency(originalPrice)}</span>
+                <span class="compact-discount">-${item.discount_percentage}%</span>
+            `;
+        }
+
+        return `
+            <div class="compact-variant">
+                <div class="compact-variant-name">${variantName}</div>
+                <div class="compact-variant-price">${priceHTML}</div>
             </div>
         `;
     },
@@ -586,9 +712,9 @@ const quote = {
      * @param {number} productIndex - Indeks produktu
      */
     selectVariant: async (itemId, productIndex) => {
-        // Sprawdzamy czy wycena jest edytowalna
+        // DODAJ TEN FRAGMENT NA POCZĄTKU:
         if (!globalState.isQuoteEditable) {
-            alerts.show('Wycena została już zaakceptowana i nie można jej modyfikować.', 'info');
+            alerts.show('Wycena została już zaakceptowana. Zmiana wariantu możliwa po kontakcie z Biurem Obsługi.', 'info');
             return;
         }
 
@@ -786,7 +912,33 @@ const quote = {
         }
 
         alerts.show(message, type, 0); // Nie ukrywaj automatycznie błędów
-    }
+    },
+
+    /**
+     * NOWA METODA: Tworzy kompaktowy HTML wariantu (po akceptacji)
+     */
+    createCompactVariantHTML: (item) => {
+        const variantName = utils.translateVariantCode(item.variant_code);
+        const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
+        const originalPrice = hasDiscount ? (item.original_price_brutto || item.final_price_brutto) : null;
+        const finalPrice = item.final_price_brutto;
+
+        let priceHTML = `<span class="compact-price">${utils.formatCurrency(finalPrice)}</span>`;
+
+        if (hasDiscount && originalPrice) {
+            priceHTML = `
+                <span class="compact-price discounted">${utils.formatCurrency(finalPrice)}</span>
+                <span class="compact-price-original">${utils.formatCurrency(originalPrice)}</span>
+            `;
+        }
+
+        return `
+            <div class="compact-variant">
+                <div class="compact-variant-name">${variantName}</div>
+                <div class="compact-variant-price">${priceHTML}</div>
+            </div>
+        `;
+    },
 };
 
 // ===================================
