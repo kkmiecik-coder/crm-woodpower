@@ -4,6 +4,8 @@ from . import quotes_bp
 from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem
 from modules.quotes.models import QuoteStatus, DiscountReason
 from modules.clients.models import Client
+from modules.baselinker.service import BaselinkerService
+from modules.baselinker.models import BaselinkerConfig
 from extensions import db, mail
 from weasyprint import HTML
 from io import BytesIO
@@ -94,6 +96,46 @@ def validate_email_or_phone(email_or_phone, quote):
 @login_required
 def quotes_home():
     print("[quotes_home] routing wywolany", file=sys.stderr)
+    
+    # AUTOMATYCZNA SYNCHRONIZACJA BASELINKER CONFIG
+    try:
+        # Sprawdź czy mamy już dane konfiguracyjne
+        config_count = BaselinkerConfig.query.count()
+        print(f"[quotes_home] Znaleziono {config_count} rekordów konfiguracji Baselinker", file=sys.stderr)
+        
+        # Jeśli brak konfiguracji lub jest stara (np. > 24h), zsynchronizuj
+        if config_count == 0:
+            print("[quotes_home] Brak konfiguracji Baselinker - rozpoczynam synchronizację", file=sys.stderr)
+            
+            # Sprawdź czy mamy konfigurację API
+            api_config = current_app.config.get('API_BASELINKER')
+            if api_config and api_config.get('api_key'):
+                try:
+                    service = BaselinkerService()
+                    
+                    # Synchronizuj źródła zamówień
+                    sources_synced = service.sync_order_sources()
+                    print(f"[quotes_home] Synchronizacja źródeł: {'OK' if sources_synced else 'BŁĄD'}", file=sys.stderr)
+                    
+                    # Synchronizuj statusy zamówień  
+                    statuses_synced = service.sync_order_statuses()
+                    print(f"[quotes_home] Synchronizacja statusów: {'OK' if statuses_synced else 'BŁĄD'}", file=sys.stderr)
+                    
+                    if sources_synced and statuses_synced:
+                        print("[quotes_home] Synchronizacja Baselinker zakończona pomyślnie", file=sys.stderr)
+                    else:
+                        print("[quotes_home] Synchronizacja Baselinker częściowo nieudana", file=sys.stderr)
+                        
+                except Exception as e:
+                    print(f"[quotes_home] Błąd synchronizacji Baselinker: {e}", file=sys.stderr)
+            else:
+                print("[quotes_home] Brak konfiguracji API Baselinker - pomijam synchronizację", file=sys.stderr)
+        else:
+            print("[quotes_home] Konfiguracja Baselinker już istnieje - pomijam synchronizację", file=sys.stderr)
+            
+    except Exception as e:
+        print(f"[quotes_home] Błąd podczas sprawdzania konfiguracji Baselinker: {e}", file=sys.stderr)
+    
     return render_template('quotes/templates/quotes.html')
 
 @quotes_bp.route('/api/quotes')

@@ -1,24 +1,108 @@
 /* app/modules/baselinker/static/css/baselinker.css */
 
 /* ===================================
-   BASELINKER MODAL STYLES
+   BASELINKER MODAL STYLES - KOMPLETNY Z PREFIXEM bl-style-
    =================================== */
 
-/* Ikona Baselinker w tytule */
-.baselinker-icon {
-    display: inline-block;
-    margin-right: 8px;
-    font-size: 1.2em;
+/* Modal Overlay - główne pozycjonowanie */
+.bl-style-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(2px);
 }
 
-/* Progress Bar - używa stylu aplikacji */
-.baselinker-progress-section {
+    .bl-style-modal-overlay.active {
+        opacity: 1;
+        visibility: visible;
+    }
+
+/* Modal Box - główny kontener */
+.bl-style-modal-box {
+    background: white;
+    border-radius: 12px;
+    max-width: 1000px;
+    width: 95%;
+    max-height: 95vh;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    transform: scale(0.8) translateY(50px);
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.bl-style-modal-overlay.active .bl-style-modal-box {
+    transform: scale(1) translateY(0);
+}
+
+/* Modal Header */
+.bl-style-modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #E3E3E3;
+    background: linear-gradient(135deg, #ED6B24 0%, #d8571a 100%);
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.bl-style-modal-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bl-style-modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bl-style-modal-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 28px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+    .bl-style-modal-close:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+/* Progress Bar */
+.bl-style-progress-section {
     padding: 16px 24px;
     border-bottom: 1px solid #E3E3E3;
     background: #F9F9F9;
 }
 
-.baselinker-progress-bar {
+.bl-style-progress-bar {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -26,7 +110,7 @@
     margin: 0 auto;
 }
 
-.baselinker-progress-step {
+.bl-style-progress-step {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -42,20 +126,20 @@
     border: 1px solid #E0E0E0;
 }
 
-    .baselinker-progress-step.active {
+    .bl-style-progress-step.active {
         background: #ED6B24;
         color: white;
         transform: scale(1.05);
         border-color: #ED6B24;
     }
 
-    .baselinker-progress-step.completed {
+    .bl-style-progress-step.completed {
         background: #07B90D;
         color: white;
         border-color: #07B90D;
     }
 
-.step-number {
+.bl-style-step-number {
     width: 20px;
     height: 20px;
     border-radius: 50%;
@@ -67,26 +151,33 @@
     font-weight: 600;
 }
 
-.baselinker-progress-step.active .step-number,
-.baselinker-progress-step.completed .step-number {
+.bl-style-progress-step.active .bl-style-step-number,
+.bl-style-progress-step.completed .bl-style-step-number {
     background: rgba(255, 255, 255, 0.2);
 }
 
-.step-label {
+.bl-style-step-label {
     font-weight: 500;
 }
 
-/* Step Content */
-.baselinker-step-content {
-    display: none;
-    animation: fadeIn 0.3s ease;
+/* Modal Content */
+.bl-style-modal-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
 }
 
-    .baselinker-step-content.active {
+/* Step Content */
+.bl-style-step-content {
+    display: none;
+    animation: bl-fadeIn 0.3s ease;
+}
+
+    .bl-style-step-content.active {
         display: block;
     }
 
-@keyframes fadeIn {
+@keyframes bl-fadeIn {
     from {
         opacity: 0;
         transform: translateY(10px);
@@ -98,78 +189,63 @@
     }
 }
 
-/* Section Icons */
-.section-icon {
-    display: inline-block;
-    margin-right: 8px;
-    font-size: 1.1em;
+/* Sections */
+.bl-style-section {
+    margin-bottom: 32px;
 }
 
-/* Products Container - używa stylu z aplikacji */
-.baselinker-products-container {
-    border: 1px solid #E0E0E0;
-    border-radius: 8px;
-    overflow: hidden;
-    background: white;
-}
-
-.baselinker-product-row {
-    display: grid;
-    grid-template-columns: 2fr 1fr 1.5fr 1fr;
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid #F0F0F0;
-    align-items: center;
-    font-size: 13px;
-}
-
-    .baselinker-product-row:last-child {
-        border-bottom: none;
+    .bl-style-section:last-child {
+        margin-bottom: 0;
     }
 
-    .baselinker-product-row:hover {
-        background: #FAFAFA;
-    }
-
-.baselinker-product-name {
+.bl-style-section-title {
+    font-size: 18px;
     font-weight: 600;
     color: #1F2020;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 2px solid #F0F0F0;
+    padding-bottom: 8px;
 }
 
-.baselinker-product-dimensions {
-    color: #666;
-    font-size: 12px;
-}
-
-.baselinker-product-finishing {
-    color: #666;
-    font-size: 12px;
-}
-
-.baselinker-product-price {
+.bl-style-section-subtitle {
+    font-size: 16px;
     font-weight: 600;
-    color: #ED6B24;
-    text-align: right;
+    color: #1F2020;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-/* Financial Summary - używa stylu summary z aplikacji */
-.baselinker-financial-summary {
+/* Icons */
+.bl-style-icon {
+    display: inline-block;
+    margin-right: 8px;
+    font-size: 1.2em;
+    flex-shrink: 0;
+}
+
+/* Summary Box */
+.bl-style-summary-box {
     background: #F9F9F9;
     border-radius: 8px;
-    padding: 16px;
+    padding: 20px;
     border-left: 4px solid #ED6B24;
 }
 
-.baselinker-summary-row {
+.bl-style-summary-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 0;
+    padding: 8px 0;
     border-bottom: 1px solid #E0E0E0;
     font-size: 14px;
 }
 
-    .baselinker-summary-row:last-child {
+    .bl-style-summary-row:last-child {
         border-bottom: none;
         font-weight: 600;
         font-size: 16px;
@@ -179,26 +255,135 @@
         border-top: 2px solid #ED6B24;
     }
 
-.baselinker-summary-label {
-    color: #666;
-    font-weight: 500;
+    .bl-style-summary-row span:first-child {
+        color: #666;
+        font-weight: 500;
+    }
+
+    .bl-style-summary-row strong {
+        color: #1F2020;
+        font-weight: 600;
+    }
+
+/* Products Container */
+.bl-style-products-container {
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: white;
 }
 
-.baselinker-summary-value {
+.bl-style-products-header {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1.5fr 1fr;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #F5F5F5;
+    border-bottom: 2px solid #E0E0E0;
+    font-weight: 600;
+    font-size: 13px;
+    color: #333;
+}
+
+.bl-style-products-body {
+    /* Container dla produktów */
+}
+
+.bl-style-product-item {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1.5fr 1fr;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #F0F0F0;
+    align-items: center;
+    font-size: 13px;
+}
+
+    .bl-style-product-item:last-child {
+        border-bottom: none;
+    }
+
+    .bl-style-product-item:hover {
+        background: #FAFAFA;
+    }
+
+.bl-style-product-name {
     font-weight: 600;
     color: #1F2020;
 }
 
-/* Configuration Grid - używa floating-label-input z aplikacji */
-.baselinker-config-grid {
+.bl-style-product-details {
+    color: #666;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.bl-style-product-finishing {
+    color: #666;
+    font-size: 12px;
+}
+
+.bl-style-product-price {
+    font-weight: 600;
+    color: #ED6B24;
+    text-align: right;
+}
+
+/* Financial Summary */
+.bl-style-financial-summary {
+    background: #F9F9F9;
+    border-radius: 8px;
+    padding: 16px;
+    border-left: 4px solid #ED6B24;
+}
+
+/* Form Elements */
+.bl-style-form-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 16px;
     margin-bottom: 20px;
 }
 
+.bl-style-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bl-style-form-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.bl-style-form-select,
+.bl-style-form-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid #CCC;
+    border-radius: 6px;
+    font-size: 14px;
+    background: white;
+    transition: border-color 0.2s ease;
+}
+
+    .bl-style-form-select:focus,
+    .bl-style-form-input:focus {
+        outline: none;
+        border-color: #ED6B24;
+        box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
+    }
+
+    .bl-style-form-input[readonly] {
+        background: #F5F5F5;
+        color: #666;
+    }
+
 /* Info Box */
-.baselinker-info-box {
+.bl-style-info-box {
     display: flex;
     align-items: flex-start;
     gap: 12px;
@@ -210,19 +395,19 @@
     font-size: 13px;
 }
 
-.info-icon {
+.bl-style-info-icon {
     font-size: 16px;
     flex-shrink: 0;
     margin-top: 2px;
 }
 
-.info-text {
+.bl-style-info-text {
     color: #1565c0;
     line-height: 1.4;
 }
 
 /* Warning Box */
-.baselinker-warning-box {
+.bl-style-warning-box {
     display: flex;
     align-items: flex-start;
     gap: 12px;
@@ -234,31 +419,31 @@
     font-size: 13px;
 }
 
-.warning-icon {
+.bl-style-warning-icon {
     font-size: 16px;
     flex-shrink: 0;
     margin-top: 2px;
 }
 
-.warning-text {
+.bl-style-warning-text {
     color: #e65100;
     line-height: 1.4;
 }
 
-/* Client Preview Grid */
-.baselinker-client-preview-grid {
+/* Client Grid */
+.bl-style-client-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
 }
 
-.baselinker-client-field {
+.bl-style-client-field {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.baselinker-client-label {
+.bl-style-client-label {
     font-size: 12px;
     font-weight: 500;
     color: #666;
@@ -266,7 +451,7 @@
     letter-spacing: 0.5px;
 }
 
-.baselinker-client-value {
+.bl-style-client-value {
     font-size: 14px;
     font-weight: 500;
     color: #1F2020;
@@ -276,15 +461,15 @@
     border: 1px solid #E0E0E0;
 }
 
-/* Configuration Summary */
-.baselinker-config-summary {
+/* Config Summary */
+.bl-style-config-summary {
     background: #F9F9F9;
     border-radius: 8px;
     padding: 16px;
     border-left: 4px solid #07B90D;
 }
 
-.baselinker-config-row {
+.bl-style-config-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -293,82 +478,141 @@
     font-size: 14px;
 }
 
-    .baselinker-config-row:last-child {
+    .bl-style-config-row:last-child {
         border-bottom: none;
     }
 
-.baselinker-config-label {
+.bl-style-config-label {
     color: #666;
     font-weight: 500;
 }
 
-.baselinker-config-value {
+.bl-style-config-value {
     font-weight: 600;
     color: #1F2020;
 }
 
-/* Modal Footer - używa styl z aplikacji */
-.quotes-details-modal-footer {
+/* Modal Footer */
+.bl-style-modal-footer {
     border-top: 1px solid #E3E3E3;
     background: #F9F9F9;
     padding: 16px 24px;
 }
 
-.quotes-details-modal-actions {
+.bl-style-modal-actions {
     display: flex;
     justify-content: flex-end;
     gap: 12px;
 }
 
-/* Dodatkowe style dla przycisków - używają już istniejące klasy .quotes-btn */
-.quotes-btn-secondary {
+/* Buttons */
+.bl-style-btn {
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 120px;
+    text-decoration: none;
+}
+
+    .bl-style-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .bl-style-btn:active {
+        transform: translateY(0);
+    }
+
+.bl-style-btn-primary {
+    background: #ED6B24;
+    color: white;
+}
+
+    .bl-style-btn-primary:hover {
+        background: #d8571a;
+    }
+
+.bl-style-btn-secondary {
     background: transparent;
     color: #666;
     border: 1px solid #CCC;
 }
 
-    .quotes-btn-secondary:hover {
+    .bl-style-btn-secondary:hover {
         background: #F5F5F5;
         border-color: #999;
     }
 
-.quotes-btn-primary {
-    background: #ED6B24;
+.bl-style-btn-order {
+    background: linear-gradient(135deg, #07B90D 0%, #059c0a 100%);
     color: white;
-    border: none;
+    font-weight: 600;
 }
 
-    .quotes-btn-primary:hover {
-        background: #d8571a;
+    .bl-style-btn-order:hover {
+        background: linear-gradient(135deg, #059c0a 0%, #048a09 100%);
     }
 
-/* Loading state dla przycisku */
-.quotes-btn:disabled {
+.bl-style-btn-sync {
+    padding: 8px 12px;
+    font-size: 12px;
+    min-width: auto;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+    .bl-style-btn-sync:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+/* Loading states */
+.bl-style-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
     transform: none !important;
 }
 
-    .quotes-btn:disabled .btn-text {
+    .bl-style-btn:disabled .bl-style-btn-text {
         display: none;
     }
 
-    .quotes-btn:disabled .btn-loading {
+    .bl-style-btn:disabled .bl-style-btn-loading {
         display: flex !important;
         align-items: center;
         gap: 8px;
     }
 
-.spinner-small {
+.bl-style-btn-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bl-style-btn-loading {
+    display: none;
+    align-items: center;
+    gap: 8px;
+}
+
+.bl-style-spinner {
     width: 14px;
     height: 14px;
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-top: 2px solid white;
     border-radius: 50%;
-    animation: spin 1s linear infinite;
+    animation: bl-spin 1s linear infinite;
 }
 
-@keyframes spin {
+@keyframes bl-spin {
     0% {
         transform: rotate(0deg);
     }
@@ -378,65 +622,8 @@
     }
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-    .baselinker-progress-bar {
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .baselinker-progress-step {
-        justify-content: flex-start;
-        transform: none;
-    }
-
-        .baselinker-progress-step.active {
-            transform: none;
-        }
-
-    .baselinker-config-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .baselinker-product-row {
-        grid-template-columns: 1fr;
-        gap: 8px;
-        text-align: left;
-    }
-
-    .baselinker-product-price {
-        text-align: left;
-    }
-
-    .baselinker-summary-row {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
-    }
-
-    .baselinker-config-row {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
-    }
-
-    .baselinker-client-preview-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .quotes-details-modal-actions {
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .quotes-btn {
-        width: 100%;
-        justify-content: center;
-    }
-}
-
-/* Status indicator styling (używa istniejące style z aplikacji) */
-.baselinker-status-ready {
+/* Status Indicators */
+.bl-style-status-ready {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -448,7 +635,7 @@
     font-weight: 500;
 }
 
-.baselinker-status-warning {
+.bl-style-status-warning {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -460,7 +647,7 @@
     font-weight: 500;
 }
 
-.baselinker-status-error {
+.bl-style-status-error {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -472,11 +659,309 @@
     font-weight: 500;
 }
 
-/* Dodatkowe przestrzenie dla lepszej czytelności */
-.quotes-details-modal-section {
+/* Loading overlay - globalne */
+#baselinker-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    color: white;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+/* Alert notifications */
+.bl-style-alert {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10002;
+    max-width: 400px;
+    padding: 16px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    font-size: 14px;
+    line-height: 1.4;
+    animation: bl-slideInRight 0.3s ease;
+}
+
+@keyframes bl-slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.bl-style-alert-success {
+    background: #07B90D;
+    color: white;
+}
+
+.bl-style-alert-error {
+    background: #E53935;
+    color: white;
+}
+
+.bl-style-alert-warning {
+    background: #FFC107;
+    color: #1F2020;
+}
+
+.bl-style-alert-info {
+    background: #2196F3;
+    color: white;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .bl-style-modal-box {
+        width: 98%;
+        max-height: 98vh;
+        margin: 1vh;
+    }
+
+    .bl-style-modal-content {
+        padding: 16px;
+    }
+
+    .bl-style-progress-bar {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .bl-style-progress-step {
+        justify-content: flex-start;
+        transform: none;
+    }
+
+        .bl-style-progress-step.active {
+            transform: none;
+        }
+
+    .bl-style-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .bl-style-products-header {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        text-align: left;
+    }
+
+    .bl-style-product-item {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        text-align: left;
+    }
+
+    .bl-style-product-price {
+        text-align: left;
+    }
+
+    .bl-style-summary-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .bl-style-config-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .bl-style-client-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .bl-style-modal-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .bl-style-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .bl-style-section-title {
+        font-size: 16px;
+    }
+
+    .bl-style-modal-title {
+        font-size: 18px;
+    }
+}
+
+@media (max-width: 480px) {
+    .bl-style-modal-header {
+        padding: 16px;
+    }
+
+    .bl-style-modal-content {
+        padding: 12px;
+    }
+
+    .bl-style-modal-footer {
+        padding: 16px;
+    }
+
+    .bl-style-btn {
+        padding: 14px 20px;
+        font-size: 15px;
+    }
+
+    .bl-style-progress-section {
+        padding: 12px 16px;
+    }
+}
+
+/* Utility Classes */
+.bl-style-text-center {
+    text-align: center;
+}
+
+.bl-style-text-right {
+    text-align: right;
+}
+
+.bl-style-text-left {
+    text-align: left;
+}
+
+.bl-style-mt-0 {
+    margin-top: 0;
+}
+
+.bl-style-mt-1 {
+    margin-top: 8px;
+}
+
+.bl-style-mt-2 {
+    margin-top: 16px;
+}
+
+.bl-style-mt-3 {
+    margin-top: 24px;
+}
+
+.bl-style-mb-0 {
+    margin-bottom: 0;
+}
+
+.bl-style-mb-1 {
+    margin-bottom: 8px;
+}
+
+.bl-style-mb-2 {
+    margin-bottom: 16px;
+}
+
+.bl-style-mb-3 {
     margin-bottom: 24px;
 }
 
-    .quotes-details-modal-section:last-child {
-        margin-bottom: 0;
+.bl-style-font-bold {
+    font-weight: 600;
+}
+
+.bl-style-font-normal {
+    font-weight: 400;
+}
+
+.bl-style-text-muted {
+    color: #666;
+}
+
+.bl-style-text-success {
+    color: #07B90D;
+}
+
+.bl-style-text-warning {
+    color: #FFC107;
+}
+
+.bl-style-text-danger {
+    color: #E53935;
+}
+
+/* Pomocnicze klasy dla animacji */
+.bl-style-fade-in {
+    animation: bl-fadeIn 0.3s ease;
+}
+
+.bl-style-slide-up {
+    animation: bl-slideUp 0.3s ease;
+}
+
+@keyframes bl-slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Focus states dla dostępności */
+.bl-style-btn:focus,
+.bl-style-form-select:focus,
+.bl-style-form-input:focus,
+.bl-style-modal-close:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+}
+
+/* Dodatkowe style dla lepszej UX */
+.bl-style-modal-overlay {
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+}
+
+.bl-style-btn {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.bl-style-modal-box {
+    box-sizing: border-box;
+}
+
+    .bl-style-modal-box *,
+    .bl-style-modal-box *::before,
+    .bl-style-modal-box *::after {
+        box-sizing: inherit;
+    }
+
+/* Scrollbar styling dla webkit browsers */
+.bl-style-modal-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.bl-style-modal-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.bl-style-modal-content::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+    .bl-style-modal-content::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
     }

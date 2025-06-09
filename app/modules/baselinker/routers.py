@@ -84,13 +84,13 @@ def get_order_modal_data(quote_id):
             'products': [
                 {
                     'id': item.id,
-                    'name': self._get_product_display_name(item, quote),
+                    'name': _get_product_display_name(item, quote),
                     'variant_code': item.variant_code,
                     'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
                     'volume': item.volume_m3,
                     'price_netto': item.final_price_netto,
                     'price_brutto': item.final_price_brutto,
-                    'finishing': self._get_finishing_details(item.product_index, quote)
+                    'finishing': _get_finishing_details(item.product_index, quote)
                 }
                 for item in selected_items
             ],
@@ -147,7 +147,12 @@ def _get_product_display_name(item, quote):
 
 def _get_finishing_details(product_index, quote):
     """Pobiera szczegóły wykończenia dla produktu"""
-    finishing = quote.finishing_details.filter_by(product_index=product_index).first()
+    from modules.calculator.models import QuoteItemDetails
+    finishing = QuoteItemDetails.query.filter_by(
+        quote_id=quote.id, 
+        product_index=product_index
+    ).first()
+    
     if not finishing or finishing.finishing_type == 'Brak':
         return None
     

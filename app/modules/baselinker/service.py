@@ -1,6 +1,9 @@
+# app/modules/baselinker/service.py - Z DODATKOWYMI LOGAMI API
+
 import requests
 import json
 import logging
+import sys
 from typing import Dict, List, Optional
 from flask import current_app
 from extensions import db
@@ -29,38 +32,170 @@ class BaselinkerService:
             'parameters': json.dumps(parameters)
         }
         
+        print(f"[BaselinkerService] Wysylam zadanie API: method={method}, params={parameters}", file=sys.stderr)
+        
         try:
             response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
             response.raise_for_status()
-            return response.json()
+            response_json = response.json()
+            
+            # DODANY LOG RESPONSE
+            print(f"[BaselinkerService] Odpowiedz API: {json.dumps(response_json, ensure_ascii=False)}", file=sys.stderr)
+            
+            return response_json
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Błąd żądania Baselinker: {e}")
+            print(f"[BaselinkerService] Blad zadania API: {e}", file=sys.stderr)
             raise
     
     def get_order_sources(self) -> List[Dict]:
         """Pobiera dostępne źródła zamówień"""
         try:
             response = self._make_request('getOrderSources', {})
+            print(f"[BaselinkerService] getOrderSources response status: {response.get('status')}", file=sys.stderr)
+        
             if response.get('status') == 'SUCCESS':
-                return response.get('order_sources', [])
+                # POPRAWKA: API zwraca 'sources' zamiast 'order_sources'
+                sources_data = response.get('sources', {})
+                print(f"[BaselinkerService] Raw sources data: {sources_data}", file=sys.stderr)
+            
+                # Przekształć zagnieżdżoną strukturę na płaską listę
+                sources_list = []
+            
+                for category, items in sources_data.items():
+                    print(f"[BaselinkerService] Przetwarzam kategorie: {category} z {len(items)} elementami", file=sys.stderr)
+                
+                    for source_id, source_name in items.items():
+                        sources_list.append({
+                            'id': int(source_id) if source_id.isdigit() else 0,
+                            'name': f"{source_name} ({category})",
+                            'category': category
+                        })
+                        print(f"[BaselinkerService] Dodano zrodlo: ID={source_id}, Name={source_name}, Category={category}", file=sys.stderr)
+            
+                print(f"[BaselinkerService] Znaleziono {len(sources_list)} zrodel zamowien", file=sys.stderr)
+                return sources_list
             else:
-                raise Exception(f"API Error: {response.get('error_message', 'Unknown error')}")
+                error_msg = response.get('error_message', 'Unknown error')
+                print(f"[BaselinkerService] API Error w getOrderSources: {error_msg}", file=sys.stderr)
+                raise Exception(f"API Error: {error_msg}")
         except Exception as e:
-            self.logger.error(f"Błąd pobierania źródeł zamówień: {e}")
+            print(f"[BaselinkerService] Blad pobierania zrodel zamowien: {e}", file=sys.stderr)
             raise
     
     def get_order_statuses(self) -> List[Dict]:
         """Pobiera dostępne statusy zamówień"""
         try:
-            response = self._make_request('getOrderStatuses', {})
-            if response.get('status') == 'SUCCESS':
-                return response.get('order_statuses', [])
-            else:
-                raise Exception(f"API Error: {response.get('error_message', 'Unknown error')}")
+            # Próbuj różne nazwy metod API
+            for method_name in ['getOrderStatusList', 'getOrderStatuses']:
+                try:
+                    print(f"[BaselinkerService] Probuje metode: {method_name}", file=sys.stderr)
+                    response = self._make_request(method_name, {})
+                    print(f"[BaselinkerService] {method_name} response status: {response.get('status')}", file=sys.stderr)
+                    
+                    if response.get('status') == 'SUCCESS':
+                        # Próbuj różne klucze odpowiedzi
+                        statuses = (response.get('order_statuses') or 
+                                  response.get('statuses') or 
+                                  response.get('order_status_list') or [])
+                        print(f"[BaselinkerService] Znaleziono {len(statuses)} statusow zamowien", file=sys.stderr)
+                        return statuses
+                    else:
+                        error_msg = response.get('error_message', 'Unknown error')
+                        print(f"[BaselinkerService] API Error w {method_name}: {error_msg}", file=sys.stderr)
+                        continue  # Spróbuj następną metodę
+                        
+                except Exception as method_error:
+                    print(f"[BaselinkerService] Metoda {method_name} nieudana: {method_error}", file=sys.stderr)
+                    continue  # Spróbuj następną metodę
+            
+            # Jeśli żadna metoda nie zadziałała
+            raise Exception("Wszystkie metody pobierania statusow nieudane")
+            
         except Exception as e:
-            self.logger.error(f"Błąd pobierania statusów zamówień: {e}")
+            print(f"[BaselinkerService] Blad pobierania statusow zamowien: {e}", file=sys.stderr)
             raise
     
+    def sync_order_sources(self) -> bool:
+        """Synchronizuje źródła zamówień z Baselinker"""
+        try:
+            sources = self.get_order_sources()
+            print(f"[BaselinkerService] Synchronizuje {len(sources)} zrodel", file=sys.stderr)
+            
+            for source in sources:
+                print(f"[BaselinkerService] Przetwarzam zrodlo: {source}", file=sys.stderr)
+                
+                existing = BaselinkerConfig.query.filter_by(
+                    config_type='order_source',
+                    baselinker_id=source.get('id')
+                ).first()
+                
+                if not existing:
+                    config = BaselinkerConfig(
+                        config_type='order_source',
+                        baselinker_id=source.get('id'),
+                        name=source.get('name', 'Nieznane zrodlo')
+                    )
+                    db.session.add(config)
+                    print(f"[BaselinkerService] Dodano nowe zrodlo: {config.name}", file=sys.stderr)
+                else:
+                    existing.name = source.get('name', existing.name)
+                    existing.is_active = True
+                    print(f"[BaselinkerService] Zaktualizowano zrodlo: {existing.name}", file=sys.stderr)
+            
+            db.session.commit()
+            
+            # Sprawdź co się zapisało
+            saved_count = BaselinkerConfig.query.filter_by(config_type='order_source').count()
+            print(f"[BaselinkerService] Zapisano {saved_count} zrodel do bazy", file=sys.stderr)
+            
+            return True
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"[BaselinkerService] Blad synchronizacji zrodel: {e}", file=sys.stderr)
+            return False
+    
+    def sync_order_statuses(self) -> bool:
+        """Synchronizuje statusy zamówień z Baselinker"""
+        try:
+            statuses = self.get_order_statuses()
+            print(f"[BaselinkerService] Synchronizuje {len(statuses)} statusow", file=sys.stderr)
+            
+            for status in statuses:
+                print(f"[BaselinkerService] Przetwarzam status: {status}", file=sys.stderr)
+                
+                existing = BaselinkerConfig.query.filter_by(
+                    config_type='order_status',
+                    baselinker_id=status.get('id')
+                ).first()
+                
+                if not existing:
+                    config = BaselinkerConfig(
+                        config_type='order_status',
+                        baselinker_id=status.get('id'),
+                        name=status.get('name', 'Nieznany status')
+                    )
+                    db.session.add(config)
+                    print(f"[BaselinkerService] Dodano nowy status: {config.name}", file=sys.stderr)
+                else:
+                    existing.name = status.get('name', existing.name)
+                    existing.is_active = True
+                    print(f"[BaselinkerService] Zaktualizowano status: {existing.name}", file=sys.stderr)
+            
+            db.session.commit()
+            
+            # Sprawdź co się zapisało
+            saved_count = BaselinkerConfig.query.filter_by(config_type='order_status').count()
+            print(f"[BaselinkerService] Zapisano {saved_count} statusow do bazy", file=sys.stderr)
+            
+            return True
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"[BaselinkerService] Blad synchronizacji statusow: {e}", file=sys.stderr)
+            return False
+
+    # Reszta metod pozostaje bez zmian...
     def create_order_from_quote(self, quote, user_id: int, config: Dict) -> Dict:
         """Tworzy zamówienie w Baselinker na podstawie wyceny"""
         try:
@@ -97,10 +232,10 @@ class BaselinkerService:
                 return {
                     'success': True,
                     'order_id': baselinker_order_id,
-                    'message': 'Zamówienie zostało utworzone pomyślnie'
+                    'message': 'Zamowienie zostalo utworzone pomyslnie'
                 }
             else:
-                error_msg = response.get('error_message', 'Nieznany błąd API')
+                error_msg = response.get('error_message', 'Nieznany blad API')
                 log_entry.status = 'error'
                 log_entry.error_message = error_msg
                 log_entry.response_data = json.dumps(response)
@@ -118,7 +253,7 @@ class BaselinkerService:
                 log_entry.error_message = str(e)
                 db.session.commit()
             
-            self.logger.error(f"Błąd tworzenia zamówienia: {e}")
+            print(f"[BaselinkerService] Blad tworzenia zamowienia: {e}", file=sys.stderr)
             return {
                 'success': False,
                 'error': str(e)
@@ -127,6 +262,7 @@ class BaselinkerService:
     def _prepare_order_data(self, quote, config: Dict) -> Dict:
         """Przygotowuje dane zamówienia dla API Baselinker"""
         import time
+        from modules.calculator.models import QuoteItemDetails
         
         # Pobierz wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
@@ -138,7 +274,11 @@ class BaselinkerService:
             product_name = f"{self._translate_variant_code(item.variant_code)} - {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
             
             # Dodaj informacje o wykończeniu jeśli istnieją
-            finishing_details = quote.finishing_details.filter_by(product_index=item.product_index).first()
+            finishing_details = QuoteItemDetails.query.filter_by(
+                quote_id=quote.id, 
+                product_index=item.product_index
+            ).first()
+            
             if finishing_details and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
                     finishing_details.finishing_variant,
@@ -179,7 +319,7 @@ class BaselinkerService:
             'payment_method': config.get('payment_method', 'Przelew bankowy'),
             'payment_method_cod': False,
             'paid': 0,
-            'user_comments': f"Zamówienie z wyceny {quote.quote_number}",
+            'user_comments': f"Zamowienie z wyceny {quote.quote_number}",
             'admin_comments': f"Automatycznie utworzone z wyceny {quote.quote_number} przez system Wood Power CRM",
             'phone': client.phone or '',
             'email': client.email or '',
@@ -201,7 +341,7 @@ class BaselinkerService:
             'invoice_company': client.invoice_company or '',
             'invoice_nip': client.invoice_nip or '',
             'invoice_address': client.invoice_address or client.delivery_address or '',
-            'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
+            'invoice_postcode': client.invoke_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
             'invoice_country_code': 'PL',
             'want_invoice': bool(client.invoice_nip),
@@ -215,10 +355,10 @@ class BaselinkerService:
     def _translate_variant_code(self, code: str) -> str:
         """Tłumaczy kod wariantu na czytelną nazwę"""
         translations = {
-            'dab-lity-ab': 'Dąb lity A/B',
-            'dab-lity-bb': 'Dąb lity B/B',
-            'dab-micro-ab': 'Dąb mikrowczep A/B',
-            'dab-micro-bb': 'Dąb mikrowczep B/B',
+            'dab-lity-ab': 'Dab lity A/B',
+            'dab-lity-bb': 'Dab lity B/B',
+            'dab-micro-ab': 'Dab mikrowczep A/B',
+            'dab-micro-bb': 'Dab mikrowczep B/B',
             'jes-lity-ab': 'Jesion lity A/B',
             'jes-micro-ab': 'Jesion mikrowczep A/B',
             'buk-lity-ab': 'Buk lity A/B',
@@ -231,63 +371,3 @@ class BaselinkerService:
         if item.volume_m3:
             return round(item.volume_m3 * 800, 2)
         return 0.0
-    
-    def sync_order_sources(self) -> bool:
-        """Synchronizuje źródła zamówień z Baselinker"""
-        try:
-            sources = self.get_order_sources()
-            
-            for source in sources:
-                existing = BaselinkerConfig.query.filter_by(
-                    config_type='order_source',
-                    baselinker_id=source['id']
-                ).first()
-                
-                if not existing:
-                    config = BaselinkerConfig(
-                        config_type='order_source',
-                        baselinker_id=source['id'],
-                        name=source['name']
-                    )
-                    db.session.add(config)
-                else:
-                    existing.name = source['name']
-                    existing.is_active = True
-            
-            db.session.commit()
-            return True
-            
-        except Exception as e:
-            db.session.rollback()
-            self.logger.error(f"Błąd synchronizacji źródeł: {e}")
-            return False
-    
-    def sync_order_statuses(self) -> bool:
-        """Synchronizuje statusy zamówień z Baselinker"""
-        try:
-            statuses = self.get_order_statuses()
-            
-            for status in statuses:
-                existing = BaselinkerConfig.query.filter_by(
-                    config_type='order_status',
-                    baselinker_id=status['id']
-                ).first()
-                
-                if not existing:
-                    config = BaselinkerConfig(
-                        config_type='order_status',
-                        baselinker_id=status['id'],
-                        name=status['name']
-                    )
-                    db.session.add(config)
-                else:
-                    existing.name = status['name']
-                    existing.is_active = True
-            
-            db.session.commit()
-            return True
-            
-        except Exception as e:
-            db.session.rollback()
-            self.logger.error(f"Błąd synchronizacji statusów: {e}")
-            return False

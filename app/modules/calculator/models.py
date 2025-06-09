@@ -39,6 +39,10 @@ class Quote(db.Model):
     client_comments = db.Column(db.Text)
     is_client_editable = db.Column(db.Boolean, default=True)
     
+    # DODANE POLA dla obsługi akceptacji przez klienta
+    acceptance_date = db.Column(db.DateTime)
+    accepted_by_email = db.Column(db.String(255))
+    
     # Relacje
     user = db.relationship('User', backref='quotes')
     client = db.relationship('Client', backref='quotes')
@@ -63,9 +67,8 @@ class Quote(db.Model):
     def get_public_url(self):
         """Generuje publiczny URL dla klienta"""
         if not self.public_token:
-            self.generate_public_token()
+            self.public_token = self.generate_public_token()
             # Zapisz token do bazy danych
-            from extensions import db
             db.session.commit()
     
         return f"/quotes/wycena/{self.quote_number}/{self.public_token}"
@@ -73,7 +76,6 @@ class Quote(db.Model):
     def disable_client_editing(self):
         """Wyłącza możliwość edycji przez klienta (np. po akceptacji)"""
         self.is_client_editable = False
-        db.session.commit()
 
     def get_selected_items(self):
         """Zwraca tylko wybrane pozycje wyceny"""
@@ -109,11 +111,8 @@ class Quote(db.Model):
 
     def apply_total_discount(self, discount_percentage, reason_id=None):
         """Zastosowuje rabat do wszystkich wariantów w wycenie"""
-
-        # Pobieramy wszystkie pozycje z danej wyceny, a nie tylko te is_selected
-        all_items = db.session.query(QuoteItem).filter(
-            QuoteItem.quote_id == self.id
-        ).all()
+        # POPRAWKA: Użyj self.items zamiast query
+        all_items = [item for item in self.items]
 
         print(f"[apply_total_discount] Znaleziono {len(all_items)} wszystkich pozycji dla quote_id={self.id}", file=sys.stderr)
 
@@ -127,30 +126,36 @@ class Quote(db.Model):
         print(f"[apply_total_discount] Zaktualizowano {affected_count} pozycji", file=sys.stderr)
         return affected_count
 
+    def is_eligible_for_order(self):
+        """Sprawdza czy wycena może być złożona jako zamówienie"""
+        # Wycena musi być zaakceptowana przez klienta
+        if self.is_client_editable:
+            return False
+    
+        # Musi mieć przypisanego klienta
+        if not self.client_id:
+            return False
+    
+        # Musi mieć wybrane produkty
+        selected_items = self.get_selected_items()
+        if not selected_items:
+            return False
+    
+        return True
+
+    @property
+    def finishing_details(self):
+        """Zwraca szczegóły wykończenia dla wyceny"""
+        # POPRAWKA: Importuj z właściwego miejsca
+        from extensions import db
+        # Dynamiczny import aby uniknąć circular imports
+        QuoteItemDetails = db.Model.registry._class_registry.get('QuoteItemDetails')
+        if QuoteItemDetails:
+            return db.session.query(QuoteItemDetails).filter_by(quote_id=self.id)
+        return db.session.query(db.Model).filter(False)  # Pusty query jako fallback
+
     def __repr__(self):
         return f"<Quote {self.quote_number}>"
-
-    def is_eligible_for_order(self):
-    """Sprawdza czy wycena może być złożona jako zamówienie"""
-    # Wycena musi być zaakceptowana przez klienta
-    if self.is_client_editable:
-        return False
-    
-    # Musi mieć przypisanego klienta
-    if not self.client_id:
-        return False
-    
-    # Musi mieć wybrane produkty
-    selected_items = [item for item in self.items if item.is_selected]
-    if not selected_items:
-        return False
-    
-    return True
-
-    def get_selected_items(self):
-        """Zwraca listę wybranych pozycji wyceny"""
-        return [item for item in self.items if item.is_selected]
-
 
 class QuoteItem(db.Model):
     __tablename__ = 'quote_items'
