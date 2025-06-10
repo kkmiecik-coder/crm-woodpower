@@ -137,7 +137,7 @@ class BaselinkerModal {
     // NOWA FUNKCJA: Klonuje dane klienta
     cloneClientData(clientData) {
         return {
-            delivery_name: clientData.delivery_name || clientData.name || '',
+            delivery_name: clientData.delivery_name || clientData.number || '',
             delivery_company: clientData.delivery_company || clientData.company || '',
             delivery_address: clientData.delivery_address || '',
             delivery_postcode: clientData.delivery_postcode || '',
@@ -432,8 +432,8 @@ class BaselinkerModal {
     populateClientData() {
         const client = this.modalData.client;
 
-        // Wypełnij dane dostawy
-        this.setInputValue('delivery-fullname', client.delivery_name || client.name || '');
+        // POPRAWKA: Wypełnij dane dostawy używając client_number zamiast client_name
+        this.setInputValue('delivery-fullname', client.delivery_name || client.number || '');
         this.setInputValue('delivery-company', client.delivery_company || client.company || '');
         this.setInputValue('delivery-address', client.delivery_address || '');
         this.setInputValue('delivery-postcode', client.delivery_postcode || '');
@@ -441,7 +441,7 @@ class BaselinkerModal {
         this.setInputValue('client-email', client.email || '');
         this.setInputValue('client-phone', client.phone || '');
 
-        // Wypełnij dane faktury
+        // Wypełnij dane faktury - tutaj można pozostać przy client.name
         this.setInputValue('invoice-fullname', client.invoice_name || client.name || '');
         this.setInputValue('invoice-company', client.invoice_company || client.company || '');
         this.setInputValue('invoice-nip', client.invoice_nip || '');

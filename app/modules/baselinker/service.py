@@ -1,4 +1,4 @@
-# app/modules/baselinker/service.py - POPRAWIONA WERSJA BEZ DUPLIKATU
+# app/modules/baselinker/service.py - OCZYSZCZONA WERSJA TYLKO Z SERWISEM
 
 import requests
 import json
@@ -319,6 +319,28 @@ class BaselinkerService:
             # Nazwa produktu z wymiarami
             base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
         
+            # POPRAWKA: Oblicz cenę produktu + wykończenie
+            # Cena surowego produktu
+            product_price_netto = float(item.final_price_netto or 0)
+            product_price_brutto = float(item.final_price_brutto or 0)
+            
+            # Dodaj cenę wykończenia jeśli istnieje
+            finishing_price_netto = 0
+            finishing_price_brutto = 0
+            
+            if finishing_details and finishing_details.finishing_price_netto:
+                finishing_price_netto = float(finishing_details.finishing_price_netto or 0)
+                finishing_price_brutto = float(finishing_details.finishing_price_brutto or 0)
+                
+                print(f"[BaselinkerService] Produkt {item.product_index}: surowy={product_price_netto}, wykończenie={finishing_price_netto}", file=sys.stderr)
+            
+            # Suma: produkt surowy + wykończenie
+            total_price_netto = product_price_netto + finishing_price_netto
+            total_price_brutto = product_price_brutto + finishing_price_brutto
+            
+            print(f"[BaselinkerService] Końcowa cena produktu {item.product_index}: netto={total_price_netto}, brutto={total_price_brutto}", file=sys.stderr)
+            
+            # Nazwa produktu z wykończeniem
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
                     finishing_details.finishing_variant,
@@ -345,8 +367,8 @@ class BaselinkerService:
                 'location': '',
                 'warehouse_id': 0,
                 'attributes': '',
-                'price_brutto': float(item.final_price_brutto or 0),
-                'price_netto': float(item.final_price_netto or 0),
+                'price_brutto': total_price_brutto,  # POPRAWKA: Używamy sumy
+                'price_netto': total_price_netto,    # POPRAWKA: Używamy sumy
                 'tax_rate': 23,
                 'quantity': 1,
                 'weight': self._calculate_item_weight(item)
