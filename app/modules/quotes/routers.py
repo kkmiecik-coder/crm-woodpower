@@ -17,6 +17,8 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import func
 import re
 from datetime import datetime
+import base64
+import os
 
 def render_client_error(error_type, error_code=None, error_message=None, error_details=None, quote_number=None):
     return render_template(
@@ -212,7 +214,7 @@ def update_quote_status(quote_id):
 @login_required
 def generate_quote_pdf(quote_id, format):
     print(f"[generate_quote_pdf] START -> format={format}, ID={quote_id}", file=sys.stderr)
-
+    
     if format not in ["pdf", "png"]:
         print(f"[generate_quote_pdf] Unsupported format: {format}", file=sys.stderr)
         return {"error": "Unsupported format"}, 400
@@ -224,19 +226,19 @@ def generate_quote_pdf(quote_id, format):
 
     print(f"[generate_quote_pdf] Quote found: {quote.quote_number}", file=sys.stderr)
 
-    # DODANE: Załaduj wszystkie potrzebne dane
+    # Załaduj wszystkie potrzebne dane
     quote.client = Client.query.get(quote.client_id) if quote.client_id else None
     quote.user = User.query.get(quote.user_id)
     quote.quote_status = QuoteStatus.query.get(quote.status_id) if quote.status_id else None
     
-    # DODANE: Oblicz koszty z VAT (jak w get_quote_details)
+    # Oblicz koszty z VAT
     cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
     cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
     cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
     
     quote.costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
     
-    # DODANE: Załaduj dane wykończenia
+    # Załaduj dane wykończenia
     quote.finishing = [
         {
             "product_index": detail.product_index,
@@ -250,8 +252,53 @@ def generate_quote_pdf(quote_id, format):
     ]
 
     try:
-        html_out = render_template("quotes/templates/offer_pdf.html", quote=quote)
-        html = HTML(string=html_out)
+        # NOWE: Funkcja do ładowania ikon jako base64
+        def load_icon_as_base64(icon_name):
+            try:
+                # Ścieżka do folderu z ikonami w module quotes
+                icons_path = os.path.join(
+                    os.path.dirname(__file__),  # quotes/
+                    'static', 'img', icon_name
+                )
+                print(f"[PDF] Trying to load icon: {icons_path}", file=sys.stderr)
+                
+                if os.path.exists(icons_path):
+                    with open(icons_path, 'rb') as f:
+                        icon_data = base64.b64encode(f.read()).decode('utf-8')
+                    # Wykryj typ pliku
+                    ext = icon_name.split('.')[-1].lower()
+                    mime_type = 'image/png' if ext == 'png' else 'image/svg+xml' if ext == 'svg' else 'image/jpeg'
+                    
+                    return f"data:{mime_type};base64,{icon_data}"
+                else:
+                    print(f"[PDF] Icon not found: {icons_path}", file=sys.stderr)
+                    return None
+            except Exception as e:
+                print(f"[PDF] Error loading icon {icon_name}: {e}", file=sys.stderr)
+                return None
+
+        # Załaduj wszystkie ikony
+        icons = {
+            'logo': load_icon_as_base64('logo.png'),
+            'phone': load_icon_as_base64('phone.png'),        # lub phone.svg
+            'email': load_icon_as_base64('email.png'),        # lub email.svg
+            'location': load_icon_as_base64('location.png'),  # lub location.svg
+            'website': load_icon_as_base64('website.png'),    # lub website.svg
+            'instagram': load_icon_as_base64('instagram.png'), # lub instagram.svg
+            'facebook': load_icon_as_base64('facebook.png'),   # lub facebook.svg
+        }
+        
+        print(f"[PDF] Loaded icons: {[k for k, v in icons.items() if v is not None]}", file=sys.stderr)
+
+        # Renderuj template z ikonami
+        html_out = render_template("quotes/templates/offer_pdf.html", 
+                                 quote=quote, 
+                                 icons=icons)
+        
+        print(f"[PDF] HTML rendered, length: {len(html_out)}", file=sys.stderr)
+        
+        # Utwórz HTML object z base_url dla względnych ścieżek
+        html = HTML(string=html_out, base_url=request.url_root)
         out = BytesIO()
 
         if format == "pdf":
@@ -269,10 +316,12 @@ def generate_quote_pdf(quote_id, format):
             "Content-Type": content_type,
             "Content-Disposition": f"inline; filename=\"{filename}\""
         })
+
     except Exception as e:
         print(f"[generate_quote_pdf] Blad renderowania PDF: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return {"error": "Render error"}, 500
-
 
 @quotes_bp.route("/api/quotes/<int:quote_id>/send_email", methods=["POST"])
 @login_required
