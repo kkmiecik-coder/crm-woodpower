@@ -1227,7 +1227,7 @@ function loadLatestQuotes() {
                     <div class="quote-actions">
                         <button class="go-ahead" data-id="${q.id}">Przejdź</button>
                         <button class="quotes-btn-download" data-id="${q.id}">
-                            <i class="fa fa-download"></i> Pobierz
+                            Pobierz
                         </button>
                     </div>
                 </div>
@@ -1235,50 +1235,21 @@ function loadLatestQuotes() {
 
             container.innerHTML = html;
             console.log("[loadLatestQuotes] Wyrenderowano HTML z ostatnimi wycenami");
-            
-            /// NOWA FUNKCJONALNOŚĆ: Obsługa przycisku "Przejdź"
-            container.querySelectorAll('.go-ahead').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const id = btn.dataset.id;
-                    console.log(`[go-ahead] Klik na przycisk przejdź – ID: ${id}`);
-                    
-                    // DODAJ DEBUGGING URL
-                    const targetUrl = `/quotes?open_quote=${id}`;
-                    console.log(`[go-ahead] Generowany URL:`, targetUrl);
-                    console.log(`[go-ahead] Aktualny URL:`, window.location.href);
-                    
-                    // Przekieruj do quotes z parametrem aby otworzyć modal
-                    window.location.href = targetUrl;
-                });
-            });
 
-            // NOWA FUNKCJONALNOŚĆ: Obsługa przycisku "Przejdź"
+            // TYLKO obsługa przycisku "Przejdź" - pobieranie jest obsługiwane przez initCalculatorDownloadModal()
             container.querySelectorAll('.go-ahead').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const id = btn.dataset.id;
                     console.log(`[go-ahead] Klik na przycisk przejdź – ID: ${id}`);
-                    
+
                     // BACKUP: Zapisz ID do sessionStorage
                     sessionStorage.setItem('openQuoteId', id);
                     console.log(`[go-ahead] Zapisano do sessionStorage: openQuoteId=${id}`);
-                    
+
                     // Przekieruj do quotes z parametrem aby otworzyć modal
                     const targetUrl = `/quotes?open_quote=${id}`;
                     console.log(`[go-ahead] Przekierowanie do:`, targetUrl);
                     window.location.href = targetUrl;
-                });
-            });
-
-            container.querySelectorAll('.quotes-btn-download').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const id = btn.dataset.id;
-                    console.log(`[quotes-btn-download] Klik na przycisk pobierz – ID: ${id}`);
-                    const modal = document.getElementById("download-modal");
-                    const iframe = document.getElementById("quotePreview");
-                    if (modal && iframe) {
-                        iframe.src = `/quotes/api/quotes/${id}/pdf.pdf`;
-                        modal.style.display = 'flex';
-                    }
                 });
             });
         })
@@ -1640,6 +1611,7 @@ function init() {
     attachCalculateDeliveryListener();
     attachDeliveryModalConfirm();
     loadLatestQuotes();
+    initCalculatorDownloadModal();
     attachDownloadModalClose();
     attachDownloadFormatButtons();
     attachLengthValidation();
@@ -1652,6 +1624,329 @@ function init() {
         attachFormListeners(form);
         calculateFinishingCost(form);
     });
+}
+
+function initCalculatorDownloadModal() {
+    // Spróbuj znaleźć modal z różnymi możliwymi ID
+    const modal = document.getElementById("download-modal") ||
+        document.getElementById("downloadModal") ||
+        document.querySelector(".download-modal");
+
+    // Spróbuj znaleźć różne możliwe elementy
+    const closeBtn = document.getElementById("closeDownloadModal") ||
+        document.getElementById("close-download-modal") ||
+        document.querySelector(".close-download-modal") ||
+        modal?.querySelector(".close-modal");
+
+    const iframe = document.getElementById("quotePreview") ||
+        document.getElementById("quote-preview") ||
+        modal?.querySelector("iframe");
+
+    const downloadPDF = document.getElementById("downloadPDF") ||
+        document.getElementById("pdf-btn") ||
+        modal?.querySelector(".download-pdf");
+
+    const downloadPNG = document.getElementById("downloadPNG") ||
+        document.getElementById("png-btn") ||
+        modal?.querySelector(".download-png");
+
+    console.log("[initCalculatorDownloadModal] Znalezione elementy:", {
+        modal: !!modal,
+        closeBtn: !!closeBtn,
+        iframe: !!iframe,
+        downloadPDF: !!downloadPDF,
+        downloadPNG: !!downloadPNG
+    });
+
+    if (!modal) {
+        console.warn("[initCalculatorDownloadModal] Nie znaleziono modala pobierania");
+        return;
+    }
+
+    if (!iframe) {
+        console.warn("[initCalculatorDownloadModal] Nie znaleziono iframe w modalu");
+        return;
+    }
+
+    // NOWA WERSJA - bez nieskończonej pętli
+    let currentQuoteId = null;
+    let loadingTimeout = null;
+    let isLoadingPdf = false;
+
+    // Event listener dla przycisków pobierz w ostatnich wycenach
+    document.addEventListener("click", (e) => {
+        const downloadBtn = e.target.closest(".quotes-btn-download");
+        if (downloadBtn) {
+            e.preventDefault();
+            const quoteId = downloadBtn.dataset.id;
+            console.log(`[Calculator DownloadModal] Klik dla ID: ${quoteId}`);
+
+            if (!quoteId) {
+                console.warn("❗️Brak quoteId – dataset.id undefined!");
+                return;
+            }
+
+            // Ustaw nowy quote ID
+            currentQuoteId = quoteId;
+            isLoadingPdf = true;
+
+            // Przygotuj URL PDF
+            const pdfUrl = `/quotes/api/quotes/${quoteId}/pdf.pdf`;
+            console.log(`[Calculator DownloadModal] Ustawianie URL PDF: ${pdfUrl}`);
+
+            // DEBUGOWANIE iframe
+            console.log(`[Calculator DownloadModal] iframe attributes:`, {
+                id: iframe.id,
+                src: iframe.src,
+                width: iframe.width,
+                height: iframe.height,
+                sandbox: iframe.sandbox.toString(),
+                loading: iframe.loading,
+                name: iframe.name
+            });
+
+            // Wyczyść poprzednie timeouty
+            if (loadingTimeout) {
+                clearTimeout(loadingTimeout);
+            }
+
+            // Dodaj loading indicator
+            iframe.style.background = "linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%)";
+            iframe.style.backgroundSize = "20px 20px";
+            iframe.style.backgroundPosition = "0 0, 0 10px, 10px -10px, -10px 0px";
+            iframe.style.animation = "loading 1s linear infinite";
+
+            // Ustaw URL PDF w iframe
+            iframe.src = pdfUrl;
+            console.log(`[Calculator DownloadModal] iframe.src ustawiony na: ${iframe.src}`);
+
+            // DODAJ obserwatora zmian iframe.src
+            const srcObserver = setInterval(() => {
+                if (isLoadingPdf && currentQuoteId) {
+                    const currentSrc = iframe.src;
+                    if (currentSrc && !currentSrc.includes('/pdf.pdf') && !currentSrc.includes('about:blank')) {
+                        console.log(`[Calculator DownloadModal] WYKRYTO RESET iframe.src z ${currentSrc} - przywracam PDF`);
+                        iframe.src = pdfUrl;
+                    }
+                } else {
+                    clearInterval(srcObserver);
+                }
+            }, 500);
+
+            // Wyczyść obserwatora po 15 sekundach
+            setTimeout(() => {
+                clearInterval(srcObserver);
+            }, 15000);
+
+            // Backup timeout na ukrycie loadingu (jeśli load event nie zadziała)
+            loadingTimeout = setTimeout(() => {
+                console.log(`[Calculator DownloadModal] Backup timeout - ukrywam loading po 10 sekundach`);
+                iframe.style.background = "none";
+                iframe.style.animation = "none";
+                isLoadingPdf = false;
+            }, 10000); // Zwiększono do 10 sekund
+
+            // Ustaw ID dla przycisków pobierania
+            if (downloadPDF) downloadPDF.dataset.id = quoteId;
+            if (downloadPNG) downloadPNG.dataset.id = quoteId;
+
+            // Pokaż modal
+            modal.style.display = "flex";
+            modal.classList.add("active");
+
+            console.log(`[Calculator DownloadModal] Modal powinien być widoczny - display: ${modal.style.display}`);
+        }
+    });
+
+    // Funkcja czyszczenia modala
+    function cleanupModal() {
+        if (loadingTimeout) {
+            clearTimeout(loadingTimeout);
+            loadingTimeout = null;
+        }
+        iframe.src = "";
+        iframe.style.background = "none";
+        iframe.style.animation = "none";
+        currentQuoteId = null;
+        isLoadingPdf = false;
+
+        // Usuń fallback jeśli istnieje
+        const fallback = modal.querySelector('.iframe-fallback');
+        if (fallback) {
+            fallback.remove();
+        }
+    }
+
+    // Zamykanie modala
+    if (closeBtn) {
+        closeBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            modal.style.display = "none";
+            modal.classList.remove("active");
+            cleanupModal();
+            console.log(`[Calculator DownloadModal] Modal zamknięty`);
+        });
+    }
+
+    // Pobieranie PDF
+    if (downloadPDF) {
+        downloadPDF.addEventListener("click", (e) => {
+            e.preventDefault();
+            const quoteId = downloadPDF.dataset.id || currentQuoteId;
+            if (quoteId) {
+                console.log(`[Calculator DownloadModal] Pobieranie PDF dla ID: ${quoteId}`);
+                const pdfUrl = `/quotes/api/quotes/${quoteId}/pdf.pdf`;
+                window.open(pdfUrl, "_blank");
+            }
+        });
+    }
+
+    // Pobieranie PNG
+    if (downloadPNG) {
+        downloadPNG.addEventListener("click", (e) => {
+            e.preventDefault();
+            const quoteId = downloadPNG.dataset.id || currentQuoteId;
+            if (quoteId) {
+                console.log(`[Calculator DownloadModal] Pobieranie PNG dla ID: ${quoteId}`);
+                const pngUrl = `/quotes/api/quotes/${quoteId}/pdf.png`;
+                window.open(pngUrl, "_blank");
+            }
+        });
+    }
+
+    // Zamykanie przez kliknięcie tła
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            modal.style.display = "none";
+            modal.classList.remove("active");
+            cleanupModal();
+            console.log(`[Calculator DownloadModal] Modal zamknięty przez kliknięcie tła`);
+        }
+    });
+
+    // POPRAWIONA detekcja ładowania - z ochroną przed resetowaniem
+    iframe.addEventListener('load', function handleIframeLoad() {
+        console.log(`[Calculator DownloadModal] iframe load event triggered`);
+        console.log(`[Calculator DownloadModal] iframe.src: ${iframe.src}`);
+        console.log(`[Calculator DownloadModal] isLoadingPdf: ${isLoadingPdf}`);
+
+        // Sprawdź czy to nasze PDF i czy aktualnie ładujemy
+        if (isLoadingPdf && iframe.src.includes('/pdf.pdf') && currentQuoteId) {
+            console.log(`[Calculator DownloadModal] PDF załadowany pomyślnie dla ID: ${currentQuoteId}`);
+            iframe.style.background = "none";
+            iframe.style.animation = "none";
+            isLoadingPdf = false;
+
+            if (loadingTimeout) {
+                clearTimeout(loadingTimeout);
+                loadingTimeout = null;
+            }
+        } else if (isLoadingPdf && (iframe.src === window.location.href || iframe.src.includes('/calculator/'))) {
+            // Jeśli iframe zostało zresetowane, przywróć PDF URL
+            console.log(`[Calculator DownloadModal] iframe zostało zresetowane, przywracam PDF URL`);
+            const pdfUrl = `/quotes/api/quotes/${currentQuoteId}/pdf.pdf`;
+            console.log(`[Calculator DownloadModal] Przywracam URL: ${pdfUrl}`);
+
+            // Dodaj krótkie opóźnienie aby uniknąć natychmiastowego ponownego resetu
+            setTimeout(() => {
+                if (isLoadingPdf && currentQuoteId) {
+                    iframe.src = pdfUrl;
+                    console.log(`[Calculator DownloadModal] URL przywrócony: ${iframe.src}`);
+                }
+            }, 100);
+        }
+    });
+
+    console.log("[initCalculatorDownloadModal] Modal pobierania zainicjalizowany");
+}
+
+/**
+ * Funkcja pomocnicza - sprawdza czy iframe się załadował
+ */
+function checkIframeLoading(iframe, pdfUrl) {
+    try {
+        // Sprawdź czy iframe wydaje się pusty
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+
+        if (!iframeDoc || iframeDoc.body.children.length === 0 ||
+            iframeDoc.body.innerHTML.trim() === '' ||
+            iframeDoc.documentElement.innerHTML.includes('error') ||
+            iframeDoc.documentElement.innerHTML.includes('404')) {
+
+            console.log(`[Calculator DownloadModal] iframe wydaje się pusty lub z błędem, pokazuję fallback`);
+            showIframeFallback(iframe, pdfUrl);
+        } else {
+            console.log(`[Calculator DownloadModal] iframe wydaje się załadowany poprawnie`);
+        }
+    } catch (e) {
+        console.log(`[Calculator DownloadModal] Nie można sprawdzić zawartości iframe (CORS), assumuje że działa:`, e);
+        // W przypadku CORS nie możemy sprawdzić zawartości, więc zakładamy że działa
+    }
+}
+
+/**
+ * Funkcja pomocnicza - pokazuje fallback gdy iframe nie działa
+ */
+function showIframeFallback(iframe, pdfUrl) {
+    console.log(`[Calculator DownloadModal] Pokazuję fallback dla PDF`);
+
+    // Usuń poprzedni fallback jeśli istnieje
+    const existingFallback = iframe.parentNode.querySelector('.iframe-fallback');
+    if (existingFallback) {
+        existingFallback.remove();
+    }
+
+    // Ukryj iframe
+    iframe.style.display = 'none';
+
+    // Utwórz fallback
+    const fallbackDiv = document.createElement('div');
+    fallbackDiv.className = 'iframe-fallback';
+    fallbackDiv.style.cssText = `
+        text-align: center; 
+        padding: 50px; 
+        background: #f9f9f9; 
+        border: 2px dashed #ccc; 
+        border-radius: 8px;
+        height: 700px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    `;
+
+    fallbackDiv.innerHTML = `
+        <div style="max-width: 400px;">
+            <svg style="width: 64px; height: 64px; margin-bottom: 20px; fill: #ED6B24;" viewBox="0 0 24 24">
+                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+            </svg>
+            <h3 style="color: #333; margin-bottom: 15px;">Podgląd wyceny PDF</h3>
+            <p style="color: #666; margin-bottom: 25px; line-height: 1.4;">
+                Nie można wyświetlić podglądu PDF w przeglądarce.<br>
+                Kliknij poniżej aby otworzyć plik w nowej karcie.
+            </p>
+            <a href="${pdfUrl}" target="_blank" style="
+                background: #ED6B24; 
+                color: white; 
+                padding: 12px 24px; 
+                text-decoration: none; 
+                border-radius: 6px;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-weight: 500;
+                transition: background 0.2s;
+            " onmouseover="this.style.background='#d85d20'" onmouseout="this.style.background='#ED6B24'">
+                <svg style="width: 16px; height: 16px; fill: currentColor;" viewBox="0 0 24 24">
+                    <path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/>
+                </svg>
+                Otwórz PDF w nowej karcie
+            </a>
+        </div>
+    `;
+
+    // Wstaw fallback po iframe
+    iframe.parentNode.insertBefore(fallbackDiv, iframe.nextSibling);
 }
 
 document.addEventListener('DOMContentLoaded', init);

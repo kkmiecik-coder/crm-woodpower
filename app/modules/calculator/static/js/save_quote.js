@@ -331,13 +331,9 @@ document.addEventListener('DOMContentLoaded', function () {
                         }
                         
                         // NOWA FUNKCJONALNOŚĆ: Przycisk "Przejdź do wyceny"
-                        const goToQuoteBtn = document.getElementById('confirmSaveQuote');
+                        const goToQuoteBtn = document.getElementById('goToQuoteBtn');
                         if (goToQuoteBtn && data.quote_id) {
-                            // Usuń wszystkie poprzednie event listenery
-                            const newGoToQuoteBtn = goToQuoteBtn.cloneNode(true);
-                            goToQuoteBtn.parentNode.replaceChild(newGoToQuoteBtn, goToQuoteBtn);
-                            
-                            newGoToQuoteBtn.onclick = () => {
+                            goToQuoteBtn.onclick = () => {
                                 console.log(`[save_quote] Przekierowanie do wyceny ID: ${data.quote_id}`);
                                 // Przekieruj do quotes z parametrem aby otworzyć modal
                                 window.location.href = `/quotes?open_quote=${data.quote_id}`;

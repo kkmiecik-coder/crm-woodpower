@@ -333,9 +333,20 @@
         background-color: #BD4D0F;
     }
 
-    .quotes-btn-download:hover {
-        background-color: #BD4D0F;
-    }
+.quotes-btn-download::after {
+    content: "";
+    display: inline-block;
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    background-image: url('/static/icons/download.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
 
 /* [products-main] */
 .products-main {
@@ -2010,4 +2021,44 @@ select.select-small option {
     color: #666;
     font-size: 13px;
     font-style: italic;
+}
+
+#goToQuoteBtn {
+    display: flex;
+    padding: 4px 12px;
+    justify-content: center;
+    align-items: center;
+    border-radius: 24px;
+    color: #fff;
+    cursor: pointer;
+    font-family: Poppins, sans-serif;
+    position: relative;
+    transition: all 0.1s ease;
+    background-color: #ed6b24;
+    border: none;
+}
+
+    #goToQuoteBtn:hover {
+        background-color: #BD4D0F;
+    }
+
+.clients-modal-overlay.active {
+    display: flex !important;
+}
+
+/* Animacja loading dla iframe */
+@keyframes loading {
+    0% {
+        background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    }
+
+    100% {
+        background-position: 20px 20px, 20px 30px, 30px 10px, 10px 20px;
+    }
+}
+
+/* Style dla fallback */
+.iframe-fallback a:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(237, 107, 36, 0.3);
 }

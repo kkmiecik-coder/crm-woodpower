@@ -224,8 +224,30 @@ def generate_quote_pdf(quote_id, format):
 
     print(f"[generate_quote_pdf] Quote found: {quote.quote_number}", file=sys.stderr)
 
+    # DODANE: Załaduj wszystkie potrzebne dane
     quote.client = Client.query.get(quote.client_id) if quote.client_id else None
     quote.user = User.query.get(quote.user_id)
+    quote.quote_status = QuoteStatus.query.get(quote.status_id) if quote.status_id else None
+    
+    # DODANE: Oblicz koszty z VAT (jak w get_quote_details)
+    cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
+    cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+    cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+    
+    quote.costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
+    
+    # DODANE: Załaduj dane wykończenia
+    quote.finishing = [
+        {
+            "product_index": detail.product_index,
+            "finishing_type": detail.finishing_type,
+            "finishing_variant": detail.finishing_variant,
+            "finishing_color": detail.finishing_color,
+            "finishing_gloss_level": detail.finishing_gloss_level,
+            "finishing_price_netto": detail.finishing_price_netto,
+            "finishing_price_brutto": detail.finishing_price_brutto
+        } for detail in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+    ]
 
     try:
         html_out = render_template("quotes/templates/offer_pdf.html", quote=quote)
@@ -240,7 +262,7 @@ def generate_quote_pdf(quote_id, format):
             content_type = "image/png"
 
         out.seek(0)
-        filename = f"Wycena_{quote.quote_number}.{format}"
+        filename = f"Oferta_{quote.quote_number}.{format}"
         print(f"[generate_quote_pdf] Zwracamy plik: {filename}", file=sys.stderr)
 
         return make_response(out.read(), 200, {
