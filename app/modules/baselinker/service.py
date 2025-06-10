@@ -1,4 +1,4 @@
-# app/modules/baselinker/service.py - KOMPLETNY Z NOWYM SKU
+# app/modules/baselinker/service.py - POPRAWIONA WERSJA BEZ DUPLIKATU
 
 import requests
 import json
@@ -297,7 +297,7 @@ class BaselinkerService:
             }
     
     def _prepare_order_data(self, quote, config: Dict) -> Dict:
-        """Przygotowuje dane zamówienia dla API Baselinker - z wliczeniem wykończenia do ceny produktu"""
+        """Przygotowuje dane zamówienia dla API Baselinker"""
         import time
         from modules.calculator.models import QuoteItemDetails
 
@@ -307,18 +307,18 @@ class BaselinkerService:
         # Przygotuj produkty
         products = []
         for i, item in enumerate(selected_items):
-            # Pobierz szczegóły wykończenia dla tego produktu
+            # Pobierz szczegóły wykończenia
             finishing_details = QuoteItemDetails.query.filter_by(
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
-        
-            # NOWE: Generuj SKU według schematu
+            
+            # Generuj SKU według schematu
             sku = self._generate_sku(item, finishing_details)
-        
-            # Nazwa produktu z wymiarami (bez zmian)
+            
+            # Nazwa produktu z wymiarami
             base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
-    
+        
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
                     finishing_details.finishing_variant,
@@ -333,23 +333,6 @@ class BaselinkerService:
                     product_name = f"{base_name} surowe"
             else:
                 product_name = f"{base_name} surowe"
-    
-            # POPRAWKA: Wlicz koszty wykończenia do ceny produktu
-            base_price_netto = float(item.final_price_netto or 0)
-            base_price_brutto = float(item.final_price_brutto or 0)
-        
-            # Dodaj koszt wykończenia jeśli istnieje
-            finishing_cost_netto = 0
-            finishing_cost_brutto = 0
-            if finishing_details:
-                finishing_cost_netto = float(finishing_details.finishing_price_netto or 0)
-                finishing_cost_brutto = float(finishing_details.finishing_price_brutto or 0)
-        
-            # Ostateczne ceny z wykończeniem
-            final_price_netto = base_price_netto + finishing_cost_netto
-            final_price_brutto = base_price_brutto + finishing_cost_brutto
-        
-            print(f"[BaselinkerService] Produkt {i+1}: bazowa cena netto={base_price_netto}, wykończenie netto={finishing_cost_netto}, finalna netto={final_price_netto}", file=sys.stderr)
         
             products.append({
                 'storage': 'db',
@@ -362,16 +345,16 @@ class BaselinkerService:
                 'location': '',
                 'warehouse_id': 0,
                 'attributes': '',
-                'price_brutto': final_price_brutto,  # POPRAWKA: cena z wykończeniem
-                'price_netto': final_price_netto,    # POPRAWKA: cena z wykończeniem
+                'price_brutto': float(item.final_price_brutto or 0),
+                'price_netto': float(item.final_price_netto or 0),
                 'tax_rate': 23,
                 'quantity': 1,
                 'weight': self._calculate_item_weight(item)
             })
-
-        # Dane klienta (bez zmian)
+    
+        # Dane klienta
         client = quote.client
-
+    
         order_data = {
             'custom_source_id': config.get('order_source_id', 1),
             'order_status_id': config.get('order_status_id', 1),
@@ -401,7 +384,7 @@ class BaselinkerService:
             'invoice_fullname': client.invoice_name or client.client_name or '',
             'invoice_company': client.invoice_company or '',
             'invoice_nip': client.invoice_nip or '',
-            'invoice_address': client.invoke_address or client.delivery_address or '',
+            'invoice_address': client.invoice_address or client.delivery_address or '',
             'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
             'invoice_country_code': config.get('delivery_country', 'PL'),
@@ -414,71 +397,66 @@ class BaselinkerService:
         print(f"[BaselinkerService] Przygotowane dane zamowienia: {json.dumps(order_data, ensure_ascii=False, indent=2)}", file=sys.stderr)
         return order_data
     
-    def _generate_sku(self, item, quote) -> str:
-        """Generuje nowy SKU w formacie BLADEBLIT3501004ABSUR"""
+    def _generate_sku(self, item, finishing_details=None):
+        """Generuje SKU w formacie BLADEBLIT3501004ABSUR"""
         try:
-            # Pobierz szczegóły wykończenia
-            from modules.calculator.models import QuoteItemDetails
-            finishing_details = QuoteItemDetails.query.filter_by(
-                quote_id=quote.id, 
-                product_index=item.product_index
-            ).first()
+            # Parsuj kod wariantu (np. "dab-lity-ab")
+            variant_parts = item.variant_code.lower().split('-') if item.variant_code else []
             
             # 1. Typ produktu (zawsze BLA dla blat)
             product_type = "BLA"
             
-            # 2. Gatunek drewna z variant_code (dab/jes/buk)
-            variant_parts = item.variant_code.lower().split('-') if item.variant_code else ['unknown']
+            # 2. Gatunek drewna (pierwsze 3 litery)
             species_map = {
                 'dab': 'DEB',
                 'jes': 'JES', 
-                'buk': 'BUK'
+                'buk': 'BUK',
+                'brzoza': 'BRZ',
+                'sosna': 'SOS'
             }
-            species = species_map.get(variant_parts[0], 'UNK')
+            species = species_map.get(variant_parts[0] if len(variant_parts) > 0 else '', 'XXX')
             
-            # 3. Technologia (lity/micro)
+            # 3. Technologia (pierwsze 3 litery)
             tech_map = {
                 'lity': 'LIT',
-                'micro': 'MIC'
+                'micro': 'MIC',
+                'finger': 'FIN'
             }
-            technology = tech_map.get(variant_parts[1] if len(variant_parts) > 1 else '', 'UNK')
+            technology = tech_map.get(variant_parts[1] if len(variant_parts) > 1 else '', 'XXX')
             
-            # 4. Wymiary (długość, szerokość, grubość)
-            length = str(int(float(item.length_cm) if item.length_cm else 0)).zfill(3)
-            width = str(int(float(item.width_cm) if item.width_cm else 0)).zfill(3)
-            thickness = str(int(float(item.thickness_cm) if item.thickness_cm else 0))
+            # 4. Wymiary (bez zer wiodących, ale minimum 3 cyfry dla długości)
+            length = str(int(item.length_cm or 0)).zfill(3) if item.length_cm else "000"
+            width = str(int(item.width_cm or 0)) if item.width_cm else "0"  
+            thickness = str(int(item.thickness_cm or 0)) if item.thickness_cm else "0"
             
-            # 5. Klasa (AB/BB)
-            class_map = {
-                'ab': 'AB',
-                'bb': 'BB'
-            }
-            wood_class = class_map.get(variant_parts[2] if len(variant_parts) > 2 else '', 'AB')
+            # 5. Klasa drewna
+            wood_class = variant_parts[2].upper() if len(variant_parts) > 2 else "XX"
             
             # 6. Wykończenie
+            finishing = "SUR"  # Domyślnie surowe
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
-                # Mapowanie typów wykończenia na 3-literowe kody
+                # Mapowanie wykończeń na 3-literowe kody
                 finishing_map = {
                     'lakier': 'LAK',
                     'olej': 'OLE', 
                     'wosk': 'WOS',
                     'bejca': 'BEJ',
-                    'surowe': 'SUR'
+                    'lazura': 'LAZ'
                 }
-                finishing_type = finishing_details.finishing_type.lower()
-                finishing_code = 'SUR'  # domyślnie surowe
                 
-                for key, code in finishing_map.items():
+                finishing_type = finishing_details.finishing_type.lower()
+                for key, value in finishing_map.items():
                     if key in finishing_type:
-                        finishing_code = code
+                        finishing = value
                         break
-            else:
-                finishing_code = 'SUR'
             
             # Składamy SKU
-            sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing_code}"
+            sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}"
             
-            print(f"[BaselinkerService] Wygenerowano SKU: {sku} dla item {item.id}", file=sys.stderr)
+            print(f"[_generate_sku] Wygenerowano SKU: {sku} dla wariantu: {item.variant_code}", file=sys.stderr)
+            print(f"  - Produkt: {product_type}, Gatunek: {species}, Tech: {technology}", file=sys.stderr)
+            print(f"  - Wymiary: {length}x{width}x{thickness}, Klasa: {wood_class}, Wykończenie: {finishing}", file=sys.stderr)
+            
             return sku
             
         except Exception as e:
@@ -505,63 +483,3 @@ class BaselinkerService:
         if item.volume_m3:
             return round(item.volume_m3 * 800, 2)
         return 0.0
-    
-    def _generate_sku(self, item, finishing_details=None):
-        # Parsuj kod wariantu (np. "dab-lity-ab")
-        variant_parts = item.variant_code.lower().split('-') if item.variant_code else []
-        
-        # 1. Typ produktu (zawsze BLA dla blat)
-        product_type = "BLA"
-        
-        # 2. Gatunek drewna (pierwsze 3 litery)
-        species_map = {
-            'dab': 'DEB',
-            'jes': 'JES', 
-            'buk': 'BUK',
-            'brzoza': 'BRZ',
-            'sosna': 'SOS'
-        }
-        species = species_map.get(variant_parts[0] if len(variant_parts) > 0 else '', 'XXX')
-        
-        # 3. Technologia (pierwsze 3 litery)
-        tech_map = {
-            'lity': 'LIT',
-            'micro': 'MIC',
-            'finger': 'FIN'
-        }
-        technology = tech_map.get(variant_parts[1] if len(variant_parts) > 1 else '', 'XXX')
-        
-        # 4. Wymiary (bez zer wiodących, ale minimum 3 cyfry dla długości)
-        length = str(int(item.length_cm or 0)).zfill(3) if item.length_cm else "000"
-        width = str(int(item.width_cm or 0)) if item.width_cm else "0"  
-        thickness = str(int(item.thickness_cm or 0)) if item.thickness_cm else "0"
-        
-        # 5. Klasa drewna
-        wood_class = variant_parts[2].upper() if len(variant_parts) > 2 else "XX"
-        
-        # 6. Wykończenie
-        finishing = "SUR"  # Domyślnie surowe
-        if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
-            # Mapowanie wykończeń na 3-literowe kody
-            finishing_map = {
-                'lakier': 'LAK',
-                'olej': 'OLE', 
-                'wosk': 'WOS',
-                'bejca': 'BEJ',
-                'lazura': 'LAZ'
-            }
-            
-            finishing_type = finishing_details.finishing_type.lower()
-            for key, value in finishing_map.items():
-                if key in finishing_type:
-                    finishing = value
-                    break
-        
-        # Składamy SKU
-        sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}"
-        
-        print(f"[_generate_sku] Wygenerowano SKU: {sku} dla wariantu: {item.variant_code}", file=sys.stderr)
-        print(f"  - Produkt: {product_type}, Gatunek: {species}, Tech: {technology}", file=sys.stderr)
-        print(f"  - Wymiary: {length}x{width}x{thickness}, Klasa: {wood_class}, Wykończenie: {finishing}", file=sys.stderr)
-        
-        return sku

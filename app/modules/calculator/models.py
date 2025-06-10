@@ -109,6 +109,35 @@ class Quote(db.Model):
         """Zwraca łączną kwotę rabatu brutto"""
         return self.get_total_original_price_brutto() - self.get_total_current_price_brutto()
 
+    def is_eligible_for_order(self):
+        """
+        Sprawdza czy wycena może być złożona jako zamówienie w Baselinker
+    
+        Returns:
+            bool: True jeśli wycena może zostać złożona jako zamówienie
+        """
+        # Wycena musi być zaakceptowana przez klienta (status ID 3 = "Zaakceptowane")
+        if self.status_id != 3:
+            return False
+    
+        # Wycena nie może mieć już złożonego zamówienia
+        if self.base_linker_order_id:
+            return False
+    
+        # Wycena musi mieć co najmniej jeden wybrany element
+        selected_items = [item for item in self.items if item.is_selected]
+        if not selected_items:
+            return False
+    
+        # Wycena musi mieć klienta z podstawowymi danymi
+        if not self.client:
+            return False
+    
+        if not self.client.email and not self.client.phone:
+            return False
+    
+        return True
+
     def apply_total_discount(self, discount_percentage, reason_id=None):
         """Zastosowuje rabat do wszystkich wariantów w wycenie"""
         # POPRAWKA: Użyj self.items zamiast query
