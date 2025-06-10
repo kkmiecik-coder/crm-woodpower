@@ -327,6 +327,7 @@ def save_quote():
         current_app.logger.exception("[save_quote] Blad podczas zapisu wyceny:")
         return jsonify({"error": str(e)}), 500
 
+
 @calculator_bp.route('/search_clients', methods=['GET'])
 def search_clients():
     term = request.args.get('q', '').strip()
@@ -344,12 +345,29 @@ def search_clients():
 
     result = []
     for c in matches:
-        name = c.client_name or c.client_number  # fallback na numer jeśli brak nazwy
+        # POPRAWKA: Priorityzuj client_number (imię i nazwisko) nad client_name
+        if c.client_number and c.client_number.strip():
+            # Jeśli client_number istnieje, użyj go jako głównej nazwy
+            display_name = c.client_number.strip()
+            
+            # Dodaj client_name w nawiasach jeśli istnieje i się różni
+            if (c.client_name and 
+                c.client_name.strip() and 
+                c.client_name.strip() != c.client_number.strip()):
+                display_name = f"{c.client_number.strip()} ({c.client_name.strip()})"
+                
+        elif c.client_name and c.client_name.strip():
+            # Fallback na client_name jeśli client_number jest puste
+            display_name = c.client_name.strip()
+        else:
+            # Ostatnia deska ratunku
+            display_name = f"Klient ID: {c.id}"
+        
         result.append({
             "id": c.id,
-            "name": name,
-            "email": c.email,
-            "phone": c.phone
+            "name": display_name,
+            "email": c.email or "",
+            "phone": c.phone or ""
         })
 
     return jsonify(result)

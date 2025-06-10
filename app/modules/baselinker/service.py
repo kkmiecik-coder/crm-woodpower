@@ -297,7 +297,7 @@ class BaselinkerService:
             }
     
     def _prepare_order_data(self, quote, config: Dict) -> Dict:
-        """Przygotowuje dane zamówienia dla API Baselinker"""
+        """Przygotowuje dane zamówienia dla API Baselinker - z wliczeniem wykończenia do ceny produktu"""
         import time
         from modules.calculator.models import QuoteItemDetails
 
@@ -307,18 +307,18 @@ class BaselinkerService:
         # Przygotuj produkty
         products = []
         for i, item in enumerate(selected_items):
-            # Pobierz szczegóły wykończenia
+            # Pobierz szczegóły wykończenia dla tego produktu
             finishing_details = QuoteItemDetails.query.filter_by(
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
-            
+        
             # NOWE: Generuj SKU według schematu
             sku = self._generate_sku(item, finishing_details)
-            
+        
             # Nazwa produktu z wymiarami (bez zmian)
             base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
-        
+    
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
                     finishing_details.finishing_variant,
@@ -333,28 +333,45 @@ class BaselinkerService:
                     product_name = f"{base_name} surowe"
             else:
                 product_name = f"{base_name} surowe"
+    
+            # POPRAWKA: Wlicz koszty wykończenia do ceny produktu
+            base_price_netto = float(item.final_price_netto or 0)
+            base_price_brutto = float(item.final_price_brutto or 0)
+        
+            # Dodaj koszt wykończenia jeśli istnieje
+            finishing_cost_netto = 0
+            finishing_cost_brutto = 0
+            if finishing_details:
+                finishing_cost_netto = float(finishing_details.finishing_price_netto or 0)
+                finishing_cost_brutto = float(finishing_details.finishing_price_brutto or 0)
+        
+            # Ostateczne ceny z wykończeniem
+            final_price_netto = base_price_netto + finishing_cost_netto
+            final_price_brutto = base_price_brutto + finishing_cost_brutto
+        
+            print(f"[BaselinkerService] Produkt {i+1}: bazowa cena netto={base_price_netto}, wykończenie netto={finishing_cost_netto}, finalna netto={final_price_netto}", file=sys.stderr)
         
             products.append({
                 'storage': 'db',
                 'storage_id': 0,
-                'product_id': '',  # USUNIĘTE: pozostaw puste
+                'product_id': '',
                 'variant_id': 0,
                 'name': product_name,
-                'sku': sku,  # NOWE: użyj wygenerowanego SKU
+                'sku': sku,
                 'ean': '',
                 'location': '',
                 'warehouse_id': 0,
                 'attributes': '',
-                'price_brutto': float(item.final_price_brutto or 0),
-                'price_netto': float(item.final_price_netto or 0),
+                'price_brutto': final_price_brutto,  # POPRAWKA: cena z wykończeniem
+                'price_netto': final_price_netto,    # POPRAWKA: cena z wykończeniem
                 'tax_rate': 23,
                 'quantity': 1,
                 'weight': self._calculate_item_weight(item)
             })
-    
-        # Dane klienta
+
+        # Dane klienta (bez zmian)
         client = quote.client
-    
+
         order_data = {
             'custom_source_id': config.get('order_source_id', 1),
             'order_status_id': config.get('order_status_id', 1),
@@ -375,7 +392,7 @@ class BaselinkerService:
             'delivery_address': client.delivery_address or '',
             'delivery_postcode': client.delivery_zip or '',
             'delivery_city': client.delivery_city or '',
-            'delivery_country_code': config.get('delivery_country', 'PL'),  # NOWE: z konfiguracji
+            'delivery_country_code': config.get('delivery_country', 'PL'),
             'delivery_point_id': '',
             'delivery_point_name': '',
             'delivery_point_address': '',
@@ -384,10 +401,10 @@ class BaselinkerService:
             'invoice_fullname': client.invoice_name or client.client_name or '',
             'invoice_company': client.invoice_company or '',
             'invoice_nip': client.invoice_nip or '',
-            'invoice_address': client.invoice_address or client.delivery_address or '',
+            'invoice_address': client.invoke_address or client.delivery_address or '',
             'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
-            'invoice_country_code': config.get('delivery_country', 'PL'),  # NOWE: z konfiguracji
+            'invoice_country_code': config.get('delivery_country', 'PL'),
             'want_invoice': bool(client.invoice_nip),
             'extra_field_1': quote.quote_number,
             'extra_field_2': quote.source or '',

@@ -274,7 +274,7 @@
 
 .bl-style-products-header {
     display: grid;
-    grid-template-columns: 2fr 1fr 1.5fr 1fr;
+    grid-template-columns: 2fr 1fr 1fr;
     gap: 12px;
     padding: 12px 16px;
     background: #F5F5F5;
@@ -290,7 +290,7 @@
 
 .bl-style-product-item {
     display: grid;
-    grid-template-columns: 2fr 1fr 1.5fr 1fr;
+    grid-template-columns: 2fr 1fr 1fr;
     gap: 12px;
     padding: 12px 16px;
     border-bottom: 1px solid #F0F0F0;

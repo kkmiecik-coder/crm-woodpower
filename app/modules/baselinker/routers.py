@@ -21,7 +21,7 @@ def login_required(func):
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
 @login_required
 def get_order_modal_data(quote_id):
-    """Pobiera dane do wyświetlenia w modalu zamówienia"""
+    """Pobiera dane do wyświetlenia w modalu zamówienia - z wliczeniem wykończenia"""
     try:
         quote = Quote.query.get_or_404(quote_id)
         
@@ -43,19 +43,81 @@ def get_order_modal_data(quote_id):
             is_active=True
         ).all()
         
-        # Oblicz koszty
+        # POPRAWKA: Sortuj statusy według kolejności z routers.py
+        status_order = {
+            105112: 1,  # 'Nowe - nieopłacone'
+            155824: 2,  # 'Nowe - opłacone'
+            138619: 3,  # 'W produkcji - surowe'
+            148832: 4,  # 'W produkcji - olejowanie'
+            148831: 5,  # 'W produkcji - bejcowanie'
+            148830: 6,  # 'W produkcji - lakierowanie'
+            138620: 7,  # 'Produkcja zakończona'
+            138623: 8,  # 'Zamówienie spakowane'
+            105113: 9,  # 'Paczka zgłoszona do wysyłki'
+            105114: 10, # 'Wysłane - kurier'
+            149763: 11, # 'Wysłane - transport WoodPower'
+            149777: 12, # 'Czeka na odbiór osobisty'
+            138624: 13, # 'Dostarczona - kurier'
+            149778: 14, # 'Dostarczona - trans. WoodPower'
+            149779: 15, # 'Odebrane'
+            138625: 16  # 'Zamówienie anulowane'
+        }
+        
+        # Sortuj statusy według ustalonej kolejności
+        order_statuses.sort(key=lambda x: status_order.get(x.baselinker_id, 999))
+        
+        # Pobierz wybrane produkty z wykończeniem
         selected_items = [item for item in quote.items if item.is_selected]
-        cost_products_netto = sum(item.final_price_netto or 0 for item in selected_items)
-        cost_finishing_netto = sum(d.finishing_price_netto or 0 for d in quote.finishing_details)
+        
+        # POPRAWKA: Oblicz koszty z wykończeniem
+        products_with_finishing = []
+        total_products_netto = 0
+        total_products_brutto = 0
+        
+        for item in selected_items:
+            # Pobierz wykończenie dla tego produktu
+            finishing_details = QuoteItemDetails.query.filter_by(
+                quote_id=quote.id, 
+                product_index=item.product_index
+            ).first()
+            
+            # Bazowe ceny produktu
+            base_price_netto = item.final_price_netto or 0
+            base_price_brutto = item.final_price_brutto or 0
+            
+            # Dodaj koszt wykończenia
+            finishing_cost_netto = 0
+            finishing_cost_brutto = 0
+            if finishing_details:
+                finishing_cost_netto = finishing_details.finishing_price_netto or 0
+                finishing_cost_brutto = finishing_details.finishing_price_brutto or 0
+            
+            # Ostateczne ceny z wykończeniem
+            final_price_netto = base_price_netto + finishing_cost_netto
+            final_price_brutto = base_price_brutto + finishing_cost_brutto
+            
+            total_products_netto += final_price_netto
+            total_products_brutto += final_price_brutto
+            
+            products_with_finishing.append({
+                'id': item.id,
+                'name': _get_product_display_name(item, quote),
+                'variant_code': item.variant_code,
+                'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
+                'volume': item.volume_m3,
+                'price_netto': final_price_netto,  # POPRAWKA: cena z wykończeniem
+                'price_brutto': final_price_brutto, # POPRAWKA: cena z wykończeniem
+                'finishing': _get_finishing_details(item.product_index, quote)
+            })
+        
+        # Pozostałe koszty (bez wykończenia, bo jest już wliczone w produkty)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0
         
         # Oblicz z VAT
         VAT_RATE = 0.23
-        products_brutto = cost_products_netto * (1 + VAT_RATE)
-        finishing_brutto = cost_finishing_netto * (1 + VAT_RATE) 
         shipping_netto = cost_shipping_brutto / (1 + VAT_RATE)
-        total_brutto = products_brutto + finishing_brutto + cost_shipping_brutto
-        total_netto = cost_products_netto + cost_finishing_netto + shipping_netto
+        total_netto = total_products_netto + shipping_netto
+        total_brutto = total_products_brutto + cost_shipping_brutto
         
         return jsonify({
             'quote': {
@@ -82,24 +144,12 @@ def get_order_modal_data(quote_id):
                 'invoice_postcode': quote.client.invoice_zip if quote.client else None,
                 'invoice_city': quote.client.invoice_city if quote.client else None
             },
-            'products': [
-                {
-                    'id': item.id,
-                    'name': _get_product_display_name(item, quote),
-                    'variant_code': item.variant_code,
-                    'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
-                    'volume': item.volume_m3,
-                    'price_netto': item.final_price_netto,
-                    'price_brutto': item.final_price_brutto,
-                    'finishing': _get_finishing_details(item.product_index, quote)
-                }
-                for item in selected_items
-            ],
+            'products': products_with_finishing,  # POPRAWKA: produkty z wykończeniem
             'costs': {
-                'products_netto': round(cost_products_netto, 2),
-                'products_brutto': round(products_brutto, 2),
-                'finishing_netto': round(cost_finishing_netto, 2),
-                'finishing_brutto': round(finishing_brutto, 2),
+                'products_netto': round(total_products_netto, 2),    # POPRAWKA: z wykończeniem
+                'products_brutto': round(total_products_brutto, 2),  # POPRAWKA: z wykończeniem
+                'finishing_netto': 0.0,    # POPRAWKA: 0 bo wliczone w produkty
+                'finishing_brutto': 0.0,   # POPRAWKA: 0 bo wliczone w produkty
                 'shipping_netto': round(shipping_netto, 2),
                 'shipping_brutto': round(cost_shipping_brutto, 2),
                 'total_netto': round(total_netto, 2),
@@ -115,7 +165,7 @@ def get_order_modal_data(quote_id):
                     }
                     for source in order_sources
                 ],
-                'order_statuses': [
+                'order_statuses': [  # POPRAWKA: posortowane statusy
                     {
                         'id': status.baselinker_id,
                         'name': status.name, 

@@ -263,25 +263,22 @@ class BaselinkerModal {
         }
 
         container.innerHTML = products.map(product => `
-            <div class="bl-style-product-item">
-                <div class="bl-style-product-name">
-                    ${this.buildProductName(product)}
-                    <div class="bl-style-product-details">
-                        Objętość: ${product.volume ? product.volume.toFixed(3) : '0.000'} m³
-                    </div>
-                </div>
-                <div>${product.dimensions}</div>
-                <div class="bl-style-product-finishing">
-                    ${this.getFinishingDisplay(product.finishing)}
-                </div>
-                <div class="bl-style-product-price">
-                    <div class="bl-style-amount">
-                        <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
-                        <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
-                    </div>
+        <div class="bl-style-product-item">
+            <div class="bl-style-product-name">
+                ${this.buildProductName(product)}
+                <div class="bl-style-product-details">
+                    Waga: ${this.calculateProductWeight(product)} kg
                 </div>
             </div>
-        `).join('');
+            <div>${product.dimensions}</div>
+            <div class="bl-style-product-price">
+                <div class="bl-style-amount">
+                    <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
+                    <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
+                </div>
+            </div>
+        </div>
+    `).join('');
     }
 
     populateFinancialSummary() {
@@ -592,9 +589,15 @@ class BaselinkerModal {
         if (nextBtn) nextBtn.style.display = this.currentStep < this.totalSteps ? 'flex' : 'none';
         if (submitBtn) submitBtn.style.display = this.currentStep === this.totalSteps ? 'flex' : 'none';
 
-        // Walidacja kroku 2
+        // POPRAWKA: Reset walidacji przy powrocie do kroku 2
         if (this.currentStep === 2) {
-            this.validateConfiguration();
+            // Wyczyść poprzednie błędy walidacji
+            this.clearValidationErrors();
+
+            // Ponownie sprawdź walidację
+            setTimeout(() => {
+                this.validateConfiguration();
+            }, 100);
         }
 
         // Przygotuj podsumowanie w kroku 3
@@ -623,6 +626,13 @@ class BaselinkerModal {
                 nextBtn.style.cursor = 'not-allowed';
             }
         }
+
+        // NOWA POPRAWKA: Zawsze zwróć true jeśli jesteśmy w kroku 1 lub 3
+        if (this.currentStep === 1 || this.currentStep === 3) {
+            return true;
+        }
+
+        return isValid;
     }
 
     async submitOrder() {
@@ -896,6 +906,15 @@ class BaselinkerModal {
                 }
             }, 5000);
         }
+    }
+
+    // NOWA FUNKCJA: Oblicza wagę produktu
+    calculateProductWeight(product) {
+        // Waga produktu na podstawie objętości (gęstość drewna 800kg/m³)
+        if (product.volume) {
+            return (product.volume * 800).toFixed(2);
+        }
+        return '0.00';
     }
 
     // Utility methods

@@ -222,9 +222,8 @@ function showDetailsModal(quoteData) {
     }
 
     // POPRAWIONE dane klienta - właściwe mapowanie pól
-    document.getElementById('quotes-details-modal-client-number').textContent = quoteData.client?.client_number || '-';
     document.getElementById('quotes-details-modal-client-name').textContent = quoteData.client?.client_name || '-';
-    document.getElementById('quotes-details-modal-client-fullname').textContent = quoteData.client?.client_delivery_name || '-';
+    document.getElementById('quotes-details-modal-client-fullname').textContent = quoteData.client?.client_number || '-';
     document.getElementById('quotes-details-modal-client-email').textContent = quoteData.client?.email || '-';
     document.getElementById('quotes-details-modal-client-phone').textContent = quoteData.client?.phone || '-';
     document.getElementById('quotes-details-modal-client-company').textContent = quoteData.client?.company || '-';
@@ -868,8 +867,8 @@ function renderQuotesTable(quotes) {
         card.innerHTML = `
             <div class="quote-field">${quote.quote_number}</div>
             <div class="quote-field">${new Date(quote.created_at).toLocaleDateString()}</div>
-            <div class="quote-field">${quote.client_number || "-"}</div>
             <div class="quote-field">${quote.client_name || "-"}</div>
+            <div class="quote-field">${quote.client_number || "-"}</div>
             <div class="quote-field">${quote.source || "-"}</div>
             <div class="quote-field">${statusPill}</div>
             <div class="quote-field">

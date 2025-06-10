@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const switchToAddClient = document.getElementById('switchToAddClient');
     const searchInput = document.getElementById('clientSearchInput');
 
+    // W pliku save_quote.js - popraw część z wyświetlaniem wyników wyszukiwania
+
     searchInput?.addEventListener('input', async () => {
         const query = searchInput.value.trim();
         console.log("[search_clients] Wpisany tekst:", query);
@@ -32,25 +34,45 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            resultsBox.innerHTML = data.map(client => `
-            <div class="search-client-result" data-id="${client.id}">
-                <strong>${client.name}</strong>
-                <span>
-                    ${(client.email || '')}${client.email && client.phone ? ' | ' : ''}
-                    ${(client.phone || '')}
-                </span>
-            </div>
-        `).join('');
+            // POPRAWKA: Nowa struktura HTML z lepszą obsługą email/telefon
+            resultsBox.innerHTML = data.map(client => {
+                // Sprawdź czy mamy email i/lub telefon
+                const hasEmail = client.email && client.email.trim() !== '';
+                const hasPhone = client.phone && client.phone.trim() !== '';
 
-        resultsBox.style.display = 'block';
+                let contactInfo = '';
+                if (hasEmail && hasPhone) {
+                    // Oba - email nad telefonem
+                    contactInfo = `${client.email}<br>${client.phone}`;
+                } else if (hasEmail) {
+                    // Tylko email
+                    contactInfo = client.email;
+                } else if (hasPhone) {
+                    // Tylko telefon
+                    contactInfo = client.phone;
+                }
+                // Jeśli ani email ani telefon - contactInfo pozostaje pusty
 
-            // Obsługa kliknięcia w wynik
+                return `
+                <div class="search-client-result" 
+                     data-id="${client.id}"
+                     data-email="${client.email || ''}"
+                     data-phone="${client.phone || ''}">
+                    <strong>${client.name}</strong>
+                    ${contactInfo ? `<span class="client-contact">${contactInfo}</span>` : ''}
+                </div>
+            `;
+            }).join('');
+
+            resultsBox.style.display = 'block';
+
+            // POPRAWKA: Nowa obsługa kliknięcia - używamy data-attributes zamiast parsowania tekstu
             document.querySelectorAll('.search-client-result').forEach(el => {
                 el.addEventListener('click', () => {
                     const clientId = el.dataset.id;
                     const clientName = el.querySelector('strong')?.textContent;
-                    const clientInfo = el.querySelector('span')?.textContent || "";
-                    const [email, phone] = clientInfo.split('|').map(x => x.trim());
+                    const clientEmail = el.dataset.email || '';
+                    const clientPhone = el.dataset.phone || '';
 
                     // Przeskocz do kroku 2
                     stepSelect.style.display = 'none';
@@ -68,8 +90,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     document.querySelector('[name="client_login"]').value = clientName;
                     document.querySelector('[name="client_name"]').value = clientName;
-                    document.querySelector('[name="client_email"]').value = email || '';
-                    document.querySelector('[name="client_phone"]').value = phone || '';
+                    document.querySelector('[name="client_email"]').value = clientEmail;
+                    document.querySelector('[name="client_phone"]').value = clientPhone;
 
                     renderSummaryValues();
 
