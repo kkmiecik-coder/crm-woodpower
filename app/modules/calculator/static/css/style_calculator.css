@@ -892,20 +892,6 @@
     text-align: center;
 }
 
-.beta-tag {
-    display: inline-block;
-    margin-left: 12px;
-    padding: 5px 12px;
-    border-radius: 16px;
-    background: #ED6B24;
-    color: #FFF;
-    font-size: 12px;
-    font-family: 'Poppins', sans-serif;
-    font-weight: 600;
-    line-height: 1;
-    vertical-align: middle;
-}
-
 .out-of-stock-tag {
     display: inline-block;
     margin-left: 6px;

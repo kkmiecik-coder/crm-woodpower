@@ -163,9 +163,9 @@
         /* SEKCJA UWAGI I DANE - NA DOLE PRZED STOPKĄ */
         .bottom-content {
             position: fixed;
-            bottom: 50px; /* Nad stopką */
-            left: 20mm;
-            right: 20mm;
+            bottom: 60px; /* Nad stopką */
+            left: 15mm;
+            right: 15mm;
             font-size: 10px;
         }
 
@@ -177,7 +177,7 @@
 
         .bottom-section-left {
             flex: 1;
-            margin-right: 10px; /* Odstęp między kolumnami */   
+            margin-right: 10px; /* Odstęp między kolumnami */
         }
 
         .bottom-section-right {
@@ -365,18 +365,20 @@
             </tr>
         </table>
 
-        <!-- TABELA Z PRODUKTAMI -->
+        <!-- TABELA Z PRODUKTAMI - DODANA KOLUMNA VAT -->
         <table class="items-table">
             <thead>
                 <tr>
-                    <th width="5%">Poz.</th>
-                    <th width="35%">Nazwa produktu</th>
-                    <th width="15%">Wymiary [cm]</th>
-                    <th width="3%">JM</th>
-                    <th width="12%">Cena netto</th>
-                    <th width="5%">Ilość</th>
-                    <th width="12%">Wartość netto</th>
-                    <th width="13%">Wartość brutto</th>
+                    <th width="4%">Poz.</th>
+                    <th width="30%">Nazwa produktu</th>
+                    <th width="12%">Wymiary [cm]</th>
+                    <th width="4%">JM</th>
+                    <th width="10%">Cena netto</th>
+                    <th width="4%">Ilość</th>
+                    <th width="5%">VAT</th>
+                    <th width="10%">Wartość netto</th>
+                    <th width="10%">Kwota VAT</th>
+                    <th width="11%">Wartość brutto</th>
                 </tr>
             </thead>
             <tbody>
@@ -403,10 +405,12 @@
                 {% set total_item_brutto = total_item_brutto + finishing_detail.finishing_price_brutto %}
                 {% endif %}
 
+                {% set vat_amount = total_item_brutto - total_item_netto %}
+
                 <tr>
                     <td>{{ product_index }}</td>
                     <td class="left">
-                        <strong>Deska drewniana</strong>
+                        <strong>Klejonka drewniana</strong>
                         <br>
                         {% if item.variant_code == 'dab-lity-ab' %}Dąb lity A/B
                         {% elif item.variant_code == 'dab-lity-bb' %}Dąb lity B/B
@@ -430,40 +434,47 @@
                         {% endif %}
                     </td>
                     <td>{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }}</td>
-                    <td>szt</td>
+                    <td>szt.</td>
                     <td class="right">{{ "%.2f"|format(total_item_netto) }} PLN</td>
                     <td>1</td>
+                    <td>23%</td>
                     <td class="right">{{ "%.2f"|format(total_item_netto) }} PLN</td>
+                    <td class="right">{{ "%.2f"|format(vat_amount) }} PLN</td>
                     <td class="right">{{ "%.2f"|format(total_item_brutto) }} PLN</td>
                 </tr>
                 {% endfor %}
 
                 {% if quote.shipping_cost_brutto and quote.shipping_cost_brutto > 0 %}
+                {% set shipping_vat = quote.shipping_cost_brutto - quote.costs.shipping.netto %}
                 <tr>
                     <td></td>
                     <td class="left">
                         <strong>Dostawa</strong>
-                        <br><span class="finishing-details">{{ quote.courier_name or 'Kurier' }}</span>
+                        <br><span class="finishing-details"> Kurier: {{ quote.courier_name or 'Do uzgodnienia' }}</span>
                     </td>
                     <td>-</td>
-                    <td>usł</td>
-                    <td class="right">{{ "%.2f"|format(quote.shipping_cost_netto) }} PLN</td>
+                    <td>usł.</td>
+                    <td class="right">{{ "%.2f"|format(quote.costs.shipping.netto) }} PLN</td>
                     <td>1</td>
-                    <td class="right">{{ "%.2f"|format(quote.shipping_cost_netto) }} PLN</td>
+                    <td>23%</td>
+                    <td class="right">{{ "%.2f"|format(quote.costs.shipping.netto) }} PLN</td>
+                    <td class="right">{{ "%.2f"|format(shipping_vat) }} PLN</td>
                     <td class="right">{{ "%.2f"|format(quote.shipping_cost_brutto) }} PLN</td>
                 </tr>
                 {% endif %}
 
-                <!-- PODSUMOWANIE -->
+                <!-- PODSUMOWANIE Z DODANĄ KWOTĄ VAT -->
                 <tr class="summary-row">
-                    <td colspan="6" style="border-left: 2px solid #FFF; border-bottom: 2px solid #FFF; background-color:#FFF;"></td>
+                    <td colspan="7" style="border-left: 2px solid #FFF; border-bottom: 2px solid #FFF; background-color:#FFF;"></td>
                     <td><strong>Netto</strong></td>
+                    <td><strong>VAT 23%</strong></td>
                     <td><strong>Brutto</strong></td>
                 </tr>
 
                 <tr>
-                    <td colspan="6" style="border-left: 2px solid #FFF; border-bottom: 2px solid #FFF; background-color:#FFF;"><strong>Razem:</strong></td>
+                    <td colspan="7" style="border-left: 2px solid #FFF; border-bottom: 2px solid #FFF; background-color:#FFF;"></td>
                     <td class="right"><strong>{{ "%.2f"|format(quote.costs.total.netto) }} PLN</strong></td>
+                    <td class="right"><strong>{{ "%.2f"|format(quote.costs.total.brutto - quote.costs.total.netto) }} PLN</strong></td>
                     <td class="right"><strong>{{ "%.2f"|format(quote.costs.total.brutto) }} PLN</strong></td>
                 </tr>
             </tbody>
@@ -477,16 +488,13 @@
             <div class="bottom-section-left">
                 <div class="bottom-section-title">Uwagi i warunki:</div>
                 <ul>
-                    <li>Oferta ważna przez 30 dni od daty wystawienia</li>
-                    <li>Ceny zawierają podatek VAT 23%</li>
                     <li>Termin realizacji: do uzgodnienia po potwierdzeniu zamówienia</li>
-                    <li>Płatność: przelew bankowy, termin płatności 14 dni</li>
+                    <li>Płatność: przelew bankowy, przelew online</li>
                     {% if quote.shipping_cost_brutto and quote.shipping_cost_brutto > 0 %}
                     <li>Koszt dostawy: {{ "%.2f"|format(quote.shipping_cost_brutto) }} PLN brutto ({{ quote.courier_name or 'kurier' }})</li>
                     {% else %}
                     <li>Koszt dostawy do uzgodnienia indywidualnie</li>
                     {% endif %}
-                    <li>Produkty wykonywane na zamówienie - brak możliwości zwrotu</li>
                 </ul>
             </div>
 
@@ -495,7 +503,7 @@
                 <div class="bottom-section-title">Dane do przelewu:</div>
                 <div class="payment-info">
                     <div><strong>Santander Bank Polska S.A.</strong></div>
-                    <div><strong>Numer konta:</strong>28 1090 2590 0000 0001 3689 2780</div>
+                    <div><strong>Numer konta:</strong> 28 1090 2590 0000 0001 3689 2780</div>
                     <div><strong>Tytuł przelewu:</strong> Oferta {{ quote.quote_number }}</div>
                 </div>
             </div>
