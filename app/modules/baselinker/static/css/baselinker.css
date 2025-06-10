@@ -1225,3 +1225,103 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ===================================
+   MODAL PO AKCEPTACJI I ZŁOŻENIU ZAMÓWIENIA
+   =================================== */
+
+/* Zielone obramowanie dla modala szczegółów zaakceptowanej wyceny */
+.quotes-details-modal-box.quote-accepted {
+    border: 3px solid #07B90D !important;
+    box-shadow: 0 10px 40px rgba(7, 185, 13, 0.2) !important;
+}
+
+    .quotes-details-modal-box.quote-accepted .quotes-btn:hover {
+        box-shadow: 0 2px 8px rgba(7, 185, 13, 0.3);
+    }
+
+    /* Warianty produktów w zaakceptowanej wycenie */
+    .quotes-details-modal-box.quote-accepted .variant-list li.selected {
+        background: linear-gradient(135deg, #E8F5E8 0%, #D4F4D4 100%) !important;
+        border: 2px solid #07B90D !important;
+        border-left: 6px solid #059A0B !important;
+        box-shadow: 0 4px 12px rgba(7, 185, 13, 0.2);
+    }
+
+/* Niebieskie obramowanie dla modala szczegółów wyceny ze złożonym zamówieniem */
+.quotes-details-modal-box.quote-ordered {
+    border: 3px solid #4284F3 !important;
+    box-shadow: 0 10px 40px rgba(66, 132, 243, 0.2) !important;
+}
+
+    .quotes-details-modal-box.quote-ordered .quotes-btn:hover {
+        box-shadow: 0 2px 8px rgba(66, 132, 243, 0.3);
+    }
+
+    /* Warianty produktów w zamówieniu */
+    .quotes-details-modal-box.quote-ordered .variant-list li.selected {
+        background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%) !important;
+        border: 2px solid #4284F3 !important;
+        border-left: 6px solid #1651B4 !important;
+        box-shadow: 0 4px 12px rgba(66, 132, 243, 0.2);
+    }
+
+/* Banner informacyjny o akceptacji */
+.acceptance-banner {
+    background: linear-gradient(135deg, #07B90D 0%, #059A0B 100%);
+    color: white;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 4px 12px rgba(7, 185, 13, 0.3);
+    font-weight: 500;
+}
+
+    .acceptance-banner .banner-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+
+    .acceptance-banner .banner-text {
+        flex: 1;
+    }
+
+    .acceptance-banner .banner-date {
+        font-size: 12px;
+        opacity: 0.9;
+        font-weight: 400;
+    }
+
+/* Banner informacyjny o złożeniu zamówienia */
+.order-banner {
+    background: linear-gradient(135deg, #4284F3 0%, #1651B4 100%);
+    color: white;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 4px 12px rgba(66, 132, 243, 0.3);
+    font-weight: 500;
+}
+
+    .order-banner .banner-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+
+    .order-banner .banner-text {
+        flex: 1;
+    }
+
+    .order-banner .banner-date {
+        font-size: 12px;
+        opacity: 0.9;
+        font-weight: 400;
+    }

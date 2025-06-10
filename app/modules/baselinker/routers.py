@@ -192,6 +192,8 @@ def create_order(quote_id):
             }), 400
         
         data = request.get_json()
+        print(f"[create_order] Otrzymane dane: {data}", file=sys.stderr)
+        
         config = {
             'order_source_id': data.get('order_source_id'),
             'order_status_id': data.get('order_status_id'),
@@ -199,15 +201,87 @@ def create_order(quote_id):
             'delivery_method': data.get('delivery_method')
         }
         
-        # Walidacja wymaganych pól
-        if not all([config['order_source_id'], config['order_status_id']]):
-            return jsonify({'error': 'Brakuje wymaganych danych konfiguracji'}), 400
+        print(f"[create_order] Konfiguracja: {config}", file=sys.stderr)
+        
+        # Walidacja
+        validation_errors = []
+        
+        if not config['order_source_id']:
+            validation_errors.append('order_source_id jest wymagane')
+        elif config['order_source_id'] == 0:
+            validation_errors.append('order_source_id nie może być 0')
+            
+        if not config['order_status_id']:
+            validation_errors.append('order_status_id jest wymagane')
+            
+        if not config['payment_method']:
+            validation_errors.append('payment_method jest wymagane')
+        
+        if validation_errors:
+            error_msg = f"Brakuje wymaganych danych konfiguracji: {', '.join(validation_errors)}"
+            print(f"[create_order] BŁĄD WALIDACJI: {error_msg}", file=sys.stderr)
+            return jsonify({'error': error_msg}), 400
+        
+        # Sprawdź czy source_id i status_id istnieją w bazie
+        source_exists = BaselinkerConfig.query.filter_by(
+            config_type='order_source',
+            baselinker_id=config['order_source_id'],
+            is_active=True
+        ).first()
+        
+        status_exists = BaselinkerConfig.query.filter_by(
+            config_type='order_status', 
+            baselinker_id=config['order_status_id'],
+            is_active=True
+        ).first()
+        
+        if not source_exists:
+            return jsonify({'error': f'Źródło zamówienia o ID {config["order_source_id"]} nie istnieje'}), 400
+            
+        if not status_exists:
+            return jsonify({'error': f'Status zamówienia o ID {config["order_status_id"]} nie istnieje'}), 400
         
         # Utwórz zamówienie
         service = BaselinkerService()
         result = service.create_order_from_quote(quote, user.id, config)
         
+        print(f"[create_order] Wynik serwisu: {result}", file=sys.stderr)
+        
         if result['success']:
+            # ZAKTUALIZOWANE: Zmień status wyceny na "Złożone" (ID: 4) i dodaj baselinker_order_id
+            try:
+                from modules.quotes.models import QuoteStatus
+                from modules.calculator.models import QuoteLog
+                
+                # Znajdź status "Złożone"
+                placed_status = QuoteStatus.query.filter_by(id=4).first()
+                if placed_status:
+                    old_status_id = quote.status_id
+                    quote.status_id = placed_status.id
+                    
+                    # NOWE: Zapisz numer zamówienia Baselinker w wycenie
+                    quote.base_linker_order_id = result['order_id']
+                    
+                    # Dodaj log zmiany statusu
+                    log = QuoteLog(
+                        quote_id=quote.id,
+                        user_id=user.id,
+                        description=f"Automatyczna zmiana statusu na '{placed_status.name}' po złożeniu zamówienia w Baselinker (#{result['order_id']})"
+                    )
+                    db.session.add(log)
+                    
+                    print(f"[create_order] Zmieniono status wyceny z {old_status_id} na {placed_status.id} ({placed_status.name})", file=sys.stderr)
+                    print(f"[create_order] Zapisano numer zamówienia Baselinker: {result['order_id']}", file=sys.stderr)
+                else:
+                    print(f"[create_order] OSTRZEŻENIE: Nie znaleziono statusu 'Złożone' (ID: 4)", file=sys.stderr)
+                
+                db.session.commit()
+                print(f"[create_order] Status wyceny zaktualizowany pomyślnie", file=sys.stderr)
+                
+            except Exception as status_error:
+                print(f"[create_order] Błąd podczas zmiany statusu wyceny: {status_error}", file=sys.stderr)
+                # Nie przerywamy procesu - zamówienie zostało złożone pomyślnie
+            
             return jsonify({
                 'success': True,
                 'message': result['message'],
@@ -222,6 +296,8 @@ def create_order(quote_id):
             
     except Exception as e:
         print(f"[create_order] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return jsonify({'error': 'Błąd tworzenia zamówienia'}), 500
 
 @baselinker_bp.route('/api/sync-config')
@@ -262,3 +338,69 @@ def get_order_logs(quote_id):
     except Exception as e:
         print(f"[get_order_logs] Błąd: {e}", file=sys.stderr)
         return jsonify({'error': 'Błąd pobierania logów'}), 500
+    
+@baselinker_bp.route('/api/order/<int:order_id>/status')
+@login_required
+def get_order_status(order_id):
+    """Pobiera status zamówienia z Baselinker"""
+    print(f"[get_order_status] Rozpoczynam pobieranie statusu dla zamówienia ID: {order_id}", file=sys.stderr)
+    
+    try:
+        service = BaselinkerService()
+        print(f"[get_order_status] Utworzono instancję BaselinkerService", file=sys.stderr)
+        
+        result = service.get_order_details(order_id)
+        print(f"[get_order_status] Wynik z get_order_details: {result}", file=sys.stderr)
+        
+        if result['success']:
+            print(f"[get_order_status] Sukces - dane zamówienia: {result.get('order', {})}", file=sys.stderr)
+            
+            # Mapuj ID statusu na nazwę (można rozszerzyć)
+            status_map = {
+                105112: 'Nowe - nieopłacone',
+                155824: 'Nowe - opłacone',
+                138619: 'W produkcji - surowe',
+                148832: 'W produkcji - olejowanie',
+                148831: 'W produkcji - bejcowanie',
+                148830: 'W produkcji - lakierowanie',
+                138620: 'Produkcja zakończona',
+                138623: 'Zamówienie spakowane',
+                105113: 'Paczka zgłoszona do wysyłki',
+                105114: 'Wysłane - kurier',
+                149763: 'Wysłane - transport WoodPower',
+                149777: 'Czeka na odbiór osobisty',
+                138624: 'Dostarczona - kurier',
+                149778: 'Dostarczona - trans. WoodPower',
+                149779: 'Odebrane',
+                138625: 'Zamówienie anulowane'
+            }
+            
+            order_status_id = result['order'].get('order_status_id')
+            print(f"[get_order_status] order_status_id z Baselinker: {order_status_id}", file=sys.stderr)
+            
+            status_name = status_map.get(order_status_id, f'Status {order_status_id}')
+            print(f"[get_order_status] Zamapowany status_name: {status_name}", file=sys.stderr)
+            
+            response_data = {
+                'success': True,
+                'status_id': order_status_id,
+                'status_name': status_name
+            }
+            print(f"[get_order_status] Zwracam odpowiedź: {response_data}", file=sys.stderr)
+            
+            return jsonify(response_data)
+        else:
+            error_msg = result.get('error', 'Nieznany błąd')
+            print(f"[get_order_status] Błąd z get_order_details: {error_msg}", file=sys.stderr)
+            
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), 400
+            
+    except Exception as e:
+        print(f"[get_order_status] WYJĄTEK: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        
+        return jsonify({'error': 'Błąd pobierania statusu zamówienia'}), 500

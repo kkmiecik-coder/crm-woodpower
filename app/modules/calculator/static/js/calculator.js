@@ -1229,13 +1229,45 @@ function loadLatestQuotes() {
                         <button class="quotes-btn-download" data-id="${q.id}">
                             <i class="fa fa-download"></i> Pobierz
                         </button>
-                        <button class="order" data-id="${q.id}">Zamów</button>
                     </div>
                 </div>
             `).join('');
 
             container.innerHTML = html;
             console.log("[loadLatestQuotes] Wyrenderowano HTML z ostatnimi wycenami");
+            
+            /// NOWA FUNKCJONALNOŚĆ: Obsługa przycisku "Przejdź"
+            container.querySelectorAll('.go-ahead').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.dataset.id;
+                    console.log(`[go-ahead] Klik na przycisk przejdź – ID: ${id}`);
+                    
+                    // DODAJ DEBUGGING URL
+                    const targetUrl = `/quotes?open_quote=${id}`;
+                    console.log(`[go-ahead] Generowany URL:`, targetUrl);
+                    console.log(`[go-ahead] Aktualny URL:`, window.location.href);
+                    
+                    // Przekieruj do quotes z parametrem aby otworzyć modal
+                    window.location.href = targetUrl;
+                });
+            });
+
+            // NOWA FUNKCJONALNOŚĆ: Obsługa przycisku "Przejdź"
+            container.querySelectorAll('.go-ahead').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.dataset.id;
+                    console.log(`[go-ahead] Klik na przycisk przejdź – ID: ${id}`);
+                    
+                    // BACKUP: Zapisz ID do sessionStorage
+                    sessionStorage.setItem('openQuoteId', id);
+                    console.log(`[go-ahead] Zapisano do sessionStorage: openQuoteId=${id}`);
+                    
+                    // Przekieruj do quotes z parametrem aby otworzyć modal
+                    const targetUrl = `/quotes?open_quote=${id}`;
+                    console.log(`[go-ahead] Przekierowanie do:`, targetUrl);
+                    window.location.href = targetUrl;
+                });
+            });
 
             container.querySelectorAll('.quotes-btn-download').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -1613,6 +1645,7 @@ function init() {
     attachLengthValidation();
     attachWidthValidation();
     attachGlobalValidationListeners();
+    attachGoToQuoteListeners();
 
     quoteFormsContainer.querySelectorAll('.quote-form').forEach((form, index) => {
         prepareNewProductForm(form, index);
@@ -1624,3 +1657,83 @@ function init() {
 document.addEventListener('DOMContentLoaded', init);
 
 window.calculateFinishingCost = calculateFinishingCost;
+
+/**
+ * Przekierowuje do modułu quotes i otwiera modal szczegółów wyceny
+ * @param {number} quoteId - ID wyceny
+ */
+function redirectToQuoteDetails(quoteId) {
+    console.log(`[redirectToQuoteDetails] Przekierowanie do wyceny ID: ${quoteId}`);
+    
+    if (!quoteId) {
+        console.error("[redirectToQuoteDetails] Brak ID wyceny");
+        return;
+    }
+    
+    // Zapisz ID wyceny w sessionStorage, aby móc ją otworzyć po załadowaniu strony
+    sessionStorage.setItem('openQuoteModal', quoteId);
+    
+    // Przekieruj do modułu quotes
+    window.location.href = '/quotes/';
+}
+
+/**
+ * Przekierowuje do modułu quotes na podstawie numeru wyceny
+ * @param {string} quoteNumber - Numer wyceny (np. "01/12/24/W")
+ */
+function redirectToQuoteDetailsByNumber(quoteNumber) {
+    console.log(`[redirectToQuoteDetailsByNumber] Przekierowanie do wyceny: ${quoteNumber}`);
+    
+    if (!quoteNumber) {
+        console.error("[redirectToQuoteDetailsByNumber] Brak numeru wyceny");
+        return;
+    }
+    
+    // Zapisz numer wyceny w sessionStorage
+    sessionStorage.setItem('openQuoteModalByNumber', quoteNumber);
+    
+    // Przekieruj do modułu quotes
+    window.location.href = '/quotes/';
+}
+
+/**
+ * Funkcja do obsługi przycisku "Przejdź" w modalu sukcesu zapisu wyceny
+ */
+function handleGoToQuoteFromModal() {
+    const quoteNumberDisplay = document.querySelector('.quote-number-display');
+    
+    if (!quoteNumberDisplay || !quoteNumberDisplay.textContent) {
+        console.error("[handleGoToQuoteFromModal] Brak numeru wyceny w modalu");
+        alert("Błąd: nie znaleziono numeru wyceny");
+        return;
+    }
+    
+    const quoteNumber = quoteNumberDisplay.textContent.trim();
+    console.log(`[handleGoToQuoteFromModal] Przechodzę do wyceny: ${quoteNumber}`);
+    
+    redirectToQuoteDetailsByNumber(quoteNumber);
+}
+
+/**
+ * Dodaj obsługę przycisków "Przejdź" w ostatnich wycenach
+ */
+function attachGoToQuoteListeners() {
+    // Delegacja eventów dla przycisków "Przejdź" w ostatnich wycenach
+    const latestQuotesList = document.getElementById('latestQuotesList');
+    
+    if (latestQuotesList) {
+        latestQuotesList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('go-ahead')) {
+                e.preventDefault();
+                const quoteId = e.target.dataset.id;
+                
+                if (quoteId) {
+                    console.log(`[latestQuotes] Przechodzę do wyceny ID: ${quoteId}`);
+                    redirectToQuoteDetails(parseInt(quoteId));
+                } else {
+                    console.error("[latestQuotes] Brak ID wyceny w data-id");
+                }
+            }
+        });
+    }
+}

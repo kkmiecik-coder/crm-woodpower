@@ -173,7 +173,8 @@ def api_quotes():
                 "status_name": status_data.get("name", ""),
                 "status_color": status_data.get("color", "#ccc"),
                 "all_statuses": statuses,
-                "public_url": q.get_public_url()
+                "public_url": q.get_public_url(),
+                "base_linker_order_id": q.base_linker_order_id
             }
             results.append(result)
 
@@ -366,6 +367,7 @@ def get_quote_details(quote_id):
             "source": quote.source or "-",
             "public_url": quote.get_public_url(),
             "is_client_editable": quote.is_client_editable,
+            "base_linker_order_id": quote.base_linker_order_id,
             
             # Nowa struktura kosztów
             "costs": costs,

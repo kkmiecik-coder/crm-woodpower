@@ -316,7 +316,11 @@ def save_quote():
         db.session.commit()
         current_app.logger.info(f"[save_quote_backend] Wycena {quote_number} zapisana pomyslnie dla klienta {client_id}")
 
-        return jsonify({"message": "Wycena zapisana.", "quote_number": quote_number})
+        return jsonify({
+            "message": "Wycena zapisana.", 
+            "quote_number": quote_number,
+            "quote_id": quote.id
+        })
 
     except SQLAlchemyError as e:
         db.session.rollback()

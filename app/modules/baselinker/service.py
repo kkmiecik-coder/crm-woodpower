@@ -1,4 +1,4 @@
-# app/modules/baselinker/service.py - Z DODATKOWYMI LOGAMI API
+# app/modules/baselinker/service.py - KOMPLETNY Z NOWYM SKU
 
 import requests
 import json
@@ -32,19 +32,19 @@ class BaselinkerService:
             'parameters': json.dumps(parameters)
         }
         
-        print(f"[BaselinkerService] Wysylam zadanie API: method={method}, params={parameters}", file=sys.stderr)
+        print(f"[BaselinkerService._make_request] Wysylam zadanie API: method={method}, params={parameters}", file=sys.stderr)
+        print(f"[BaselinkerService._make_request] URL: {self.endpoint}", file=sys.stderr)
         
         try:
             response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
+            print(f"[BaselinkerService._make_request] HTTP status: {response.status_code}", file=sys.stderr)
+            
             response.raise_for_status()
             response_json = response.json()
-            
-            # DODANY LOG RESPONSE
-            print(f"[BaselinkerService] Odpowiedz API: {json.dumps(response_json, ensure_ascii=False)}", file=sys.stderr)
-            
+
             return response_json
         except requests.exceptions.RequestException as e:
-            print(f"[BaselinkerService] Blad zadania API: {e}", file=sys.stderr)
+            print(f"[BaselinkerService._make_request] Blad zadania API: {e}", file=sys.stderr)
             raise
     
     def get_order_sources(self) -> List[Dict]:
@@ -54,11 +54,9 @@ class BaselinkerService:
             print(f"[BaselinkerService] getOrderSources response status: {response.get('status')}", file=sys.stderr)
         
             if response.get('status') == 'SUCCESS':
-                # POPRAWKA: API zwraca 'sources' zamiast 'order_sources'
                 sources_data = response.get('sources', {})
                 print(f"[BaselinkerService] Raw sources data: {sources_data}", file=sys.stderr)
             
-                # Przekształć zagnieżdżoną strukturę na płaską listę
                 sources_list = []
             
                 for category, items in sources_data.items():
@@ -85,7 +83,6 @@ class BaselinkerService:
     def get_order_statuses(self) -> List[Dict]:
         """Pobiera dostępne statusy zamówień"""
         try:
-            # Próbuj różne nazwy metod API
             for method_name in ['getOrderStatusList', 'getOrderStatuses']:
                 try:
                     print(f"[BaselinkerService] Probuje metode: {method_name}", file=sys.stderr)
@@ -93,7 +90,6 @@ class BaselinkerService:
                     print(f"[BaselinkerService] {method_name} response status: {response.get('status')}", file=sys.stderr)
                     
                     if response.get('status') == 'SUCCESS':
-                        # Próbuj różne klucze odpowiedzi
                         statuses = (response.get('order_statuses') or 
                                   response.get('statuses') or 
                                   response.get('order_status_list') or [])
@@ -102,13 +98,12 @@ class BaselinkerService:
                     else:
                         error_msg = response.get('error_message', 'Unknown error')
                         print(f"[BaselinkerService] API Error w {method_name}: {error_msg}", file=sys.stderr)
-                        continue  # Spróbuj następną metodę
+                        continue
                         
                 except Exception as method_error:
                     print(f"[BaselinkerService] Metoda {method_name} nieudana: {method_error}", file=sys.stderr)
-                    continue  # Spróbuj następną metodę
+                    continue
             
-            # Jeśli żadna metoda nie zadziałała
             raise Exception("Wszystkie metody pobierania statusow nieudane")
             
         except Exception as e:
@@ -144,7 +139,6 @@ class BaselinkerService:
             
             db.session.commit()
             
-            # Sprawdź co się zapisało
             saved_count = BaselinkerConfig.query.filter_by(config_type='order_source').count()
             print(f"[BaselinkerService] Zapisano {saved_count} zrodel do bazy", file=sys.stderr)
             
@@ -184,7 +178,6 @@ class BaselinkerService:
             
             db.session.commit()
             
-            # Sprawdź co się zapisało
             saved_count = BaselinkerConfig.query.filter_by(config_type='order_status').count()
             print(f"[BaselinkerService] Zapisano {saved_count} statusow do bazy", file=sys.stderr)
             
@@ -195,7 +188,49 @@ class BaselinkerService:
             print(f"[BaselinkerService] Blad synchronizacji statusow: {e}", file=sys.stderr)
             return False
 
-    # Reszta metod pozostaje bez zmian...
+    def get_order_details(self, order_id: int) -> Dict:
+        """Pobiera szczegóły zamówienia z Baselinker"""
+        
+        try:
+            parameters = {'order_id': order_id}
+            
+            response = self._make_request('getOrders', parameters)
+            
+            if response.get('status') == 'SUCCESS':
+                orders = response.get('orders', [])
+                print(f"[BaselinkerService.get_order_details] Liczba zamówień w odpowiedzi: {len(orders)}", file=sys.stderr)
+                
+                if orders:
+                    order = orders[0]  # getOrders zwraca listę, ale z order_id powinien być jeden
+                    
+                    order_details = {
+                        'order_id': order.get('order_id'),
+                        'order_status_id': order.get('order_status_id'),
+                        'payment_done': order.get('payment_done', 0),
+                        'currency': order.get('currency'),
+                        'order_page': order.get('order_page'),
+                        'date_add': order.get('date_add'),
+                        'date_confirmed': order.get('date_confirmed')
+                    }
+
+                    result = {
+                        'success': True,
+                        'order': order_details
+                    }
+                    return result
+                else:
+                    return {'success': False, 'error': 'Zamówienie nie znalezione'}
+            else:
+                error_msg = response.get('error_message', 'Unknown error')
+                print(f"[BaselinkerService.get_order_details] API error: {error_msg}", file=sys.stderr)
+                return {'success': False, 'error': error_msg}
+                
+        except Exception as e:
+            print(f"[BaselinkerService.get_order_details] WYJĄTEK: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            return {'success': False, 'error': str(e)}
+
     def create_order_from_quote(self, quote, user_id: int, config: Dict) -> Dict:
         """Tworzy zamówienie w Baselinker na podstawie wyceny"""
         try:
@@ -227,6 +262,9 @@ class BaselinkerService:
                 # Zaktualizuj wycenę
                 quote.base_linker_order_id = baselinker_order_id
                 
+                # NOWE: Zmień status wyceny na "Złożone" (ID=4)
+                quote.status_id = 4
+                
                 db.session.commit()
                 
                 return {
@@ -247,7 +285,6 @@ class BaselinkerService:
                 }
                 
         except Exception as e:
-            # Loguj błąd
             if 'log_entry' in locals():
                 log_entry.status = 'error'
                 log_entry.error_message = str(e)
@@ -263,21 +300,24 @@ class BaselinkerService:
         """Przygotowuje dane zamówienia dla API Baselinker"""
         import time
         from modules.calculator.models import QuoteItemDetails
-    
+
         # Pobierz wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
-    
+
         # Przygotuj produkty
         products = []
         for i, item in enumerate(selected_items):
-            # Nazwa produktu z wymiarami
-            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
-        
-            # Dodaj informacje o wykończeniu jeśli istnieją
+            # Pobierz szczegóły wykończenia
             finishing_details = QuoteItemDetails.query.filter_by(
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
+            
+            # NOWE: Generuj SKU według schematu
+            sku = self._generate_sku(item, finishing_details)
+            
+            # Nazwa produktu z wymiarami (bez zmian)
+            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
         
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
@@ -297,10 +337,10 @@ class BaselinkerService:
             products.append({
                 'storage': 'db',
                 'storage_id': 0,
-                'product_id': f"QUOTE_{quote.id}_ITEM_{item.id}",
+                'product_id': '',  # USUNIĘTE: pozostaw puste
                 'variant_id': 0,
                 'name': product_name,
-                'sku': f"WP-{item.variant_code.upper()}-{item.id}",
+                'sku': sku,  # NOWE: użyj wygenerowanego SKU
                 'ean': '',
                 'location': '',
                 'warehouse_id': 0,
@@ -316,7 +356,7 @@ class BaselinkerService:
         client = quote.client
     
         order_data = {
-            'order_source_id': config.get('order_source_id', 1),
+            'custom_source_id': config.get('order_source_id', 1),
             'order_status_id': config.get('order_status_id', 1),
             'date_add': int(time.time()),
             'currency': 'PLN',
@@ -335,7 +375,7 @@ class BaselinkerService:
             'delivery_address': client.delivery_address or '',
             'delivery_postcode': client.delivery_zip or '',
             'delivery_city': client.delivery_city or '',
-            'delivery_country_code': client.delivery_country or 'PL',
+            'delivery_country_code': config.get('delivery_country', 'PL'),  # NOWE: z konfiguracji
             'delivery_point_id': '',
             'delivery_point_name': '',
             'delivery_point_address': '',
@@ -347,17 +387,90 @@ class BaselinkerService:
             'invoice_address': client.invoice_address or client.delivery_address or '',
             'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
-            'invoice_country_code': 'PL',
+            'invoice_country_code': config.get('delivery_country', 'PL'),  # NOWE: z konfiguracji
             'want_invoice': bool(client.invoice_nip),
             'extra_field_1': quote.quote_number,
             'extra_field_2': quote.source or '',
             'products': products
         }
-    
+
+        print(f"[BaselinkerService] Przygotowane dane zamowienia: {json.dumps(order_data, ensure_ascii=False, indent=2)}", file=sys.stderr)
         return order_data
     
+    def _generate_sku(self, item, quote) -> str:
+        """Generuje nowy SKU w formacie BLADEBLIT3501004ABSUR"""
+        try:
+            # Pobierz szczegóły wykończenia
+            from modules.calculator.models import QuoteItemDetails
+            finishing_details = QuoteItemDetails.query.filter_by(
+                quote_id=quote.id, 
+                product_index=item.product_index
+            ).first()
+            
+            # 1. Typ produktu (zawsze BLA dla blat)
+            product_type = "BLA"
+            
+            # 2. Gatunek drewna z variant_code (dab/jes/buk)
+            variant_parts = item.variant_code.lower().split('-') if item.variant_code else ['unknown']
+            species_map = {
+                'dab': 'DEB',
+                'jes': 'JES', 
+                'buk': 'BUK'
+            }
+            species = species_map.get(variant_parts[0], 'UNK')
+            
+            # 3. Technologia (lity/micro)
+            tech_map = {
+                'lity': 'LIT',
+                'micro': 'MIC'
+            }
+            technology = tech_map.get(variant_parts[1] if len(variant_parts) > 1 else '', 'UNK')
+            
+            # 4. Wymiary (długość, szerokość, grubość)
+            length = str(int(float(item.length_cm) if item.length_cm else 0)).zfill(3)
+            width = str(int(float(item.width_cm) if item.width_cm else 0)).zfill(3)
+            thickness = str(int(float(item.thickness_cm) if item.thickness_cm else 0))
+            
+            # 5. Klasa (AB/BB)
+            class_map = {
+                'ab': 'AB',
+                'bb': 'BB'
+            }
+            wood_class = class_map.get(variant_parts[2] if len(variant_parts) > 2 else '', 'AB')
+            
+            # 6. Wykończenie
+            if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
+                # Mapowanie typów wykończenia na 3-literowe kody
+                finishing_map = {
+                    'lakier': 'LAK',
+                    'olej': 'OLE', 
+                    'wosk': 'WOS',
+                    'bejca': 'BEJ',
+                    'surowe': 'SUR'
+                }
+                finishing_type = finishing_details.finishing_type.lower()
+                finishing_code = 'SUR'  # domyślnie surowe
+                
+                for key, code in finishing_map.items():
+                    if key in finishing_type:
+                        finishing_code = code
+                        break
+            else:
+                finishing_code = 'SUR'
+            
+            # Składamy SKU
+            sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing_code}"
+            
+            print(f"[BaselinkerService] Wygenerowano SKU: {sku} dla item {item.id}", file=sys.stderr)
+            return sku
+            
+        except Exception as e:
+            print(f"[BaselinkerService] Błąd generowania SKU: {e}", file=sys.stderr)
+            # Fallback na stary format
+            return f"WP-{item.variant_code.upper()}-{item.id}" if item.variant_code else f"WP-UNKNOWN-{item.id}"
+    
     def _translate_variant_code(self, code: str) -> str:
-        """Tłumaczy kod wariantu na czytelną nazwę w nowym formacie"""
+        """Tłumaczy kod wariantu na czytelną nazwę"""
         translations = {
             'dab-lity-ab': 'Klejonka dębowa lita A/B',
             'dab-lity-bb': 'Klejonka dębowa lita B/B',
@@ -375,3 +488,63 @@ class BaselinkerService:
         if item.volume_m3:
             return round(item.volume_m3 * 800, 2)
         return 0.0
+    
+    def _generate_sku(self, item, finishing_details=None):
+        # Parsuj kod wariantu (np. "dab-lity-ab")
+        variant_parts = item.variant_code.lower().split('-') if item.variant_code else []
+        
+        # 1. Typ produktu (zawsze BLA dla blat)
+        product_type = "BLA"
+        
+        # 2. Gatunek drewna (pierwsze 3 litery)
+        species_map = {
+            'dab': 'DEB',
+            'jes': 'JES', 
+            'buk': 'BUK',
+            'brzoza': 'BRZ',
+            'sosna': 'SOS'
+        }
+        species = species_map.get(variant_parts[0] if len(variant_parts) > 0 else '', 'XXX')
+        
+        # 3. Technologia (pierwsze 3 litery)
+        tech_map = {
+            'lity': 'LIT',
+            'micro': 'MIC',
+            'finger': 'FIN'
+        }
+        technology = tech_map.get(variant_parts[1] if len(variant_parts) > 1 else '', 'XXX')
+        
+        # 4. Wymiary (bez zer wiodących, ale minimum 3 cyfry dla długości)
+        length = str(int(item.length_cm or 0)).zfill(3) if item.length_cm else "000"
+        width = str(int(item.width_cm or 0)) if item.width_cm else "0"  
+        thickness = str(int(item.thickness_cm or 0)) if item.thickness_cm else "0"
+        
+        # 5. Klasa drewna
+        wood_class = variant_parts[2].upper() if len(variant_parts) > 2 else "XX"
+        
+        # 6. Wykończenie
+        finishing = "SUR"  # Domyślnie surowe
+        if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
+            # Mapowanie wykończeń na 3-literowe kody
+            finishing_map = {
+                'lakier': 'LAK',
+                'olej': 'OLE', 
+                'wosk': 'WOS',
+                'bejca': 'BEJ',
+                'lazura': 'LAZ'
+            }
+            
+            finishing_type = finishing_details.finishing_type.lower()
+            for key, value in finishing_map.items():
+                if key in finishing_type:
+                    finishing = value
+                    break
+        
+        # Składamy SKU
+        sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}"
+        
+        print(f"[_generate_sku] Wygenerowano SKU: {sku} dla wariantu: {item.variant_code}", file=sys.stderr)
+        print(f"  - Produkt: {product_type}, Gatunek: {species}, Tech: {technology}", file=sys.stderr)
+        print(f"  - Wymiary: {length}x{width}x{thickness}, Klasa: {wood_class}, Wykończenie: {finishing}", file=sys.stderr)
+        
+        return sku

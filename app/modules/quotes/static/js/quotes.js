@@ -132,10 +132,15 @@ function fetchQuotes() {
         .then(res => res.json())
         .then(data => {
             allQuotes = data;
+            console.log(`[fetchQuotes] Załadowano ${data.length} wycen`);
             if (data.length > 0) {
                 allStatuses = data[0].all_statuses;
             }
             filterQuotes();
+            
+            // NOWA FUNKCJONALNOŚĆ: Sprawdź czy mamy parametr open_quote w URL
+            console.log("[fetchQuotes] Sprawdzam parametr open_quote...");
+            checkForOpenQuoteParameter();
         })
         .catch(err => {
             console.error("[fetchQuotes] Błąd pobierania wycen:", err);
@@ -181,10 +186,21 @@ function showDetailsModal(quoteData) {
 
     // NOWE: Sprawdź czy wycena jest zaakceptowana
     const isAccepted = checkIfQuoteAccepted(quoteData);
+    
+    // NOWE: Sprawdź czy zamówienie zostało złożone
+    const isOrdered = checkIfQuoteOrdered(quoteData);
 
-    // NOWE: Dodaj/usuń klasę CSS dla zielonego obramowania
-    if (isAccepted) {
+    // NOWE: Dodaj/usuń klasę CSS dla obramowania - priorytet ma zamówienie nad akceptacją
+    if (isOrdered) {
+        modalBox.classList.add('quote-ordered');
+        modalBox.classList.remove('quote-accepted');
+        console.log('[MODAL] Zamówienie złożone - dodano niebieskie obramowanie');
+
+        // Dodaj banner informacyjny o złożeniu zamówienia
+        addOrderBanner(modalBox, quoteData);
+    } else if (isAccepted) {
         modalBox.classList.add('quote-accepted');
+        modalBox.classList.remove('quote-ordered');
         acceptedQuotes.add(quoteData.id);
         console.log('[MODAL] Wycena zaakceptowana - dodano zielone obramowanie');
 
@@ -199,9 +215,10 @@ function showDetailsModal(quoteData) {
             }, 6000);
         }, 500);
     } else {
-        modalBox.classList.remove('quote-accepted');
+        modalBox.classList.remove('quote-accepted', 'quote-ordered');
         acceptedQuotes.delete(quoteData.id);
         removeAcceptanceBanner(modalBox);
+        removeOrderBanner(modalBox);
     }
 
     // POPRAWIONE dane klienta - właściwe mapowanie pól
@@ -276,6 +293,23 @@ function checkIfQuoteAccepted(quoteData) {
     return isAcceptedByName || isAcceptedById || isAcceptedByEditability;
 }
 
+function checkIfQuoteOrdered(quoteData) {
+    // Sprawdź czy wycena ma przypisane zamówienie Baselinker
+    const hasBaselinkerOrder = quoteData.base_linker_order_id && quoteData.base_linker_order_id > 0;
+
+    // Sprawdź po nazwie statusu (ID 4 = Złożone)
+    const isOrderedByStatus = quoteData.status_id === 4;
+
+    console.log('[MODAL] Sprawdzanie złożenia zamówienia:', {
+        statusId: quoteData.status_id,
+        baselinkerOrderId: quoteData.base_linker_order_id,
+        hasBaselinkerOrder,
+        isOrderedByStatus
+    });
+
+    return hasBaselinkerOrder || isOrderedByStatus;
+}
+
 // 4. DODAJ funkcję do dodawania bannera akceptacji
 function addAcceptanceBanner(modalBox, quoteData) {
     // Usuń istniejący banner jeśli jest
@@ -311,6 +345,45 @@ function addAcceptanceBanner(modalBox, quoteData) {
 
 function removeAcceptanceBanner(modalBox) {
     const existingBanner = modalBox.querySelector('.acceptance-banner');
+    if (existingBanner) {
+        existingBanner.remove();
+    }
+}
+
+function addOrderBanner(modalBox, quoteData) {
+    // Usuń istniejący banner jeśli jest
+    removeOrderBanner(modalBox);
+
+    // Sprawdź czy są dane o zamówieniu
+    let orderDate = '';
+    if (quoteData.order_date) {
+        const date = new Date(quoteData.order_date);
+        orderDate = date.toLocaleString('pl-PL');
+    }
+
+    const banner = document.createElement('div');
+    banner.className = 'order-banner';
+    banner.innerHTML = `
+        <svg class="banner-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        <div class="banner-text">
+            <div>Zamówienie zostało złożone w systemie Baselinker</div>
+            ${quoteData.base_linker_order_id ? `<div class="banner-date">Numer zamówienia: #${quoteData.base_linker_order_id}</div>` : ''}
+        </div>
+    `;
+
+    // Wstaw banner na początku modalBox (po headerze)
+    const header = modalBox.querySelector('.sticky-header');
+    if (header && header.nextSibling) {
+        modalBox.insertBefore(banner, header.nextSibling);
+    } else {
+        modalBox.appendChild(banner);
+    }
+}
+
+function removeOrderBanner(modalBox) {
+    const existingBanner = modalBox.querySelector('.order-banner');
     if (existingBanner) {
         existingBanner.remove();
     }
@@ -379,6 +452,70 @@ function updateCostsDisplay(quoteData) {
     const courierElement = document.getElementById('quotes-details-modal-courier-name');
     if (courierElement) {
         courierElement.textContent = quoteData.courier_name || '-';
+    }
+    
+    // NOWE: Sekcja Baselinker
+    updateBaselinkerSection(quoteData);
+}
+
+function updateBaselinkerSection(quoteData) {
+    const section = document.getElementById('baselinker-section');
+    const orderNumber = document.getElementById('baselinker-order-number');
+    const orderLink = document.getElementById('baselinker-order-link');
+    const orderStatus = document.getElementById('baselinker-order-status');
+    
+    if (!section || !orderNumber || !orderLink || !orderStatus) {
+        console.warn('[updateBaselinkerSection] Brak elementów sekcji Baselinker');
+        return;
+    }
+    
+    // Sprawdź czy wycena ma zamówienie Baselinker
+    if (quoteData.base_linker_order_id) {
+        section.style.display = 'block';
+        orderNumber.textContent = `#${quoteData.base_linker_order_id}`;
+        orderLink.href = `https://panel-f.baselinker.com/orders.php#order:${quoteData.base_linker_order_id}`;
+        
+        // Pobierz status z Baselinker (asynchronicznie)
+        fetchBaselinkerOrderStatus(quoteData.base_linker_order_id)
+            .then(status => {
+                orderStatus.textContent = status || 'Nieznany';
+            })
+            .catch(error => {
+                console.error('[updateBaselinkerSection] Błąd pobierania statusu:', error);
+                orderStatus.textContent = 'Błąd pobierania lub nie znaleziono zamówienia';
+            });
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+async function fetchBaselinkerOrderStatus(orderId) {
+    console.log(`[fetchBaselinkerOrderStatus] Rozpoczynam pobieranie statusu dla zamówienia ID: ${orderId}`);
+    
+    try {
+        const url = `/baselinker/api/order/${orderId}/status`;
+        console.log(`[fetchBaselinkerOrderStatus] URL żądania: ${url}`);
+        
+        const response = await fetch(url);
+        console.log(`[fetchBaselinkerOrderStatus] Odpowiedź HTTP status: ${response.status}`);
+        
+        if (!response.ok) {
+            console.error(`[fetchBaselinkerOrderStatus] HTTP błąd: ${response.status} ${response.statusText}`);
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('[fetchBaselinkerOrderStatus] Pełna odpowiedź z API:', data);
+        console.log('[fetchBaselinkerOrderStatus] status_name z odpowiedzi:', data.status_name);
+        
+        const statusName = data.status_name || 'Nieznany';
+        console.log(`[fetchBaselinkerOrderStatus] Zwracam status: "${statusName}"`);
+        
+        return statusName;
+    } catch (error) {
+        console.error('[fetchBaselinkerOrderStatus] Błąd podczas pobierania statusu:', error);
+        console.error('[fetchBaselinkerOrderStatus] Stack trace:', error.stack);
+        return 'Błąd pobierania lub nie znaleziono zamówienia';
     }
 }
 
@@ -1829,4 +1966,87 @@ function fallbackCopyToClipboard(text) {
     }
 
     document.body.removeChild(textArea);
+}
+
+// NOWA FUNKCJONALNOŚĆ: Sprawdzanie parametru open_quote w URL
+function checkForOpenQuoteParameter() {
+    console.log("[checkForOpenQuoteParameter] START - sprawdzam URL:", window.location.search);
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    let openQuoteId = urlParams.get('open_quote');
+    
+    console.log("[checkForOpenQuoteParameter] Parametr open_quote z URL:", openQuoteId);
+    
+    // BACKUP: Sprawdź sessionStorage jeśli brak w URL
+    if (!openQuoteId) {
+        openQuoteId = sessionStorage.getItem('openQuoteId');
+        console.log("[checkForOpenQuoteParameter] Parametr open_quote z sessionStorage:", openQuoteId);
+        
+        // Wyczyść sessionStorage po użyciu
+        if (openQuoteId) {
+            sessionStorage.removeItem('openQuoteId');
+        }
+    }
+    
+    if (openQuoteId) {
+        console.log(`[checkForOpenQuoteParameter] ✅ Wykryto parametr open_quote=${openQuoteId}`);
+        
+        // Usuń parametr z URL (opcjonalnie)
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+        console.log("[checkForOpenQuoteParameter] Usunięto parametr z URL");
+        
+        // Otwórz modal szczegółów wyceny
+        console.log("[checkForOpenQuoteParameter] Ustawiam timeout na otwarcie modala...");
+        setTimeout(() => {
+            console.log("[checkForOpenQuoteParameter] Wywołuję openQuoteDetailsById");
+            openQuoteDetailsById(openQuoteId);
+        }, 300);
+    } else {
+        console.log("[checkForOpenQuoteParameter] ❌ Nie znaleziono parametru open_quote ani w URL ani w sessionStorage");
+    }
+}
+
+// Funkcja pomocnicza do otwierania modala szczegółów wyceny po ID
+async function openQuoteDetailsById(quoteId) {
+    try {
+        console.log(`[openQuoteDetailsById] Pobieranie szczegółów wyceny ID: ${quoteId}`);
+        
+        // Sprawdź czy allQuotes jest już załadowane
+        if (!allQuotes || allQuotes.length === 0) {
+            console.log(`[openQuoteDetailsById] allQuotes nie jest załadowane, czekam...`);
+            // Jeśli nie, poczekaj chwilę i spróbuj ponownie
+            setTimeout(() => openQuoteDetailsById(quoteId), 500);
+            return;
+        }
+        
+        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const quoteData = await response.json();
+        console.log(`[openQuoteDetailsById] Otrzymano dane wyceny: ${quoteData.quote_number}`);
+        
+        // Sprawdź czy funkcja showDetailsModal istnieje
+        if (typeof showDetailsModal === 'function') {
+            // Otwórz modal
+            showDetailsModal(quoteData);
+            
+            // Pokaż toast informacyjny
+            if (typeof showToast === 'function') {
+                showToast(`Otwarto szczegóły wyceny ${quoteData.quote_number}`, 'success');
+            }
+        } else {
+            console.error('[openQuoteDetailsById] Funkcja showDetailsModal nie istnieje');
+        }
+        
+    } catch (error) {
+        console.error(`[openQuoteDetailsById] Błąd podczas otwierania wyceny ID ${quoteId}:`, error);
+        if (typeof showToast === 'function') {
+            showToast('Nie udało się otworzyć szczegółów wyceny', 'error');
+        } else {
+            alert('Nie udało się otworzyć szczegółów wyceny');
+        }
+    }
 }
