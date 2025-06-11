@@ -43,6 +43,15 @@ def get_order_modal_data(quote_id):
             is_active=True
         ).all()
         
+        # POPRAWKA: Ustaw domyślne wartości dla statusów
+        # Znajdź status "Nowe - nieopłacone" (ID: 105112) i ustaw jako domyślny
+        for status in order_statuses:
+            if status.baselinker_id == 105112:
+                status.is_default = True
+                print(f"[get_order_modal_data] Ustawiono status '{status.name}' (ID: {status.baselinker_id}) jako domyślny", file=sys.stderr)
+            else:
+                status.is_default = False
+        
         # Oblicz koszty
         selected_items = [item for item in quote.items if item.is_selected]
         cost_products_netto = sum(item.final_price_netto or 0 for item in selected_items)
@@ -70,6 +79,7 @@ def get_order_modal_data(quote_id):
             },
             'client': {
                 'name': quote.client.client_name if quote.client else None,
+                'number': quote.client.client_number if quote.client else None,  # DODANE: client_number
                 'company': quote.client.invoice_company or quote.client.delivery_company,
                 'email': quote.client.email if quote.client else None,
                 'phone': quote.client.phone if quote.client else None,
@@ -127,7 +137,7 @@ def get_order_modal_data(quote_id):
                     for status in order_statuses
                 ],
                 'payment_methods': [
-                    'Przelew bankowy',
+                    'Przelew bankowy',  # POPRAWKA: Jako pierwszy (domyślny)
                     'Płatność przy odbiorze', 
                     'Przelewy24.pl',
                     'Gotówka'
@@ -135,7 +145,7 @@ def get_order_modal_data(quote_id):
                 'delivery_methods': [
                     quote.courier_name or 'Przesyłka kurierska',
                     'Transport własny',
-                    'Odbior osobisty'
+                    'Odbiór osobisty'  # DODANE: Opcja odbioru osobistego
                 ]
             }
         })

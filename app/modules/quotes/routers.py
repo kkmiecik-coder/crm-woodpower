@@ -211,7 +211,6 @@ def update_quote_status(quote_id):
         return jsonify({"error": "Błąd podczas aktualizacji statusu"}), 500
 
 @quotes_bp.route("/api/quotes/<int:quote_id>/pdf.<format>", methods=["GET"])
-@login_required
 def generate_quote_pdf(quote_id, format):
     print(f"[generate_quote_pdf] START -> format={format}, ID={quote_id}", file=sys.stderr)
     

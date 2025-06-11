@@ -194,10 +194,6 @@
     margin-bottom: 32px;
 }
 
-    .bl-style-section:last-child {
-        margin-bottom: 0;
-    }
-
 .bl-style-section-title {
     font-size: 18px;
     font-weight: 600;
@@ -234,6 +230,7 @@
     border-radius: 8px;
     padding: 20px;
     border-left: 4px solid #ED6B24;
+    margin-bottom: 20px;
 }
 
 .bl-style-summary-row {

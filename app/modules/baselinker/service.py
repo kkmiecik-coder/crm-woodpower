@@ -312,34 +312,33 @@ class BaselinkerService:
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
-            
+        
             # Generuj SKU według schematu
             sku = self._generate_sku(item, finishing_details)
-            
+        
             # Nazwa produktu z wymiarami
             base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
-        
-            # POPRAWKA: Oblicz cenę produktu + wykończenie
-            # Cena surowego produktu
+    
+            # Oblicz cenę produktu + wykończenie
             product_price_netto = float(item.final_price_netto or 0)
             product_price_brutto = float(item.final_price_brutto or 0)
-            
+        
             # Dodaj cenę wykończenia jeśli istnieje
             finishing_price_netto = 0
             finishing_price_brutto = 0
-            
+        
             if finishing_details and finishing_details.finishing_price_netto:
                 finishing_price_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_price_brutto = float(finishing_details.finishing_price_brutto or 0)
-                
-                print(f"[BaselinkerService] Produkt {item.product_index}: surowy={product_price_netto}, wykończenie={finishing_price_netto}", file=sys.stderr)
             
+                print(f"[BaselinkerService] Produkt {item.product_index}: surowy={product_price_netto}, wykończenie={finishing_price_netto}", file=sys.stderr)
+        
             # Suma: produkt surowy + wykończenie
             total_price_netto = product_price_netto + finishing_price_netto
             total_price_brutto = product_price_brutto + finishing_price_brutto
-            
+        
             print(f"[BaselinkerService] Końcowa cena produktu {item.product_index}: netto={total_price_netto}, brutto={total_price_brutto}", file=sys.stderr)
-            
+        
             # Nazwa produktu z wykończeniem
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
@@ -355,7 +354,7 @@ class BaselinkerService:
                     product_name = f"{base_name} surowe"
             else:
                 product_name = f"{base_name} surowe"
-        
+    
             products.append({
                 'storage': 'db',
                 'storage_id': 0,
@@ -367,22 +366,33 @@ class BaselinkerService:
                 'location': '',
                 'warehouse_id': 0,
                 'attributes': '',
-                'price_brutto': total_price_brutto,  # POPRAWKA: Używamy sumy
-                'price_netto': total_price_netto,    # POPRAWKA: Używamy sumy
+                'price_brutto': total_price_brutto,
+                'price_netto': total_price_netto,
                 'tax_rate': 23,
                 'quantity': 1,
                 'weight': self._calculate_item_weight(item)
             })
-    
+
         # Dane klienta
         client = quote.client
     
+        # NOWA LOGIKA: Sprawdź metodę dostawy i ustaw odpowiedni koszt wysyłki
+        delivery_method = config.get('delivery_method', quote.courier_name or 'Kurier')
+        delivery_price = float(quote.shipping_cost_brutto or 0)
+    
+        # KLUCZOWA POPRAWKA: Zeruj koszt wysyłki dla odbioru osobistego
+        if delivery_method and ('odbior' in delivery_method.lower() or 'odbiór' in delivery_method.lower()):
+            print(f"[BaselinkerService] Wykryto odbiór osobisty - zerowanie kosztów wysyłki z {delivery_price} na 0.00", file=sys.stderr)
+            delivery_price = 0.0
+        else:
+            print(f"[BaselinkerService] Metoda dostawy '{delivery_method}' - koszt wysyłki: {delivery_price}", file=sys.stderr)
+
         order_data = {
             'custom_source_id': config.get('order_source_id', 1),
-            'order_status_id': config.get('order_status_id', 1),
+            'order_status_id': config.get('order_status_id', 105112),  # POPRAWKA: Domyślny status "Nowe - nieopłacone"
             'date_add': int(time.time()),
             'currency': 'PLN',
-            'payment_method': config.get('payment_method', 'Przelew bankowy'),
+            'payment_method': config.get('payment_method', 'Przelew bankowy'),  # POPRAWKA: Domyślna metoda płatności
             'payment_method_cod': False,
             'paid': 0,
             'user_comments': f"Zamowienie z wyceny {quote.quote_number}",
@@ -390,8 +400,8 @@ class BaselinkerService:
             'phone': client.phone or '',
             'email': client.email or '',
             'user_login': client.client_name or '',
-            'delivery_method': config.get('delivery_method', quote.courier_name or 'Kurier'),
-            'delivery_price': float(quote.shipping_cost_brutto or 0),
+            'delivery_method': delivery_method,
+            'delivery_price': delivery_price,  # POPRAWKA: Użyj przeliczonej ceny dostawy
             'delivery_fullname': client.client_delivery_name or client.client_name or '',
             'delivery_company': client.delivery_company or client.invoice_company or '',
             'delivery_address': client.delivery_address or '',
