@@ -145,6 +145,7 @@ class BaselinkerModal {
             delivery_address: clientData.delivery_address || '',
             delivery_postcode: clientData.delivery_postcode || '',
             delivery_city: clientData.delivery_city || '',
+            delivery_region: clientData.delivery_region || '',
             email: clientData.email || '',
             phone: clientData.phone || '',
             invoice_name: clientData.invoice_name || clientData.name || '',
@@ -153,6 +154,7 @@ class BaselinkerModal {
             invoice_address: clientData.invoice_address || clientData.delivery_address || '',
             invoice_postcode: clientData.invoice_postcode || clientData.delivery_postcode || '',
             invoice_city: clientData.invoice_city || clientData.delivery_city || '',
+            invoice_region: clientData.invoice_region || clientData.delivery_region || '',
             want_invoice: !!(clientData.invoice_nip && clientData.invoice_nip.trim() !== '')
         };
     }
@@ -165,6 +167,7 @@ class BaselinkerModal {
             delivery_address: this.getInputValue('delivery-address'),
             delivery_postcode: this.getInputValue('delivery-postcode'),
             delivery_city: this.getInputValue('delivery-city'),
+            delivery_region: this.getInputValue('delivery-region'),
             email: this.getInputValue('client-email'),
             phone: this.getInputValue('client-phone'),
             invoice_name: this.getInputValue('invoice-fullname'),
@@ -173,8 +176,36 @@ class BaselinkerModal {
             invoice_address: this.getInputValue('invoice-address'),
             invoice_postcode: this.getInputValue('invoice-postcode'),
             invoice_city: this.getInputValue('invoice-city'),
+            invoice_region: this.getInputValue('invoice-region'),
             want_invoice: document.getElementById('want-invoice-checkbox')?.checked || false
         };
+    }
+
+    setSelectValue(selectId, value) {
+        const select = document.getElementById(selectId);
+        if (select && value) {
+            // Znajdź opcję o odpowiedniej wartości
+            const option = Array.from(select.options).find(opt =>
+                opt.value.toLowerCase() === value.toLowerCase()
+            );
+
+            if (option) {
+                select.value = option.value;
+                console.log(`[Baselinker] ✅ Ustawiono ${selectId}: ${option.value}`);
+            } else {
+                console.log(`[Baselinker] ⚠️ Nie znaleziono opcji "${value}" w ${selectId}`);
+                // Jeśli nie ma dokładnego dopasowania, spróbuj częściowego
+                const partialMatch = Array.from(select.options).find(opt =>
+                    opt.value.toLowerCase().includes(value.toLowerCase()) ||
+                    value.toLowerCase().includes(opt.value.toLowerCase())
+                );
+
+                if (partialMatch) {
+                    select.value = partialMatch.value;
+                    console.log(`[Baselinker] ✅ Częściowe dopasowanie ${selectId}: ${partialMatch.value}`);
+                }
+            }
+        }
     }
 
     // NOWA FUNKCJA: Porównuje dane klienta
@@ -327,28 +358,68 @@ class BaselinkerModal {
 
         console.log('[Baselinker] Konfiguracja otrzymana:', config);
 
-        // Źródła zamówień
+        // 1. ŹRÓDŁA ZAMÓWIEŃ
         const orderSourceSelect = document.getElementById('order-source-select');
         if (orderSourceSelect) {
             orderSourceSelect.innerHTML = '<option value="">Wybierz źródło...</option>';
 
-            const validSources = config.order_sources.filter(source => source.id && source.id !== 0);
-            console.log(`[Baselinker] Prawidłowe źródła (bez ID=0): ${validSources.length}`, validSources);
+            // Usuń tylko undefined/null, ale zostaw 0 (to jest prawidłowe ID)
+            const validSources = config.order_sources.filter(source =>
+                source.id !== null && source.id !== undefined && source.id !== ''
+            );
+            console.log(`[Baselinker] Prawidłowe źródła (włącznie z ID=0): ${validSources.length}`, validSources);
+
+            let sourceSelected = false;
 
             validSources.forEach(source => {
                 const option = document.createElement('option');
                 option.value = source.id;
                 option.textContent = source.name;
-                option.selected = source.is_default;
+
                 orderSourceSelect.appendChild(option);
             });
 
-            // Auto-wybierz pierwszy dostępny jeśli brak domyślnego
-            if (validSources.length > 0 && !validSources.some(s => s.is_default)) {
-                orderSourceSelect.value = validSources[0].id;
-                console.log(`[Baselinker] Auto-wybrano pierwsze źródło: ${validSources[0].name}`);
+            // TYLKO dopasowanie na podstawie źródła wyceny - BEZ FALLBACK
+            const quoteSource = this.modalData.quote.source;
+            console.log(`[Baselinker] Źródło wyceny: "${quoteSource}"`);
+
+            if (quoteSource) {
+                // Szukaj dopasowania po nazwie źródła
+                const matchingSource = validSources.find(source => {
+                    const sourceName = source.name.toLowerCase();
+                    const quoteSourceLower = quoteSource.toLowerCase();
+
+                    // Dopasowania:
+                    return sourceName.includes(quoteSourceLower) ||
+                        quoteSourceLower.includes(sourceName.split(' ')[0]) ||
+                        // Dodatkowe dopasowanie dla "Osobiście"
+                        (quoteSourceLower === 'osobiście' && sourceName.includes('osobiście')) ||
+                        (quoteSourceLower === 'osobiscie' && sourceName.includes('osobiście'));
+                });
+
+                if (matchingSource) {
+                    orderSourceSelect.value = matchingSource.id;
+                    sourceSelected = true;
+                    console.log(`[Baselinker] ✅ Automatycznie dopasowano źródło: ${matchingSource.name} (ID: ${matchingSource.id}) na podstawie źródła wyceny "${quoteSource}"`);
+                } else {
+                    console.log(`[Baselinker] ⚠️ Nie znaleziono dopasowania dla źródła wyceny "${quoteSource}"`);
+                    console.log(`[Baselinker] Dostępne źródła:`, validSources.map(s => ({ id: s.id, name: s.name })));
+                }
             }
 
+            // 🔧 POPRAWKA: USUŃ FALLBACK NA DOMYŚLNE ŹRÓDŁO
+            // NIE sprawdzaj is_default - pozostaw puste pole jeśli nie ma dopasowania
+
+            // Komunikat o rezultacie
+            if (!sourceSelected) {
+                if (quoteSource) {
+                    console.log(`[Baselinker] ⚪ Nie znaleziono dopasowania dla źródła "${quoteSource}" - użytkownik musi wybrać ręcznie`);
+                } else {
+                    console.log(`[Baselinker] ⚪ Brak źródła w wycenie - użytkownik musi wybrać ręcznie`);
+                }
+            }
+
+            // Informacja o braku źródeł
             if (validSources.length === 0) {
                 const option = document.createElement('option');
                 option.value = '';
@@ -358,7 +429,7 @@ class BaselinkerModal {
             }
         }
 
-        // Statusy zamówień
+        // 2. STATUSY ZAMÓWIEŃ - POPRAWIONA LOGIKA
         const orderStatusSelect = document.getElementById('order-status-select');
         if (orderStatusSelect) {
             orderStatusSelect.innerHTML = '<option value="">Wybierz status...</option>';
@@ -370,42 +441,72 @@ class BaselinkerModal {
                 option.value = status.id;
                 option.textContent = status.name;
 
-                if (status.id === 105112 || status.name.includes('Nowe - nieopłacone')) {
+                // POPRAWKA: Priorytet dla statusu "Nowe - nieopłacone" (ID: 105112)
+                if (status.id === 105112) {
                     option.selected = true;
                     defaultStatusSet = true;
-                    console.log(`[Baselinker] Ustawiono domyślny status: ${status.name} (${status.id})`);
+                    console.log(`[Baselinker] ✅ Ustawiono PRIORYTETOWY status: ${status.name} (ID: ${status.id})`);
                 }
 
                 orderStatusSelect.appendChild(option);
             });
 
+            // KRYTYCZNE: Ustaw wartość select programowo
             if (defaultStatusSet) {
                 orderStatusSelect.value = '105112';
+                console.log(`[Baselinker] ✅ Programowo ustawiono wartość select na: ${orderStatusSelect.value}`);
+            }
+
+            // Fallback - jeśli nie ma statusu 105112, spróbuj znaleźć podobny
+            if (!defaultStatusSet) {
+                const fallbackStatus = config.order_statuses.find(status =>
+                    status.name.toLowerCase().includes('nowe') &&
+                    status.name.toLowerCase().includes('nieopłacone')
+                );
+
+                if (fallbackStatus) {
+                    orderStatusSelect.value = fallbackStatus.id;
+                    console.log(`[Baselinker] ✅ Fallback: ustawiono status ${fallbackStatus.name} (ID: ${fallbackStatus.id})`);
+                }
             }
         }
 
-        // Metody płatności
+        // 3. METODY PŁATNOŚCI - POPRAWIONA LOGIKA
         const paymentMethodSelect = document.getElementById('payment-method-select');
         if (paymentMethodSelect) {
             paymentMethodSelect.innerHTML = '<option value="">Wybierz metodę...</option>';
+
+            let defaultPaymentSet = false;
 
             config.payment_methods.forEach(method => {
                 const option = document.createElement('option');
                 option.value = method;
                 option.textContent = method;
 
+                // POPRAWKA: Priorytet dla "Przelew bankowy"
                 if (method === 'Przelew bankowy') {
                     option.selected = true;
-                    console.log(`[Baselinker] Ustawiono domyślną metodę płatności: ${method}`);
+                    defaultPaymentSet = true;
+                    console.log(`[Baselinker] ✅ Ustawiono PRIORYTETOWĄ metodę płatności: ${method}`);
                 }
 
                 paymentMethodSelect.appendChild(option);
             });
 
-            paymentMethodSelect.value = 'Przelew bankowy';
+            // KRYTYCZNE: Ustaw wartość select programowo
+            if (defaultPaymentSet) {
+                paymentMethodSelect.value = 'Przelew bankowy';
+                console.log(`[Baselinker] ✅ Programowo ustawiono metodę płatności: ${paymentMethodSelect.value}`);
+            }
+
+            // Fallback - jeśli nie ma "Przelew bankowy", weź pierwszy z listy
+            if (!defaultPaymentSet && config.payment_methods.length > 0) {
+                paymentMethodSelect.value = config.payment_methods[0];
+                console.log(`[Baselinker] ✅ Fallback: ustawiono pierwszą metodę płatności: ${config.payment_methods[0]}`);
+            }
         }
 
-        // Metody dostawy - POPRAWKA: LEPSZE USTAWIENIE DOMYŚLNEJ WARTOŚCI
+        // 4. METODY DOSTAWY - BEZ ZMIAN
         const deliveryMethodSelect = document.getElementById('delivery-method-select');
         if (deliveryMethodSelect) {
             deliveryMethodSelect.innerHTML = '<option value="">Wybierz metodę...</option>';
@@ -421,7 +522,7 @@ class BaselinkerModal {
                 if (method === this.modalData.courier && this.modalData.courier) {
                     option.selected = true;
                     courierMethodSet = true;
-                    console.log(`[Baselinker] Ustawiono metodę dostawy z wyceny: ${method}`);
+                    console.log(`[Baselinker] ✅ Ustawiono metodę dostawy z wyceny: ${method}`);
                 }
 
                 deliveryMethodSelect.appendChild(option);
@@ -432,20 +533,25 @@ class BaselinkerModal {
                 deliveryMethodSelect.value = this.modalData.courier;
             } else if (config.delivery_methods.length > 0) {
                 deliveryMethodSelect.value = config.delivery_methods[0];
-                console.log(`[Baselinker] Auto-wybrano pierwszą metodę dostawy: ${config.delivery_methods[0]}`);
+                console.log(`[Baselinker] ✅ Auto-wybrano pierwszą metodę dostawy: ${config.delivery_methods[0]}`);
             }
         }
 
-        // Event listenery
+        // 5. SETUP EVENT LISTENERS - POPRAWIONY
         this.setupConfigurationEventListeners();
 
-        // KRYTYCZNE: Ustaw obsługę metody dostawy PO wypełnieniu pól
+        // 6. OPÓŹNIONA WALIDACJA I SETUP
         setTimeout(() => {
-            this.handleDeliveryMethodChange();
-            console.log('[Baselinker] Uruchamiam walidację po ustawieniu domyślnych wartości');
-            this.validateConfiguration();
+            // Debug wartości
+            console.log('[Baselinker] 🔍 DEBUG po ustawieniu domyślnych wartości:');
+            this.debugSelectValues();
 
-            // Debug kosztów
+            // 🔧 POPRAWKA: Wywołaj handleDeliveryMethodChange() TYLKO RAZ na początku
+            if (!this.deliveryMethodListenerAttached) {
+                this.handleDeliveryMethodChange();
+                this.deliveryMethodListenerAttached = true;
+            }
+
             this.debugShippingCosts();
         }, 100);
     }
@@ -457,20 +563,30 @@ class BaselinkerModal {
 
     // 5. NOWA METODA - POPRAWIONA OBSŁUGA EVENT LISTENERÓW KONFIGURACJI
     setupConfigurationEventListeners() {
-        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select'];
+        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select', 'delivery-method-select'];
 
         selectIds.forEach(selectId => {
             const select = document.getElementById(selectId);
             if (select) {
-                // POPRAWKA: Usuń wszystkie event listenery przez klonowanie
+                // 🔧 POPRAWKA: Zachowaj aktualną wartość przed klonowaniem
+                const currentValue = select.value;
+                console.log(`[Baselinker] 💾 Zachowuję wartość ${selectId}: "${currentValue}"`);
+
+                // Usuń poprzednie event listenery przez klonowanie
                 const newSelect = select.cloneNode(true);
                 select.parentNode.replaceChild(newSelect, select);
 
-                // Dodaj nowy event listener do świeżego elementu
+                // 🔧 POPRAWKA: Przywróć wartość po klonowaniu
                 const freshSelect = document.getElementById(selectId);
+                if (freshSelect && currentValue) {
+                    freshSelect.value = currentValue;
+                    console.log(`[Baselinker] ✅ Przywrócono wartość ${selectId}: "${freshSelect.value}"`);
+                }
+
+                // Dodaj nowy event listener do świeżego elementu
                 if (freshSelect) {
-                    freshSelect.addEventListener('change', () => {
-                        console.log(`[Baselinker] Zmiana w ${selectId}: ${freshSelect.value}`);
+                    freshSelect.addEventListener('change', (e) => {
+                        console.log(`[Baselinker] 🔄 Zmiana w ${selectId}: "${e.target.value}"`);
 
                         // Usuń błąd z tego pola
                         freshSelect.classList.remove('bl-style-error');
@@ -479,49 +595,120 @@ class BaselinkerModal {
                             errorMsg.remove();
                         }
 
+                        // Specjalna obsługa dla metody dostawy
+                        if (selectId === 'delivery-method-select') {
+                            this.handleDeliveryMethodChangeEvent(e);
+                        }
+
                         // Sprawdź walidację
                         this.validateConfiguration();
                     });
                 }
             }
         });
+
+        console.log('[Baselinker] ✅ Event listenery skonfigurowane z zachowaniem wartości');
+    }
+
+    // NOWA FUNKCJA dla obsługi zmiany metody dostawy z event listenera
+    handleDeliveryMethodChangeEvent(event) {
+        const selectedMethod = event.target.value;
+        console.log(`[Baselinker] 🚚 Zmiana metody dostawy na: "${selectedMethod}"`);
+
+        // Sprawdź czy wybrano odbiór osobisty
+        const isPersonalPickup = selectedMethod && (
+            selectedMethod.toLowerCase().includes('odbiór') ||
+            selectedMethod.toLowerCase().includes('odbior') ||
+            selectedMethod.toLowerCase().includes('personal') ||
+            selectedMethod.toLowerCase().includes('pickup')
+        );
+
+        if (isPersonalPickup) {
+            console.log('[Baselinker] 🏪 Wykryto odbiór osobisty - zerowanie kosztów wysyłki');
+            this.updateShippingCosts(0);
+        } else {
+            console.log(`[Baselinker] 🚛 Przywracanie oryginalnych kosztów wysyłki: ${this.originalShippingCost}`);
+            this.updateShippingCosts(this.originalShippingCost);
+        }
+
+        // Zaktualizuj wszystkie podsumowania
+        this.updateAllSummariesWithNewShipping();
     }
 
     populateClientData() {
         const client = this.modalData.client;
 
-        // POPRAWKA: Wypełnij dane dostawy używając client_number zamiast client_name
+        // Wypełnij dane dostawy
         this.setInputValue('delivery-fullname', client.delivery_name || client.number || '');
         this.setInputValue('delivery-company', client.delivery_company || client.company || '');
         this.setInputValue('delivery-address', client.delivery_address || '');
         this.setInputValue('delivery-postcode', client.delivery_postcode || '');
         this.setInputValue('delivery-city', client.delivery_city || '');
+        this.setInputValue('delivery-region', client.delivery_region || '');
         this.setInputValue('client-email', client.email || '');
         this.setInputValue('client-phone', client.phone || '');
 
-        // Wypełnij dane faktury - tutaj można pozostać przy client.name
+        // Wypełnij dane faktury
         this.setInputValue('invoice-fullname', client.invoice_name || client.name || '');
         this.setInputValue('invoice-company', client.invoice_company || client.company || '');
         this.setInputValue('invoice-nip', client.invoice_nip || '');
         this.setInputValue('invoice-address', client.invoice_address || client.delivery_address || '');
         this.setInputValue('invoice-postcode', client.invoice_postcode || client.delivery_postcode || '');
         this.setInputValue('invoice-city', client.invoice_city || client.delivery_city || '');
+        this.setInputValue('invoice-region', client.invoice_region || client.delivery_region || '');
 
-        // Checkbox faktury
+        // Checkbox faktury i event listener
         const wantInvoiceCheckbox = document.getElementById('want-invoice-checkbox');
         const invoiceSection = document.getElementById('invoice-data-section');
 
         if (wantInvoiceCheckbox && invoiceSection) {
-            // Sprawdź czy klient ma NIP - jeśli tak, to prawdopodobnie chce fakturę
             const hasNip = client.invoice_nip && client.invoice_nip.trim() !== '';
             wantInvoiceCheckbox.checked = hasNip;
             invoiceSection.style.display = hasNip ? 'block' : 'none';
 
-            // Event listener dla checkboxa
+            // 🆕 NOWY EVENT LISTENER: Auto-kopiowanie danych z dostawy do faktury
             wantInvoiceCheckbox.addEventListener('change', (e) => {
                 invoiceSection.style.display = e.target.checked ? 'block' : 'none';
+
+                // Jeśli włączono fakturę i pola faktury są puste, skopiuj z dostawy
+                if (e.target.checked && this.shouldAutoCopyToInvoice()) {
+                    this.autoCopyDeliveryToInvoice();
+                }
             });
         }
+    }
+
+    shouldAutoCopyToInvoice() {
+        const invoiceFields = [
+            'invoice-fullname', 'invoice-company', 'invoice-address',
+            'invoice-postcode', 'invoice-city', 'invoice-region'
+        ];
+
+        // Sprawdź czy wszystkie pola faktury są puste
+        return invoiceFields.every(fieldId => {
+            const value = this.getInputValue(fieldId);
+            return !value || value.trim() === '';
+        });
+    }
+
+    autoCopyDeliveryToInvoice() {
+        const copyMapping = {
+            'delivery-fullname': 'invoice-fullname',
+            'delivery-company': 'invoice-company',
+            'delivery-address': 'invoice-address',
+            'delivery-postcode': 'invoice-postcode',
+            'delivery-city': 'invoice-city',
+            'delivery-region': 'invoice-region' // 🆕 KOPIOWANIE WOJEWÓDZTWA
+        };
+
+        for (const [sourceId, targetId] of Object.entries(copyMapping)) {
+            const sourceValue = this.getInputValue(sourceId);
+            if (sourceValue) {
+                this.setInputValue(targetId, sourceValue);
+            }
+        }
+
+        console.log('[Baselinker] ✅ Auto-skopiowano dane z dostawy do faktury (włącznie z województwem)');
     }
 
     // POPRAWIONA FUNKCJA: Bardziej dokładna walidacja
@@ -541,12 +728,12 @@ class BaselinkerModal {
         console.log(`- Status: "${orderStatus?.value}" (type: ${typeof orderStatus?.value})`);
         console.log(`- Płatność: "${paymentMethod?.value}" (type: ${typeof paymentMethod?.value})`);
 
-        // POPRAWIONA WALIDACJA ŹRÓDŁA - nie akceptuj 0 ani pustych wartości
-        if (!orderSource?.value || orderSource.value.trim() === '' || orderSource.value === '0') {
-            this.markFieldAsError(orderSource, 'Wybierz prawidłowe źródło zamówienia');
-            errorMessages.push('Źródło zamówienia jest wymagane (nie może być 0)');
+        // 🔧 POPRAWIONA WALIDACJA ŹRÓDŁA - akceptuj ID = 0 (ale nie pustą wartość)
+        if (!orderSource?.value || orderSource.value.trim() === '') {
+            this.markFieldAsError(orderSource, 'Wybierz źródło zamówienia z listy');
+            errorMessages.push('Źródło zamówienia jest wymagane - wybierz z listy');
             isValid = false;
-            console.log('[Baselinker] BŁĄD: Nieprawidłowe źródło zamówienia');
+            console.log('[Baselinker] BŁĄD: Nie wybrano źródła zamówienia');
         }
 
         if (!orderStatus?.value || orderStatus.value.trim() === '') {
@@ -603,135 +790,6 @@ class BaselinkerModal {
         }
     }
 
-    populateConfigurationForm() {
-        const config = this.modalData.config;
-
-        console.log('[Baselinker] Konfiguracja otrzymana:', config);
-
-        // Źródła zamówień
-        const orderSourceSelect = document.getElementById('order-source-select');
-        if (orderSourceSelect) {
-            orderSourceSelect.innerHTML = '<option value="">Wybierz źródło...</option>';
-
-            const validSources = config.order_sources.filter(source => source.id && source.id !== 0);
-            console.log(`[Baselinker] Prawidłowe źródła (bez ID=0): ${validSources.length}`, validSources);
-
-            validSources.forEach(source => {
-                const option = document.createElement('option');
-                option.value = source.id;
-                option.textContent = source.name;
-                option.selected = source.is_default;
-                orderSourceSelect.appendChild(option);
-            });
-
-            // Auto-wybierz pierwszy dostępny jeśli brak domyślnego
-            if (validSources.length > 0 && !validSources.some(s => s.is_default)) {
-                orderSourceSelect.value = validSources[0].id;
-                console.log(`[Baselinker] Auto-wybrano pierwsze źródło: ${validSources[0].name}`);
-            }
-
-            if (validSources.length === 0) {
-                const option = document.createElement('option');
-                option.value = '';
-                option.textContent = 'Brak dostępnych źródeł - uruchom synchronizację';
-                option.disabled = true;
-                orderSourceSelect.appendChild(option);
-            }
-        }
-
-        // Statusy zamówień
-        const orderStatusSelect = document.getElementById('order-status-select');
-        if (orderStatusSelect) {
-            orderStatusSelect.innerHTML = '<option value="">Wybierz status...</option>';
-
-            let defaultStatusSet = false;
-
-            config.order_statuses.forEach(status => {
-                const option = document.createElement('option');
-                option.value = status.id;
-                option.textContent = status.name;
-
-                if (status.id === 105112 || status.name.includes('Nowe - nieopłacone')) {
-                    option.selected = true;
-                    defaultStatusSet = true;
-                    console.log(`[Baselinker] Ustawiono domyślny status: ${status.name} (${status.id})`);
-                }
-
-                orderStatusSelect.appendChild(option);
-            });
-
-            if (defaultStatusSet) {
-                orderStatusSelect.value = '105112';
-            }
-        }
-
-        // Metody płatności
-        const paymentMethodSelect = document.getElementById('payment-method-select');
-        if (paymentMethodSelect) {
-            paymentMethodSelect.innerHTML = '<option value="">Wybierz metodę...</option>';
-
-            config.payment_methods.forEach(method => {
-                const option = document.createElement('option');
-                option.value = method;
-                option.textContent = method;
-
-                if (method === 'Przelew bankowy') {
-                    option.selected = true;
-                    console.log(`[Baselinker] Ustawiono domyślną metodę płatności: ${method}`);
-                }
-
-                paymentMethodSelect.appendChild(option);
-            });
-
-            paymentMethodSelect.value = 'Przelew bankowy';
-        }
-
-        // Metody dostawy - POPRAWKA: LEPSZE USTAWIENIE DOMYŚLNEJ WARTOŚCI
-        const deliveryMethodSelect = document.getElementById('delivery-method-select');
-        if (deliveryMethodSelect) {
-            deliveryMethodSelect.innerHTML = '<option value="">Wybierz metodę...</option>';
-
-            let courierMethodSet = false;
-
-            config.delivery_methods.forEach(method => {
-                const option = document.createElement('option');
-                option.value = method;
-                option.textContent = method;
-
-                // Wybierz metodę kuriera z wyceny jako domyślną
-                if (method === this.modalData.courier && this.modalData.courier) {
-                    option.selected = true;
-                    courierMethodSet = true;
-                    console.log(`[Baselinker] Ustawiono metodę dostawy z wyceny: ${method}`);
-                }
-
-                deliveryMethodSelect.appendChild(option);
-            });
-
-            // Ustaw wartość select programowo
-            if (courierMethodSet && this.modalData.courier) {
-                deliveryMethodSelect.value = this.modalData.courier;
-            } else if (config.delivery_methods.length > 0) {
-                deliveryMethodSelect.value = config.delivery_methods[0];
-                console.log(`[Baselinker] Auto-wybrano pierwszą metodę dostawy: ${config.delivery_methods[0]}`);
-            }
-        }
-
-        // Event listenery
-        this.setupConfigurationEventListeners();
-
-        // KRYTYCZNE: Ustaw obsługę metody dostawy PO wypełnieniu pól
-        setTimeout(() => {
-            this.handleDeliveryMethodChange();
-            console.log('[Baselinker] Uruchamiam walidację po ustawieniu domyślnych wartości');
-            this.validateConfiguration();
-
-            // Debug kosztów
-            this.debugShippingCosts();
-        }, 100);
-    }
-
-    // 2. POPRAW METODĘ updateStep - NAPRAWA PRZYCISKU WSTECZ
     updateStep() {
         console.log(`[Baselinker] Updating to step ${this.currentStep}`);
 
@@ -753,12 +811,12 @@ class BaselinkerModal {
             }
         });
 
-        // POPRAWKA: PRAWIDŁOWA OBSŁUGA PRZYCISKÓW
+        // Obsługa przycisków
         const prevBtn = document.getElementById('baselinker-prev-step');
         const nextBtn = document.getElementById('baselinker-next-step');
         const submitBtn = document.getElementById('baselinker-submit-order');
 
-        // PRZYCISK WSTECZ - POPRAWKA
+        // PRZYCISK WSTECZ
         if (prevBtn) {
             if (this.currentStep > 1) {
                 prevBtn.style.display = 'flex';
@@ -771,21 +829,16 @@ class BaselinkerModal {
             }
         }
 
-        // PRZYCISK NASTĘPNY - POPRAWKA
+        // PRZYCISK NASTĘPNY
         if (nextBtn) {
             if (this.currentStep < this.totalSteps) {
                 nextBtn.style.display = 'flex';
 
-                // W kroku 1 przycisk ZAWSZE aktywny
                 if (this.currentStep === 1) {
                     nextBtn.disabled = false;
                     nextBtn.style.opacity = '1';
                     nextBtn.style.cursor = 'pointer';
                     nextBtn.classList.remove('bl-style-btn-disabled');
-                }
-                // W kroku 2 walidacja decyduje
-                else if (this.currentStep === 2) {
-                    // Walidacja zostanie wywołana przez validateConfiguration()
                 }
             } else {
                 nextBtn.style.display = 'none';
@@ -805,11 +858,13 @@ class BaselinkerModal {
             }
         }
 
-        // OBSŁUGA SPECJALNA DLA KAŻDEGO KROKU
+        // 🔧 POPRAWKA: OBSŁUGA SPECJALNA DLA KAŻDEGO KROKU - bez resetowania event listenerów
         if (this.currentStep === 2) {
-            // Krok 2: Konfiguracja - skonfiguruj event listenery i walidację
+            // Krok 2: Konfiguracja - TYLKO wyczyść błędy i uruchom walidację
             this.clearValidationErrors();
-            this.handleDeliveryMethodChange();
+
+            // 🔧 POPRAWKA: NIE wywołuj ponownie handleDeliveryMethodChange() - to resetuje wartości
+            // this.handleDeliveryMethodChange(); // ❌ USUŃ TO
 
             setTimeout(() => {
                 this.validateConfiguration();
@@ -817,22 +872,25 @@ class BaselinkerModal {
         }
 
         if (this.currentStep === 3) {
-            // Krok 3: Potwierdzenie - przygotuj podsumowanie
+            // Krok 3: Potwierdzenie
             this.prepareValidation();
         }
     }
 
     validateConfiguration() {
-        // WAŻNA POPRAWKA: Walidacja TYLKO w kroku 2
+        // Walidacja TYLKO w kroku 2
         if (this.currentStep !== 2) {
             console.log(`[Baselinker] validateConfiguration: Pomijam walidację - obecnie krok ${this.currentStep}`);
             return true;
         }
 
+        // 🔧 DODAJ DEBUG przed walidacją
+        this.debugSelectValues();
+
         const isValid = this.validateConfigurationForm();
         console.log(`[Baselinker] validateConfiguration wynik dla kroku 2: ${isValid}`);
 
-        // Aktualizuj stan przycisku Next TYLKO w kroku 2
+        // Aktualizuj stan przycisku Next
         const nextBtn = document.getElementById('baselinker-next-step');
         if (nextBtn && this.currentStep === 2) {
             nextBtn.disabled = !isValid;
@@ -1242,8 +1300,11 @@ class BaselinkerModal {
 
     // NOWE UTILITY FUNCTIONS
     getInputValue(inputId) {
-        const input = document.getElementById(inputId);
-        return input ? (input.value || '').trim() : '';
+        const element = document.getElementById(inputId);
+        if (element) {
+            return (element.value || '').trim();
+        }
+        return '';
     }
 
     // Utility methods
@@ -1292,9 +1353,15 @@ class BaselinkerModal {
     }
 
     setInputValue(inputId, value) {
-        const input = document.getElementById(inputId);
-        if (input) {
-            input.value = value || '';
+        const element = document.getElementById(inputId);
+        if (element) {
+            if (element.tagName.toLowerCase() === 'select') {
+                // Dla select-ów użyj specjalnej funkcji
+                this.setSelectValue(inputId, value || '');
+            } else {
+                // Dla input-ów normalne ustawienie
+                element.value = value || '';
+            }
         }
     }
 
@@ -1519,6 +1586,56 @@ class BaselinkerModal {
             deliveryMethod.toLowerCase().includes('odbior')
         );
         console.log(`- Czy odbiór osobisty: ${isPersonalPickup}`);
+    }
+
+    debugClientData() {
+        console.log('[Baselinker] 🔍 DEBUG - Dane klienta:');
+
+        const originalData = this.originalClientData;
+        const currentData = this.getCurrentClientData();
+
+        console.log('Oryginalne dane:', originalData);
+        console.log('Aktualne dane:', currentData);
+
+        // Sprawdź które pola się zmieniły
+        const changedFields = [];
+        for (const key in originalData) {
+            if (originalData[key] !== currentData[key]) {
+                changedFields.push({
+                    field: key,
+                    old: originalData[key],
+                    new: currentData[key]
+                });
+            }
+        }
+
+        if (changedFields.length > 0) {
+            console.log('Zmienione pola:', changedFields);
+        } else {
+            console.log('Brak zmian w danych klienta');
+        }
+
+        return changedFields;
+    }
+
+    debugSelectValues() {
+        const selectIds = ['order-source-select', 'order-status-select', 'payment-method-select', 'delivery-method-select'];
+
+        console.log('[Baselinker] 🔍 DEBUG - Aktualne wartości select-ów:');
+        selectIds.forEach(selectId => {
+            const select = document.getElementById(selectId);
+            if (select) {
+                console.log(`- ${selectId}: value="${select.value}", selectedIndex=${select.selectedIndex}, options=${select.options.length}`);
+
+                // Sprawdź czy wartość istnieje w opcjach
+                const option = Array.from(select.options).find(opt => opt.value === select.value);
+                if (!option && select.value) {
+                    console.warn(`⚠️ Wartość "${select.value}" nie istnieje w opcjach ${selectId}!`);
+                }
+            } else {
+                console.log(`- ${selectId}: ELEMENT NIE ZNALEZIONY`);
+            }
+        });
     }
 }
 

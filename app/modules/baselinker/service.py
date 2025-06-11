@@ -115,15 +115,24 @@ class BaselinkerService:
         try:
             sources = self.get_order_sources()
             print(f"[BaselinkerService] Synchronizuje {len(sources)} zrodel", file=sys.stderr)
-            
-            for source in sources:
+        
+            # DODAJ STANDARDOWE ŹRÓDŁA JEŚLI ICH BRAK
+            standard_sources = [
+                {'id': 0, 'name': 'Osobiście (personal)', 'category': 'personal'},
+                # Możesz dodać więcej standardowych źródeł
+            ]
+        
+            # Połącz źródła z API i standardowe
+            all_sources = sources + standard_sources
+        
+            for source in all_sources:
                 print(f"[BaselinkerService] Przetwarzam zrodlo: {source}", file=sys.stderr)
-                
+            
                 existing = BaselinkerConfig.query.filter_by(
                     config_type='order_source',
                     baselinker_id=source.get('id')
                 ).first()
-                
+            
                 if not existing:
                     config = BaselinkerConfig(
                         config_type='order_source',
@@ -136,14 +145,14 @@ class BaselinkerService:
                     existing.name = source.get('name', existing.name)
                     existing.is_active = True
                     print(f"[BaselinkerService] Zaktualizowano zrodlo: {existing.name}", file=sys.stderr)
-            
+        
             db.session.commit()
-            
+        
             saved_count = BaselinkerConfig.query.filter_by(config_type='order_source').count()
             print(f"[BaselinkerService] Zapisano {saved_count} zrodel do bazy", file=sys.stderr)
-            
+        
             return True
-            
+        
         except Exception as e:
             db.session.rollback()
             print(f"[BaselinkerService] Blad synchronizacji zrodel: {e}", file=sys.stderr)
@@ -389,10 +398,10 @@ class BaselinkerService:
 
         order_data = {
             'custom_source_id': config.get('order_source_id', 1),
-            'order_status_id': config.get('order_status_id', 105112),  # POPRAWKA: Domyślny status "Nowe - nieopłacone"
+            'order_status_id': config.get('order_status_id', 105112),
             'date_add': int(time.time()),
             'currency': 'PLN',
-            'payment_method': config.get('payment_method', 'Przelew bankowy'),  # POPRAWKA: Domyślna metoda płatności
+            'payment_method': config.get('payment_method', 'Przelew bankowy'),
             'payment_method_cod': False,
             'paid': 0,
             'user_comments': f"Zamowienie z wyceny {quote.quote_number}",
@@ -401,12 +410,13 @@ class BaselinkerService:
             'email': client.email or '',
             'user_login': client.client_name or '',
             'delivery_method': delivery_method,
-            'delivery_price': delivery_price,  # POPRAWKA: Użyj przeliczonej ceny dostawy
+            'delivery_price': delivery_price,
             'delivery_fullname': client.client_delivery_name or client.client_name or '',
             'delivery_company': client.delivery_company or client.invoice_company or '',
             'delivery_address': client.delivery_address or '',
             'delivery_postcode': client.delivery_zip or '',
             'delivery_city': client.delivery_city or '',
+            'delivery_region': client.delivery_region or '',
             'delivery_country_code': config.get('delivery_country', 'PL'),
             'delivery_point_id': '',
             'delivery_point_name': '',
@@ -419,6 +429,7 @@ class BaselinkerService:
             'invoice_address': client.invoice_address or client.delivery_address or '',
             'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
+            'invoice_region': client.invoice_region or client.delivery_region or '',
             'invoice_country_code': config.get('delivery_country', 'PL'),
             'want_invoice': bool(client.invoice_nip),
             'extra_field_1': quote.quote_number,

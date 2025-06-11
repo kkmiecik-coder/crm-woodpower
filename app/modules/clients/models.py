@@ -25,6 +25,7 @@ class Client(db.Model):
     invoice_address = db.Column(db.String(255))
     invoice_zip = db.Column(db.String(10))
     invoice_city = db.Column(db.String(100))
+    invoice_region = db.Column(db.String(100))
     invoice_nip = db.Column(db.String(20))
 
     # èrÛd≥o pochodzenia

@@ -1234,6 +1234,7 @@
     align-self: stretch;
     transition: all 0.2s ease;
     border: none;
+    color: white;
 }
 
     .edit-btn:hover {
@@ -1353,7 +1354,7 @@
 }
 
     .form-group label {
-        display: block;
+        display: flex;
         margin-bottom: 8px;
         font-size: 14px;
         font-weight: 500;
@@ -1395,20 +1396,36 @@
     cursor: pointer;
     font-size: 14px;
     color: #333;
+    user-select: none;
+    padding: 8px 0;
+    margin: 0;
 }
-
     .checkbox-label input[type="checkbox"] {
-        display: none;
+        position: absolute;
+        opacity: 0;
+        cursor: pointer;
+        height: 0;
+        width: 0;
     }
 
+
 .checkmark {
+    position: relative;
+    display: inline-block;
     width: 20px;
     height: 20px;
+    background-color: #fff;
     border: 2px solid #ddd;
     border-radius: 4px;
     margin-right: 12px;
-    position: relative;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
+    flex-shrink: 0; /* Zapobiega kurczeniu się checkboxa */
+}
+
+/* Hover effect */
+.checkbox-label:hover .checkmark {
+    border-color: #ED6B24;
+    background-color: #FFF8F5;
 }
 
 .checkbox-label input[type="checkbox"]:checked + .checkmark {
@@ -1417,15 +1434,39 @@
 }
 
     .checkbox-label input[type="checkbox"]:checked + .checkmark::after {
-        content: "✓";
+        content: "";
         position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        color: white;
-        font-size: 12px;
-        font-weight: bold;
+        display: block;
+        left: 6px;
+        top: 2px;
+        width: 6px;
+        height: 10px;
+        border: solid white;
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
     }
+
+/* Disabled state */
+.checkbox-label input[type="checkbox"]:disabled + .checkmark {
+    background-color: #f5f5f5;
+    border-color: #ddd;
+    cursor: not-allowed;
+}
+
+.checkbox-label input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+}
+
+/* Text obok checkboxa */
+.checkbox-label span:not(.checkmark) {
+    flex: 1;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    vertical-align: middle;
+}
 
 /* Price preview section */
 .price-preview-section {
@@ -1534,6 +1575,7 @@
     cursor: pointer;
     transition: all 0.2s;
     position: relative;
+    font-family: 'Poppins', sans-serif;
 }
 
 .edit-btn-primary {
@@ -1553,7 +1595,7 @@
 
 .edit-btn-secondary {
     background-color: #f5f5f5;
-    color: #333;
+    color: #fff;
     border: 1px solid #ddd;
 }
 

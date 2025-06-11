@@ -43,14 +43,37 @@ def get_order_modal_data(quote_id):
             is_active=True
         ).all()
         
-        # POPRAWKA: Ustaw domyślne wartości dla statusów
+        # POPRAWKA: Ustaw domyślne wartości dla statusów PRZED zwróceniem danych
         # Znajdź status "Nowe - nieopłacone" (ID: 105112) i ustaw jako domyślny
+        default_status_set = False
         for status in order_statuses:
             if status.baselinker_id == 105112:
                 status.is_default = True
-                print(f"[get_order_modal_data] Ustawiono status '{status.name}' (ID: {status.baselinker_id}) jako domyślny", file=sys.stderr)
+                default_status_set = True
+                print(f"[get_order_modal_data] ✅ Ustawiono status '{status.name}' (ID: {status.baselinker_id}) jako domyślny", file=sys.stderr)
             else:
                 status.is_default = False
+        
+        # Jeśli nie znaleziono statusu 105112, znajdź podobny
+        if not default_status_set:
+            for status in order_statuses:
+                if 'nowe' in status.name.lower() and 'nieopłacone' in status.name.lower():
+                    status.is_default = True
+                    default_status_set = True
+                    print(f"[get_order_modal_data] ✅ Fallback: Ustawiono status '{status.name}' (ID: {status.baselinker_id}) jako domyślny", file=sys.stderr)
+                    break
+        
+        if not default_status_set:
+            print(f"[get_order_modal_data] ⚠️ OSTRZEŻENIE: Nie znaleziono domyślnego statusu zamówienia", file=sys.stderr)
+
+        # Podobnie dla order_sources - ustaw pierwszy dostępny jako domyślny jeśli żaden nie jest oznaczony
+        default_source_set = any(source.is_default for source in order_sources)
+        if not default_source_set and order_sources:
+            # Filtruj źródła z prawidłowymi ID (nie równymi 0)
+            valid_sources = [source for source in order_sources if source.baselinker_id and source.baselinker_id != 0]
+            if valid_sources:
+                valid_sources[0].is_default = True
+                print(f"[get_order_modal_data] ✅ Ustawiono pierwsze prawidłowe źródło '{valid_sources[0].name}' (ID: {valid_sources[0].baselinker_id}) jako domyślne", file=sys.stderr)
         
         # Oblicz koszty
         selected_items = [item for item in quote.items if item.is_selected]
@@ -79,7 +102,7 @@ def get_order_modal_data(quote_id):
             },
             'client': {
                 'name': quote.client.client_name if quote.client else None,
-                'number': quote.client.client_number if quote.client else None,  # DODANE: client_number
+                'number': quote.client.client_number if quote.client else None,
                 'company': quote.client.invoice_company or quote.client.delivery_company,
                 'email': quote.client.email if quote.client else None,
                 'phone': quote.client.phone if quote.client else None,
@@ -88,12 +111,14 @@ def get_order_modal_data(quote_id):
                 'delivery_address': quote.client.delivery_address if quote.client else None,
                 'delivery_postcode': quote.client.delivery_zip if quote.client else None,
                 'delivery_city': quote.client.delivery_city if quote.client else None,
+                'delivery_region': quote.client.delivery_region if quote.client else None,
                 'invoice_name': quote.client.invoice_name if quote.client else None,
                 'invoice_company': quote.client.invoice_company if quote.client else None,
                 'invoice_nip': quote.client.invoice_nip if quote.client else None,
                 'invoice_address': quote.client.invoice_address if quote.client else None,
                 'invoice_postcode': quote.client.invoice_zip if quote.client else None,
-                'invoice_city': quote.client.invoice_city if quote.client else None
+                'invoice_city': quote.client.invoice_city if quote.client else None,
+                'invoice_region': quote.client.invoice_region if quote.client else None
             },
             'products': [
                 {
