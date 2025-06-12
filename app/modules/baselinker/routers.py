@@ -243,16 +243,27 @@ def create_order(quote_id):
         
         print(f"[create_order] Konfiguracja: {config}", file=sys.stderr)
         
-        # Walidacja
+        # 🔧 POPRAWIONA WALIDACJA - akceptuj order_source_id = 0
         validation_errors = []
         
-        if not config['order_source_id']:
+        # KRYTYCZNA POPRAWKA: order_source_id może być 0 (to prawidłowe ID)
+        if config['order_source_id'] is None or config['order_source_id'] == '':
             validation_errors.append('order_source_id jest wymagane')
-        elif config['order_source_id'] == 0:
-            validation_errors.append('order_source_id nie może być 0')
+        else:
+            # Konwertuj na int i sprawdź czy to prawidłowa liczba
+            try:
+                config['order_source_id'] = int(config['order_source_id'])
+                print(f"[create_order] ✅ Prawidłowe order_source_id: {config['order_source_id']}", file=sys.stderr)
+            except (ValueError, TypeError):
+                validation_errors.append('order_source_id musi być liczbą')
             
         if not config['order_status_id']:
             validation_errors.append('order_status_id jest wymagane')
+        else:
+            try:
+                config['order_status_id'] = int(config['order_status_id'])
+            except (ValueError, TypeError):
+                validation_errors.append('order_status_id musi być liczbą')
             
         if not config['payment_method']:
             validation_errors.append('payment_method jest wymagane')
@@ -276,10 +287,14 @@ def create_order(quote_id):
         ).first()
         
         if not source_exists:
+            print(f"[create_order] ❌ Źródło o ID {config['order_source_id']} nie istnieje w bazie", file=sys.stderr)
             return jsonify({'error': f'Źródło zamówienia o ID {config["order_source_id"]} nie istnieje'}), 400
             
         if not status_exists:
+            print(f"[create_order] ❌ Status o ID {config['order_status_id']} nie istnieje w bazie", file=sys.stderr)
             return jsonify({'error': f'Status zamówienia o ID {config["order_status_id"]} nie istnieje'}), 400
+        
+        print(f"[create_order] ✅ Walidacja przeszła - źródło: {source_exists.name}, status: {status_exists.name}", file=sys.stderr)
         
         # Utwórz zamówienie
         service = BaselinkerService()
@@ -288,7 +303,7 @@ def create_order(quote_id):
         print(f"[create_order] Wynik serwisu: {result}", file=sys.stderr)
         
         if result['success']:
-            # ZAKTUALIZOWANE: Zmień status wyceny na "Złożone" (ID: 4) i dodaj baselinker_order_id
+            # Zaktualizuj status wyceny na "Złożone" (ID: 4)
             try:
                 from modules.quotes.models import QuoteStatus
                 from modules.calculator.models import QuoteLog
@@ -299,7 +314,7 @@ def create_order(quote_id):
                     old_status_id = quote.status_id
                     quote.status_id = placed_status.id
                     
-                    # NOWE: Zapisz numer zamówienia Baselinker w wycenie
+                    # Zapisz numer zamówienia Baselinker w wycenie
                     quote.base_linker_order_id = result['order_id']
                     
                     # Dodaj log zmiany statusu

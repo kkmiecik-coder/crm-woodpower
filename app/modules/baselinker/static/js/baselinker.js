@@ -728,12 +728,19 @@ class BaselinkerModal {
         console.log(`- Status: "${orderStatus?.value}" (type: ${typeof orderStatus?.value})`);
         console.log(`- Płatność: "${paymentMethod?.value}" (type: ${typeof paymentMethod?.value})`);
 
-        // 🔧 POPRAWIONA WALIDACJA ŹRÓDŁA - akceptuj ID = 0 (ale nie pustą wartość)
-        if (!orderSource?.value || orderSource.value.trim() === '') {
+        // 🔧 POPRAWIONA WALIDACJA ŹRÓDŁA - akceptuj ID = 0 oraz inne prawidłowe wartości
+        if (!orderSource?.value && orderSource?.value !== '0') {
             this.markFieldAsError(orderSource, 'Wybierz źródło zamówienia z listy');
             errorMessages.push('Źródło zamówienia jest wymagane - wybierz z listy');
             isValid = false;
             console.log('[Baselinker] BŁĄD: Nie wybrano źródła zamówienia');
+        } else if (orderSource?.value === '') {
+            this.markFieldAsError(orderSource, 'Wybierz źródło zamówienia z listy');
+            errorMessages.push('Źródło zamówienia jest wymagane - wybierz z listy');
+            isValid = false;
+            console.log('[Baselinker] BŁĄD: Puste źródło zamówienia');
+        } else {
+            console.log(`[Baselinker] ✅ Prawidłowe źródło zamówienia: ${orderSource.value}`);
         }
 
         if (!orderStatus?.value || orderStatus.value.trim() === '') {
@@ -741,6 +748,8 @@ class BaselinkerModal {
             errorMessages.push('Status zamówienia jest wymagany');
             isValid = false;
             console.log('[Baselinker] BŁĄD: Brak statusu zamówienia');
+        } else {
+            console.log(`[Baselinker] ✅ Prawidłowy status zamówienia: ${orderStatus.value}`);
         }
 
         if (!paymentMethod?.value || paymentMethod.value.trim() === '') {
@@ -748,6 +757,8 @@ class BaselinkerModal {
             errorMessages.push('Metoda płatności jest wymagana');
             isValid = false;
             console.log('[Baselinker] BŁĄD: Brak metody płatności');
+        } else {
+            console.log(`[Baselinker] ✅ Prawidłowa metoda płatności: ${paymentMethod.value}`);
         }
 
         console.log(`[Baselinker] Walidacja zakończona: ${isValid ? 'SUKCES' : 'BŁĄD'}`);
@@ -915,14 +926,47 @@ class BaselinkerModal {
 
         // Debug przed wysłaniem
         this.debugShippingCosts();
+        this.debugSelectValues(); // Dodaj to
 
         // Walidacja końcowa
         if (!this.validateConfigurationForm()) {
+            console.log('[Baselinker] ❌ Walidacja nie przeszła - przerywam składanie zamówienia');
+            return;
+        }
+
+        // Pobierz wartości z formularza
+        const orderSourceId = document.getElementById('order-source-select').value;
+        const orderStatusId = document.getElementById('order-status-select').value;
+        const paymentMethod = document.getElementById('payment-method-select').value;
+        const deliveryMethod = document.getElementById('delivery-method-select').value;
+
+        // DODATKOWA WALIDACJA PRZED WYSŁANIEM
+        console.log('[Baselinker] 🔍 FINALNA WALIDACJA PRZED WYSŁANIEM:');
+        console.log(`- order_source_id: "${orderSourceId}" (type: ${typeof orderSourceId})`);
+        console.log(`- order_status_id: "${orderStatusId}" (type: ${typeof orderStatusId})`);
+        console.log(`- payment_method: "${paymentMethod}" (type: ${typeof paymentMethod})`);
+        console.log(`- delivery_method: "${deliveryMethod}" (type: ${typeof deliveryMethod})`);
+
+        // Sprawdź czy wartości nie są puste
+        if (!orderSourceId && orderSourceId !== '0') {
+            console.log('[Baselinker] ❌ KRYTYCZNY BŁĄD: orderSourceId jest puste!');
+            this.showAlert('Błąd: Nie wybrano źródła zamówienia', 'error');
+            return;
+        }
+
+        if (!orderStatusId) {
+            console.log('[Baselinker] ❌ KRYTYCZNY BŁĄD: orderStatusId jest puste!');
+            this.showAlert('Błąd: Nie wybrano statusu zamówienia', 'error');
+            return;
+        }
+
+        if (!paymentMethod) {
+            console.log('[Baselinker] ❌ KRYTYCZNY BŁĄD: paymentMethod jest puste!');
+            this.showAlert('Błąd: Nie wybrano metody płatności', 'error');
             return;
         }
 
         // Sprawdź aktualną metodę dostawy
-        const deliveryMethod = document.getElementById('delivery-method-select').value;
         const isPersonalPickup = deliveryMethod && (
             deliveryMethod.toLowerCase().includes('odbiór') ||
             deliveryMethod.toLowerCase().includes('odbior')
@@ -969,15 +1013,14 @@ class BaselinkerModal {
 
         try {
             const orderData = {
-                order_source_id: parseInt(document.getElementById('order-source-select').value),
-                order_status_id: parseInt(document.getElementById('order-status-select').value),
-                payment_method: document.getElementById('payment-method-select').value,
+                order_source_id: parseInt(orderSourceId), // Konwertuj na int
+                order_status_id: parseInt(orderStatusId), // Konwertuj na int
+                payment_method: paymentMethod,
                 delivery_method: deliveryMethod,
-                // Przekaż aktualne koszty wysyłki (mogą być wyzerowane)
                 shipping_cost_override: currentShippingCost
             };
 
-            console.log('[Baselinker] 📤 Wysyłam dane zamówienia:', orderData);
+            console.log('[Baselinker] 📤 FINALNE dane zamówienia:', orderData);
 
             const response = await fetch(`/baselinker/api/quote/${this.modalData.quote.id}/create-order`, {
                 method: 'POST',
@@ -988,6 +1031,7 @@ class BaselinkerModal {
             });
 
             const result = await response.json();
+            console.log('[Baselinker] 📥 Odpowiedź serwera:', result);
 
             if (response.ok && result.success) {
                 console.log('[Baselinker] ✅ Zamówienie utworzone pomyślnie:', result);

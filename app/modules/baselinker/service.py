@@ -321,33 +321,33 @@ class BaselinkerService:
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
-        
+    
             # Generuj SKU według schematu
             sku = self._generate_sku(item, finishing_details)
-        
+    
             # Nazwa produktu z wymiarami
             base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
-    
+
             # Oblicz cenę produktu + wykończenie
             product_price_netto = float(item.final_price_netto or 0)
             product_price_brutto = float(item.final_price_brutto or 0)
-        
+    
             # Dodaj cenę wykończenia jeśli istnieje
             finishing_price_netto = 0
             finishing_price_brutto = 0
-        
+    
             if finishing_details and finishing_details.finishing_price_netto:
                 finishing_price_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_price_brutto = float(finishing_details.finishing_price_brutto or 0)
-            
-                print(f"[BaselinkerService] Produkt {item.product_index}: surowy={product_price_netto}, wykończenie={finishing_price_netto}", file=sys.stderr)
         
+                print(f"[BaselinkerService] Produkt {item.product_index}: surowy={product_price_netto}, wykończenie={finishing_price_netto}", file=sys.stderr)
+    
             # Suma: produkt surowy + wykończenie
             total_price_netto = product_price_netto + finishing_price_netto
             total_price_brutto = product_price_brutto + finishing_price_brutto
-        
+    
             print(f"[BaselinkerService] Końcowa cena produktu {item.product_index}: netto={total_price_netto}, brutto={total_price_brutto}", file=sys.stderr)
-        
+    
             # Nazwa produktu z wykończeniem
             if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
                 finishing_parts = [
@@ -363,7 +363,7 @@ class BaselinkerService:
                     product_name = f"{base_name} surowe"
             else:
                 product_name = f"{base_name} surowe"
-    
+
             products.append({
                 'storage': 'db',
                 'storage_id': 0,
@@ -384,18 +384,19 @@ class BaselinkerService:
 
         # Dane klienta
         client = quote.client
-    
-        # NOWA LOGIKA: Sprawdź metodę dostawy i ustaw odpowiedni koszt wysyłki
+
+        # Sprawdź metodę dostawy i ustaw odpowiedni koszt wysyłki
         delivery_method = config.get('delivery_method', quote.courier_name or 'Kurier')
         delivery_price = float(quote.shipping_cost_brutto or 0)
-    
-        # KLUCZOWA POPRAWKA: Zeruj koszt wysyłki dla odbioru osobistego
+
+        # Zeruj koszt wysyłki dla odbioru osobistego
         if delivery_method and ('odbior' in delivery_method.lower() or 'odbiór' in delivery_method.lower()):
             print(f"[BaselinkerService] Wykryto odbiór osobisty - zerowanie kosztów wysyłki z {delivery_price} na 0.00", file=sys.stderr)
             delivery_price = 0.0
         else:
             print(f"[BaselinkerService] Metoda dostawy '{delivery_method}' - koszt wysyłki: {delivery_price}", file=sys.stderr)
 
+        # 🔧 KRYTYCZNA POPRAWKA: Usuń delivery_region i invoice_region z danych
         order_data = {
             'custom_source_id': config.get('order_source_id', 1),
             'order_status_id': config.get('order_status_id', 105112),
@@ -416,7 +417,7 @@ class BaselinkerService:
             'delivery_address': client.delivery_address or '',
             'delivery_postcode': client.delivery_zip or '',
             'delivery_city': client.delivery_city or '',
-            'delivery_region': client.delivery_region or '',
+            # 🔧 USUNIĘTE: 'delivery_region': client.delivery_region or '',
             'delivery_country_code': config.get('delivery_country', 'PL'),
             'delivery_point_id': '',
             'delivery_point_name': '',
@@ -429,7 +430,7 @@ class BaselinkerService:
             'invoice_address': client.invoice_address or client.delivery_address or '',
             'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
-            'invoice_region': client.invoice_region or client.delivery_region or '',
+            # 🔧 USUNIĘTE: 'invoice_region': client.invoice_region or client.delivery_region or '',
             'invoice_country_code': config.get('delivery_country', 'PL'),
             'want_invoice': bool(client.invoice_nip),
             'extra_field_1': quote.quote_number,
@@ -437,7 +438,12 @@ class BaselinkerService:
             'products': products
         }
 
-        print(f"[BaselinkerService] Przygotowane dane zamowienia: {json.dumps(order_data, ensure_ascii=False, indent=2)}", file=sys.stderr)
+        print(f"[BaselinkerService] ✅ Przygotowane dane zamowienia (BEZ delivery/invoice_region):", file=sys.stderr)
+        print(f"[BaselinkerService] - order_source_id: {order_data['custom_source_id']}", file=sys.stderr)
+        print(f"[BaselinkerService] - order_status_id: {order_data['order_status_id']}", file=sys.stderr)
+        print(f"[BaselinkerService] - delivery_method: {order_data['delivery_method']}", file=sys.stderr)
+        print(f"[BaselinkerService] - delivery_price: {order_data['delivery_price']}", file=sys.stderr)
+    
         return order_data
     
     def _generate_sku(self, item, finishing_details=None):
