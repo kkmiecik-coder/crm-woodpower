@@ -176,7 +176,9 @@ def api_quotes():
                 "status_color": status_data.get("color", "#ccc"),
                 "all_statuses": statuses,
                 "public_url": q.get_public_url(),
-                "base_linker_order_id": q.base_linker_order_id
+                "base_linker_order_id": q.base_linker_order_id,
+                # DODANE: public_token do pobierania PDF
+                "public_token": q.public_token
             }
             results.append(result)
 
@@ -210,22 +212,23 @@ def update_quote_status(quote_id):
         print(f"[update_quote_status] Błąd: {str(e)}", file=sys.stderr)
         return jsonify({"error": "Błąd podczas aktualizacji statusu"}), 500
 
-@quotes_bp.route("/api/quotes/<int:quote_id>/pdf.<format>", methods=["GET"])
-def generate_quote_pdf(quote_id, format):
-    print(f"[generate_quote_pdf] START -> format={format}, ID={quote_id}", file=sys.stderr)
+@quotes_bp.route("/api/quotes/<token>/pdf.<format>", methods=["GET"])
+def generate_quote_pdf(token, format):
+    print(f"[generate_quote_pdf] START -> format={format}, TOKEN={token}", file=sys.stderr)
     
     if format not in ["pdf", "png"]:
         print(f"[generate_quote_pdf] Unsupported format: {format}", file=sys.stderr)
         return {"error": "Unsupported format"}, 400
 
-    quote = Quote.query.get(quote_id)
+    # ZMIANA: Wyszukiwanie po tokenie zamiast ID
+    quote = Quote.query.filter_by(public_token=token).first()
     if not quote:
-        print(f"[generate_quote_pdf] Brak wyceny ID: {quote_id}", file=sys.stderr)
+        print(f"[generate_quote_pdf] Brak wyceny dla tokenu: {token}", file=sys.stderr)
         return {"error": "Quote not found"}, 404
 
-    print(f"[generate_quote_pdf] Quote found: {quote.quote_number}", file=sys.stderr)
+    print(f"[generate_quote_pdf] Quote found: {quote.quote_number} (ID: {quote.id})", file=sys.stderr)
 
-    # Załaduj wszystkie potrzebne dane
+    # Reszta logiki pozostaje bez zmian
     quote.client = Client.query.get(quote.client_id) if quote.client_id else None
     quote.user = User.query.get(quote.user_id)
     quote.quote_status = QuoteStatus.query.get(quote.status_id) if quote.status_id else None
@@ -251,12 +254,11 @@ def generate_quote_pdf(quote_id, format):
     ]
 
     try:
-        # NOWE: Funkcja do ładowania ikon jako base64
+        # Funkcja do ładowania ikon jako base64
         def load_icon_as_base64(icon_name):
             try:
-                # Ścieżka do folderu z ikonami w module quotes
                 icons_path = os.path.join(
-                    os.path.dirname(__file__),  # quotes/
+                    os.path.dirname(__file__),
                     'static', 'img', icon_name
                 )
                 print(f"[PDF] Trying to load icon: {icons_path}", file=sys.stderr)
@@ -264,7 +266,6 @@ def generate_quote_pdf(quote_id, format):
                 if os.path.exists(icons_path):
                     with open(icons_path, 'rb') as f:
                         icon_data = base64.b64encode(f.read()).decode('utf-8')
-                    # Wykryj typ pliku
                     ext = icon_name.split('.')[-1].lower()
                     mime_type = 'image/png' if ext == 'png' else 'image/svg+xml' if ext == 'svg' else 'image/jpeg'
                     
@@ -279,12 +280,12 @@ def generate_quote_pdf(quote_id, format):
         # Załaduj wszystkie ikony
         icons = {
             'logo': load_icon_as_base64('logo.png'),
-            'phone': load_icon_as_base64('phone.png'),        # lub phone.svg
-            'email': load_icon_as_base64('email.png'),        # lub email.svg
-            'location': load_icon_as_base64('location.png'),  # lub location.svg
-            'website': load_icon_as_base64('website.png'),    # lub website.svg
-            'instagram': load_icon_as_base64('instagram.png'), # lub instagram.svg
-            'facebook': load_icon_as_base64('facebook.png'),   # lub facebook.svg
+            'phone': load_icon_as_base64('phone.png'),
+            'email': load_icon_as_base64('email.png'),
+            'location': load_icon_as_base64('location.png'),
+            'website': load_icon_as_base64('website.png'),
+            'instagram': load_icon_as_base64('instagram.png'),
+            'facebook': load_icon_as_base64('facebook.png'),
         }
         
         print(f"[PDF] Loaded icons: {[k for k, v in icons.items() if v is not None]}", file=sys.stderr)
@@ -438,6 +439,8 @@ def get_quote_details(quote_id):
             "public_url": quote.get_public_url(),
             "is_client_editable": quote.is_client_editable,
             "base_linker_order_id": quote.base_linker_order_id,
+            # DODANE: public_token do pobierania PDF
+            "public_token": quote.public_token,
             
             # Nowa struktura kosztów
             "costs": costs,
@@ -656,16 +659,13 @@ def get_client_quote_data(token):
                 "message": "Wycena nie została znaleziona"
             }), 404
         
-        # POPRAWKA: Nie blokujemy dostępu do danych dla zaakceptowanych wycen
-        # Tylko zwracamy odpowiednie flagi
-        
         # Oblicz koszty
         cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
         
-        # POPRAWKA: Zawsze pokazujemy wszystkie pozycje, nie tylko show_on_client_page
+        # Zawsze pokazujemy wszystkie pozycje, nie tylko show_on_client_page
         # Bo po akceptacji klient powinien widzieć co wybrał
         visible_items = quote.items if not quote.is_client_editable else [item for item in quote.items if item.show_on_client_page]
         
@@ -677,8 +677,10 @@ def get_client_quote_data(token):
             "costs": costs,
             "courier_name": quote.courier_name or "-",
             "status_name": quote.quote_status.name if quote.quote_status else "-",
-            "client_comments": getattr(quote, 'client_comments', None),  # NOWE: komentarze klienta
-            "acceptance_date": getattr(quote, 'acceptance_date', None),  # NOWE: data akceptacji
+            "client_comments": getattr(quote, 'client_comments', None),
+            "acceptance_date": getattr(quote, 'acceptance_date', None),
+            # DODANE: public_token do pobierania PDF po stronie klienta
+            "public_token": quote.public_token,
             "client": {
                 "client_name": quote.client.client_name if quote.client else "-",
                 "email": quote.client.email if quote.client else "-",

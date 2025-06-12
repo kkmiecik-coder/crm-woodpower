@@ -259,6 +259,12 @@ const quote = {
             globalState.quoteData = await api.getQuoteData(token);
 
             console.log('[Quote] Data loaded:', globalState.quoteData);
+            
+            // SPRAWDZENIE: Upewnij się że mamy token w danych
+            if (!globalState.quoteData.public_token) {
+                console.warn('[Quote] Brak public_token w danych - dodaję z window.QUOTE_TOKEN');
+                globalState.quoteData.public_token = token;
+            }
 
             // Aktualizujemy stan aplikacji na podstawie danych
             quote.updateApplicationState();
@@ -298,7 +304,8 @@ const quote = {
 
         console.log('[Quote] Application state updated:', {
             isAccepted: globalState.isQuoteAccepted,
-            isEditable: globalState.isQuoteEditable
+            isEditable: globalState.isQuoteEditable,
+            hasToken: !!globalState.quoteData.public_token
         });
     },
 
@@ -319,9 +326,6 @@ const quote = {
         console.log('[Quote] Selected variants initialized:', globalState.selectedVariants);
     },
 
-    /**
-     * Renderuje cały interfejs wyceny
-     */
     render: () => {
         if (!globalState.quoteData) return;
 
@@ -1216,15 +1220,25 @@ const pdf = {
         if (sidebarFinalBtn) sidebarFinalBtn.addEventListener('click', () => pdf.download('pdf'));
         const mobileFinalBtn = utils.getCachedElement('mobile-download-final-pdf');
         if (mobileFinalBtn) mobileFinalBtn.addEventListener('click', () => pdf.download('pdf'));
-        console.log('[PDF] Initialized');
+        console.log('[PDF] Initialized with token-based security');
     },
     download: (format = 'pdf') => {
         if (!globalState.quoteData) {
             alerts.show('Brak danych wyceny do pobrania', 'error');
             return;
         }
-        console.log(`[PDF] Downloading ${format}`);
-        const url = `/quotes/api/quotes/${globalState.quoteData.id}/pdf.${format}`;
+        
+        // ZMIANA: Użyj tokenu zamiast ID wyceny
+        const token = globalState.quoteData.public_token || window.QUOTE_TOKEN;
+        if (!token) {
+            console.error('[PDF] Brak tokenu do pobierania PDF');
+            alerts.show('Błąd: brak tokenu zabezpieczającego', 'error');
+            return;
+        }
+        
+        console.log(`[PDF] Downloading ${format} with token: ${token}`);
+        // ZMIANA: Nowy URL z tokenem
+        const url = `/quotes/api/quotes/${token}/pdf.${format}`;
         window.open(url, '_blank');
     }
 };
@@ -1359,3 +1373,19 @@ if (typeof window !== 'undefined') {
     console.log('[ClientQuote] Debug helpers available at window.ClientQuoteDebug');
 }
 
+console.log("=== CLIENT QUOTE PDF SECURITY UPDATE ===");
+console.log("✅ PDF download now uses tokens instead of quote IDs");
+console.log("✅ Token automatically retrieved from quote data or window.QUOTE_TOKEN");
+console.log("✅ Enhanced security for client-side PDF access");
+console.log("🔒 URL format changed: /quotes/api/quotes/{token}/pdf.{format}");
+
+// SPRAWDZENIE TOKENU PRZY INICJALIZACJI
+document.addEventListener('DOMContentLoaded', () => {
+    const token = window.QUOTE_TOKEN;
+    if (!token) {
+        console.error('❌ BRAK TOKENU: window.QUOTE_TOKEN nie jest zdefiniowany!');
+        alerts.show('Błąd bezpieczeństwa: brak tokenu dostępu', 'error');
+    } else {
+        console.log('✅ Token zabezpieczający załadowany:', token.substring(0, 8) + '...');
+    }
+});

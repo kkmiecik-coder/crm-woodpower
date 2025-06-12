@@ -77,11 +77,12 @@ function initDownloadModal() {
     document.addEventListener("click", (e) => {
         const downloadBtn = e.target.closest(".quotes-btn-download");
         if (downloadBtn) {
-            const quoteId = downloadBtn.dataset.id;
-            console.log(`[DownloadModal] Klik dla ID: ${quoteId}`);
+            // ZMIANA: Pobieramy token zamiast ID
+            const quoteToken = downloadBtn.dataset.token; // było: dataset.id
+            console.log(`[DownloadModal] Klik dla TOKEN: ${quoteToken}`);
 
-            if (!quoteId) {
-                console.warn("❗️Brak quoteId – dataset.id undefined!");
+            if (!quoteToken) {
+                console.warn("❗️Brak quoteToken – dataset.token undefined!");
                 return;
             }
 
@@ -90,10 +91,12 @@ function initDownloadModal() {
                 return;
             }
 
-            iframe.src = `/quotes/api/quotes/${quoteId}/pdf.pdf`;
+            // ZMIANA: Użyj tokenu w URL
+            iframe.src = `/quotes/api/quotes/${quoteToken}/pdf.pdf`;
 
-            downloadPDF.dataset.id = quoteId;
-            downloadPNG.dataset.id = quoteId;
+            // ZMIANA: Ustaw token dla przycisków pobierania
+            downloadPDF.dataset.token = quoteToken;
+            downloadPNG.dataset.token = quoteToken;
 
             modal.style.display = "flex";
         }
@@ -104,16 +107,16 @@ function initDownloadModal() {
         iframe.src = "";
     });
 
-    // Pobieranie PDF
+    // ZMIANA: Pobieranie PDF z tokenem
     downloadPDF.addEventListener("click", () => {
-        const quoteId = downloadPDF.dataset.id;
-        window.open(`/quotes/api/quotes/${quoteId}/pdf.pdf`, "_blank");
+        const quoteToken = downloadPDF.dataset.token;
+        window.open(`/quotes/api/quotes/${quoteToken}/pdf.pdf`, "_blank");
     });
 
-    // Pobieranie PNG
+    // ZMIANA: Pobieranie PNG z tokenem
     downloadPNG.addEventListener("click", () => {
-        const quoteId = downloadPNG.dataset.id;
-        window.open(`/quotes/api/quotes/${quoteId}/pdf.png`, "_blank");
+        const quoteToken = downloadPNG.dataset.token;
+        window.open(`/quotes/api/quotes/${quoteToken}/pdf.png`, "_blank");
     });
 
     // Zamykanie modal po kliknięciu tła
@@ -238,7 +241,13 @@ function showDetailsModal(quoteData) {
     const employeeName = `${quoteData.user?.first_name || ''} ${quoteData.user?.last_name || ''}`.trim() || '-';
     document.getElementById('quotes-details-modal-employee-name').textContent = employeeName;
 
-    document.getElementById("download-details-btn").dataset.id = quoteData.id;
+    // ZMIANA: Ustaw token zamiast ID dla przycisku pobierz
+    const downloadBtn = document.getElementById("download-details-btn");
+    if (downloadBtn) {
+        downloadBtn.dataset.token = quoteData.public_token;
+        // Usuń stare dataset.id jeśli istnieje
+        delete downloadBtn.dataset.id;
+    }
 
     // Reszta funkcji pozostaje bez zmian...
     updateCostsDisplay(quoteData);
@@ -875,7 +884,7 @@ function renderQuotesTable(quotes) {
                 <button class="quotes-btn quotes-btn-detail" data-id="${quote.id}">
                     <span>Szczegóły</span>
                 </button>
-                <button class="quotes-btn quotes-btn-download" data-id="${quote.id}">
+                <button class="quotes-btn quotes-btn-download" data-token="${quote.public_token}">
                     <span>Pobierz</span>
                 </button>
             </div>
@@ -901,8 +910,8 @@ function renderQuotesTable(quotes) {
 
     document.querySelectorAll(".quotes-btn-download").forEach(btn => {
         btn.addEventListener("click", e => {
-            const id = e.target.closest("button").dataset.id;
-            console.log(`Kliknięto pobierz dla ID ${id}`);
+            const token = e.target.closest("button").dataset.token;
+            console.log(`Kliknięto pobierz dla TOKEN ${token}`);
         });
     });
 }
@@ -2048,4 +2057,10 @@ async function openQuoteDetailsById(quoteId) {
             alert('Nie udało się otworzyć szczegółów wyceny');
         }
     }
+
+    // Na końcu pliku quotes.js, tuż przed końcową klamrą lub na samym końcu
+    console.log("=== QUOTES.JS PDF SECURITY UPDATE ===");
+    console.log("✅ Quotes.js korzysta teraz z tokenów zamiast ID do pobierania PDF");
+    console.log("✅ Sprawdź czy wszystkie przyciski mają dataset.token zamiast dataset.id");
+    console.log("🔒 Nowy format URL: /quotes/api/quotes/{token}/pdf.{format}");
 }
