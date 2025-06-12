@@ -20,6 +20,8 @@ const shippingMessages = [
 ];
 
 let messageTimeouts = [];
+let currentClientType = '';
+let currentMultiplier = 1.0;
 
 // Funkcja do pokazywania rotujących komunikatów
 function showRotatingMessages(overlay) {
@@ -1397,6 +1399,12 @@ function init() {
     isPartner = userRole === "partner";
     dbg("Rola użytkownika:", userRole, "Mnożnik:", userMultiplier);
 
+    // NOWA LOGIKA: Ustaw domyślną grupę cenową dla partnerów
+    if (isPartner) {
+        currentClientType = 'Partner';
+        currentMultiplier = userMultiplier;
+    }
+
     multiplierMapping = {};
     const multipliersDataEl = document.getElementById('multipliers-data');
     if (multipliersDataEl) {
@@ -1432,6 +1440,11 @@ function init() {
                 option.textContent = `${label} (${value})`;
                 select.appendChild(option);
             });
+            
+            // NOWA LOGIKA: Ustaw domyślną wartość dla partnerów
+            if (isPartner && currentClientType) {
+                select.value = currentClientType;
+            }
         });
     };
     populateMultiplierSelects();
@@ -1505,10 +1518,17 @@ function init() {
         const templateForm = quoteFormsContainer.querySelector('.quote-form');
         const newQuoteForm = templateForm.cloneNode(true);
 
-        const clientTypeSelect = templateForm.querySelector('select[data-field="clientType"]');
+        // NOWA LOGIKA: Skopiuj grupę cenową z pierwszego formularza
+        const originalClientTypeSelect = templateForm.querySelector('select[data-field="clientType"]');
         const newClientTypeSelect = newQuoteForm.querySelector('select[data-field="clientType"]');
-        if (clientTypeSelect && newClientTypeSelect) {
-            newClientTypeSelect.value = clientTypeSelect.value;
+        if (originalClientTypeSelect && newClientTypeSelect && originalClientTypeSelect.value) {
+            // Najpierw wypełnij opcje
+            populateMultiplierSelects();
+            // Potem ustaw wartość
+            setTimeout(() => {
+                newClientTypeSelect.value = originalClientTypeSelect.value;
+                console.log(`[addProduct] Skopiowano grupę cenową: ${originalClientTypeSelect.value}`);
+            }, 10);
         }
 
         newQuoteForm.querySelectorAll('input').forEach(input => {
@@ -1533,7 +1553,35 @@ function init() {
         setActiveTab(newTab);
     });
 
-    document.addEventListener('click', e => {
+    // NOWA FUNKCJA: Obsługa synchronizacji grup cenowych
+    function syncClientTypeAcrossProducts(selectedType, sourceForm) {
+        console.log(`[syncClientType] Synchronizuję grupę ${selectedType} na wszystkich produktach`);
+        
+        // Zaktualizuj zmienne globalne
+        currentClientType = selectedType;
+        currentMultiplier = multiplierMapping[selectedType] || 1.0;
+        
+        const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
+        allForms.forEach(form => {
+            if (form === sourceForm) return; // Pomiń formularz źródłowy
+            
+            const select = form.querySelector('select[data-field="clientType"]');
+            if (select && select.value !== selectedType) {
+                select.value = selectedType;
+                console.log(`[syncClientType] Zaktualizowano select w formularzu:`, form);
+            }
+        });
+        
+        // Przelicz ceny we wszystkich formularzach
+        allForms.forEach(form => {
+            const tempActive = activeQuoteForm;
+            activeQuoteForm = form;
+            updatePrices();
+            activeQuoteForm = tempActive;
+        });
+    }
+
+document.addEventListener('click', e => {
         const removeBtn = e.target.closest('.remove-product');
         if (removeBtn) {
             if (!activeQuoteForm) {
@@ -1624,6 +1672,29 @@ function init() {
         attachFormListeners(form);
         calculateFinishingCost(form);
     });
+
+    // NOWA FUNKCJA: Dodaj event listener do synchronizacji grup cenowych
+    document.addEventListener('change', e => {
+        if (e.target.matches('select[data-field="clientType"]')) {
+            const selectedType = e.target.value;
+            const sourceForm = e.target.closest('.quote-form');
+            
+            if (selectedType && sourceForm) {
+                syncClientTypeAcrossProducts(selectedType, sourceForm);
+            }
+        }
+    });
+
+    window.multiplierMapping = multiplierMapping;
+    window.isPartner = isPartner;
+    window.userMultiplier = userMultiplier;
+    
+    console.log("[init] Udostępniono globalne zmienne:", {
+        multiplierMapping: window.multiplierMapping,
+        isPartner: window.isPartner,
+        userMultiplier: window.userMultiplier
+    });
+
 }
 
 function initCalculatorDownloadModal() {

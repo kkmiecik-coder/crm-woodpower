@@ -442,6 +442,10 @@ def get_quote_details(quote_id):
             # DODANE: public_token do pobierania PDF
             "public_token": quote.public_token,
             
+            # NOWE POLA: Informacje o mnożniku
+            "quote_multiplier": float(quote.quote_multiplier) if quote.quote_multiplier else None,
+            "quote_client_type": quote.quote_client_type,
+            
             # Nowa struktura kosztów
             "costs": costs,
             

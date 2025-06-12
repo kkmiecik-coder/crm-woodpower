@@ -7,7 +7,61 @@ document.addEventListener('DOMContentLoaded', function () {
     const switchToAddClient = document.getElementById('switchToAddClient');
     const searchInput = document.getElementById('clientSearchInput');
 
-    // W pliku save_quote.js - popraw część z wyświetlaniem wyników wyszukiwania
+    // NOWA FUNKCJA: Obsługa zmiany źródła zapytania
+    function handleSourceChange() {
+        const sourceSelect = document.querySelector('[name="quote_source"]');
+        const phoneField = document.querySelector('[name="client_phone"]');
+        const emailField = document.querySelector('[name="client_email"]');
+        const phoneLabel = phoneField?.parentElement.querySelector('span');
+        const emailLabel = emailField?.parentElement.querySelector('span');
+        
+        if (!sourceSelect) return;
+        
+        const selectedSource = sourceSelect.value.toLowerCase();
+        const isOlxSource = selectedSource.includes('olx');
+        
+        console.log(`[handleSourceChange] Wybrano źródło: ${selectedSource}, isOLX: ${isOlxSource}`);
+        
+        if (isOlxSource) {
+            // Dla OLX usuń wymagania i gwiazdki
+            if (phoneLabel) {
+                phoneLabel.innerHTML = phoneLabel.innerHTML.replace('<span style="color: #E2B007">*</span>', '');
+            }
+            if (emailLabel) {
+                emailLabel.innerHTML = emailLabel.innerHTML.replace('<span style="color: #E2B007">*</span>', '');
+            }
+            
+            // Aktualizuj tekst informacyjny
+            const noteElement = document.querySelector('.input-note');
+            if (noteElement) {
+                noteElement.innerHTML = `
+                    <span style="color: red">*</span> - wymagane pola<br>
+                    <span style="color: #999">Dla OLX telefon i e-mail są opcjonalne</span>
+                `;
+            }
+            
+            console.log('[handleSourceChange] Usunięto wymagania dla OLX');
+        } else {
+            // Dla innych źródeł przywróć wymagania
+            if (phoneLabel && !phoneLabel.innerHTML.includes('*')) {
+                phoneLabel.innerHTML = phoneLabel.innerHTML.replace('Telefon', 'Telefon <span style="color: #E2B007">*</span>');
+            }
+            if (emailLabel && !emailLabel.innerHTML.includes('*')) {
+                emailLabel.innerHTML = emailLabel.innerHTML.replace('E-mail', 'E-mail <span style="color: #E2B007">*</span>');
+            }
+            
+            // Przywróć standardowy tekst informacyjny
+            const noteElement = document.querySelector('.input-note');
+            if (noteElement) {
+                noteElement.innerHTML = `
+                    <span style="color: red">*</span> - wymagane pola<br>
+                    <span style="color: #E2B007">*</span> - jedno z pól jest wymagane
+                `;
+            }
+            
+            console.log('[handleSourceChange] Przywrócono standardowe wymagania');
+        }
+    }
 
     searchInput?.addEventListener('input', async () => {
         const query = searchInput.value.trim();
@@ -194,7 +248,6 @@ document.addEventListener('DOMContentLoaded', function () {
         setText("summary-total-netto", summary.total_netto);
     }
 
-
     saveQuoteBtn?.addEventListener('click', () => {
         console.log("[save_quote.js] Kliknięto Zapisz wycenę");
 
@@ -250,8 +303,19 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const { products, summary } = collectQuoteData();
-        const total_price = window.totalPrice || 0.0;
+        // Użyj collectQuoteData() dla wszystkich danych
+        const quoteData = collectQuoteData();
+        const { 
+            products, 
+            summary, 
+            courier_name, 
+            shipping_cost_brutto, 
+            shipping_cost_netto, 
+            quote_client_type, 
+            quote_multiplier 
+        } = quoteData;
+        
+        const total_price = summary.total_brutto || 0.0;
 
         if (products.length === 0) {
             const err = document.createElement('p');
@@ -262,8 +326,7 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const deliveryCostText = document.getElementById('delivery-brutto').textContent;
-        const isValidCourier = /^\d+(\.\d{1,2})?\s*PLN$/.test(deliveryCostText);
+        // Pobierz wykończenie z pierwszego formularza
         const firstForm = document.querySelector('.quote-form');
         const finishing_type = firstForm?.querySelector('[data-finishing-type].active')?.dataset.finishingType || null;
         const finishing_variant = firstForm?.querySelector('[data-finishing-variant].active')?.dataset.finishingVariant || null;
@@ -283,13 +346,26 @@ document.addEventListener('DOMContentLoaded', function () {
             finishing_variant,
             finishing_color,
             finishing_gloss_level,
-            courier_name: isValidCourier ? document.getElementById('courier-name').textContent.trim() : null,
-            shipping_cost_netto: parseFloat(document.querySelector('#delivery-netto')?.textContent.replace(" PLN", "")) || 0.0,
-            shipping_cost_brutto: parseFloat(document.querySelector('#delivery-brutto')?.textContent.replace(" PLN", "")) || 0.0
+            // Dane kuriera
+            courier_name: courier_name,
+            shipping_cost_netto: shipping_cost_netto,
+            shipping_cost_brutto: shipping_cost_brutto,
+            // Dane grupy cenowej
+            quote_client_type: quote_client_type,
+            quote_multiplier: quote_multiplier
         };
 
         console.log("[save_quote.js] Wysyłany payload:", payload);
-        console.log(products)
+        console.log("[save_quote.js] Dane kuriera:", { 
+            courier_name, 
+            shipping_cost_netto, 
+            shipping_cost_brutto 
+        });
+        console.log("[save_quote.js] Grupa cenowa:", { 
+            quote_client_type, 
+            quote_multiplier 
+        });
+        
         fetch('/calculator/save_quote', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -318,24 +394,21 @@ document.addEventListener('DOMContentLoaded', function () {
                             }
                         }, 100);
 
-                        // Przycisk "Nowa wycena"
+                        // Przyciski modala sukcesu
                         const newQuoteBtn = document.getElementById('newQuoteBtn');
                         if (newQuoteBtn) {
                             newQuoteBtn.onclick = () => window.location.reload();
                         }
                         
-                        // Przycisk "Zamknij"
                         const closeBtn = document.getElementById('closeModalBtn2');
                         if (closeBtn) {
                             closeBtn.onclick = () => modal.style.display = 'none';
                         }
                         
-                        // NOWA FUNKCJONALNOŚĆ: Przycisk "Przejdź do wyceny"
                         const goToQuoteBtn = document.getElementById('goToQuoteBtn');
                         if (goToQuoteBtn && data.quote_id) {
                             goToQuoteBtn.onclick = () => {
                                 console.log(`[save_quote] Przekierowanie do wyceny ID: ${data.quote_id}`);
-                                // Przekieruj do quotes z parametrem aby otworzyć modal
                                 window.location.href = `/quotes?open_quote=${data.quote_id}`;
                             };
                         }
@@ -358,11 +431,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 console.error("[save_quote.js] Błąd fetch:", err);
             });
     });
+
+    // NOWY EVENT LISTENER: Obsługa zmiany źródła zapytania
+    document.addEventListener('change', function(e) {
+        if (e.target.matches('[name="quote_source"]')) {
+            handleSourceChange();
+        }
+    });
+
+    // NOWY EVENT LISTENER: Obsługa przy pierwszym otwarciu modala
+    document.addEventListener('click', function(e) {
+        if (e.target.matches('#switchToAddClient')) {
+            // Opóźnienie pozwala DOM się załadować
+            setTimeout(handleSourceChange, 100);
+        }
+    });
 });
 
-// [save_quote.js] - Zbieranie danych z formularzy do zapisu wyceny (wersja z wariantami)
-// Poprawiona funkcja collectQuoteData() w save_quote.js
-// Poprawiona funkcja collectQuoteData() - zbiera wszystkie warianty, ale sumuje tylko wybrane
 function collectQuoteData() {
     console.log("[collectQuoteData] Start zbierania danych z formularzy");
 
@@ -429,15 +514,41 @@ function collectQuoteData() {
         });
     });
 
+    // Pobierz dane wysyłki z DOM
     const shippingBrutto = parseFloat(document.getElementById('delivery-brutto')?.textContent.replace(" PLN", "")) || 0;
     const shippingNetto = parseFloat(document.getElementById('delivery-netto')?.textContent.replace(" PLN", "")) || 0;
+    const courierName = document.getElementById('courier-name')?.textContent.trim() || null;
+
+    // Pobierz dane grupy cenowej z pierwszego formularza
+    const firstForm = forms[0];
+    const clientTypeSelect = firstForm?.querySelector('select[data-field="clientType"]');
+    const selectedClientType = clientTypeSelect?.value || null;
+    
+    // Pobierz multiplier z globalnej zmiennej multiplierMapping
+    let selectedMultiplier = 1.0;
+    if (selectedClientType && window.multiplierMapping && window.multiplierMapping[selectedClientType]) {
+        selectedMultiplier = window.multiplierMapping[selectedClientType];
+    } else if (window.isPartner && window.userMultiplier) {
+        selectedMultiplier = window.userMultiplier;
+        // Dla partnerów nie ustawiamy selectedClientType na "Partner" 
+        // bo to może nie być w tabeli multipliers
+    }
 
     console.log(`[collectQuoteData] SUMA produktów brutto=${sumProductBrutto}, netto=${sumProductNetto}`);
     console.log(`[collectQuoteData] SUMA wykończenia brutto=${sumFinishingBrutto}, netto=${sumFinishingNetto}`);
     console.log(`[collectQuoteData] SUMA wysyłki brutto=${shippingBrutto}, netto=${shippingNetto}`);
+    console.log(`[collectQuoteData] Kurier: ${courierName}`);
+    console.log(`[collectQuoteData] Grupa cenowa: ${selectedClientType} (mnożnik: ${selectedMultiplier})`);
 
     const result = {
         products,
+        // Dane kuriera
+        courier_name: courierName,
+        shipping_cost_brutto: shippingBrutto,
+        shipping_cost_netto: shippingNetto,
+        // Dane grupy cenowej
+        quote_client_type: selectedClientType,
+        quote_multiplier: selectedMultiplier,
         summary: {
             products_brutto: sumProductBrutto,
             products_netto: sumProductNetto,

@@ -188,7 +188,19 @@ def save_quote():
 
     try:
         data = request.get_json(force=True)
-
+        
+        # Dane kuriera
+        courier_name = data.get('courier_name')
+        shipping_netto = data.get('shipping_cost_netto', 0.0)
+        shipping_brutto = data.get('shipping_cost_brutto', 0.0)
+        
+        # Dane grupy cenowej
+        quote_client_type = data.get('quote_client_type')
+        quote_multiplier = data.get('quote_multiplier', 1.0)
+        
+        current_app.logger.info(f"[save_quote_backend] Dane kuriera: courier_name='{courier_name}', shipping_netto={shipping_netto}, shipping_brutto={shipping_brutto}")
+        current_app.logger.info(f"[save_quote_backend] Grupa cenowa: client_type='{quote_client_type}', multiplier={quote_multiplier}")
+        
         client_id = data.get('client_id')
         products = data.get('products')
         current_app.logger.info("[save_quote_backend] Liczba produktow do zapisania: %s", len(products))
@@ -197,8 +209,6 @@ def save_quote():
             current_app.logger.info("[save_quote_backend] Produkt #%s: %s", i + 1, json.dumps(p, indent=2, ensure_ascii=False))
 
         total_price = data.get('total_price', 0.0)
-        shipping_netto = data.get('shipping_cost_netto', 0.0)
-        shipping_brutto = data.get('shipping_cost_brutto', 0.0)
 
         if not client_id:
             login = data.get('client_login')
@@ -251,6 +261,7 @@ def save_quote():
         user = db.session.execute(text("SELECT id FROM users WHERE email = :email"), {'email': user_email}).fetchone()
         user_id = user.id if user else None
 
+        # Zapisz wycenę z danymi kuriera i grupy cenowej
         quote = Quote(
             quote_number=quote_number,
             user_id=user_id,
@@ -258,13 +269,17 @@ def save_quote():
             total_price=total_price,
             shipping_cost_netto=shipping_netto,
             shipping_cost_brutto=shipping_brutto,
+            courier_name=courier_name,
+            quote_client_type=quote_client_type,
+            quote_multiplier=quote_multiplier,
             source=data.get('quote_source'),
             status_id=1,
         )
+        
         db.session.add(quote)
         db.session.flush()
 
-        quote.courier_name = data.get("courier_name")
+        current_app.logger.info(f"[save_quote_backend] Zapisano Quote z courier_name='{quote.courier_name}', client_type='{quote.quote_client_type}', multiplier={quote.quote_multiplier}")
 
         for i, product in enumerate(products):
             variants = product.get('variants', [])
@@ -307,14 +322,15 @@ def save_quote():
         log = QuoteLog(
             quote_id=quote.id,
             user_id=user_id,
-            description=f"Utworzono wycenę {quote_number}"
+            description=f"Utworzono wycenę {quote_number} dla grupy cenowej '{quote_client_type or 'brak grupy'}' (mnożnik: {quote_multiplier})"
         )
         current_app.logger.info(f"[save_quote_backend] Lacznie dodano {len(products)} pozycji do QuoteItem.")
         db.session.add(log)
 
-        current_app.logger.info("[save_quot_backende] Zapisuje wycenę do bazy...")
+        current_app.logger.info("[save_quote_backend] Zapisuje wycenę do bazy...")
         db.session.commit()
         current_app.logger.info(f"[save_quote_backend] Wycena {quote_number} zapisana pomyslnie dla klienta {client_id}")
+        current_app.logger.info(f"[save_quote_backend] Końcowe dane: courier_name='{quote.courier_name}', client_type='{quote.quote_client_type}', multiplier={quote.quote_multiplier}")
 
         return jsonify({
             "message": "Wycena zapisana.", 

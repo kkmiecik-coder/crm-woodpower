@@ -241,6 +241,9 @@ function showDetailsModal(quoteData) {
     const employeeName = `${quoteData.user?.first_name || ''} ${quoteData.user?.last_name || ''}`.trim() || '-';
     document.getElementById('quotes-details-modal-employee-name').textContent = employeeName;
 
+    // NOWE: Wyświetl informacje o mnożniku
+    updateMultiplierDisplay(quoteData);
+
     // ZMIANA: Ustaw token zamiast ID dla przycisku pobierz
     const downloadBtn = document.getElementById("download-details-btn");
     if (downloadBtn) {
@@ -273,6 +276,53 @@ function showDetailsModal(quoteData) {
             console.log('[MODAL] Zamykam modal przez kliknięcie tła');
         }
     });
+}
+
+function updateMultiplierDisplay(quoteData) {
+    console.log('[updateMultiplierDisplay] Aktualizuję wyświetlanie mnożnika:', quoteData);
+    
+    // Znajdź lub utwórz element do wyświetlania mnożnika
+    let multiplierElement = document.getElementById('quotes-details-modal-multiplier');
+    
+    if (!multiplierElement) {
+        // Jeśli element nie istnieje, utwórz go i dodaj do sekcji "Dane wyceny"
+        const quoteDataSection = document.querySelector('.modal-block:nth-child(2)'); // Druga kolumna - "Dane wyceny"
+        
+        if (quoteDataSection) {
+            const multiplierParagraph = document.createElement('p');
+            multiplierParagraph.innerHTML = '<strong>Grupa cenowa:</strong> <span id="quotes-details-modal-multiplier">-</span>';
+            
+            // Dodaj po elemencie z pracownikiem
+            const employeeElement = quoteDataSection.querySelector('p:nth-child(5)'); // Element z pracownikiem
+            if (employeeElement) {
+                employeeElement.insertAdjacentElement('afterend', multiplierParagraph);
+            } else {
+                // Fallback - dodaj na końcu sekcji
+                quoteDataSection.appendChild(multiplierParagraph);
+            }
+            
+            multiplierElement = document.getElementById('quotes-details-modal-multiplier');
+        }
+    }
+    
+    if (multiplierElement) {
+        // Wyświetl informacje o grupie cenowej i mnożniku
+        if (quoteData.quote_client_type && quoteData.quote_multiplier) {
+            const multiplierText = `${quoteData.quote_client_type} (${quoteData.quote_multiplier})`;
+            multiplierElement.textContent = multiplierText;
+            console.log('[updateMultiplierDisplay] Wyświetlono mnożnik:', multiplierText);
+        } else if (quoteData.quote_client_type) {
+            // Tylko grupa cenowa bez mnożnika
+            multiplierElement.textContent = quoteData.quote_client_type;
+            console.log('[updateMultiplierDisplay] Wyświetlono grupę cenową:', quoteData.quote_client_type);
+        } else {
+            // Brak informacji o grupie cenowej
+            multiplierElement.textContent = 'Nie określono';
+            console.log('[updateMultiplierDisplay] Brak informacji o grupie cenowej');
+        }
+    } else {
+        console.warn('[updateMultiplierDisplay] Nie udało się znaleźć lub utworzyć elementu mnożnika');
+    }
 }
 
 function checkIfQuoteAccepted(quoteData) {

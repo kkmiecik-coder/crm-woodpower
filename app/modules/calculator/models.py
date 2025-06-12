@@ -43,6 +43,10 @@ class Quote(db.Model):
     acceptance_date = db.Column(db.DateTime)
     accepted_by_email = db.Column(db.String(255))
     
+    # NOWE POLE: Mnożnik (grupa cenowa) przypisany do wyceny
+    quote_multiplier = db.Column(db.Numeric(5, 2))
+    quote_client_type = db.Column(db.String(100))  # Nazwa grupy cenowej
+    
     # Relacje
     user = db.relationship('User', backref='quotes')
     client = db.relationship('Client', backref='quotes')
@@ -321,7 +325,7 @@ class QuoteLog(db.Model):
 
     def __repr__(self):
         return f"<QuoteLog Quote:{self.quote_id} ChangedBy:{self.user_id} at {self.change_time}>"
-
+    
 class Price(db.Model):
     __tablename__ = 'prices'
 
