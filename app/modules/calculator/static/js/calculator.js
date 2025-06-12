@@ -1226,7 +1226,7 @@ function loadLatestQuotes() {
                     </div>
                     <div class="quote-actions">
                         <button class="go-ahead" data-id="${q.id}">Przejdź</button>
-                        <button class="quotes-btn-download" data-id="${q.id}">
+                        <button class="quotes-btn-download" data-token="${q.public_token}">
                             Pobierz
                         </button>
                     </div>
@@ -1669,7 +1669,7 @@ function initCalculatorDownloadModal() {
     }
 
     // NOWA WERSJA - bez nieskończonej pętli
-    let currentQuoteId = null;
+    let currentQuoteToken = null; // ZMIANA: przechowujemy token zamiast ID
     let loadingTimeout = null;
     let isLoadingPdf = false;
 
@@ -1678,20 +1678,21 @@ function initCalculatorDownloadModal() {
         const downloadBtn = e.target.closest(".quotes-btn-download");
         if (downloadBtn) {
             e.preventDefault();
-            const quoteId = downloadBtn.dataset.id;
-            console.log(`[Calculator DownloadModal] Klik dla ID: ${quoteId}`);
+            // ZMIANA: Pobieramy token zamiast ID
+            const quoteToken = downloadBtn.dataset.token;
+            console.log(`[Calculator DownloadModal] Klik dla TOKEN: ${quoteToken}`);
 
-            if (!quoteId) {
-                console.warn("❗️Brak quoteId – dataset.id undefined!");
+            if (!quoteToken) {
+                console.warn("❗️Brak quoteToken – dataset.token undefined!");
                 return;
             }
 
-            // Ustaw nowy quote ID
-            currentQuoteId = quoteId;
+            // Ustaw nowy quote token
+            currentQuoteToken = quoteToken;
             isLoadingPdf = true;
 
-            // Przygotuj URL PDF
-            const pdfUrl = `/quotes/api/quotes/${quoteId}/pdf.pdf`;
+            // ZMIANA: Przygotuj URL PDF z tokenem
+            const pdfUrl = `/quotes/api/quotes/${quoteToken}/pdf.pdf`;
             console.log(`[Calculator DownloadModal] Ustawianie URL PDF: ${pdfUrl}`);
 
             // DEBUGOWANIE iframe
@@ -1722,7 +1723,7 @@ function initCalculatorDownloadModal() {
 
             // DODAJ obserwatora zmian iframe.src
             const srcObserver = setInterval(() => {
-                if (isLoadingPdf && currentQuoteId) {
+                if (isLoadingPdf && currentQuoteToken) {
                     const currentSrc = iframe.src;
                     if (currentSrc && !currentSrc.includes('/pdf.pdf') && !currentSrc.includes('about:blank')) {
                         console.log(`[Calculator DownloadModal] WYKRYTO RESET iframe.src z ${currentSrc} - przywracam PDF`);
@@ -1746,9 +1747,9 @@ function initCalculatorDownloadModal() {
                 isLoadingPdf = false;
             }, 10000); // Zwiększono do 10 sekund
 
-            // Ustaw ID dla przycisków pobierania
-            if (downloadPDF) downloadPDF.dataset.id = quoteId;
-            if (downloadPNG) downloadPNG.dataset.id = quoteId;
+            // ZMIANA: Ustaw token dla przycisków pobierania
+            if (downloadPDF) downloadPDF.dataset.token = quoteToken;
+            if (downloadPNG) downloadPNG.dataset.token = quoteToken;
 
             // Pokaż modal
             modal.style.display = "flex";
@@ -1767,7 +1768,7 @@ function initCalculatorDownloadModal() {
         iframe.src = "";
         iframe.style.background = "none";
         iframe.style.animation = "none";
-        currentQuoteId = null;
+        currentQuoteToken = null; // ZMIANA: czyszczenie tokenu
         isLoadingPdf = false;
 
         // Usuń fallback jeśli istnieje
@@ -1788,27 +1789,27 @@ function initCalculatorDownloadModal() {
         });
     }
 
-    // Pobieranie PDF
+    // ZMIANA: Pobieranie PDF z tokenem
     if (downloadPDF) {
         downloadPDF.addEventListener("click", (e) => {
             e.preventDefault();
-            const quoteId = downloadPDF.dataset.id || currentQuoteId;
-            if (quoteId) {
-                console.log(`[Calculator DownloadModal] Pobieranie PDF dla ID: ${quoteId}`);
-                const pdfUrl = `/quotes/api/quotes/${quoteId}/pdf.pdf`;
+            const quoteToken = downloadPDF.dataset.token || currentQuoteToken;
+            if (quoteToken) {
+                console.log(`[Calculator DownloadModal] Pobieranie PDF dla TOKEN: ${quoteToken}`);
+                const pdfUrl = `/quotes/api/quotes/${quoteToken}/pdf.pdf`;
                 window.open(pdfUrl, "_blank");
             }
         });
     }
 
-    // Pobieranie PNG
+    // ZMIANA: Pobieranie PNG z tokenem
     if (downloadPNG) {
         downloadPNG.addEventListener("click", (e) => {
             e.preventDefault();
-            const quoteId = downloadPNG.dataset.id || currentQuoteId;
-            if (quoteId) {
-                console.log(`[Calculator DownloadModal] Pobieranie PNG dla ID: ${quoteId}`);
-                const pngUrl = `/quotes/api/quotes/${quoteId}/pdf.png`;
+            const quoteToken = downloadPNG.dataset.token || currentQuoteToken;
+            if (quoteToken) {
+                console.log(`[Calculator DownloadModal] Pobieranie PNG dla TOKEN: ${quoteToken}`);
+                const pngUrl = `/quotes/api/quotes/${quoteToken}/pdf.png`;
                 window.open(pngUrl, "_blank");
             }
         });
@@ -1831,8 +1832,8 @@ function initCalculatorDownloadModal() {
         console.log(`[Calculator DownloadModal] isLoadingPdf: ${isLoadingPdf}`);
 
         // Sprawdź czy to nasze PDF i czy aktualnie ładujemy
-        if (isLoadingPdf && iframe.src.includes('/pdf.pdf') && currentQuoteId) {
-            console.log(`[Calculator DownloadModal] PDF załadowany pomyślnie dla ID: ${currentQuoteId}`);
+        if (isLoadingPdf && iframe.src.includes('/pdf.pdf') && currentQuoteToken) {
+            console.log(`[Calculator DownloadModal] PDF załadowany pomyślnie dla TOKEN: ${currentQuoteToken}`);
             iframe.style.background = "none";
             iframe.style.animation = "none";
             isLoadingPdf = false;
@@ -1844,12 +1845,12 @@ function initCalculatorDownloadModal() {
         } else if (isLoadingPdf && (iframe.src === window.location.href || iframe.src.includes('/calculator/'))) {
             // Jeśli iframe zostało zresetowane, przywróć PDF URL
             console.log(`[Calculator DownloadModal] iframe zostało zresetowane, przywracam PDF URL`);
-            const pdfUrl = `/quotes/api/quotes/${currentQuoteId}/pdf.pdf`;
+            const pdfUrl = `/quotes/api/quotes/${currentQuoteToken}/pdf.pdf`;
             console.log(`[Calculator DownloadModal] Przywracam URL: ${pdfUrl}`);
 
             // Dodaj krótkie opóźnienie aby uniknąć natychmiastowego ponownego resetu
             setTimeout(() => {
-                if (isLoadingPdf && currentQuoteId) {
+                if (isLoadingPdf && currentQuoteToken) {
                     iframe.src = pdfUrl;
                     console.log(`[Calculator DownloadModal] URL przywrócony: ${iframe.src}`);
                 }
@@ -1857,7 +1858,7 @@ function initCalculatorDownloadModal() {
         }
     });
 
-    console.log("[initCalculatorDownloadModal] Modal pobierania zainicjalizowany");
+    console.log("[initCalculatorDownloadModal] Modal pobierania zainicjalizowany z obsługą tokenów");
 }
 
 /**
