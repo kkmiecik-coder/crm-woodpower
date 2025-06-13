@@ -653,12 +653,10 @@ function attachFinishingUIListeners(form) {
     updateVisibility();
 }
 
-/**
- * Dodaje podstawowe nasłuchiwanie do formularza (input, radio, select)
- */
 function attachFormListeners(form) {
     if (!form || form.dataset.listenersAttached) return;
 
+    // Dodaj listenery dla podstawowych inputów
     form.querySelectorAll('input[data-field]').forEach(input => {
         input.addEventListener('input', updatePrices);
     });
@@ -667,8 +665,13 @@ function attachFormListeners(form) {
         radio.addEventListener('change', updatePrices);
     });
 
+    // SPECJALNA OBSŁUGA dla select grupy cenowej
     const clientTypeSelect = form.querySelector('select[data-field="clientType"]');
     if (clientTypeSelect) {
+        // Usuń poprzedni listener jeśli istnieje
+        clientTypeSelect.removeEventListener('change', updatePrices);
+        
+        // Dodaj tylko updatePrices - synchronizacja jest obsługiwana przez globalny listener w init()
         clientTypeSelect.addEventListener('change', updatePrices);
     }
 
@@ -1432,8 +1435,24 @@ function init() {
     finishingSummaryEls.netto = document.querySelector('.quote-summary .finishing-netto');
 
     const populateMultiplierSelects = () => {
+        console.log("[populateMultiplierSelects] Wypełniam opcje grup cenowych");
+        
         document.querySelectorAll('select[data-field="clientType"]').forEach(select => {
-            select.innerHTML = '<option value="" disabled selected hidden>Wybierz grupę</option>';
+            const currentValue = select.value; // Zachowaj aktualną wartość
+            
+            // Stwórz opcje bez resetowania selected
+            select.innerHTML = '';
+            
+            // Dodaj placeholder opcję
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.disabled = true;
+            placeholderOption.hidden = true;
+            placeholderOption.textContent = 'Wybierz grupę';
+            // NIE ustawiaj selected na placeholder
+            select.appendChild(placeholderOption);
+            
+            // Dodaj opcje grup cenowych
             Object.entries(multiplierMapping).forEach(([label, value]) => {
                 const option = document.createElement('option');
                 option.value = label;
@@ -1441,9 +1460,16 @@ function init() {
                 select.appendChild(option);
             });
             
-            // NOWA LOGIKA: Ustaw domyślną wartość dla partnerów
-            if (isPartner && currentClientType) {
+            // Przywróć wartość jeśli była ustawiona
+            if (currentValue) {
+                select.value = currentValue;
+                console.log(`[populateMultiplierSelects] Przywrócono wartość: ${currentValue}`);
+            }
+            
+            // Ustaw domyślną wartość dla partnerów
+            if (isPartner && currentClientType && !currentValue) {
                 select.value = currentClientType;
+                console.log(`[populateMultiplierSelects] Ustawiono domyślną dla partnera: ${currentClientType}`);
             }
         });
     };
@@ -1505,6 +1531,14 @@ function init() {
 
     const addProductBtn = document.querySelector('.add-product');
     addProductBtn.addEventListener('click', () => {
+        console.log("[addProduct] Dodaję nowy produkt...");
+        
+        // Pobierz aktualną grupę cenową z pierwszego formularza
+        const firstForm = quoteFormsContainer.querySelector('.quote-form');
+        const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
+        
+        console.log(`[addProduct] Aktualna grupa cenowa do skopiowania: ${currentClientType}`);
+
         const productNumbers = productTabs.querySelectorAll('.product-number');
         const newIndex = productNumbers.length + 1;
 
@@ -1518,19 +1552,36 @@ function init() {
         const templateForm = quoteFormsContainer.querySelector('.quote-form');
         const newQuoteForm = templateForm.cloneNode(true);
 
-        // NOWA LOGIKA: Skopiuj grupę cenową z pierwszego formularza
-        const originalClientTypeSelect = templateForm.querySelector('select[data-field="clientType"]');
+        // POPRAWIONA LOGIKA: Wypełnij opcje dla WSZYSTKICH selectów
+        populateMultiplierSelects();
+        
+        // POTEM ustaw wartość w nowym selecte
         const newClientTypeSelect = newQuoteForm.querySelector('select[data-field="clientType"]');
-        if (originalClientTypeSelect && newClientTypeSelect && originalClientTypeSelect.value) {
-            // Najpierw wypełnij opcje
-            populateMultiplierSelects();
-            // Potem ustaw wartość
-            setTimeout(() => {
-                newClientTypeSelect.value = originalClientTypeSelect.value;
-                console.log(`[addProduct] Skopiowano grupę cenową: ${originalClientTypeSelect.value}`);
-            }, 10);
+        if (currentClientType && newClientTypeSelect) {
+            // Dodaj opcje do nowego selecta jeśli ich nie ma
+            if (newClientTypeSelect.options.length === 0) {
+                // Ręcznie wypełnij opcje dla nowego selecta
+                const placeholderOption = document.createElement('option');
+                placeholderOption.value = '';
+                placeholderOption.disabled = true;
+                placeholderOption.hidden = true;
+                placeholderOption.textContent = 'Wybierz grupę';
+                newClientTypeSelect.appendChild(placeholderOption);
+                
+                Object.entries(multiplierMapping).forEach(([label, value]) => {
+                    const option = document.createElement('option');
+                    option.value = label;
+                    option.textContent = `${label} (${value})`;
+                    newClientTypeSelect.appendChild(option);
+                });
+            }
+            
+            newClientTypeSelect.value = currentClientType;
+            console.log(`[addProduct] Skopiowano grupę cenową: ${currentClientType}`);
         }
 
+        // Resetuj inne pola
+        // Resetuj inne pola
         newQuoteForm.querySelectorAll('input').forEach(input => {
             if (input.type === 'radio') {
                 input.checked = false;
@@ -1546,13 +1597,41 @@ function init() {
             element.style.backgroundColor = '';
         });
 
+        // Resetuj listenery
         newQuoteForm.dataset.listenersAttached = "";
+
+        // Przygotuj formularz
         prepareNewProductForm(newQuoteForm, newIndex - 1);
         attachFormListeners(newQuoteForm);
-        quoteFormsContainer.appendChild(newQuoteForm);
-        setActiveTab(newTab);
-    });
 
+        // Dodaj do kontenera
+        quoteFormsContainer.appendChild(newQuoteForm);
+
+        // KRYTYCZNE: Ustaw grupę cenową PO dodaniu do DOM-u
+        if (currentClientType) {
+            // Znajdź select w DOM-ie (już dodanym)
+            const selectInDOM = newQuoteForm.querySelector('select[data-field="clientType"]');
+            if (selectInDOM) {
+                selectInDOM.value = currentClientType;
+                console.log(`[addProduct] Ustawiono grupę cenową w DOM: ${currentClientType}`);
+                
+                // Sprawdź czy się ustawiło
+                if (selectInDOM.value === currentClientType) {
+                    console.log(`[addProduct] ✅ Grupa cenowa została poprawnie ustawiona: ${selectInDOM.value}`);
+                } else {
+                    console.log(`[addProduct] ❌ Grupa cenowa NIE została ustawiona. Aktualna wartość: ${selectInDOM.value}`);
+                }
+            }
+        }
+
+        setActiveTab(newTab);
+
+        // Synchronizuj wszystkie formularze
+        if (currentClientType) {
+            console.log(`[addProduct] Synchronizuję grupę cenową ${currentClientType} na wszystkich produktach`);
+            syncClientTypeAcrossProducts(currentClientType, newQuoteForm);
+        }
+    });
     // NOWA FUNKCJA: Obsługa synchronizacji grup cenowych
     function syncClientTypeAcrossProducts(selectedType, sourceForm) {
         console.log(`[syncClientType] Synchronizuję grupę ${selectedType} na wszystkich produktach`);
@@ -1581,7 +1660,7 @@ function init() {
         });
     }
 
-document.addEventListener('click', e => {
+    document.addEventListener('click', e => {
         const removeBtn = e.target.closest('.remove-product');
         if (removeBtn) {
             if (!activeQuoteForm) {
@@ -1678,6 +1757,8 @@ document.addEventListener('click', e => {
         if (e.target.matches('select[data-field="clientType"]')) {
             const selectedType = e.target.value;
             const sourceForm = e.target.closest('.quote-form');
+            
+            console.log(`[clientTypeChange] Zmiana grupy cenowej na: ${selectedType}`);
             
             if (selectedType && sourceForm) {
                 syncClientTypeAcrossProducts(selectedType, sourceForm);
