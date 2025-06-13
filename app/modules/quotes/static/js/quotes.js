@@ -171,6 +171,9 @@ function fetchUsers() {
         .catch(err => console.error("Błąd pobierania użytkowników:", err));
 }
 
+// Aktualizacja funkcji showDetailsModal w app/modules/quotes/static/js/quotes.js
+// Dodaj te wywołania na końcu istniejącej funkcji showDetailsModal
+
 function showDetailsModal(quoteData) {
     console.log('[MODAL] Otwieranie szczegółów wyceny:', quoteData);
 
@@ -194,28 +197,31 @@ function showDetailsModal(quoteData) {
         return;
     }
 
-    // NOWE: Sprawdź czy wycena jest zaakceptowana
+    // Wyczyść i ustaw aktualny kontekst
+    tabsContainer.innerHTML = '';
+    itemsContainer.innerHTML = '';
+    currentQuoteData = quoteData;
+
+    removeAcceptanceBanner(modalBox);
+    removeOrderBanner(modalBox);
+    removeUserAcceptanceBanner(modalBox); // NOWE
+
+    // DODAJ TĘ LOGIKĘ TUTAJ:
+    // Sprawdź czy wycena jest zaakceptowana i dodaj obramowanie
     const isAccepted = checkIfQuoteAccepted(quoteData);
-    
-    // NOWE: Sprawdź czy zamówienie zostało złożone
+    const isAcceptedByUser = isQuoteAcceptedByUser(quoteData);
     const isOrdered = checkIfQuoteOrdered(quoteData);
 
-    // NOWE: Dodaj/usuń klasę CSS dla obramowania - priorytet ma zamówienie nad akceptacją
+    // Dodaj/usuń klasę CSS dla obramowania - priorytet ma zamówienie nad akceptacją
     if (isOrdered) {
         modalBox.classList.add('quote-ordered');
         modalBox.classList.remove('quote-accepted');
         console.log('[MODAL] Zamówienie złożone - dodano niebieskie obramowanie');
-
-        // Dodaj banner informacyjny o złożeniu zamówienia
-        addOrderBanner(modalBox, quoteData);
-    } else if (isAccepted) {
+    } else if (isAccepted || isAcceptedByUser) {
         modalBox.classList.add('quote-accepted');
         modalBox.classList.remove('quote-ordered');
         acceptedQuotes.add(quoteData.id);
         console.log('[MODAL] Wycena zaakceptowana - dodano zielone obramowanie');
-
-        // Dodaj banner informacyjny o akceptacji
-        addAcceptanceBanner(modalBox, quoteData);
 
         // Opcjonalna animacja pulsowania
         setTimeout(() => {
@@ -227,19 +233,19 @@ function showDetailsModal(quoteData) {
     } else {
         modalBox.classList.remove('quote-accepted', 'quote-ordered');
         acceptedQuotes.delete(quoteData.id);
-        removeAcceptanceBanner(modalBox);
-        removeOrderBanner(modalBox);
     }
 
-    // POPRAWIONE dane klienta - właściwe mapowanie pól
+    // ZAKTUALIZUJ Dane klienta
     document.getElementById('quotes-details-modal-client-name').textContent = quoteData.client?.client_name || '-';
-    document.getElementById('quotes-details-modal-client-fullname').textContent = quoteData.client?.client_number || '-';
+    document.getElementById('quotes-details-modal-client-fullname').textContent = 
+        `${quoteData.client?.first_name || ''} ${quoteData.client?.last_name || ''}`.trim() || '-';
+    document.getElementById('quotes-details-modal-client-company').textContent = quoteData.client?.company_name || '-';
     document.getElementById('quotes-details-modal-client-email').textContent = quoteData.client?.email || '-';
     document.getElementById('quotes-details-modal-client-phone').textContent = quoteData.client?.phone || '-';
-    document.getElementById('quotes-details-modal-client-company').textContent = quoteData.client?.company || '-';
 
-    // Dane wyceny
-    const parsedDate = quoteData.created_at ? new Date(quoteData.created_at).toLocaleDateString("pl-PL") : '-';
+    // ZAKTUALIZUJ Dane wyceny
+    const parsedDate = quoteData.created_at ? 
+        new Date(quoteData.created_at).toLocaleDateString("pl-PL") : '-';
     document.getElementById('quotes-details-modal-quote-number').textContent = quoteData.quote_number || '-';
     document.getElementById('quotes-details-modal-quote-date').textContent = parsedDate;
     document.getElementById('quotes-details-modal-quote-source').textContent = quoteData.source || '-';
@@ -259,7 +265,7 @@ function showDetailsModal(quoteData) {
         delete downloadBtn.dataset.id;
     }
 
-    // Reszta funkcji pozostaje bez zmian...
+    // Reszta istniejącego kodu...
     updateCostsDisplay(quoteData);
     setupStatusDropdown(quoteData, optionsContainer, selectedDiv, dropdownWrap);
     setupProductTabs(quoteData, tabsContainer, itemsContainer);
@@ -274,8 +280,22 @@ function showDetailsModal(quoteData) {
     // Inicjalizuj przyciski strony klienta
     initializeClientPageButtons(quoteData);
 
+    // NOWE: Sprawdź bannery i dodaj odpowiednie
+    console.log('[MODAL] Sprawdzanie bannerów akceptacji...');
+    if (checkIfQuoteOrdered(quoteData)) {
+        addOrderBanner(modalBox, quoteData);
+    } else if (isQuoteAcceptedByUser(quoteData)) {
+        addUserAcceptanceBanner(modalBox, quoteData);
+    } else if (checkIfQuoteAccepted(quoteData)) {
+        addAcceptanceBanner(modalBox, quoteData);
+    }
+
+    // NOWE: Konfiguracja przycisku akceptacji przez użytkownika
+    console.log('[MODAL] Konfiguracja przycisku akceptacji przez użytkownika...');
+    setupUserAcceptButton(quoteData);
+
     modal.classList.add('active');
-    console.log('[MODAL] Modal powinien być teraz widoczny!');
+    console.log('[MODAL] Modal powinien być teraz widoczny! Data:', quoteData);
 
     modal.addEventListener("click", (e) => {
         if (e.target === modal) {
@@ -345,17 +365,22 @@ function checkIfQuoteAccepted(quoteData) {
     // Sprawdź po is_client_editable (false = zaakceptowane)
     const isAcceptedByEditability = quoteData.is_client_editable === false;
 
-    console.log('[MODAL] Sprawdzanie akceptacji:', {
+    console.log('[MODAL] Sprawdzanie akceptacji przez klienta:', {
         statusName: quoteData.status_name,
         statusId: quoteData.status_id,
         isClientEditable: quoteData.is_client_editable,
         isAcceptedByName,
         isAcceptedById,
-        isAcceptedByEditability
+        isAcceptedByEditability,
+        acceptedByEmail: quoteData.accepted_by_email
     });
 
-    // Wycena jest zaakceptowana jeśli którykolwiek z warunków jest spełniony
-    return isAcceptedByName || isAcceptedById || isAcceptedByEditability;
+    // Wycena jest zaakceptowana przez klienta jeśli spełnia warunki I nie jest akceptacją wewnętrzną
+    const isAccepted = (isAcceptedByName || isAcceptedById || isAcceptedByEditability);
+    const isInternalAcceptance = quoteData.accepted_by_email && quoteData.accepted_by_email.startsWith('internal_user_');
+    
+    // Zwróć true tylko dla akceptacji przez klienta (nie wewnętrznej)
+    return isAccepted && !isInternalAcceptance;
 }
 
 function checkIfQuoteOrdered(quoteData) {
@@ -2301,4 +2326,236 @@ async function openQuoteDetailsById(quoteId) {
             alert('Nie udało się otworzyć szczegółów wyceny');
         }
     }
+}
+
+/**
+ * Konfiguruje przycisk akceptacji wyceny przez użytkownika
+ * @param {Object} quoteData - Dane wyceny
+ */
+function setupUserAcceptButton(quoteData) {
+    const acceptBtn = document.getElementById('quote-user-accept-btn');
+    if (!acceptBtn) {
+        console.warn('[UserAccept] Brak przycisku akceptacji w DOM');
+        return;
+    }
+
+    console.log('[UserAccept] Konfiguracja przycisku akceptacji dla wyceny:', quoteData.id);
+
+    // Sprawdź czy wycena może być zaakceptowana
+    const canAccept = canUserAcceptQuote(quoteData);
+    
+    if (canAccept) {
+        // Pokaż i skonfiguruj przycisk
+        acceptBtn.style.display = 'flex';
+        acceptBtn.dataset.quoteId = quoteData.id;
+        acceptBtn.disabled = false;
+        
+        // Usuń stare event listenery i dodaj nowy
+        const newAcceptBtn = acceptBtn.cloneNode(true);
+        acceptBtn.parentNode.replaceChild(newAcceptBtn, acceptBtn);
+        
+        newAcceptBtn.addEventListener('click', handleUserAcceptClick);
+        
+        console.log('[UserAccept] Przycisk akceptacji skonfigurowany i widoczny');
+    } else {
+        // Ukryj przycisk
+        acceptBtn.style.display = 'none';
+        console.log('[UserAccept] Przycisk akceptacji ukryty - wycena nie może być zaakceptowana');
+    }
+}
+
+/**
+ * Sprawdza czy użytkownik może zaakceptować wycenę
+ * @param {Object} quoteData - Dane wyceny
+ * @returns {boolean} - Czy można zaakceptować
+ */
+function canUserAcceptQuote(quoteData) {
+    // Sprawdź czy wycena nie została już zaakceptowana
+    const isAlreadyAccepted = checkIfQuoteAccepted(quoteData);
+    
+    // Sprawdź czy wycena nie została już złożona jako zamówienie
+    const isOrdered = checkIfQuoteOrdered(quoteData);
+    
+    console.log('[UserAccept] Sprawdzanie możliwości akceptacji:', {
+        quoteId: quoteData.id,
+        isClientEditable: quoteData.is_client_editable,
+        isAlreadyAccepted,
+        isOrdered,
+        statusId: quoteData.status_id,
+        statusName: quoteData.status_name
+    });
+    
+    // Można zaakceptować jeśli:
+    // - wycena nie została jeszcze zaakceptowana (is_client_editable = true)
+    // - wycena nie została złożona jako zamówienie
+    return quoteData.is_client_editable && !isAlreadyAccepted && !isOrdered;
+}
+
+/**
+ * Obsługuje kliknięcie w przycisk akceptacji przez użytkownika
+ * @param {Event} event - Event kliknięcia
+ */
+async function handleUserAcceptClick(event) {
+    event.preventDefault();
+    
+    const acceptBtn = event.target;
+    const quoteId = acceptBtn.dataset.quoteId;
+    
+    if (!quoteId) {
+        console.error('[UserAccept] Brak ID wyceny w przycisku');
+        showToast('Błąd: Brak ID wyceny', 'error');
+        return;
+    }
+    
+    console.log('[UserAccept] Próba akceptacji wyceny:', quoteId);
+    
+    // Pokaż potwierdzenie
+    const confirmed = confirm('Czy na pewno chcesz zaakceptować tę wycenę jako opiekun oferty?\n\nPo akceptacji wycena zostanie oznaczona jako zatwierdzona, a klient otrzyma email z potwierdzeniem.');
+    
+    if (!confirmed) {
+        console.log('[UserAccept] Akceptacja anulowana przez użytkownika');
+        return;
+    }
+    
+    // Zablokuj przycisk podczas operacji
+    acceptBtn.disabled = true;
+    acceptBtn.textContent = 'Akceptuję...';
+    
+    try {
+        // Wyślij żądanie akceptacji
+        const response = await fetch(`/quotes/api/quotes/${quoteId}/user-accept`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        
+        console.log('[UserAccept] Akceptacja pomyślna:', data);
+        
+        // Pokaż sukces
+        showToast(`✅ Wycena została zaakceptowana przez ${data.accepted_by_user}`, 'success');
+        
+        // Odśwież modal
+        await refreshQuoteModal(quoteId);
+        
+        console.log('[UserAccept] Modal odświeżony po akceptacji');
+        
+    } catch (error) {
+        console.error('[UserAccept] Błąd akceptacji:', error);
+        showToast(`Błąd akceptacji: ${error.message}`, 'error');
+        
+        // Przywróć przycisk
+        acceptBtn.disabled = false;
+        acceptBtn.textContent = '✓ Akceptuj';
+    }
+}
+
+/**
+ * Odświeża modal wyceny po akceptacji
+ * @param {number} quoteId - ID wyceny
+ */
+async function refreshQuoteModal(quoteId) {
+    try {
+        console.log('[UserAccept] Odświeżanie modalu dla wyceny:', quoteId);
+        
+        // Pobierz zaktualizowane dane wyceny
+        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const updatedQuoteData = await response.json();
+        console.log('[UserAccept] Pobrano zaktualizowane dane:', updatedQuoteData);
+        
+        // Zaktualizuj zawartość modalu
+        showDetailsModal(updatedQuoteData)
+        
+        console.log('[UserAccept] Modal zaktualizowany pomyślnie');
+        
+    } catch (error) {
+        console.error('[UserAccept] Błąd odświeżania modalu:', error);
+        showToast('Błąd odświeżania danych. Odśwież stronę.', 'error');
+    }
+}
+
+/**
+ * Dodaje banner informacji o akceptacji przez użytkownika
+ * @param {HTMLElement} modalBox - Kontener modalu
+ * @param {Object} quoteData - Dane wyceny
+ */
+function addUserAcceptanceBanner(modalBox, quoteData) {
+    // Usuń istniejący banner jeśli jest
+    removeUserAcceptanceBanner(modalBox);
+    
+    // Sprawdź czy wycena została zaakceptowana przez użytkownika wewnętrznego
+    const isAcceptedByUser = isQuoteAcceptedByUser(quoteData);
+    
+    if (!isAcceptedByUser) {
+        return;
+    }
+    
+    let acceptanceDate = '';
+    let acceptedByUser = '';
+    
+    if (quoteData.acceptance_date) {
+        const date = new Date(quoteData.acceptance_date);
+        acceptanceDate = date.toLocaleString('pl-PL');
+    }
+    
+    // Sprawdź czy w accepted_by_email jest oznaczenie użytkownika wewnętrznego
+    if (quoteData.accepted_by_email && quoteData.accepted_by_email.startsWith('internal_user_')) {
+        acceptedByUser = 'Opiekun oferty';
+    }
+    
+    const banner = document.createElement('div');
+    banner.className = 'user-acceptance-banner';
+    banner.innerHTML = `
+        <svg class="banner-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        <div class="banner-text">
+            <div>Wycena została zaakceptowana przez opiekuna oferty</div>
+            ${acceptanceDate ? `<div class="acceptance-details">Data akceptacji: ${acceptanceDate}</div>` : ''}
+        </div>
+    `;
+    
+    // Wstaw banner na początku modalu (po nagłówku)
+    const modalHeader = modalBox.querySelector('.quotes-details-modal-header');
+    if (modalHeader && modalHeader.nextSibling) {
+        modalBox.insertBefore(banner, modalHeader.nextSibling);
+    } else {
+        modalBox.appendChild(banner);
+    }
+    
+    console.log('[UserAccept] Dodano banner akceptacji przez opiekuna');
+}
+
+/**
+ * Usuwa banner akceptacji przez użytkownika
+ * @param {HTMLElement} modalBox - Kontener modalu
+ */
+function removeUserAcceptanceBanner(modalBox) {
+    const existingBanner = modalBox.querySelector('.user-acceptance-banner');
+    if (existingBanner) {
+        existingBanner.remove();
+        console.log('[UserAccept] Usunięto banner akceptacji przez opiekuna');
+    }
+}
+
+/**
+ * Sprawdza czy wycena została zaakceptowana przez użytkownika wewnętrznego
+ * @param {Object} quoteData - Dane wyceny
+ * @returns {boolean}
+ */
+function isQuoteAcceptedByUser(quoteData) {
+    // Sprawdź czy w accepted_by_email jest oznaczenie użytkownika wewnętrznego
+    return quoteData.accepted_by_email && 
+           quoteData.accepted_by_email.startsWith('internal_user_') &&
+           !quoteData.is_client_editable;
 }

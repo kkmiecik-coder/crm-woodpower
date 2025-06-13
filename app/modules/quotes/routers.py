@@ -445,46 +445,45 @@ def get_quote_details(quote_id):
             "base_linker_order_id": quote.base_linker_order_id,
             "public_token": quote.public_token,
             
+            # DODANE POLA DLA AKCEPTACJI:
+            "status_id": quote.status_id,
+            "status_name": quote.quote_status.name if quote.quote_status else None,
+            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
+            "accepted_by_email": quote.accepted_by_email,
+            
             # NOWE POLA: Informacje o mnożniku
             "quote_multiplier": float(quote.quote_multiplier) if quote.quote_multiplier else None,
             "quote_client_type": quote.quote_client_type,
             
-            # Nowa struktura kosztów
+            # Koszty
             "costs": costs,
-            
-            # Zachowaj stare pola dla kompatybilności
-            "cost_products": costs['products']['netto'],
-            "cost_finishing": costs['finishing']['netto'], 
-            "cost_shipping": costs['shipping']['brutto'],
-            "cost_total": costs['total']['brutto'],
-            
+            "cost_products": cost_products_netto,
+            "cost_finishing": cost_finishing_netto,
+            "cost_shipping": cost_shipping_brutto,
             "courier_name": quote.courier_name or "-",
-            "status_name": quote.quote_status.name if quote.quote_status else "-",
-            "status_color": quote.quote_status.color_hex if quote.quote_status else "#999",
-            "all_statuses": {s.id: {"id": s.id, "name": s.name, "color": s.color_hex} for s in all_statuses},
             
-            # TUTAJ UŻYWAMY finishing_details - jest już zdefiniowane powyżej:
-            "finishing": [
-                {
-                    "product_index": detail.product_index,
-                    "type": detail.finishing_type,
-                    "variant": detail.finishing_variant,
-                    "color": detail.finishing_color,
-                    "gloss": detail.finishing_gloss_level,
-                    "netto": detail.finishing_price_netto,
-                    "brutto": detail.finishing_price_brutto,
-                    "quantity": detail.quantity  # NOWE POLE: ilość produktu
-                } for detail in finishing_details
-            ],
+            # Pozostałe pola
+            "all_statuses": {s.name: {"name": s.name, "color": s.color_hex} for s in all_statuses},
+            "finishing": [d.to_dict() if hasattr(d, 'to_dict') else {
+                "product_index": d.product_index,
+                "finishing_type": d.finishing_type,
+                "finishing_variant": d.finishing_variant,
+                "finishing_color": d.finishing_color,
+                "finishing_gloss_level": d.finishing_gloss_level,
+                "finishing_price_netto": float(d.finishing_price_netto) if d.finishing_price_netto else 0.0,
+                "quantity": d.quantity or 1
+            } for d in finishing_details],
             "client": {
-                "client_number": quote.client.client_number if quote.client else "-",
-                "client_name": quote.client.client_name if quote.client else "-",
-                "client_delivery_name": quote.client.client_delivery_name if quote.client else "-",
-                "email": quote.client.email if quote.client else "-",
-                "phone": quote.client.phone if quote.client else "-",
-                "company": quote.client.invoice_company or quote.client.delivery_company or "-"
+                "id": quote.client.id if quote.client else None,
+                "client_name": quote.client.client_name if quote.client else None,
+                "client_number": quote.client.client_number if quote.client else None,
+                "client_delivery_name": quote.client.client_delivery_name if quote.client else None,
+                "company_name": quote.client.delivery_company if quote.client else None,
+                "email": quote.client.email if quote.client else None,
+                "phone": quote.client.phone if quote.client else None
             },
             "user": {
+                "id": quote.user.id if quote.user else None,
                 "first_name": quote.user.first_name if quote.user else "",
                 "last_name": quote.user.last_name if quote.user else ""
             },
@@ -1058,3 +1057,147 @@ def update_quote_quantity(quote_id):
             "error": "Błąd podczas aktualizacji ilości",
             "message": str(e)
         }), 500
+    
+# Dodaj ten kod do app/modules/quotes/routers.py
+
+@quotes_bp.route('/api/quotes/<int:quote_id>/user-accept', methods=['POST'])
+@login_required
+def user_accept_quote(quote_id):
+    """Akceptacja wyceny przez użytkownika wewnętrznego (opiekuna oferty)"""
+    try:
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+        
+        # Pobierz aktualnego użytkownika
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+        
+        if not user:
+            return jsonify({"error": "Nie znaleziono użytkownika"}), 401
+        
+        # Sprawdź czy wycena nie została już zaakceptowana
+        if not quote.is_client_editable:
+            return jsonify({
+                "error": "Wycena została już zaakceptowana",
+                "message": "Ta wycena została już wcześniej zaakceptowana"
+            }), 403
+        
+        print(f"[user_accept_quote] Akceptacja wyceny {quote_id} przez użytkownika {user.id} ({user.first_name} {user.last_name})", file=sys.stderr)
+        
+        # Znajdź status "Zaakceptowane" (ID 3)
+        accepted_status = QuoteStatus.query.filter_by(id=3).first()
+        if not accepted_status:
+            # Fallback - spróbuj różne nazwy
+            accepted_status = QuoteStatus.query.filter(
+                QuoteStatus.name.in_(["Zaakceptowane", "Zaakceptowana", "Accepted", "Zatwierdzone"])
+            ).first()
+        
+        if not accepted_status:
+            print(f"[user_accept_quote] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
+            return jsonify({"error": "Błąd konfiguracji statusów"}), 500
+        
+        # Zaktualizuj wycenę
+        old_status_id = quote.status_id
+        quote.status_id = accepted_status.id
+        quote.is_client_editable = False
+        
+        # Dodaj pola dla akceptacji przez użytkownika wewnętrznego
+        # UWAGA: Te pola mogą nie istnieć w bazie - dodaj je do migracji!
+        # quote.internal_acceptance_date = datetime.now()
+        # quote.accepted_by_user_id = user.id
+        
+        # Na razie używamy istniejących pól, ale z inną logiką
+        if not quote.acceptance_date:  # Jeśli nie było akceptacji przez klienta
+            quote.acceptance_date = datetime.now()
+            quote.accepted_by_email = f"internal_user_{user.id}"  # Oznaczenie akceptacji wewnętrznej
+        
+        print(f"[user_accept_quote] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
+        
+        # Zapisz zmiany
+        try:
+            db.session.commit()
+            print(f"[user_accept_quote] Zmiany zapisane pomyślnie", file=sys.stderr)
+        except Exception as e:
+            print(f"[user_accept_quote] BŁĄD podczas zapisu: {e}", file=sys.stderr)
+            db.session.rollback()
+            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        
+        # Wyślij email do klienta o akceptacji wyceny przez opiekuna
+        try:
+            if quote.client and quote.client.email:
+                send_user_acceptance_email_to_client(quote, user)
+                print(f"[user_accept_quote] Email do klienta wysłany", file=sys.stderr)
+        except Exception as e:
+            print(f"[user_accept_quote] Błąd wysyłki maila: {e}", file=sys.stderr)
+        
+        return jsonify({
+            "message": "Wycena została zaakceptowana przez opiekuna",
+            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
+            "accepted_by_user": f"{user.first_name} {user.last_name}",
+            "new_status": accepted_status.name,
+            "new_status_id": accepted_status.id
+        })
+        
+    except Exception as e:
+        print(f"[user_accept_quote] WYJĄTEK: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        db.session.rollback()
+        return jsonify({"error": "Błąd podczas akceptacji wyceny"}), 500
+
+
+def send_user_acceptance_email_to_client(quote, accepting_user):
+    """
+    Wysyła email do klienta o akceptacji wyceny przez opiekuna oferty
+    
+    Args:
+        quote: Obiekt wyceny (Quote model)
+        accepting_user: Użytkownik który zaakceptował wycenę
+    """
+    if not quote.client or not quote.client.email:
+        print(f"[send_user_acceptance_email_to_client] Brak emaila klienta dla wyceny {quote.id}", file=sys.stderr)
+        return
+    
+    try:
+        # Przygotuj dane do szablonu
+        selected_items = quote.get_selected_items()
+        
+        # Oblicz koszty
+        cost_products_netto = round(sum(i.final_price_netto or 0 for i in selected_items), 2)
+        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+        costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
+        
+        # Pobierz detale wykończenia
+        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+        
+        # Renderuj szablon HTML dla klienta (podobny do istniejącego)
+        html_body = render_template('quote_accept_email_client.html', 
+                                  quote=quote,
+                                  selected_items=selected_items,
+                                  finishing_details=finishing_details,
+                                  costs=costs,
+                                  acceptance_date=datetime.now(),
+                                  accepting_user=accepting_user,  # Dodatkowy parametr
+                                  acceptance_by='user',  # Oznaczenie że to akceptacja przez użytkownika
+                                  base_url=current_app.config.get('BASE_URL', ''))
+        
+        # Przygotuj wiadomość
+        msg = Message(
+            subject=f"✅ Wycena {quote.quote_number} została zaakceptowana - Wood Power",
+            sender=current_app.config['MAIL_USERNAME'],  # powiadomienia@woodpower.pl
+            recipients=[quote.client.email],
+            html=html_body
+        )
+        
+        # Ustaw Reply-To na email akceptującego użytkownika
+        if accepting_user.email:
+            msg.reply_to = accepting_user.email
+            print(f"[send_user_acceptance_email_to_client] Ustawiono Reply-To na: {accepting_user.email}", file=sys.stderr)
+        
+        mail.send(msg)
+        print(f"[send_user_acceptance_email_to_client] Wysłano email do klienta: {quote.client.email}", file=sys.stderr)
+        
+    except Exception as e:
+        print(f"[send_user_acceptance_email_to_client] Błąd wysyłki maila do klienta: {e}", file=sys.stderr)
+        raise
