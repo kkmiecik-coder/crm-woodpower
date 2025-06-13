@@ -421,8 +421,8 @@ class BaselinkerService:
             'invoice_city': client.invoice_city or client.delivery_city or '',
             'invoice_country_code': config.get('delivery_country', 'PL'),
             'want_invoice': bool(client.invoice_nip),
-            'extra_field_1': quote.quote_number,
-            'extra_field_2': quote.source or '',
+            'extra_field_1': '',  # Możesz dodać dodatkowe pola jeśli potrzebujesz,
+            'extra_field_2': '', 
             'products': products  # ← Produkty z cenami jednostkowymi i quantity
         }
 

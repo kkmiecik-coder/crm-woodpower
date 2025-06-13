@@ -374,8 +374,21 @@ p {
 .logo {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: -7px;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.beta-tag {
+    display: inline-block;
+    padding: 5px 12px;
+    border-radius: 16px;
+    background: #ED6B24;
+    color: #FFF;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: middle;
 }
 
 .panel {
