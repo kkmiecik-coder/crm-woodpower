@@ -133,14 +133,25 @@ const dataSync = {
 
                 const variantName = utils.translateVariantCode(selectedItem.variant_code);
                 const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
-                const priceBrutto = utils.formatCurrency(selectedItem.final_price_brutto);
-                const priceNetto = utils.formatCurrency(selectedItem.final_price_netto);
+                
+                // NOWE: Pobierz ilość z finishing details
+                const finishing = globalState.quoteData.finishing?.find(f => f.product_index === parseInt(productIndex));
+                const quantity = finishing?.quantity || 1;
+                
+                // NOWE: Użyj wartości całkowitych (cena × ilość)
+                const unitPriceBrutto = selectedItem.price_brutto || selectedItem.final_price_brutto || 0;
+                const unitPriceNetto = selectedItem.price_netto || selectedItem.final_price_netto || 0;
+                const totalPriceBrutto = unitPriceBrutto * quantity;
+                const totalPriceNetto = unitPriceNetto * quantity;
+                
+                const priceBrutto = utils.formatCurrency(totalPriceBrutto);
+                const priceNetto = utils.formatCurrency(totalPriceNetto);
 
                 return `
                     <div class="product-breakdown-item">
                         <div class="product-breakdown-info">
                             <div class="product-breakdown-name">Produkt ${productIndex}: ${dimensions}</div>
-                            <div class="product-breakdown-details">${variantName}</div>
+                            <div class="product-breakdown-details">${variantName}, ${quantity} szt.</div>
                         </div>
                         <div class="product-breakdown-price">
                             <span class="breakdown-price-brutto">${priceBrutto}</span>
@@ -495,6 +506,9 @@ const quote = {
     createProductHeaderHTML: (productIndex, selectedItem, finishing) => {
         const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
         const volume = selectedItem.volume_m3?.toFixed(3) || '0.000';
+        
+        // NOWE: Pobierz ilość z finishing details
+        const quantity = finishing?.quantity || 1;
 
         let finishingHTML = '';
         if (finishing) {
@@ -509,13 +523,42 @@ const quote = {
             finishingHTML = `<div><strong>Wykończenie:</strong> ${finishingDisplay}</div>`;
         }
 
+        // NOWE: Dodaj informacje o cenach brutto/netto (jednostkowych i całkowitych)
+        const unitPriceBrutto = selectedItem.price_brutto || selectedItem.final_price_brutto || 0;
+        const unitPriceNetto = selectedItem.price_netto || selectedItem.final_price_netto || 0;
+        const totalPriceBrutto = unitPriceBrutto * quantity;
+        const totalPriceNetto = unitPriceNetto * quantity;
+
+        const priceHTML = `
+            <div class="product-pricing">
+                <div class="pricing-row">
+                    <span class="price-label"><strong>Cena:</strong></span>
+                    <div class="price-values">
+                        <span class="price-brutto">${utils.formatCurrency(unitPriceBrutto)} brutto</span>
+                        <span class="price-netto">${utils.formatCurrency(unitPriceNetto)} netto</span>
+                    </div>
+                </div>
+                <div class="pricing-row">
+                    <span class="price-label"><strong>Wartość:</strong></span>
+                    <div class="price-values">
+                        <span class="price-brutto">${utils.formatCurrency(totalPriceBrutto)} brutto</span>
+                        <span class="price-netto">${utils.formatCurrency(totalPriceNetto)} netto</span>
+                    </div>
+                </div>
+            </div>
+        `;
+
         return `
             <div class="product-header">
                 <div class="product-title">Produkt ${productIndex}</div>
                 <div class="product-summary">
-                    <div><strong>Wymiary:</strong> ${dimensions}</div>
-                    <div><strong>Objętość:</strong> ${volume} m³</div>
-                    ${finishingHTML}
+                    <div class="product-details">
+                        <div><strong>Wymiary:</strong> ${dimensions}</div>
+                        <div><strong>Objętość:</strong> ${volume} m³</div>
+                        ${finishingHTML}
+                        <div><strong>Ilość:</strong> ${quantity} szt.</div>
+                    </div>
+                    ${priceHTML}
                 </div>
             </div>
         `;
@@ -529,32 +572,88 @@ const quote = {
     createVariantCardHTML: (item) => {
         const isSelected = globalState.selectedVariants.get(item.product_index) === item.id;
         const variantName = utils.translateVariantCode(item.variant_code);
+        
+        // NOWE: Pobierz ilość z finishing details
+        const finishing = globalState.quoteData.finishing?.find(f => f.product_index === item.product_index);
+        const quantity = finishing?.quantity || 1;
 
         // Sprawdzamy czy wariant ma rabat
         const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
-        const originalPrice = hasDiscount ? (item.original_price_brutto || item.final_price_brutto) : null;
-        const finalPrice = item.final_price_brutto;
+        const originalPriceBrutto = hasDiscount ? (item.original_price_brutto || item.final_price_brutto) : null;
+        const originalPriceNetto = hasDiscount ? (item.original_price_netto || item.final_price_netto) : null;
+        
+        // Ceny jednostkowe
+        const unitPriceBrutto = item.price_brutto || item.final_price_brutto || 0;
+        const unitPriceNetto = item.price_netto || item.final_price_netto || 0;
+        
+        // Wartości całkowite
+        const totalPriceBrutto = unitPriceBrutto * quantity;
+        const totalPriceNetto = unitPriceNetto * quantity;
 
-        // Badge status - zmieniony tekst
-        const badgeText = isSelected ? 'Wybrany wariant' : 'Wybierz';
-        const badgeClass = isSelected ? 'selected' : 'available';
+        // NOWE: Badge tylko dla wybranego wariantu w zaakceptowanej wycenie
+        let badgeHTML = '';
+        if (globalState.isQuoteAccepted) {
+            // W zaakceptowanej wycenie tylko wybrany wariant ma badge
+            if (isSelected) {
+                badgeHTML = `<div class="variant-badge selected">Wybrany wariant</div>`;
+            }
+        } else {
+            // W aktywnej wycenie standardowe labele
+            const badgeText = isSelected ? 'Wybrany wariant' : 'Wybierz';
+            const badgeClass = isSelected ? 'selected' : 'available';
+            badgeHTML = `<div class="variant-badge ${badgeClass}">${badgeText}</div>`;
+        }
 
-        // Kompaktowe wyświetlanie cen - tylko najważniejsze
-        let priceHTML = `<div class="price-final">${utils.formatCurrency(finalPrice)} brutto</div>`;
-
-        if (hasDiscount && originalPrice) {
+        // NOWE: Wyświetlanie cen jak w modalu szczegółów wyceny
+        let priceHTML = '';
+        if (hasDiscount && originalPriceBrutto) {
+            // Z rabatem - pokazuj oryginalne i końcowe ceny
+            const originalTotalBrutto = originalPriceBrutto * quantity;
+            const originalTotalNetto = originalPriceNetto * quantity;
+            
             priceHTML = `
-                <div class="price-final">${utils.formatCurrency(finalPrice)} brutto</div>
-                <div class="price-breakdown">
-                    <span class="price-original">${utils.formatCurrency(originalPrice)}</span>
-                    <span class="price-discount">Rabat ${item.discount_percentage}%</span>
+                <div class="variant-pricing">
+                    <div class="pricing-section">
+                        <div class="pricing-label">Cena:</div>
+                        <div class="pricing-values">
+                            <div class="price-original">${utils.formatCurrency(originalPriceBrutto)} brutto</div>
+                            <div class="price-original netto">${utils.formatCurrency(originalPriceNetto)} netto</div>
+                        </div>
+                    </div>
+                    <div class="pricing-section">
+                        <div class="pricing-label">Po rabacie ${item.discount_percentage}%:</div>
+                        <div class="pricing-values">
+                            <div class="price-final">${utils.formatCurrency(unitPriceBrutto)} brutto</div>
+                            <div class="price-final netto">${utils.formatCurrency(unitPriceNetto)} netto</div>
+                        </div>
+                    </div>
+                    <div class="pricing-section">
+                        <div class="pricing-label">Wartość:</div>
+                        <div class="pricing-values">
+                            <div class="price-final">${utils.formatCurrency(totalPriceBrutto)} brutto</div>
+                            <div class="price-final netto">${utils.formatCurrency(totalPriceNetto)} netto</div>
+                        </div>
+                    </div>
                 </div>
             `;
         } else {
-            // Pokazujemy brutto i netto w kompaktowy sposób
-            priceHTML += `
-                <div class="price-breakdown">
-                    <span>${utils.formatCurrency(item.final_price_netto)} netto</span>
+            // Bez rabatu - standardowe wyświetlanie
+            priceHTML = `
+                <div class="variant-pricing">
+                    <div class="pricing-section">
+                        <div class="pricing-label">Cena:</div>
+                        <div class="pricing-values">
+                            <div class="price-final">${utils.formatCurrency(unitPriceBrutto)} brutto</div>
+                            <div class="price-final netto">${utils.formatCurrency(unitPriceNetto)} netto</div>
+                        </div>
+                    </div>
+                    <div class="pricing-section">
+                        <div class="pricing-label">Wartość:</div>
+                        <div class="pricing-values">
+                            <div class="price-final">${utils.formatCurrency(totalPriceBrutto)} brutto</div>
+                            <div class="price-final netto">${utils.formatCurrency(totalPriceNetto)} netto</div>
+                        </div>
+                    </div>
                 </div>
             `;
         }
@@ -565,21 +664,17 @@ const quote = {
 
         return `
             <div class="variant-card ${isSelected ? 'selected' : ''}" 
-                 data-item-id="${item.id}" 
-                 data-product-index="${item.product_index}"
-                 data-editable="${isEditable}"
-                 ${clickHandler}>
+                data-item-id="${item.id}" 
+                data-product-index="${item.product_index}"
+                data-editable="${isEditable}"
+                ${clickHandler}>
                 
                 <div class="variant-header">
                     <div class="variant-name">${variantName}</div>
-                    <div class="variant-badge ${badgeClass}">
-                        ${badgeText}
-                    </div>
+                    ${badgeHTML}
                 </div>
                 
-                <div class="variant-price">
-                    ${priceHTML}
-                </div>
+                ${priceHTML}
             </div>
         `;
     },

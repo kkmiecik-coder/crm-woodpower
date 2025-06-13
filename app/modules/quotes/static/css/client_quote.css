@@ -492,9 +492,10 @@ body {
 }
 
 .product-summary {
-    display: block;
+    display: flex;
     font-size: var(--font-size-sm);
     color: var(--text-secondary);
+    justify-content: space-between;
 }
 
 /* ===================================
@@ -578,7 +579,6 @@ body {
     font-size: var(--font-size-base);
     font-weight: 700;
     color: var(--primary-color);
-    margin-bottom: var(--spacing-xs);
 }
 
 .price-breakdown {
@@ -982,10 +982,6 @@ body {
     display: block;
 }
 
-.price-summary {
-    /* Ostatnia sekcja, bez border-bottom */
-}
-
 .price-item {
     display: flex;
     justify-content: space-between;
@@ -1013,6 +1009,7 @@ body {
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
     display: block;
+    font-weight: 400;
 }
 
 .price-total {
@@ -1946,3 +1943,116 @@ body {
 /* ===================================
    END OF STYLES
    =================================== */
+
+.accepted-icon  {
+    width: 32px;
+    height: 32px;
+    color: var(--success-color);
+}
+
+/* ===== STYLE DLA PRODUCT HEADER PRICING ===== */
+
+.product-pricing .pricing-row {
+    display: flex;
+    margin-bottom: var(--spacing-xxs);
+}
+
+.product-pricing .price-values {
+    text-align: left;
+}
+
+.product-pricing .price-brutto {
+    font-weight: 600;
+    color: var(--text-secondary);
+    display: block;
+    font-size: var(--font-size-sm);
+}
+
+.product-pricing .price-netto {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    display: block;
+}
+
+/* ===== STYLE DLA VARIANT CARD PRICING ===== */
+.variant-pricing {
+    margin-top: var(--spacing-sm);
+}
+
+.variant-pricing .pricing-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-xs);
+    padding: var(--spacing-xs);
+}
+
+.variant-pricing .pricing-label {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 60px;
+}
+
+.variant-pricing .pricing-values {
+    text-align: right;
+}
+
+.variant-pricing .price-final {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.variant-pricing .price-final.netto {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.variant-pricing .price-original {
+    text-decoration: line-through;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+
+.variant-pricing .price-original.netto {
+    font-size: 11px;
+}
+
+/* ===== RESPONSIVE ADJUSTMENTS ===== */
+@media (max-width: 768px) {
+    .product-pricing .pricing-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-xxs);
+    }
+    
+    .product-pricing .price-values {
+        text-align: left;
+    }
+    
+    .variant-pricing .pricing-section {
+        flex-direction: column;
+        gap: var(--spacing-xxs);
+    }
+    
+    .variant-pricing .pricing-values {
+        text-align: left;
+    }
+}
+
+/* ===== UKRYCIE BADGE W ZAAKCEPTOWANYCH WYCENACH ===== */
+.quote-accepted .variant-badge.available {
+    display: none;
+}
+
+.product-header .product-pricing .pricing-row:last-child {
+    font-weight: 600;
+    padding-top: var(--spacing-xs);
+    margin-top: var(--spacing-xs);
+}
+
+.price-label {
+    min-width: 80px;
+}
