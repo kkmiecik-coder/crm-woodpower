@@ -699,17 +699,24 @@ function buildVariantPriceDisplay(variant, quantity) {
     const totalNetto = unitPriceNetto * quantity;
     
     return `
-        <div class="variant-pricing">
-            <div class="unit-price">
-                <strong>Cena jednostkowa:</strong><br>
-                ${formatPriceWithNetto(unitPriceBrutto, unitPriceNetto)}
+        <div class="details-modal-variant-pricing">
+            <div class="details-modal-pricing-row">
+                <div class="details-modal-pricing-label">
+                    <strong>Cena:</strong>
+                </div>
+                <div class="details-modal-pricing-values">
+                    <div class="details-modal-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
+                    <div class="details-modal-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                </div>
             </div>
-            <div class="quantity">
-                <strong>Ilość:</strong> ${quantity} szt.
-            </div>
-            <div class="total-price">
-                <strong>Wartość całkowita:</strong><br>
-                ${formatPriceWithNetto(totalBrutto, totalNetto)}
+            <div class="details-modal-pricing-row">
+                <div class="details-modal-pricing-label">
+                    <strong>Wartość:</strong>
+                </div>
+                <div class="details-modal-pricing-values">
+                    <div class="details-modal-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
+                    <div class="details-modal-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+                </div>
             </div>
         </div>
     `;
@@ -1211,14 +1218,10 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     
     wrap.innerHTML = `
         <div class="variant-basic-info">
-            <h4>Produkt ${productIndex}</h4>
+            <h4 class="details-modal-product-name">Produkt ${productIndex}</h4>
             <p><strong>Wymiary:</strong> ${dims}</p>
             <p><strong>Objętość:</strong> ${volume}</p>
-        </div>
-        <div class="variant-price-info">
-            <p><strong>Cena jednostkowa:</strong> ${formatPriceWithNetto(unitPriceBrutto, unitPriceNetto)}</p>
             <p><strong>Ilość:</strong> ${quantity} szt.</p>
-            <p><strong>Wartość całkowita:</strong> ${formatPriceWithNetto(unitPriceBrutto * quantity, unitPriceNetto * quantity)}</p>
         </div>
     `;
 
