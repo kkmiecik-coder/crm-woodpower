@@ -1,7 +1,7 @@
 # modules/quotes/routers.py
 from flask import render_template, jsonify, request, make_response, current_app, send_file, Blueprint, session, redirect, url_for, flash
 from . import quotes_bp
-from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem
+from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog
 from modules.quotes.models import QuoteStatus, DiscountReason
 from modules.clients.models import Client
 from modules.baselinker.service import BaselinkerService
@@ -982,3 +982,79 @@ def send_acceptance_emails(quote):
 def test_quotes_routing():
     """Test czy quotes blueprint działa"""
     return "Quotes routing działa!"
+
+# Add this route to app/modules/quotes/routers.py
+
+@quotes_bp.route("/api/quotes/<int:quote_id>/update-quantity", methods=['PATCH'])
+def update_quote_quantity(quote_id):
+    """Aktualizuje ilość produktu w wycenie"""
+    try:
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+        
+        # Pobierz dane z requestu
+        data = request.get_json()
+        product_index = data.get('product_index')
+        new_quantity = data.get('quantity')
+        
+        # Walidacja danych
+        if not product_index or not new_quantity:
+            return jsonify({"error": "Brakuje wymaganych danych (product_index, quantity)"}), 400
+        
+        try:
+            product_index = int(product_index)
+            new_quantity = int(new_quantity)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Nieprawidłowe wartości liczbowe"}), 400
+        
+        if new_quantity < 1:
+            return jsonify({"error": "Ilość musi być większa od 0"}), 400
+        
+        print(f"[update_quote_quantity] Aktualizacja ilości dla wyceny {quote_id}, produkt {product_index}, nowa ilość: {new_quantity}", file=sys.stderr)
+        
+        # Znajdź szczegóły wykończenia dla danego produktu
+        finishing_details = QuoteItemDetails.query.filter_by(
+            quote_id=quote_id,
+            product_index=product_index
+        ).first()
+        
+        if not finishing_details:
+            return jsonify({"error": f"Nie znaleziono szczegółów produktu {product_index}"}), 404
+        
+        # Zapisz starą ilość dla logowania
+        old_quantity = finishing_details.quantity or 1
+        
+        # Aktualizuj ilość w QuoteItemDetails
+        finishing_details.quantity = new_quantity
+        
+        print(f"[update_quote_quantity] Zaktualizowano ilość z {old_quantity} na {new_quantity} dla produktu {product_index}", file=sys.stderr)
+        
+        # Zaloguj zmianę
+        current_user_id = session.get('user_id')
+        if current_user_id:
+            log_entry = QuoteLog(
+                quote_id=quote_id,
+                user_id=current_user_id,
+                description=f"Zmieniono ilość produktu {product_index} z {old_quantity} na {new_quantity} szt."
+            )
+            db.session.add(log_entry)
+        
+        # Zapisz zmiany
+        db.session.commit()
+        
+        print(f"[update_quote_quantity] Pomyślnie zaktualizowano ilość produktu {product_index} w wycenie {quote_id}", file=sys.stderr)
+        
+        return jsonify({
+            "message": "Ilość została zaktualizowana",
+            "product_index": product_index,
+            "old_quantity": old_quantity,
+            "new_quantity": new_quantity
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"[update_quote_quantity] Błąd podczas aktualizacji ilości: {e}", file=sys.stderr)
+        return jsonify({
+            "error": "Błąd podczas aktualizacji ilości",
+            "message": str(e)
+        }), 500

@@ -1197,6 +1197,7 @@ function renderSelectedSummary(groupedItems, container) {
     });
 }
 
+// Updated renderVariantSummary function with quantity editing functionality
 function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const item = groupedItemsForIndex.find(i => i.is_selected) || groupedItemsForIndex[0];
     if (!item) return null;
@@ -1216,16 +1217,187 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const unitPriceBrutto = item.unit_price_brutto || item.final_price_brutto || 0;
     const unitPriceNetto = item.unit_price_netto || item.final_price_netto || 0;
     
+    // POPRAWKA: Użyj edit-2.svg dla edycji ilości
+    const edit2IconURL = getEditIconURL().replace('edit.svg', 'edit-2.svg');
+    
+    // Utwórz unikalne ID dla pola ilości
+    const quantityFieldId = `quantity-field-${productIndex}`;
+    const quantityEditId = `quantity-edit-${productIndex}`;
+    
     wrap.innerHTML = `
         <div class="variant-basic-info">
             <h4 class="details-modal-product-name">Produkt ${productIndex}</h4>
             <p><strong>Wymiary:</strong> ${dims}</p>
             <p><strong>Objętość:</strong> ${volume}</p>
-            <p><strong>Ilość:</strong> ${quantity} szt.</p>
+            <div class="quantity-section">
+                <p>
+                    <strong>Ilość:</strong> 
+                    <span id="${quantityFieldId}" class="quantity-display">${quantity} szt.</span>
+                    <button class="quantity-edit-btn" data-product-index="${productIndex}" data-current-quantity="${quantity}" title="Edytuj ilość">
+                        <img src="${edit2IconURL}" alt="Edytuj" class="edit-icon">
+                        <span class="edit-text">Edytuj</span>
+                    </button>
+                </p>
+                <div id="${quantityEditId}" class="quantity-edit-form" style="display: none;">
+                    <input type="number" 
+                           class="quantity-input" 
+                           min="1" 
+                           step="1" 
+                           value="${quantity}"
+                           placeholder="Wprowadź ilość">
+                    <div class="quantity-edit-actions">
+                        <button class="quantity-save-btn" data-product-index="${productIndex}">Zapisz</button>
+                        <button class="quantity-cancel-btn" data-product-index="${productIndex}">Anuluj</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
 
+    // Dodaj event listenery po dodaniu do DOM
+    setTimeout(() => {
+        setupQuantityEditHandlers(productIndex, quoteData);
+    }, 0);
+
     return wrap;
+}
+
+// Funkcja do obsługi edycji ilości
+function setupQuantityEditHandlers(productIndex, quoteData) {
+    const editBtn = document.querySelector(`.quantity-edit-btn[data-product-index="${productIndex}"]`);
+    const saveBtn = document.querySelector(`.quantity-save-btn[data-product-index="${productIndex}"]`);
+    const cancelBtn = document.querySelector(`.quantity-cancel-btn[data-product-index="${productIndex}"]`);
+    const editForm = document.getElementById(`quantity-edit-${productIndex}`);
+    const displayField = document.getElementById(`quantity-field-${productIndex}`);
+    const input = editForm?.querySelector('.quantity-input');
+
+    if (!editBtn || !saveBtn || !cancelBtn || !editForm || !displayField || !input) {
+        console.warn(`[setupQuantityEditHandlers] Brakuje elementów dla produktu ${productIndex}`);
+        return;
+    }
+
+    // Obsługa kliknięcia przycisku edycji
+    editBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Ukryj display i pokaż formularz
+        displayField.style.display = 'none';
+        editBtn.style.display = 'none';
+        editForm.style.display = 'flex';
+        
+        // Focus na input i zaznacz tekst
+        input.focus();
+        input.select();
+    });
+
+    // Obsługa anulowania
+    cancelBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Przywróć oryginalną wartość
+        const originalQuantity = parseInt(editBtn.dataset.currentQuantity);
+        input.value = originalQuantity;
+        
+        // Ukryj formularz i pokaż display
+        editForm.style.display = 'none';
+        displayField.style.display = 'inline';
+        editBtn.style.display = 'inline-block';
+    });
+
+    // Obsługa zapisywania
+    saveBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const newQuantity = parseInt(input.value);
+        
+        // Walidacja
+        if (!newQuantity || newQuantity < 1) {
+            alert('Ilość musi być liczbą większą od 0');
+            input.focus();
+            return;
+        }
+
+        // Sprawdź czy wartość się zmieniła
+        const currentQuantity = parseInt(editBtn.dataset.currentQuantity);
+        if (newQuantity === currentQuantity) {
+            // Anuluj jeśli nie ma zmian
+            cancelBtn.click();
+            return;
+        }
+
+        // Wyłącz przyciski podczas zapisywania
+        saveBtn.disabled = true;
+        cancelBtn.disabled = true;
+        input.disabled = true;
+        
+        const originalSaveText = saveBtn.textContent;
+        saveBtn.textContent = 'Zapisywanie...';
+        saveBtn.classList.add('loading');
+
+        try {
+            // Wywołaj API do aktualizacji ilości
+            const response = await fetch(`/quotes/api/quotes/${quoteData.id}/update-quantity`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    product_index: productIndex,
+                    quantity: newQuantity
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Błąd podczas zapisywania ilości');
+            }
+
+            // Sukces - odśwież modal
+            console.log(`[setupQuantityEditHandlers] Pomyślnie zaktualizowano ilość produktu ${productIndex} na ${newQuantity}`);
+            
+            // Pobierz zaktualizowane dane wyceny
+            const updatedResponse = await fetch(`/quotes/api/quotes/${quoteData.id}`);
+            if (!updatedResponse.ok) {
+                throw new Error('Błąd podczas odświeżania danych wyceny');
+            }
+            
+            const updatedQuoteData = await updatedResponse.json();
+            
+            // Odśwież cały modal z nowymi danymi
+            showDetailsModal(updatedQuoteData);
+            
+        } catch (error) {
+            console.error('[setupQuantityEditHandlers] Błąd:', error);
+            alert(`Błąd podczas zapisywania ilości: ${error.message}`);
+            
+            // Przywróć kontrolki w przypadku błędu
+            saveBtn.disabled = false;
+            cancelBtn.disabled = false;
+            input.disabled = false;
+            saveBtn.textContent = originalSaveText;
+            saveBtn.classList.remove('loading');
+            input.focus();
+        }
+    });
+
+    // Obsługa klawisza Enter i Escape
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveBtn.click();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelBtn.click();
+        }
+    });
+
+    // Zapobiegaj zamknięciu modala podczas edycji
+    editForm.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
 }
 
 function translateVariantCode(code) {

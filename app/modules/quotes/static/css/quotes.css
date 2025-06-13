@@ -2303,3 +2303,210 @@
     color: var(--primary-color);
     margin-bottom: var(--spacing-xs);
 }
+
+/* ============================================
+   QUANTITY EDITING STYLES
+   Add to modules/quotes/static/css/quotes.css
+   ============================================ */
+
+/* Quantity section container */
+.quantity-section {
+    position: relative;
+    display: flex;
+}
+
+/* Quantity display and edit button container */
+.quantity-section p {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+/* Quantity edit button */
+.quantity-edit-btn {
+    background-color: #ED6B24;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    min-height: 32px;
+}
+
+.quantity-edit-btn:hover {
+    background-color: #d8571a;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(237, 107, 36, 0.3);
+}
+
+.quantity-edit-btn:active {
+    background-color: #b84d13;
+    transform: translateY(0);
+}
+
+/* Edit text */
+.quantity-edit-btn .edit-text {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Edit icon inside button */
+.quantity-edit-btn .edit-icon {
+    width: 14px;
+    height: 14px;
+    opacity: 1;
+    filter: brightness(0) invert(1); /* Makes icon white */
+}
+
+/* Quantity edit form */
+.quantity-edit-form {
+    padding: 12px;
+    display: flex;
+}
+
+/* Quantity input */
+.quantity-input {
+    width: 100px;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: center;
+    transition: border-color 0.2s ease;
+}
+
+.quantity-input:disabled {
+    background-color: #f5f5f5;
+    cursor: not-allowed;
+}
+
+/* Quantity edit actions */
+.quantity-edit-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-start;
+}
+
+/* Save button */
+.quantity-save-btn {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    min-width: 60px;
+}
+
+.quantity-save-btn:hover:not(:disabled) {
+    background-color: #218838;
+}
+
+.quantity-save-btn:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
+/* Cancel button */
+.quantity-cancel-btn {
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    min-width: 60px;
+}
+
+.quantity-cancel-btn:hover:not(:disabled) {
+    background-color: #545b62;
+}
+
+.quantity-cancel-btn:disabled {
+    background-color: #adb5bd;
+    cursor: not-allowed;
+}
+
+/* Quantity display span */
+.quantity-display {
+    font-weight: 500;
+    color: #333;
+}
+
+/* Animation for showing/hiding elements */
+.quantity-edit-form {
+    animation: slideIn 0.2s ease-out;
+    gap: 12px;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .quantity-edit-form {
+        padding: 10px;
+    }
+    
+    .quantity-input {
+        width: 80px;
+        font-size: 13px;
+    }
+    
+    .quantity-edit-actions {
+        flex-direction: column;
+    }
+    
+    .quantity-save-btn,
+    .quantity-cancel-btn {
+        width: 100%;
+        padding: 8px;
+    }
+}
+
+/* Loading state for save button */
+.quantity-save-btn.loading {
+    position: relative;
+    color: transparent;
+}
+
+.quantity-save-btn.loading::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 12px;
+    height: 12px;
+    border: 2px solid transparent;
+    border-top: 2px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: translate(-50%, -50%) rotate(0deg); }
+    100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
