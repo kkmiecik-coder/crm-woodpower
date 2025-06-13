@@ -517,6 +517,31 @@ class BaselinkerService:
         }
         return translations.get(code, f'Klejonka {code}' if code else 'Nieznany produkt')
     
+    def _translate_finishing(self, finishing_details):
+        """Tłumaczy szczegóły wykończenia na czytelny opis"""
+        if not finishing_details or not finishing_details.finishing_type or finishing_details.finishing_type == 'Brak':
+            return None
+        
+        parts = []
+        
+        # Typ wykończenia
+        if finishing_details.finishing_type:
+            parts.append(finishing_details.finishing_type)
+        
+        # Wariant wykończenia
+        if finishing_details.finishing_variant and finishing_details.finishing_variant != finishing_details.finishing_type:
+            parts.append(finishing_details.finishing_variant)
+        
+        # Kolor
+        if finishing_details.finishing_color:
+            parts.append(finishing_details.finishing_color)
+        
+        # Poziom połysku
+        if finishing_details.finishing_gloss_level:
+            parts.append(f"połysk {finishing_details.finishing_gloss_level}")
+        
+        return ' - '.join(parts) if parts else None
+    
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""
         if item.volume_m3:

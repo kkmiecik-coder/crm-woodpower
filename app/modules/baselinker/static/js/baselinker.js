@@ -1482,10 +1482,25 @@ class BaselinkerModal {
     }
 
     getFinishingDisplay(finishing) {
-        if (!finishing || finishing === 'Brak' || finishing.trim() === '') {
-            return 'surowe';
+        // 🔧 POPRAWKA: Sprawdź typ danych i konwertuj na string
+        if (!finishing || finishing === null || finishing === undefined) {
+            return 'bez wykończenia';
         }
-        return finishing;
+        
+        // Konwertuj na string i sprawdź czy pusty
+        const finishingStr = String(finishing);
+        
+        if (finishingStr === 'Brak' || finishingStr.trim() === '') {
+            return 'bez wykończenia';
+        }
+        
+        // Sprawdź czy to liczba (może być ID wykończenia)
+        if (!isNaN(finishing) && finishing !== '') {
+            // Jeśli to liczba, możesz dodać logikę mapowania ID na nazwy
+            return `wykończenie (ID: ${finishing})`;
+        }
+        
+        return finishingStr.trim();
     }
 
     setInputValue(inputId, value) {
