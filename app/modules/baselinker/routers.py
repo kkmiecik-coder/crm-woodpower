@@ -141,9 +141,11 @@ def get_order_modal_data(quote_id):
                 'quote_number': quote.quote_number,
                 'created_at': quote.created_at.isoformat() if quote.created_at else None,
                 'status': quote.quote_status.name if quote.quote_status else None,
-                'source': quote.source
+                'source': quote.source,
+                'client_id': quote.client_id  # DODANE: client_id do sekcji quote
             },
             'client': {
+                'id': quote.client.id if quote.client else None,  # DODANE: ID klienta
                 'name': quote.client.client_name if quote.client else None,
                 'number': quote.client.client_number if quote.client else None,
                 'company': quote.client.invoice_company or quote.client.delivery_company,
@@ -161,7 +163,8 @@ def get_order_modal_data(quote_id):
                 'invoice_address': quote.client.invoice_address if quote.client else None,
                 'invoice_postcode': quote.client.invoice_zip if quote.client else None,
                 'invoice_city': quote.client.invoice_city if quote.client else None,
-                'invoice_region': quote.client.invoice_region if quote.client else None
+                'invoice_region': quote.client.invoice_region if quote.client else None,
+                'want_invoice': bool(quote.client.invoice_nip) if quote.client else False
             },
             'products': products_data,  # <- POPRAWKA: Używamy nowej listy z quantity
             'costs': {
@@ -239,7 +242,7 @@ def _get_finishing_details(product_index, quote):
 @baselinker_bp.route('/api/quote/<int:quote_id>/create-order', methods=['POST'])
 @login_required
 def create_order(quote_id):
-    """Tworzy zamówienie w Baselinker"""
+    """Tworzy zamówienie w Baselinker z obsługą danych klienta"""
     try:
         quote = Quote.query.get_or_404(quote_id)
         user_email = session.get('user_email')
@@ -272,16 +275,18 @@ def create_order(quote_id):
             'delivery_method': data.get('delivery_method')
         }
         
-        print(f"[create_order] Konfiguracja: {config}", file=sys.stderr)
+        # NOWE: Pobierz dane klienta z żądania
+        client_data = data.get('client_data')
         
-        # 🔧 POPRAWIONA WALIDACJA - akceptuj order_source_id = 0
+        print(f"[create_order] Konfiguracja: {config}", file=sys.stderr)
+        print(f"[create_order] Dane klienta: {client_data}", file=sys.stderr)
+        
+        # Walidacja konfiguracji
         validation_errors = []
         
-        # KRYTYCZNA POPRAWKA: order_source_id może być 0 (to prawidłowe ID)
         if config['order_source_id'] is None or config['order_source_id'] == '':
             validation_errors.append('order_source_id jest wymagane')
         else:
-            # Konwertuj na int i sprawdź czy to prawidłowa liczba
             try:
                 config['order_source_id'] = int(config['order_source_id'])
                 print(f"[create_order] ✅ Prawidłowe order_source_id: {config['order_source_id']}", file=sys.stderr)
@@ -327,6 +332,59 @@ def create_order(quote_id):
         
         print(f"[create_order] ✅ Walidacja przeszła - źródło: {source_exists.name}, status: {status_exists.name}", file=sys.stderr)
         
+        # NOWE: Zaktualizuj dane klienta jeśli zostały przesłane
+        if client_data:
+            try:
+                from modules.calculator.models import Client
+                
+                client = quote.client
+                if client:
+                    print(f"[create_order] Aktualizacja danych klienta ID: {client.id}", file=sys.stderr)
+                    
+                    # Zaktualizuj podstawowe dane
+                    if client_data.get('delivery_name'):
+                        client.name = client_data['delivery_name']
+                    if client_data.get('email'):
+                        client.email = client_data['email']
+                    if client_data.get('phone'):
+                        client.phone = client_data['phone']
+                    
+                    # Zaktualizuj dane dostawy
+                    if client_data.get('delivery_company'):
+                        client.company = client_data['delivery_company']
+                    if client_data.get('delivery_address'):
+                        client.delivery_address = client_data['delivery_address']
+                    if client_data.get('delivery_postcode'):
+                        client.delivery_postcode = client_data['delivery_postcode']
+                    if client_data.get('delivery_city'):
+                        client.delivery_city = client_data['delivery_city']
+                    if client_data.get('delivery_region'):
+                        client.delivery_region = client_data['delivery_region']
+                    
+                    # Zaktualizuj dane fakturowe
+                    if client_data.get('invoice_name'):
+                        client.invoice_name = client_data['invoice_name']
+                    if client_data.get('invoice_company'):
+                        client.invoice_company = client_data['invoice_company']
+                    if client_data.get('invoice_nip'):
+                        client.invoice_nip = client_data['invoice_nip']
+                    if client_data.get('invoice_address'):
+                        client.invoice_address = client_data['invoice_address']
+                    if client_data.get('invoice_postcode'):
+                        client.invoice_postcode = client_data['invoice_postcode']
+                    if client_data.get('invoice_city'):
+                        client.invoice_city = client_data['invoice_city']
+                    if client_data.get('invoice_region'):
+                        client.invoice_region = client_data['invoice_region']
+                    
+                    db.session.commit()
+                    print(f"[create_order] ✅ Dane klienta zaktualizowane pomyślnie", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[create_order] ⚠️ Błąd podczas aktualizacji danych klienta: {e}", file=sys.stderr)
+                db.session.rollback()
+                # Nie przerywamy procesu - kontynuujemy z tworzeniem zamówienia
+        
         # Utwórz zamówienie
         service = BaselinkerService()
         result = service.create_order_from_quote(quote, user.id, config)
@@ -337,54 +395,36 @@ def create_order(quote_id):
             # Zaktualizuj status wyceny na "Złożone" (ID: 4)
             try:
                 from modules.quotes.models import QuoteStatus
-                from modules.calculator.models import QuoteLog
-                
-                # Znajdź status "Złożone"
-                placed_status = QuoteStatus.query.filter_by(id=4).first()
-                if placed_status:
-                    old_status_id = quote.status_id
-                    quote.status_id = placed_status.id
-                    
-                    # Zapisz numer zamówienia Baselinker w wycenie
-                    quote.base_linker_order_id = result['order_id']
-                    
-                    # Dodaj log zmiany statusu
-                    log = QuoteLog(
-                        quote_id=quote.id,
-                        user_id=user.id,
-                        description=f"Automatyczna zmiana statusu na '{placed_status.name}' po złożeniu zamówienia w Baselinker (#{result['order_id']})"
-                    )
-                    db.session.add(log)
-                    
-                    print(f"[create_order] Zmieniono status wyceny z {old_status_id} na {placed_status.id} ({placed_status.name})", file=sys.stderr)
-                    print(f"[create_order] Zapisano numer zamówienia Baselinker: {result['order_id']}", file=sys.stderr)
+                ordered_status = QuoteStatus.query.filter_by(id=4).first()
+                if ordered_status:
+                    quote.status_id = ordered_status.id
+                    db.session.commit()
+                    print(f"[create_order] ✅ Status wyceny zmieniony na: {ordered_status.name}", file=sys.stderr)
                 else:
-                    print(f"[create_order] OSTRZEŻENIE: Nie znaleziono statusu 'Złożone' (ID: 4)", file=sys.stderr)
-                
-                db.session.commit()
-                print(f"[create_order] Status wyceny zaktualizowany pomyślnie", file=sys.stderr)
-                
-            except Exception as status_error:
-                print(f"[create_order] Błąd podczas zmiany statusu wyceny: {status_error}", file=sys.stderr)
-                # Nie przerywamy procesu - zamówienie zostało złożone pomyślnie
+                    print(f"[create_order] ⚠️ Nie znaleziono statusu 'Złożone' (ID: 4)", file=sys.stderr)
+            except Exception as e:
+                print(f"[create_order] ⚠️ Błąd podczas zmiany statusu wyceny: {e}", file=sys.stderr)
             
             return jsonify({
                 'success': True,
-                'message': result['message'],
                 'order_id': result['order_id'],
-                'quote_number': quote.quote_number
+                'quote_number': quote.quote_number,
+                'message': 'Zamówienie zostało pomyślnie utworzone w Baselinker'
             })
         else:
             return jsonify({
                 'success': False,
-                'error': result['error']
-            }), 400
-            
+                'error': result.get('error', 'Nieznany błąd podczas tworzenia zamówienia')
+            }), 500
+        
     except Exception as e:
-        print(f"[create_order] Błąd: {e}", file=sys.stderr)
+        print(f"[create_order] 💥 Nieoczekiwany błąd: {str(e)}", file=sys.stderr)
         import traceback
-        traceback.print_exc(file=sys.stderr)
-        return jsonify({'error': 'Błąd tworzenia zamówienia'}), 500
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
 
 @baselinker_bp.route('/api/sync-config')
 @login_required  

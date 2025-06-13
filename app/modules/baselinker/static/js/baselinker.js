@@ -124,6 +124,65 @@ class BaselinkerModal {
         return null;
     }
 
+    async updateClientDataInDatabase(clientData) {
+        try {
+            console.log('[Baselinker] Zapisywanie danych klienta do bazy:', clientData);
+            
+            // POPRAWKA: Użyj client_id z quote zamiast client.id
+            const clientId = this.modalData.quote?.client_id || this.modalData.client?.id;
+            
+            if (!clientId) {
+                console.error('[Baselinker] ❌ Brak ID klienta w modalData');
+                this.showAlert('Błąd: Nie można określić ID klienta', 'error');
+                return false;
+            }
+            
+            console.log(`[Baselinker] Używam client_id: ${clientId}`);
+            
+            const response = await fetch(`/clients/${clientId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    client_name: clientData.delivery_name,
+                    email: clientData.email,
+                    phone: clientData.phone,
+                    delivery: {
+                        name: clientData.delivery_name,
+                        company: clientData.delivery_company,
+                        address: clientData.delivery_address,
+                        zip: clientData.delivery_postcode,
+                        city: clientData.delivery_city,
+                        region: clientData.delivery_region,
+                        country: 'Polska'
+                    },
+                    invoice: {
+                        name: clientData.invoice_name,
+                        company: clientData.invoice_company,
+                        address: clientData.invoice_address,
+                        zip: clientData.invoice_postcode,
+                        city: clientData.invoice_city,
+                        nip: clientData.invoice_nip
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('[Baselinker] ✅ Dane klienta zaktualizowane pomyślnie:', result);
+            return true;
+
+        } catch (error) {
+            console.error('[Baselinker] ❌ Błąd podczas aktualizacji danych klienta:', error);
+            this.showAlert(`Błąd podczas zapisywania danych klienta: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
     async openModal(quoteId) {
         console.log(`[Baselinker] Opening modal for quote ID: ${quoteId}`);
 
@@ -144,7 +203,14 @@ class BaselinkerModal {
 
             this.modalData = await response.json();
             console.log('[Baselinker] Modal data loaded:', this.modalData);
-
+            console.log('[Baselinker] 🔍 DEBUG - Struktura klienta:', {
+                client: this.modalData.client,
+                client_id: this.modalData.client?.id,
+                client_keys: Object.keys(this.modalData.client || {}),
+                quote: this.modalData.quote,
+                quote_client_id: this.modalData.quote?.client_id
+            });
+            
             // KRYTYCZNA POPRAWKA: Zapisz oryginalne koszty wysyłki z danych modalData
             this.originalShippingCost = parseFloat(this.modalData.costs.shipping_brutto) || 0;
             console.log(`[Baselinker] ✅ Zapisano oryginalne koszty wysyłki: ${this.originalShippingCost} PLN`);
@@ -843,11 +909,27 @@ class BaselinkerModal {
                     return;
                 }
 
+                console.log('[Baselinker] 🔍 DEBUG przed sprawdzaniem zmian danych klienta:');
+                console.log('- originalClientData:', this.originalClientData);
+                console.log('- currentClientData:', this.getCurrentClientData());
+
                 // Sprawdź czy dane klienta się zmieniły
                 if (this.hasClientDataChanged()) {
                     const shouldUpdate = await this.showClientDataUpdateDialog();
                     if (shouldUpdate) {
-                        this.showAlert('Dane klienta zostaną zaktualizowane po złożeniu zamówienia', 'info');
+                        // NOWE: Faktycznie zapisz dane klienta
+                        const currentData = this.getCurrentClientData();
+                        const updateSuccess = await this.updateClientDataInDatabase(currentData);
+                        
+                        if (updateSuccess) {
+                            this.showAlert('Dane klienta zostały zaktualizowane w bazie danych', 'success');
+                            // Zaktualizuj oryginalne dane aby uniknąć ponownej walidacji
+                            this.originalClientData = this.cloneClientData(currentData);
+                        } else {
+                            // Jeśli nie udało się zapisać, zatrzymaj proces
+                            this.showAlert('Nie udało się zapisać danych klienta. Spróbuj ponownie.', 'error');
+                            return;
+                        }
                     } else {
                         this.showAlert('Kontynuujesz z nowymi danymi tylko dla tego zamówienia', 'info');
                     }
@@ -1071,15 +1153,20 @@ class BaselinkerModal {
         }
 
         try {
+            // NOWE: Pobierz aktualne dane klienta z formularza
+            const currentClientData = this.getCurrentClientData();
+
             const orderData = {
                 order_source_id: parseInt(orderSourceId), // Konwertuj na int
                 order_status_id: parseInt(orderStatusId), // Konwertuj na int
                 payment_method: paymentMethod,
                 delivery_method: deliveryMethod,
-                shipping_cost_override: currentShippingCost
+                shipping_cost_override: currentShippingCost,
+                // NOWE: Dodaj dane klienta do zamówienia
+                client_data: currentClientData
             };
 
-            console.log('[Baselinker] 📤 FINALNE dane zamówienia:', orderData);
+            console.log('[Baselinker] 📤 FINALNE dane zamówienia z danymi klienta:', orderData);
 
             const response = await fetch(`/baselinker/api/quote/${this.modalData.quote.id}/create-order`, {
                 method: 'POST',
