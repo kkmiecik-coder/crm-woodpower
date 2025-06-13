@@ -310,6 +310,16 @@ def save_quote():
             db.session.add(item_details)
 
             for j, variant in enumerate(variants):
+                # POPRAWKA: Oblicz ceny jednostkowe dzieląc przez quantity
+                final_price_netto = variant.get('final_price_netto', 0.0)
+                final_price_brutto = variant.get('final_price_brutto', 0.0)
+                
+                # Podziel przez quantity aby otrzymać ceny jednostkowe
+                unit_price_netto = final_price_netto / product_quantity if product_quantity > 0 else 0.0
+                unit_price_brutto = final_price_brutto / product_quantity if product_quantity > 0 else 0.0
+                
+                current_app.logger.info(f"[save_quote_backend] Variant #{j + 1}: final_total={final_price_brutto}, quantity={product_quantity}, unit_price={unit_price_brutto}")
+                
                 quote_item = QuoteItem(
                     quote_id=quote.id,
                     product_index=i + 1,
@@ -319,14 +329,14 @@ def save_quote():
                     volume_m3=variant.get('volume_m3', 0.0),
                     price_per_m3=variant.get('price_per_m3', 0.0),
                     multiplier=variant.get('multiplier', 1.0),
-                    final_price_netto=variant.get('final_price_netto', 0.0),
-                    final_price_brutto=variant.get('final_price_brutto', 0.0),
+                    price_netto=unit_price_netto,      # CENA JEDNOSTKOWA
+                    price_brutto=unit_price_brutto,    # CENA JEDNOSTKOWA
                     is_selected=variant.get('is_selected', False),
                     variant_code=variant.get('variant_code')
                 )
                 db.session.add(quote_item)
-                current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} brutto={quote_item.final_price_brutto}")
-                
+                current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} unit_price_brutto={quote_item.price_brutto}")
+
         current_app.logger.info("[save_quote_backend] Wszystkie produkty zapisane w QuoteItem.")
 
         log = QuoteLog(

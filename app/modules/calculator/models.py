@@ -86,31 +86,31 @@ class Quote(db.Model):
         return [item for item in self.items if item.is_selected]
 
     def get_total_original_price_netto(self):
-        """Zwraca oryginalną cenę netto wszystkich wybranych pozycji"""
+        """Zwraca oryginalną cenę netto wszystkich wybranych pozycji (wartości całkowite)"""
         selected_items = self.get_selected_items()
-        return sum(float(item.original_price_netto or 0) for item in selected_items)
+        return sum(item.get_total_original_price_netto() for item in selected_items)
 
     def get_total_original_price_brutto(self):
-        """Zwraca oryginalną cenę brutto wszystkich wybranych pozycji"""
+        """Zwraca oryginalną cenę brutto wszystkich wybranych pozycji (wartości całkowite)"""
         selected_items = self.get_selected_items()
-        return sum(float(item.original_price_brutto or 0) for item in selected_items)
+        return sum(item.get_total_original_price_brutto() for item in selected_items)
 
     def get_total_current_price_netto(self):
-        """Zwraca aktualną cenę netto wszystkich wybranych pozycji (po rabatach)"""
+        """Zwraca aktualną cenę netto wszystkich wybranych pozycji (wartości całkowite)"""
         selected_items = self.get_selected_items()
-        return sum(float(item.final_price_netto or 0) for item in selected_items)
+        return sum(item.get_total_price_netto() for item in selected_items)
 
     def get_total_current_price_brutto(self):
-        """Zwraca aktualną cenę brutto wszystkich wybranych pozycji (po rabatach)"""
+        """Zwraca aktualną cenę brutto wszystkich wybranych pozycji (wartości całkowite)"""
         selected_items = self.get_selected_items()
-        return sum(float(item.final_price_brutto or 0) for item in selected_items)
+        return sum(item.get_total_price_brutto() for item in selected_items)
 
     def get_total_discount_amount_netto(self):
-        """Zwraca łączną kwotę rabatu netto"""
+        """Zwraca łączną kwotę rabatu netto (wartości całkowite)"""
         return self.get_total_original_price_netto() - self.get_total_current_price_netto()
 
     def get_total_discount_amount_brutto(self):
-        """Zwraca łączną kwotę rabatu brutto"""
+        """Zwraca łączną kwotę rabatu brutto (wartości całkowite)"""
         return self.get_total_original_price_brutto() - self.get_total_current_price_brutto()
 
     def is_eligible_for_order(self):
@@ -159,23 +159,6 @@ class Quote(db.Model):
         print(f"[apply_total_discount] Zaktualizowano {affected_count} pozycji", file=sys.stderr)
         return affected_count
 
-    def is_eligible_for_order(self):
-        """Sprawdza czy wycena może być złożona jako zamówienie"""
-        # Wycena musi być zaakceptowana przez klienta
-        if self.is_client_editable:
-            return False
-    
-        # Musi mieć przypisanego klienta
-        if not self.client_id:
-            return False
-    
-        # Musi mieć wybrane produkty
-        selected_items = self.get_selected_items()
-        if not selected_items:
-            return False
-    
-        return True
-
     @property
     def finishing_details(self):
         """Zwraca szczegóły wykończenia dla wyceny"""
@@ -204,12 +187,14 @@ class QuoteItem(db.Model):
     price_per_m3 = db.Column(db.Numeric(10, 2))
     multiplier = db.Column(db.Numeric(5, 2))
     is_selected = db.Column(db.Boolean, default=False)
-    final_price_netto = db.Column(db.Numeric(10, 2))
-    final_price_brutto = db.Column(db.Numeric(10, 2))
     
-    # NOWE POLA dla rabatów
-    original_price_netto = db.Column(db.Numeric(10, 2))
-    original_price_brutto = db.Column(db.Numeric(10, 2))
+    # ZMIENIONE NAZWY KOLUMN: final_price_* -> price_* (ceny jednostkowe!)
+    price_netto = db.Column(db.Numeric(10, 2))      # Cena za 1 sztukę netto
+    price_brutto = db.Column(db.Numeric(10, 2))     # Cena za 1 sztukę brutto
+    
+    # POLA dla rabatów (nadal ceny jednostkowe)
+    original_price_netto = db.Column(db.Numeric(10, 2))   # Oryginalna cena za 1 sztukę netto
+    original_price_brutto = db.Column(db.Numeric(10, 2))  # Oryginalna cena za 1 sztukę brutto
     discount_percentage = db.Column(db.Numeric(5, 2), default=0)
     show_on_client_page = db.Column(db.Boolean, default=True)
     discount_reason_id = db.Column(db.Integer, db.ForeignKey('discount_reasons.id'))
@@ -218,33 +203,70 @@ class QuoteItem(db.Model):
     quote = db.relationship('Quote', back_populates='items')
     discount_reason = db.relationship('DiscountReason', backref='quote_items')
 
+    # ========== NOWE METODY POMOCNICZE ==========
+    
+    def get_quantity(self):
+        """Pobiera ilość z QuoteItemDetails"""
+        from modules.calculator.models import QuoteItemDetails
+        details = QuoteItemDetails.query.filter_by(
+            quote_id=self.quote_id, 
+            product_index=self.product_index
+        ).first()
+        return details.quantity if details else 1
+    
+    def get_total_price_netto(self):
+        """Zwraca wartość całkowitą netto (cena jednostkowa × ilość)"""
+        quantity = self.get_quantity()
+        return float(self.price_netto or 0) * quantity
+    
+    def get_total_price_brutto(self):
+        """Zwraca wartość całkowitą brutto (cena jednostkowa × ilość)"""
+        quantity = self.get_quantity()
+        return float(self.price_brutto or 0) * quantity
+    
+    def get_total_original_price_netto(self):
+        """Zwraca oryginalną wartość całkowitą netto"""
+        quantity = self.get_quantity()
+        original = self.original_price_netto or self.price_netto or 0
+        return float(original) * quantity
+    
+    def get_total_original_price_brutto(self):
+        """Zwraca oryginalną wartość całkowitą brutto"""
+        quantity = self.get_quantity()
+        original = self.original_price_brutto or self.price_brutto or 0
+        return float(original) * quantity
+
+    # ========== ZAKTUALIZOWANE METODY RABATÓW ==========
+    
     def apply_discount(self, discount_percentage, reason_id=None):
-        """Zastosowuje rabat do pozycji"""
+        """Zastosowuje rabat do pozycji (na cenach jednostkowych)"""
         # Jeśli nie ma ceny oryginalnej, ustaw obecną jako oryginalną
         if self.original_price_netto is None:
-            self.original_price_netto = self.final_price_netto
-            self.original_price_brutto = self.final_price_brutto
+            self.original_price_netto = self.price_netto
+            self.original_price_brutto = self.price_brutto
         
         self.discount_percentage = discount_percentage
         self.discount_reason_id = reason_id
         
-        # Oblicz nowe ceny
+        # Oblicz nowe ceny jednostkowe
         discount_multiplier = 1 - (discount_percentage / 100)
-        self.final_price_netto = float(self.original_price_netto) * discount_multiplier
-        self.final_price_brutto = float(self.original_price_brutto) * discount_multiplier
+        self.price_netto = float(self.original_price_netto) * discount_multiplier
+        self.price_brutto = float(self.original_price_brutto) * discount_multiplier
         
         return self
 
     def get_discount_amount_netto(self):
-        """Zwraca kwotę rabatu netto"""
-        if self.original_price_netto and self.final_price_netto:
-            return float(self.original_price_netto) - float(self.final_price_netto)
+        """Zwraca kwotę rabatu netto (całkowita, nie jednostkowa)"""
+        if self.original_price_netto and self.price_netto:
+            unit_discount = float(self.original_price_netto) - float(self.price_netto)
+            return unit_discount * self.get_quantity()
         return 0
 
     def get_discount_amount_brutto(self):
-        """Zwraca kwotę rabatu brutto"""
-        if self.original_price_brutto and self.final_price_brutto:
-            return float(self.original_price_brutto) - float(self.final_price_brutto)
+        """Zwraca kwotę rabatu brutto (całkowita, nie jednostkowa)"""
+        if self.original_price_brutto and self.price_brutto:
+            unit_discount = float(self.original_price_brutto) - float(self.price_brutto)
+            return unit_discount * self.get_quantity()
         return 0
 
     def has_discount(self):
@@ -254,13 +276,17 @@ class QuoteItem(db.Model):
     def reset_discount(self):
         """Resetuje rabat do wartości oryginalnych"""
         if self.original_price_netto is not None:
-            self.final_price_netto = self.original_price_netto
-            self.final_price_brutto = self.original_price_brutto
+            self.price_netto = self.original_price_netto
+            self.price_brutto = self.original_price_brutto
             self.discount_percentage = 0
             self.discount_reason_id = None
 
+    # ========== ZAKTUALIZOWANA METODA to_dict ==========
+    
     def to_dict(self):
-        """Konwertuje do słownika dla API"""
+        """Konwertuje do słownika dla API (z wartościami całkowitymi dla kompatybilności)"""
+        quantity = self.get_quantity()
+        
         return {
             'id': self.id,
             'product_index': self.product_index,
@@ -273,17 +299,25 @@ class QuoteItem(db.Model):
             'multiplier': float(self.multiplier) if self.multiplier else None,
             'is_selected': self.is_selected,
             'show_on_client_page': self.show_on_client_page,
-            'original_price_netto': float(self.original_price_netto) if self.original_price_netto else None,
-            'original_price_brutto': float(self.original_price_brutto) if self.original_price_brutto else None,
-            'final_price_netto': float(self.final_price_netto) if self.final_price_netto else None,
-            'final_price_brutto': float(self.final_price_brutto) if self.final_price_brutto else None,
+            
+            # KOMPATYBILNOŚĆ: Zwracamy wartości całkowite z nazwami jak wcześniej
+            'final_price_netto': self.get_total_price_netto(),
+            'final_price_brutto': self.get_total_price_brutto(),
+            'original_price_netto': self.get_total_original_price_netto() if self.original_price_netto else None,
+            'original_price_brutto': self.get_total_original_price_brutto() if self.original_price_brutto else None,
+            
+            # NOWE: Dodajemy też ceny jednostkowe
+            'unit_price_netto': float(self.price_netto) if self.price_netto else None,
+            'unit_price_brutto': float(self.price_brutto) if self.price_brutto else None,
+            'quantity': quantity,
+            
             'discount_percentage': float(self.discount_percentage) if self.discount_percentage else 0,
             'discount_reason_id': self.discount_reason_id,
             'has_discount': self.has_discount()
         }
 
     def __repr__(self):
-        return f"<QuoteItem {self.id} - Quote {self.quote_id}>"
+        return f"<QuoteItem {self.id} - Quote {self.quote_id} - Unit: {self.price_brutto} PLN>"
 
 
 class QuoteItemDetails(db.Model):
@@ -298,7 +332,6 @@ class QuoteItemDetails(db.Model):
     finishing_gloss_level = db.Column(db.String(50))
     finishing_price_netto = db.Column(db.Numeric(10, 2))
     finishing_price_brutto = db.Column(db.Numeric(10, 2))
-    # NOWA KOLUMNA: ilość produktu
     quantity = db.Column(db.Integer, default=1, nullable=False)
 
     __table_args__ = (

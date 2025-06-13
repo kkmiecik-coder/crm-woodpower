@@ -689,6 +689,32 @@ function getEditIconURL() {
     return '/quotes/static/img/edit.svg';
 }
 
+function buildVariantPriceDisplay(variant, quantity) {
+    // NOWE: Używamy cen jednostkowych
+    const unitPriceBrutto = variant.unit_price_brutto || variant.final_price_brutto || 0;
+    const unitPriceNetto = variant.unit_price_netto || variant.final_price_netto || 0;
+    
+    // Oblicz wartości całkowite
+    const totalBrutto = unitPriceBrutto * quantity;
+    const totalNetto = unitPriceNetto * quantity;
+    
+    return `
+        <div class="variant-pricing">
+            <div class="unit-price">
+                <strong>Cena jednostkowa:</strong><br>
+                ${formatPriceWithNetto(unitPriceBrutto, unitPriceNetto)}
+            </div>
+            <div class="quantity">
+                <strong>Ilość:</strong> ${quantity} szt.
+            </div>
+            <div class="total-price">
+                <strong>Wartość całkowita:</strong><br>
+                ${formatPriceWithNetto(totalBrutto, totalNetto)}
+            </div>
+        </div>
+    `;
+}
+
 /**
  * Główna funkcja budująca zakładki produktów i listę wariantów
  */
@@ -743,36 +769,12 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
                 : 'Brak informacji';
 
             // Sprawdź czy są oryginalne ceny (czy był rabat)
-            const hasOriginalPrices = item.original_price_netto && item.original_price_brutto;
+            // NOWE: Pobierz quantity z finishing details
+            const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+            const quantity = finishing ? (finishing.quantity || 1) : 1;
 
-            let priceDisplay = '';
-            if (hasOriginalPrices && item.discount_percentage !== 0) {
-                // Pokaż oryginalne i obecne ceny
-                priceDisplay = `
-                <p><strong>Cena brutto:</strong>
-                        <span class="discounted-price">${item.final_price_brutto.toFixed(2)} PLN</span>
-                        <span class="original-price">${item.original_price_brutto.toFixed(2)} PLN</span>
-                    </p>
-                    <p><strong>Cena netto:</strong> 
-                        <span class="discounted-price">${item.final_price_netto.toFixed(2)} PLN</span>
-                        <span class="original-price">${item.original_price_netto.toFixed(2)} PLN</span>
-                    </p>
-                    
-                `;
-            } else {
-                // Pokaż zwykłe ceny
-                const netto = item.final_price_netto !== null
-                    ? `${item.final_price_netto.toFixed(2)} PLN`
-                    : 'Brak informacji';
-                const brutto = item.final_price_brutto !== null
-                    ? `${item.final_price_brutto.toFixed(2)} PLN`
-                    : 'Brak informacji';
-
-                priceDisplay = `
-                    <p><strong>Cena netto:</strong> ${netto}</p>
-                    <p><strong>Cena brutto:</strong> ${brutto}</p>
-                `;
-            }
+            // NOWE: Użyj nowej funkcji do wyświetlania cen
+            const priceDisplay = buildVariantPriceDisplay(item, quantity);
 
             li.innerHTML = `
                 <p><strong>Wariant:</strong> ${variantName}</p>
@@ -872,6 +874,7 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
         });
     });
 }
+
 function filterQuotes() {
     console.log("Filtrujemy wyceny...");
 
@@ -1163,12 +1166,26 @@ function renderSelectedSummary(groupedItems, container) {
 
         const variant = translateVariantCode(selected.variant_code) || "Nieznany wariant";
         const dims = `${selected.length_cm}×${selected.width_cm}×${selected.thickness_cm} cm`;
-        const price = selected.final_price_brutto ? `${selected.final_price_brutto.toFixed(2)} PLN brutto` : '-';
-        const net = selected.final_price_netto ? `${selected.final_price_netto.toFixed(2)} PLN netto` : '-';
+        
+        // NOWE: Pobierz quantity i ceny jednostkowe
+        const quantity = selected.quantity || 1;
+        const unitPriceBrutto = selected.unit_price_brutto || selected.final_price_brutto || 0;
+        const unitPriceNetto = selected.unit_price_netto || selected.final_price_netto || 0;
+        
+        // Oblicz wartości całkowite
+        const totalBrutto = unitPriceBrutto * quantity;
+        const totalNetto = unitPriceNetto * quantity;
 
         const p = document.createElement("p");
         p.className = "selected-summary-item";
-        p.innerHTML = `<span class='dot'></span><span style="font-size: 14px; font-weight: 600;">Produkt ${parseInt(index)}:</span><span style="font-size: 12px; font-weight: 400;"> ${variant} ${dims} • ${price} • ${net}</span>`;
+        p.innerHTML = `
+            <span class='dot'></span>
+            <span style="font-size: 14px; font-weight: 600;">Produkt ${parseInt(index)}:</span>
+            <span style="font-size: 12px; font-weight: 400;">
+                ${variant} ${dims} • 
+                ${formatPriceWithNetto(totalBrutto, totalNetto)}
+            </span>
+        `;
         container.appendChild(p);
     });
 }
@@ -1185,50 +1202,24 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
 
     const finishing = (quoteData.finishing || []).find(f => f.product_index == productIndex);
     
-    // NOWE: Pobierz quantity z finishing details
-    const quantity = finishing ? (finishing.quantity || 1) : 1;
+    // NOWE: Pobierz quantity z finishing details lub z item
+    const quantity = finishing ? finishing.quantity : (item.quantity || 1);
     
-    let finishingHTML = '';
-
-    if (finishing) {
-        // Nowa kolejność: variant - type - color - gloss
-        const finishingParts = [
-            finishing.variant,
-            finishing.type,
-            finishing.color,
-            finishing.gloss
-        ].filter(Boolean);
-
-        const finishingDisplay = finishingParts.length > 0 ? finishingParts.join(' - ') : 'Brak wykończenia';
-        const brutto = finishing.brutto?.toFixed(2) || '0.00';
-        const netto = finishing.netto?.toFixed(2) || '0.00';
-
-        finishingHTML = `
-            <div>
-                <strong>Wykończenie:</strong> ${finishingDisplay}
-            </div>
-            <div>
-                <strong>Koszt wykończenia:</strong> 
-                <span>${brutto} PLN</span>
-                <span class="cost-netto">${netto} PLN</span>
-            </div>
-        `;
-    } else {
-        finishingHTML = `
-            <div><strong>Wykończenie:</strong> Brak wykończenia</div>
-            <div>
-                <strong>Koszt wykończenia:</strong> 
-                <span>0.00 PLN</span>
-                <span class="cost-netto">0.00 PLN</span>
-            </div>
-        `;
-    }
-
+    // NOWE: Używamy cen jednostkowych
+    const unitPriceBrutto = item.unit_price_brutto || item.final_price_brutto || 0;
+    const unitPriceNetto = item.unit_price_netto || item.final_price_netto || 0;
+    
     wrap.innerHTML = `
-        <div><strong>Wymiary:</strong> ${dims}</div>
-        <div><strong>Ilość:</strong> ${quantity} szt.</div>
-        ${finishingHTML}
-        <div><strong>Objętość:</strong> ${volume}</div>
+        <div class="variant-basic-info">
+            <h4>Produkt ${productIndex}</h4>
+            <p><strong>Wymiary:</strong> ${dims}</p>
+            <p><strong>Objętość:</strong> ${volume}</p>
+        </div>
+        <div class="variant-price-info">
+            <p><strong>Cena jednostkowa:</strong> ${formatPriceWithNetto(unitPriceBrutto, unitPriceNetto)}</p>
+            <p><strong>Ilość:</strong> ${quantity} szt.</p>
+            <p><strong>Wartość całkowita:</strong> ${formatPriceWithNetto(unitPriceBrutto * quantity, unitPriceNetto * quantity)}</p>
+        </div>
     `;
 
     return wrap;
@@ -2036,6 +2027,22 @@ function fallbackCopyToClipboard(text) {
     }
 
     document.body.removeChild(textArea);
+}
+
+function formatPriceWithNetto(brutto, netto) {
+    if (!brutto && !netto) return '-';
+    
+    let html = '';
+    if (brutto) {
+        html += `${brutto.toFixed(2)} PLN brutto`;
+    }
+    if (netto && brutto) {
+        html += ` <span style="color: #666; font-size: 12px;">${netto.toFixed(2)} PLN netto</span>`;
+    } else if (netto && !brutto) {
+        html += `${netto.toFixed(2)} PLN netto`;
+    }
+    
+    return html;
 }
 
 // NOWA FUNKCJONALNOŚĆ: Sprawdzanie parametru open_quote w URL

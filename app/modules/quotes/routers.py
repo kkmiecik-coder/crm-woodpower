@@ -422,7 +422,8 @@ def get_quote_details(quote_id):
         print(f"[get_quote_details] quote.items len: {len(quote.items)}", file=sys.stderr)
 
         # Oblicz koszty produktów i wykończenia
-        cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
+        print(f"[get_quote_details] Koszt produktów netto: {cost_products_netto}", file=sys.stderr)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         
@@ -669,7 +670,7 @@ def get_client_quote_data(token):
             }), 404
         
         # Oblicz koszty
-        cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)

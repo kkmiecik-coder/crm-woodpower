@@ -321,54 +321,52 @@ class BaselinkerService:
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
-    
-            # NOWE: Pobierz quantity z QuoteItemDetails
+
+            # Pobierz quantity z QuoteItemDetails
             quantity = finishing_details.quantity if finishing_details else 1
             print(f"[BaselinkerService] Produkt {item.product_index}: quantity={quantity}", file=sys.stderr)
-    
+
             # Generuj SKU według schematu
             sku = self._generate_sku(item, finishing_details)
-    
+
             # Nazwa produktu z wymiarami
             base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
 
-            # Oblicz cenę produktu + wykończenie
-            product_price_netto = float(item.final_price_netto or 0)
-            product_price_brutto = float(item.final_price_brutto or 0)
-    
-            # Dodaj cenę wykończenia jeśli istnieje
-            finishing_price_netto = 0
-            finishing_price_brutto = 0
-    
+            # NOWE: Używamy cen jednostkowych bezpośrednio z bazy (już nie trzeba dzielić!)
+            unit_price_netto = float(item.price_netto or 0)
+            unit_price_brutto = float(item.price_brutto or 0)
+
+            print(f"[BaselinkerService] Produkt {item.product_index}: unit_price_netto={unit_price_netto}, unit_price_brutto={unit_price_brutto}", file=sys.stderr)
+
+            # Dodaj cenę wykończenia do ceny jednostkowej (jeśli istnieje)
             if finishing_details and finishing_details.finishing_price_netto:
-                finishing_price_netto = float(finishing_details.finishing_price_netto or 0)
-                finishing_price_brutto = float(finishing_details.finishing_price_brutto or 0)
-        
-                print(f"[BaselinkerService] Produkt {item.product_index}: surowy={product_price_netto}, wykończenie={finishing_price_netto}", file=sys.stderr)
-    
-            # Suma: produkt surowy + wykończenie
-            total_price_netto = product_price_netto + finishing_price_netto
-            total_price_brutto = product_price_brutto + finishing_price_brutto
-    
-            print(f"[BaselinkerService] Końcowa cena produktu {item.product_index}: netto={total_price_netto}, brutto={total_price_brutto}, qty={quantity}", file=sys.stderr)
-    
+                finishing_unit_netto = float(finishing_details.finishing_price_netto or 0)
+                finishing_unit_brutto = float(finishing_details.finishing_price_brutto or 0)
+                
+                unit_price_netto += finishing_unit_netto
+                unit_price_brutto += finishing_unit_brutto
+                
+                print(f"[BaselinkerService] + wykończenie: {finishing_unit_netto} netto, {finishing_unit_brutto} brutto", file=sys.stderr)
+
+            print(f"[BaselinkerService] FINALNA cena jednostkowa: netto={unit_price_netto}, brutto={unit_price_brutto}, qty={quantity}", file=sys.stderr)
+
             # Oblicz wagę (zakładając gęstość drewna ~0.7 kg/dm³)
             volume_dm3 = float(item.volume_m3) * 1000  # m³ na dm³
             weight_kg = round(volume_dm3 * 0.7, 2)
-    
+
             # Dodaj wykończenie do nazwy jeśli istnieje
             product_name = base_name
             if finishing_details and finishing_details.finishing_type:
                 finishing_desc = self._translate_finishing(finishing_details)
                 if finishing_desc:
                     product_name += f" ({finishing_desc})"
-    
+
             products.append({
                 'name': product_name,
                 'sku': sku,
                 'ean': '',  # EAN opcjonalny
-                'price_brutto': round(total_price_brutto, 2),
-                'price_netto': round(total_price_netto, 2),
+                'price_brutto': round(unit_price_brutto, 2),  # CENA JEDNOSTKOWA (nie całkowita!)
+                'price_netto': round(unit_price_netto, 2),    # CENA JEDNOSTKOWA (nie całkowita!)
                 'tax_rate': 23,  # VAT 23%
                 'quantity': quantity,
                 'weight': weight_kg,
@@ -425,15 +423,16 @@ class BaselinkerService:
             'want_invoice': bool(client.invoice_nip),
             'extra_field_1': quote.quote_number,
             'extra_field_2': quote.source or '',
-            'products': products  # ← Produkty z quantity
+            'products': products  # ← Produkty z cenami jednostkowymi i quantity
         }
 
-        print(f"[BaselinkerService] ✅ Przygotowane dane zamowienia (BEZ delivery/invoice_region):", file=sys.stderr)
+        print(f"[BaselinkerService] ✅ Przygotowane dane zamówienia:", file=sys.stderr)
         print(f"[BaselinkerService] - order_source_id: {order_data['custom_source_id']}", file=sys.stderr)
         print(f"[BaselinkerService] - order_status_id: {order_data['order_status_id']}", file=sys.stderr)
         print(f"[BaselinkerService] - delivery_method: {order_data['delivery_method']}", file=sys.stderr)
         print(f"[BaselinkerService] - delivery_price: {order_data['delivery_price']}", file=sys.stderr)
-    
+        print(f"[BaselinkerService] - produkty: {len(products)} szt.", file=sys.stderr)
+
         return order_data
     
     def _generate_sku(self, item, finishing_details=None):
@@ -559,23 +558,32 @@ def prepare_order_modal_data(self, quote_id: int) -> Dict:
     
     products = []
     for item in selected_items:
-        # POPRAWKA: Pobierz quantity z QuoteItemDetails
+        # Pobierz quantity z QuoteItemDetails
         finishing_details = QuoteItemDetails.query.filter_by(
             quote_id=quote.id, 
             product_index=item.product_index
         ).first()
         
-        # KRYTYCZNA POPRAWKA: Upewnij się, że quantity jest przekazywane
         quantity = finishing_details.quantity if finishing_details and finishing_details.quantity else 1
         
         print(f"[prepare_order_modal_data] Produkt {item.product_index}: quantity z bazy = {quantity}", file=sys.stderr)
         
+        # NOWE: Używamy cen jednostkowych z bazy
+        unit_price_netto = float(item.price_netto or 0)
+        unit_price_brutto = float(item.price_brutto or 0)
+        
+        # Oblicz wartości całkowite dla wyświetlania
+        total_price_netto = unit_price_netto * quantity
+        total_price_brutto = unit_price_brutto * quantity
+        
         product_data = {
             'name': self.build_product_name(item, finishing_details),
             'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
-            'quantity': quantity,  # <- UPEWNIJ SIĘ, ŻE TO JEST LICZBA
-            'price_brutto': float(item.final_price_brutto or 0),
-            'price_netto': float(item.final_price_netto or 0),
+            'quantity': quantity,
+            'unit_price_netto': unit_price_netto,     # NOWE: Cena jednostkowa
+            'unit_price_brutto': unit_price_brutto,   # NOWE: Cena jednostkowa
+            'total_price_netto': total_price_netto,   # NOWE: Wartość całkowita
+            'total_price_brutto': total_price_brutto, # NOWE: Wartość całkowita
             'finishing': self.get_finishing_description(finishing_details) if finishing_details else None
         }
         
@@ -591,7 +599,7 @@ def prepare_order_modal_data(self, quote_id: int) -> Dict:
             'source': quote.source
         },
         'client': self.prepare_client_data(quote.client),
-        'products': products,  # <- Lista z poprawnymi quantity
+        'products': products,  # ← Lista z cenami jednostkowymi i całkowitymi
         'costs': self.calculate_costs(quote),
         'config': self.get_modal_config()
     }

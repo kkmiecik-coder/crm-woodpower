@@ -108,17 +108,17 @@ def get_order_modal_data(quote_id):
                 'variant_code': item.variant_code,
                 'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
                 'volume': item.volume_m3,
-                'price_netto': float(item.final_price_netto or 0),
-                'price_brutto': float(item.final_price_brutto or 0),
-                'quantity': quantity,  # <- POPRAWKA: Teraz quantity jest poprawnie przesyłane
-                'finishing': finishing_data  # <- NOWE: Dodaj dane wykończenia z quantity
+                'price_netto': float(item.price_netto or 0),
+                'price_brutto': float(item.price_brutto or 0),
+                'quantity': quantity,
+                'finishing': finishing_data
             }
             
             products_data.append(product_data)
             print(f"[get_order_modal_data] Produkt {item.product_index}: quantity={quantity}, finishing_quantity={finishing_details.quantity if finishing_details else 'brak'}", file=sys.stderr)
 
         # Oblicz koszty
-        cost_products_netto = sum(item.final_price_netto or 0 for item in selected_items)
+        cost_products_netto = sum(item.get_total_price_netto() for item in selected_items)
         
         # Pobierz szczegóły wykończenia bezpośrednio z bazy
         finishing_details_all = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
