@@ -75,9 +75,10 @@ def get_order_modal_data(quote_id):
                 valid_sources[0].is_default = True
                 print(f"[get_order_modal_data] ✅ Ustawiono pierwsze prawidłowe źródło '{valid_sources[0].name}' (ID: {valid_sources[0].baselinker_id}) jako domyślne", file=sys.stderr)
         
-        # Oblicz koszty
+        # Pobierz wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
-
+        
+        # POPRAWKA: Przygotuj dane produktów z quantity z finishing_details
         products_data = []
         for item in selected_items:
             finishing_details = QuoteItemDetails.query.filter_by(
@@ -85,7 +86,21 @@ def get_order_modal_data(quote_id):
                 product_index=item.product_index
             ).first()
             
-            quantity = finishing_details.quantity if finishing_details else 1
+            # POPRAWKA: Pobierz quantity z finishing_details
+            quantity = finishing_details.quantity if finishing_details and finishing_details.quantity else 1
+            
+            # POPRAWKA: Przygotuj dane wykończenia (tak jak w modalu szczegółów)
+            finishing_data = None
+            if finishing_details:
+                finishing_data = {
+                    'variant': finishing_details.finishing_variant,
+                    'type': finishing_details.finishing_type,
+                    'color': finishing_details.finishing_color,
+                    'gloss': finishing_details.finishing_gloss_level,  # <- POPRAWKA: finishing_gloss_level zamiast finishing_gloss
+                    'quantity': finishing_details.quantity or 1,  # <- KLUCZOWE POLE
+                    'brutto': float(finishing_details.finishing_price_brutto or 0),
+                    'netto': float(finishing_details.finishing_price_netto or 0)
+                }
             
             product_data = {
                 'id': item.id,
@@ -95,16 +110,19 @@ def get_order_modal_data(quote_id):
                 'volume': item.volume_m3,
                 'price_netto': float(item.final_price_netto or 0),
                 'price_brutto': float(item.final_price_brutto or 0),
-                'quantity': quantity,  # KLUCZ: to pole było brakujące!
-                'finishing': _get_finishing_details(item.product_index, quote)
+                'quantity': quantity,  # <- POPRAWKA: Teraz quantity jest poprawnie przesyłane
+                'finishing': finishing_data  # <- NOWE: Dodaj dane wykończenia z quantity
             }
+            
             products_data.append(product_data)
+            print(f"[get_order_modal_data] Produkt {item.product_index}: quantity={quantity}, finishing_quantity={finishing_details.quantity if finishing_details else 'brak'}", file=sys.stderr)
 
+        # Oblicz koszty
         cost_products_netto = sum(item.final_price_netto or 0 for item in selected_items)
         
         # Pobierz szczegóły wykończenia bezpośrednio z bazy
-        finishing_details = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
-        cost_finishing_netto = sum(d.finishing_price_netto or 0 for d in finishing_details)
+        finishing_details_all = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+        cost_finishing_netto = sum(d.finishing_price_netto or 0 for d in finishing_details_all)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0
         
         # Oblicz z VAT
@@ -114,6 +132,8 @@ def get_order_modal_data(quote_id):
         shipping_netto = cost_shipping_brutto / (1 + VAT_RATE)
         total_brutto = products_brutto + finishing_brutto + cost_shipping_brutto
         total_netto = cost_products_netto + cost_finishing_netto + shipping_netto
+        
+        print(f"[get_order_modal_data] Przygotowano dane dla {len(products_data)} produktów", file=sys.stderr)
         
         return jsonify({
             'quote': {
@@ -143,19 +163,7 @@ def get_order_modal_data(quote_id):
                 'invoice_city': quote.client.invoice_city if quote.client else None,
                 'invoice_region': quote.client.invoice_region if quote.client else None
             },
-            'products': [
-                {
-                    'id': item.id,
-                    'name': _get_product_display_name(item, quote),
-                    'variant_code': item.variant_code,
-                    'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
-                    'volume': item.volume_m3,
-                    'price_netto': item.final_price_netto,
-                    'price_brutto': item.final_price_brutto,
-                    'finishing': _get_finishing_details(item.product_index, quote)
-                }
-                for item in selected_items
-            ],
+            'products': products_data,  # <- POPRAWKA: Używamy nowej listy z quantity
             'costs': {
                 'products_netto': round(cost_products_netto, 2),
                 'products_brutto': round(products_brutto, 2),

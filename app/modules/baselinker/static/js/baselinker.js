@@ -324,25 +324,54 @@ class BaselinkerModal {
             return;
         }
 
-        container.innerHTML = products.map(product => `
-            <div class="bl-style-product-item">
-                <div class="bl-style-product-name">
-                    ${this.buildProductName(product)}
-                    <div class="bl-style-product-details">
-                        Waga: <span style="font-weight: 400;">${this.calculateProductWeight(product)} kg</span>
-                        ${product.finishing ? `<br>Wykończenie: <span class="bl-style-product-finishing">${product.finishing}</span>` : ''}
+        container.innerHTML = products.map(product => {
+            // POPRAWKA: Pobierz quantity z finishing details
+            let quantity = 1;
+            
+            if (product.finishing && product.finishing.quantity) {
+                quantity = parseInt(product.finishing.quantity);
+            } else if (product.quantity) {
+                quantity = parseInt(product.quantity);
+            }
+            
+            if (isNaN(quantity) || quantity <= 0) {
+                quantity = 1;
+            }
+
+            return `
+                <div class="bl-style-product-item">
+                    <div class="bl-style-product-name">
+                        ${this.buildProductName(product)}
+                        <div class="bl-style-product-details">
+                            Waga: <span style="font-weight: 400;">${this.calculateProductWeight(product)} kg</span>
+                            ${product.finishing ? 
+                                `<br>Wykończenie: <span class="bl-style-product-finishing">${this.getFinishingDescription(product.finishing)}</span>` : ''}
+                        </div>
+                    </div>
+                    <div>${product.dimensions}</div>
+                    <div class="bl-style-product-quantity">${quantity} szt.</div>
+                    <div class="bl-style-product-price">
+                        <div class="bl-style-amount">
+                            <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
+                            <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
+                        </div>
                     </div>
                 </div>
-                <div>${product.dimensions}</div>
-                <div class="bl-style-product-quantity">${product.quantity || 1} szt.</div>
-                <div class="bl-style-product-price">
-                    <div class="bl-style-amount">
-                        <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
-                        <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
-                    </div>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
+    }
+
+    getFinishingDescription(finishing) {
+        if (!finishing) return 'Brak wykończenia';
+        
+        const parts = [
+            finishing.variant,
+            finishing.type,
+            finishing.color,
+            finishing.gloss
+        ].filter(Boolean);
+        
+        return parts.length > 0 ? parts.join(' - ') : 'Brak wykończenia';
     }
 
     populateFinancialSummary() {
@@ -1096,10 +1125,38 @@ class BaselinkerModal {
         const quote = this.modalData.quote;
         const client = this.modalData.client;
 
-        // Oblicz łączną ilość produktów
+        // DEBUG: Wyświetl szczegóły produktów
+        console.log('[Baselinker] Debug modalData.products:', this.modalData.products);
+        this.modalData.products.forEach((product, index) => {
+            console.log(`[Baselinker] Produkt ${index}:`, {
+                name: product.name,
+                quantity: product.quantity,
+                finishing: product.finishing,
+                finishing_quantity: product.finishing ? product.finishing.quantity : 'brak'
+            });
+        });
+
+        // POPRAWKA: Używaj quantity z finishing details (tak jak w modalu szczegółów)
         const totalQuantity = this.modalData.products.reduce((sum, product) => {
-            return sum + (product.quantity || 1);
+            // Sprawdź czy product ma finishing z quantity
+            let quantity = 1; // domyślna wartość
+            
+            if (product.finishing && product.finishing.quantity) {
+                quantity = parseInt(product.finishing.quantity);
+            } else if (product.quantity) {
+                quantity = parseInt(product.quantity);
+            }
+            
+            // Upewnij się, że quantity jest liczbą większą od 0
+            if (isNaN(quantity) || quantity <= 0) {
+                quantity = 1;
+            }
+            
+            console.log(`[Baselinker] Produkt "${product.name}": quantity=${quantity}`);
+            return sum + quantity;
         }, 0);
+
+        console.log(`[Baselinker] Obliczona łączna ilość: ${totalQuantity}`);
 
         // POPRAWKA: Użyj aktualnych kosztów (po ewentualnym zerowaniu wysyłki)
         const costs = this.modalData.costs;

@@ -522,3 +522,51 @@ class BaselinkerService:
         if item.volume_m3:
             return round(item.volume_m3 * 800, 2)
         return 0.0
+    
+def prepare_order_modal_data(self, quote_id: int) -> Dict:
+    """Przygotowuje dane do wyświetlenia w modalu zamówienia"""
+    quote = db.session.get(Quote, quote_id)
+    if not quote:
+        raise ValueError(f"Nie znaleziono wyceny o ID {quote_id}")
+
+    # Pobierz wybrane produkty
+    selected_items = [item for item in quote.items if item.is_selected]
+    
+    products = []
+    for item in selected_items:
+        # POPRAWKA: Pobierz quantity z QuoteItemDetails
+        finishing_details = QuoteItemDetails.query.filter_by(
+            quote_id=quote.id, 
+            product_index=item.product_index
+        ).first()
+        
+        # KRYTYCZNA POPRAWKA: Upewnij się, że quantity jest przekazywane
+        quantity = finishing_details.quantity if finishing_details and finishing_details.quantity else 1
+        
+        print(f"[prepare_order_modal_data] Produkt {item.product_index}: quantity z bazy = {quantity}", file=sys.stderr)
+        
+        product_data = {
+            'name': self.build_product_name(item, finishing_details),
+            'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
+            'quantity': quantity,  # <- UPEWNIJ SIĘ, ŻE TO JEST LICZBA
+            'price_brutto': float(item.final_price_brutto or 0),
+            'price_netto': float(item.final_price_netto or 0),
+            'finishing': self.get_finishing_description(finishing_details) if finishing_details else None
+        }
+        
+        products.append(product_data)
+        print(f"[prepare_order_modal_data] Dodano produkt: {product_data}", file=sys.stderr)
+
+    return {
+        'quote': {
+            'id': quote.id,
+            'quote_number': quote.quote_number,
+            'created_at': quote.created_at.isoformat(),
+            'status': quote.status_name,
+            'source': quote.source
+        },
+        'client': self.prepare_client_data(quote.client),
+        'products': products,  # <- Lista z poprawnymi quantity
+        'costs': self.calculate_costs(quote),
+        'config': self.get_modal_config()
+    }
