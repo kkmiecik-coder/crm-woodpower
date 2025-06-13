@@ -34,24 +34,30 @@ class Quote(db.Model):
     shipping_cost_netto = db.Column(db.Numeric(10, 2))
     shipping_cost_brutto = db.Column(db.Numeric(10, 2))
     
-    # NOWE POLA dla strony klienta i rabatów
+    # POLA dla strony klienta i rabatów
     public_token = db.Column(db.String(32), unique=True)
     client_comments = db.Column(db.Text)
     is_client_editable = db.Column(db.Boolean, default=True)
     
-    # DODANE POLA dla obsługi akceptacji przez klienta
+    # POLA dla obsługi akceptacji przez klienta
     acceptance_date = db.Column(db.DateTime)
     accepted_by_email = db.Column(db.String(255))
     
-    # NOWE POLE: Mnożnik (grupa cenowa) przypisany do wyceny
+    # NOWE POLE - akceptacja przez użytkownika wewnętrznego
+    accepted_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    
+    # POLE: Mnożnik (grupa cenowa) przypisany do wyceny
     quote_multiplier = db.Column(db.Numeric(5, 2))
     quote_client_type = db.Column(db.String(100))  # Nazwa grupy cenowej
     
-    # Relacje
-    user = db.relationship('User', backref='quotes')
+    # POPRAWIONE RELACJE - bez konfliktów
+    user = db.relationship('User', foreign_keys=[user_id], backref='quotes')
     client = db.relationship('Client', backref='quotes')
     quote_status = db.relationship('QuoteStatus', backref='quotes')
-    items = db.relationship('QuoteItem', back_populates='quote')
+    accepted_by_user = db.relationship('User', foreign_keys=[accepted_by_user_id], backref='accepted_quotes')
+    
+    # POPRAWIONA RELACJA - używamy back_populates zamiast backref
+    items = db.relationship('QuoteItem', back_populates='quote', lazy='dynamic')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -199,7 +205,7 @@ class QuoteItem(db.Model):
     show_on_client_page = db.Column(db.Boolean, default=True)
     discount_reason_id = db.Column(db.Integer, db.ForeignKey('discount_reasons.id'))
     
-    # Relacje
+    # POPRAWIONA RELACJA - używamy back_populates zamiast backref
     quote = db.relationship('Quote', back_populates='items')
     discount_reason = db.relationship('DiscountReason', backref='quote_items')
 

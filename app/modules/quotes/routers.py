@@ -404,54 +404,66 @@ def get_quote_details(quote_id):
     print(f"[get_quote_details] Pobieranie szczegółów dla wyceny ID {quote_id}", file=sys.stderr)
 
     try:
+        # POPRAWKA: Usuń joinedload(Quote.items) bo lazy='dynamic' nie obsługuje eager loading
         quote = db.session.query(Quote)\
             .options(
                 joinedload(Quote.client),
                 joinedload(Quote.user),
-                joinedload(Quote.items),
-                joinedload(Quote.quote_status)
+                joinedload(Quote.quote_status),
+                joinedload(Quote.accepted_by_user)  # NOWA RELACJA
             )\
-            .filter(Quote.id == quote_id)\
-            .first()
+            .filter_by(id=quote_id).first()
 
         if not quote:
-            print(f"[get_quote_details] Brak wyceny ID {quote_id}", file=sys.stderr)
-            return jsonify({"error": "Quote not found"}), 404
+            return jsonify({"error": "Wycena nie znaleziona"}), 404
 
-        print(f"[get_quote_details] quote_status repr: {repr(quote.quote_status)}", file=sys.stderr)
-        print(f"[get_quote_details] quote.items len: {len(quote.items)}", file=sys.stderr)
+        # Pobierz szczegóły wykończenia
+        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote_id).all()
 
-        # Oblicz koszty produktów i wykończenia
-        cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
-        print(f"[get_quote_details] Koszt produktów netto: {cost_products_netto}", file=sys.stderr)
-        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+        # POPRAWKA: Pobierz items osobno (ponieważ lazy='dynamic')
+        quote_items = quote.items.all()  # .all() na dynamic relationship
+
+        # POPRAWKA: Użyj metod get_total_price_* zamiast atrybutów final_price_*
+        selected_items = [item for item in quote_items if item.is_selected]
+        cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
+        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in finishing_details), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
-        
-        # Oblicz wszystkie warianty kosztów
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
-        
+
+        # Pobierz wszystkie statusy
         all_statuses = QuoteStatus.query.all()
-        
-        # TUTAJ JEST DEFINICJA finishing_details:
-        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
-        
+
+        # NOWA LOGIKA: Sprawdź czy akceptacja była przez użytkownika wewnętrznego
+        accepted_by_user = None
+        if (quote.accepted_by_user_id and 
+            quote.accepted_by_email and 
+            quote.accepted_by_email.startswith('internal_user_')):
+            accepted_by_user = quote.accepted_by_user
+
+        print(f"[get_quote_details] Wycena {quote.quote_number}, user akceptujący: {accepted_by_user.first_name if accepted_by_user else 'brak'}", file=sys.stderr)
+
         return jsonify({
             "id": quote.id,
             "quote_number": quote.quote_number,
             "created_at": quote.created_at.isoformat() if quote.created_at else None,
-            "source": quote.source or "-",
-            "public_url": quote.get_public_url(),
-            "is_client_editable": quote.is_client_editable,
-            "base_linker_order_id": quote.base_linker_order_id,
-            "public_token": quote.public_token,
-            
-            # DODANE POLA DLA AKCEPTACJI:
+            "source": quote.source,
             "status_id": quote.status_id,
             "status_name": quote.quote_status.name if quote.quote_status else None,
             "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
             "accepted_by_email": quote.accepted_by_email,
+            "is_client_editable": quote.is_client_editable,
+            "base_linker_order_id": quote.base_linker_order_id,
+            "public_url": quote.get_public_url(),
+
+            # NOWE POLE: Informacje o użytkowniku akceptującym
+            "accepted_by_user": {
+                "id": accepted_by_user.id if accepted_by_user else None,
+                "first_name": accepted_by_user.first_name if accepted_by_user else None,
+                "last_name": accepted_by_user.last_name if accepted_by_user else None,
+                "full_name": f"{accepted_by_user.first_name} {accepted_by_user.last_name}" if accepted_by_user else None
+            } if accepted_by_user else None,
             
-            # NOWE POLA: Informacje o mnożniku
+            # Informacje o mnożniku
             "quote_multiplier": float(quote.quote_multiplier) if quote.quote_multiplier else None,
             "quote_client_type": quote.quote_client_type,
             
@@ -479,6 +491,8 @@ def get_quote_details(quote_id):
                 "client_number": quote.client.client_number if quote.client else None,
                 "client_delivery_name": quote.client.client_delivery_name if quote.client else None,
                 "company_name": quote.client.delivery_company if quote.client else None,
+                "first_name": quote.client.client_number if quote.client else None,  # client_number zawiera imię i nazwisko
+                "last_name": "",  # W bazie nie ma oddzielnych pól
                 "email": quote.client.email if quote.client else None,
                 "phone": quote.client.phone if quote.client else None
             },
@@ -487,11 +501,13 @@ def get_quote_details(quote_id):
                 "first_name": quote.user.first_name if quote.user else "",
                 "last_name": quote.user.last_name if quote.user else ""
             },
-            "items": [item.to_dict() for item in quote.items]
+            "items": [item.to_dict() for item in quote_items]  # to_dict() zawiera już prawidłowe final_price_*
         })
 
     except Exception as e:
         print(f"[get_quote_details] Błąd podczas budowania JSON: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Błąd serwera"}), 500
 
 @quotes_bp.route("/api/quote_items/<int:item_id>/select", methods=["PATCH"])
@@ -1101,15 +1117,17 @@ def user_accept_quote(quote_id):
         quote.status_id = accepted_status.id
         quote.is_client_editable = False
         
-        # Dodaj pola dla akceptacji przez użytkownika wewnętrznego
-        # UWAGA: Te pola mogą nie istnieć w bazie - dodaj je do migracji!
-        # quote.internal_acceptance_date = datetime.now()
-        # quote.accepted_by_user_id = user.id
+        # NOWA LOGIKA: Wypełnij pola akceptacji przez użytkownika wewnętrznego
+        quote.accepted_by_user_id = user.id  # AKTYWACJA TEJ KOLUMNY
         
-        # Na razie używamy istniejących pól, ale z inną logiką
-        if not quote.acceptance_date:  # Jeśli nie było akceptacji przez klienta
+        # Sprawdź czy nie było wcześniejszej akceptacji przez klienta
+        if not quote.acceptance_date:  
+            # Jeśli nie było akceptacji przez klienta, ustaw datę akceptacji przez użytkownika
             quote.acceptance_date = datetime.now()
             quote.accepted_by_email = f"internal_user_{user.id}"  # Oznaczenie akceptacji wewnętrznej
+        else:
+            # Jeśli była już akceptacja przez klienta, dodaj oznaczenie że użytkownik też zaakceptował
+            quote.accepted_by_email = f"internal_user_{user.id}"
         
         print(f"[user_accept_quote] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
         
@@ -1134,6 +1152,7 @@ def user_accept_quote(quote_id):
             "message": "Wycena została zaakceptowana przez opiekuna",
             "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
             "accepted_by_user": f"{user.first_name} {user.last_name}",
+            "accepted_by_user_id": user.id,
             "new_status": accepted_status.name,
             "new_status_id": accepted_status.id
         })

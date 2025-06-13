@@ -2485,7 +2485,7 @@ async function refreshQuoteModal(quoteId) {
 }
 
 /**
- * Dodaje banner informacji o akceptacji przez użytkownika
+ * Dodaje banner informacji o akceptacji przez użytkownika - ZAKTUALIZOWANA WERSJA
  * @param {HTMLElement} modalBox - Kontener modalu
  * @param {Object} quoteData - Dane wyceny
  */
@@ -2501,16 +2501,21 @@ function addUserAcceptanceBanner(modalBox, quoteData) {
     }
     
     let acceptanceDate = '';
-    let acceptedByUser = '';
+    let acceptedByUserName = 'Opiekun oferty'; // fallback
     
     if (quoteData.acceptance_date) {
         const date = new Date(quoteData.acceptance_date);
         acceptanceDate = date.toLocaleString('pl-PL');
     }
     
-    // Sprawdź czy w accepted_by_email jest oznaczenie użytkownika wewnętrznego
-    if (quoteData.accepted_by_email && quoteData.accepted_by_email.startsWith('internal_user_')) {
-        acceptedByUser = 'Opiekun oferty';
+    // NOWA LOGIKA: Sprawdź czy mamy dane użytkownika akceptującego
+    if (quoteData.accepted_by_user && quoteData.accepted_by_user.full_name) {
+        acceptedByUserName = quoteData.accepted_by_user.full_name;
+    } else if (quoteData.accepted_by_user && quoteData.accepted_by_user.first_name) {
+        // Fallback - zbuduj imię z dostępnych części
+        const firstName = quoteData.accepted_by_user.first_name || '';
+        const lastName = quoteData.accepted_by_user.last_name || '';
+        acceptedByUserName = `${firstName} ${lastName}`.trim() || 'Opiekun oferty';
     }
     
     const banner = document.createElement('div');
@@ -2520,7 +2525,7 @@ function addUserAcceptanceBanner(modalBox, quoteData) {
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
         </svg>
         <div class="banner-text">
-            <div>Wycena została zaakceptowana przez opiekuna oferty</div>
+            <div><strong>Wycena została zaakceptowana przez handlowca ${acceptedByUserName}</strong></div>
             ${acceptanceDate ? `<div class="acceptance-details">Data akceptacji: ${acceptanceDate}</div>` : ''}
         </div>
     `;
@@ -2533,7 +2538,7 @@ function addUserAcceptanceBanner(modalBox, quoteData) {
         modalBox.appendChild(banner);
     }
     
-    console.log('[UserAccept] Dodano banner akceptacji przez opiekuna');
+    console.log(`[UserAccept] Dodano banner akceptacji przez handlowca: ${acceptedByUserName}`);
 }
 
 /**

@@ -2547,7 +2547,7 @@
     box-shadow: none;
 }
 
-/* Banner informacji o akceptacji przez opiekuna */
+/* Banner informacji o akceptacji przez opiekuna - ZAKTUALIZOWANE STYLE */
 .user-acceptance-banner {
     background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
     border-left: 4px solid #28a745;
@@ -2570,12 +2570,37 @@
 .user-acceptance-banner .banner-text {
     color: #155724;
     font-weight: 500;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.user-acceptance-banner .banner-text strong {
+    font-weight: 600;
+    color: #0d4c17;
 }
 
 .user-acceptance-banner .banner-text .acceptance-details {
     font-size: 13px;
     color: #28a745;
     margin-top: 4px;
+    font-weight: 400;
+    opacity: 0.9;
+}
+
+/* Responsywność bannera */
+@media (max-width: 768px) {
+    .user-acceptance-banner {
+        padding: 12px 16px;
+        border-radius: 0 6px 6px 0;
+    }
+    
+    .user-acceptance-banner .banner-text {
+        font-size: 13px;
+    }
+    
+    .user-acceptance-banner .banner-text .acceptance-details {
+        font-size: 12px;
+    }
 }
 
 .quotes-btn-accept::after {
