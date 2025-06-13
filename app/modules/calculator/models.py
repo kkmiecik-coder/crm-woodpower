@@ -285,6 +285,7 @@ class QuoteItem(db.Model):
     def __repr__(self):
         return f"<QuoteItem {self.id} - Quote {self.quote_id}>"
 
+
 class QuoteItemDetails(db.Model):
     __tablename__ = 'quote_items_details'
 
@@ -297,13 +298,30 @@ class QuoteItemDetails(db.Model):
     finishing_gloss_level = db.Column(db.String(50))
     finishing_price_netto = db.Column(db.Numeric(10, 2))
     finishing_price_brutto = db.Column(db.Numeric(10, 2))
+    # NOWA KOLUMNA: ilość produktu
+    quantity = db.Column(db.Integer, default=1, nullable=False)
 
     __table_args__ = (
         db.UniqueConstraint('quote_id', 'product_index', name='uq_quote_product'),
     )
 
+    def to_dict(self):
+        """Konwertuje obiekt na słownik"""
+        return {
+            'id': self.id,
+            'quote_id': self.quote_id,
+            'product_index': self.product_index,
+            'finishing_type': self.finishing_type,
+            'finishing_variant': self.finishing_variant,
+            'finishing_color': self.finishing_color,
+            'finishing_gloss_level': self.finishing_gloss_level,
+            'finishing_price_netto': float(self.finishing_price_netto) if self.finishing_price_netto else 0.0,
+            'finishing_price_brutto': float(self.finishing_price_brutto) if self.finishing_price_brutto else 0.0,
+            'quantity': self.quantity
+        }
+
     def __repr__(self):
-        return f"<QuoteItemDetails Quote:{self.quote_id} Produkt:{self.product_index}>"
+        return f"<QuoteItemDetails Quote:{self.quote_id} Produkt:{self.product_index} Qty:{self.quantity}>"
 
 class QuoteCounter(db.Model):
     __tablename__ = 'quote_counters'

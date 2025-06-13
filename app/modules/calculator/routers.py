@@ -289,6 +289,12 @@ def save_quote():
                 continue
 
             first_variant = variants[0]
+            
+            # DODANE: Pobranie quantity z danych produktu
+            product_quantity = int(product.get('quantity', 1))
+            
+            current_app.logger.info(f"[save_quote_backend] Produkt #{i + 1}: quantity={product_quantity}")
+            
             item_details = QuoteItemDetails(
                 quote_id=quote.id,
                 product_index=i + 1,
@@ -298,6 +304,8 @@ def save_quote():
                 finishing_gloss_level=first_variant.get("finishing_gloss_level"),
                 finishing_price_netto=first_variant.get("finishing_netto", 0.0),
                 finishing_price_brutto=first_variant.get("finishing_brutto", 0.0),
+                # NOWE POLE: dodanie quantity do QuoteItemDetails
+                quantity=product_quantity
             )
             db.session.add(item_details)
 
@@ -318,6 +326,8 @@ def save_quote():
                 )
                 db.session.add(quote_item)
                 current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} brutto={quote_item.final_price_brutto}")
+                
+        current_app.logger.info("[save_quote_backend] Wszystkie produkty zapisane w QuoteItem.")
 
         log = QuoteLog(
             quote_id=quote.id,

@@ -431,6 +431,9 @@ def get_quote_details(quote_id):
         
         all_statuses = QuoteStatus.query.all()
         
+        # TUTAJ JEST DEFINICJA finishing_details:
+        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+        
         return jsonify({
             "id": quote.id,
             "quote_number": quote.quote_number,
@@ -439,7 +442,6 @@ def get_quote_details(quote_id):
             "public_url": quote.get_public_url(),
             "is_client_editable": quote.is_client_editable,
             "base_linker_order_id": quote.base_linker_order_id,
-            # DODANE: public_token do pobierania PDF
             "public_token": quote.public_token,
             
             # NOWE POLA: Informacje o mnożniku
@@ -459,6 +461,8 @@ def get_quote_details(quote_id):
             "status_name": quote.quote_status.name if quote.quote_status else "-",
             "status_color": quote.quote_status.color_hex if quote.quote_status else "#999",
             "all_statuses": {s.id: {"id": s.id, "name": s.name, "color": s.color_hex} for s in all_statuses},
+            
+            # TUTAJ UŻYWAMY finishing_details - jest już zdefiniowane powyżej:
             "finishing": [
                 {
                     "product_index": detail.product_index,
@@ -467,8 +471,9 @@ def get_quote_details(quote_id):
                     "color": detail.finishing_color,
                     "gloss": detail.finishing_gloss_level,
                     "netto": detail.finishing_price_netto,
-                    "brutto": detail.finishing_price_brutto
-                } for detail in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+                    "brutto": detail.finishing_price_brutto,
+                    "quantity": detail.quantity  # NOWE POLE: ilość produktu
+                } for detail in finishing_details
             ],
             "client": {
                 "client_number": quote.client.client_number if quote.client else "-",

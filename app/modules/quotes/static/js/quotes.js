@@ -176,6 +176,13 @@ function showDetailsModal(quoteData) {
 
     const modal = document.getElementById('quote-details-modal');
     const modalBox = modal.querySelector('.quotes-details-modal-box');
+
+    // DODANE: Zapisz ID wyceny w modal dla modułu Baselinker
+    if (modal && quoteData && quoteData.id) {
+        modal.dataset.quoteId = quoteData.id;
+        console.log(`[MODAL] Zapisano dataset.quoteId = ${quoteData.id}`);
+    }
+
     const itemsContainer = document.getElementById('quotes-details-modal-items-body');
     const tabsContainer = document.getElementById('quotes-details-tabs');
     const dropdownWrap = document.getElementById('quotes-details-modal-status-dropdown');
@@ -1177,6 +1184,10 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const volume = item.volume_m3 ? `${item.volume_m3.toFixed(3)} m³` : '-';
 
     const finishing = (quoteData.finishing || []).find(f => f.product_index == productIndex);
+    
+    // NOWE: Pobierz quantity z finishing details
+    const quantity = finishing ? (finishing.quantity || 1) : 1;
+    
     let finishingHTML = '';
 
     if (finishing) {
@@ -1215,6 +1226,7 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
 
     wrap.innerHTML = `
         <div><strong>Wymiary:</strong> ${dims}</div>
+        <div><strong>Ilość:</strong> ${quantity} szt.</div>
         ${finishingHTML}
         <div><strong>Objętość:</strong> ${volume}</div>
     `;
@@ -2107,10 +2119,4 @@ async function openQuoteDetailsById(quoteId) {
             alert('Nie udało się otworzyć szczegółów wyceny');
         }
     }
-
-    // Na końcu pliku quotes.js, tuż przed końcową klamrą lub na samym końcu
-    console.log("=== QUOTES.JS PDF SECURITY UPDATE ===");
-    console.log("✅ Quotes.js korzysta teraz z tokenów zamiast ID do pobierania PDF");
-    console.log("✅ Sprawdź czy wszystkie przyciski mają dataset.token zamiast dataset.id");
-    console.log("🔒 Nowy format URL: /quotes/api/quotes/{token}/pdf.{format}");
 }

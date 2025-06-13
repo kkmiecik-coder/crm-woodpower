@@ -77,6 +77,29 @@ def get_order_modal_data(quote_id):
         
         # Oblicz koszty
         selected_items = [item for item in quote.items if item.is_selected]
+
+        products_data = []
+        for item in selected_items:
+            finishing_details = QuoteItemDetails.query.filter_by(
+                quote_id=quote.id, 
+                product_index=item.product_index
+            ).first()
+            
+            quantity = finishing_details.quantity if finishing_details else 1
+            
+            product_data = {
+                'id': item.id,
+                'name': _get_product_display_name(item, quote),
+                'variant_code': item.variant_code,
+                'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
+                'volume': item.volume_m3,
+                'price_netto': float(item.final_price_netto or 0),
+                'price_brutto': float(item.final_price_brutto or 0),
+                'quantity': quantity,  # KLUCZ: to pole było brakujące!
+                'finishing': _get_finishing_details(item.product_index, quote)
+            }
+            products_data.append(product_data)
+
         cost_products_netto = sum(item.final_price_netto or 0 for item in selected_items)
         
         # Pobierz szczegóły wykończenia bezpośrednio z bazy

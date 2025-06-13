@@ -322,6 +322,10 @@ class BaselinkerService:
                 product_index=item.product_index
             ).first()
     
+            # NOWE: Pobierz quantity z QuoteItemDetails
+            quantity = finishing_details.quantity if finishing_details else 1
+            print(f"[BaselinkerService] Produkt {item.product_index}: quantity={quantity}", file=sys.stderr)
+    
             # Generuj SKU według schematu
             sku = self._generate_sku(item, finishing_details)
     
@@ -346,66 +350,54 @@ class BaselinkerService:
             total_price_netto = product_price_netto + finishing_price_netto
             total_price_brutto = product_price_brutto + finishing_price_brutto
     
-            print(f"[BaselinkerService] Końcowa cena produktu {item.product_index}: netto={total_price_netto}, brutto={total_price_brutto}", file=sys.stderr)
+            print(f"[BaselinkerService] Końcowa cena produktu {item.product_index}: netto={total_price_netto}, brutto={total_price_brutto}, qty={quantity}", file=sys.stderr)
     
-            # Nazwa produktu z wykończeniem
-            if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
-                finishing_parts = [
-                    finishing_details.finishing_variant,
-                    finishing_details.finishing_type,
-                    finishing_details.finishing_color,
-                    finishing_details.finishing_gloss_level
-                ]
-                finishing_str = ' - '.join(filter(None, finishing_parts))
-                if finishing_str:
-                    product_name = f"{base_name} {finishing_str}"
-                else:
-                    product_name = f"{base_name} surowe"
-            else:
-                product_name = f"{base_name} surowe"
-
+            # Oblicz wagę (zakładając gęstość drewna ~0.7 kg/dm³)
+            volume_dm3 = float(item.volume_m3) * 1000  # m³ na dm³
+            weight_kg = round(volume_dm3 * 0.7, 2)
+    
+            # Dodaj wykończenie do nazwy jeśli istnieje
+            product_name = base_name
+            if finishing_details and finishing_details.finishing_type:
+                finishing_desc = self._translate_finishing(finishing_details)
+                if finishing_desc:
+                    product_name += f" ({finishing_desc})"
+    
             products.append({
-                'storage': 'db',
-                'storage_id': 0,
-                'product_id': '',
-                'variant_id': 0,
                 'name': product_name,
                 'sku': sku,
-                'ean': '',
-                'location': '',
-                'warehouse_id': 0,
-                'attributes': '',
-                'price_brutto': total_price_brutto,
-                'price_netto': total_price_netto,
-                'tax_rate': 23,
-                'quantity': 1,
-                'weight': self._calculate_item_weight(item)
+                'ean': '',  # EAN opcjonalny
+                'price_brutto': round(total_price_brutto, 2),
+                'price_netto': round(total_price_netto, 2),
+                'tax_rate': 23,  # VAT 23%
+                'quantity': quantity,
+                'weight': weight_kg,
+                'variant_id': 0
             })
 
-        # Dane klienta
         client = quote.client
+        if not client:
+            raise ValueError("Wycena nie ma przypisanego klienta")
 
-        # Sprawdź metodę dostawy i ustaw odpowiedni koszt wysyłki
-        delivery_method = config.get('delivery_method', quote.courier_name or 'Kurier')
+        # Konfiguracja zamówienia
+        order_source_id = config.get('order_source_id')
+        order_status_id = config.get('order_status_id')
+        payment_method = config.get('payment_method', 'Przelew bankowy')
+        delivery_method = config.get('delivery_method', quote.courier_name or 'Przesyłka kurierska')
         delivery_price = float(quote.shipping_cost_brutto or 0)
 
-        # Zeruj koszt wysyłki dla odbioru osobistego
-        if delivery_method and ('odbior' in delivery_method.lower() or 'odbiór' in delivery_method.lower()):
-            print(f"[BaselinkerService] Wykryto odbiór osobisty - zerowanie kosztów wysyłki z {delivery_price} na 0.00", file=sys.stderr)
-            delivery_price = 0.0
-        else:
-            print(f"[BaselinkerService] Metoda dostawy '{delivery_method}' - koszt wysyłki: {delivery_price}", file=sys.stderr)
+        print(f"[BaselinkerService] Przygotowuję zamówienie z {len(products)} produktami", file=sys.stderr)
+        print(f"[BaselinkerService] Łączna ilość produktów: {sum(p['quantity'] for p in products)}", file=sys.stderr)
 
-        # 🔧 KRYTYCZNA POPRAWKA: Usuń delivery_region i invoice_region z danych
         order_data = {
-            'custom_source_id': config.get('order_source_id', 1),
-            'order_status_id': config.get('order_status_id', 105112),
+            'custom_source_id': order_source_id,
+            'order_status_id': order_status_id,
             'date_add': int(time.time()),
             'currency': 'PLN',
-            'payment_method': config.get('payment_method', 'Przelew bankowy'),
-            'payment_method_cod': False,
-            'paid': 0,
-            'user_comments': f"Zamowienie z wyceny {quote.quote_number}",
+            'payment_method': payment_method,
+            'payment_method_cod': 'false',
+            'paid': '0',
+            'user_comments': f"Zamówienie z wyceny {quote.quote_number}",
             'admin_comments': f"Automatycznie utworzone z wyceny {quote.quote_number} przez system Wood Power CRM",
             'phone': client.phone or '',
             'email': client.email or '',
@@ -417,7 +409,6 @@ class BaselinkerService:
             'delivery_address': client.delivery_address or '',
             'delivery_postcode': client.delivery_zip or '',
             'delivery_city': client.delivery_city or '',
-            # 🔧 USUNIĘTE: 'delivery_region': client.delivery_region or '',
             'delivery_country_code': config.get('delivery_country', 'PL'),
             'delivery_point_id': '',
             'delivery_point_name': '',
@@ -430,12 +421,11 @@ class BaselinkerService:
             'invoice_address': client.invoice_address or client.delivery_address or '',
             'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
-            # 🔧 USUNIĘTE: 'invoice_region': client.invoice_region or client.delivery_region or '',
             'invoice_country_code': config.get('delivery_country', 'PL'),
             'want_invoice': bool(client.invoice_nip),
             'extra_field_1': quote.quote_number,
             'extra_field_2': quote.source or '',
-            'products': products
+            'products': products  # ← Produkty z quantity
         }
 
         print(f"[BaselinkerService] ✅ Przygotowane dane zamowienia (BEZ delivery/invoice_region):", file=sys.stderr)

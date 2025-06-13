@@ -81,18 +81,46 @@ class BaselinkerModal {
     }
 
     extractQuoteIdFromModal() {
-        // Próbuj znaleźć ID wyceny z przycisków w modalu
-        const downloadBtn = document.querySelector('#download-details-btn');
-        if (downloadBtn && downloadBtn.dataset.id) {
-            return parseInt(downloadBtn.dataset.id);
+        console.log('[Baselinker] Próba wyodrębnienia ID wyceny z modala...');
+        
+        // METODA 1: Spróbuj pobrać z currentQuoteData (globalny stan z quotes.js)
+        if (typeof currentQuoteData !== 'undefined' && currentQuoteData && currentQuoteData.id) {
+            console.log(`[Baselinker] ✅ ID wyceny z currentQuoteData: ${currentQuoteData.id}`);
+            return currentQuoteData.id;
         }
-
-        // Backup - sprawdź inne możliwe miejsca
-        const modalTitle = document.querySelector('#quotes-details-modal-quote-number');
-        if (modalTitle && modalTitle.textContent) {
-            console.log('[Baselinker] Znaleziono numer wyceny:', modalTitle.textContent);
+        
+        // METODA 2: Spróbuj pobrać z URL modalbox (jeśli endpoint używa ID)
+        const modal = document.getElementById('quote-details-modal');
+        if (modal && modal.dataset && modal.dataset.quoteId) {
+            const quoteId = parseInt(modal.dataset.quoteId);
+            console.log(`[Baselinker] ✅ ID wyceny z modala: ${quoteId}`);
+            return quoteId;
         }
-
+        
+        // METODA 3: Spróbuj wyciągnąć z elementu z numerem wyceny
+        const quoteNumberElement = document.getElementById('quotes-details-modal-quote-number');
+        if (quoteNumberElement && quoteNumberElement.textContent) {
+            const quoteNumber = quoteNumberElement.textContent.trim();
+            console.log(`[Baselinker] Znaleziono numer wyceny: ${quoteNumber}`);
+            
+            // Wyszukaj wycenę w allQuotes po numerze
+            if (typeof allQuotes !== 'undefined' && Array.isArray(allQuotes)) {
+                const quote = allQuotes.find(q => q.quote_number === quoteNumber);
+                if (quote) {
+                    console.log(`[Baselinker] ✅ ID wyceny z allQuotes: ${quote.id}`);
+                    return quote.id;
+                }
+            }
+        }
+        
+        console.error('[Baselinker] ❌ Nie udało się znaleźć ID wyceny żadną metodą');
+        console.log('[Baselinker] Debug info:', {
+            currentQuoteData: typeof currentQuoteData !== 'undefined' ? currentQuoteData : 'undefined',
+            modal: modal ? 'exists' : 'not found',
+            quoteNumberElement: quoteNumberElement ? quoteNumberElement.textContent : 'not found',
+            allQuotes: typeof allQuotes !== 'undefined' ? `array with ${allQuotes.length} items` : 'undefined'
+        });
+        
         return null;
     }
 
@@ -297,22 +325,24 @@ class BaselinkerModal {
         }
 
         container.innerHTML = products.map(product => `
-        <div class="bl-style-product-item">
-            <div class="bl-style-product-name">
-                ${this.buildProductName(product)}
-                <div class="bl-style-product-details">
-                    Waga: <span style="font-weight: 400;">${this.calculateProductWeight(product)} kg</span>
+            <div class="bl-style-product-item">
+                <div class="bl-style-product-name">
+                    ${this.buildProductName(product)}
+                    <div class="bl-style-product-details">
+                        Waga: <span style="font-weight: 400;">${this.calculateProductWeight(product)} kg</span>
+                        ${product.finishing ? `<br>Wykończenie: <span class="bl-style-product-finishing">${product.finishing}</span>` : ''}
+                    </div>
+                </div>
+                <div>${product.dimensions}</div>
+                <div class="bl-style-product-quantity">${product.quantity || 1} szt.</div>
+                <div class="bl-style-product-price">
+                    <div class="bl-style-amount">
+                        <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
+                        <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
+                    </div>
                 </div>
             </div>
-            <div>${product.dimensions}</div>
-            <div class="bl-style-product-price">
-                <div class="bl-style-amount">
-                    <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
-                    <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
-                </div>
-            </div>
-        </div>
-    `).join('');
+        `).join('');
     }
 
     populateFinancialSummary() {
@@ -1066,35 +1096,40 @@ class BaselinkerModal {
         const quote = this.modalData.quote;
         const client = this.modalData.client;
 
+        // Oblicz łączną ilość produktów
+        const totalQuantity = this.modalData.products.reduce((sum, product) => {
+            return sum + (product.quantity || 1);
+        }, 0);
+
         // POPRAWKA: Użyj aktualnych kosztów (po ewentualnym zerowaniu wysyłki)
         const costs = this.modalData.costs;
 
         container.innerHTML = `
-        <div class="bl-style-summary-row">
-            <span>Wycena:</span>
-            <strong>${quote.quote_number}</strong>
-        </div>
-        <div class="bl-style-summary-row">
-            <span>Klient:</span>
-            <strong>${client.name}${client.company ? ` - ${client.company}` : ''}</strong>
-        </div>
-        <div class="bl-style-summary-row">
-            <span>Produktów:</span>
-            <strong>${this.modalData.products.length} ${this.modalData.products.length === 1 ? 'pozycja' : 'pozycje'}</strong>
-        </div>
-        <div class="bl-style-summary-row">
-            <span>Koszt wysyłki:</span>
-            <strong>${this.formatCurrency(costs.shipping_brutto)}</strong>
-        </div>
-        <div class="bl-style-summary-row">
-            <span>Wartość zamówienia:</span>
-            <strong>${this.formatCurrency(costs.total_brutto)} brutto</strong>
-        </div>
-        <div class="bl-style-summary-row">
-            <span>Status zamówienia:</span>
-            <div class="bl-style-status-ready" id="final-order-status">✓ Gotowe do wysłania</div>
-        </div>
-    `;
+            <div class="bl-style-summary-row">
+                <span>Wycena:</span>
+                <strong>${quote.quote_number}</strong>
+            </div>
+            <div class="bl-style-summary-row">
+                <span>Klient:</span>
+                <strong>${client.name}${client.company ? ` - ${client.company}` : ''}</strong>
+            </div>
+            <div class="bl-style-summary-row">
+                <span>Produktów:</span>
+                <strong>${this.modalData.products.length} ${this.modalData.products.length === 1 ? 'pozycja' : 'pozycje'} (${totalQuantity} szt.)</strong>
+            </div>
+            <div class="bl-style-summary-row">
+                <span>Koszt wysyłki:</span>
+                <strong>${this.formatCurrency(costs.shipping_brutto)}</strong>
+            </div>
+            <div class="bl-style-summary-row">
+                <span>Wartość zamówienia:</span>
+                <strong>${this.formatCurrency(costs.total_brutto)} brutto</strong>
+            </div>
+            <div class="bl-style-summary-row">
+                <span>Status zamówienia:</span>
+                <div class="bl-style-status-ready" id="final-order-status">✓ Gotowe do wysłania</div>
+            </div>
+        `;
     }
 
     prepareValidation() {
