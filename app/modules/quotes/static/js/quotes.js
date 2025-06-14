@@ -1297,51 +1297,89 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
 
     const finishing = (quoteData.finishing || []).find(f => f.product_index == productIndex);
     
-    // NOWE: Pobierz quantity z finishing details lub z item
-    const quantity = finishing ? finishing.quantity : (item.quantity || 1);
+    // Pobierz quantity z finishing details lub z item
+    const quantity = finishing ? finishing.quantity || 1 : (item.quantity || 1);
     
-    // NOWE: Używamy cen jednostkowych
-    const unitPriceBrutto = item.unit_price_brutto || item.final_price_brutto || 0;
-    const unitPriceNetto = item.unit_price_netto || item.final_price_netto || 0;
+    // Dodaj informacje o wykończeniu
+    let finishingDisplay = 'Brak wykończenia';
+    if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak') {
+        const finishingParts = [];
+        
+        // Typ wykończenia
+        if (finishing.finishing_type) {
+            finishingParts.push(finishing.finishing_type);
+        }
+        
+        // Kolor wykończenia
+        if (finishing.finishing_color && finishing.finishing_color !== 'Brak') {
+            finishingParts.push(finishing.finishing_color);
+        }
+        
+        // Metoda aplikacji
+        if (finishing.application_method && finishing.application_method !== 'Brak') {
+            finishingParts.push(finishing.application_method);
+        }
+        
+        finishingDisplay = finishingParts.length > 0 ? finishingParts.join(' - ') : 'Brak wykończenia';
+    }
+
+    // Oblicz ceny z wykończeniem
+    const baseUnitPriceBrutto = item.unit_price_brutto || item.final_price_brutto || 0;
+    const baseUnitPriceNetto = item.unit_price_netto || item.final_price_netto || 0;
     
-    // POPRAWKA: Użyj edit-2.svg dla edycji ilości
-    const edit2IconURL = getEditIconURL().replace('edit.svg', 'edit-2.svg');
+    let finalUnitPriceBrutto = baseUnitPriceBrutto;
+    let finalUnitPriceNetto = baseUnitPriceNetto;
     
-    // Utwórz unikalne ID dla pola ilości
-    const quantityFieldId = `quantity-field-${productIndex}`;
-    const quantityEditId = `quantity-edit-${productIndex}`;
+    // Dodaj cenę wykończenia do ceny jednostkowej
+    if (finishing && finishing.finishing_price_brutto) {
+        finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0);
+    }
+    if (finishing && finishing.finishing_price_netto) {
+        finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0);
+    }
     
+    // Oblicz wartości całkowite
+    const totalBrutto = finalUnitPriceBrutto * quantity;
+    const totalNetto = finalUnitPriceNetto * quantity;
+
     wrap.innerHTML = `
-        <div class="variant-basic-info">
-            <h4 class="details-modal-product-name">Produkt ${productIndex}</h4>
-            <p><strong>Wymiary:</strong> ${dims}</p>
-            <p><strong>Objętość:</strong> ${volume}</p>
-            <div class="quantity-section">
-                <p>
-                    <strong>Ilość:</strong> 
-                    <span id="${quantityFieldId}" class="quantity-display">${quantity} szt.</span>
-                    <button class="quantity-edit-btn" data-product-index="${productIndex}" data-current-quantity="${quantity}" title="Edytuj ilość">
-                        <img src="${edit2IconURL}" alt="Edytuj" class="edit-icon">
-                        <span class="edit-text">Edytuj</span>
-                    </button>
-                </p>
-                <div id="${quantityEditId}" class="quantity-edit-form" style="display: none;">
-                    <input type="number" 
-                           class="quantity-input" 
-                           min="1" 
-                           step="1" 
-                           value="${quantity}"
-                           placeholder="Wprowadź ilość">
-                    <div class="quantity-edit-actions">
-                        <button class="quantity-save-btn" data-product-index="${productIndex}">Zapisz</button>
-                        <button class="quantity-cancel-btn" data-product-index="${productIndex}">Anuluj</button>
+        <div class="product-details">
+            <div><strong>Wariant:</strong> ${translateVariantCode(item.variant_code) || 'Nieznany wariant'}</div>
+            <div><strong>Wymiary:</strong> ${dims}</div>
+            <div><strong>Objętość:</strong> ${volume}</div>
+            <div><strong>Wykończenie:</strong> ${finishingDisplay}</div>
+        </div>
+        <div class="product-pricing">
+            <div class="pricing-row" style="align-items: center;">
+                <span><strong>Ilość:</strong></span>
+                <div class="quantity-container">
+                    <span id="quantity-field-${productIndex}">
+                        ${quantity} szt.
+                        <button class="quantity-edit-btn" data-product-index="${productIndex}" data-current-quantity="${quantity}" title="Zmień ilość">
+                            <svg class="edit-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                            </svg>
+                        </button>
+                    </span>
+                    <div id="quantity-edit-${productIndex}" class="quantity-edit-form" style="display: none;">
+                        <div class="quantity-input-container">
+                            <input type="number" 
+                                   class="quantity-input" 
+                                   value="${quantity}" 
+                                   min="1" 
+                                   step="1">
+                        </div>
+                        <div class="quantity-edit-actions">
+                            <button class="quantity-save-btn" data-product-index="${productIndex}">Zapisz</button>
+                            <button class="quantity-cancel-btn" data-product-index="${productIndex}">Anuluj</button>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     `;
 
-    // Dodaj event listenery po dodaniu do DOM
+    // WAŻNE: Dodaj event listenery po dodaniu do DOM
     setTimeout(() => {
         setupQuantityEditHandlers(productIndex, quoteData);
     }, 0);

@@ -299,6 +299,8 @@ def generate_quote_pdf(token, format):
 
         # KLUCZOWE: Dodaj koszty do obiektu quote lub przekaż jako osobny parametr
         quote.costs = costs  # Dodaj koszty do obiektu quote
+
+        quote.finishing = finishing_details
         
         # Renderuj template z wszystkimi potrzebnymi danymi
         html_out = render_template("quotes/templates/offer_pdf.html", 
@@ -356,7 +358,33 @@ def send_email(quote_id):
     user = db.session.get(User, quote.user_id)
     status = db.session.get(QuoteStatus, quote.status_id)
 
-    rendered = render_template("quotes/templates/offer_pdf.html", quote=quote, client=client, user=user, status=status)
+    # POPRAWKA: Dodaj brakujące dane tak jak w generate_quote_pdf
+    # Pobierz wybrane produkty
+    selected_items = [item for item in quote.items if item.is_selected]
+    
+    # Oblicz koszty
+    cost_products_netto = round(sum(i.get_total_price_netto or 0 for i in selected_items), 2)
+    cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
+    cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+    costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
+    
+    # Pobierz detale wykończenia
+    finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+    
+    # Załaduj ikony (opcjonalnie - można pominąć dla emaili)
+    icons = {}  # Można dodać ikony jeśli potrzebne
+
+    # POPRAWKA: Renderuj z wszystkimi potrzebnymi parametrami
+    rendered = render_template("quotes/templates/offer_pdf.html", 
+                              quote=quote, 
+                              client=client, 
+                              user=user, 
+                              status=status,
+                              costs=costs,  # ✅ Dodane
+                              selected_items=selected_items,  # ✅ Dodane
+                              finishing_details=finishing_details,  # ✅ Dodane
+                              icons=icons)  # ✅ Dodane
+    
     pdf_file = BytesIO()
     HTML(string=rendered).write_pdf(pdf_file)
     pdf_file.seek(0)
@@ -365,14 +393,15 @@ def send_email(quote_id):
                   sender=current_app.config['MAIL_USERNAME'],
                   recipients=[recipient_email])
     msg.body = f"Czesc, w zalczniku znajdziesz wycenę nr {quote.quote_number}."
-    msg.attach(f"wycena_{quote.quote_number}.pdf", "application/pdf", pdf_file.read())
+    msg.attach(f"Oferta_{quote.quote_number}.pdf", "application/pdf", pdf_file.read())
 
     try:
         mail.send(msg)
-        return jsonify({"message": "Email sent successfully"})
+        print(f"[send_email] Email wyslany pomyslnie do {recipient_email}", file=sys.stderr)
+        return jsonify({"success": True, "message": "Email wysłany pomyślnie"})
     except Exception as e:
-        logging.error(f"Blad wysylki maila: {str(e)}")
-        return jsonify({"error": "Failed to send email"}), 500
+        print(f"[send_email] Blad wysylki emaila: {str(e)}", file=sys.stderr)
+        return jsonify({"error": "Błąd wysyłki emaila"}), 500
 
 @quotes_bp.route('/api/quotes/status-counts')
 @login_required

@@ -395,21 +395,23 @@
                 {% for product_index in product_groups.keys()|sort %}
                 {% set items = product_groups[product_index] %}
                 {% set item = items[0] %}
-                {% set finishing_detail = quote.finishing|selectattr('product_index', 'equalto', product_index)|first %}
+
+                <!-- POPRAWKA: Użyj finishing_details zamiast quote.finishing -->
+                {% set finishing_detail = finishing_details|selectattr('product_index', 'equalto', product_index)|first %}
 
                 <!-- NOWE: Pobierz ilość z finishing_detail (QuoteItemDetails) -->
                 {% set quantity = finishing_detail.quantity if finishing_detail and finishing_detail.quantity else 1 %}
 
-                <!-- POPRAW: Oblicz ceny jednostkowe (bez wykończenia) -->
-                {% set unit_price_netto = item.price_netto or 0 %}
-                {% set unit_price_brutto = item.price_brutto or 0 %}
+                <!-- POPRAW: Oblicz ceny jednostkowe (bez wykończenia) - KONWERTUJ NA FLOAT -->
+                {% set unit_price_netto = (item.price_netto or 0)|float %}
+                {% set unit_price_brutto = (item.price_brutto or 0)|float %}
 
-                <!-- POPRAW: Oblicz cenę wykończenia JEDNOSTKOWĄ (jeśli istnieje) -->
-                {% set finishing_unit_netto = 0 %}
-                {% set finishing_unit_brutto = 0 %}
+                <!-- POPRAW: Oblicz cenę wykończenia JEDNOSTKOWĄ (jeśli istnieje) - KONWERTUJ NA FLOAT -->
+                {% set finishing_unit_netto = 0.0 %}
+                {% set finishing_unit_brutto = 0.0 %}
                 {% if finishing_detail and finishing_detail.finishing_price_netto and quantity > 0 %}
-                {% set finishing_unit_netto = finishing_detail.finishing_price_netto / quantity %}
-                {% set finishing_unit_brutto = finishing_detail.finishing_price_brutto / quantity %}
+                {% set finishing_unit_netto = (finishing_detail.finishing_price_netto|float) / quantity %}
+                {% set finishing_unit_brutto = (finishing_detail.finishing_price_brutto|float) / quantity %}
                 {% endif %}
 
                 <!-- OBLICZ: Finalne ceny jednostkowe (produkt + wykończenie jednostkowe) -->
@@ -438,21 +440,22 @@
                         {% else %}{{ item.variant_code }}
                         {% endif %}
 
-                        {% if finishing_detail and finishing_detail.finishing_type and finishing_detail.finishing_type != 'Brak' %}
+                        <!-- POPRAWIONE: Wykończenie z finishing_detail - ZAWSZE wyświetlaj -->
                         <br><span class="finishing-details">
                             Wykończenie:
-                            {% if finishing_detail.finishing_variant %}{{ finishing_detail.finishing_variant }}{% endif %}
-                            {% if finishing_detail.finishing_type %} {{ finishing_detail.finishing_type }}{% endif %}
-                            {% if finishing_detail.finishing_color %} - {{ finishing_detail.finishing_color }}{% endif %}
-                            {% if finishing_detail.finishing_gloss_level %} ({{ finishing_detail.finishing_gloss_level }}){% endif %}
+                            {% if finishing_detail and finishing_detail.finishing_type and finishing_detail.finishing_type != 'Brak' %}
+                                {{ finishing_detail.finishing_type }}
+                                {%- if finishing_detail.finishing_color and finishing_detail.finishing_color != 'Brak' %} - {{ finishing_detail.finishing_color }}{% endif -%}
+                                {%- if finishing_detail.application_method and finishing_detail.application_method != 'Brak' %} ({{ finishing_detail.application_method }}){% endif -%}
+                            {% else %}
+                                brak
+                            {% endif %}
                         </span>
-                        {% endif %}
                     </td>
                     <td>{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }}</td>
                     <td>szt.</td>
                     <!-- KOLUMNA "Cena netto" - cena za 1 sztukę (z wykończeniem) -->
                     <td class="right">{{ "%.2f"|format(final_unit_price_netto) }} PLN</td>
-                    <!-- KOLUMNA "Ilość" - prawdziwa ilość z bazy danych -->
                     <td>{{ quantity }}</td>
                     <td>23%</td>
                     <!-- KOLUMNA "Wartość netto" - cena jednostkowa × ilość -->

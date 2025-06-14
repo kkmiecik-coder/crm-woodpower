@@ -2328,7 +2328,7 @@
     background-color: #ED6B24;
     color: white;
     border: none;
-    padding: 6px 12px;
+    padding: 6px;
     cursor: pointer;
     border-radius: 8px;
     transition: all 0.2s ease;
@@ -2338,7 +2338,6 @@
     gap: 6px;
     font-size: 12px;
     font-weight: 500;
-    min-height: 32px;
 }
 
 .quantity-edit-btn:hover {
@@ -2368,14 +2367,14 @@
 
 /* Quantity edit form */
 .quantity-edit-form {
-    padding: 12px;
+    padding: 6px 0;
     display: flex;
 }
 
 /* Quantity input */
 .quantity-input {
-    width: 100px;
-    padding: 8px 12px;
+    width: 60px;
+    padding: 4px;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 14px;
