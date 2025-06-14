@@ -216,57 +216,63 @@ def update_quote_status(quote_id):
 def generate_quote_pdf(token, format):
     print(f"[generate_quote_pdf] START -> format={format}, TOKEN={token}", file=sys.stderr)
     
-    if format not in ["pdf", "png"]:
-        print(f"[generate_quote_pdf] Unsupported format: {format}", file=sys.stderr)
-        return {"error": "Unsupported format"}, 400
-
-    # ZMIANA: Wyszukiwanie po tokenie zamiast ID
-    quote = Quote.query.filter_by(public_token=token).first()
-    if not quote:
-        print(f"[generate_quote_pdf] Brak wyceny dla tokenu: {token}", file=sys.stderr)
-        return {"error": "Quote not found"}, 404
-
-    print(f"[generate_quote_pdf] Quote found: {quote.quote_number} (ID: {quote.id})", file=sys.stderr)
-
-    # Reszta logiki pozostaje bez zmian
-    quote.client = Client.query.get(quote.client_id) if quote.client_id else None
-    quote.user = User.query.get(quote.user_id)
-    quote.quote_status = QuoteStatus.query.get(quote.status_id) if quote.status_id else None
-    
-    # Oblicz koszty z VAT
-    cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
-    cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
-    cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
-    
-    quote.costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
-    
-    # Załaduj dane wykończenia
-    quote.finishing = [
-        {
-            "product_index": detail.product_index,
-            "finishing_type": detail.finishing_type,
-            "finishing_variant": detail.finishing_variant,
-            "finishing_color": detail.finishing_color,
-            "finishing_gloss_level": detail.finishing_gloss_level,
-            "finishing_price_netto": detail.finishing_price_netto,
-            "finishing_price_brutto": detail.finishing_price_brutto,
-            "quantity": detail.quantity  # DODANE: przekaż quantity do szablonu
-        } for detail in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
-    ]
-
     try:
-        # Funkcja do ładowania ikon jako base64
+        if format not in ["pdf", "png"]:
+            print(f"[generate_quote_pdf] Unsupported format: {format}", file=sys.stderr)
+            return {"error": "Unsupported format"}, 400
+
+        # ZMIANA: Wyszukiwanie po tokenie zamiast ID
+        quote = Quote.query.filter_by(public_token=token).first()
+        if not quote:
+            print(f"[generate_quote_pdf] Brak wyceny dla tokenu: {token}", file=sys.stderr)
+            return {"error": "Quote not found"}, 404
+
+        print(f"[generate_quote_pdf] Quote found: {quote.quote_number} (ID: {quote.id})", file=sys.stderr)
+
+        # DODAJ DEBUGGING - sprawdź dane wyceny
+        print(f"[DEBUG] Quote data:", file=sys.stderr)
+        print(f"  - client_id: {quote.client_id}", file=sys.stderr)
+        print(f"  - user_id: {quote.user_id}", file=sys.stderr)
+        print(f"  - status_id: {quote.status_id}", file=sys.stderr)
+        
+        # Wczytaj powiązane dane
+        quote.client = Client.query.get(quote.client_id) if quote.client_id else None
+        quote.user = User.query.get(quote.user_id) if quote.user_id else None  
+        
+        print(f"[DEBUG] Related data loaded:", file=sys.stderr)
+        print(f"  - client: {quote.client.client_name if quote.client else 'None'}", file=sys.stderr)
+        print(f"  - user: {f'{quote.user.first_name} {quote.user.last_name}' if quote.user else 'None'}", file=sys.stderr)
+        print(f"  - status: {quote.quote_status.name if quote.quote_status else 'None'}", file=sys.stderr)
+
+        # KLUCZOWE: Oblicz koszty (tak jak w send_email i get_client_quote_data)
+        selected_items = [item for item in quote.items if item.is_selected]
+        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+        
+        cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
+        cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in finishing_details), 2)
+        cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+        
+        # Użyj funkcji calculate_costs_with_vat
+        costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
+        
+        print(f"[DEBUG] Calculated costs:", file=sys.stderr)
+        print(f"  - products_netto: {costs['products']['netto']}", file=sys.stderr)
+        print(f"  - total_brutto: {costs['total']['brutto']}", file=sys.stderr)
+
+        # Funkcja pomocnicza do ładowania ikon
         def load_icon_as_base64(icon_name):
             try:
+                # Opcja 1: Bezwzględna ścieżka od root aplikacji
                 icons_path = os.path.join(
-                    os.path.dirname(__file__),
-                    'static', 'img', icon_name
+                    current_app.root_path,  # app/
+                    'modules', 'quotes', 'static', 'img', icon_name
                 )
                 print(f"[PDF] Trying to load icon: {icons_path}", file=sys.stderr)
                 
                 if os.path.exists(icons_path):
-                    with open(icons_path, 'rb') as f:
-                        icon_data = base64.b64encode(f.read()).decode('utf-8')
+                    with open(icons_path, 'rb') as icon_file:
+                        icon_data = base64.b64encode(icon_file.read()).decode('utf-8')
+                    
                     ext = icon_name.split('.')[-1].lower()
                     mime_type = 'image/png' if ext == 'png' else 'image/svg+xml' if ext == 'svg' else 'image/jpeg'
                     
@@ -291,9 +297,18 @@ def generate_quote_pdf(token, format):
         
         print(f"[PDF] Loaded icons: {[k for k, v in icons.items() if v is not None]}", file=sys.stderr)
 
-        # Renderuj template z ikonami
+        # KLUCZOWE: Dodaj koszty do obiektu quote lub przekaż jako osobny parametr
+        quote.costs = costs  # Dodaj koszty do obiektu quote
+        
+        # Renderuj template z wszystkimi potrzebnymi danymi
         html_out = render_template("quotes/templates/offer_pdf.html", 
                                  quote=quote, 
+                                 client=quote.client,
+                                 user=quote.user,
+                                 status=quote.quote_status,
+                                 costs=costs,  # Przekaż też jako osobny parametr
+                                 selected_items=selected_items,  # Dodaj selected_items
+                                 finishing_details=finishing_details,  # Dodaj finishing_details
                                  icons=icons)
         
         print(f"[PDF] HTML rendered, length: {len(html_out)}", file=sys.stderr)

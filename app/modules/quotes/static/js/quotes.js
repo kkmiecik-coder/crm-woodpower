@@ -47,10 +47,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (downloadBtn) {
         downloadBtn.addEventListener("click", () => {
-            const id = downloadBtn.dataset.id;
-            if (!id) return;
-            const triggerBtn = document.querySelector(`.quotes-btn-download[data-id='${id}']`);
-            if (triggerBtn) triggerBtn.click();
+            const token = downloadBtn.dataset.token;
+            console.log(`[DownloadBtn] Klik w modal - token: ${token}`);
+            
+            if (!token || token === 'undefined') {
+                console.error('[DownloadBtn] Brak tokenu lub token undefined');
+                alert('Nie można pobrać PDF - brak tokenu zabezpieczającego');
+                return;
+            }
+            
+            // ZMIANA: Użyj systemu modala PDF zamiast window.open
+            const modal = document.getElementById("download-modal");
+            const iframe = document.getElementById("quotePreview");
+            const downloadPDF = document.getElementById("downloadPDF");
+            const downloadPNG = document.getElementById("downloadPNG");
+            
+            if (modal && iframe && downloadPDF && downloadPNG) {
+                // Ustaw PDF w iframe
+                iframe.src = `/quotes/api/quotes/${token}/pdf.pdf`;
+                
+                // Ustaw token dla przycisków pobierania
+                downloadPDF.dataset.token = token;
+                downloadPNG.dataset.token = token;
+                
+                // Pokaż modal
+                modal.style.display = "flex";
+                
+                console.log(`[DownloadBtn] Otworzono modal PDF dla tokenu: ${token}`);
+            } else {
+                console.error('[DownloadBtn] Brak elementów modala PDF w DOM');
+                // Fallback - otwórz w nowej zakładce
+                window.open(`/quotes/api/quotes/${token}/pdf.pdf`, "_blank");
+            }
         });
     }
 });
@@ -260,9 +288,43 @@ function showDetailsModal(quoteData) {
     // ZMIANA: Ustaw token zamiast ID dla przycisku pobierz
     const downloadBtn = document.getElementById("download-details-btn");
     if (downloadBtn) {
-        downloadBtn.dataset.token = quoteData.public_token;
-        // Usuń stare dataset.id jeśli istnieje
+        console.log('[MODAL] Otrzymane dane wyceny:', {
+            id: quoteData.id,
+            quote_number: quoteData.quote_number,
+            public_token: quoteData.public_token,
+            public_url: quoteData.public_url
+        });
+        
+        let token = quoteData.public_token;
+        
+        // FALLBACK 1: Jeśli brak tokenu, znajdź go z listy wycen (allQuotes)
+        if (!token && allQuotes && allQuotes.length > 0) {
+            const quoteInList = allQuotes.find(q => q.id === quoteData.id);
+            if (quoteInList && quoteInList.public_token) {
+                token = quoteInList.public_token;
+                console.log('[MODAL] ✅ Token skopiowany z listy wycen:', token);
+            }
+        }
+        
+        // FALLBACK 2: Jeśli nadal brak, wyodrębnij z public_url
+        if (!token && quoteData.public_url) {
+            const urlMatch = quoteData.public_url.match(/\/wycena\/[^\/]+\/([A-F0-9]+)$/);
+            if (urlMatch) {
+                token = urlMatch[1];
+                console.log('[MODAL] ✅ Token wyodrębniony z public_url:', token);
+            }
+        }
+        
+        if (!token) {
+            console.error('[MODAL] ❌ BRAK tokenu - sprawdź czy pole public_token jest w bazie danych');
+        } else {
+            console.log('[MODAL] ✅ Token do użycia:', token);
+        }
+        
+        downloadBtn.dataset.token = token;
         delete downloadBtn.dataset.id;
+        
+        console.log('[MODAL] Ustawiono dataset.token:', downloadBtn.dataset.token);
     }
 
     // Reszta istniejącego kodu...
