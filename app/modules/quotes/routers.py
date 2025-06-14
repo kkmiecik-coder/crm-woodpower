@@ -234,7 +234,7 @@ def generate_quote_pdf(token, format):
     quote.quote_status = QuoteStatus.query.get(quote.status_id) if quote.status_id else None
     
     # Oblicz koszty z VAT
-    cost_products_netto = round(sum(i.final_price_netto or 0 for i in quote.items if i.is_selected), 2)
+    cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
     cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
     cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
     
@@ -249,7 +249,8 @@ def generate_quote_pdf(token, format):
             "finishing_color": detail.finishing_color,
             "finishing_gloss_level": detail.finishing_gloss_level,
             "finishing_price_netto": detail.finishing_price_netto,
-            "finishing_price_brutto": detail.finishing_price_brutto
+            "finishing_price_brutto": detail.finishing_price_brutto,
+            "quantity": detail.quantity  # DODANE: przekaż quantity do szablonu
         } for detail in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
     ]
 
@@ -423,7 +424,6 @@ def get_quote_details(quote_id):
         # POPRAWKA: Pobierz items osobno (ponieważ lazy='dynamic')
         quote_items = quote.items.all()  # .all() na dynamic relationship
 
-        # POPRAWKA: Użyj metod get_total_price_* zamiast atrybutów final_price_*
         selected_items = [item for item in quote_items if item.is_selected]
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in finishing_details), 2)
@@ -501,7 +501,7 @@ def get_quote_details(quote_id):
                 "first_name": quote.user.first_name if quote.user else "",
                 "last_name": quote.user.last_name if quote.user else ""
             },
-            "items": [item.to_dict() for item in quote_items]  # to_dict() zawiera już prawidłowe final_price_*
+            "items": [item.to_dict() for item in quote_items]
         })
 
     except Exception as e:
@@ -886,7 +886,7 @@ def send_acceptance_email_to_salesperson(quote):
         selected_items = quote.get_selected_items()
         
         # Oblicz koszty
-        cost_products_netto = round(sum(i.final_price_netto or 0 for i in selected_items), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto or 0 for i in selected_items), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
@@ -935,7 +935,7 @@ def send_acceptance_email_to_client(quote):
         selected_items = quote.get_selected_items()
         
         # Oblicz koszty
-        cost_products_netto = round(sum(i.final_price_netto or 0 for i in selected_items), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto or 0 for i in selected_items), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
@@ -1182,7 +1182,7 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
         selected_items = quote.get_selected_items()
         
         # Oblicz koszty
-        cost_products_netto = round(sum(i.final_price_netto or 0 for i in selected_items), 2)
+        cost_products_netto = round(sum(i.get_total_price_netto() for i in selected_items), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)

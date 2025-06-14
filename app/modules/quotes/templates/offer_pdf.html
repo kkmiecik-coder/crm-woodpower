@@ -397,13 +397,28 @@
                 {% set item = items[0] %}
                 {% set finishing_detail = quote.finishing|selectattr('product_index', 'equalto', product_index)|first %}
 
-                {% set total_item_netto = item.final_price_netto %}
-                {% set total_item_brutto = item.final_price_brutto %}
+                <!-- NOWE: Pobierz ilość z finishing_detail (QuoteItemDetails) -->
+                {% set quantity = finishing_detail.quantity if finishing_detail and finishing_detail.quantity else 1 %}
 
-                {% if finishing_detail and finishing_detail.finishing_price_netto %}
-                {% set total_item_netto = total_item_netto + finishing_detail.finishing_price_netto %}
-                {% set total_item_brutto = total_item_brutto + finishing_detail.finishing_price_brutto %}
+                <!-- POPRAW: Oblicz ceny jednostkowe (bez wykończenia) -->
+                {% set unit_price_netto = item.price_netto or 0 %}
+                {% set unit_price_brutto = item.price_brutto or 0 %}
+
+                <!-- POPRAW: Oblicz cenę wykończenia JEDNOSTKOWĄ (jeśli istnieje) -->
+                {% set finishing_unit_netto = 0 %}
+                {% set finishing_unit_brutto = 0 %}
+                {% if finishing_detail and finishing_detail.finishing_price_netto and quantity > 0 %}
+                {% set finishing_unit_netto = finishing_detail.finishing_price_netto / quantity %}
+                {% set finishing_unit_brutto = finishing_detail.finishing_price_brutto / quantity %}
                 {% endif %}
+
+                <!-- OBLICZ: Finalne ceny jednostkowe (produkt + wykończenie jednostkowe) -->
+                {% set final_unit_price_netto = unit_price_netto + finishing_unit_netto %}
+                {% set final_unit_price_brutto = unit_price_brutto + finishing_unit_brutto %}
+
+                <!-- OBLICZ: Wartości całkowite (cena jednostkowa × ilość) -->
+                {% set total_item_netto = final_unit_price_netto * quantity %}
+                {% set total_item_brutto = final_unit_price_brutto * quantity %}
 
                 {% set vat_amount = total_item_brutto - total_item_netto %}
 
@@ -435,9 +450,12 @@
                     </td>
                     <td>{{ "%.1f"|format(item.length_cm) }} × {{ "%.1f"|format(item.width_cm) }} × {{ "%.1f"|format(item.thickness_cm) }}</td>
                     <td>szt.</td>
-                    <td class="right">{{ "%.2f"|format(total_item_netto) }} PLN</td>
-                    <td>1</td>
+                    <!-- KOLUMNA "Cena netto" - cena za 1 sztukę (z wykończeniem) -->
+                    <td class="right">{{ "%.2f"|format(final_unit_price_netto) }} PLN</td>
+                    <!-- KOLUMNA "Ilość" - prawdziwa ilość z bazy danych -->
+                    <td>{{ quantity }}</td>
                     <td>23%</td>
+                    <!-- KOLUMNA "Wartość netto" - cena jednostkowa × ilość -->
                     <td class="right">{{ "%.2f"|format(total_item_netto) }} PLN</td>
                     <td class="right">{{ "%.2f"|format(vat_amount) }} PLN</td>
                     <td class="right">{{ "%.2f"|format(total_item_brutto) }} PLN</td>
