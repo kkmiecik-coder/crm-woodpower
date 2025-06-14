@@ -2553,7 +2553,7 @@
     border-left: 4px solid #28a745;
     margin: 0 0 20px 0;
     padding: 16px 20px;
-    border-radius: 0 8px 8px 0;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     gap: 12px;
