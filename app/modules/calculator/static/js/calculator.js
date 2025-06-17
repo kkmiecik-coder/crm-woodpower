@@ -452,6 +452,7 @@ function updatePrices() {
 
     calculateFinishingCost(activeQuoteForm);
     updateGlobalSummary();
+    updateCalculateDeliveryButtonState();
     generateProductsSummary();
     dbg("← updatePrices end");
 }
@@ -543,22 +544,14 @@ function calculateFinishingCost(form) {
  * Aktualizuje stan przycisków "Oblicz wysyłkę" i "Zapisz wycenę"
  */
 function updateCalculateDeliveryButtonState() {
-    if (!activeQuoteForm) return;
-
-    const productInputs = activeQuoteForm.querySelectorAll('.product-inputs input, .product-inputs select');
-    let allFilled = true;
-    productInputs.forEach(input => {
-        if (!input.value || input.value.trim() === "") {
-            allFilled = false;
-        }
-    });
-
+    const allComplete = areAllProductsComplete();
+    
     const calcDeliveryBtn = document.querySelector('.calculate-delivery');
     const saveQuoteBtn = document.querySelector('.save-quote');
 
     [calcDeliveryBtn, saveQuoteBtn].forEach(btn => {
         if (!btn) return;
-        if (!allFilled) {
+        if (!allComplete) {
             btn.classList.add('btn-disabled');
             btn.disabled = true;
         } else {
@@ -671,29 +664,35 @@ function attachFinishingUIListeners(form) {
 function attachFormListeners(form) {
     if (!form || form.dataset.listenersAttached) return;
 
-    // Dodaj listenery dla podstawowych inputów
+    // POPRAWKA: Dodaj listenery dla podstawowych inputów
     form.querySelectorAll('input[data-field]').forEach(input => {
+        input.removeEventListener('input', updatePrices); // Usuń poprzednie
         input.addEventListener('input', updatePrices);
     });
 
+    // POPRAWKA: Dodaj listenery dla radio buttons
     form.querySelectorAll('input[type="radio"]').forEach(radio => {
+        radio.removeEventListener('change', updatePrices); // Usuń poprzednie
         radio.addEventListener('change', updatePrices);
     });
 
-    // SPECJALNA OBSŁUGA dla select grupy cenowej
-    const clientTypeSelect = form.querySelector('select[data-field="clientType"]');
-    if (clientTypeSelect) {
-        // Usuń poprzedni listener jeśli istnieje
-        clientTypeSelect.removeEventListener('change', updatePrices);
-        
-        // Dodaj tylko updatePrices - synchronizacja jest obsługiwana przez globalny listener w init()
-        clientTypeSelect.addEventListener('change', updatePrices);
-    }
-
+    // POPRAWKA: Dodaj listenery dla wykończenia
     attachFinishingListenersToForm(form);
     attachFinishingUIListeners(form);
 
     form.dataset.listenersAttached = "true";
+}
+
+function areAllProductsComplete() {
+    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
+    
+    for (let form of allForms) {
+        if (!checkProductCompleteness(form)) {
+            return false;
+        }
+    }
+    
+    return allForms.length > 0; // Musi być przynajmniej jeden produkt
 }
 
 /**
@@ -702,32 +701,50 @@ function attachFormListeners(form) {
 function prepareNewProductForm(form, index) {
     if (!form) return;
 
+    // POPRAWKA: Aktualizuj ID i name dla radio buttons wariantów
     form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
-        const oldId = radio.id;
         const baseId = radio.value;
         const newId = `${baseId}-${index}`;
-        const label = form.querySelector(`label[for="${oldId}"]`);
+        const oldId = radio.id;
+        
         radio.id = newId;
-        radio.name = `variantOption-${index}`;
+        radio.name = `variantOption-${index}`; // ✅ POPRAWKA: Unikalny name per produkt
         radio.checked = false;
+        
+        // Aktualizuj label
+        const label = form.querySelector(`label[for="${oldId}"]`);
         if (label) label.setAttribute('for', newId);
     });
 
+    // POPRAWKA: Resetuj przyciski wykończenia i ustaw domyślne
     form.querySelectorAll('.finishing-btn.active').forEach(btn => btn.classList.remove('active'));
     const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Brak"]');
     if (defaultFinishing) defaultFinishing.classList.add('active');
 
-    form.querySelectorAll('.finishing-colors, .finishing-gloss').forEach(el => el.style.display = 'none');
+    // POPRAWKA: Ukryj sekcje wykończenia
+    form.querySelectorAll('#finishing-variant-wrapper, #finishing-gloss-wrapper, #finishing-color-wrapper').forEach(el => {
+        if (el) el.style.display = 'none';
+    });
 
+    // POPRAWKA: Wyczyść dataset
     form.dataset.orderBrutto = '';
     form.dataset.orderNetto = '';
     form.dataset.finishingType = 'Brak';
     form.dataset.finishingBrutto = '';
     form.dataset.finishingNetto = '';
 
+    // POPRAWKA: Wyczyść inputy ale ZACHOWAJ grupę cenową
+    const currentClientType = form.querySelector('select[data-field="clientType"]')?.value;
     form.querySelectorAll('input[data-field]').forEach(input => input.value = '');
-    form.querySelectorAll('select[data-field]').forEach(select => select.selectedIndex = 0);
+    form.querySelectorAll('select[data-field]').forEach(select => {
+        if (select.dataset.field === 'clientType' && currentClientType) {
+            select.value = currentClientType; // ✅ ZACHOWAJ grupę cenową
+        } else {
+            select.selectedIndex = 0;
+        }
+    });
 
+    // POPRAWKA: Resetuj wyświetlanie cen
     form.querySelectorAll('.variants span').forEach(span => {
         const isHeader = span.classList.contains('header-title') ||
             span.classList.contains('header-unit-brutto') ||
@@ -735,16 +752,15 @@ function prepareNewProductForm(form, index) {
             span.classList.contains('header-total-brutto') ||
             span.classList.contains('header-total-netto');
         if (!span.classList.contains('out-of-stock-tag') && !isHeader) {
-            span.textContent = '0.00 PLN';
+            span.textContent = 'Brak dług.'; // ✅ POPRAWKA: Domyślny tekst
         }
     });
 
+    // POPRAWKA: Resetuj kolory wariantów
     form.querySelectorAll('.variants div').forEach(variant => {
         variant.style.backgroundColor = '';
         variant.querySelectorAll('*').forEach(el => el.style.color = '');
     });
-
-    updateCalculateDeliveryButtonState();
 }
 
 /**
@@ -1454,8 +1470,6 @@ function init() {
         if (e.target.matches('select[data-field="clientType"]')) {
             const selectedType = e.target.value;
             const sourceForm = e.target.closest('.quote-form');
-            
-            console.log(`[clientTypeChange] Zmiana grupy cenowej na: ${selectedType}`);
             
             if (selectedType && sourceForm) {
                 syncClientTypeAcrossProducts(selectedType, sourceForm);
@@ -2554,29 +2568,75 @@ function getFinishingDescription(form) {
     return description;
 }
 
+function getFinishingDescriptionWithGloss(form) {
+    if (!form) return null;
+    
+    const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
+    const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
+    
+    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Brak') {
+        return null;
+    }
+    
+    let description = finishingTypeBtn.dataset.finishingType;
+    
+    if (finishingVariantBtn) {
+        description += ` ${finishingVariantBtn.dataset.finishingVariant}`;
+        
+        // Dodaj kolor jeśli jest wybrany
+        if (finishingVariantBtn.dataset.finishingVariant === 'Barwne') {
+            const colorBtn = form.querySelector('.color-btn.active');
+            if (colorBtn) {
+                const color = colorBtn.dataset.finishingColor;
+                if (color) {
+                    description += ` (${color})`;
+                }
+            }
+        }
+    }
+    
+    // ✅ POPRAWKA: Dodaj stopień połysku
+    if (finishingTypeBtn.dataset.finishingType === 'Lakierowanie') {
+        const glossBtn = form.querySelector('.finishing-btn[data-finishing-gloss].active');
+        if (glossBtn) {
+            const gloss = glossBtn.dataset.finishingGloss;
+            if (gloss) {
+                description += ` ${gloss}`;
+            }
+        }
+    }
+    
+    return description;
+}
+
 /**
  * Generuje opis produktu
  */
 function generateProductDescription(form, index) {
-    if (!form) return `Produkt ${index + 1}: Błąd formularza`;
+    if (!form) return `Błąd formularza`;
     
     const isComplete = checkProductCompleteness(form);
     
     if (!isComplete) {
-        return `Produkt ${index + 1}: Dokończ wycenę produktu`;
+        return `Dokończ wycenę produktu`;
     }
     
     const length = form.querySelector('[data-field="length"]')?.value;
     const width = form.querySelector('[data-field="width"]')?.value;
     const thickness = form.querySelector('[data-field="thickness"]')?.value;
     const quantity = form.querySelector('[data-field="quantity"]')?.value;
-    const variant = getVariantDescription(form);
-    const finishing = getFinishingDescription(form);
     
-    let description = `Produkt ${index + 1}: ${variant} | ${length}×${width}×${thickness} cm | ${quantity} szt.`;
+    const variantRadio = form.querySelector('input[type="radio"]:checked');
+    const variantLabel = variantRadio ? form.querySelector(`label[for="${variantRadio.id}"]`) : null;
+    const variantName = variantLabel ? variantLabel.textContent.replace(/BRAK/g, '').trim() : 'Nieznany wariant';
     
-    if (finishing) {
-        description += ` | ${finishing}`;
+    // POPRAWKA: Dodaj wykończenie z stopniem połysku
+    const finishingDescription = getFinishingDescriptionWithGloss(form);
+    
+    let description = `${variantName} ${length}×${width}×${thickness} cm | ${quantity} szt.`;
+    
+    if (finishingDescription) {
+        description += ` | ${finishingDescription}`;
     }
     
     return description;
@@ -2586,54 +2646,104 @@ function generateProductDescription(form, index) {
  * Generuje panel produktów
  */
 function generateProductsSummary() {
-    if (!productSummaryContainer || !quoteFormsContainer) return;
-    
+    if (!productSummaryContainer) return;
+
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
-    
-    // Czyść kontener
     productSummaryContainer.innerHTML = '';
-    
-    // Generuj karty produktów
+
+    if (forms.length === 0) {
+        productSummaryContainer.innerHTML = '<div class="no-products">Brak produktów</div>';
+        return;
+    }
+
     forms.forEach((form, index) => {
-        const isComplete = checkProductCompleteness(form);
         const description = generateProductDescription(form, index);
+        const isComplete = checkProductCompleteness(form);
         const isActive = form === activeQuoteForm;
-        
-        const card = document.createElement('div');
-        card.className = `product-card ${isActive ? 'active' : ''} ${!isComplete ? 'error' : ''}`;
-        card.dataset.productIndex = index;
-        
-        const mainInfo = isComplete ? description.split(': ')[1] : 'Dokończ wycenę produktu';
-        
-        card.innerHTML = `
+
+        const productCard = document.createElement('div');
+        productCard.className = `product-card ${isActive ? 'active' : ''} ${!isComplete ? 'error' : ''}`;
+        productCard.dataset.index = index;
+
+        // ✅ POPRAWKA: Dodaj przycisk usuwania gdy jest więcej niż 1 produkt
+        const removeButton = forms.length > 1 ? `
+            <button class="remove-product-btn" data-index="${index}" title="Usuń produkt">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        ` : '';
+
+        productCard.innerHTML = `
             <div class="product-card-content">
-                <div class="product-card-number">${index + 1}</div>
-                <div class="product-card-details">
-                    <div class="product-card-main-info">${mainInfo}</div>
-                </div>
+                <div class="product-card-title">Produkt ${index + 1}</div>
+                <div class="product-card-description">${description}</div>
             </div>
+            ${removeButton}
         `;
-        
-        // Dodaj event listener
-        card.addEventListener('click', () => {
+
+        // Dodaj listener dla przełączania produktów
+        productCard.addEventListener('click', (e) => {
+            // ✅ POPRAWKA: Nie przełączaj jeśli kliknięto przycisk usuwania
+            if (e.target.closest('.remove-product-btn')) return;
+            
             activateProductCard(index);
         });
-        
-        productSummaryContainer.appendChild(card);
+
+        productSummaryContainer.appendChild(productCard);
     });
+
+    // ✅ POPRAWKA: ZAWSZE dodaj przycisk dodawania nowego produktu
+    const addCard = document.createElement('div');
+    addCard.className = 'add-product-card';
+    addCard.innerHTML = `
+        <span class="add-product-card-icon">+</span>
+        <span class="add-product-card-text">Dodaj kolejny produkt</span>
+    `;
     
-    // Dodaj przycisk dodawania produktu tylko jeśli jest więcej niż 1 produkt
-    if (forms.length > 0) {
-        const addCard = document.createElement('div');
-        addCard.className = 'add-product-card';
-        addCard.innerHTML = `
-            <span class="add-product-card-icon">+</span>
-            Dodaj kolejny produkt
-        `;
-        
-        addCard.addEventListener('click', addNewProduct);
-        productSummaryContainer.appendChild(addCard);
+    addCard.addEventListener('click', addNewProduct);
+    productSummaryContainer.appendChild(addCard);
+
+    // ✅ POPRAWKA: Dodaj listenery dla przycisków usuwania
+    productSummaryContainer.querySelectorAll('.remove-product-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Zapobiegnij przełączeniu produktu
+            const index = parseInt(btn.dataset.index);
+            removeProduct(index);
+        });
+    });
+
+    // Aktualizuj stan przycisków
+    updateCalculateDeliveryButtonState();
+}
+
+function removeProduct(index) {
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    
+    if (forms.length <= 1) {
+        console.log("Nie można usunąć ostatniego produktu");
+        return;
     }
+    
+    const formToRemove = forms[index];
+    if (!formToRemove) return;
+    
+    // Usuń formularz
+    formToRemove.remove();
+    
+    // Zaktualizuj aktywny formularz
+    const remainingForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    
+    if (remainingForms.length > 0) {
+        // Jeśli usunięty był aktywny, aktywuj poprzedni lub pierwszy
+        const newIndex = index > 0 ? index - 1 : 0;
+        activateProductCard(Math.min(newIndex, remainingForms.length - 1));
+    }
+    
+    // Odśwież podsumowanie
+    generateProductsSummary();
+    updateGlobalSummary();
 }
 
 /**
@@ -2678,50 +2788,34 @@ function addNewProduct() {
     const newIndex = forms.length;
 
     // Skopiuj pierwszy formularz
-    const firstQuoteForm = forms[0];
-    if (!firstQuoteForm) {
+    if (!firstForm) {
         console.error("[addNewProduct] Nie znaleziono pierwszego formularza!");
         return;
     }
 
-    const newForm = firstQuoteForm.cloneNode(true);
-    
-    // Wyczyść wartości w nowym formularzu
-    newForm.querySelectorAll('input, select').forEach(input => {
-        if (input.type === 'radio' || input.type === 'checkbox') {
-            input.checked = false;
-        } else if (input.tagName === 'SELECT') {
-            if (input.dataset.field === 'clientType' && currentClientType) {
-                input.value = currentClientType;
-            } else {
-                input.selectedIndex = 0;
-            }
-        } else {
-            input.value = '';
-        }
-    });
-
-    // Wyczyść dataset
-    delete newForm.dataset.orderBrutto;
-    delete newForm.dataset.orderNetto;
-    delete newForm.dataset.finishingBrutto;
-    delete newForm.dataset.finishingNetto;
-
-    // Ukryj nowy formularz
+    const newForm = firstForm.cloneNode(true);
     newForm.style.display = 'none';
-    
     quoteFormsContainer.appendChild(newForm);
 
-    // ✅ DODAJ: Przygotuj nowy formularz
+    // ✅ POPRAWKA: Przygotuj formularz z poprawkami
     prepareNewProductForm(newForm, newIndex);
     
-    // ✅ DODAJ: Podepnij event listenery
+    // ✅ POPRAWKA: Wymuś skopiowanie grupy cenowej
+    if (currentClientType) {
+        const select = newForm.querySelector('select[data-field="clientType"]');
+        if (select) {
+            select.value = currentClientType;
+            console.log(`[addNewProduct] Skopiowano grupę cenową: ${currentClientType}`);
+        }
+    }
+    
+    // ✅ POPRAWKA: Podepnij event listenery
     attachFormListeners(newForm);
     
     // Aktywuj nowy formularz
     activateProductCard(newIndex);
     
-    // DODAJ: Wymuszaj odświeżenie
+    // Wymuś odświeżenie po krótkim opóźnieniu
     setTimeout(() => {
         updatePrices();
         generateProductsSummary();
@@ -2729,3 +2823,23 @@ function addNewProduct() {
     
     console.log(`[addNewProduct] Dodano produkt ${newIndex + 1}`);
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("🔧 Inicjalizuję poprawki kalkulatora...");
+    
+    // Wymuś odświeżenie stanu przycisków przy ładowaniu
+    setTimeout(() => {
+        if (typeof updateCalculateDeliveryButtonState === 'function') {
+            updateCalculateDeliveryButtonState();
+        }
+        if (typeof generateProductsSummary === 'function') {
+            generateProductsSummary();
+        }
+    }, 500);
+    
+    console.log("✅ Poprawki kalkulatora zostały zainicjalizowane!");
+});
+
+// ========== KONIEC POPRAWEK ==========
+
+console.log("✅ Poprawki kalkulatora zostały załadowane!");

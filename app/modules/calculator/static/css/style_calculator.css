@@ -2659,6 +2659,7 @@ select.select-small option {
 .product-card.active .product-card-number {
     background: #D45611;
     box-shadow: 0 0 0 2px rgba(237, 107, 36, 0.3);
+    margin-right: 12px;
 }
 
 /* Karta z błędem (niekompletny produkt) */
@@ -2713,6 +2714,7 @@ select.select-small option {
     font-size: 11px;
     flex-shrink: 0;
     transition: all 0.2s ease;
+    margin-right: 12px;
 }
 
 .product-card.error .product-card-number {
@@ -3030,4 +3032,93 @@ select.select-small option {
 .quote-summary:focus-within {
     outline: 2px solid #ED6B24;
     outline-offset: 2px;
+}
+
+.remove-product-btn {
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: #F44336;
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    z-index: 10;
+}
+
+.remove-product-btn:hover {
+    background: #D32F2F;
+    transform: scale(1.1);
+}
+
+.remove-product-btn svg {
+    width: 12px;
+    height: 12px;
+}
+
+.btn-disabled {
+    background-color: #CCCCCC !important;
+    color: #666666 !important;
+    cursor: not-allowed !important;
+    opacity: 0.6;
+}
+
+.btn-disabled:hover {
+    background-color: #CCCCCC !important;
+    transform: none !important;
+}
+
+
+/* Dodatkowe style dla lepszego UX */
+.calculate-delivery.btn-disabled,
+.save-quote.btn-disabled {
+    pointer-events: none;
+}
+
+/* Tooltip dla wyłączonych przycisków */
+.btn-disabled::before {
+    content: "Dokończ wszystkie produkty";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 1000;
+}
+
+.btn-disabled:hover::before {
+    opacity: 1;
+}
+
+/* Poprawa wizualna dla kart produktów z błędami */
+.product-card.error {
+    border-color: #F44336;
+    background: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
+}
+
+.product-card.error .product-card-number {
+    background: #F44336;
+    color: white;
+}
+
+.product-card-title {
+    font-weight: 600;
+    color: #1F2020;
+    font-size: 14px;
+    line-height: 1.2;
 }
