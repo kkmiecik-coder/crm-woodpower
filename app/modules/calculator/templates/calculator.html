@@ -234,56 +234,50 @@
                                     </button>
                                 </div>
                             </section>
-                            <!-- Sekcja: Produkty w wycenie -->
                         </div>
                     </div>
-                    <div class="quote-summary">
-                        <div class="order-summary">
-                            <span class="input-txt-bold" style="padding-right: 110px;">Koszt surowego:</span>
-                            <span class="order-brutto">0.00 PLN</span>
-                            <span class="order-netto">0.00 PLN</span>
-                        </div>
-                        <div class="finishing-summary">
-                            <span class="input-txt-bold" style="padding-right: 110px;">Koszty wykończenia:</span>
-                            <span class="finishing-brutto" id="finishing-brutto">0.00 PLN</span>
-                            <span class="finishing-netto" id="finishing-netto">0.00 PLN</span>
-                        </div>
-                        <div class="delivery-summary">
-                            <span class="input-txt-bold">Koszt wysyłki wszystkich produktów:</span>
-                            <span class="courier" id="courier-name"></span>
-                            <span class="delivery-brutto" id="delivery-brutto">0.00 PLN</span>
-                            <span class="delivery-netto" id="delivery-netto">0.00 PLN</span>
-                        </div>
-                        <div class="final-summary">
-                            <span class="input-txt-bold" style="padding-right: 110px;">Suma:</span>
-                            <span class="final-brutto">0.00 PLN</span>
-                            <span class="final-netto">0.00 PLN</span>
-                        </div>
-                        <div class="action-buttons">
-                            <div class="remove-product-container" style="display:none;">
-                                <button type="button" class="remove-product" title="Usuń produkt">Usuń produkt</button>
+                    <div class="summary-section">
+                        <!-- PRZENIESIОНА SEKCJA: Produkty w wycenie -->
+                        <section class="products-summary-main">
+                            <h2 class="title-with-underline-h2">Produkty w wycenie</h2>
+                            <div class="products-summary-container" id="products-summary-container">
+                                <!-- Dynamicznie generowane karty produktów -->
                             </div>
-                            <button type="button" class="calculate-delivery">Oblicz wysyłkę</button>
-                            <button type="button" class="save-quote">Zapisz wycenę</button>
+                        </section>
+                        
+                        <div class="quote-summary">
+                            <div class="order-summary">
+                                <span class="input-txt-bold" style="padding-right: 110px;">Koszt surowego:</span>
+                                <span class="order-brutto">0.00 PLN</span>
+                                <span class="order-netto">0.00 PLN</span>
+                            </div>
+                            <div class="finishing-summary">
+                                <span class="input-txt-bold" style="padding-right: 110px;">Koszty wykończenia:</span>
+                                <span class="finishing-brutto" id="finishing-brutto">0.00 PLN</span>
+                                <span class="finishing-netto" id="finishing-netto">0.00 PLN</span>
+                            </div>
+                            <div class="delivery-summary">
+                                <span class="input-txt-bold">Koszt wysyłki wszystkich produktów:</span>
+                                <span class="courier" id="courier-name"></span>
+                                <span class="delivery-brutto" id="delivery-brutto">0.00 PLN</span>
+                                <span class="delivery-netto" id="delivery-netto">0.00 PLN</span>
+                            </div>
+                            <div class="final-summary">
+                                <span class="input-txt-bold" style="padding-right: 110px;">Suma:</span>
+                                <span class="final-brutto">0.00 PLN</span>
+                                <span class="final-netto">0.00 PLN</span>
+                            </div>
+                            <div class="action-buttons">
+                                <div class="remove-product-container" style="display:none;">
+                                    <button type="button" class="remove-product" title="Usuń produkt">Usuń produkt</button>
+                                </div>
+                                <button type="button" class="calculate-delivery">Oblicz wysyłkę</button>
+                                <button type="button" class="save-quote">Zapisz wycenę</button>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <section class="products-main">
-                    <h2 class="title-with-underline-h2">Produkty w wycenie</h2>
-                    <!-- Lista produktów - dynamicznie wypełniana -->
-                    <div class="products">
-                        <!-- Zmieniono kontener na zakładki produktów -->
-                        <div class="product-tabs">
-                            <div class="product-number">
-                                <button class="number">1</button>
-                            </div>
-                            <div class="add-product-container">
-                                <button type="button" class="add-product" title="Dodaj kolejny produkt">+</button>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-            </div> <!-- /calculatorrr -->
+            </div> <!-- /calculator -->
             <!-- Sekcja: Twoje ostatnie wyceny -->
             <section class="last-quotes-main">
                 <h2 class="title-with-underline-h2">Twoje ostatnie wyceny</h2>

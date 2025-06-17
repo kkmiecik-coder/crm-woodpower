@@ -152,7 +152,7 @@ let pricesFromDatabase = [];
 let priceIndex = {};
 
 let quoteFormsContainer = null;
-let productTabs = null;
+let productSummaryContainer = null;
 let activeQuoteForm = null;
 
 let edge3dRoot = null;
@@ -279,6 +279,7 @@ function updateGlobalSummary() {
     finalSummaryEls.netto.textContent = (totalNetto > 0) ? formatPLN(totalNetto) : "0.00 PLN";
 
     updateCalculateDeliveryButtonState();
+    generateProductsSummary();
     dbg("← updateGlobalSummary end");
 }
 
@@ -451,6 +452,7 @@ function updatePrices() {
 
     calculateFinishingCost(activeQuoteForm);
     updateGlobalSummary();
+    generateProductsSummary();
     dbg("← updatePrices end");
 }
 
@@ -628,6 +630,8 @@ function attachFinishingUIListeners(form) {
             currentType = btn.dataset.finishingType;
             updateVisibility();
             calculateFinishingCost(form);
+            // ✅ DODAJ: Odśwież panel produktów
+            generateProductsSummary();
         });
     });
 
@@ -638,6 +642,8 @@ function attachFinishingUIListeners(form) {
             currentVariant = btn.dataset.finishingVariant;
             updateVisibility();
             calculateFinishingCost(form);
+            // ✅ DODAJ: Odśwież panel produktów
+            generateProductsSummary();
         });
     });
 
@@ -645,6 +651,8 @@ function attachFinishingUIListeners(form) {
         btn.addEventListener('click', () => {
             resetButtons(glossButtons);
             btn.classList.add('active');
+            // ✅ DODAJ: Odśwież panel produktów
+            generateProductsSummary();
         });
     });
 
@@ -652,6 +660,8 @@ function attachFinishingUIListeners(form) {
         btn.addEventListener('click', () => {
             resetButtons(colorButtons);
             btn.classList.add('active');
+            // ✅ DODAJ: Odśwież panel produktów
+            generateProductsSummary();
         });
     });
 
@@ -1321,7 +1331,7 @@ function init() {
         });
     }
 
-    productTabs = document.querySelector('.product-tabs');
+    productSummaryContainer = document.getElementById('products-summary-container');
     quoteFormsContainer = document.querySelector('.quote-forms');
     if (!quoteFormsContainer) {
         quoteFormsContainer = document.createElement('div');
@@ -1338,139 +1348,7 @@ function init() {
             form.style.display = (i === index) ? 'flex' : 'none';
         });
     }
-
-    function getTabIndex(tab) {
-        const tabs = Array.from(productTabs.querySelectorAll('.product-number'));
-        const index = tabs.indexOf(tab);
-        if (index === -1) {
-            console.error("getTabIndex: Tab element not found in product tabs.");
-        }
-        return index;
-    }
-
-    function setActiveTab(clickedTab) {
-        productTabs.querySelectorAll('.product-number').forEach(tab => tab.classList.remove('active'));
-        clickedTab.classList.add('active');
-        const index = getTabIndex(clickedTab);
-        updateActiveQuoteForm(index);
-        activeQuoteForm = quoteFormsContainer.querySelectorAll('.quote-form')[index];
-        dbg("setActiveTab: activeQuoteForm set to index", index);
-        attachFormListeners(activeQuoteForm);
-        updatePrices();
-    }
-
-    const firstTab = productTabs.querySelector('.product-number');
-    if (firstTab) setActiveTab(firstTab);
-
-    productTabs.addEventListener('click', e => {
-        if (e.target.classList.contains('number')) {
-            setActiveTab(e.target.parentElement);
-        }
-    });
-
-    const addProductBtn = document.querySelector('.add-product');
-    addProductBtn.addEventListener('click', () => {
-        console.log("[addProduct] Dodaję nowy produkt...");
-        
-        // Pobierz aktualną grupę cenową z pierwszego formularza
-        const firstForm = quoteFormsContainer.querySelector('.quote-form');
-        const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
-        
-        console.log(`[addProduct] Aktualna grupa cenowa do skopiowania: ${currentClientType}`);
-
-        const productNumbers = productTabs.querySelectorAll('.product-number');
-        const newIndex = productNumbers.length + 1;
-
-        const newTab = document.createElement('div');
-        newTab.classList.add('product-number');
-        newTab.innerHTML = `<button class="number">${newIndex}</button>`;
-        const addContainer = productTabs.querySelector('.add-product-container');
-        productTabs.insertBefore(newTab, addContainer);
-        updateRemoveButtonVisibility();
-
-        const templateForm = quoteFormsContainer.querySelector('.quote-form');
-        const newQuoteForm = templateForm.cloneNode(true);
-
-        // POPRAWIONA LOGIKA: Wypełnij opcje dla WSZYSTKICH selectów
-        populateMultiplierSelects();
-        
-        // POTEM ustaw wartość w nowym selecte
-        const newClientTypeSelect = newQuoteForm.querySelector('select[data-field="clientType"]');
-        if (currentClientType && newClientTypeSelect) {
-            // Dodaj opcje do nowego selecta jeśli ich nie ma
-            if (newClientTypeSelect.options.length === 0) {
-                // Ręcznie wypełnij opcje dla nowego selecta
-                const placeholderOption = document.createElement('option');
-                placeholderOption.value = '';
-                placeholderOption.disabled = true;
-                placeholderOption.hidden = true;
-                placeholderOption.textContent = 'Wybierz grupę';
-                newClientTypeSelect.appendChild(placeholderOption);
-                
-                Object.entries(multiplierMapping).forEach(([label, value]) => {
-                    const option = document.createElement('option');
-                    option.value = label;
-                    option.textContent = `${label} (${value})`;
-                    newClientTypeSelect.appendChild(option);
-                });
-            }
-            
-            newClientTypeSelect.value = currentClientType;
-            console.log(`[addProduct] Skopiowano grupę cenową: ${currentClientType}`);
-        }
-
-        // Resetuj inne pola
-        // Resetuj inne pola
-        newQuoteForm.querySelectorAll('input').forEach(input => {
-            if (input.type === 'radio') {
-                input.checked = false;
-                input.setAttribute('name', `variantOption-${newIndex - 1}`);
-            } else {
-                input.value = '';
-            }
-            input.removeAttribute('id');
-        });
-
-        newQuoteForm.querySelectorAll('.variants *').forEach(element => {
-            element.style.color = '';
-            element.style.backgroundColor = '';
-        });
-
-        // Resetuj listenery
-        newQuoteForm.dataset.listenersAttached = "";
-
-        // Przygotuj formularz
-        prepareNewProductForm(newQuoteForm, newIndex - 1);
-        attachFormListeners(newQuoteForm);
-
-        // Dodaj do kontenera
-        quoteFormsContainer.appendChild(newQuoteForm);
-
-        // KRYTYCZNE: Ustaw grupę cenową PO dodaniu do DOM-u
-        if (currentClientType) {
-            // Znajdź select w DOM-ie (już dodanym)
-            const selectInDOM = newQuoteForm.querySelector('select[data-field="clientType"]');
-            if (selectInDOM) {
-                selectInDOM.value = currentClientType;
-                console.log(`[addProduct] Ustawiono grupę cenową w DOM: ${currentClientType}`);
-                
-                // Sprawdź czy się ustawiło
-                if (selectInDOM.value === currentClientType) {
-                    console.log(`[addProduct] ✅ Grupa cenowa została poprawnie ustawiona: ${selectInDOM.value}`);
-                } else {
-                    console.log(`[addProduct] ❌ Grupa cenowa NIE została ustawiona. Aktualna wartość: ${selectInDOM.value}`);
-                }
-            }
-        }
-
-        setActiveTab(newTab);
-
-        // Synchronizuj wszystkie formularze
-        if (currentClientType) {
-            console.log(`[addProduct] Synchronizuję grupę cenową ${currentClientType} na wszystkich produktach`);
-            syncClientTypeAcrossProducts(currentClientType, newQuoteForm);
-        }
-    });
+    
     // NOWA FUNKCJA: Obsługa synchronizacji grup cenowych
     function syncClientTypeAcrossProducts(selectedType, sourceForm) {
         console.log(`[syncClientType] Synchronizuję grupę ${selectedType} na wszystkich produktach`);
@@ -1513,45 +1391,26 @@ function init() {
                 return;
             }
 
+            // Usuń aktywny formularz
             activeQuoteForm.remove();
 
-            const tabs = Array.from(productTabs.querySelectorAll('.product-number'));
-            if (tabs[index]) {
-                tabs[index].remove();
-                console.log("Usunięto zakładkę nr", index + 1);
+            // Pobierz pozostałe formularze po usunięciu
+            const remainingForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+            
+            // Wybierz nowy aktywny formularz
+            let newIndex = index > 0 ? index - 1 : 0;
+            if (remainingForms.length > 0 && remainingForms[newIndex]) {
+                activateProductCard(newIndex);
+            } else if (remainingForms.length > 0) {
+                // Fallback - aktywuj pierwszy dostępny
+                activateProductCard(0);
             }
-
-            productTabs.querySelectorAll('.product-number .number').forEach((btn, idx) => {
-                btn.textContent = idx + 1;
-            });
-
-            updateRemoveButtonVisibility();
-
-            const remainingTabs = Array.from(productTabs.querySelectorAll('.product-number'));
-            let newIndex;
-            if (index > 0) newIndex = index - 1;
-            else newIndex = 0;
-
-            if (remainingTabs[newIndex]) {
-                console.log("Ustawiam aktywny tab nr", newIndex + 1);
-                setActiveTab(remainingTabs[newIndex]);
-            } else {
-                console.log("Brak zakładek do ustawienia jako aktywna.");
-            }
+            
+            // Odśwież panel produktów
+            generateProductsSummary();
         }
     });
 
-    function updateRemoveButtonVisibility() {
-        const productNumbers = productTabs.querySelectorAll('.product-number');
-        const removeContainer = document.querySelector('.remove-product-container');
-        if (!removeContainer) return;
-        if (productNumbers.length > 1) {
-            removeContainer.style.display = 'flex';
-        } else {
-            removeContainer.style.display = 'none';
-        }
-    }
-    updateRemoveButtonVisibility();
     updateActiveQuoteForm(0);
 
     const modalCloseBtn = document.getElementById('modalCloseBtn');
@@ -1613,7 +1472,11 @@ function init() {
         isPartner: window.isPartner,
         userMultiplier: window.userMultiplier
     });
-
+    generateProductsSummary();
+    // Aktywuj pierwszy produkt
+    if (quoteFormsContainer.querySelector('.quote-form')) {
+        activateProductCard(0);
+    }
 }
 
 function initCalculatorDownloadModal() {
@@ -2611,3 +2474,258 @@ document.addEventListener('DOMContentLoaded', () => {
         deliveryModalInstance = new DeliveryModal();
     }
 });
+
+/**
+ * Sprawdza czy produkt jest kompletny
+ */
+function checkProductCompleteness(form) {
+    if (!form) return false;
+    
+    const length = form.querySelector('[data-field="length"]')?.value;
+    const width = form.querySelector('[data-field="width"]')?.value;
+    const thickness = form.querySelector('[data-field="thickness"]')?.value;
+    const quantity = form.querySelector('[data-field="quantity"]')?.value;
+    const variant = form.querySelector('input[type="radio"]:checked');
+    
+    return !!(length && width && thickness && quantity && variant);
+}
+
+/**
+ * Pobiera opis wariantu z formularza
+ */
+function getVariantDescription(form) {
+    if (!form) return null;
+    
+    const variant = form.querySelector('input[type="radio"]:checked');
+    if (!variant) return null;
+    
+    // Znajdź label dla tego radio button
+    const label = form.querySelector(`label[for="${variant.id}"]`);
+    if (label) {
+        // Usuń tag "BRAK" jeśli istnieje i pobierz czysty tekst
+        return label.textContent.replace(/BRAK/g, '').trim();
+    }
+    
+    // Fallback - tłumacz kod na czytelną nazwę
+    const variantNames = {
+        'dab-lity-ab': 'Dąb lity A/B',
+        'dab-lity-bb': 'Dąb lity B/B',
+        'dab-micro-ab': 'Dąb mikrowczep A/B',
+        'dab-micro-bb': 'Dąb mikrowczep B/B',
+        'jes-lity-ab': 'Jesion lity A/B',
+        'jes-micro-ab': 'Jesion mikrowczep A/B',
+        'buk-lity-ab': 'Buk lity A/B',
+        'buk-micro-ab': 'Buk mikrowczep A/B'
+    };
+    
+    return variantNames[variant.value] || variant.value;
+}
+
+/**
+ * Pobiera opis wykończenia z formularza
+ */
+function getFinishingDescription(form) {
+    if (!form) return null;
+    
+    const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
+    const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
+    
+    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Brak') {
+        return null;
+    }
+    
+    let description = finishingTypeBtn.dataset.finishingType;
+    
+    if (finishingVariantBtn) {
+        description += ` ${finishingVariantBtn.dataset.finishingVariant}`;
+        
+        // Dodaj kolor jeśli jest wybrany i wariant jest barwny
+        if (finishingVariantBtn.dataset.finishingVariant === 'Barwne') {
+            const colorBtn = form.querySelector('.color-btn.active');
+            if (colorBtn) {
+                const color = colorBtn.dataset.finishingColor;
+                if (color) {
+                    description += ` (${color})`;
+                }
+            }
+        }
+    }
+    
+    return description;
+}
+
+/**
+ * Generuje opis produktu
+ */
+function generateProductDescription(form, index) {
+    if (!form) return `Produkt ${index + 1}: Błąd formularza`;
+    
+    const isComplete = checkProductCompleteness(form);
+    
+    if (!isComplete) {
+        return `Produkt ${index + 1}: Dokończ wycenę produktu`;
+    }
+    
+    const length = form.querySelector('[data-field="length"]')?.value;
+    const width = form.querySelector('[data-field="width"]')?.value;
+    const thickness = form.querySelector('[data-field="thickness"]')?.value;
+    const quantity = form.querySelector('[data-field="quantity"]')?.value;
+    const variant = getVariantDescription(form);
+    const finishing = getFinishingDescription(form);
+    
+    let description = `Produkt ${index + 1}: ${variant} | ${length}×${width}×${thickness} cm | ${quantity} szt.`;
+    
+    if (finishing) {
+        description += ` | ${finishing}`;
+    }
+    
+    return description;
+}
+
+/**
+ * Generuje panel produktów
+ */
+function generateProductsSummary() {
+    if (!productSummaryContainer || !quoteFormsContainer) return;
+    
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    
+    // Czyść kontener
+    productSummaryContainer.innerHTML = '';
+    
+    // Generuj karty produktów
+    forms.forEach((form, index) => {
+        const isComplete = checkProductCompleteness(form);
+        const description = generateProductDescription(form, index);
+        const isActive = form === activeQuoteForm;
+        
+        const card = document.createElement('div');
+        card.className = `product-card ${isActive ? 'active' : ''} ${!isComplete ? 'error' : ''}`;
+        card.dataset.productIndex = index;
+        
+        const mainInfo = isComplete ? description.split(': ')[1] : 'Dokończ wycenę produktu';
+        
+        card.innerHTML = `
+            <div class="product-card-content">
+                <div class="product-card-number">${index + 1}</div>
+                <div class="product-card-details">
+                    <div class="product-card-main-info">${mainInfo}</div>
+                </div>
+            </div>
+        `;
+        
+        // Dodaj event listener
+        card.addEventListener('click', () => {
+            activateProductCard(index);
+        });
+        
+        productSummaryContainer.appendChild(card);
+    });
+    
+    // Dodaj przycisk dodawania produktu tylko jeśli jest więcej niż 1 produkt
+    if (forms.length > 0) {
+        const addCard = document.createElement('div');
+        addCard.className = 'add-product-card';
+        addCard.innerHTML = `
+            <span class="add-product-card-icon">+</span>
+            Dodaj kolejny produkt
+        `;
+        
+        addCard.addEventListener('click', addNewProduct);
+        productSummaryContainer.appendChild(addCard);
+    }
+}
+
+/**
+ * Aktywuje kartę produktu
+ */
+function activateProductCard(index) {
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    
+    // Ukryj wszystkie formularze
+    forms.forEach((form, i) => {
+        form.style.display = (i === index) ? 'flex' : 'none';
+    });
+    
+    // Ustaw aktywny formularz
+    activeQuoteForm = forms[index];
+    
+    // Odśwież event listeners
+    if (activeQuoteForm) {
+        attachFormListeners(activeQuoteForm);
+        updatePrices();
+    }
+    
+    // Odśwież panel produktów
+    generateProductsSummary();
+    
+    dbg(`Aktywowano produkt ${index + 1}`);
+}
+
+/**
+ * Dodaje nowy produkt
+ */
+function addNewProduct() {
+    console.log("[addNewProduct] Dodaję nowy produkt...");
+    
+    // Pobierz aktualną grupę cenową z pierwszego formularza
+    const firstForm = quoteFormsContainer.querySelector('.quote-form');
+    const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
+    
+    console.log(`[addNewProduct] Aktualna grupa cenowa do skopiowania: ${currentClientType}`);
+
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    const newIndex = forms.length;
+
+    // Skopiuj pierwszy formularz
+    const firstQuoteForm = forms[0];
+    if (!firstQuoteForm) {
+        console.error("[addNewProduct] Nie znaleziono pierwszego formularza!");
+        return;
+    }
+
+    const newForm = firstQuoteForm.cloneNode(true);
+    
+    // Wyczyść wartości w nowym formularzu
+    newForm.querySelectorAll('input, select').forEach(input => {
+        if (input.type === 'radio' || input.type === 'checkbox') {
+            input.checked = false;
+        } else if (input.tagName === 'SELECT') {
+            if (input.dataset.field === 'clientType' && currentClientType) {
+                input.value = currentClientType;
+            } else {
+                input.selectedIndex = 0;
+            }
+        } else {
+            input.value = '';
+        }
+    });
+
+    // Wyczyść dataset
+    delete newForm.dataset.orderBrutto;
+    delete newForm.dataset.orderNetto;
+    delete newForm.dataset.finishingBrutto;
+    delete newForm.dataset.finishingNetto;
+
+    // Ukryj nowy formularz
+    newForm.style.display = 'none';
+    
+    quoteFormsContainer.appendChild(newForm);
+
+    // ✅ DODAJ: Przygotuj nowy formularz
+    prepareNewProductForm(newForm, newIndex);
+    
+    // ✅ DODAJ: Podepnij event listenery
+    attachFormListeners(newForm);
+    
+    // Aktywuj nowy formularz
+    activateProductCard(newIndex);
+    
+    // DODAJ: Wymuszaj odświeżenie
+    setTimeout(() => {
+        updatePrices();
+        generateProductsSummary();
+    }, 100);
+    
+    console.log(`[addNewProduct] Dodano produkt ${newIndex + 1}`);
+}
