@@ -303,26 +303,9 @@
             </section>
         </div>
     </div>
+    <!-- Modal z listą kurierów -->
+    {% include 'delivery_modal.html' %}
 
-    <!-- Dodajemy modalbox na końcu body -->
-    <div id="deliveryModal" class="modal-box" style="display:none;">
-        <!-- Nowy przycisk zamknięcia modalboxa -->
-        <button type="button" id="modalCloseBtn" class="modal-close-btn">X</button>
-        <h2 class="title-with-underline-h2">Wybierz sposób dostawy</h2>
-        <!-- NEW: Nagłówki opcji wysyłki -->
-        <div class="couriers-options">
-            <div class="modal-delivery-headers">
-                <div class="modal-options-courier">Kurier</div>
-                <div id="delivery-header-adjusted" class="modal-options-price">Cena + 0%</div>
-                <div class="modal-options-price">Cena</div>
-            </div>
-            <div class="modal-delivery-list">
-                <!-- Lista opcji dostawy generowana dynamicznie -->
-            </div>
-        </div>
-        <p id="packingInfo" class="cost-percent-info"></p>
-        <button id="modalConfirmBtn" type="button" class="delivery-option-accept">Wybierz</button>
-    </div>
     <!-- Modal z 3d -->
     <div class="modal-3d-overlay" style="display: none;">
         <div class="modal-3d-box">

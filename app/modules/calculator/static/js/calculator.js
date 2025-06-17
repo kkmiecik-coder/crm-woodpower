@@ -106,7 +106,12 @@ async function calculateDelivery() {
             if (quotes.length === 0) {
                 showDeliveryErrorModal("Brak dostępnych metod dostawy.");
             } else {
-                showDeliveryModal(quotes);
+                // ✅ DODAJ packingInfo:
+                const packingInfo = {
+                    multiplier: shippingPackingMultiplier,
+                    message: `Do cen wysyłki została doliczona kwota ${Math.round((shippingPackingMultiplier - 1) * 100)}% na pakowanie.`
+                };
+                showDeliveryModal(quotes, packingInfo);
             }
         } else {
             console.error("Błąd w żądaniu wyceny wysyłki:", response.status);
@@ -1003,156 +1008,22 @@ function computeAggregatedData() {
     };
 }
 
-/**
- * Wywoływana przy kliknięciu "Oblicz wysyłkę"
- */
-async function calculateDelivery() {
-    dbg("Przycisk 'Oblicz wysyłkę' kliknięty");
-    const overlay = document.getElementById('loadingOverlay');
-    if (overlay) {
-        overlay.innerHTML = '<div class="spinner"></div><div class="loading-text">Wyceniam wysyłkę, proszę czekać.</div>';
-        overlay.style.display = 'flex';
-    }
-
-    const shippingParams = computeAggregatedData();
-    if (!shippingParams) {
-        console.error("Brak danych wysyłki");
-        if (overlay) overlay.style.display = 'none';
+function updateDeliverySelection(selection) {
+    console.log('Wybrano dostawę:', selection);
+    
+    // Sprawdź czy elementy istnieją
+    if (!deliverySummaryEls.courier || !deliverySummaryEls.brutto || !deliverySummaryEls.netto) {
+        console.error('Brakuje elementów deliverySummaryEls');
         return;
     }
-
-    try {
-        const response = await fetch('/calculator/shipping_quote', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(shippingParams)
-        });
-        if (response.ok) {
-            const quotesData = await response.json();
-            const quotesList = Array.isArray(quotesData) ? quotesData : [quotesData];
-            const quotes = quotesList.map(option => {
-                const rawGross = option.grossPrice;
-                const rawNet = option.netPrice;
-                return {
-                    carrierName: option.carrierName,
-                    rawGrossPrice: rawGross,
-                    rawNetPrice: rawNet,
-                    grossPrice: rawGross * shippingPackingMultiplier,
-                    netPrice: rawNet * shippingPackingMultiplier,
-                    carrierLogoLink: option.carrierLogoLink || ""
-                };
-            });
-            dbg("Otrzymane wyceny wysyłki:", quotes);
-            if (quotes.length === 0) {
-                showDeliveryErrorModal("Brak dostępnych metod dostawy.");
-                return;
-            }
-            showDeliveryModal(quotes);
-        } else {
-            console.error("Błąd w żądaniu wyceny wysyłki:", response.status);
-            showDeliveryErrorModal("Błąd serwera przy wycenie wysyłki.");
-        }
-    } catch (error) {
-        console.error("Wyjątek przy wycenie wysyłki:", error);
-        showDeliveryErrorModal("Błąd sieci przy wycenie wysyłki.");
-    }
-}
-
-/**
- * Wyświetla modal z opcjami dostawy
- */
-function showDeliveryModal(quotes) {
-    quotes.sort((a, b) => a.grossPrice - b.grossPrice);
-    const modal = document.getElementById('deliveryModal');
-    if (!modal) return console.error("Modalbox 'deliveryModal' nie został znaleziony.");
-
-    const deliveryList = modal.querySelector('.modal-delivery-list');
-    if (!deliveryList) return console.error("Lista opcji dostawy 'modal-delivery-list' nie została znaleziona.");
-    deliveryList.innerHTML = '';
-
-    quotes.forEach((quote, index) => {
-        if (!quote.grossPrice || !quote.netPrice || !quote.carrierName) {
-            console.warn(`Pominięto opcję dostawy z powodu brakujących danych:`, quote);
-            return;
-        }
-        const listItem = document.createElement('div');
-        listItem.className = 'delivery-option';
-        listItem.innerHTML = `
-            <input type="radio" name="deliveryOption" value="${quote.carrierName}" data-gross="${quote.grossPrice}" data-net="${quote.netPrice}">
-            <img src="${quote.carrierLogoLink}" class="delivery-logo" alt="${quote.carrierName} logo">
-            <div class="delivery-option-text">
-                <div class="prices-adjusted">
-                    <div class="option-title-delivery">${quote.carrierName}</div>
-                    <div class="delivery-prices">
-                        <div class="unit-brutto-delivery">${quote.grossPrice.toFixed(2)} PLN</div>
-                        <div class="unit-netto-delivery">${quote.netPrice.toFixed(2)} PLN</div>
-                    </div>
-                </div>
-                <div class="delivery-prices-raw">
-                    <div class="unit-brutto-delivery">${quote.rawGrossPrice.toFixed(2)} PLN</div>
-                    <div class="unit-netto-delivery">${quote.rawNetPrice.toFixed(2)} PLN</div>
-                </div>
-            </div>
-        `;
-        listItem.addEventListener('click', () => {
-            const radio = listItem.querySelector('input[type="radio"]');
-            if (radio && !radio.checked) {
-                radio.checked = true;
-                radio.dispatchEvent(new Event('change'));
-            }
-        });
-        deliveryList.appendChild(listItem);
-    });
-
-    if (deliveryList.innerHTML === '') {
-        deliveryList.innerHTML = '<p>Brak dostępnych opcji dostawy.</p>';
-    }
-
-    const packingInfoEl = modal.querySelector('#packingInfo');
-    if (packingInfoEl) {
-        const percent = Math.round((shippingPackingMultiplier - 1) * 100);
-        packingInfoEl.textContent = `Do cen wysyłki została doliczona kwota ${percent}% na pakowanie.`;
-        const headerAdjusted = modal.querySelector('#delivery-header-adjusted');
-        if (headerAdjusted) {
-            headerAdjusted.textContent = `Cena + ${percent}%`;
-        }
-    }
-
-    modal.style.display = 'block';
-    const overlay = document.getElementById('loadingOverlay');
-    if (overlay) overlay.innerHTML = '';
-}
-
-/**
- * Wyświetla modal z komunikatem błędu
- */
-function showDeliveryErrorModal(errorMessage) {
-    const modal = document.getElementById('deliveryModal');
-    if (!modal) return console.error("Modalbox 'deliveryModal' nie został znaleziony.");
-    const deliveryList = modal.querySelector('.modal-delivery-list');
-    if (!deliveryList) return console.error("Lista opcji dostawy 'modal-delivery-list' nie została znaleziona.");
-
-    deliveryList.innerHTML = `<p class="modal-error-msg">${errorMessage}</p>`;
-
-    const packingInfoEl = modal.querySelector('#packingInfo');
-    if (packingInfoEl) packingInfoEl.textContent = "";
-
-    const headerAdjusted = modal.querySelector('#delivery-header-adjusted');
-    if (headerAdjusted) headerAdjusted.textContent = "";
-
-    const modalConfirmBtn = document.getElementById('modalConfirmBtn');
-    if (modalConfirmBtn) {
-        modalConfirmBtn.textContent = "Zamknij";
-        modalConfirmBtn.onclick = function () {
-            modal.style.display = 'none';
-            const overlay = document.getElementById('loadingOverlay');
-            if (overlay) overlay.style.display = 'none';
-            modalConfirmBtn.textContent = "Wybierz";
-        };
-    }
-    modal.style.display = 'block';
-    const overlay = document.getElementById('loadingOverlay');
-    if (overlay) overlay.innerHTML = '';
+    
+    // Aktualizuj elementy podsumowania
+    deliverySummaryEls.courier.textContent = selection.carrierName;
+    deliverySummaryEls.brutto.textContent = formatPLN(selection.grossPrice);
+    deliverySummaryEls.netto.textContent = formatPLN(selection.netPrice);
+    
+    // Przelicz całe podsumowanie
+    updateGlobalSummary();
 }
 
 /**
@@ -1166,38 +1037,6 @@ function attachCalculateDeliveryListener() {
     }
     calculateDeliveryBtn.addEventListener('click', calculateDelivery);
     dbg("Podpięty event listener do .calculate-delivery");
-}
-
-/**
- * Listener dla potwierdzenia wyboru dostawy
- */
-function attachDeliveryModalConfirm() {
-    const modalConfirmBtn = document.getElementById('modalConfirmBtn');
-    if (!modalConfirmBtn) return;
-    modalConfirmBtn.addEventListener('click', function () {
-        const modal = document.getElementById('deliveryModal');
-        if (modal.querySelector('.modal-error-msg')) {
-            modal.style.display = 'none';
-            const overlay = document.getElementById('loadingOverlay');
-            if (overlay) overlay.style.display = 'none';
-            return;
-        }
-        const selectedOption = modal.querySelector('input[name="deliveryOption"]:checked');
-        if (!selectedOption) {
-            alert("Proszę wybrać metodę dostawy.");
-            return;
-        }
-        const courier = selectedOption.value;
-        const gross = selectedOption.dataset.gross;
-        const net = selectedOption.dataset.net;
-        document.getElementById('delivery-brutto').textContent = `${parseFloat(gross).toFixed(2)} PLN`;
-        document.getElementById('delivery-netto').textContent = `${parseFloat(net).toFixed(2)} PLN`;
-        document.getElementById('courier-name').textContent = courier;
-        updateGlobalSummary();
-        modal.style.display = 'none';
-        const overlay = document.getElementById('loadingOverlay');
-        if (overlay) overlay.style.display = 'none';
-    });
 }
 
 /**
@@ -1736,7 +1575,6 @@ function init() {
 
     initEdge3D();
     attachCalculateDeliveryListener();
-    attachDeliveryModalConfirm();
     loadLatestQuotes();
     initCalculatorDownloadModal();
     attachDownloadModalClose();
@@ -2185,3 +2023,591 @@ function attachGoToQuoteListeners() {
         });
     }
 }
+
+/**
+ * Modernizowany modal opcji dostawy
+ * Obsługuje paginację, własnych kurierów i lepsze UX
+ */
+
+class DeliveryModal {
+    constructor() {
+        this.modal = null;
+        this.quotes = [];
+        this.currentPage = 1;
+        this.itemsPerPage = 8;
+        this.selectedOption = null;
+        this.customCarrier = null;
+        this.isCustomMode = false;
+        this.VAT_RATE = 0.23;
+        this.MARGIN_RATE = 0.30;
+        
+        this.init();
+    }
+
+    init() {
+        this.modal = document.getElementById('deliveryModal');
+        if (!this.modal) {
+            console.error('Delivery modal not found');
+            return;
+        }
+
+        this.bindEvents();
+    }
+
+    bindEvents() {
+        // Zamknięcie modala
+        const closeBtn = document.getElementById('deliveryModalClose');
+        const cancelBtn = document.getElementById('deliveryModalCancel');
+        
+        closeBtn?.addEventListener('click', () => this.hide());
+        cancelBtn?.addEventListener('click', () => this.hide());
+        
+        // Zamknięcie przez kliknięcie w tło
+        this.modal.addEventListener('click', (e) => {
+            if (e.target === this.modal) {
+                this.hide();
+            }
+        });
+
+        // Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.modal.classList.contains('active')) {
+                this.hide();
+            }
+        });
+
+        // Przycisk dodania własnego kuriera
+        const addCustomBtn = document.getElementById('addCustomCarrier');
+        addCustomBtn?.addEventListener('click', () => this.showCustomForm());
+
+        // Powrót do listy
+        const backBtn = document.getElementById('backToDeliveryList');
+        backBtn?.addEventListener('click', () => this.showMainView());
+
+        // Paginacja
+        const prevBtn = document.getElementById('deliveryPrevPage');
+        const nextBtn = document.getElementById('deliveryNextPage');
+        
+        prevBtn?.addEventListener('click', () => this.goToPreviousPage());
+        nextBtn?.addEventListener('click', () => this.goToNextPage());
+
+        // Formularz własnego kuriera
+        this.bindCustomFormEvents();
+
+        // Potwierdzenie wyboru
+        const confirmBtn = document.getElementById('deliveryModalConfirm');
+        confirmBtn?.addEventListener('click', () => this.confirmSelection());
+    }
+
+    bindCustomFormEvents() {
+        const nettoInput = document.getElementById('customCarrierNetto');
+        const bruttoInput = document.getElementById('customCarrierBrutto');
+        const nameInput = document.getElementById('customCarrierName');
+
+        // Auto-kalkulacja netto <-> brutto
+        nettoInput?.addEventListener('input', (e) => {
+            const netto = parseFloat(e.target.value) || 0;
+            const brutto = netto * (1 + this.VAT_RATE);
+            bruttoInput.value = brutto.toFixed(2);
+            this.updateCalculator(brutto);
+            this.validateCustomForm();
+        });
+
+        bruttoInput?.addEventListener('input', (e) => {
+            const brutto = parseFloat(e.target.value) || 0;
+            const netto = brutto / (1 + this.VAT_RATE);
+            nettoInput.value = netto.toFixed(2);
+            this.updateCalculator(brutto);
+            this.validateCustomForm();
+        });
+
+        nameInput?.addEventListener('input', () => {
+            this.validateCustomForm();
+        });
+    }
+
+    show(quotes, packingInfo = null) {
+        this.quotes = quotes || [];
+        this.currentPage = 1;
+        this.selectedOption = null;
+        this.customCarrier = null;
+
+        // Sortuj opcje po cenie
+        this.quotes.sort((a, b) => (a.grossPrice || 0) - (b.grossPrice || 0));
+
+        this.showMainView();
+        this.renderOptions();
+        this.updatePackingInfo(packingInfo);
+        this.updateConfirmButton();
+
+        // Pokaż modal z animacją
+        this.modal.style.display = 'flex';
+        requestAnimationFrame(() => {
+            this.modal.classList.add('active');
+        });
+    }
+
+    hide() {
+        this.modal.classList.remove('active');
+        setTimeout(() => {
+            this.modal.style.display = 'none';
+        }, 300);
+    }
+
+    showError(message) {
+        this.hideAllStates();
+        
+        const errorEl = document.getElementById('deliveryError');
+        const errorMsgEl = document.getElementById('deliveryErrorMessage');
+        
+        if (errorEl && errorMsgEl) {
+            errorMsgEl.textContent = message;
+            errorEl.classList.remove('delivery-modal-hidden');
+        }
+
+        this.updateConfirmButton();
+    }
+
+    showMainView() {
+        this.isCustomMode = false;
+        
+        const mainView = document.getElementById('deliveryMainView');
+        const customView = document.getElementById('deliveryCustomView');
+        
+        if (mainView) {
+            mainView.classList.remove('delivery-modal-hidden');
+        }
+        
+        if (customView) {
+            customView.classList.add('delivery-modal-hidden');
+            customView.style.display = 'none';
+        }
+        
+        // Aktualizuj tytuł
+        const title = document.querySelector('.delivery-modal-title');
+        if (title) {
+            title.textContent = 'Wybierz sposób dostawy';
+        }
+
+        this.updateConfirmButton();
+    }
+
+    showCustomForm() {
+        this.isCustomMode = true;
+        
+        // ✅ POPRAWKA: Ukryj główny widok i pokaż formularz
+        const mainView = document.getElementById('deliveryMainView');
+        const customView = document.getElementById('deliveryCustomView');
+        
+        if (mainView) {
+            mainView.classList.add('delivery-modal-hidden');
+        }
+        
+        if (customView) {
+            customView.classList.remove('delivery-modal-hidden');
+            customView.style.display = 'block';  // ✅ DODAJ to!
+            // LUB dodaj klasę active:
+            // customView.classList.add('active');
+        }
+        
+        // Aktualizuj tytuł
+        const title = document.querySelector('.delivery-modal-title');
+        if (title) {
+            title.textContent = 'Dodaj własnego kuriera';
+        }
+
+        // Wyczyść formularz
+        const nameInput = document.getElementById('customCarrierName');
+        const nettoInput = document.getElementById('customCarrierNetto');
+        const bruttoInput = document.getElementById('customCarrierBrutto');
+        
+        if (nameInput) nameInput.value = '';
+        if (nettoInput) nettoInput.value = '';
+        if (bruttoInput) bruttoInput.value = '';
+        
+        this.updateCalculator(0);
+        
+        this.selectedOption = null;
+        this.customCarrier = null;
+        this.updateConfirmButton();
+    }
+
+    renderOptions() {
+        if (this.quotes.length === 0) {
+            this.showEmptyState();
+            return;
+        }
+
+        this.hideAllStates();
+        
+        const listEl = document.getElementById('deliveryOptionsList');
+        if (!listEl) return;
+
+        // Oblicz paginację
+        const totalPages = Math.ceil(this.quotes.length / this.itemsPerPage);
+        const startIndex = (this.currentPage - 1) * this.itemsPerPage;
+        const endIndex = startIndex + this.itemsPerPage;
+        const currentQuotes = this.quotes.slice(startIndex, endIndex);
+
+        // Wyczyść listę
+        listEl.innerHTML = '';
+
+        // Renderuj opcje
+        currentQuotes.forEach((quote, index) => {
+            const optionEl = this.createOptionElement(quote, startIndex + index);
+            listEl.appendChild(optionEl);
+        });
+
+        // Aktualizuj paginację
+        this.updatePagination(totalPages);
+
+        // Pokaż listę
+        document.getElementById('deliveryOptionsList').classList.remove('delivery-modal-hidden');
+    }
+
+    createOptionElement(quote, index) {
+        const div = document.createElement('div');
+        div.className = 'delivery-modal-option';
+        div.dataset.index = index;
+
+        const radioId = `delivery-option-${index}`;
+        
+        div.innerHTML = `
+            <input type="radio" 
+                name="deliveryOption" 
+                id="${radioId}"
+                value="${quote.carrierName}" 
+                data-gross="${quote.grossPrice}" 
+                data-net="${quote.netPrice}"
+                data-raw-gross="${quote.rawGrossPrice || quote.grossPrice}"
+                data-raw-net="${quote.rawNetPrice || quote.netPrice}">
+            
+            <div class="delivery-modal-name-container">
+                <img src="${quote.carrierLogoLink || '/static/images/default-carrier.png'}" 
+                    class="delivery-modal-logo" 
+                    alt="${quote.carrierName} logo"
+                    onerror="this.src='/static/images/default-carrier.png'">
+                <div class="delivery-modal-name">${quote.carrierName}</div>
+            </div>
+            
+            <div class="delivery-modal-price">
+                <div class="delivery-modal-price-brutto">${(quote.grossPrice || 0).toFixed(2)} PLN</div>
+                <div class="delivery-modal-price-netto">${(quote.netPrice || 0).toFixed(2)} PLN netto</div>
+            </div>
+            
+            <div class="delivery-modal-price">
+                <div class="delivery-modal-price-brutto">${(quote.rawGrossPrice || quote.grossPrice || 0).toFixed(2)} PLN</div>
+                <div class="delivery-modal-price-netto">${(quote.rawNetPrice || quote.netPrice || 0).toFixed(2)} PLN netto</div>
+            </div>
+        `;
+
+        // Event listenery
+        const radio = div.querySelector('input[type="radio"]');
+        
+        div.addEventListener('click', () => {
+            if (radio && !radio.checked) {
+                radio.checked = true;
+                this.selectOption(quote, index);
+            }
+        });
+
+        radio.addEventListener('change', () => {
+            if (radio.checked) {
+                this.selectOption(quote, index);
+            }
+        });
+
+        return div;
+    }
+
+    selectOption(quote, index) {
+        // Usuń poprzednie zaznaczenie
+        document.querySelectorAll('.delivery-modal-option').forEach(el => {
+            el.classList.remove('selected');
+        });
+
+        // Zaznacz nową opcję
+        const optionEl = document.querySelector(`[data-index="${index}"]`);
+        if (optionEl) {
+            optionEl.classList.add('selected');
+        }
+
+        this.selectedOption = {
+            carrierName: quote.carrierName,
+            grossPrice: quote.grossPrice,
+            netPrice: quote.netPrice,
+            rawGrossPrice: quote.rawGrossPrice || quote.grossPrice,
+            rawNetPrice: quote.rawNetPrice || quote.netPrice,
+            carrierLogoLink: quote.carrierLogoLink,
+            type: 'api'
+        };
+
+        this.customCarrier = null;
+        this.updateConfirmButton();
+    }
+
+    updatePagination(totalPages) {
+        const paginationEl = document.getElementById('deliveryPagination');
+        const prevBtn = document.getElementById('deliveryPrevPage');
+        const nextBtn = document.getElementById('deliveryNextPage');
+        const pageNumbersEl = document.getElementById('deliveryPageNumbers');
+
+        if (!paginationEl) return;
+
+        // Pokaż/ukryj paginację
+        if (totalPages <= 1) {
+            paginationEl.classList.add('delivery-modal-hidden');
+            return;
+        }
+
+        paginationEl.classList.remove('delivery-modal-hidden');
+
+        // Aktualizuj przyciski
+        if (prevBtn) {
+            prevBtn.disabled = this.currentPage <= 1;
+        }
+        if (nextBtn) {
+            nextBtn.disabled = this.currentPage >= totalPages;
+        }
+
+        // Generuj numery stron
+        if (pageNumbersEl) {
+            pageNumbersEl.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.className = 'delivery-modal-page-btn';
+                pageBtn.textContent = i;
+                pageBtn.dataset.page = i;
+                
+                if (i === this.currentPage) {
+                    pageBtn.classList.add('active');
+                }
+
+                pageBtn.addEventListener('click', () => {
+                    this.goToPage(i);
+                });
+
+                pageNumbersEl.appendChild(pageBtn);
+            }
+        }
+    }
+
+    goToPage(page) {
+        const totalPages = Math.ceil(this.quotes.length / this.itemsPerPage);
+        if (page < 1 || page > totalPages) return;
+
+        this.currentPage = page;
+        this.renderOptions();
+    }
+
+    goToPreviousPage() {
+        this.goToPage(this.currentPage - 1);
+    }
+
+    goToNextPage() {
+        this.goToPage(this.currentPage + 1);
+    }
+
+    updateCalculator(bruttoAmount) {
+        const baseBruttoEl = document.getElementById('calcBaseBrutto');
+        const marginEl = document.getElementById('calcMargin');
+        const finalPriceEl = document.getElementById('calcFinalPrice');
+
+        if (!baseBruttoEl || !marginEl || !finalPriceEl) return;
+
+        const margin = bruttoAmount * this.MARGIN_RATE;
+        const finalPrice = bruttoAmount + margin;
+
+        baseBruttoEl.textContent = `${bruttoAmount.toFixed(2)} PLN`;
+        marginEl.textContent = `${margin.toFixed(2)} PLN`;
+        finalPriceEl.textContent = `${finalPrice.toFixed(2)} PLN`;
+    }
+
+    validateCustomForm() {
+        const nameInput = document.getElementById('customCarrierName');
+        const nettoInput = document.getElementById('customCarrierNetto');
+        const bruttoInput = document.getElementById('customCarrierBrutto');
+
+        if (!nameInput || !nettoInput || !bruttoInput) return false;
+
+        const name = nameInput.value.trim();
+        const netto = parseFloat(nettoInput.value) || 0;
+        const brutto = parseFloat(bruttoInput.value) || 0;
+
+        // Resetuj style błędów
+        [nameInput, nettoInput, bruttoInput].forEach(input => {
+            input.classList.remove('error');
+        });
+
+        let isValid = true;
+
+        // Walidacja nazwy
+        if (!name) {
+            nameInput.classList.add('error');
+            isValid = false;
+        }
+
+        // Walidacja kwot
+        if (netto <= 0 || brutto <= 0) {
+            if (netto <= 0) nettoInput.classList.add('error');
+            if (brutto <= 0) bruttoInput.classList.add('error');
+            isValid = false;
+        }
+
+        if (isValid) {
+            // Oblicz końcową cenę z marżą
+            const finalPrice = brutto * (1 + this.MARGIN_RATE);
+            
+            this.customCarrier = {
+                carrierName: name,
+                grossPrice: finalPrice,
+                netPrice: finalPrice / (1 + this.VAT_RATE),
+                rawGrossPrice: brutto,
+                rawNetPrice: netto,
+                type: 'custom'
+            };
+        } else {
+            this.customCarrier = null;
+        }
+
+        this.updateConfirmButton();
+        return isValid;
+    }
+
+    updateConfirmButton() {
+        const confirmBtn = document.getElementById('deliveryModalConfirm');
+        const confirmText = document.getElementById('deliveryConfirmText');
+        
+        if (!confirmBtn || !confirmText) return;
+
+        const hasSelection = this.selectedOption || this.customCarrier;
+        
+        confirmBtn.disabled = !hasSelection;
+        
+        if (this.isCustomMode) {
+            confirmText.textContent = this.customCarrier ? 'Dodaj kuriera' : 'Uzupełnij dane';
+        } else {
+            confirmText.textContent = this.selectedOption ? 'Zapisz' : 'Zapisz';
+        }
+    }
+
+    updatePackingInfo(packingInfo) {
+        const packingInfoEl = document.getElementById('deliveryPackingInfo');
+        const headerAdjustedEl = document.getElementById('deliveryHeaderAdjusted');
+        
+        if (packingInfo && packingInfoEl) {
+            const percent = Math.round((packingInfo.multiplier - 1) * 100);
+            packingInfoEl.innerHTML = `ℹ️ ${packingInfo.message || `Do cen wysyłki została doliczona kwota ${percent}% na pakowanie.`}`;
+            packingInfoEl.classList.remove('delivery-modal-hidden');
+            
+            if (headerAdjustedEl) {
+                headerAdjustedEl.textContent = `Cena + ${percent}%`;
+            }
+        } else {
+            packingInfoEl?.classList.add('delivery-modal-hidden');
+        }
+    }
+
+    hideAllStates() {
+        const states = ['deliveryLoading', 'deliveryEmpty', 'deliveryError'];
+        states.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('delivery-modal-hidden');
+        });
+    }
+
+    showEmptyState() {
+        this.hideAllStates();
+        const emptyEl = document.getElementById('deliveryEmpty');
+        if (emptyEl) {
+            emptyEl.classList.remove('delivery-modal-hidden');
+        }
+        this.updateConfirmButton();
+    }
+
+    showLoadingState() {
+        this.hideAllStates();
+        const loadingEl = document.getElementById('deliveryLoading');
+        if (loadingEl) {
+            loadingEl.classList.remove('delivery-modal-hidden');
+        }
+    }
+
+    confirmSelection() {
+        const selection = this.isCustomMode ? this.customCarrier : this.selectedOption;
+        
+        if (!selection) {
+            alert('Proszę wybrać opcję dostawy lub uzupełnić dane własnego kuriera.');
+            return;
+        }
+
+        // Wywołaj callback lub event
+        this.onSelectionConfirmed(selection);
+        this.hide();
+    }
+
+    onSelectionConfirmed(selection) {
+        // Ta metoda powinna być nadpisana lub można dodać event listener
+        console.log('Wybrano opcję dostawy:', selection);
+        
+        // Kompatybilność z istniejącym kodem
+        if (typeof window.handleDeliverySelection === 'function') {
+            window.handleDeliverySelection(selection);
+        }
+        
+        // Wywołaj event
+        const event = new CustomEvent('deliverySelected', {
+            detail: selection
+        });
+        document.dispatchEvent(event);
+    }
+}
+
+// Inicjalizacja
+let deliveryModalInstance = null;
+
+// Funkcje kompatybilności z istniejącym kodem
+function showDeliveryModal(quotes, packingInfo = null) {
+    if (!deliveryModalInstance) {
+        deliveryModalInstance = new DeliveryModal();
+    }
+    
+    // Przekształć dane do nowego formatu jeśli potrzeba
+    const formattedQuotes = quotes.map(quote => ({
+        carrierName: quote.carrierName || 'Nieznany kurier',
+        grossPrice: quote.grossPrice || 0,
+        netPrice: quote.netPrice || 0,
+        rawGrossPrice: quote.rawGrossPrice || quote.grossPrice || 0,
+        rawNetPrice: quote.rawNetPrice || quote.netPrice || 0,
+        carrierLogoLink: quote.carrierLogoLink || '/static/images/default-carrier.png'
+    }));
+    
+    deliveryModalInstance.show(formattedQuotes, packingInfo);
+}
+
+function showDeliveryErrorModal(errorMessage) {
+    if (!deliveryModalInstance) {
+        deliveryModalInstance = new DeliveryModal();
+    }
+    
+    deliveryModalInstance.show([], null);
+    deliveryModalInstance.showError(errorMessage);
+}
+
+// Event listener dla backward compatibility
+document.addEventListener('deliverySelected', (event) => {
+    const selection = event.detail;
+    
+    // Kompatybilność z istniejącym kodem calculator.js
+    if (typeof updateDeliverySelection === 'function') {
+        updateDeliverySelection(selection);
+    }
+});
+
+// Auto-inicjalizacja gdy DOM jest gotowy
+document.addEventListener('DOMContentLoaded', () => {
+    if (!deliveryModalInstance) {
+        deliveryModalInstance = new DeliveryModal();
+    }
+});
