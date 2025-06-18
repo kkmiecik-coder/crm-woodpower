@@ -3108,3 +3108,7 @@ select.select-small option {
     font-size: 14px;
     line-height: 1.2;
 }
+
+.save-modal-summary-section {
+    display: grid;
+}

@@ -64,13 +64,7 @@ function renderTable() {
         detailsBtn.className = "clients-btn-detail";
         detailsBtn.addEventListener("click", () => showClientDetails(client.id));
 
-        const editBtn = document.createElement("button");
-        editBtn.textContent = "Edytuj";
-        editBtn.className = "clients-btn-edit";
-        editBtn.addEventListener("click", () => showEditModal(client.id));
-
         actionsCell.appendChild(detailsBtn);
-        actionsCell.appendChild(editBtn);
 
         tableBody.appendChild(row);
     });
@@ -101,6 +95,14 @@ rowsSelect.addEventListener('change', () => {
 });
 
 function showClientDetails(clientId) {
+    currentEditClientId = clientId; // Zapisz ID dla trybu edycji
+    
+    // RESETUJ flagę załadowania dla nowego klienta
+    const editNameField = document.getElementById('editClientName');
+    if (editNameField) {
+        editNameField.dataset.loaded = 'false';
+    }
+    
     fetch(`/clients/${clientId}/data`)
         .then(res => res.json())
         .then(client => {
@@ -108,7 +110,12 @@ function showClientDetails(clientId) {
             document.getElementById('detailClientDeliveryName').textContent = client.client_name || '---';
             document.getElementById('detailClientEmail').textContent = client.email || '---';
             document.getElementById('detailClientPhone').textContent = client.phone || '---';
+            
             loadClientQuotes(clientId);
+            
+            // Upewnij się, że jesteśmy w trybie wyświetlania
+            disableEditMode();
+            
             document.getElementById('clients-details-modal').style.display = 'flex';
         });
 }
@@ -156,11 +163,11 @@ function renderQuotesTable() {
         tr.innerHTML = `
             <td>${quote.id}</td>
             <td>${quote.date}</td>
-            <td>${quote.status}</td>
+            <td><span class="quote-status" style="background-color: ${quote.status_color};">${quote.status}</span></td>
             <td>
-                <a href="/quote/${quote.id}" class="clients-quote-link">
-                    Przejdź <img src="/clients/clients/static/img/arrow.svg" alt="→" class="clients-link-icon">
-                </a>
+                <button class="clients-quote-link" onclick="redirectToQuote(${quote.id})">
+                    Przejdź →
+                </button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -184,35 +191,6 @@ function renderQuotesPagination() {
         });
         paginationContainer.appendChild(pageBtn);
     }
-}
-
-function showEditModal(clientId) {
-    editedClientId = clientId;
-    fetch(`/clients/${clientId}/data`)
-        .then(res => res.json())
-        .then(client => {
-            document.getElementById('editClientName').value = client.client_name || '';
-            document.getElementById('editClientDeliveryName').value = client.client_delivery_name || '';
-            document.getElementById('editClientEmail').value = client.email || '';
-            document.getElementById('editClientPhone').value = client.phone || '';
-
-            document.getElementById('editDeliveryName').value = client.delivery.name || '';
-            document.getElementById('editDeliveryCompany').value = client.delivery.company || '';
-            document.getElementById('editDeliveryAddress').value = client.delivery.address || '';
-            document.getElementById('editDeliveryZip').value = client.delivery.zip || '';
-            document.getElementById('editDeliveryCity').value = client.delivery.city || '';
-            document.getElementById('editDeliveryRegion').value = client.delivery.region || '';
-            document.getElementById('editDeliveryCountry').value = client.delivery.country || 'Polska';
-
-            document.getElementById('editInvoiceName').value = client.invoice.name || '';
-            document.getElementById('editInvoiceCompany').value = client.invoice.company || '';
-            document.getElementById('editInvoiceAddress').value = client.invoice.address || '';
-            document.getElementById('editInvoiceZip').value = client.invoice.zip || '';
-            document.getElementById('editInvoiceCity').value = client.invoice.city || '';
-            document.getElementById('editInvoiceNIP').value = client.invoice.nip || '';
-
-            document.getElementById('clients-edit-modal').style.display = 'flex';
-        });
 }
 
 document.getElementById('clientsCancelBtn').addEventListener('click', () => {
@@ -475,4 +453,528 @@ function showToast(message, isSuccess = true) {
         toast.style.opacity = '0';
         setTimeout(() => toast.style.display = 'none', 400);
     }, 5000);
+}
+
+function redirectToQuote(quoteId) {
+    console.log(`[clients] Przekierowanie do wyceny ID: ${quoteId}`);
+    
+    // Używamy dokładnie tych samych kluczy co w module calculator
+    sessionStorage.setItem('openQuoteModal', quoteId);
+    sessionStorage.setItem('openQuoteId', quoteId); // backup jak w calculator
+    
+    // Dodajemy też parametr URL jak w save_quote.js
+    window.location.href = `/quotes?open_quote=${quoteId}`;
+}
+
+// ========== SCALONY MODAL SZCZEGÓŁÓW + EDYCJI ========== //
+
+let currentEditClientId = null;
+
+function enableEditMode() {
+    console.log('[enableEditMode] Przełączam na tryb edycji');
+    
+    // Przełącz widoki
+    document.getElementById('view-mode').style.display = 'none';
+    document.getElementById('edit-mode').style.display = 'block';
+    document.getElementById('view-actions').style.display = 'none';
+    document.getElementById('edit-actions').style.display = 'flex';
+    
+    // Zmień tytuł
+    document.getElementById('modalTitle').textContent = 'Edytuj dane klienta';
+    
+    // TYLKO JEDNORAZOWO załaduj dane - nie przy każdym przełączeniu
+    const isAlreadyLoaded = document.getElementById('editClientName').dataset.loaded;
+    
+    if (!isAlreadyLoaded && currentEditClientId) {
+        console.log('[enableEditMode] Ładuję dane po raz pierwszy...');
+        loadClientDataForEdit(currentEditClientId);
+        
+        // Oznacz jako załadowane
+        document.getElementById('editClientName').dataset.loaded = 'true';
+    } else {
+        console.log('[enableEditMode] Dane już załadowane - pomijam loadClientDataForEdit');
+    }
+}
+
+function disableEditMode() {
+    console.log('[disableEditMode] Powrót do trybu wyświetlania');
+    
+    // Przełącz widoki
+    document.getElementById('view-mode').style.display = 'block';
+    document.getElementById('edit-mode').style.display = 'none';
+    document.getElementById('view-actions').style.display = 'flex';
+    document.getElementById('edit-actions').style.display = 'none';
+    
+    // Zmień tytuł
+    document.getElementById('modalTitle').textContent = 'Szczegóły klienta';
+}
+
+function loadClientDataForEdit(clientId) {
+    console.log('[loadClientDataForEdit] START - Ładowanie danych klienta ID:', clientId);
+    
+    fetch(`/clients/${clientId}/data`)
+        .then(res => res.json())
+        .then(client => {
+            console.log('[loadClientDataForEdit] OTRZYMANE DANE KLIENTA:', client);
+            console.log('[loadClientDataForEdit] client.invoice:', client.invoice);
+            
+            // Dane podstawowe
+            document.getElementById('editClientName').value = client.client_name || '';
+            document.getElementById('editClientDeliveryName').value = client.client_number || '';
+            document.getElementById('editClientEmail').value = client.email || '';
+            document.getElementById('editClientPhone').value = client.phone || '';
+            
+            // Adres dostawy
+            document.getElementById('editDeliveryName').value = client.delivery?.name || '';
+            document.getElementById('editDeliveryCompany').value = client.delivery?.company || '';
+            document.getElementById('editDeliveryAddress').value = client.delivery?.address || '';
+            document.getElementById('editDeliveryZip').value = client.delivery?.zip || '';
+            document.getElementById('editDeliveryCity').value = client.delivery?.city || '';
+            document.getElementById('editDeliveryRegion').value = client.delivery?.region || '';
+            document.getElementById('editDeliveryCountry').value = client.delivery?.country || '';
+            
+            // Dane do faktury z logami
+            console.log('[loadClientDataForEdit] WYPEŁNIANIE PÓL FAKTURY:');
+            
+            const invoiceName = client.invoice?.name || '';
+            const invoiceCompany = client.invoice?.company || '';
+            const invoiceAddress = client.invoice?.address || '';
+            const invoiceZip = client.invoice?.zip || '';
+            const invoiceCity = client.invoice?.city || '';
+            const invoiceNip = client.invoice?.nip || '';
+            
+            console.log('- invoice name:', invoiceName);
+            console.log('- invoice company:', invoiceCompany);
+            console.log('- invoice address:', invoiceAddress);
+            console.log('- invoice zip:', invoiceZip);
+            console.log('- invoice city:', invoiceCity);
+            console.log('- invoice nip:', invoiceNip);
+            
+            document.getElementById('editInvoiceName').value = invoiceName;
+            document.getElementById('editInvoiceCompany').value = invoiceCompany;
+            document.getElementById('editInvoiceAddress').value = invoiceAddress;
+            document.getElementById('editInvoiceZip').value = invoiceZip;
+            document.getElementById('editInvoiceCity').value = invoiceCity;
+            document.getElementById('editInvoiceNIP').value = invoiceNip;
+            
+            // Sprawdź czy pola są rzeczywiście wypełnione
+            console.log('[loadClientDataForEdit] WERYFIKACJA WYPEŁNIENIA:');
+            console.log('- editInvoiceName.value:', document.getElementById('editInvoiceName').value);
+            console.log('- editInvoiceCompany.value:', document.getElementById('editInvoiceCompany').value);
+            console.log('- editInvoiceAddress.value:', document.getElementById('editInvoiceAddress').value);
+            console.log('- editInvoiceZip.value:', document.getElementById('editInvoiceZip').value);
+            console.log('- editInvoiceCity.value:', document.getElementById('editInvoiceCity').value);
+            
+            console.log('[loadClientDataForEdit] END');
+        })
+        .catch(err => {
+            console.error('[loadClientDataForEdit] Błąd:', err);
+            showToast('Błąd podczas ładowania danych klienta', false);
+        });
+}
+
+// ========== EVENT LISTENERS DLA NOWEGO MODALA ========== //
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Przycisk Anuluj w trybie edycji
+    const cancelEditBtn = document.getElementById('cancelEditBtn');
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', disableEditMode);
+    }
+    
+    // Drugi przycisk Zamknij (w trybie wyświetlania)
+    const closeBtn2 = document.getElementById('clientsDetailsCloseBtn2');
+    if (closeBtn2) {
+        closeBtn2.addEventListener('click', () => {
+            document.getElementById('clients-details-modal').style.display = 'none';
+        });
+    }
+    
+    // Przycisk Zapisz zmiany
+    const saveEditBtn = document.getElementById('saveEditBtn');
+    if (saveEditBtn) {
+        saveEditBtn.addEventListener('click', saveClientChanges);
+    }
+    
+    // Przycisk GUS w edycji
+    const editGusBtn = document.getElementById('editGusLookupBtn');
+    if (editGusBtn) {
+        editGusBtn.addEventListener('click', () => {
+            const nipInput = document.getElementById('editInvoiceNIP');
+            const nip = nipInput.value.trim();
+            const nipError = document.getElementById('error-editInvoiceNIP');
+
+            nipInput.classList.remove('input-error-border');
+            nipError.textContent = '';
+
+            if (!/^\d{10}$/.test(nip)) {
+                nipInput.classList.add('input-error-border');
+                nipError.textContent = "Podaj prawidłowy NIP (10 cyfr)";
+                return;
+            }
+
+            editGusBtn.classList.add('loading');
+            editGusBtn.innerText = 'Ładowanie...';
+
+            fetch(`/clients/api/gus_lookup?nip=${nip}`)
+                .then(res => res.json())
+                .then(data => {
+                    console.log('[GUS API response in edit]', data);
+                    editGusBtn.classList.remove('loading');
+                    editGusBtn.innerText = 'Pobrano dane ✅';
+                    setTimeout(() => {
+                        editGusBtn.innerText = 'Pobierz z GUS';
+                    }, 3000);
+
+                    if (data && data.name) {
+                        const address = data.address || '';
+                        const addressParts = address.split(',');
+                        const street = addressParts[0] || '';
+                        const zipCity = addressParts[1] || '';
+                        const zipMatch = zipCity.match(/\d{2}-\d{3}/);
+                        const city = zipCity.replace(/\d{2}-\d{3}/, '').trim();
+
+                        document.getElementById('editInvoiceName').value = data.name;
+                        document.getElementById('editInvoiceCompany').value = data.company;
+                        document.getElementById('editInvoiceAddress').value = street.trim();
+                        document.getElementById('editInvoiceZip').value = zipMatch ? zipMatch[0] : '';
+                        document.getElementById('editInvoiceCity').value = city;
+                    } else {
+                        nipError.textContent = "Nie znaleziono danych dla podanego NIP";
+                    }
+                })
+                .catch(err => {
+                    console.error('[GUS Lookup Error in edit]', err);
+                    editGusBtn.classList.remove('loading');
+                    editGusBtn.innerText = 'Pobierz z GUS';
+                    nipError.textContent = "Błąd połączenia z API GUS";
+                });
+        });
+    }
+});
+
+function saveClientChanges() {
+    if (!currentEditClientId) {
+        console.error('[saveClientChanges] Brak ID klienta');
+        return;
+    }
+    
+    const payload = {
+        client_name: document.getElementById('editClientName').value.trim(),
+        client_delivery_name: document.getElementById('editClientDeliveryName').value.trim(),
+        email: document.getElementById('editClientEmail').value.trim(),
+        phone: document.getElementById('editClientPhone').value.trim(),
+        delivery: {
+            name: document.getElementById('editDeliveryName').value.trim(),
+            company: document.getElementById('editDeliveryCompany').value.trim(),
+            address: document.getElementById('editDeliveryAddress').value.trim(),
+            zip: document.getElementById('editDeliveryZip').value.trim(),
+            city: document.getElementById('editDeliveryCity').value.trim(),
+            region: document.getElementById('editDeliveryRegion').value.trim(),
+            country: document.getElementById('editDeliveryCountry').value.trim()
+        },
+        invoice: {
+            name: document.getElementById('editInvoiceName').value.trim(),
+            company: document.getElementById('editInvoiceCompany').value.trim(),
+            address: document.getElementById('editInvoiceAddress').value.trim(),
+            zip: document.getElementById('editInvoiceZip').value.trim(),
+            city: document.getElementById('editInvoiceCity').value.trim(),
+            nip: document.getElementById('editInvoiceNIP').value.trim()
+        }
+    };
+
+    fetch(`/clients/${currentEditClientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => {
+        if (!res.ok) throw new Error('Błąd zapisu klienta');
+        return res.json();
+    })
+    .then(() => {
+        showToast('Zapisano dane klienta ✔');
+        disableEditMode();
+        
+        // Odśwież dane w trybie wyświetlania
+        showClientDetails(currentEditClientId);
+        
+        // Odśwież listę klientów
+        fetchClients();
+    })
+    .catch(err => {
+        console.error('❌ Błąd podczas zapisu:', err);
+        showToast('Nie udało się zapisać zmian ❌', false);
+    });
+}
+
+// ========== AKTUALIZACJA FUNKCJI showClientDetails ========== //
+// ========== KOPIOWANIE DANYCH Z DOSTAWY DO FAKTURY ========== //
+
+function copyDeliveryToInvoice() {
+    console.log('[copyDeliveryToInvoice] Kopiowanie danych z adresu dostawy');
+    
+    // UŻYWAJ querySelectorAll i weź WIDOCZNY element (ostatni)
+    const deliveryNameEls = document.querySelectorAll('#editDeliveryName');
+    const deliveryCompanyEls = document.querySelectorAll('#editDeliveryCompany');
+    const deliveryAddressEls = document.querySelectorAll('#editDeliveryAddress');
+    const deliveryZipEls = document.querySelectorAll('#editDeliveryZip');
+    const deliveryCityEls = document.querySelectorAll('#editDeliveryCity');
+    
+    // Weź ostatni (widoczny) element z każdej listy
+    const deliveryNameEl = deliveryNameEls[deliveryNameEls.length - 1];
+    const deliveryCompanyEl = deliveryCompanyEls[deliveryCompanyEls.length - 1];
+    const deliveryAddressEl = deliveryAddressEls[deliveryAddressEls.length - 1];
+    const deliveryZipEl = deliveryZipEls[deliveryZipEls.length - 1];
+    const deliveryCityEl = deliveryCityEls[deliveryCityEls.length - 1];
+    
+    // Pobierz dane z pól dostawy
+    const deliveryName = deliveryNameEl ? deliveryNameEl.value : '';
+    const deliveryCompany = deliveryCompanyEl ? deliveryCompanyEl.value : '';
+    const deliveryAddress = deliveryAddressEl ? deliveryAddressEl.value : '';
+    const deliveryZip = deliveryZipEl ? deliveryZipEl.value : '';
+    const deliveryCity = deliveryCityEl ? deliveryCityEl.value : '';
+    
+    // Elementy docelowe (faktury) - także z querySelectorAll
+    const invoiceNameEls = document.querySelectorAll('#editInvoiceName');
+    const invoiceCompanyEls = document.querySelectorAll('#editInvoiceCompany');
+    const invoiceAddressEls = document.querySelectorAll('#editInvoiceAddress');
+    const invoiceZipEls = document.querySelectorAll('#editInvoiceZip');
+    const invoiceCityEls = document.querySelectorAll('#editInvoiceCity');
+    
+    const invoiceNameEl = invoiceNameEls[invoiceNameEls.length - 1];
+    const invoiceCompanyEl = invoiceCompanyEls[invoiceCompanyEls.length - 1];
+    const invoiceAddressEl = invoiceAddressEls[invoiceAddressEls.length - 1];
+    const invoiceZipEl = invoiceZipEls[invoiceZipEls.length - 1];
+    const invoiceCityEl = invoiceCityEls[invoiceCityEls.length - 1];
+    
+    // Wstaw do pól faktury
+    if (invoiceNameEl) invoiceNameEl.value = deliveryName;
+    if (invoiceCompanyEl) invoiceCompanyEl.value = deliveryCompany;
+    if (invoiceAddressEl) invoiceAddressEl.value = deliveryAddress;
+    if (invoiceZipEl) invoiceZipEl.value = deliveryZip;
+    if (invoiceCityEl) invoiceCityEl.value = deliveryCity;
+    
+    // Dodaj wizualny feedback
+    const copyBtn = event.target.closest('.copy-delivery-btn');
+    if (copyBtn) {
+        const originalText = copyBtn.innerHTML;
+        const originalClass = copyBtn.className;
+        
+        copyBtn.className = 'copy-delivery-btn success';
+        copyBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            Skopiowano!
+        `;
+        
+        setTimeout(() => {
+            copyBtn.className = originalClass;
+            copyBtn.innerHTML = originalText;
+        }, 2000);
+    }
+    
+    // Animacja skopiowanych pól
+    const invoiceFields = [invoiceNameEl, invoiceCompanyEl, invoiceAddressEl, invoiceZipEl, invoiceCityEl];
+    
+    invoiceFields.forEach(field => {
+        if (field && field.value) {
+            field.classList.add('copied-field');
+            setTimeout(() => {
+                field.classList.remove('copied-field');
+            }, 1500);
+        }
+    });
+    
+    showToast('Dane z adresu dostawy zostały skopiowane!');
+}
+
+// ========== KOPIOWANIE DANYCH Z FAKTURY DO DOSTAWY ========== //
+
+function copyInvoiceToDelivery() {
+    console.log('[copyInvoiceToDelivery] START - Kopiowanie danych z faktury do dostawy');
+    
+    // UŻYWAJ querySelectorAll i weź WIDOCZNY element (ostatni)
+    const invoiceNameEls = document.querySelectorAll('#editInvoiceName');
+    const invoiceCompanyEls = document.querySelectorAll('#editInvoiceCompany');
+    const invoiceAddressEls = document.querySelectorAll('#editInvoiceAddress');
+    const invoiceZipEls = document.querySelectorAll('#editInvoiceZip');
+    const invoiceCityEls = document.querySelectorAll('#editInvoiceCity');
+    
+    // Weź ostatni (widoczny) element z każdej listy
+    const invoiceNameEl = invoiceNameEls[invoiceNameEls.length - 1];
+    const invoiceCompanyEl = invoiceCompanyEls[invoiceCompanyEls.length - 1];
+    const invoiceAddressEl = invoiceAddressEls[invoiceAddressEls.length - 1];
+    const invoiceZipEl = invoiceZipEls[invoiceZipEls.length - 1];
+    const invoiceCityEl = invoiceCityEls[invoiceCityEls.length - 1];
+    
+    // Pobierz wartości z widocznych elementów
+    const invoiceName = invoiceNameEl ? invoiceNameEl.value : '';
+    const invoiceCompany = invoiceCompanyEl ? invoiceCompanyEl.value : '';
+    const invoiceAddress = invoiceAddressEl ? invoiceAddressEl.value : '';
+    const invoiceZip = invoiceZipEl ? invoiceZipEl.value : '';
+    const invoiceCity = invoiceCityEl ? invoiceCityEl.value : '';
+    
+    // Elementy docelowe (także z querySelectorAll)
+    const deliveryNameEls = document.querySelectorAll('#editDeliveryName');
+    const deliveryCompanyEls = document.querySelectorAll('#editDeliveryCompany');
+    const deliveryAddressEls = document.querySelectorAll('#editDeliveryAddress');
+    const deliveryZipEls = document.querySelectorAll('#editDeliveryZip');
+    const deliveryCityEls = document.querySelectorAll('#editDeliveryCity');
+    
+    const deliveryNameEl = deliveryNameEls[deliveryNameEls.length - 1];
+    const deliveryCompanyEl = deliveryCompanyEls[deliveryCompanyEls.length - 1];
+    const deliveryAddressEl = deliveryAddressEls[deliveryAddressEls.length - 1];
+    const deliveryZipEl = deliveryZipEls[deliveryZipEls.length - 1];
+    const deliveryCityEl = deliveryCityEls[deliveryCityEls.length - 1];
+    
+    // KOPIOWANIE
+    if (deliveryNameEl) deliveryNameEl.value = invoiceName;
+    if (deliveryCompanyEl) deliveryCompanyEl.value = invoiceCompany;
+    if (deliveryAddressEl) deliveryAddressEl.value = invoiceAddress;
+    if (deliveryZipEl) deliveryZipEl.value = invoiceZip;
+    if (deliveryCityEl) deliveryCityEl.value = invoiceCity;
+    
+    // Feedback wizualny
+    const copyBtn = event.target.closest('.copy-invoice-btn');
+    if (copyBtn) {
+        const originalText = copyBtn.innerHTML;
+        const originalClass = copyBtn.className;
+        
+        copyBtn.className = 'copy-invoice-btn success';
+        copyBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            Skopiowano!
+        `;
+        
+        setTimeout(() => {
+            copyBtn.className = originalClass;
+            copyBtn.innerHTML = originalText;
+        }, 2000);
+    }
+    
+    // Animacja pól
+    const deliveryFields = [deliveryNameEl, deliveryCompanyEl, deliveryAddressEl, deliveryZipEl, deliveryCityEl];
+    
+    deliveryFields.forEach(field => {
+        if (field && field.value) {
+            field.classList.add('copied-field');
+            setTimeout(() => {
+                field.classList.remove('copied-field');
+            }, 1500);
+        }
+    });
+    
+    showToast('Dane z faktury zostały skopiowane do adresu dostawy!');
+}
+
+// ========== FUNKCJE DLA MODALU DODAWANIA KLIENTA ========== //
+
+function copyDeliveryToInvoiceAdd() {
+    console.log('[copyDeliveryToInvoiceAdd] Kopiowanie w modalu dodawania');
+    
+    // Pobierz dane z pól dostawy (prefix "add")
+    const deliveryName = document.getElementById('addDeliveryName').value;
+    const deliveryCompany = document.getElementById('addDeliveryCompany').value;
+    const deliveryAddress = document.getElementById('addDeliveryAddress').value;
+    const deliveryZip = document.getElementById('addDeliveryZip').value;
+    const deliveryCity = document.getElementById('addDeliveryCity').value;
+    
+    // Wstaw do pól faktury (prefix "add")
+    document.getElementById('addInvoiceName').value = deliveryName;
+    document.getElementById('addInvoiceCompany').value = deliveryCompany;
+    document.getElementById('addInvoiceAddress').value = deliveryAddress;
+    document.getElementById('addInvoiceZip').value = deliveryZip;
+    document.getElementById('addInvoiceCity').value = deliveryCity;
+    
+    // Dodaj wizualny feedback
+    const copyBtn = event.target.closest('.copy-delivery-btn');
+    if (copyBtn) {
+        const originalText = copyBtn.innerHTML;
+        const originalClass = copyBtn.className;
+        
+        copyBtn.className = 'copy-delivery-btn success';
+        copyBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            Skopiowano!
+        `;
+        
+        setTimeout(() => {
+            copyBtn.className = originalClass;
+            copyBtn.innerHTML = originalText;
+        }, 2000);
+    }
+    
+    // Animacja skopiowanych pól
+    const invoiceFields = ['addInvoiceName', 'addInvoiceCompany', 'addInvoiceAddress', 'addInvoiceZip', 'addInvoiceCity'];
+    
+    invoiceFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field && field.value) {
+            field.classList.add('copied-field');
+            setTimeout(() => {
+                field.classList.remove('copied-field');
+            }, 1500);
+        }
+    });
+    
+    showToast('Dane z adresu dostawy zostały skopiowane!');
+}
+
+function copyInvoiceToDeliveryAdd() {
+    console.log('[copyInvoiceToDeliveryAdd] Kopiowanie z faktury do dostawy w modalu dodawania');
+    
+    // Pobierz dane z pól faktury (prefix "add")
+    const invoiceName = document.getElementById('addInvoiceName').value;
+    const invoiceCompany = document.getElementById('addInvoiceCompany').value;
+    const invoiceAddress = document.getElementById('addInvoiceAddress').value;
+    const invoiceZip = document.getElementById('addInvoiceZip').value;
+    const invoiceCity = document.getElementById('addInvoiceCity').value;
+    
+    // Wstaw do pól dostawy (prefix "add")
+    document.getElementById('addDeliveryName').value = invoiceName;
+    document.getElementById('addDeliveryCompany').value = invoiceCompany;
+    document.getElementById('addDeliveryAddress').value = invoiceAddress;
+    document.getElementById('addDeliveryZip').value = invoiceZip;
+    document.getElementById('addDeliveryCity').value = invoiceCity;
+    
+    // Dodaj wizualny feedback
+    const copyBtn = event.target.closest('.copy-invoice-btn');
+    if (copyBtn) {
+        const originalText = copyBtn.innerHTML;
+        const originalClass = copyBtn.className;
+        
+        copyBtn.className = 'copy-invoice-btn success';
+        copyBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            Skopiowano!
+        `;
+        
+        setTimeout(() => {
+            copyBtn.className = originalClass;
+            copyBtn.innerHTML = originalText;
+        }, 2000);
+    }
+    
+    // Animacja skopiowanych pól
+    const deliveryFields = ['addDeliveryName', 'addDeliveryCompany', 'addDeliveryAddress', 'addDeliveryZip', 'addDeliveryCity'];
+    
+    deliveryFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field && field.value) {
+            field.classList.add('copied-field');
+            setTimeout(() => {
+                field.classList.remove('copied-field');
+            }, 1500);
+        }
+    });
+    
+    showToast('Dane z faktury zostały skopiowane do adresu dostawy!');
 }

@@ -96,12 +96,16 @@ def update_client(client_id):
 
 @clients_bp.route('/<int:client_id>/quotes')
 def get_client_quotes(client_id):
+    from modules.quotes.models import QuoteStatus
+    
     quotes = Quote.query.filter_by(client_id=client_id).order_by(Quote.created_at.desc()).all()
     return jsonify([
         {
             "id": q.id,
             "date": q.created_at.strftime('%Y-%m-%d'),
-            "status_id": q.status_id,
+            "status": q.quote_status.name if q.quote_status else "Nieznany",
+            "status_color": q.quote_status.color_hex if q.quote_status else "#ccc",
+            "total_price": f"{q.total_price:.2f} zł" if q.total_price else "0.00 zł"
         } for q in quotes
     ])
 

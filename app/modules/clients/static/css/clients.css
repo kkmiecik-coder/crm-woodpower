@@ -219,7 +219,6 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
 }
 
 .clients-no-quotes {
@@ -234,11 +233,12 @@
     gap: 6px;
     background-color: #ED6B24;
     color: #fff;
-    padding: 4px 10px;
-    font-size: 13px;
+    padding: 7px 10px;
+    font-size: 14px;
     font-weight: 500;
     border-radius: 16px;
     text-decoration: none;
+    font-family: poppins, sans-serif;
     transition: background-color 0.2s ease;
 }
 
@@ -364,43 +364,56 @@
     gap: 12px;
 }
 
-/* Overlay tło */
-.clients-modal-overlay {
+.clients-modal-overlay,
+.modal-overlay {
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    background-color: rgba(0, 0, 0, 0);
+    background: rgba(0, 0, 0, 0.6);
     display: none;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
     z-index: 9999;
-    animation: clients-overlay-fade-in 0.2s ease forwards;
 }
 
-@keyframes clients-overlay-fade-in {
-    from {
-        background-color: rgba(0, 0, 0, 0);
-    }
-
-    to {
-        background-color: rgba(0, 0, 0, 0.4);
-    }
-}
-
-
-/* Modal */
-.clients-modal {
-    background: white;
+.clients-modal,
+.modal-box {
+    background: #fff;
+    padding: 30px 40px;
     border-radius: 16px;
-    padding: 30px;
-    max-width: 880px;
-    width: 95%;
-    max-height: 90vh;
+    width: 100%;
+    max-width: 720px;
+    max-height: 85vh;
     overflow-y: auto;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-    animation: fadeIn 0.2s ease-in-out;
+    box-shadow: 0 0 25px rgba(0,0,0,0.2);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.modal-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.close-modal {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    transition: color 0.2s;
+}
+
+.close-modal:hover {
+    color: #000;
 }
 
 @keyframes fadeIn {
@@ -495,7 +508,7 @@
     border-radius: 12px;
     font-size: 15px;
     color: #fff;
-    z-index: 1000;
+    z-index: 9999;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     transition: opacity 0.4s ease-in-out;
 }
@@ -609,3 +622,599 @@
         margin-right: 6px;
         animation: none;
     }
+
+.quote-status {
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    display: inline-block;
+    color: #fff;
+}
+
+.clients-quote-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #ED6B24;
+    color: #fff;
+    padding: 4px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.2s;
+}
+
+.clients-quote-link:hover {
+    background-color: #d85d20;
+}
+
+/* ========== SCALONY MODAL - NOWE STYLE ========== */
+
+.edit-section-btn {
+    background: none;
+    border: none;
+    padding: 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.edit-section-btn:hover {
+    background-color: #f0f0f0;
+    color: #ED6B24;
+}
+
+.edit-section-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.clients-section {
+    margin-bottom: 24px;
+    border-radius: 8px;
+    background: #fafafa;
+    padding: 16px;
+    border: 1px solid #e5e5e5;
+}
+
+.clients-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #ED6B24;
+}
+
+.clients-section-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.grid-2-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 8px;
+}
+
+.full-width {
+    grid-column: 1 / -1;
+}
+
+.input-group {
+    margin-bottom: 6px;
+}
+
+.input-group label {
+    display: block;
+    font-weight: 500;
+    color: #555;
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+
+.clients-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    background: #fff;
+    box-sizing: border-box;
+}
+
+.clients-input:focus {
+    outline: none;
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 3px rgba(237, 107, 36, 0.1);
+}
+
+.clients-input:hover {
+    border-color: #ccc;
+}
+
+/* Przyciski akcji */
+.clients-modal-actions {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e5e5;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.clients-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 120px;
+}
+
+.clients-btn-primary {
+    background-color: #ED6B24;
+    color: white;
+}
+
+.clients-btn-primary:hover {
+    background-color: #d85d20;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(237, 107, 36, 0.3);
+}
+
+.clients-btn-secondary {
+    background-color: #f5f5f5;
+    color: #666;
+    border: 1px solid #ddd;
+}
+
+.clients-btn-secondary:hover {
+    background-color: #e8e8e8;
+    color: #333;
+}
+
+/* Historia wycen - tabela */
+.clients-quotes-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.clients-quotes-table thead {
+    background-color: #f8f9fa;
+}
+
+.clients-quotes-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+    border-bottom: 2px solid #ED6B24;
+}
+
+.clients-quotes-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+}
+
+.clients-quotes-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.clients-quotes-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
+    .clients-modal {
+        max-width: 95%;
+        padding: 20px;
+    }
+    
+    .grid-2-cols {
+        grid-template-columns: 1fr;
+    }
+    
+    .clients-modal-actions {
+        flex-direction: column-reverse;
+    }
+    
+    .clients-btn {
+        width: 100%;
+    }
+}
+
+/* Animacje przejść między trybami */
+#view-mode, #edit-mode {
+    transition: opacity 0.3s ease-in-out;
+}
+
+#edit-actions, #view-actions {
+    transition: opacity 0.2s ease;
+}
+
+/* Dodatkowe style dla lepszego UX */
+.clients-detail-row {
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.clients-detail-row:last-child {
+    border-bottom: none;
+}
+
+.clients-detail-row .label {
+    font-weight: 500;
+    color: #666;
+    font-size: 14px;
+}
+
+.clients-detail-row .value {
+    font-weight: 400;
+    color: #333;
+    font-size: 14px;
+}
+
+/* Status badges w tabeli */
+.quote-status {
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    display: inline-block;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    min-width: 80px;
+    text-align: center;
+}
+
+/* Przyciski w tabeli */
+.clients-quote-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #ED6B24;
+    color: #fff;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+    min-width: 90px;
+    justify-content: center;
+}
+
+.clients-quote-link:hover {
+    background-color: #d85d20;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 6px rgba(237, 107, 36, 0.3);
+}
+
+/* Paginacja */
+.clients-pagination {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.clients-pagination button {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    background: white;
+    color: #666;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.clients-pagination button:hover {
+    background-color: #f0f0f0;
+    border-color: #ED6B24;
+}
+
+.clients-pagination button.active {
+    background-color: #ED6B24;
+    color: white;
+    border-color: #ED6B24;
+}
+
+/* Loading states */
+.clients-btn.loading {
+    pointer-events: none;
+    opacity: 0.7;
+    position: relative;
+}
+
+.clients-btn.loading::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+/* Hover effects dla całego modala */
+.clients-modal {
+    animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Ciemniejsze tło jak w quotes */
+.clients-modal-overlay {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+}
+
+/* Dodatkowe poprawki dla lepszego wyglądu */
+.title-with-underline-h2 {
+    color: #333;
+    margin-bottom: 0;
+}
+
+/* Wyróżnienie aktywnych pól */
+.clients-input.input-success-border {
+    border-color: #28a745;
+    background-color: rgba(40, 167, 69, 0.05);
+}
+
+.clients-input.input-error-border {
+    border-color: #dc3545;
+    background-color: rgba(220, 53, 69, 0.05);
+}
+
+/* Focus trap dla modala */
+.clients-modal:focus-within {
+    outline: none;
+}
+
+/* Dodatkowe style dla NIP z przyciskiem GUS */
+.nip-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.nip-row .clients-input {
+    flex: 1;
+}
+
+.gus-btn {
+    padding: 10px 16px;
+    background-color: #004aad;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+    white-space: nowrap;
+    min-width: 130px;
+}
+
+.gus-btn:hover {
+    background-color: #003b90;
+    transform: translateY(-1px);
+}
+
+.gus-btn.loading {
+    background-color: #666;
+    pointer-events: none;
+}
+
+.gus-btn.loading::before {
+    content: '';
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    border: 2px solid white;
+    border-top-color: transparent;
+    border-radius: 50%;
+    display: inline-block;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+}
+
+/* ========== PRZYCISK KOPIUJ Z FAKTURY ========== */
+
+.copy-invoice-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #6c757d;
+    border: 2px solid #6c757d;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 140px;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(108, 117, 125, 0.2);
+}
+
+.copy-invoice-btn:hover {
+    background-color: #5a6268;
+    border-color: #5a6268;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(108, 117, 125, 0.3);
+}
+
+.copy-invoice-btn svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.2s ease;
+    fill: currentColor;
+}
+
+.copy-invoice-btn:hover svg {
+    transform: scale(1.1);
+}
+
+/* Stan sukcesu */
+.copy-invoice-btn.success {
+    background-color: #28a745;
+    border-color: #28a745;
+    color: #fff;
+    pointer-events: none;
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+}
+
+.copy-invoice-btn.success svg {
+    animation: checkmark 0.5s ease-in-out;
+}
+
+/* Responsywność dla mobile */
+@media (max-width: 768px) {
+    .copy-invoice-btn {
+        min-width: 120px;
+        font-size: 12px;
+        padding: 6px 10px;
+    }
+}
+
+/* ========== PRZYCISK KOPIUJ Z DOSTAWY ========== */
+
+.copy-delivery-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #ED6B24;
+    border: 2px solid #ED6B24;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 140px;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(237, 107, 36, 0.2);
+}
+
+.copy-delivery-btn:hover {
+    background-color: #d85d20;
+    border-color: #d85d20;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(237, 107, 36, 0.3);
+}
+
+.copy-delivery-btn svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.2s ease;
+    fill: currentColor;
+}
+
+.copy-delivery-btn:hover svg {
+    transform: scale(1.1);
+}
+
+/* Stan sukcesu */
+.copy-delivery-btn.success {
+    background-color: #28a745;
+    border-color: #28a745;
+    color: #fff;
+    pointer-events: none;
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+}
+
+.copy-delivery-btn.success svg {
+    animation: checkmark 0.5s ease-in-out;
+}
+
+@keyframes checkmark {
+    0% {
+        transform: scale(0);
+    }
+    50% {
+        transform: scale(1.3);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Animacja dla skopiowanych pól */
+.copied-field {
+    border-color: #28a745 !important;
+    background-color: rgba(40, 167, 69, 0.1) !important;
+    animation: fieldHighlight 1.5s ease-out;
+}
+
+@keyframes fieldHighlight {
+    0% {
+        box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 0 5px rgba(40, 167, 69, 0.2);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+    }
+}
+
+/* Responsywność dla mobile */
+@media (max-width: 768px) {
+    .copy-delivery-btn {
+        min-width: 120px;
+        font-size: 12px;
+        padding: 6px 10px;
+    }
+    
+    .copy-delivery-btn span {
+        display: none;
+    }
+}

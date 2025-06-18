@@ -35,6 +35,12 @@
         <section class="clients-section">
             <div class="clients-section-header">
                 <h3>Adres dostawy</h3>
+                <button type="button" class="copy-invoice-btn" onclick="copyInvoiceToDeliveryAdd()" title="Kopiuj dane z faktury">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm-1 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h7v14z"/>
+                    </svg>
+                    Kopiuj z faktury
+                </button>
             </div>
             <div class="clients-section-body grid-2-cols">
                 <div class="input-group"><label for="addDeliveryName">Imię i nazwisko</label><input id="addDeliveryName" class="clients-input" type="text"></div>
@@ -51,6 +57,12 @@
         <section class="clients-section">
             <div class="clients-section-header">
                 <h3>Dane do faktury</h3>
+                <button type="button" class="copy-delivery-btn" onclick="copyDeliveryToInvoiceAdd()" title="Kopiuj dane z adresu dostawy">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                    </svg>
+                    Kopiuj z dostawy
+                </button>
             </div>
             <div class="clients-section-body grid-2-cols">
                 <div class="input-group"><label for="addInvoiceName">Imię i nazwisko</label><input id="addInvoiceName" class="clients-input" type="text"></div>
