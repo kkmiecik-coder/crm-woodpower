@@ -134,11 +134,11 @@ const dataSync = {
                 const variantName = utils.translateVariantCode(selectedItem.variant_code);
                 const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
                 
-                // NOWE: Pobierz ilość z finishing details
-                const finishing = globalState.quoteData.finishing?.find(f => f.product_index === parseInt(productIndex));
-                const quantity = finishing?.quantity || 1;
+                // POPRAWKA:
+                const quantity = selectedItem.quantity || 1;
                 
-                // NOWE: Użyj wartości całkowitych (cena × ilość)
+                console.log(`[generateProductsBreakdownHTML] Product ${productIndex}: quantity=${quantity} from selectedItem.quantity=${selectedItem.quantity}`);
+                // Użyj wartości całkowitych (cena × ilość)
                 const unitPriceBrutto = selectedItem.price_brutto || selectedItem.final_price_brutto || 0;
                 const unitPriceNetto = selectedItem.price_netto || selectedItem.final_price_netto || 0;
                 const totalPriceBrutto = unitPriceBrutto * quantity;
@@ -149,17 +149,19 @@ const dataSync = {
 
                 return `
                     <div class="product-breakdown-item">
-                        <div class="product-breakdown-info">
-                            <div class="product-breakdown-name">Produkt ${productIndex}: ${dimensions}</div>
-                            <div class="product-breakdown-details">${variantName}, ${quantity} szt.</div>
+                        <div class="product-info">
+                            <div class="product-name">${variantName}</div>
+                            <div class="product-dimensions">${dimensions}</div>
+                            <div class="product-quantity">${quantity} szt.</div>
                         </div>
-                        <div class="product-breakdown-price">
-                            <span class="breakdown-price-brutto">${priceBrutto}</span>
-                            <span class="breakdown-price-netto">${priceNetto} netto</span>
+                        <div class="product-price">
+                            <div class="price-brutto">${priceBrutto}</div>
+                            <div class="price-netto">netto: ${priceNetto}</div>
                         </div>
                     </div>
                 `;
-            }).join('');
+            })
+            .join('');
     },
 
     /**
@@ -507,8 +509,10 @@ const quote = {
         const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
         const volume = selectedItem.volume_m3?.toFixed(3) || '0.000';
         
-        // NOWE: Pobierz ilość z finishing details
-        const quantity = finishing?.quantity || 1;
+        // POPRAWKA:
+        const quantity = selectedItem.quantity || 1;
+        
+        console.log(`[createProductHeaderHTML] Product ${productIndex}: quantity=${quantity} from selectedItem.quantity=${selectedItem.quantity}`);
 
         let finishingHTML = '';
         if (finishing) {
@@ -572,10 +576,8 @@ const quote = {
     createVariantCardHTML: (item) => {
         const isSelected = globalState.selectedVariants.get(item.product_index) === item.id;
         const variantName = utils.translateVariantCode(item.variant_code);
-        
-        // NOWE: Pobierz ilość z finishing details
-        const finishing = globalState.quoteData.finishing?.find(f => f.product_index === item.product_index);
-        const quantity = finishing?.quantity || 1;
+
+        const quantity = item.quantity || 1;
 
         // Sprawdzamy czy wariant ma rabat
         const hasDiscount = item.discount_percentage && item.discount_percentage !== 0;
