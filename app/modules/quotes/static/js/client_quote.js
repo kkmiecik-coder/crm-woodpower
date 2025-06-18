@@ -5,6 +5,7 @@ console.log('[ClientQuote] Script loaded - Wood Power v2.0');
 
 // ===================================
 // GLOBAL STATE MANAGEMENT
+// ===================================
 let globalState = {
     quoteData: null,
     isLoading: false,
@@ -15,6 +16,9 @@ let globalState = {
     isQuoteAccepted: false,
     isQuoteEditable: true
 };
+
+// Feature flag dla nowego modalboxa
+const USE_NEW_ACCEPTANCE_MODAL = true;
 
 // ===================================
 // DATA SYNCHRONIZATION
@@ -134,7 +138,6 @@ const dataSync = {
                 const variantName = utils.translateVariantCode(selectedItem.variant_code);
                 const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
                 
-                // POPRAWKA:
                 const quantity = selectedItem.quantity || 1;
                 
                 console.log(`[generateProductsBreakdownHTML] Product ${productIndex}: quantity=${quantity} from selectedItem.quantity=${selectedItem.quantity}`);
@@ -244,6 +247,285 @@ const dataSync = {
 };
 
 // ===================================
+// UTILITY FUNCTIONS
+// ===================================
+const utils = {
+    formatCurrency: (amount) => {
+        if (amount == null) return "0.00 PLN";
+        return `${parseFloat(amount).toFixed(2)} PLN`;
+    },
+    formatDate: (dateString) => {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('pl-PL', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    },
+    formatShortDate: (dateString) => {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('pl-PL');
+    },
+    translateVariantCode: (code) => {
+        const translations = {
+            'dab-lity-ab': 'Dąb lity A/B',
+            'dab-lity-bb': 'Dąb lity B/B',
+            'dab-micro-ab': 'Dąb mikrowczep A/B',
+            'dab-micro-bb': 'Dąb mikrowczep B/B',
+            'jes-lity-ab': 'Jesion lity A/B',
+            'jes-micro-ab': 'Jesion mikrowczep A/B',
+            'buk-lity-ab': 'Buk lity A/B',
+            'buk-micro-ab': 'Buk mikrowczep A/B'
+        };
+        return translations[code] || code || 'Nieznany wariant';
+    },
+    isValidEmail: (email) => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    },
+    isValidPhone: (phone) => {
+        const phoneRegex = /^[0-9+\s\-()]{7,}$/;
+        return phoneRegex.test(phone.trim());
+    },
+    debounce: (func, wait) => {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    },
+    isMobileView: () => window.innerWidth <= 1024,
+    getCachedElement: (id) => {
+        if (globalState.cachedElements.has(id)) {
+            return globalState.cachedElements.get(id);
+        }
+        const element = document.getElementById(id);
+        if (element) {
+            globalState.cachedElements.set(id, element);
+        }
+        return element;
+    },
+    setLoading: (loading) => {
+        globalState.isLoading = loading;
+        const overlay = utils.getCachedElement('loading-overlay');
+        if (overlay) {
+            if (loading) overlay.classList.remove('hide');
+            else overlay.classList.add('hide');
+        }
+    }
+};
+
+// ===================================
+// ALERT SYSTEM
+// ===================================
+const alerts = {
+    show: (message, type = 'info', duration = 5000) => {
+        const container = utils.getCachedElement('alert-container');
+        if (!container) return;
+        console.log(`[Alert] ${type.toUpperCase()}: ${message}`);
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        const icon = alerts.getIcon(type);
+        alert.innerHTML = `
+            ${icon}
+            <div class="alert-content"><p>${message}</p></div>
+            <button class="alert-close" aria-label="Zamknij alert">
+                <svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
+                          d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0
+                          111.414 1.414L11.414 10l4.293 4.293a1 1 0
+                          01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0
+                          01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                          clip-rule="evenodd"/>
+                </svg>
+            </button>
+        `;
+        const closeBtn = alert.querySelector('.alert-close');
+        closeBtn.addEventListener('click', () => alerts.hide(alert));
+        container.appendChild(alert);
+        if (duration > 0) {
+            setTimeout(() => alerts.hide(alert), duration);
+        }
+        return alert;
+    },
+    hide: (alertElement) => {
+        if (alertElement && alertElement.parentNode) {
+            alertElement.style.opacity = '0';
+            alertElement.style.transform = 'translateY(-20px)';
+            setTimeout(() => {
+                if (alertElement.parentNode) {
+                    alertElement.parentNode.removeChild(alertElement);
+                }
+            }, 300);
+        }
+    },
+    clear: () => {
+        const container = utils.getCachedElement('alert-container');
+        if (container) container.innerHTML = '';
+    },
+    getIcon: (type) => {
+        const icons = {
+            success: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd"
+                                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0
+                                00-1.414-1.414L9 10.586 7.707 9.293a1 1 0
+                                00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                clip-rule="evenodd"/>
+                      </svg>`,
+            error: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd"
+                                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1
+                                0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0
+                                102 0V6a1 1 0 00-1-1z"
+                                clip-rule="evenodd"/>
+                      </svg>`,
+            warning: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd"
+                                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486
+                                0l5.58 9.92c.75 1.334-.213 2.98-1.742
+                                2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11
+                                13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0
+                                00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                clip-rule="evenodd"/>
+                      </svg>`,
+            info: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd"
+                                d="M18 10a8 8 0 11-16 0 8 8 0 0116
+                                0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9
+                                9a1 1 0 000 2v3a1 1 0 001 1h1a1
+                                1 0 100-2v-3a1 1 0 00-1-1H9z"
+                                clip-rule="evenodd"/>
+                      </svg>`
+        };
+        return icons[type] || icons.info;
+    }
+};
+
+// ===================================
+// API COMMUNICATION
+// Komunikacja z backendem
+// ===================================
+
+/**
+ * API module - obsługuje komunikację z serwerem
+ * Wszystkie żądania HTTP przechodzą przez ten moduł
+ */
+const api = {
+    /**
+     * Bazowa funkcja do wykonywania żądań API
+     * @param {string} url - URL endpointu
+     * @param {Object} options - Opcje żądania (method, body, etc.)
+     * @returns {Promise} Promise z odpowiedzią API
+     */
+    call: async (url, options = {}) => {
+        try {
+            console.log(`[API] ${options.method || 'GET'} ${url}`);
+
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            };
+
+            const response = await fetch(url, { ...defaultOptions, ...options });
+
+            // Próbujemy sparsować JSON, ale obsługujemy też inne formaty
+            let data;
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                data = await response.text();
+            }
+
+            if (!response.ok) {
+                console.error(`[API] Error ${response.status}:`, data);
+                const errorMessage = typeof data === 'object' && data.message
+                    ? data.message
+                    : `Błąd serwera (${response.status})`;
+                throw new Error(errorMessage);
+            }
+
+            console.log(`[API] Success:`, data);
+            return data;
+        } catch (error) {
+            console.error(`[API] Request failed:`, error);
+            throw error;
+        }
+    },
+
+    /**
+     * Pobiera dane wyceny dla klienta
+     * @param {string} token - Token publiczny wyceny
+     * @returns {Promise} Dane wyceny
+     */
+    getQuoteData: async (token) => {
+        return api.call(`/quotes/api/client/quote/${token}`);
+    },
+
+    /**
+     * Aktualizuje wybór wariantu (tylko item_id, bez walidacji email/telefon)
+     * @param {string} token - Token publiczny wyceny
+     * @param {number} itemId - ID pozycji do wybrania
+     * @returns {Promise} Odpowiedź serwera
+     */
+    updateVariant: async (token, itemId) => {
+        return api.call(`/quotes/api/client/quote/${token}/update-variant`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+                item_id: itemId
+            })
+        });
+    },
+
+    /**
+     * Akceptuje wycenę przez klienta
+     * @param {string} token - Token publiczny wyceny
+     * @param {string} emailOrPhone - Email lub telefon do weryfikacji
+     * @param {string} comments - Komentarze klienta (opcjonalne)
+     * @returns {Promise} Odpowiedź serwera
+     */
+    acceptQuote: async (token, emailOrPhone, comments = '') => {
+        return api.call(`/quotes/api/client/quote/${token}/accept`, {
+            method: 'POST',
+            body: JSON.stringify({
+                email_or_phone: emailOrPhone,
+                comments: comments
+            })
+        });
+    },
+
+    /**
+     * Akceptuje wycenę z dodatkowymi danymi klienta
+     * @param {string} token - Token publiczny wyceny
+     * @param {Object} clientData - Dane klienta do akceptacji
+     * @returns {Promise} Odpowiedź serwera
+     */
+    acceptQuoteWithData: async (token, clientData) => {
+        return api.call(`/quotes/api/client/quote/${token}/accept-with-data`, {
+            method: 'POST',
+            body: JSON.stringify(clientData)
+        });
+    },
+
+    /**
+     * Pobiera dane klienta dla wyceny
+     * @param {string} token - Token publiczny wyceny
+     * @returns {Promise} Dane klienta
+     */
+    getClientData: async (token) => {
+        return api.call(`/quotes/api/client/quote/${token}/client-data`);
+    }
+};
+
+// ===================================
 // QUOTE DATA MANAGEMENT
 // Zarządzanie danymi wyceny
 // ===================================
@@ -252,8 +534,6 @@ const dataSync = {
  * Quote module - zarządza danymi wyceny i ich wyświetlaniem
  * Główny moduł odpowiedzialny za logikę biznesową wyceny
  */
-
-
 const quote = {
     /**
      * Ładuje dane wyceny z API
@@ -287,6 +567,11 @@ const quote = {
 
             // Renderujemy interfejs
             quote.render();
+
+            // Aktualizuj przyciski akceptacji w nowym systemie
+            if (USE_NEW_ACCEPTANCE_MODAL && typeof clientDataModal !== 'undefined') {
+                clientDataModal.updateAcceptanceButtons(globalState.quoteData);
+            }
 
         } catch (error) {
             console.error('[Quote] Failed to load data:', error);
@@ -509,7 +794,6 @@ const quote = {
         const dimensions = `${selectedItem.length_cm}×${selectedItem.width_cm}×${selectedItem.thickness_cm} cm`;
         const volume = selectedItem.volume_m3?.toFixed(3) || '0.000';
         
-        // POPRAWKA:
         const quantity = selectedItem.quantity || 1;
         
         console.log(`[createProductHeaderHTML] Product ${productIndex}: quantity=${quantity} from selectedItem.quantity=${selectedItem.quantity}`);
@@ -527,7 +811,7 @@ const quote = {
             finishingHTML = `<div><strong>Wykończenie:</strong> ${finishingDisplay}</div>`;
         }
 
-        // NOWE: Dodaj informacje o cenach brutto/netto (jednostkowych i całkowitych)
+        // Dodaj informacje o cenach brutto/netto (jednostkowych i całkowitych)
         const unitPriceBrutto = selectedItem.price_brutto || selectedItem.final_price_brutto || 0;
         const unitPriceNetto = selectedItem.price_netto || selectedItem.final_price_netto || 0;
         const totalPriceBrutto = unitPriceBrutto * quantity;
@@ -592,7 +876,7 @@ const quote = {
         const totalPriceBrutto = unitPriceBrutto * quantity;
         const totalPriceNetto = unitPriceNetto * quantity;
 
-        // NOWE: Badge tylko dla wybranego wariantu w zaakceptowanej wycenie
+        // Badge tylko dla wybranego wariantu w zaakceptowanej wycenie
         let badgeHTML = '';
         if (globalState.isQuoteAccepted) {
             // W zaakceptowanej wycenie tylko wybrany wariant ma badge
@@ -606,7 +890,7 @@ const quote = {
             badgeHTML = `<div class="variant-badge ${badgeClass}">${badgeText}</div>`;
         }
 
-        // NOWE: Wyświetlanie cen jak w modalu szczegółów wyceny
+        // Wyświetlanie cen jak w modalu szczegółów wyceny
         let priceHTML = '';
         if (hasDiscount && originalPriceBrutto) {
             // Z rabatem - pokazuj oryginalne i końcowe ceny
@@ -891,266 +1175,15 @@ const quote = {
 };
 
 // ===================================
-// UTILITY FUNCTIONS
-const utils = {
-    formatCurrency: (amount) => {
-        if (amount == null) return "0.00 PLN";
-        return `${parseFloat(amount).toFixed(2)} PLN`;
-    },
-    formatDate: (dateString) => {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('pl-PL', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    },
-    formatShortDate: (dateString) => {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('pl-PL');
-    },
-    translateVariantCode: (code) => {
-        const translations = {
-            'dab-lity-ab': 'Dąb lity A/B',
-            'dab-lity-bb': 'Dąb lity B/B',
-            'dab-micro-ab': 'Dąb mikrowczep A/B',
-            'dab-micro-bb': 'Dąb mikrowczep B/B',
-            'jes-lity-ab': 'Jesion lity A/B',
-            'jes-micro-ab': 'Jesion mikrowczep A/B',
-            'buk-lity-ab': 'Buk lity A/B',
-            'buk-micro-ab': 'Buk mikrowczep A/B'
-        };
-        return translations[code] || code || 'Nieznany wariant';
-    },
-    isValidEmail: (email) => {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
-    },
-    isValidPhone: (phone) => {
-        const phoneRegex = /^[0-9+\s\-()]{7,}$/;
-        return phoneRegex.test(phone.trim());
-    },
-    debounce: (func, wait) => {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    },
-    isMobileView: () => window.innerWidth <= 1024,
-    getCachedElement: (id) => {
-        if (globalState.cachedElements.has(id)) {
-            return globalState.cachedElements.get(id);
-        }
-        const element = document.getElementById(id);
-        if (element) {
-            globalState.cachedElements.set(id, element);
-        }
-        return element;
-    },
-    setLoading: (loading) => {
-        globalState.isLoading = loading;
-        const overlay = utils.getCachedElement('loading-overlay');
-        if (overlay) {
-            if (loading) overlay.classList.remove('hide');
-            else overlay.classList.add('hide');
-        }
-    }
-};
-
+// FORM HANDLING (stary system akceptacji)
 // ===================================
-// ALERT SYSTEM
-const alerts = {
-    show: (message, type = 'info', duration = 5000) => {
-        const container = utils.getCachedElement('alert-container');
-        if (!container) return;
-        console.log(`[Alert] ${type.toUpperCase()}: ${message}`);
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type}`;
-        const icon = alerts.getIcon(type);
-        alert.innerHTML = `
-            ${icon}
-            <div class="alert-content"><p>${message}</p></div>
-            <button class="alert-close" aria-label="Zamknij alert">
-                <svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd"
-                          d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0
-                          111.414 1.414L11.414 10l4.293 4.293a1 1 0
-                          01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0
-                          01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                          clip-rule="evenodd"/>
-                </svg>
-            </button>
-        `;
-        const closeBtn = alert.querySelector('.alert-close');
-        closeBtn.addEventListener('click', () => alerts.hide(alert));
-        container.appendChild(alert);
-        if (duration > 0) {
-            setTimeout(() => alerts.hide(alert), duration);
-        }
-        return alert;
-    },
-    hide: (alertElement) => {
-        if (alertElement && alertElement.parentNode) {
-            alertElement.style.opacity = '0';
-            alertElement.style.transform = 'translateY(-20px)';
-            setTimeout(() => {
-                if (alertElement.parentNode) {
-                    alertElement.parentNode.removeChild(alertElement);
-                }
-            }, 300);
-        }
-    },
-    clear: () => {
-        const container = utils.getCachedElement('alert-container');
-        if (container) container.innerHTML = '';
-    },
-    getIcon: (type) => {
-        const icons = {
-            success: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                          <path fill-rule="evenodd"
-                                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0
-                                00-1.414-1.414L9 10.586 7.707 9.293a1 1 0
-                                00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                clip-rule="evenodd"/>
-                      </svg>`,
-            error: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                          <path fill-rule="evenodd"
-                                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1
-                                0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0
-                                102 0V6a1 1 0 00-1-1z"
-                                clip-rule="evenodd"/>
-                      </svg>`,
-            warning: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                          <path fill-rule="evenodd"
-                                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486
-                                0l5.58 9.92c.75 1.334-.213 2.98-1.742
-                                2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11
-                                13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0
-                                00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                                clip-rule="evenodd"/>
-                      </svg>`,
-            info: `<svg class="alert-icon" viewBox="0 0 20 20" fill="currentColor">
-                          <path fill-rule="evenodd"
-                                d="M18 10a8 8 0 11-16 0 8 8 0 0116
-                                0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9
-                                9a1 1 0 000 2v3a1 1 0 001 1h1a1
-                                1 0 100-2v-3a1 1 0 00-1-1H9z"
-                                clip-rule="evenodd"/>
-                      </svg>`
-        };
-        return icons[type] || icons.info;
-    }
-};
-
-
-// ===================================
-// API COMMUNICATION
-// Komunikacja z backendem
-// ===================================
-
-/**
- * API module - obsługuje komunikację z serwerem
- * Wszystkie żądania HTTP przechodzą przez ten moduł
- */
-const api = {
-    /**
-     * Bazowa funkcja do wykonywania żądań API
-     * @param {string} url - URL endpointu
-     * @param {Object} options - Opcje żądania (method, body, etc.)
-     * @returns {Promise} Promise z odpowiedzią API
-     */
-    call: async (url, options = {}) => {
-        try {
-            console.log(`[API] ${options.method || 'GET'} ${url}`);
-
-            const defaultOptions = {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            };
-
-            const response = await fetch(url, { ...defaultOptions, ...options });
-
-            // Próbujemy sparsować JSON, ale obsługujemy też inne formaty
-            let data;
-            const contentType = response.headers.get('content-type');
-            if (contentType && contentType.includes('application/json')) {
-                data = await response.json();
-            } else {
-                data = await response.text();
-            }
-
-            if (!response.ok) {
-                console.error(`[API] Error ${response.status}:`, data);
-                const errorMessage = typeof data === 'object' && data.message
-                    ? data.message
-                    : `Błąd serwera (${response.status})`;
-                throw new Error(errorMessage);
-            }
-
-            console.log(`[API] Success:`, data);
-            return data;
-        } catch (error) {
-            console.error(`[API] Request failed:`, error);
-            throw error;
-        }
-    },
-
-    /**
-     * Pobiera dane wyceny dla klienta
-     * @param {string} token - Token publiczny wyceny
-     * @returns {Promise} Dane wyceny
-     */
-    getQuoteData: async (token) => {
-        return api.call(`/quotes/api/client/quote/${token}`);
-    },
-
-    /**
-     * Aktualizuje wybór wariantu (tylko item_id, bez walidacji email/telefon)
-     * @param {string} token - Token publiczny wyceny
-     * @param {number} itemId - ID pozycji do wybrania
-     * @returns {Promise} Odpowiedź serwera
-     */
-    updateVariant: async (token, itemId) => {
-        return api.call(`/quotes/api/client/quote/${token}/update-variant`, {
-            method: 'PATCH',
-            body: JSON.stringify({
-                item_id: itemId
-            })
-        });
-    },
-
-    /**
-     * Akceptuje wycenę przez klienta
-     * @param {string} token - Token publiczny wyceny
-     * @param {string} emailOrPhone - Email lub telefon do weryfikacji
-     * @param {string} comments - Komentarze klienta (opcjonalne)
-     * @returns {Promise} Odpowiedź serwera
-     */
-    acceptQuote: async (token, emailOrPhone, comments = '') => {
-        return api.call(`/quotes/api/client/quote/${token}/accept`, {
-            method: 'POST',
-            body: JSON.stringify({
-                email_or_phone: emailOrPhone,
-                comments: comments
-            })
-        });
-    }
-};
-
-
-// ===================================
-// FORM HANDLING (teraz korzysta z utils i alerts)
 const form = {
     init: () => {
+        if (USE_NEW_ACCEPTANCE_MODAL) {
+            console.log('[Form] Using new acceptance modal - skipping old form initialization');
+            return;
+        }
+        
         console.log('[Form] Initializing forms');
         form.initDesktopForm();
         form.initMobileForm();
@@ -1287,6 +1320,7 @@ const form = {
 
 // ===================================
 // MOBILE PANEL MANAGEMENT
+// ===================================
 const mobilePanel = {
     init: () => {
         const panel = utils.getCachedElement('mobile-summary-panel');
@@ -1307,6 +1341,7 @@ const mobilePanel = {
 
 // ===================================
 // PDF FUNCTIONALITY
+// ===================================
 const pdf = {
     init: () => {
         const desktopBtn = utils.getCachedElement('download-pdf-btn');
@@ -1342,6 +1377,7 @@ const pdf = {
 
 // ===================================
 // RESPONSIVE BEHAVIOR
+// ===================================
 const responsive = {
     init: () => {
         responsive.handleResize();
@@ -1377,201 +1413,57 @@ const responsive = {
 };
 
 // ===================================
-// APPLICATION INITIALIZATION
-const initializeApp = async () => {
-    console.log('[ClientQuote] Initializing application...');
-    try {
-        responsive.init();
-        mobilePanel.init();
-        pdf.init();
-        form.init();
-        await quote.load();
-        console.log('[ClientQuote] Application initialized successfully');
-    } catch (error) {
-        console.error('[ClientQuote] Application initialization failed:', error);
-        alerts.show('Wystąpił błąd podczas inicjalizacji aplikacji', 'error');
-    }
-};
-
-document.addEventListener('DOMContentLoaded', initializeApp);
-window.addEventListener('error', (event) => {
-    console.error('[ClientQuote] Global error:', event.error);
-});
-window.addEventListener('unhandledrejection', (event) => {
-    console.error('[ClientQuote] Unhandled promise rejection:', event.reason);
-});
-
+// OBIEKT DO ZARZĄDZANIA UI AKCEPTACJI
 // ===================================
-// EVENT LISTENERS & DOM READY
-// Nasłuchiwanie eventów i inicjalizacja po załadowaniu DOM
-// ===================================
+const acceptanceUI = {
+    init: () => {
+        console.log('[AcceptanceUI] Initializing acceptance UI');
+        acceptanceUI.setupButtons();
+    },
 
-/**
- * Inicjalizacja po załadowaniu DOM
- */
-document.addEventListener('DOMContentLoaded', initializeApp);
-
-/**
- * Obsługa błędów JavaScript
- */
-window.addEventListener('error', (event) => {
-    console.error('[ClientQuote] Global error:', event.error);
-    // Nie pokazujemy alertu dla każdego błędu JS, tylko logujemy
-});
-
-/**
- * Obsługa niezłapanych Promise rejection
- */
-window.addEventListener('unhandledrejection', (event) => {
-    console.error('[ClientQuote] Unhandled promise rejection:', event.reason);
-    // Nie pokazujemy alertu dla każdego błędu Promise, tylko logujemy
-});
-
-// ===================================
-// GLOBAL FUNCTIONS
-// Funkcje globalne dostępne z HTML
-// ===================================
-
-/**
- * Globalna funkcja do wyboru wariantu - wywoływana z HTML
- * @param {number} itemId - ID wariantu
- * @param {number} productIndex - Indeks produktu
- */
-window.selectVariant = (itemId, productIndex) => {
-    quote.selectVariant(itemId, productIndex);
-};
-
-// ===================================
-// DEBUG HELPERS
-// Pomocne funkcje do debugowania (tylko w development)
-// ===================================
-
-if (typeof window !== 'undefined') {
-    // Dodajemy debug helpers do window dla łatwiejszego debugowania
-    window.ClientQuoteDebug = {
-        globalState,
-        utils,
-        alerts,
-        api,
-        quote,
-        form,
-        dataSync,
-        
-        // Funkcje pomocnicze
-        reloadQuote: () => quote.load(),
-        showTestAlert: (message, type) => alerts.show(message, type),
-        clearAlerts: () => alerts.clear(),
-        toggleMobileView: () => {
-            globalState.isMobileView = !globalState.isMobileView;
-            responsive.handleResize();
+    setupButtons: () => {
+        if (USE_NEW_ACCEPTANCE_MODAL) {
+            acceptanceUI.showNewButtons();
+            acceptanceUI.hideOldForms();
+        } else {
+            acceptanceUI.showOldForms();
+            acceptanceUI.hideNewButtons();
         }
-    };
-    
-    console.log('[ClientQuote] Debug helpers available at window.ClientQuoteDebug');
-}
+    },
 
-console.log("=== CLIENT QUOTE PDF SECURITY UPDATE ===");
-console.log("✅ PDF download now uses tokens instead of quote IDs");
-console.log("✅ Token automatically retrieved from quote data or window.QUOTE_TOKEN");
-console.log("✅ Enhanced security for client-side PDF access");
-console.log("🔒 URL format changed: /quotes/api/quotes/{token}/pdf.{format}");
+    showNewButtons: () => {
+        const newButtons = document.querySelectorAll('.acceptance-button-section');
+        newButtons.forEach(btn => {
+            if (btn) btn.style.display = 'block';
+        });
+        console.log('[AcceptanceUI] New acceptance buttons shown');
+    },
 
-// SPRAWDZENIE TOKENU PRZY INICJALIZACJI
-document.addEventListener('DOMContentLoaded', () => {
-    const token = window.QUOTE_TOKEN;
-    if (!token) {
-        console.error('❌ BRAK TOKENU: window.QUOTE_TOKEN nie jest zdefiniowany!');
-        alerts.show('Błąd bezpieczeństwa: brak tokenu dostępu', 'error');
-    } else {
-        console.log('✅ Token zabezpieczający załadowany:', token.substring(0, 8) + '...');
-    }
-});
+    hideNewButtons: () => {
+        const newButtons = document.querySelectorAll('.acceptance-button-section');
+        newButtons.forEach(btn => {
+            if (btn) btn.style.display = 'none';
+        });
+    },
 
-// ===================================
-// INTEGRATION WITH EXISTING QUOTE SYSTEM
-// ===================================
+    showOldForms: () => {
+        const oldForms = document.querySelectorAll('.acceptance-form');
+        oldForms.forEach(form => {
+            if (form) form.style.display = 'block';
+        });
+        console.log('[AcceptanceUI] Old acceptance forms shown');
+    },
 
-// Rozszerz istniejący obiekt quote o obsługę nowego modalboxa
-if (typeof quote !== 'undefined') {
-    // Zapisz oryginalną metodę update UI
-    const originalUpdateUI = quote.updateUI;
-    
-    // Rozszerz metodę updateUI
-    quote.updateUI = function(data) {
-        // Wywołaj oryginalną metodę
-        originalUpdateUI.call(this, data);
-        
-        // Dodaj logikę dla nowego workflow
-        clientDataModal.updateAcceptanceButtons(data);
-    };
-}
-
-// Funkcja do aktualizacji przycisków akceptacji
-clientDataModal.updateAcceptanceButtons = (quoteData) => {
-    const sidebarAcceptSection = document.getElementById('sidebar-accept-section');
-    const mobileAcceptSection = document.getElementById('mobile-accept-section');
-    const sidebarAcceptedSection = document.getElementById('sidebar-accepted-section');
-    const mobileAcceptedSection = document.getElementById('mobile-accepted-section');
-
-    console.log('[ClientDataModal] Updating acceptance buttons. Is editable:', quoteData.is_client_editable);
-
-    if (!quoteData.is_client_editable) {
-        // Wycena została już zaakceptowana - pokaż sekcję "accepted"
-        if (sidebarAcceptSection) sidebarAcceptSection.style.display = 'none';
-        if (mobileAcceptSection) mobileAcceptSection.style.display = 'none';
-        if (sidebarAcceptedSection) sidebarAcceptedSection.style.display = 'block';
-        if (mobileAcceptedSection) mobileAcceptedSection.style.display = 'block';
-    } else {
-        // Wycena jest edytowalna - pokaż nowe przyciski akceptacji
-        if (sidebarAcceptSection) sidebarAcceptSection.style.display = 'block';
-        if (mobileAcceptSection) mobileAcceptSection.style.display = 'block';
-        if (sidebarAcceptedSection) sidebarAcceptedSection.style.display = 'none';
-        if (mobileAcceptedSection) mobileAcceptedSection.style.display = 'none';
+    hideOldForms: () => {
+        const oldForms = document.querySelectorAll('.acceptance-form');
+        oldForms.forEach(form => {
+            if (form) form.style.display = 'none';
+        });
     }
 };
 
 // ===================================
-// API INTEGRATION
-// ===================================
-
-// Rozszerz istniejący obiekt api o nowe metody
-if (typeof api !== 'undefined') {
-    // Nowa metoda do akceptacji z danymi
-    api.acceptQuoteWithData = async (token, clientData) => {
-        return api.call(`/quotes/api/client/quote/${token}/accept-with-data`, {
-            method: 'POST',
-            body: JSON.stringify(clientData)
-        });
-    };
-
-    // Nowa metoda do pobierania danych klienta
-    api.getClientData = async (token) => {
-        return api.call(`/quotes/api/client/quote/${token}/client-data`);
-    };
-}
-
-// ===================================
-// INITIALIZATION
-// ===================================
-
-// Inicjalizuj modal gdy DOM jest gotowy
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('[ClientDataModal] DOM loaded, initializing...');
-    clientDataModal.init();
-});
-
-// Jeśli jQuery jest dostępne, obsłuż również jego ready
-if (typeof $ !== 'undefined') {
-    $(document).ready(() => {
-        clientDataModal.init();
-    });
-}
-
-// Eksportuj obiekt do globalnego zasięgu dla debugowania
-window.clientDataModal = clientDataModal; MODALBOX Z DANYMI KLIENTA - dodaj do client_quote.js
-
-// ===================================
-// CLIENT DATA MODAL
+// GŁÓWNY OBIEKT CLIENTDATAMODAL
 // ===================================
 const clientDataModal = {
     currentStep: 1,
@@ -1652,24 +1544,42 @@ const clientDataModal = {
                 clientDataModal.closeModal();
             }
         });
+
+        console.log('[ClientDataModal] Event listeners setup complete');
     },
 
     loadClientData: async () => {
         try {
             console.log('[ClientDataModal] Loading client data...');
-            const response = await fetch(`/quotes/api/client/quote/${window.QUOTE_TOKEN}/client-data`);
-            
-            if (response.ok) {
-                const data = await response.json();
-                clientDataModal.clientData = data.client_data;
-                console.log('[ClientDataModal] Client data loaded:', clientDataModal.clientData);
-            } else {
-                console.warn('[ClientDataModal] Could not load client data');
-                clientDataModal.clientData = {};
-            }
+            const data = await api.getClientData(window.QUOTE_TOKEN);
+            clientDataModal.clientData = data.client_data || {};
+            console.log('[ClientDataModal] Client data loaded:', clientDataModal.clientData);
         } catch (error) {
             console.error('[ClientDataModal] Error loading client data:', error);
             clientDataModal.clientData = {};
+        }
+    },
+
+    updateAcceptanceButtons: (quoteData) => {
+        const sidebarAcceptSection = document.getElementById('sidebar-accept-section');
+        const mobileAcceptSection = document.getElementById('mobile-accept-section');
+        const sidebarAcceptedSection = document.getElementById('sidebar-accepted-section');
+        const mobileAcceptedSection = document.getElementById('mobile-accepted-section');
+
+        console.log('[ClientDataModal] Updating acceptance buttons. Is editable:', quoteData.is_client_editable);
+
+        if (!quoteData.is_client_editable) {
+            // Wycena została już zaakceptowana - pokaż sekcję "accepted"
+            if (sidebarAcceptSection) sidebarAcceptSection.style.display = 'none';
+            if (mobileAcceptSection) mobileAcceptSection.style.display = 'none';
+            if (sidebarAcceptedSection) sidebarAcceptedSection.style.display = 'block';
+            if (mobileAcceptedSection) mobileAcceptedSection.style.display = 'block';
+        } else {
+            // Wycena jest edytowalna - pokaż nowe przyciski akceptacji
+            if (sidebarAcceptSection) sidebarAcceptSection.style.display = 'block';
+            if (mobileAcceptSection) mobileAcceptSection.style.display = 'block';
+            if (sidebarAcceptedSection) sidebarAcceptedSection.style.display = 'none';
+            if (mobileAcceptedSection) mobileAcceptedSection.style.display = 'none';
         }
     },
 
@@ -1709,6 +1619,7 @@ const clientDataModal = {
         const submitBtn = document.getElementById('modal-submit-btn');
         if (submitBtn) {
             submitBtn.classList.remove('loading');
+            submitBtn.disabled = false;
         }
     },
 
@@ -1841,16 +1752,16 @@ const clientDataModal = {
             }
 
             // Email LUB telefon wymagany
-            const hasEmail = email.value.trim() !== '';
-            const hasPhone = phone.value.trim() !== '';
+            const hasEmail = email && email.value.trim() !== '';
+            const hasPhone = phone && phone.value.trim() !== '';
 
             if (!hasEmail && !hasPhone) {
-                clientDataModal.showError(email, 'Wymagany jest email lub telefon');
-                clientDataModal.showError(phone, 'Wymagany jest email lub telefon');
+                if (email) clientDataModal.showError(email, 'Wymagany jest email lub telefon');
+                if (phone) clientDataModal.showError(phone, 'Wymagany jest email lub telefon');
                 isValid = false;
             }
 
-            if (hasEmail && !clientDataModal.validateEmail(email.value)) {
+            if (hasEmail && email && !clientDataModal.validateEmail(email.value)) {
                 clientDataModal.showError(email, 'Nieprawidłowy format email');
                 isValid = false;
             }
@@ -1867,8 +1778,8 @@ const clientDataModal = {
             });
 
             // Walidacja faktury jeśli zaznaczona
-            const wantsInvoice = document.getElementById('wants_invoice').checked;
-            if (wantsInvoice) {
+            const wantsInvoiceCheckbox = document.getElementById('wants_invoice');
+            if (wantsInvoiceCheckbox && wantsInvoiceCheckbox.checked) {
                 const nipField = document.getElementById('invoice_nip');
                 if (!clientDataModal.validateField(nipField)) {
                     isValid = false;
@@ -1996,7 +1907,7 @@ const clientDataModal = {
             
             if (isChecked) {
                 invoiceFields.style.display = 'block';
-                form.classList.add('wants-invoice');
+                if (form) form.classList.add('wants-invoice');
                 
                 // Ustaw NIP jako wymagany
                 const nipField = document.getElementById('invoice_nip');
@@ -2005,7 +1916,7 @@ const clientDataModal = {
                 }
             } else {
                 invoiceFields.style.display = 'none';
-                form.classList.remove('wants-invoice');
+                if (form) form.classList.remove('wants-invoice');
                 
                 // Usuń wymaganie NIP
                 const nipField = document.getElementById('invoice_nip');
@@ -2065,36 +1976,23 @@ const clientDataModal = {
             console.log('[ClientDataModal] Form data:', formData);
 
             // Wyślij do API
-            const response = await fetch(`/quotes/api/client/quote/${window.QUOTE_TOKEN}/accept-with-data`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData)
-            });
+            const result = await api.acceptQuoteWithData(window.QUOTE_TOKEN, formData);
 
-            const result = await response.json();
-
-            if (response.ok) {
-                console.log('[ClientDataModal] ✅ Quote accepted successfully!', result);
-                
-                // Zamknij modal
-                clientDataModal.closeModal();
-                
-                // Pokaż sukces
-                alerts.show('Dziękujemy! Wycena została zaakceptowana i przekazana do realizacji.', 'success');
-                
-                // Przeładuj dane wyceny
-                await quote.load();
-                
-            } else {
-                console.error('[ClientDataModal] ❌ Server error:', result);
-                alerts.show(result.error || 'Wystąpił błąd podczas akceptacji wyceny', 'error');
-            }
-
+            console.log('[ClientDataModal] ✅ Quote accepted successfully!', result);
+            
+            // Zamknij modal
+            clientDataModal.closeModal();
+            
+            // Pokaż sukces
+            alerts.show('Dziękujemy! Wycena została zaakceptowana i przekazana do realizacji.', 'success');
+            
+            // Przeładuj dane wyceny
+            await quote.load();
+            
         } catch (error) {
-            console.error('[ClientDataModal] ❌ Network error:', error);
-            alerts.show('Błąd połączenia. Spróbuj ponownie.', 'error');
+            console.error('[ClientDataModal] ❌ Error:', error);
+            const errorMessage = error.message || 'Wystąpił błąd podczas akceptacji wyceny';
+            alerts.show(errorMessage, 'error');
         } finally {
             clientDataModal.setLoading(false);
         }
@@ -2102,6 +2000,8 @@ const clientDataModal = {
 
     getFormData: () => {
         const form = document.getElementById('client-data-form');
+        if (!form) return {};
+        
         const formData = new FormData(form);
         const data = {};
 
@@ -2139,4 +2039,160 @@ const clientDataModal = {
     }
 };
 
-//
+// ===================================
+// APPLICATION INITIALIZATION
+// ===================================
+const initializeApp = async () => {
+    console.log('[ClientQuote] Initializing application...');
+    try {
+        // Sprawdź token zabezpieczający
+        const token = window.QUOTE_TOKEN;
+        if (!token) {
+            console.error('❌ BRAK TOKENU: window.QUOTE_TOKEN nie jest zdefiniowany!');
+            alerts.show('Błąd bezpieczeństwa: brak tokenu dostępu', 'error');
+            return;
+        } else {
+            console.log('✅ Token zabezpieczający załadowany:', token.substring(0, 8) + '...');
+        }
+
+        // Inicjalizuj wszystkie moduły
+        responsive.init();
+        mobilePanel.init();
+        pdf.init();
+        acceptanceUI.init();
+        
+        // Inicjalizuj formularz tylko jeśli nowy modal jest wyłączony
+        form.init();
+        
+        // Inicjalizuj nowy modal jeśli jest włączony
+        if (USE_NEW_ACCEPTANCE_MODAL) {
+            clientDataModal.init();
+        }
+        
+        // Załaduj dane wyceny
+        await quote.load();
+        
+        console.log('[ClientQuote] Application initialized successfully');
+    } catch (error) {
+        console.error('[ClientQuote] Application initialization failed:', error);
+        alerts.show('Wystąpił błąd podczas inicjalizacji aplikacji', 'error');
+    }
+};
+
+// ===================================
+// FUNKCJA DO PRZEŁĄCZANIA MIĘDZY SYSTEMAMI
+// ===================================
+const toggleAcceptanceSystem = () => {
+    window.USE_NEW_ACCEPTANCE_MODAL = !USE_NEW_ACCEPTANCE_MODAL;
+    console.log('[Debug] Switched to', window.USE_NEW_ACCEPTANCE_MODAL ? 'NEW' : 'OLD', 'acceptance system');
+    acceptanceUI.setupButtons();
+    
+    if (window.USE_NEW_ACCEPTANCE_MODAL) {
+        clientDataModal.init();
+    } else {
+        form.init();
+    }
+};
+
+// ===================================
+// EVENT LISTENERS & DOM READY
+// ===================================
+
+/**
+ * Inicjalizacja po załadowaniu DOM
+ */
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+/**
+ * Obsługa błędów JavaScript
+ */
+window.addEventListener('error', (event) => {
+    console.error('[ClientQuote] Global error:', event.error);
+});
+
+/**
+ * Obsługa niezłapanych Promise rejection
+ */
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('[ClientQuote] Unhandled promise rejection:', event.reason);
+});
+
+// ===================================
+// GLOBAL FUNCTIONS
+// ===================================
+
+/**
+ * Globalna funkcja do wyboru wariantu - wywoływana z HTML
+ * @param {number} itemId - ID wariantu
+ * @param {number} productIndex - Indeks produktu
+ */
+window.selectVariant = (itemId, productIndex) => {
+    quote.selectVariant(itemId, productIndex);
+};
+
+/**
+ * Funkcja do przełączania systemów akceptacji - dostępna globalnie
+ */
+window.toggleAcceptanceSystem = toggleAcceptanceSystem;
+
+// ===================================
+// DEBUG HELPERS
+// ===================================
+
+if (typeof window !== 'undefined') {
+    // Dodajemy debug helpers do window dla łatwiejszego debugowania
+    window.ClientQuoteDebug = {
+        globalState,
+        utils,
+        alerts,
+        api,
+        quote,
+        form,
+        dataSync,
+        acceptanceUI,
+        clientDataModal,
+        
+        // Funkcje pomocnicze
+        reloadQuote: () => quote.load(),
+        showTestAlert: (message, type) => alerts.show(message, type),
+        clearAlerts: () => alerts.clear(),
+        toggleMobileView: () => {
+            globalState.isMobileView = !globalState.isMobileView;
+            responsive.handleResize();
+        },
+        openModal: () => clientDataModal.openModal(),
+        closeModal: () => clientDataModal.closeModal()
+    };
+    
+    console.log('[ClientQuote] Debug helpers available at window.ClientQuoteDebug');
+}
+
+// ===================================
+// EKSPORT OBIEKTÓW DO GLOBALNEGO ZASIĘGU
+// ===================================
+
+// Eksportuj obiekty dla dostępu z zewnątrz
+window.clientDataModal = clientDataModal;
+window.acceptanceUI = acceptanceUI;
+window.quote = quote;
+window.api = api;
+window.alerts = alerts;
+window.utils = utils;
+
+console.log("=== CLIENT QUOTE INTEGRATION COMPLETE ===");
+console.log("✅ New acceptance modal integrated successfully");
+console.log("✅ Feature flag system active (USE_NEW_ACCEPTANCE_MODAL = true)");
+console.log("✅ PDF download uses token-based security");
+console.log("✅ All modules initialized and integrated");
+console.log("🔧 Debug commands available at window.ClientQuoteDebug");
+console.log("🔄 Toggle systems with: window.toggleAcceptanceSystem()");
+
+// Finalne sprawdzenie integracji
+console.log('[ClientQuote] Integration status:', {
+    newModalEnabled: USE_NEW_ACCEPTANCE_MODAL,
+    clientDataModal: typeof clientDataModal !== 'undefined',
+    acceptanceUI: typeof acceptanceUI !== 'undefined',
+    quote: typeof quote !== 'undefined',
+    api: typeof api !== 'undefined',
+    alerts: typeof alerts !== 'undefined'
+});

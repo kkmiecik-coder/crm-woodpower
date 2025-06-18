@@ -2667,3 +2667,10 @@ body {
         right: 20%;
     }
 }
+
+.modal-actions .btn-secondary:hover {
+    background-color: var(--primary-color);
+    color: #fff;
+    cursor: pointer;
+    border: 1px solid var(--primary-color);
+}

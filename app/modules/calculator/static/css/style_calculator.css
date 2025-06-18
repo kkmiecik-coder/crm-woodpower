@@ -2982,8 +2982,16 @@ select.select-small option {
     transition: all 0.3s ease;
 }
 
+.summary-section-container {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+    margin-top: 20px;
+}
+
 /* Zapewnienie równej wysokości wizualnej */
 .summary-section {
+    display: contents;
     align-items: stretch; /* Rozciąga sekcje do tej samej wysokości */
 }
 
@@ -3112,3 +3120,4 @@ select.select-small option {
 .save-modal-summary-section {
     display: grid;
 }
+
