@@ -370,15 +370,6 @@ function updatePrices() {
         return;
     }
 
-    // ✅ POPRAWKA: Używaj unikalnych nazw dla radio buttonów
-    const groupRadios = activeQuoteForm.querySelectorAll(
-        `input[name^="variant-product-${tabIndex}"]` // ✅ ZMIENIONO: używaj nowej konwencji nazw
-    );
-    groupRadios.forEach(radio => {
-        if (radio.checked) radio.name = `variant-product-${tabIndex}-selected`; // ✅ ZMIENIONO
-        else radio.name = `variant-product-${tabIndex}`; // ✅ ZMIENIONO
-    });
-
     variantItems.forEach(variant => {
         variant.querySelectorAll('*').forEach(el => el.style.color = "");
     });
@@ -437,11 +428,11 @@ function updatePrices() {
     });
 
     // ✅ POPRAWKA: Sprawdź zaznaczone radio z poprawioną nazwą
-    const expectedName = `variant-product-${tabIndex}-selected`; // ✅ ZMIENIONO
-    const selectedRadio = activeQuoteForm.querySelector(`input[name="${expectedName}"]:checked`);
+    const selectedRadio = activeQuoteForm.querySelector('input[type="radio"]:checked');
     if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
         activeQuoteForm.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
         activeQuoteForm.dataset.orderNetto = selectedRadio.dataset.totalNetto;
+        // Pokoloruj wybrany wariant
         const selectedVariant = selectedRadio.closest('div');
         if (selectedVariant) {
             selectedVariant.querySelectorAll('*').forEach(el => el.style.color = "#ED6B24");
@@ -591,11 +582,6 @@ function updatePricesInOtherProducts() {
     
     console.log('✅ Przeliczono ceny we wszystkich produktach');
 }
-
-/**
- * Oblicza cenę wykończenia i aktualizuje UI oraz dataset podformularza
- */
-// ========== FINALNE POPRAWKI KALKULATORA ==========
 
 // POPRAWKA 1: Napraw updatePricesInOtherProducts - używaj variantMapping zamiast split
 function updatePricesInOtherProducts() {
@@ -801,136 +787,8 @@ function attachFinishingUIListeners(form) {
     updateVisibility();
 }
 
-// POPRAWKA 3: Napraw prepareNewProductForm - unikalne ID dla wykończenia
-function prepareNewProductForm(form, index) {
-    if (!form) return;
-
-    // POPRAWKA: Aktualizuj ID i name dla radio buttons wariantów
-    form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
-        const baseId = radio.value;
-        const newId = `${baseId}-product-${index}`;
-        const oldId = radio.id;
-        
-        radio.id = newId;
-        radio.name = `variant-product-${index}`;
-        radio.checked = false;
-        
-        // Aktualizuj label
-        const label = form.querySelector(`label[for="${oldId}"]`);
-        if (label) label.setAttribute('for', newId);
-    });
-
-    // ✅ POPRAWKA: Unikalne ID dla elementów wykończenia
-    const elementsToUpdate = [
-        '#finishing-variant-wrapper',
-        '#finishing-gloss-wrapper', 
-        '#finishing-color-wrapper'
-    ];
-    
-    elementsToUpdate.forEach(selector => {
-        const element = form.querySelector(selector);
-        if (element && element.id) {
-            element.id = `${element.id}-${index}`;
-        }
-    });
-
-    // POPRAWKA: Resetuj przyciski wykończenia i ustaw domyślne
-    form.querySelectorAll('.finishing-btn.active').forEach(btn => btn.classList.remove('active'));
-    const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Brak"]');
-    if (defaultFinishing) defaultFinishing.classList.add('active');
-
-    // POPRAWKA: Ukryj sekcje wykończenia
-    form.querySelectorAll('[id*="finishing-variant-wrapper"], [id*="finishing-gloss-wrapper"], [id*="finishing-color-wrapper"]').forEach(el => {
-        if (el) el.style.display = 'none';
-    });
-
-    // POPRAWKA: Wyczyść dataset
-    form.dataset.orderBrutto = '';
-    form.dataset.orderNetto = '';
-    form.dataset.finishingType = 'Brak';
-    form.dataset.finishingBrutto = '';
-    form.dataset.finishingNetto = '';
-
-    // POPRAWKA: Pobierz aktualną grupę cenową z pierwszego produktu
-    const firstForm = quoteFormsContainer.querySelector('.quote-form');
-    const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value;
-
-    // POPRAWKA: Wyczyść inputy ale ZACHOWAJ grupę cenową
-    form.querySelectorAll('input[data-field]').forEach(input => {
-        input.value = '';
-        input.classList.remove('error-outline');
-    });
-    
-    form.querySelectorAll('select[data-field]').forEach(select => {
-        if (select.dataset.field === 'clientType' && currentClientType) {
-            select.value = currentClientType;
-            console.log(`[prepareNewProductForm] Skopiowano grupę cenową: ${currentClientType}`);
-        } else {
-            select.selectedIndex = 0;
-        }
-    });
-
-    // POPRAWKA: Resetuj wyświetlanie cen
-    form.querySelectorAll('.variants span').forEach(span => {
-        const isHeader = span.classList.contains('header-title') ||
-            span.classList.contains('header-unit-brutto') ||
-            span.classList.contains('header-unit-netto') ||
-            span.classList.contains('header-total-brutto') ||
-            span.classList.contains('header-total-netto');
-        if (!span.classList.contains('out-of-stock-tag') && !isHeader) {
-            span.textContent = 'Brak dług.';
-        }
-    });
-
-    // POPRAWKA: Resetuj kolory wariantów
-    form.querySelectorAll('.variants div').forEach(variant => {
-        variant.style.backgroundColor = '';
-        variant.querySelectorAll('*').forEach(el => el.style.color = '');
-    });
-}
-
-// POPRAWKA 4: Napraw fixAllRadioButtonNames - NIE resetuj zaznaczonych opcji
-function fixAllRadioButtonNames() {
-    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
-    
-    allForms.forEach((form, formIndex) => {
-        // ✅ NAJPIERW zachowaj informację o zaznaczonych radio
-        const checkedRadios = [];
-        form.querySelectorAll('.variants input[type="radio"]:checked').forEach(radio => {
-            checkedRadios.push(radio.value); // Zachowaj value zaznaczonego radio
-        });
-        
-        // Teraz zaktualizuj nazwy i ID
-        form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
-            const baseValue = radio.value;
-            const wasChecked = radio.checked; // Zachowaj stan zaznaczenia
-            
-            radio.id = `${baseValue}-product-${formIndex}`;
-            radio.name = `variant-product-${formIndex}`;
-            
-            // ✅ PRZYWRÓĆ zaznaczenie jeśli było zaznaczone
-            if (wasChecked || checkedRadios.includes(baseValue)) {
-                radio.checked = true;
-                // Dodatkowo zaktualizuj nazwę dla zaznaczonego
-                radio.name = `variant-product-${formIndex}-selected`;
-            }
-            
-            // Aktualizuj label
-            const label = form.querySelector(`label[for*="${baseValue}"]`);
-            if (label) {
-                label.setAttribute('for', radio.id);
-            }
-        });
-        
-        console.log(`✅ Naprawiono radio buttons dla produktu ${formIndex + 1}, zachowano ${checkedRadios.length} zaznaczonych`);
-    });
-    
-    console.log('✅ Naprawiono nazwy radio buttonów we wszystkich formularzach BEZ resetowania selekcji');
-}
-
 // POPRAWKA 5: Napraw calculateFinishingCost - usuń globalne ID
 function calculateFinishingCost(form) {
-    dbg("🧪 calculateFinishingCost start:", form);
     if (!form || !form.closest('.quote-form')) return { netto: null, brutto: null };
 
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
@@ -1137,32 +995,30 @@ function attachFinishingUIListeners(form) {
 }
 
 function attachFormListeners(form) {
-    if (!form || form.dataset.listenersAttached) return;
-
-    // Podstawowe inputy
+    if (!form) return;
+    
+    console.log(`🔧 Podpinam listenery dla formularza`);
+    
+    // Dodaj listenery dla podstawowych inputów
     form.querySelectorAll('input[data-field]').forEach(input => {
-        input.removeEventListener('input', updatePrices);
+        input.removeEventListener('input', updatePrices); // Usuń poprzednie
         input.addEventListener('input', updatePrices);
+        input.removeEventListener('change', updatePrices); // Usuń poprzednie
+        input.addEventListener('change', updatePrices);
     });
 
-    // Radio buttons
+    // Dodaj listenery dla radio buttons
     form.querySelectorAll('input[type="radio"]').forEach(radio => {
-        radio.removeEventListener('change', updatePrices);
+        radio.removeEventListener('change', updatePrices); // Usuń poprzednie
         radio.addEventListener('change', updatePrices);
     });
 
-    // Grupa cenowa
-    const clientTypeSelect = form.querySelector('select[data-field="clientType"]');
-    if (clientTypeSelect) {
-        clientTypeSelect.removeEventListener('change', handleClientTypeChange);
-        clientTypeSelect.addEventListener('change', handleClientTypeChange);
-    }
-
-    // ✅ POPRAWKA: Wykończenie z dedykowanymi listenerami
+    // Dodaj listenery dla wykończenia
     attachFinishingListenersToForm(form);
-    attachFinishingUIListeners(form); // ✅ Ta funkcja jest już poprawiona wyżej
+    attachFinishingUIListeners(form);
 
     form.dataset.listenersAttached = "true";
+    console.log(`✅ Listenery podpięte dla formularza`);
 }
 
 function syncClientTypeAcrossProducts(selectedType, sourceForm) {
@@ -1267,88 +1123,136 @@ function areAllProductsComplete() {
 function prepareNewProductForm(form, index) {
     if (!form) return;
 
-    // POPRAWKA: Aktualizuj ID i name dla radio buttons wariantów
+    console.log(`[prepareNewProductForm] Przygotowuję produkt ${index + 1}`);
+
+    // ✅ POPRAWKA 1: Aktualizuj ID i name dla radio buttons wariantów
     form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
-        const baseId = radio.value;
-        const newId = `${baseId}-product-${index}`;
+        const baseId = radio.value; // np. "dab-lity-ab"
+        const newId = `${baseId}-product-${index}`; // np. "dab-lity-ab-product-1"
         const oldId = radio.id;
         
+        // Ustaw nowe unikalne ID
         radio.id = newId;
+        // Ustaw unikalną nazwę grupy dla tego produktu
         radio.name = `variant-product-${index}`;
-        radio.checked = false;
         
-        // Aktualizuj label
+        // ✅ KLUCZOWA POPRAWKA: Resetuj zaznaczenie TYLKO dla nowych produktów (index > 0)
+        if (index > 0) {
+            radio.checked = false; // Tylko nowe produkty nie mają zaznaczenia
+        }
+        
+        // ✅ POPRAWKA 2: Zaktualizuj odpowiadający label
         const label = form.querySelector(`label[for="${oldId}"]`);
-        if (label) label.setAttribute('for', newId);
-    });
-
-    // ✅ POPRAWKA: Unikalne ID dla elementów wykończenia
-    const elementsToUpdate = [
-        '#finishing-variant-wrapper',
-        '#finishing-gloss-wrapper', 
-        '#finishing-color-wrapper'
-    ];
-    
-    elementsToUpdate.forEach(selector => {
-        const element = form.querySelector(selector);
-        if (element && element.id) {
-            element.id = `${element.id}-${index}`;
+        if (label) {
+            label.setAttribute('for', newId);
         }
+        
+        console.log(`  Radio: ${baseId} → ID: ${newId}, Name: ${radio.name}, Checked: ${radio.checked}`);
     });
 
-    // POPRAWKA: Resetuj przyciski wykończenia i ustaw domyślne
-    form.querySelectorAll('.finishing-btn.active').forEach(btn => btn.classList.remove('active'));
-    const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Brak"]');
-    if (defaultFinishing) defaultFinishing.classList.add('active');
+    // ✅ POPRAWKA 3: Aktualizuj ID dla innych elementów input (tylko dla nowych produktów)
+    if (index > 0) {
+        form.querySelectorAll('input[data-field]').forEach(input => {
+            const baseId = input.id;
+            if (baseId) {
+                const newId = `${baseId}-product-${index}`;
+                input.id = newId;
+                
+                // Zaktualizuj odpowiadający label
+                const label = form.querySelector(`label[for="${baseId}"]`);
+                if (label) {
+                    label.setAttribute('for', newId);
+                }
+            }
+        });
 
-    // POPRAWKA: Ukryj sekcje wykończenia
-    form.querySelectorAll('[id*="finishing-variant-wrapper"], [id*="finishing-gloss-wrapper"], [id*="finishing-color-wrapper"]').forEach(el => {
-        if (el) el.style.display = 'none';
-    });
+        // ✅ POPRAWKA 4: Aktualizuj ID dla select (tylko dla nowych produktów)
+        form.querySelectorAll('select[data-field]').forEach(select => {
+            const baseId = select.id;
+            if (baseId) {
+                const newId = `${baseId}-product-${index}`;
+                select.id = newId;
+                
+                // Zaktualizuj odpowiadający label
+                const label = form.querySelector(`label[for="${baseId}"]`);
+                if (label) {
+                    label.setAttribute('for', newId);
+                }
+            }
+        });
+    }
 
-    // POPRAWKA: Wyczyść dataset
-    form.dataset.orderBrutto = '';
-    form.dataset.orderNetto = '';
-    form.dataset.finishingType = 'Brak';
-    form.dataset.finishingBrutto = '';
-    form.dataset.finishingNetto = '';
+    // ✅ POPRAWKA 5: Resetuj przyciski wykończenia i ustaw domyślne (tylko dla nowych produktów)
+    if (index > 0) {
+        form.querySelectorAll('.finishing-btn.active').forEach(btn => btn.classList.remove('active'));
+        const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Brak"]');
+        if (defaultFinishing) {
+            defaultFinishing.classList.add('active');
+        }
 
-    // POPRAWKA: Pobierz aktualną grupę cenową z pierwszego produktu
-    const firstForm = quoteFormsContainer.querySelector('.quote-form');
-    const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value;
+        // ✅ POPRAWKA 6: Ukryj sekcje wykończenia
+        const finishingWrappers = [
+            '#finishing-variant-wrapper',
+            '#finishing-gloss-wrapper', 
+            '#finishing-color-wrapper'
+        ];
+        
+        finishingWrappers.forEach(selector => {
+            const wrapper = form.querySelector(selector);
+            if (wrapper) wrapper.style.display = 'none';
+        });
 
-    // POPRAWKA: Wyczyść inputy ale ZACHOWAJ grupę cenową
-    form.querySelectorAll('input[data-field]').forEach(input => {
-        input.value = '';
-        input.classList.remove('error-outline');
-    });
-    
-    form.querySelectorAll('select[data-field]').forEach(select => {
-        if (select.dataset.field === 'clientType' && currentClientType) {
-            select.value = currentClientType;
+        // ✅ POPRAWKA 7: Wyczyść dataset formularza
+        form.dataset.orderBrutto = '';
+        form.dataset.orderNetto = '';
+        form.dataset.finishingType = 'Brak';
+        form.dataset.finishingBrutto = '0';
+        form.dataset.finishingNetto = '0';
+
+        // ✅ POPRAWKA 8: Wyczyść inputy ale ZACHOWAJ grupę cenową
+        const currentClientType = form.querySelector('select[data-field="clientType"]')?.value;
+        
+        // Wyczyść tylko pola wymiarów i ilości
+        ['length', 'width', 'thickness', 'quantity'].forEach(field => {
+            const input = form.querySelector(`input[data-field="${field}"]`);
+            if (input) input.value = '';
+        });
+        
+        // Zachowaj grupę cenową
+        const clientTypeSelect = form.querySelector('select[data-field="clientType"]');
+        if (clientTypeSelect && currentClientType) {
+            clientTypeSelect.value = currentClientType;
             console.log(`[prepareNewProductForm] Skopiowano grupę cenową: ${currentClientType}`);
-        } else {
-            select.selectedIndex = 0;
         }
-    });
 
-    // POPRAWKA: Resetuj wyświetlanie cen
-    form.querySelectorAll('.variants span').forEach(span => {
-        const isHeader = span.classList.contains('header-title') ||
-            span.classList.contains('header-unit-brutto') ||
-            span.classList.contains('header-unit-netto') ||
-            span.classList.contains('header-total-brutto') ||
-            span.classList.contains('header-total-netto');
-        if (!span.classList.contains('out-of-stock-tag') && !isHeader) {
-            span.textContent = 'Brak dług.';
-        }
-    });
+        // ✅ POPRAWKA 9: Resetuj wyświetlanie cen w wariantach
+        form.querySelectorAll('.variants span').forEach(span => {
+            // Nie zmieniaj nagłówków tabeli
+            const isHeader = span.classList.contains('header-title') ||
+                span.classList.contains('header-unit-brutto') ||
+                span.classList.contains('header-unit-netto') ||
+                span.classList.contains('header-total-brutto') ||
+                span.classList.contains('header-total-netto');
+            
+            // Nie zmieniaj tagów "BRAK"
+            const isOutOfStock = span.classList.contains('out-of-stock-tag');
+            
+            if (!isHeader && !isOutOfStock) {
+                span.textContent = 'Podaj wymiary'; // Domyślny tekst dla nowego produktu
+            }
+        });
 
-    // POPRAWKA: Resetuj kolory wariantów
-    form.querySelectorAll('.variants div').forEach(variant => {
-        variant.style.backgroundColor = '';
-        variant.querySelectorAll('*').forEach(el => el.style.color = '');
-    });
+        // ✅ POPRAWKA 10: Resetuj kolory wariantów
+        form.querySelectorAll('.variants div').forEach(variant => {
+            variant.style.backgroundColor = '';
+            variant.querySelectorAll('*').forEach(el => el.style.color = '');
+        });
+    }
+
+    // ✅ POPRAWKA 11: Resetuj flagę listenery
+    form.dataset.listenersAttached = "false";
+
+    console.log(`[prepareNewProductForm] ✅ Przygotowano produkt ${index + 1}`);
 }
 
 /**
@@ -3320,8 +3224,12 @@ function activateProductCard(index) {
     // Ustaw aktywny formularz
     activeQuoteForm = forms[index];
     
-    // Odśwież event listeners
+    // ✅ POPRAWKA: ZAWSZE odśwież event listeners dla aktywnego formularza
     if (activeQuoteForm) {
+        console.log(`[activateProductCard] Podpinam listenery dla produktu ${index + 1}`);
+        
+        // Resetuj flagę i wymuś ponowne podpięcie listenery
+        activeQuoteForm.dataset.listenersAttached = "false";
         attachFormListeners(activeQuoteForm);
         updatePrices();
     }
@@ -3329,7 +3237,7 @@ function activateProductCard(index) {
     // Odśwież panel produktów
     generateProductsSummary();
     
-    dbg(`Aktywowano produkt ${index + 1}`);
+    console.log(`Aktywowano produkt ${index + 1}`);
 }
 
 /**
@@ -3338,6 +3246,7 @@ function activateProductCard(index) {
 function addNewProduct() {
     console.log("[addNewProduct] Dodaję nowy produkt...");
     
+    // Pobierz aktualną grupę cenową z pierwszego formularza
     const firstForm = quoteFormsContainer.querySelector('.quote-form');
     const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
     
@@ -3346,67 +3255,39 @@ function addNewProduct() {
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
     const newIndex = forms.length;
 
+    // Skopiuj pierwszy formularz
     if (!firstForm) {
         console.error("[addNewProduct] Nie znaleziono pierwszego formularza!");
         return;
     }
 
-    // ✅ ZACHOWAJ stany wszystkich istniejących formularzy PRZED klonowaniem
-    const preservedStates = forms.map(form => {
-        const checkedRadios = [];
-        form.querySelectorAll('.variants input[type="radio"]:checked').forEach(radio => {
-            checkedRadios.push({
-                value: radio.value,
-                totalBrutto: radio.dataset.totalBrutto,
-                totalNetto: radio.dataset.totalNetto
-            });
-        });
-        
-        return {
-            form: form,
-            checkedRadios: checkedRadios,
-            orderBrutto: form.dataset.orderBrutto,
-            orderNetto: form.dataset.orderNetto
-        };
-    });
-
     const newForm = firstForm.cloneNode(true);
     newForm.style.display = 'none';
+    
+    // ✅ KLUCZOWA POPRAWKA: Resetuj flagę listenery
+    newForm.dataset.listenersAttached = "false";
+    
     quoteFormsContainer.appendChild(newForm);
 
-    // Przygotuj nowy formularz
+    // Przygotuj formularz z poprawkami
     prepareNewProductForm(newForm, newIndex);
-    attachFormListeners(newForm);
     
-    // ✅ PRZYWRÓĆ stany istniejących formularzy
-    preservedStates.forEach((state, index) => {
-        state.checkedRadios.forEach(radioData => {
-            const radio = state.form.querySelector(`input[value="${radioData.value}"]`);
-            if (radio) {
-                radio.checked = true;
-                radio.name = `variant-product-${index}-selected`;
-                radio.dataset.totalBrutto = radioData.totalBrutto;
-                radio.dataset.totalNetto = radioData.totalNetto;
-                
-                // Przywróć pomarańczowy kolor
-                const selectedVariant = radio.closest('div');
-                if (selectedVariant) {
-                    selectedVariant.querySelectorAll('*').forEach(el => el.style.color = "#ED6B24");
-                }
-            }
-        });
-        
-        // Przywróć dataset
-        state.form.dataset.orderBrutto = state.orderBrutto;
-        state.form.dataset.orderNetto = state.orderNetto;
-    });
+    // Wymuś skopiowanie grupy cenowej
+    if (currentClientType) {
+        const select = newForm.querySelector('select[data-field="clientType"]');
+        if (select) {
+            select.value = currentClientType;
+            console.log(`[addNewProduct] Skopiowano grupę cenową: ${currentClientType}`);
+        }
+    }
+    
+    // ✅ POPRAWKA: Podepnij event listenery (teraz zadziała bo resetowaliśmy flagę)
+    attachFormListeners(newForm);
     
     // Aktywuj nowy formularz
     activateProductCard(newIndex);
     
-    // ✅ FINALNIE napraw nazwy BEZ resetowania stanów
-    fixAllRadioButtonNames();
-    
+    // Wymuś odświeżenie po krótkim opóźnieniu
     setTimeout(() => {
         updatePrices();
         generateProductsSummary();
@@ -3452,33 +3333,3 @@ function fixAllRadioButtonNames() {
     
     console.log('✅ Naprawiono nazwy radio buttonów we wszystkich formularzach BEZ resetowania selekcji');
 }
-
-document.addEventListener('DOMContentLoaded', function() {
-    console.log("🔧 Inicjalizuję FINALNE poprawki kalkulatora...");
-    
-    setTimeout(() => {
-        if (quoteFormsContainer) {
-            console.log("🔧 Naprawiam istniejące formularze...");
-            fixAllRadioButtonNames();
-            
-            // Podepnij poprawione listenery
-            quoteFormsContainer.querySelectorAll('.quote-form').forEach((form, index) => {
-                console.log(`🔧 Podpinam listenery dla formularza ${index + 1}`);
-                attachFormListeners(form);
-            });
-            
-            console.log("✅ Wszystkie formularze naprawione");
-        }
-        
-        if (typeof updateCalculateDeliveryButtonState === 'function') {
-            updateCalculateDeliveryButtonState();
-        }
-        if (typeof generateProductsSummary === 'function') {
-            generateProductsSummary();
-        }
-    }, 500);
-    
-    console.log("✅ FINALNE poprawki kalkulatora zostały zainicjalizowane!");
-});
-
-console.log("✅ FINALNE poprawki kalkulatora zostały załadowane!");
