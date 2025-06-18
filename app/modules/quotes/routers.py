@@ -1264,3 +1264,236 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
     except Exception as e:
         print(f"[send_user_acceptance_email_to_client] Błąd wysyłki maila do klienta: {e}", file=sys.stderr)
         raise
+
+@quotes_bp.route("/api/client/quote/<token>/accept-with-data", methods=["POST"])
+def client_accept_quote_with_data(token):
+    """Akceptacja wyceny przez klienta z pełnymi danymi - NOWY WORKFLOW"""
+    try:
+        data = request.get_json()
+        print(f"[client_accept_quote_with_data] Otrzymane dane: {data}", file=sys.stderr)
+        
+        # Walidacja wymaganych danych
+        required_fields = ['email', 'phone', 'delivery_name', 'delivery_city', 'delivery_address']
+        missing_fields = []
+        
+        for field in required_fields:
+            if not data.get(field) or str(data.get(field)).strip() == '':
+                missing_fields.append(field)
+        
+        # Sprawdź czy email LUB telefon jest wypełniony (jedno z dwóch wystarczy)
+        if not data.get('email') and not data.get('phone'):
+            missing_fields.append('email_lub_phone')
+        elif data.get('email') and data.get('phone'):
+            # Jeśli oba są wypełnione, usuń z brakujących
+            if 'email' in missing_fields:
+                missing_fields.remove('email')
+            if 'phone' in missing_fields:
+                missing_fields.remove('phone')
+        elif data.get('email'):
+            # Tylko email - usuń phone z wymaganych
+            if 'phone' in missing_fields:
+                missing_fields.remove('phone')
+        elif data.get('phone'):
+            # Tylko phone - usuń email z wymaganych  
+            if 'email' in missing_fields:
+                missing_fields.remove('email')
+        
+        if missing_fields:
+            return jsonify({
+                "error": "Brakujące wymagane pola", 
+                "missing_fields": missing_fields
+            }), 400
+        
+        # Pobierz wycenę
+        quote = Quote.query.filter_by(public_token=token).first_or_404()
+        
+        if not quote.is_client_editable:
+            return jsonify({"error": "Wycena została już zaakceptowana"}), 403
+        
+        print(f"[client_accept_quote_with_data] Wycena {quote.id} - rozpoczynam aktualizację danych", file=sys.stderr)
+        
+        # AKTUALIZUJ DANE KLIENTA
+        client = quote.client
+        if not client:
+            return jsonify({"error": "Brak powiązanego klienta"}), 400
+        
+        # Dane podstawowe
+        if data.get('delivery_name'):
+            client.client_name = data['delivery_name']
+            client.delivery_name = data['delivery_name']
+        
+        if data.get('email'):
+            client.email = data['email']
+        
+        if data.get('phone'):
+            client.phone = data['phone']
+        
+        # Dane dostawy
+        if data.get('delivery_company'):
+            client.delivery_company = data['delivery_company']
+        if data.get('delivery_address'):
+            client.delivery_address = data['delivery_address']
+        if data.get('delivery_postcode'):
+            client.delivery_zip = data['delivery_postcode']
+        if data.get('delivery_city'):
+            client.delivery_city = data['delivery_city']
+        if data.get('delivery_region'):
+            client.delivery_region = data['delivery_region']
+        
+        client.delivery_country = 'Polska'  # Wartość domyślna
+        
+        # Dane do faktury (jeśli klient chce fakturę)
+        wants_invoice = data.get('wants_invoice', False)
+        if wants_invoice:
+            if data.get('invoice_name'):
+                client.invoice_name = data['invoice_name']
+            if data.get('invoice_company'):
+                client.invoice_company = data['invoice_company']
+            if data.get('invoice_address'):
+                client.invoice_address = data['invoice_address']
+            if data.get('invoice_postcode'):
+                client.invoice_zip = data['invoice_postcode']
+            if data.get('invoice_city'):
+                client.invoice_city = data['invoice_city']
+            if data.get('invoice_region'):
+                client.invoice_region = data['invoice_region']
+            if data.get('invoice_nip'):
+                client.invoice_nip = data['invoice_nip']
+        
+        print(f"[client_accept_quote_with_data] Zaktualizowano dane klienta ID: {client.id}", file=sys.stderr)
+        
+        # AKTUALIZUJ WYCENĘ
+        # Znajdź status "Zaakceptowane" (ID 3)
+        accepted_status = QuoteStatus.query.filter_by(id=3).first()
+        if not accepted_status:
+            # Fallback - spróbuj różne nazwy
+            accepted_status = QuoteStatus.query.filter(
+                QuoteStatus.name.in_(["Zaakceptowane", "Zaakceptowana", "Accepted", "Zatwierdzone"])
+            ).first()
+        
+        if accepted_status:
+            old_status_id = quote.status_id
+            quote.status_id = accepted_status.id
+            print(f"[client_accept_quote_with_data] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
+        else:
+            print(f"[client_accept_quote_with_data] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
+            # Wypisz wszystkie dostępne statusy dla debugowania
+            all_statuses = QuoteStatus.query.all()
+            print(f"[client_accept_quote_with_data] Dostępne statusy:", file=sys.stderr)
+            for status in all_statuses:
+                print(f"  ID: {status.id}, Nazwa: '{status.name}'", file=sys.stderr)
+        
+        # Zapisz dane akceptacji
+        quote.client_comments = data.get('quote_notes', '')  # Uwagi do wyceny
+        quote.acceptance_date = datetime.now()
+        quote.accepted_by_email = data.get('email') or data.get('phone')  # Email lub telefon jako identyfikator
+        quote.disable_client_editing()
+        
+        # Flush przed commit żeby zobaczyć błędy
+        try:
+            db.session.flush()
+            print(f"[client_accept_quote_with_data] Flush wykonany pomyślnie", file=sys.stderr)
+        except Exception as e:
+            print(f"[client_accept_quote_with_data] BŁĄD podczas flush: {e}", file=sys.stderr)
+            db.session.rollback()
+            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        
+        # Commit zmian
+        try:
+            db.session.commit()
+            print(f"[client_accept_quote_with_data] Commit wykonany pomyślnie", file=sys.stderr)
+        except Exception as e:
+            print(f"[client_accept_quote_with_data] BŁĄD podczas commit: {e}", file=sys.stderr)
+            db.session.rollback()
+            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        
+        # Sprawdź po zapisie
+        quote_after = Quote.query.get(quote.id)
+        print(f"[client_accept_quote_with_data] PO zapisie - wycena {quote_after.id}, status_id: {quote_after.status_id}", file=sys.stderr)
+        
+        # Wyślij emaile powiadomienia
+        try:
+            send_acceptance_emails(quote)
+            print(f"[client_accept_quote_with_data] Emaile wysłane pomyślnie", file=sys.stderr)
+        except Exception as e:
+            print(f"[client_accept_quote_with_data] Błąd wysyłki maili: {e}", file=sys.stderr)
+        
+        return jsonify({
+            "message": "Wycena została zaakceptowana z danymi klienta",
+            "quote_id": quote.id,
+            "quote_number": quote.quote_number,
+            "acceptance_date": quote.acceptance_date.isoformat(),
+            "client_updated": True,
+            "new_status": accepted_status.name if accepted_status else "Brak statusu",
+            "new_status_id": accepted_status.id if accepted_status else None,
+            "redirect_url": f"/quotes/wycena/{quote.quote_number}/{quote.public_token}/potwierdzenie"
+        })
+        
+    except Exception as e:
+        print(f"[client_accept_quote_with_data] WYJĄTEK: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        db.session.rollback()
+        return jsonify({"error": "Błąd podczas akceptacji wyceny"}), 500
+    
+# Dodaj ten endpoint do app/modules/quotes/routers.py
+
+@quotes_bp.route("/api/client/quote/<token>/client-data", methods=["GET"])
+def get_client_data_for_modal(token):
+    """Pobiera dane klienta do wypełnienia modalboxa - NOWY ENDPOINT"""
+    try:
+        quote = Quote.query.filter_by(public_token=token).first_or_404()
+        client = quote.client
+        
+        if not client:
+            return jsonify({"error": "Brak danych klienta"}), 404
+        
+        # Przygotuj dane do prefill formularza
+        client_data = {
+            # Dane podstawowe
+            "delivery_name": client.delivery_name or client.client_name or "",
+            "email": client.email or "",
+            "phone": client.phone or "",
+            
+            # Dane dostawy
+            "delivery_company": client.delivery_company or "",
+            "delivery_address": client.delivery_address or "",
+            "delivery_postcode": client.delivery_zip or "",
+            "delivery_city": client.delivery_city or "",
+            "delivery_region": client.delivery_region or "",
+            
+            # Dane do faktury
+            "invoice_name": client.invoice_name or "",
+            "invoice_company": client.invoice_company or "",
+            "invoice_address": client.invoice_address or "",
+            "invoice_postcode": client.invoice_zip or "",
+            "invoice_city": client.invoice_city or "",
+            "invoice_region": client.invoice_region or "",
+            "invoice_nip": client.invoice_nip or "",
+            
+            # Sprawdź czy klient ma dane do faktury (czy chce fakturę)
+            "wants_invoice": bool(client.invoice_name or client.invoice_company or client.invoice_nip),
+            
+            # Uwagi do wyceny (z poprzedniej akceptacji, jeśli były)
+            "quote_notes": quote.client_comments or ""
+        }
+        
+        # Informacje o wycenie
+        quote_info = {
+            "quote_number": quote.quote_number,
+            "quote_id": quote.id,
+            "is_editable": quote.is_client_editable,
+            "total_price": str(quote.total_price) if quote.total_price else "0.00"
+        }
+        
+        return jsonify({
+            "client_data": client_data,
+            "quote_info": quote_info,
+            "prefill_available": True
+        })
+        
+    except Exception as e:
+        print(f"[get_client_data_for_modal] BŁĄD: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Błąd podczas pobierania danych klienta"}), 500

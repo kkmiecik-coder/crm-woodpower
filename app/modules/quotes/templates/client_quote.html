@@ -96,66 +96,39 @@
                     </section>
 
                     <!-- Mobile Accept section - tylko na mobile pod produktami -->
-                    <section class="mobile-accept-section" id="mobile-accept-section" style="display: none;">
+                    <div class="mobile-accept-section" id="mobile-accept-section" style="display: none;">
                         <div class="accept-card">
                             <div class="accept-header">
-                                <h2 class="accept-title">
+                                <h3 class="accept-title">
                                     <svg class="accept-icon" viewBox="0 0 20 20" fill="currentColor">
                                         <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                                     </svg>
-                                    Zaakceptuj wycenę
-                                </h2>
+                                    Akceptuj wycenę
+                                </h3>
                                 <p class="accept-description">
-                                    Jeśli wybrane produkty odpowiadają Twoim oczekiwaniom, możesz zaakceptować wycenę.
+                                    Aby zaakceptować wycenę, uzupełnij swoje dane kontaktowe i adres dostawy.
                                 </p>
                             </div>
 
-                            <!-- Acceptance form na mobile -->
-                            <form id="mobile-acceptance-form" class="acceptance-form">
-                                <div class="form-group">
-                                    <label for="mobile-email-phone" class="form-label">
-                                        Email lub numer telefonu *
-                                        <span class="form-hint">Do weryfikacji tożsamości</span>
-                                    </label>
-                                    <input type="text"
-                                           id="mobile-email-phone"
-                                           name="email_phone"
-                                           class="form-input"
-                                           placeholder="Wpisz swój email lub numer telefonu"
-                                           required>
-                                    <div class="form-error" id="mobile-email-phone-error"></div>
+                            <div class="acceptance-button-section">
+                                <button type="button" 
+                                        class="btn btn-primary btn-large btn-full" 
+                                        id="mobile-accept-with-data-btn">
+                                    <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span class="btn-text">Uzupełnij dane i akceptuj</span>
+                                </button>
+                                
+                                <div class="acceptance-info">
+                                    <svg class="info-icon" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                                    </svg>
+                                    <span>Kliknij przycisk aby wypełnić formularz z danymi</span>
                                 </div>
-
-                                <div class="form-group">
-                                    <label for="mobile-comments" class="form-label">
-                                        Dodatkowe uwagi lub pytania
-                                        <span class="form-hint">Opcjonalne</span>
-                                    </label>
-                                    <textarea id="mobile-comments"
-                                              name="comments"
-                                              class="form-textarea"
-                                              rows="4"
-                                              placeholder="Możesz dodać swoje uwagi lub pytania dotyczące zamówienia..."></textarea>
-                                    <div class="character-counter">
-                                        <span id="mobile-char-count">0</span>/500
-                                    </div>
-                                </div>
-
-                                <div class="form-actions">
-                                    <button type="submit" class="btn btn-primary btn-large" id="mobile-accept-btn">
-                                        <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                        </svg>
-                                        <span class="btn-text">Akceptuję wycenę</span>
-                                        <span class="btn-loading" style="display: none;">
-                                            <span class="spinner-small"></span>
-                                            Przetwarzanie...
-                                        </span>
-                                    </button>
-                                </div>
-                            </form>
+                            </div>
                         </div>
-                    </section>
+                    </div>
 
                     <!-- Mobile Accepted section - na mobile po akceptacji -->
                     <section class="mobile-accepted-section" id="mobile-accepted-section" style="display: none;">
@@ -285,64 +258,38 @@
                         </div>
 
                         <!-- Accept section - w sidebar na desktop -->
-                        <div class="sidebar-accept-section" id="sidebar-accept-section" style="display: none;">
+                        <div class="sidebar-accept-section" id="sidebar-accept-section">
                             <div class="accept-card">
                                 <div class="accept-header">
                                     <h3 class="accept-title">
                                         <svg class="accept-icon" viewBox="0 0 20 20" fill="currentColor">
                                             <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                                         </svg>
-                                        Akceptacja wyceny
+                                        Akceptuj wycenę
                                     </h3>
                                     <p class="accept-description">
-                                        Jeśli wybrane produkty odpowiadają Twoim oczekiwaniom, możesz zaakceptować wycenę.
+                                        Aby zaakceptować wycenę, uzupełnij swoje dane kontaktowe i adres dostawy.
                                     </p>
                                 </div>
 
-                                <!-- Acceptance form -->
-                                <form id="sidebar-acceptance-form" class="acceptance-form">
-                                    <div class="form-group">
-                                        <label for="sidebar-email-phone" class="form-label">
-                                            Email lub numer telefonu<span style="color:red;">*</span>
-                                            <span class="form-hint">(Do weryfikacji tożsamości)</span>
-                                        </label>
-                                        <input type="text"
-                                               id="sidebar-email-phone"
-                                               name="email_phone"
-                                               class="form-input"
-                                               placeholder="Wpisz swój email lub numer telefonu"
-                                               required>
-                                        <div class="form-error" id="sidebar-email-phone-error"></div>
+                                <!-- NOWY PRZYCISK zamiast formularza -->
+                                <div class="acceptance-button-section">
+                                    <button type="button" 
+                                            class="btn btn-primary btn-large btn-full" 
+                                            id="sidebar-accept-with-data-btn">
+                                        <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span class="btn-text">Uzupełnij dane i akceptuj</span>
+                                    </button>
+                                    
+                                    <div class="acceptance-info">
+                                        <svg class="info-icon" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                                        </svg>
+                                        <span>Kliknij przycisk aby wypełnić formularz z danymi</span>
                                     </div>
-
-                                    <div class="form-group">
-                                        <label for="sidebar-comments" class="form-label">
-                                            Dodatkowe uwagi lub pytania
-                                            <span class="form-hint">(Opcjonalnie)</span>
-                                        </label>
-                                        <textarea id="sidebar-comments"
-                                                  name="comments"
-                                                  class="form-textarea"
-                                                  rows="3"
-                                                  placeholder="Możesz dodać swoje uwagi..."></textarea>
-                                        <div class="character-counter">
-                                            <span id="sidebar-char-count">0</span>/500
-                                        </div>
-                                    </div>
-
-                                    <div class="form-actions">
-                                        <button type="submit" class="btn btn-primary btn-large" id="sidebar-accept-btn">
-                                            <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                            </svg>
-                                            <span class="btn-text">Akceptuję wycenę</span>
-                                            <span class="btn-loading" style="display: none;">
-                                                <span class="spinner-small"></span>
-                                                Przetwarzanie...
-                                            </span>
-                                        </button>
-                                    </div>
-                                </form>
+                                </div>
                             </div>
                         </div>
 
@@ -530,5 +477,325 @@
         window.QUOTE_NUMBER = "{{ quote_number }}";
     </script>
     <script src="{{ url_for('quotes.static', filename='js/client_quote.js') }}"></script>
+
+    <!-- Modal overlay -->
+    <div id="client-data-modal" class="client-data-modal-overlay" style="display: none;">
+        <div class="client-data-modal">
+            <div class="client-data-modal-header">
+                <h2 class="client-data-modal-title">
+                    <svg class="modal-icon" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Akceptacja wyceny
+                </h2>
+                <button class="client-data-modal-close" id="client-data-modal-close">&times;</button>
+            </div>
+
+            <div class="client-data-modal-content">
+                <div class="modal-progress">
+                    <div class="progress-step active" data-step="1">
+                        <div class="step-number">1</div>
+                        <div class="step-label">Dane osobowe</div>
+                    </div>
+                    <div class="progress-step" data-step="2">
+                        <div class="step-number">2</div>
+                        <div class="step-label">Dostawa i faktura</div>
+                    </div>
+                </div>
+
+                <form id="client-data-form" class="client-data-form">
+                    <!-- KROK 1: Dane osobowe -->
+                    <div class="modal-step active" data-step="1">
+                        <div class="step-header">
+                            <h3>Dane osobowe</h3>
+                            <p>Uzupełnij swoje podstawowe dane kontaktowe</p>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="delivery_name" class="form-label">
+                                    Imię i nazwisko <span class="required">*</span>
+                                </label>
+                                <input type="text" 
+                                    id="delivery_name" 
+                                    name="delivery_name" 
+                                    class="form-input" 
+                                    placeholder="Jan Kowalski"
+                                    required>
+                                <div class="form-error" id="delivery_name_error"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="email" class="form-label">
+                                    Email <span class="required">*</span>
+                                </label>
+                                <input type="email" 
+                                    id="email" 
+                                    name="email" 
+                                    class="form-input" 
+                                    placeholder="jan@example.com"
+                                    required>
+                                <div class="form-error" id="email_error"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="phone" class="form-label">
+                                    Telefon
+                                </label>
+                                <input type="tel" 
+                                    id="phone" 
+                                    name="phone" 
+                                    class="form-input" 
+                                    placeholder="+48 123 456 789">
+                                <div class="form-error" id="phone_error"></div>
+                            </div>
+                        </div>
+
+                        <div class="form-note">
+                            <svg class="note-icon" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                            </svg>
+                            <span>Wymagany jest email LUB telefon do kontaktu</span>
+                        </div>
+                    </div>
+
+                    <!-- KROK 2: Dostawa i faktura -->
+                    <div class="modal-step" data-step="2">
+                        <div class="step-header">
+                            <h3>Adres dostawy</h3>
+                            <p>Gdzie mamy dostarczyć Twoje zamówienie?</p>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="delivery_company" class="form-label">
+                                    Nazwa firmy
+                                </label>
+                                <input type="text" 
+                                    id="delivery_company" 
+                                    name="delivery_company" 
+                                    class="form-input" 
+                                    placeholder="Wood Power Sp. z o.o.">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="delivery_address" class="form-label">
+                                    Ulica i numer <span class="required">*</span>
+                                </label>
+                                <input type="text" 
+                                    id="delivery_address" 
+                                    name="delivery_address" 
+                                    class="form-input" 
+                                    placeholder="ul. Przykładowa 123"
+                                    required>
+                                <div class="form-error" id="delivery_address_error"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="delivery_postcode" class="form-label">
+                                    Kod pocztowy <span class="required">*</span>
+                                </label>
+                                <input type="text" 
+                                    id="delivery_postcode" 
+                                    name="delivery_postcode" 
+                                    class="form-input" 
+                                    placeholder="00-000"
+                                    pattern="[0-9]{2}-[0-9]{3}"
+                                    required>
+                                <div class="form-error" id="delivery_postcode_error"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="delivery_city" class="form-label">
+                                    Miasto <span class="required">*</span>
+                                </label>
+                                <input type="text" 
+                                    id="delivery_city" 
+                                    name="delivery_city" 
+                                    class="form-input" 
+                                    placeholder="Warszawa"
+                                    required>
+                                <div class="form-error" id="delivery_city_error"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="delivery_region" class="form-label">
+                                    Województwo <span class="required">*</span>
+                                </label>
+                                <select id="delivery_region" 
+                                        name="delivery_region" 
+                                        class="form-select"
+                                        required>
+                                    <option value="">Wybierz województwo</option>
+                                    <option value="dolnośląskie">Dolnośląskie</option>
+                                    <option value="kujawsko-pomorskie">Kujawsko-pomorskie</option>
+                                    <option value="lubelskie">Lubelskie</option>
+                                    <option value="lubuskie">Lubuskie</option>
+                                    <option value="łódzkie">Łódzkie</option>
+                                    <option value="małopolskie">Małopolskie</option>
+                                    <option value="mazowieckie">Mazowieckie</option>
+                                    <option value="opolskie">Opolskie</option>
+                                    <option value="podkarpackie">Podkarpackie</option>
+                                    <option value="podlaskie">Podlaskie</option>
+                                    <option value="pomorskie">Pomorskie</option>
+                                    <option value="śląskie">Śląskie</option>
+                                    <option value="świętokrzyskie">Świętokrzyskie</option>
+                                    <option value="warmińsko-mazurskie">Warmińsko-mazurskie</option>
+                                    <option value="wielkopolskie">Wielkopolskie</option>
+                                    <option value="zachodniopomorskie">Zachodniopomorskie</option>
+                                </select>
+                                <div class="form-error" id="delivery_region_error"></div>
+                            </div>
+                        </div>
+
+                        <!-- Checkbox dla faktury -->
+                        <div class="invoice-toggle">
+                            <label class="checkbox-label">
+                                <input type="checkbox" 
+                                    id="wants_invoice" 
+                                    name="wants_invoice" 
+                                    class="checkbox">
+                                <span class="checkbox-custom">
+                                    <svg class="checkbox-icon" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                    </svg>
+                                </span>
+                                <span class="checkbox-text">Potrzebuję faktury VAT</span>
+                            </label>
+                        </div>
+
+                        <!-- Dane do faktury (ukryte domyślnie) -->
+                        <div class="invoice-fields" id="invoice-fields" style="display: none;">
+                            <div class="invoice-header">
+                                <h4>Dane do faktury</h4>
+                            </div>
+
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="invoice_name" class="form-label">
+                                        Imię i nazwisko na fakturze
+                                    </label>
+                                    <input type="text" 
+                                        id="invoice_name" 
+                                        name="invoice_name" 
+                                        class="form-input" 
+                                        placeholder="Jan Kowalski">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="invoice_company" class="form-label">
+                                        Nazwa firmy
+                                    </label>
+                                    <input type="text" 
+                                        id="invoice_company" 
+                                        name="invoice_company" 
+                                        class="form-input" 
+                                        placeholder="Wood Power Sp. z o.o.">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="invoice_nip" class="form-label">
+                                        NIP <span class="required invoice-required">*</span>
+                                    </label>
+                                    <input type="text" 
+                                        id="invoice_nip" 
+                                        name="invoice_nip" 
+                                        class="form-input" 
+                                        placeholder="1234567890"
+                                        pattern="[0-9]{10}">
+                                    <div class="form-error" id="invoice_nip_error"></div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="invoice_address" class="form-label">
+                                        Adres (jeśli inny niż dostawa)
+                                    </label>
+                                    <input type="text" 
+                                        id="invoice_address" 
+                                        name="invoice_address" 
+                                        class="form-input" 
+                                        placeholder="ul. Przykładowa 123">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="invoice_postcode" class="form-label">
+                                        Kod pocztowy
+                                    </label>
+                                    <input type="text" 
+                                        id="invoice_postcode" 
+                                        name="invoice_postcode" 
+                                        class="form-input" 
+                                        placeholder="00-000"
+                                        pattern="[0-9]{2}-[0-9]{3}">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="invoice_city" class="form-label">
+                                        Miasto
+                                    </label>
+                                    <input type="text" 
+                                        id="invoice_city" 
+                                        name="invoice_city" 
+                                        class="form-input" 
+                                        placeholder="Warszawa">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Uwagi do wyceny -->
+                        <div class="quote-notes-section">
+                            <div class="form-group">
+                                <label for="quote_notes" class="form-label">
+                                    Uwagi do wyceny
+                                    <span class="form-hint">(Opcjonalne - nie trafiają do systemu zamówień)</span>
+                                </label>
+                                <textarea id="quote_notes"
+                                        name="quote_notes"
+                                        class="form-textarea"
+                                        rows="3"
+                                        placeholder="Możesz dodać swoje uwagi dotyczące wyceny..."></textarea>
+                                <div class="character-counter">
+                                    <span id="quote-notes-count">0</span>/500
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal footer z przyciskami -->
+                    <div class="client-data-modal-footer">
+                        <div class="modal-actions">
+                            <button type="button" 
+                                    class="btn btn-secondary" 
+                                    id="modal-prev-btn"
+                                    style="display: none;">
+                                ← Poprzedni
+                            </button>
+                            
+                            <button type="button" 
+                                    class="btn btn-primary" 
+                                    id="modal-next-btn">
+                                Następny →
+                            </button>
+                            
+                            <button type="submit" 
+                                    class="btn btn-success" 
+                                    id="modal-submit-btn"
+                                    style="display: none;">
+                                <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                </svg>
+                                <span class="btn-text">Akceptuję wycenę</span>
+                                <span class="btn-loading" style="display: none;">
+                                    <span class="spinner-small"></span>
+                                    Zapisywanie...
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

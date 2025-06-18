@@ -3,7 +3,8 @@ from flask import render_template, jsonify, request, session, redirect, url_for,
 from . import baselinker_bp
 from .service import BaselinkerService
 from .models import BaselinkerOrderLog, BaselinkerConfig
-from modules.calculator.models import Quote, User, QuoteItemDetails  # DODANO QuoteItemDetails
+from modules.calculator.models import Quote, User, QuoteItemDetails
+from modules.clients.models import Client
 from extensions import db
 import sys
 from functools import wraps
@@ -17,6 +18,22 @@ def login_required(func):
             return redirect(url_for('login'))
         return func(*args, **kwargs)
     return wrapper
+
+def has_complete_client_data(quote):
+    """Sprawdza czy wycena ma kompletne dane klienta po nowej akceptacji"""
+    client = quote.client
+    if not client:
+        return False
+    
+    # Sprawdź wymagane dane podstawowe
+    if not (client.delivery_name and client.delivery_city and client.delivery_address):
+        return False
+    
+    # Sprawdź czy ma email LUB telefon
+    if not (client.email or client.phone):
+        return False
+    
+    return True
 
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
 @login_required
@@ -32,6 +49,11 @@ def get_order_modal_data(quote_id):
                 'details': 'Wycena musi być zaakceptowana przez klienta'
             }), 400
         
+        client_data_complete = has_complete_client_data(quote)
+        client_data_status = "complete" if client_data_complete else "incomplete"
+        
+        print(f"[get_order_modal_data] Wycena {quote_id} - dane klienta: {client_data_status}", file=sys.stderr)
+
         # Pobierz konfigurację Baselinker
         order_sources = BaselinkerConfig.query.filter_by(
             config_type='order_source',
@@ -164,7 +186,9 @@ def get_order_modal_data(quote_id):
                 'invoice_postcode': quote.client.invoice_zip if quote.client else None,
                 'invoice_city': quote.client.invoice_city if quote.client else None,
                 'invoice_region': quote.client.invoice_region if quote.client else None,
-                'want_invoice': bool(quote.client.invoice_nip) if quote.client else False
+                'want_invoice': bool(quote.client.invoice_nip) if quote.client else False,
+                'data_complete': client_data_complete,
+                'data_status': client_data_status
             },
             'products': products_data,  # <- POPRAWKA: Używamy nowej listy z quantity
             'costs': {
@@ -258,6 +282,12 @@ def create_order(quote_id):
                 'details': 'Wycena musi być zaakceptowana przez klienta'
             }), 400
         
+        if not has_complete_client_data(quote):
+            return jsonify({
+                'error': 'Brak kompletnych danych klienta',
+                'details': 'Klient musi najpierw wypełnić formularz z danymi dostawy przez nowy modalbox akceptacji'
+            }), 400
+        
         # Sprawdź czy zamówienie już nie zostało złożone
         if quote.base_linker_order_id:
             return jsonify({
@@ -275,11 +305,8 @@ def create_order(quote_id):
             'delivery_method': data.get('delivery_method')
         }
         
-        # NOWE: Pobierz dane klienta z żądania
-        client_data = data.get('client_data')
-        
         print(f"[create_order] Konfiguracja: {config}", file=sys.stderr)
-        print(f"[create_order] Dane klienta: {client_data}", file=sys.stderr)
+        print(f"[create_order] Dane klienta pobrane z bazy - client_id: {quote.client_id}", file=sys.stderr)
         
         # Walidacja konfiguracji
         validation_errors = []
@@ -331,59 +358,6 @@ def create_order(quote_id):
             return jsonify({'error': f'Status zamówienia o ID {config["order_status_id"]} nie istnieje'}), 400
         
         print(f"[create_order] ✅ Walidacja przeszła - źródło: {source_exists.name}, status: {status_exists.name}", file=sys.stderr)
-        
-        # NOWE: Zaktualizuj dane klienta jeśli zostały przesłane
-        if client_data:
-            try:
-                from modules.calculator.models import Client
-                
-                client = quote.client
-                if client:
-                    print(f"[create_order] Aktualizacja danych klienta ID: {client.id}", file=sys.stderr)
-                    
-                    # Zaktualizuj podstawowe dane
-                    if client_data.get('delivery_name'):
-                        client.name = client_data['delivery_name']
-                    if client_data.get('email'):
-                        client.email = client_data['email']
-                    if client_data.get('phone'):
-                        client.phone = client_data['phone']
-                    
-                    # Zaktualizuj dane dostawy
-                    if client_data.get('delivery_company'):
-                        client.company = client_data['delivery_company']
-                    if client_data.get('delivery_address'):
-                        client.delivery_address = client_data['delivery_address']
-                    if client_data.get('delivery_postcode'):
-                        client.delivery_postcode = client_data['delivery_postcode']
-                    if client_data.get('delivery_city'):
-                        client.delivery_city = client_data['delivery_city']
-                    if client_data.get('delivery_region'):
-                        client.delivery_region = client_data['delivery_region']
-                    
-                    # Zaktualizuj dane fakturowe
-                    if client_data.get('invoice_name'):
-                        client.invoice_name = client_data['invoice_name']
-                    if client_data.get('invoice_company'):
-                        client.invoice_company = client_data['invoice_company']
-                    if client_data.get('invoice_nip'):
-                        client.invoice_nip = client_data['invoice_nip']
-                    if client_data.get('invoice_address'):
-                        client.invoice_address = client_data['invoice_address']
-                    if client_data.get('invoice_postcode'):
-                        client.invoice_postcode = client_data['invoice_postcode']
-                    if client_data.get('invoice_city'):
-                        client.invoice_city = client_data['invoice_city']
-                    if client_data.get('invoice_region'):
-                        client.invoice_region = client_data['invoice_region']
-                    
-                    db.session.commit()
-                    print(f"[create_order] ✅ Dane klienta zaktualizowane pomyślnie", file=sys.stderr)
-                
-            except Exception as e:
-                print(f"[create_order] ⚠️ Błąd podczas aktualizacji danych klienta: {e}", file=sys.stderr)
-                db.session.rollback()
-                # Nie przerywamy procesu - kontynuujemy z tworzeniem zamówienia
         
         # Utwórz zamówienie
         service = BaselinkerService()

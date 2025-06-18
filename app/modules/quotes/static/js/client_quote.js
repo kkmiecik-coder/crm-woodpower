@@ -1486,3 +1486,657 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('✅ Token zabezpieczający załadowany:', token.substring(0, 8) + '...');
     }
 });
+
+// ===================================
+// INTEGRATION WITH EXISTING QUOTE SYSTEM
+// ===================================
+
+// Rozszerz istniejący obiekt quote o obsługę nowego modalboxa
+if (typeof quote !== 'undefined') {
+    // Zapisz oryginalną metodę update UI
+    const originalUpdateUI = quote.updateUI;
+    
+    // Rozszerz metodę updateUI
+    quote.updateUI = function(data) {
+        // Wywołaj oryginalną metodę
+        originalUpdateUI.call(this, data);
+        
+        // Dodaj logikę dla nowego workflow
+        clientDataModal.updateAcceptanceButtons(data);
+    };
+}
+
+// Funkcja do aktualizacji przycisków akceptacji
+clientDataModal.updateAcceptanceButtons = (quoteData) => {
+    const sidebarAcceptSection = document.getElementById('sidebar-accept-section');
+    const mobileAcceptSection = document.getElementById('mobile-accept-section');
+    const sidebarAcceptedSection = document.getElementById('sidebar-accepted-section');
+    const mobileAcceptedSection = document.getElementById('mobile-accepted-section');
+
+    console.log('[ClientDataModal] Updating acceptance buttons. Is editable:', quoteData.is_client_editable);
+
+    if (!quoteData.is_client_editable) {
+        // Wycena została już zaakceptowana - pokaż sekcję "accepted"
+        if (sidebarAcceptSection) sidebarAcceptSection.style.display = 'none';
+        if (mobileAcceptSection) mobileAcceptSection.style.display = 'none';
+        if (sidebarAcceptedSection) sidebarAcceptedSection.style.display = 'block';
+        if (mobileAcceptedSection) mobileAcceptedSection.style.display = 'block';
+    } else {
+        // Wycena jest edytowalna - pokaż nowe przyciski akceptacji
+        if (sidebarAcceptSection) sidebarAcceptSection.style.display = 'block';
+        if (mobileAcceptSection) mobileAcceptSection.style.display = 'block';
+        if (sidebarAcceptedSection) sidebarAcceptedSection.style.display = 'none';
+        if (mobileAcceptedSection) mobileAcceptedSection.style.display = 'none';
+    }
+};
+
+// ===================================
+// API INTEGRATION
+// ===================================
+
+// Rozszerz istniejący obiekt api o nowe metody
+if (typeof api !== 'undefined') {
+    // Nowa metoda do akceptacji z danymi
+    api.acceptQuoteWithData = async (token, clientData) => {
+        return api.call(`/quotes/api/client/quote/${token}/accept-with-data`, {
+            method: 'POST',
+            body: JSON.stringify(clientData)
+        });
+    };
+
+    // Nowa metoda do pobierania danych klienta
+    api.getClientData = async (token) => {
+        return api.call(`/quotes/api/client/quote/${token}/client-data`);
+    };
+}
+
+// ===================================
+// INITIALIZATION
+// ===================================
+
+// Inicjalizuj modal gdy DOM jest gotowy
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('[ClientDataModal] DOM loaded, initializing...');
+    clientDataModal.init();
+});
+
+// Jeśli jQuery jest dostępne, obsłuż również jego ready
+if (typeof $ !== 'undefined') {
+    $(document).ready(() => {
+        clientDataModal.init();
+    });
+}
+
+// Eksportuj obiekt do globalnego zasięgu dla debugowania
+window.clientDataModal = clientDataModal; MODALBOX Z DANYMI KLIENTA - dodaj do client_quote.js
+
+// ===================================
+// CLIENT DATA MODAL
+// ===================================
+const clientDataModal = {
+    currentStep: 1,
+    maxStep: 2,
+    isLoading: false,
+    clientData: null,
+
+    init: () => {
+        console.log('[ClientDataModal] Initializing modal');
+        clientDataModal.setupEventListeners();
+        clientDataModal.loadClientData();
+    },
+
+    setupEventListeners: () => {
+        // Przyciski otwierające modal
+        const sidebarBtn = document.getElementById('sidebar-accept-with-data-btn');
+        const mobileBtn = document.getElementById('mobile-accept-with-data-btn');
+        
+        if (sidebarBtn) {
+            sidebarBtn.addEventListener('click', clientDataModal.openModal);
+        }
+        if (mobileBtn) {
+            mobileBtn.addEventListener('click', clientDataModal.openModal);
+        }
+
+        // Przyciski zamykające modal
+        const closeBtn = document.getElementById('client-data-modal-close');
+        const overlay = document.getElementById('client-data-modal');
+        
+        if (closeBtn) {
+            closeBtn.addEventListener('click', clientDataModal.closeModal);
+        }
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    clientDataModal.closeModal();
+                }
+            });
+        }
+
+        // Przyciski nawigacji
+        const nextBtn = document.getElementById('modal-next-btn');
+        const prevBtn = document.getElementById('modal-prev-btn');
+        const submitBtn = document.getElementById('modal-submit-btn');
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', clientDataModal.nextStep);
+        }
+        if (prevBtn) {
+            prevBtn.addEventListener('click', clientDataModal.prevStep);
+        }
+        if (submitBtn) {
+            submitBtn.addEventListener('click', clientDataModal.submitForm);
+        }
+
+        // Checkbox faktury
+        const invoiceCheckbox = document.getElementById('wants_invoice');
+        if (invoiceCheckbox) {
+            invoiceCheckbox.addEventListener('change', clientDataModal.toggleInvoiceFields);
+        }
+
+        // Licznik znaków dla uwag
+        const notesTextarea = document.getElementById('quote_notes');
+        if (notesTextarea) {
+            notesTextarea.addEventListener('input', clientDataModal.updateCharCounter);
+        }
+
+        // Walidacja w czasie rzeczywistym
+        const inputs = document.querySelectorAll('#client-data-form input, #client-data-form select, #client-data-form textarea');
+        inputs.forEach(input => {
+            input.addEventListener('blur', () => clientDataModal.validateField(input));
+            input.addEventListener('input', () => clientDataModal.clearError(input));
+        });
+
+        // ESC zamyka modal
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && clientDataModal.isOpen()) {
+                clientDataModal.closeModal();
+            }
+        });
+    },
+
+    loadClientData: async () => {
+        try {
+            console.log('[ClientDataModal] Loading client data...');
+            const response = await fetch(`/quotes/api/client/quote/${window.QUOTE_TOKEN}/client-data`);
+            
+            if (response.ok) {
+                const data = await response.json();
+                clientDataModal.clientData = data.client_data;
+                console.log('[ClientDataModal] Client data loaded:', clientDataModal.clientData);
+            } else {
+                console.warn('[ClientDataModal] Could not load client data');
+                clientDataModal.clientData = {};
+            }
+        } catch (error) {
+            console.error('[ClientDataModal] Error loading client data:', error);
+            clientDataModal.clientData = {};
+        }
+    },
+
+    openModal: () => {
+        console.log('[ClientDataModal] Opening modal');
+        const modal = document.getElementById('client-data-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            clientDataModal.resetModal();
+            clientDataModal.prefillForm();
+        }
+    },
+
+    closeModal: () => {
+        console.log('[ClientDataModal] Closing modal');
+        const modal = document.getElementById('client-data-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            document.body.style.overflow = '';
+            clientDataModal.resetModal();
+        }
+    },
+
+    isOpen: () => {
+        const modal = document.getElementById('client-data-modal');
+        return modal && modal.style.display === 'flex';
+    },
+
+    resetModal: () => {
+        clientDataModal.currentStep = 1;
+        clientDataModal.isLoading = false;
+        clientDataModal.updateStepDisplay();
+        clientDataModal.clearAllErrors();
+        
+        // Reset loading state
+        const submitBtn = document.getElementById('modal-submit-btn');
+        if (submitBtn) {
+            submitBtn.classList.remove('loading');
+        }
+    },
+
+    prefillForm: () => {
+        if (!clientDataModal.clientData) return;
+
+        console.log('[ClientDataModal] Prefilling form with data:', clientDataModal.clientData);
+
+        const data = clientDataModal.clientData;
+        
+        // Podstawowe dane
+        clientDataModal.setFieldValue('delivery_name', data.delivery_name);
+        clientDataModal.setFieldValue('email', data.email);
+        clientDataModal.setFieldValue('phone', data.phone);
+
+        // Adres dostawy
+        clientDataModal.setFieldValue('delivery_company', data.delivery_company);
+        clientDataModal.setFieldValue('delivery_address', data.delivery_address);
+        clientDataModal.setFieldValue('delivery_postcode', data.delivery_postcode);
+        clientDataModal.setFieldValue('delivery_city', data.delivery_city);
+        clientDataModal.setFieldValue('delivery_region', data.delivery_region);
+
+        // Dane do faktury
+        const wantsInvoice = data.wants_invoice || false;
+        clientDataModal.setFieldValue('wants_invoice', wantsInvoice);
+        
+        if (wantsInvoice) {
+            clientDataModal.setFieldValue('invoice_name', data.invoice_name);
+            clientDataModal.setFieldValue('invoice_company', data.invoice_company);
+            clientDataModal.setFieldValue('invoice_address', data.invoice_address);
+            clientDataModal.setFieldValue('invoice_postcode', data.invoice_postcode);
+            clientDataModal.setFieldValue('invoice_city', data.invoice_city);
+            clientDataModal.setFieldValue('invoice_nip', data.invoice_nip);
+        }
+
+        // Uwagi
+        clientDataModal.setFieldValue('quote_notes', data.quote_notes);
+        clientDataModal.updateCharCounter();
+
+        // Trigger change events
+        if (wantsInvoice) {
+            clientDataModal.toggleInvoiceFields();
+        }
+    },
+
+    setFieldValue: (fieldId, value) => {
+        const field = document.getElementById(fieldId);
+        if (field && value !== undefined && value !== null) {
+            if (field.type === 'checkbox') {
+                field.checked = !!value;
+            } else {
+                field.value = value;
+            }
+        }
+    },
+
+    nextStep: () => {
+        if (clientDataModal.isLoading) return;
+
+        // Walidacja obecnego kroku
+        if (!clientDataModal.validateCurrentStep()) {
+            return;
+        }
+
+        if (clientDataModal.currentStep < clientDataModal.maxStep) {
+            clientDataModal.currentStep++;
+            clientDataModal.updateStepDisplay();
+        }
+    },
+
+    prevStep: () => {
+        if (clientDataModal.isLoading) return;
+
+        if (clientDataModal.currentStep > 1) {
+            clientDataModal.currentStep--;
+            clientDataModal.updateStepDisplay();
+        }
+    },
+
+    updateStepDisplay: () => {
+        // Aktualizuj progress
+        const steps = document.querySelectorAll('.progress-step');
+        steps.forEach((step, index) => {
+            const stepNumber = index + 1;
+            step.classList.remove('active', 'completed');
+            
+            if (stepNumber === clientDataModal.currentStep) {
+                step.classList.add('active');
+            } else if (stepNumber < clientDataModal.currentStep) {
+                step.classList.add('completed');
+            }
+        });
+
+        // Pokaż/ukryj kroki
+        const modalSteps = document.querySelectorAll('.modal-step');
+        modalSteps.forEach((step, index) => {
+            const stepNumber = index + 1;
+            step.classList.toggle('active', stepNumber === clientDataModal.currentStep);
+        });
+
+        // Aktualizuj przyciski
+        const prevBtn = document.getElementById('modal-prev-btn');
+        const nextBtn = document.getElementById('modal-next-btn');
+        const submitBtn = document.getElementById('modal-submit-btn');
+
+        if (prevBtn) {
+            prevBtn.style.display = clientDataModal.currentStep > 1 ? 'flex' : 'none';
+        }
+
+        if (nextBtn) {
+            nextBtn.style.display = clientDataModal.currentStep < clientDataModal.maxStep ? 'flex' : 'none';
+        }
+
+        if (submitBtn) {
+            submitBtn.style.display = clientDataModal.currentStep === clientDataModal.maxStep ? 'flex' : 'none';
+        }
+    },
+
+    validateCurrentStep: () => {
+        let isValid = true;
+
+        if (clientDataModal.currentStep === 1) {
+            // Krok 1: Dane osobowe
+            const deliveryName = document.getElementById('delivery_name');
+            const email = document.getElementById('email');
+            const phone = document.getElementById('phone');
+
+            if (!clientDataModal.validateField(deliveryName)) {
+                isValid = false;
+            }
+
+            // Email LUB telefon wymagany
+            const hasEmail = email.value.trim() !== '';
+            const hasPhone = phone.value.trim() !== '';
+
+            if (!hasEmail && !hasPhone) {
+                clientDataModal.showError(email, 'Wymagany jest email lub telefon');
+                clientDataModal.showError(phone, 'Wymagany jest email lub telefon');
+                isValid = false;
+            }
+
+            if (hasEmail && !clientDataModal.validateEmail(email.value)) {
+                clientDataModal.showError(email, 'Nieprawidłowy format email');
+                isValid = false;
+            }
+
+        } else if (clientDataModal.currentStep === 2) {
+            // Krok 2: Dostawa i faktura
+            const requiredFields = ['delivery_address', 'delivery_city', 'delivery_postcode', 'delivery_region'];
+            
+            requiredFields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (!clientDataModal.validateField(field)) {
+                    isValid = false;
+                }
+            });
+
+            // Walidacja faktury jeśli zaznaczona
+            const wantsInvoice = document.getElementById('wants_invoice').checked;
+            if (wantsInvoice) {
+                const nipField = document.getElementById('invoice_nip');
+                if (!clientDataModal.validateField(nipField)) {
+                    isValid = false;
+                }
+            }
+        }
+
+        return isValid;
+    },
+
+    validateField: (field) => {
+        if (!field) return true;
+
+        const value = field.value.trim();
+        let isValid = true;
+        let errorMessage = '';
+
+        // Sprawdź czy pole jest wymagane
+        if (field.required && !value) {
+            errorMessage = 'To pole jest wymagane';
+            isValid = false;
+        } else if (value) {
+            // Walidacje specyficzne dla typu pola
+            switch (field.type) {
+                case 'email':
+                    if (!clientDataModal.validateEmail(value)) {
+                        errorMessage = 'Nieprawidłowy format email';
+                        isValid = false;
+                    }
+                    break;
+                case 'tel':
+                    if (!clientDataModal.validatePhone(value)) {
+                        errorMessage = 'Nieprawidłowy format telefonu';
+                        isValid = false;
+                    }
+                    break;
+            }
+
+            // Walidacje specyficzne dla pola
+            switch (field.id) {
+                case 'delivery_postcode':
+                case 'invoice_postcode':
+                    if (value && !clientDataModal.validatePostcode(value)) {
+                        errorMessage = 'Kod pocztowy w formacie XX-XXX';
+                        isValid = false;
+                    }
+                    break;
+                case 'invoice_nip':
+                    if (value && !clientDataModal.validateNIP(value)) {
+                        errorMessage = 'NIP musi mieć 10 cyfr';
+                        isValid = false;
+                    }
+                    break;
+            }
+        }
+
+        if (isValid) {
+            clientDataModal.clearError(field);
+        } else {
+            clientDataModal.showError(field, errorMessage);
+        }
+
+        return isValid;
+    },
+
+    validateEmail: (email) => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    },
+
+    validatePhone: (phone) => {
+        const phoneRegex = /^[\+]?[0-9\s\-\(\)]{7,}$/;
+        return phoneRegex.test(phone);
+    },
+
+    validatePostcode: (postcode) => {
+        const postcodeRegex = /^[0-9]{2}-[0-9]{3}$/;
+        return postcodeRegex.test(postcode);
+    },
+
+    validateNIP: (nip) => {
+        const cleanNip = nip.replace(/[-\s]/g, '');
+        return /^[0-9]{10}$/.test(cleanNip);
+    },
+
+    showError: (field, message) => {
+        const errorElement = document.getElementById(field.id + '_error');
+        if (errorElement) {
+            errorElement.textContent = message;
+            errorElement.classList.add('show');
+        }
+        field.classList.add('error');
+    },
+
+    clearError: (field) => {
+        const errorElement = document.getElementById(field.id + '_error');
+        if (errorElement) {
+            errorElement.textContent = '';
+            errorElement.classList.remove('show');
+        }
+        field.classList.remove('error');
+    },
+
+    clearAllErrors: () => {
+        const errorElements = document.querySelectorAll('#client-data-form .form-error');
+        const fieldElements = document.querySelectorAll('#client-data-form .form-input, #client-data-form .form-select');
+        
+        errorElements.forEach(el => {
+            el.textContent = '';
+            el.classList.remove('show');
+        });
+        
+        fieldElements.forEach(el => {
+            el.classList.remove('error');
+        });
+    },
+
+    toggleInvoiceFields: () => {
+        const checkbox = document.getElementById('wants_invoice');
+        const invoiceFields = document.getElementById('invoice-fields');
+        const form = document.getElementById('client-data-form');
+        
+        if (checkbox && invoiceFields) {
+            const isChecked = checkbox.checked;
+            
+            if (isChecked) {
+                invoiceFields.style.display = 'block';
+                form.classList.add('wants-invoice');
+                
+                // Ustaw NIP jako wymagany
+                const nipField = document.getElementById('invoice_nip');
+                if (nipField) {
+                    nipField.required = true;
+                }
+            } else {
+                invoiceFields.style.display = 'none';
+                form.classList.remove('wants-invoice');
+                
+                // Usuń wymaganie NIP
+                const nipField = document.getElementById('invoice_nip');
+                if (nipField) {
+                    nipField.required = false;
+                    clientDataModal.clearError(nipField);
+                }
+                
+                // Wyczyść błędy pól faktury
+                const invoiceFieldIds = ['invoice_name', 'invoice_company', 'invoice_address', 'invoice_postcode', 'invoice_city', 'invoice_nip'];
+                invoiceFieldIds.forEach(fieldId => {
+                    const field = document.getElementById(fieldId);
+                    if (field) {
+                        clientDataModal.clearError(field);
+                    }
+                });
+            }
+        }
+    },
+
+    updateCharCounter: () => {
+        const textarea = document.getElementById('quote_notes');
+        const counter = document.getElementById('quote-notes-count');
+        
+        if (textarea && counter) {
+            const length = textarea.value.length;
+            counter.textContent = length;
+            
+            // Ograniczenie do 500 znaków
+            if (length > 500) {
+                textarea.value = textarea.value.substring(0, 500);
+                counter.textContent = '500';
+            }
+        }
+    },
+
+    submitForm: async (event) => {
+        if (event) {
+            event.preventDefault();
+        }
+
+        if (clientDataModal.isLoading) return;
+
+        console.log('[ClientDataModal] Submitting form...');
+
+        // Ostateczna walidacja
+        if (!clientDataModal.validateCurrentStep()) {
+            console.log('[ClientDataModal] Validation failed');
+            return;
+        }
+
+        clientDataModal.setLoading(true);
+
+        try {
+            // Zbierz dane z formularza
+            const formData = clientDataModal.getFormData();
+            console.log('[ClientDataModal] Form data:', formData);
+
+            // Wyślij do API
+            const response = await fetch(`/quotes/api/client/quote/${window.QUOTE_TOKEN}/accept-with-data`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                console.log('[ClientDataModal] ✅ Quote accepted successfully!', result);
+                
+                // Zamknij modal
+                clientDataModal.closeModal();
+                
+                // Pokaż sukces
+                alerts.show('Dziękujemy! Wycena została zaakceptowana i przekazana do realizacji.', 'success');
+                
+                // Przeładuj dane wyceny
+                await quote.load();
+                
+            } else {
+                console.error('[ClientDataModal] ❌ Server error:', result);
+                alerts.show(result.error || 'Wystąpił błąd podczas akceptacji wyceny', 'error');
+            }
+
+        } catch (error) {
+            console.error('[ClientDataModal] ❌ Network error:', error);
+            alerts.show('Błąd połączenia. Spróbuj ponownie.', 'error');
+        } finally {
+            clientDataModal.setLoading(false);
+        }
+    },
+
+    getFormData: () => {
+        const form = document.getElementById('client-data-form');
+        const formData = new FormData(form);
+        const data = {};
+
+        // Konwertuj FormData na obiekt
+        for (let [key, value] of formData.entries()) {
+            if (form.elements[key] && form.elements[key].type === 'checkbox') {
+                data[key] = form.elements[key].checked;
+            } else {
+                data[key] = value.trim();
+            }
+        }
+
+        // Dodaj checkbox dla faktury jeśli nie został automatycznie dodany
+        const wantsInvoiceCheckbox = document.getElementById('wants_invoice');
+        if (wantsInvoiceCheckbox) {
+            data.wants_invoice = wantsInvoiceCheckbox.checked;
+        }
+
+        return data;
+    },
+
+    setLoading: (loading) => {
+        clientDataModal.isLoading = loading;
+        const submitBtn = document.getElementById('modal-submit-btn');
+        
+        if (submitBtn) {
+            if (loading) {
+                submitBtn.classList.add('loading');
+                submitBtn.disabled = true;
+            } else {
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+            }
+        }
+    }
+};
+
+//
