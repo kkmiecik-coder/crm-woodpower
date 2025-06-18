@@ -355,16 +355,44 @@ function updatePrices() {
 
     const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
     let multiplier = isPartner ? userMultiplier : (multiplierMapping[clientType] || 1.0);
-    let multiplierAdjusted = false;
 
+    dbg("updatePrices: dimensions and multiplier", { length, width, thickness, quantity, singleVolume, multiplier });
+
+    let multiplierAdjusted = false;
     const variantItems = Array.from(variantContainer.children)
         .filter(child => child.querySelector('input[type="radio"]'));
+
+    const tabIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(activeQuoteForm);
+    dbg("updatePrices: tabIndex", tabIndex);
+
+    if (tabIndex === -1) {
+        dbg("updatePrices: activeQuoteForm nie jest w tablicy formularzy");
+        return;
+    }
+
+    // ✅ POPRAWKA: Używaj unikalnych nazw dla radio buttonów
+    const groupRadios = activeQuoteForm.querySelectorAll(
+        `input[name^="variant-product-${tabIndex}"]` // ✅ ZMIENIONO: używaj nowej konwencji nazw
+    );
+    groupRadios.forEach(radio => {
+        if (radio.checked) radio.name = `variant-product-${tabIndex}-selected`; // ✅ ZMIENIONO
+        else radio.name = `variant-product-${tabIndex}`; // ✅ ZMIENIONO
+    });
+
+    variantItems.forEach(variant => {
+        variant.querySelectorAll('*').forEach(el => el.style.color = "");
+    });
+
+    // Oblicz ceny dla wszystkich wariantów (używa oryginalnego mapowania)
     variantItems.forEach(variant => {
         const radio = variant.querySelector('input[type="radio"]');
         if (!radio) return;
+        
         const id = radio.value;
-        const config = variantMapping[id];
+        const config = variantMapping[id]; // ✅ UŻYWAJ istniejącego mapowania
         if (!config) return;
+
+        dbg(`Processing variant: ${id}`, config);
 
         const match = getPrice(config.species, config.technology, config.wood_class, thickness, length);
         const unitBruttoSpan = variant.querySelector('.unit-brutto');
@@ -373,7 +401,7 @@ function updatePrices() {
         const totalNettoSpan = variant.querySelector('.total-netto');
 
         if (match && unitBruttoSpan && unitNettoSpan && totalBruttoSpan && totalNettoSpan) {
-            const basePrice = match.price_per_m3;
+            const basePrice = match.price_per_m3; // ✅ UŻYWAJ price_per_m3 zamiast price
             dbg("→ obliczenia:", { basePrice, singleVolume, multiplier });
             let effectiveMultiplier = multiplier;
             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
@@ -382,7 +410,7 @@ function updatePrices() {
                 effectiveMultiplier = 1.5;
                 multiplierAdjusted = true;
                 unitNetto = singleVolume * basePrice * effectiveMultiplier;
-                variant.style.backgroundColor = "#FFECEC"; // przywrócenie inline background dla widoczności
+                variant.style.backgroundColor = "#FFECEC";
             } else {
                 variant.style.backgroundColor = "";
             }
@@ -408,24 +436,8 @@ function updatePrices() {
         }
     });
 
-    const tabIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(activeQuoteForm);
-    if (tabIndex === -1) {
-        console.error("updatePrices: Invalid tabIndex.");
-        return;
-    }
-    const groupRadios = activeQuoteForm.querySelectorAll(
-        `input[name^="variantOption-${tabIndex}"], input[name^="selected-${tabIndex}"]`
-    );
-    groupRadios.forEach(radio => {
-        if (radio.checked) radio.name = `selected-${tabIndex}`;
-        else radio.name = `variantOption-${tabIndex}`;
-    });
-
-    variantItems.forEach(variant => {
-        variant.querySelectorAll('*').forEach(el => el.style.color = "");
-    });
-
-    const expectedName = `selected-${tabIndex}`;
+    // ✅ POPRAWKA: Sprawdź zaznaczone radio z poprawioną nazwą
+    const expectedName = `variant-product-${tabIndex}-selected`; // ✅ ZMIENIONO
     const selectedRadio = activeQuoteForm.querySelector(`input[name="${expectedName}"]:checked`);
     if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
         activeQuoteForm.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
@@ -454,6 +466,12 @@ function updatePrices() {
     updateGlobalSummary();
     updateCalculateDeliveryButtonState();
     generateProductsSummary();
+
+    // ✅ POPRAWKA: Jeśli zmieniono wymiary, przelicz też inne produkty
+    if (lengthEl.matches(':focus') || widthEl.matches(':focus') || thicknessEl.matches(':focus') || quantityEl.matches(':focus')) {
+        updatePricesInOtherProducts();
+    }
+
     dbg("← updatePrices end");
 }
 
@@ -471,12 +489,448 @@ function showErrorForAllVariants(errorMsg, variantContainer) {
     });
 }
 
+function updatePricesInOtherProducts() {
+    if (!quoteFormsContainer) return;
+    
+    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
+    const originalActiveForm = activeQuoteForm;
+    
+    allForms.forEach(form => {
+        if (form === originalActiveForm) return; // Pomiń aktywny formularz
+        
+        // Sprawdź czy produkt ma wypełnione wymiary
+        const length = form.querySelector('[data-field="length"]')?.value;
+        const width = form.querySelector('[data-field="width"]')?.value;
+        const thickness = form.querySelector('[data-field="thickness"]')?.value;
+        
+        if (length && width && thickness) {
+            // Tymczasowo ustaw jako aktywny dla obliczeń
+            activeQuoteForm = form;
+            
+            // Wywołaj główną część updatePrices dla tego formularza
+            const lengthEl = form.querySelector('input[data-field="length"]');
+            const widthEl = form.querySelector('input[data-field="width"]');
+            const thicknessEl = form.querySelector('input[data-field="thickness"]');
+            const quantityEl = form.querySelector('input[data-field="quantity"]');
+            const clientTypeEl = form.querySelector('select[data-field="clientType"]');
+            const variantContainer = form.querySelector('.variants');
+
+            if (lengthEl && widthEl && thicknessEl && quantityEl && variantContainer) {
+                const length = parseFloat(lengthEl.value);
+                const width = parseFloat(widthEl.value);
+                const thickness = parseFloat(thicknessEl.value);
+                let quantity = parseInt(quantityEl.value) || 1;
+                const clientType = clientTypeEl ? clientTypeEl.value : "";
+
+                if (!isNaN(length) && !isNaN(width) && !isNaN(thickness) && (isPartner || clientType)) {
+                    const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
+                    let multiplier = isPartner ? userMultiplier : (multiplierMapping[clientType] || 1.0);
+
+                    const variantItems = Array.from(variantContainer.children)
+                        .filter(child => child.querySelector('input[type="radio"]'));
+
+                    // ✅ POPRAWKA: Używaj variantMapping zamiast split
+                    variantItems.forEach(variant => {
+                        const radio = variant.querySelector('input[type="radio"]');
+                        if (!radio) return;
+
+                        const id = radio.value;
+                        const config = variantMapping[id]; // ✅ UŻYWAJ mapowania!
+                        if (!config) return;
+
+                        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length);
+                        
+                        if (match) {
+                            const basePrice = match.price_per_m3; // ✅ UŻYWAJ price_per_m3
+                            let effectiveMultiplier = multiplier;
+                            let unitNetto = singleVolume * basePrice * effectiveMultiplier;
+
+                            if (!isPartner && clientType === "Detal" && unitNetto < 1000) {
+                                effectiveMultiplier = 1.5;
+                                unitNetto = singleVolume * basePrice * effectiveMultiplier;
+                                variant.style.backgroundColor = "#FFECEC";
+                            } else {
+                                variant.style.backgroundColor = "";
+                            }
+
+                            const unitBrutto = unitNetto * 1.23;
+                            const totalNetto = unitNetto * quantity;
+                            const totalBrutto = unitBrutto * quantity;
+
+                            radio.dataset.totalNetto = totalNetto;
+                            radio.dataset.totalBrutto = totalBrutto;
+                            radio.dataset.volumeM3 = singleVolume;
+                            radio.dataset.pricePerM3 = basePrice;
+
+                            const unitBruttoSpan = variant.querySelector('.unit-brutto');
+                            const unitNettoSpan = variant.querySelector('.unit-netto');
+                            const totalBruttoSpan = variant.querySelector('.total-brutto');
+                            const totalNettoSpan = variant.querySelector('.total-netto');
+
+                            if (unitBruttoSpan) unitBruttoSpan.textContent = formatPLN(unitBrutto);
+                            if (unitNettoSpan) unitNettoSpan.textContent = formatPLN(unitNetto);
+                            if (totalBruttoSpan) totalBruttoSpan.textContent = formatPLN(totalBrutto);
+                            if (totalNettoSpan) totalNettoSpan.textContent = formatPLN(totalNetto);
+                        }
+                    });
+
+                    // Zaktualizuj dataset jeśli jest wybrana opcja
+                    const tabIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(form);
+                    const selectedRadio = form.querySelector(`input[name="variant-product-${tabIndex}-selected"]:checked`);
+                    if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
+                        form.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
+                        form.dataset.orderNetto = selectedRadio.dataset.totalNetto;
+                    }
+                }
+            }
+        }
+    });
+    
+    // Przywróć oryginalny aktywny formularz
+    activeQuoteForm = originalActiveForm;
+    
+    console.log('✅ Przeliczono ceny we wszystkich produktach');
+}
+
 /**
  * Oblicza cenę wykończenia i aktualizuje UI oraz dataset podformularza
  */
+// ========== FINALNE POPRAWKI KALKULATORA ==========
+
+// POPRAWKA 1: Napraw updatePricesInOtherProducts - używaj variantMapping zamiast split
+function updatePricesInOtherProducts() {
+    if (!quoteFormsContainer) return;
+    
+    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
+    const originalActiveForm = activeQuoteForm;
+    
+    allForms.forEach(form => {
+        if (form === originalActiveForm) return; // Pomiń aktywny formularz
+        
+        // Sprawdź czy produkt ma wypełnione wymiary
+        const length = form.querySelector('[data-field="length"]')?.value;
+        const width = form.querySelector('[data-field="width"]')?.value;
+        const thickness = form.querySelector('[data-field="thickness"]')?.value;
+        
+        if (length && width && thickness) {
+            // Tymczasowo ustaw jako aktywny dla obliczeń
+            activeQuoteForm = form;
+            
+            // Wywołaj główną część updatePrices dla tego formularza
+            const lengthEl = form.querySelector('input[data-field="length"]');
+            const widthEl = form.querySelector('input[data-field="width"]');
+            const thicknessEl = form.querySelector('input[data-field="thickness"]');
+            const quantityEl = form.querySelector('input[data-field="quantity"]');
+            const clientTypeEl = form.querySelector('select[data-field="clientType"]');
+            const variantContainer = form.querySelector('.variants');
+
+            if (lengthEl && widthEl && thicknessEl && quantityEl && variantContainer) {
+                const length = parseFloat(lengthEl.value);
+                const width = parseFloat(widthEl.value);
+                const thickness = parseFloat(thicknessEl.value);
+                let quantity = parseInt(quantityEl.value) || 1;
+                const clientType = clientTypeEl ? clientTypeEl.value : "";
+
+                if (!isNaN(length) && !isNaN(width) && !isNaN(thickness) && (isPartner || clientType)) {
+                    const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
+                    let multiplier = isPartner ? userMultiplier : (multiplierMapping[clientType] || 1.0);
+
+                    const variantItems = Array.from(variantContainer.children)
+                        .filter(child => child.querySelector('input[type="radio"]'));
+
+                    // ✅ POPRAWKA: Używaj variantMapping zamiast split
+                    variantItems.forEach(variant => {
+                        const radio = variant.querySelector('input[type="radio"]');
+                        if (!radio) return;
+
+                        const id = radio.value;
+                        const config = variantMapping[id]; // ✅ UŻYWAJ mapowania!
+                        if (!config) return;
+
+                        const match = getPrice(config.species, config.technology, config.wood_class, thickness, length);
+                        
+                        if (match) {
+                            const basePrice = match.price_per_m3; // ✅ UŻYWAJ price_per_m3
+                            let effectiveMultiplier = multiplier;
+                            let unitNetto = singleVolume * basePrice * effectiveMultiplier;
+
+                            if (!isPartner && clientType === "Detal" && unitNetto < 1000) {
+                                effectiveMultiplier = 1.5;
+                                unitNetto = singleVolume * basePrice * effectiveMultiplier;
+                                variant.style.backgroundColor = "#FFECEC";
+                            } else {
+                                variant.style.backgroundColor = "";
+                            }
+
+                            const unitBrutto = unitNetto * 1.23;
+                            const totalNetto = unitNetto * quantity;
+                            const totalBrutto = unitBrutto * quantity;
+
+                            radio.dataset.totalNetto = totalNetto;
+                            radio.dataset.totalBrutto = totalBrutto;
+                            radio.dataset.volumeM3 = singleVolume;
+                            radio.dataset.pricePerM3 = basePrice;
+
+                            const unitBruttoSpan = variant.querySelector('.unit-brutto');
+                            const unitNettoSpan = variant.querySelector('.unit-netto');
+                            const totalBruttoSpan = variant.querySelector('.total-brutto');
+                            const totalNettoSpan = variant.querySelector('.total-netto');
+
+                            if (unitBruttoSpan) unitBruttoSpan.textContent = formatPLN(unitBrutto);
+                            if (unitNettoSpan) unitNettoSpan.textContent = formatPLN(unitNetto);
+                            if (totalBruttoSpan) totalBruttoSpan.textContent = formatPLN(totalBrutto);
+                            if (totalNettoSpan) totalNettoSpan.textContent = formatPLN(totalNetto);
+                        }
+                    });
+
+                    // Zaktualizuj dataset jeśli jest wybrana opcja
+                    const tabIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(form);
+                    const selectedRadio = form.querySelector(`input[name="variant-product-${tabIndex}-selected"]:checked`);
+                    if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
+                        form.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
+                        form.dataset.orderNetto = selectedRadio.dataset.totalNetto;
+                    }
+                }
+            }
+        }
+    });
+    
+    // Przywróć oryginalny aktywny formularz
+    activeQuoteForm = originalActiveForm;
+    
+    console.log('✅ Przeliczono ceny we wszystkich produktach');
+}
+
+// POPRAWKA 2: Napraw attachFinishingUIListeners - unikalne ID dla każdego produktu
+function attachFinishingUIListeners(form) {
+    if (!form) return;
+    
+    const formIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(form);
+    
+    const typeButtons = form.querySelectorAll('[data-finishing-type]');
+    const variantButtons = form.querySelectorAll('[data-finishing-variant]');
+    const glossButtons = form.querySelectorAll('[data-finishing-gloss]');
+    const colorButtons = form.querySelectorAll('[data-finishing-color]');
+
+    // ✅ POPRAWKA: Używaj unikalnych selektorów dla każdego produktu
+    const variantWrapper = form.querySelector(`#finishing-variant-wrapper-${formIndex}`) || 
+                          form.querySelector('#finishing-variant-wrapper');
+    const glossWrapper = form.querySelector(`#finishing-gloss-wrapper-${formIndex}`) || 
+                        form.querySelector('#finishing-gloss-wrapper');
+    const colorWrapper = form.querySelector(`#finishing-color-wrapper-${formIndex}`) || 
+                        form.querySelector('#finishing-color-wrapper');
+
+    let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
+    let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
+
+    const resetButtons = buttons => buttons.forEach(btn => btn.classList.remove('active'));
+    const show = el => { if (el) el.style.display = 'flex'; };
+    const hide = el => { if (el) el.style.display = 'none'; };
+
+    function updateVisibility() {
+        if (currentType === 'Brak') {
+            hide(variantWrapper);
+            hide(glossWrapper);
+            hide(colorWrapper);
+            return;
+        }
+        show(variantWrapper);
+
+        if (currentVariant === 'Barwne') show(colorWrapper);
+        else hide(colorWrapper);
+
+        if (currentType === 'Lakierowanie') show(glossWrapper);
+        else hide(glossWrapper);
+    }
+
+    typeButtons.forEach(btn => {
+        // ✅ USUŃ poprzednie listenery specyficzne dla tego formularza
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
+            resetButtons(typeButtons);
+            btn.classList.add('active');
+            currentType = btn.dataset.finishingType;
+            updateVisibility();
+            calculateFinishingCost(form); // ✅ Przekaż konkretny formularz
+            generateProductsSummary();
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
+    });
+
+    variantButtons.forEach(btn => {
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
+            resetButtons(variantButtons);
+            btn.classList.add('active');
+            currentVariant = btn.dataset.finishingVariant;
+            updateVisibility();
+            calculateFinishingCost(form); // ✅ Przekaż konkretny formularz
+            generateProductsSummary();
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
+    });
+
+    glossButtons.forEach(btn => {
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
+            resetButtons(glossButtons);
+            btn.classList.add('active');
+            generateProductsSummary();
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
+    });
+
+    colorButtons.forEach(btn => {
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
+            resetButtons(colorButtons);
+            btn.classList.add('active');
+            generateProductsSummary();
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
+    });
+
+    updateVisibility();
+}
+
+// POPRAWKA 3: Napraw prepareNewProductForm - unikalne ID dla wykończenia
+function prepareNewProductForm(form, index) {
+    if (!form) return;
+
+    // POPRAWKA: Aktualizuj ID i name dla radio buttons wariantów
+    form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
+        const baseId = radio.value;
+        const newId = `${baseId}-product-${index}`;
+        const oldId = radio.id;
+        
+        radio.id = newId;
+        radio.name = `variant-product-${index}`;
+        radio.checked = false;
+        
+        // Aktualizuj label
+        const label = form.querySelector(`label[for="${oldId}"]`);
+        if (label) label.setAttribute('for', newId);
+    });
+
+    // ✅ POPRAWKA: Unikalne ID dla elementów wykończenia
+    const elementsToUpdate = [
+        '#finishing-variant-wrapper',
+        '#finishing-gloss-wrapper', 
+        '#finishing-color-wrapper'
+    ];
+    
+    elementsToUpdate.forEach(selector => {
+        const element = form.querySelector(selector);
+        if (element && element.id) {
+            element.id = `${element.id}-${index}`;
+        }
+    });
+
+    // POPRAWKA: Resetuj przyciski wykończenia i ustaw domyślne
+    form.querySelectorAll('.finishing-btn.active').forEach(btn => btn.classList.remove('active'));
+    const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Brak"]');
+    if (defaultFinishing) defaultFinishing.classList.add('active');
+
+    // POPRAWKA: Ukryj sekcje wykończenia
+    form.querySelectorAll('[id*="finishing-variant-wrapper"], [id*="finishing-gloss-wrapper"], [id*="finishing-color-wrapper"]').forEach(el => {
+        if (el) el.style.display = 'none';
+    });
+
+    // POPRAWKA: Wyczyść dataset
+    form.dataset.orderBrutto = '';
+    form.dataset.orderNetto = '';
+    form.dataset.finishingType = 'Brak';
+    form.dataset.finishingBrutto = '';
+    form.dataset.finishingNetto = '';
+
+    // POPRAWKA: Pobierz aktualną grupę cenową z pierwszego produktu
+    const firstForm = quoteFormsContainer.querySelector('.quote-form');
+    const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value;
+
+    // POPRAWKA: Wyczyść inputy ale ZACHOWAJ grupę cenową
+    form.querySelectorAll('input[data-field]').forEach(input => {
+        input.value = '';
+        input.classList.remove('error-outline');
+    });
+    
+    form.querySelectorAll('select[data-field]').forEach(select => {
+        if (select.dataset.field === 'clientType' && currentClientType) {
+            select.value = currentClientType;
+            console.log(`[prepareNewProductForm] Skopiowano grupę cenową: ${currentClientType}`);
+        } else {
+            select.selectedIndex = 0;
+        }
+    });
+
+    // POPRAWKA: Resetuj wyświetlanie cen
+    form.querySelectorAll('.variants span').forEach(span => {
+        const isHeader = span.classList.contains('header-title') ||
+            span.classList.contains('header-unit-brutto') ||
+            span.classList.contains('header-unit-netto') ||
+            span.classList.contains('header-total-brutto') ||
+            span.classList.contains('header-total-netto');
+        if (!span.classList.contains('out-of-stock-tag') && !isHeader) {
+            span.textContent = 'Brak dług.';
+        }
+    });
+
+    // POPRAWKA: Resetuj kolory wariantów
+    form.querySelectorAll('.variants div').forEach(variant => {
+        variant.style.backgroundColor = '';
+        variant.querySelectorAll('*').forEach(el => el.style.color = '');
+    });
+}
+
+// POPRAWKA 4: Napraw fixAllRadioButtonNames - NIE resetuj zaznaczonych opcji
+function fixAllRadioButtonNames() {
+    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
+    
+    allForms.forEach((form, formIndex) => {
+        // ✅ NAJPIERW zachowaj informację o zaznaczonych radio
+        const checkedRadios = [];
+        form.querySelectorAll('.variants input[type="radio"]:checked').forEach(radio => {
+            checkedRadios.push(radio.value); // Zachowaj value zaznaczonego radio
+        });
+        
+        // Teraz zaktualizuj nazwy i ID
+        form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
+            const baseValue = radio.value;
+            const wasChecked = radio.checked; // Zachowaj stan zaznaczenia
+            
+            radio.id = `${baseValue}-product-${formIndex}`;
+            radio.name = `variant-product-${formIndex}`;
+            
+            // ✅ PRZYWRÓĆ zaznaczenie jeśli było zaznaczone
+            if (wasChecked || checkedRadios.includes(baseValue)) {
+                radio.checked = true;
+                // Dodatkowo zaktualizuj nazwę dla zaznaczonego
+                radio.name = `variant-product-${formIndex}-selected`;
+            }
+            
+            // Aktualizuj label
+            const label = form.querySelector(`label[for*="${baseValue}"]`);
+            if (label) {
+                label.setAttribute('for', radio.id);
+            }
+        });
+        
+        console.log(`✅ Naprawiono radio buttons dla produktu ${formIndex + 1}, zachowano ${checkedRadios.length} zaznaczonych`);
+    });
+    
+    console.log('✅ Naprawiono nazwy radio buttonów we wszystkich formularzach BEZ resetowania selekcji');
+}
+
+// POPRAWKA 5: Napraw calculateFinishingCost - usuń globalne ID
 function calculateFinishingCost(form) {
     dbg("🧪 calculateFinishingCost start:", form);
-    // Jeśli form jest falsy albo nie jest elementem .quote-form, przerywamy
     if (!form || !form.closest('.quote-form')) return { netto: null, brutto: null };
 
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
@@ -490,8 +944,10 @@ function calculateFinishingCost(form) {
     const thicknessInput = form.querySelector('input[data-field="thickness"]');
     const quantityInput = form.querySelector('input[data-field="quantity"]');
 
-    const finishingBruttoEl = document.getElementById('finishing-brutto');
-    const finishingNettoEl = document.getElementById('finishing-netto');
+    // ✅ POPRAWKA: Znajdź elementy wykończenia tylko w ramach aktywnego formularza
+    // lub użyj globalnych jeśli nie ma w formularzu
+    let finishingBruttoEl = form.querySelector('.finishing-brutto') || document.getElementById('finishing-brutto');
+    let finishingNettoEl = form.querySelector('.finishing-netto') || document.getElementById('finishing-netto');
 
     if (finishingType === 'Brak') {
         form.dataset.finishingBrutto = 0;
@@ -503,7 +959,6 @@ function calculateFinishingCost(form) {
         return { netto: 0, brutto: 0 };
     }
 
-    // Jeśli nie ma wymiarów, przerywamy
     if (!lengthInput?.value || !widthInput?.value || !thicknessInput?.value) {
         dbg("🧪 calculateFinishingCost end: brak wymiarów");
         return { netto: null, brutto: null };
@@ -514,7 +969,6 @@ function calculateFinishingCost(form) {
     const thicknessVal = parseFloat(thicknessInput.value);
     const quantityVal = parseInt(quantityInput.value) || 1;
 
-    // Przeliczamy z cm na mm (x10)
     const length = lengthVal * 10;
     const width = widthVal * 10;
     const thickness = thicknessVal * 10;
@@ -540,6 +994,7 @@ function calculateFinishingCost(form) {
     dbg("🧪 calculateFinishingCost end:", { finishingPriceNetto, finishingPriceBrutto });
     return { netto: finishingPriceNetto, brutto: finishingPriceBrutto };
 }
+
 /**
  * Aktualizuje stan przycisków "Oblicz wysyłkę" i "Zapisz wycenę"
  */
@@ -584,14 +1039,21 @@ function attachFinishingListenersToForm(form) {
  */
 function attachFinishingUIListeners(form) {
     if (!form) return;
+    
+    const formIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(form);
+    
     const typeButtons = form.querySelectorAll('[data-finishing-type]');
     const variantButtons = form.querySelectorAll('[data-finishing-variant]');
     const glossButtons = form.querySelectorAll('[data-finishing-gloss]');
     const colorButtons = form.querySelectorAll('[data-finishing-color]');
 
-    const variantWrapper = form.querySelector('#finishing-variant-wrapper');
-    const glossWrapper = form.querySelector('#finishing-gloss-wrapper');
-    const colorWrapper = form.querySelector('#finishing-color-wrapper');
+    // ✅ POPRAWKA: Używaj unikalnych selektorów dla każdego produktu
+    const variantWrapper = form.querySelector(`#finishing-variant-wrapper-${formIndex}`) || 
+                          form.querySelector('#finishing-variant-wrapper');
+    const glossWrapper = form.querySelector(`#finishing-gloss-wrapper-${formIndex}`) || 
+                        form.querySelector('#finishing-gloss-wrapper');
+    const colorWrapper = form.querySelector(`#finishing-color-wrapper-${formIndex}`) || 
+                        form.querySelector('#finishing-color-wrapper');
 
     let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
     let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
@@ -617,45 +1079,58 @@ function attachFinishingUIListeners(form) {
     }
 
     typeButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
+        // ✅ USUŃ poprzednie listenery specyficzne dla tego formularza
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
             resetButtons(typeButtons);
             btn.classList.add('active');
             currentType = btn.dataset.finishingType;
             updateVisibility();
-            calculateFinishingCost(form);
-            // ✅ DODAJ: Odśwież panel produktów
+            calculateFinishingCost(form); // ✅ Przekaż konkretny formularz
             generateProductsSummary();
-        });
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
     });
 
     variantButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
             resetButtons(variantButtons);
             btn.classList.add('active');
             currentVariant = btn.dataset.finishingVariant;
             updateVisibility();
-            calculateFinishingCost(form);
-            // ✅ DODAJ: Odśwież panel produktów
+            calculateFinishingCost(form); // ✅ Przekaż konkretny formularz
             generateProductsSummary();
-        });
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
     });
 
     glossButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
             resetButtons(glossButtons);
             btn.classList.add('active');
-            // ✅ DODAJ: Odśwież panel produktów
             generateProductsSummary();
-        });
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
     });
 
     colorButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.removeEventListener('click', btn._formSpecificHandler);
+        
+        btn._formSpecificHandler = () => {
             resetButtons(colorButtons);
             btn.classList.add('active');
-            // ✅ DODAJ: Odśwież panel produktów
             generateProductsSummary();
-        });
+        };
+        
+        btn.addEventListener('click', btn._formSpecificHandler);
     });
 
     updateVisibility();
@@ -664,23 +1139,114 @@ function attachFinishingUIListeners(form) {
 function attachFormListeners(form) {
     if (!form || form.dataset.listenersAttached) return;
 
-    // POPRAWKA: Dodaj listenery dla podstawowych inputów
+    // Podstawowe inputy
     form.querySelectorAll('input[data-field]').forEach(input => {
-        input.removeEventListener('input', updatePrices); // Usuń poprzednie
+        input.removeEventListener('input', updatePrices);
         input.addEventListener('input', updatePrices);
     });
 
-    // POPRAWKA: Dodaj listenery dla radio buttons
+    // Radio buttons
     form.querySelectorAll('input[type="radio"]').forEach(radio => {
-        radio.removeEventListener('change', updatePrices); // Usuń poprzednie
+        radio.removeEventListener('change', updatePrices);
         radio.addEventListener('change', updatePrices);
     });
 
-    // POPRAWKA: Dodaj listenery dla wykończenia
+    // Grupa cenowa
+    const clientTypeSelect = form.querySelector('select[data-field="clientType"]');
+    if (clientTypeSelect) {
+        clientTypeSelect.removeEventListener('change', handleClientTypeChange);
+        clientTypeSelect.addEventListener('change', handleClientTypeChange);
+    }
+
+    // ✅ POPRAWKA: Wykończenie z dedykowanymi listenerami
     attachFinishingListenersToForm(form);
-    attachFinishingUIListeners(form);
+    attachFinishingUIListeners(form); // ✅ Ta funkcja jest już poprawiona wyżej
 
     form.dataset.listenersAttached = "true";
+}
+
+function syncClientTypeAcrossProducts(selectedType, sourceForm) {
+    console.log(`[syncClientType] Synchronizuję grupę ${selectedType} na wszystkich produktach`);
+    
+    // Zaktualizuj zmienne globalne
+    currentClientType = selectedType;
+    currentMultiplier = multiplierMapping[selectedType] || 1.0;
+    
+    // ✅ ZACHOWAJ stany przed synchronizacją
+    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
+    const preservedStates = [];
+    
+    allForms.forEach((form, index) => {
+        const checkedRadios = [];
+        form.querySelectorAll('.variants input[type="radio"]:checked').forEach(radio => {
+            checkedRadios.push({
+                value: radio.value,
+                totalBrutto: radio.dataset.totalBrutto,
+                totalNetto: radio.dataset.totalNetto
+            });
+        });
+        
+        preservedStates.push({
+            form: form,
+            index: index,
+            checkedRadios: checkedRadios
+        });
+    });
+    
+    allForms.forEach(form => {
+        if (form === sourceForm) return; // Pomiń formularz źródłowy
+        
+        const select = form.querySelector('select[data-field="clientType"]');
+        if (select && select.value !== selectedType) {
+            select.value = selectedType;
+            console.log(`[syncClientType] Zaktualizowano select w formularzu:`, form);
+        }
+    });
+    
+    // Przelicz ceny z zachowaniem aktywnego formularza
+    const originalActiveForm = activeQuoteForm;
+    
+    allForms.forEach(form => {
+        activeQuoteForm = form;
+        updatePrices();
+    });
+    
+    activeQuoteForm = originalActiveForm;
+    
+    // ✅ PRZYWRÓĆ stany po przeliczeniu
+    preservedStates.forEach(state => {
+        state.checkedRadios.forEach(radioData => {
+            const radio = state.form.querySelector(`input[value="${radioData.value}"]`);
+            if (radio) {
+                radio.checked = true;
+                radio.name = `variant-product-${state.index}-selected`;
+                
+                // Przywróć dataset jeśli się zgadza
+                if (radio.dataset.totalBrutto && radio.dataset.totalNetto) {
+                    state.form.dataset.orderBrutto = radio.dataset.totalBrutto;
+                    state.form.dataset.orderNetto = radio.dataset.totalNetto;
+                }
+                
+                // Przywróć kolor
+                const selectedVariant = radio.closest('div');
+                if (selectedVariant) {
+                    selectedVariant.querySelectorAll('*').forEach(el => el.style.color = "#ED6B24");
+                }
+            }
+        });
+    });
+    
+    console.log('✅ Zsynchronizowano grupę cenową z zachowaniem selekcji');
+}
+
+function handleClientTypeChange(event) {
+    const selectedType = event.target.value;
+    const sourceForm = event.target.closest('.quote-form');
+    
+    console.log(`🔄 Zmieniono grupę cenową na: ${selectedType}`);
+    
+    // Synchronizuj z innymi produktami
+    syncClientTypeAcrossProducts(selectedType, sourceForm);
 }
 
 function areAllProductsComplete() {
@@ -704,16 +1270,30 @@ function prepareNewProductForm(form, index) {
     // POPRAWKA: Aktualizuj ID i name dla radio buttons wariantów
     form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
         const baseId = radio.value;
-        const newId = `${baseId}-${index}`;
+        const newId = `${baseId}-product-${index}`;
         const oldId = radio.id;
         
         radio.id = newId;
-        radio.name = `variantOption-${index}`; // ✅ POPRAWKA: Unikalny name per produkt
+        radio.name = `variant-product-${index}`;
         radio.checked = false;
         
         // Aktualizuj label
         const label = form.querySelector(`label[for="${oldId}"]`);
         if (label) label.setAttribute('for', newId);
+    });
+
+    // ✅ POPRAWKA: Unikalne ID dla elementów wykończenia
+    const elementsToUpdate = [
+        '#finishing-variant-wrapper',
+        '#finishing-gloss-wrapper', 
+        '#finishing-color-wrapper'
+    ];
+    
+    elementsToUpdate.forEach(selector => {
+        const element = form.querySelector(selector);
+        if (element && element.id) {
+            element.id = `${element.id}-${index}`;
+        }
     });
 
     // POPRAWKA: Resetuj przyciski wykończenia i ustaw domyślne
@@ -722,7 +1302,7 @@ function prepareNewProductForm(form, index) {
     if (defaultFinishing) defaultFinishing.classList.add('active');
 
     // POPRAWKA: Ukryj sekcje wykończenia
-    form.querySelectorAll('#finishing-variant-wrapper, #finishing-gloss-wrapper, #finishing-color-wrapper').forEach(el => {
+    form.querySelectorAll('[id*="finishing-variant-wrapper"], [id*="finishing-gloss-wrapper"], [id*="finishing-color-wrapper"]').forEach(el => {
         if (el) el.style.display = 'none';
     });
 
@@ -733,12 +1313,20 @@ function prepareNewProductForm(form, index) {
     form.dataset.finishingBrutto = '';
     form.dataset.finishingNetto = '';
 
+    // POPRAWKA: Pobierz aktualną grupę cenową z pierwszego produktu
+    const firstForm = quoteFormsContainer.querySelector('.quote-form');
+    const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value;
+
     // POPRAWKA: Wyczyść inputy ale ZACHOWAJ grupę cenową
-    const currentClientType = form.querySelector('select[data-field="clientType"]')?.value;
-    form.querySelectorAll('input[data-field]').forEach(input => input.value = '');
+    form.querySelectorAll('input[data-field]').forEach(input => {
+        input.value = '';
+        input.classList.remove('error-outline');
+    });
+    
     form.querySelectorAll('select[data-field]').forEach(select => {
         if (select.dataset.field === 'clientType' && currentClientType) {
-            select.value = currentClientType; // ✅ ZACHOWAJ grupę cenową
+            select.value = currentClientType;
+            console.log(`[prepareNewProductForm] Skopiowano grupę cenową: ${currentClientType}`);
         } else {
             select.selectedIndex = 0;
         }
@@ -752,7 +1340,7 @@ function prepareNewProductForm(form, index) {
             span.classList.contains('header-total-brutto') ||
             span.classList.contains('header-total-netto');
         if (!span.classList.contains('out-of-stock-tag') && !isHeader) {
-            span.textContent = 'Brak dług.'; // ✅ POPRAWKA: Domyślny tekst
+            span.textContent = 'Brak dług.';
         }
     });
 
@@ -1362,34 +1950,6 @@ function init() {
         const forms = quoteFormsContainer.querySelectorAll('.quote-form');
         forms.forEach((form, i) => {
             form.style.display = (i === index) ? 'flex' : 'none';
-        });
-    }
-    
-    // NOWA FUNKCJA: Obsługa synchronizacji grup cenowych
-    function syncClientTypeAcrossProducts(selectedType, sourceForm) {
-        console.log(`[syncClientType] Synchronizuję grupę ${selectedType} na wszystkich produktach`);
-        
-        // Zaktualizuj zmienne globalne
-        currentClientType = selectedType;
-        currentMultiplier = multiplierMapping[selectedType] || 1.0;
-        
-        const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
-        allForms.forEach(form => {
-            if (form === sourceForm) return; // Pomiń formularz źródłowy
-            
-            const select = form.querySelector('select[data-field="clientType"]');
-            if (select && select.value !== selectedType) {
-                select.value = selectedType;
-                console.log(`[syncClientType] Zaktualizowano select w formularzu:`, form);
-            }
-        });
-        
-        // Przelicz ceny we wszystkich formularzach
-        allForms.forEach(form => {
-            const tempActive = activeQuoteForm;
-            activeQuoteForm = form;
-            updatePrices();
-            activeQuoteForm = tempActive;
         });
     }
 
@@ -2778,7 +3338,6 @@ function activateProductCard(index) {
 function addNewProduct() {
     console.log("[addNewProduct] Dodaję nowy produkt...");
     
-    // Pobierz aktualną grupę cenową z pierwszego formularza
     const firstForm = quoteFormsContainer.querySelector('.quote-form');
     const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
     
@@ -2787,48 +3346,130 @@ function addNewProduct() {
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
     const newIndex = forms.length;
 
-    // Skopiuj pierwszy formularz
     if (!firstForm) {
         console.error("[addNewProduct] Nie znaleziono pierwszego formularza!");
         return;
     }
 
+    // ✅ ZACHOWAJ stany wszystkich istniejących formularzy PRZED klonowaniem
+    const preservedStates = forms.map(form => {
+        const checkedRadios = [];
+        form.querySelectorAll('.variants input[type="radio"]:checked').forEach(radio => {
+            checkedRadios.push({
+                value: radio.value,
+                totalBrutto: radio.dataset.totalBrutto,
+                totalNetto: radio.dataset.totalNetto
+            });
+        });
+        
+        return {
+            form: form,
+            checkedRadios: checkedRadios,
+            orderBrutto: form.dataset.orderBrutto,
+            orderNetto: form.dataset.orderNetto
+        };
+    });
+
     const newForm = firstForm.cloneNode(true);
     newForm.style.display = 'none';
     quoteFormsContainer.appendChild(newForm);
 
-    // ✅ POPRAWKA: Przygotuj formularz z poprawkami
+    // Przygotuj nowy formularz
     prepareNewProductForm(newForm, newIndex);
-    
-    // ✅ POPRAWKA: Wymuś skopiowanie grupy cenowej
-    if (currentClientType) {
-        const select = newForm.querySelector('select[data-field="clientType"]');
-        if (select) {
-            select.value = currentClientType;
-            console.log(`[addNewProduct] Skopiowano grupę cenową: ${currentClientType}`);
-        }
-    }
-    
-    // ✅ POPRAWKA: Podepnij event listenery
     attachFormListeners(newForm);
+    
+    // ✅ PRZYWRÓĆ stany istniejących formularzy
+    preservedStates.forEach((state, index) => {
+        state.checkedRadios.forEach(radioData => {
+            const radio = state.form.querySelector(`input[value="${radioData.value}"]`);
+            if (radio) {
+                radio.checked = true;
+                radio.name = `variant-product-${index}-selected`;
+                radio.dataset.totalBrutto = radioData.totalBrutto;
+                radio.dataset.totalNetto = radioData.totalNetto;
+                
+                // Przywróć pomarańczowy kolor
+                const selectedVariant = radio.closest('div');
+                if (selectedVariant) {
+                    selectedVariant.querySelectorAll('*').forEach(el => el.style.color = "#ED6B24");
+                }
+            }
+        });
+        
+        // Przywróć dataset
+        state.form.dataset.orderBrutto = state.orderBrutto;
+        state.form.dataset.orderNetto = state.orderNetto;
+    });
     
     // Aktywuj nowy formularz
     activateProductCard(newIndex);
     
-    // Wymuś odświeżenie po krótkim opóźnieniu
+    // ✅ FINALNIE napraw nazwy BEZ resetowania stanów
+    fixAllRadioButtonNames();
+    
     setTimeout(() => {
         updatePrices();
         generateProductsSummary();
     }, 100);
     
-    console.log(`[addNewProduct] Dodano produkt ${newIndex + 1}`);
+    console.log(`[addNewProduct] Dodano produkt ${newIndex + 1} z zachowaniem stanów`);
+}
+
+function fixAllRadioButtonNames() {
+    const allForms = quoteFormsContainer.querySelectorAll('.quote-form');
+    
+    allForms.forEach((form, formIndex) => {
+        // ✅ NAJPIERW zachowaj informację o zaznaczonych radio
+        const checkedRadios = [];
+        form.querySelectorAll('.variants input[type="radio"]:checked').forEach(radio => {
+            checkedRadios.push(radio.value); // Zachowaj value zaznaczonego radio
+        });
+        
+        // Teraz zaktualizuj nazwy i ID
+        form.querySelectorAll('.variants input[type="radio"]').forEach(radio => {
+            const baseValue = radio.value;
+            const wasChecked = radio.checked; // Zachowaj stan zaznaczenia
+            
+            radio.id = `${baseValue}-product-${formIndex}`;
+            radio.name = `variant-product-${formIndex}`;
+            
+            // ✅ PRZYWRÓĆ zaznaczenie jeśli było zaznaczone
+            if (wasChecked || checkedRadios.includes(baseValue)) {
+                radio.checked = true;
+                // Dodatkowo zaktualizuj nazwę dla zaznaczonego
+                radio.name = `variant-product-${formIndex}-selected`;
+            }
+            
+            // Aktualizuj label
+            const label = form.querySelector(`label[for*="${baseValue}"]`);
+            if (label) {
+                label.setAttribute('for', radio.id);
+            }
+        });
+        
+        console.log(`✅ Naprawiono radio buttons dla produktu ${formIndex + 1}, zachowano ${checkedRadios.length} zaznaczonych`);
+    });
+    
+    console.log('✅ Naprawiono nazwy radio buttonów we wszystkich formularzach BEZ resetowania selekcji');
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log("🔧 Inicjalizuję poprawki kalkulatora...");
+    console.log("🔧 Inicjalizuję FINALNE poprawki kalkulatora...");
     
-    // Wymuś odświeżenie stanu przycisków przy ładowaniu
     setTimeout(() => {
+        if (quoteFormsContainer) {
+            console.log("🔧 Naprawiam istniejące formularze...");
+            fixAllRadioButtonNames();
+            
+            // Podepnij poprawione listenery
+            quoteFormsContainer.querySelectorAll('.quote-form').forEach((form, index) => {
+                console.log(`🔧 Podpinam listenery dla formularza ${index + 1}`);
+                attachFormListeners(form);
+            });
+            
+            console.log("✅ Wszystkie formularze naprawione");
+        }
+        
         if (typeof updateCalculateDeliveryButtonState === 'function') {
             updateCalculateDeliveryButtonState();
         }
@@ -2837,9 +3478,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, 500);
     
-    console.log("✅ Poprawki kalkulatora zostały zainicjalizowane!");
+    console.log("✅ FINALNE poprawki kalkulatora zostały zainicjalizowane!");
 });
 
-// ========== KONIEC POPRAWEK ==========
-
-console.log("✅ Poprawki kalkulatora zostały załadowane!");
+console.log("✅ FINALNE poprawki kalkulatora zostały załadowane!");
