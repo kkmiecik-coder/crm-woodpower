@@ -642,7 +642,6 @@
     background: #FFFFFF;
     border: 1px solid #E0E0E0;
     border-radius: 8px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
     height: fit-content; /* Wysokość dopasowana do zawartości */
 }
 
@@ -2983,12 +2982,6 @@ select.select-small option {
     transition: all 0.3s ease;
 }
 
-/* Hover effect dla całych sekcji */
-.products-summary-main:hover,
-.quote-summary:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
 /* Zapewnienie równej wysokości wizualnej */
 .summary-section {
     align-items: stretch; /* Rozciąga sekcje do tej samej wysokości */
@@ -3018,10 +3011,6 @@ select.select-small option {
         top: 20px; /* Odstęp od góry przy scrollingu */
         align-self: flex-start;
     }
-}
-
-.quote-summary {
-    background: linear-gradient(145deg, #FFFFFF 0%, #FAFAFA 100%);
 }
 
 /* Focus states dla accessibility */

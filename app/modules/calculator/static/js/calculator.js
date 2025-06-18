@@ -651,14 +651,13 @@ function updatePricesInOtherProducts() {
 function attachFinishingUIListeners(form) {
     if (!form) return;
     
-    const formIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(form);
+    const formIndex = Array.from(quoteFormsContainer.children).indexOf(form);
     
-    const typeButtons = form.querySelectorAll('[data-finishing-type]');
-    const variantButtons = form.querySelectorAll('[data-finishing-variant]');
-    const glossButtons = form.querySelectorAll('[data-finishing-gloss]');
-    const colorButtons = form.querySelectorAll('[data-finishing-color]');
-
-    // ✅ POPRAWKA: Używaj unikalnych selektorów dla każdego produktu
+    const typeButtons = form.querySelectorAll('.finishing-btn[data-finishing-type]');
+    const variantButtons = form.querySelectorAll('.finishing-btn[data-finishing-variant]');
+    const glossButtons = form.querySelectorAll('.finishing-btn[data-finishing-gloss]');
+    const colorButtons = form.querySelectorAll('.color-btn[data-finishing-color]');
+    
     const variantWrapper = form.querySelector(`#finishing-variant-wrapper-${formIndex}`) || 
                           form.querySelector('#finishing-variant-wrapper');
     const glossWrapper = form.querySelector(`#finishing-gloss-wrapper-${formIndex}`) || 
@@ -666,39 +665,54 @@ function attachFinishingUIListeners(form) {
     const colorWrapper = form.querySelector(`#finishing-color-wrapper-${formIndex}`) || 
                         form.querySelector('#finishing-color-wrapper');
 
-    let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
-    let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
+    // ❌ PROBLEM: Te zmienne są ustawiane tylko raz na początku
+    // let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
+    // let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
 
     const resetButtons = buttons => buttons.forEach(btn => btn.classList.remove('active'));
     const show = el => { if (el) el.style.display = 'flex'; };
     const hide = el => { if (el) el.style.display = 'none'; };
 
     function updateVisibility() {
+        // ✅ POPRAWKA: Pobierz aktualne wartości za każdym razem
+        const currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
+        const currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
+        
+        console.log('[updateVisibility] currentType:', currentType, 'currentVariant:', currentVariant);
+        
         if (currentType === 'Brak') {
             hide(variantWrapper);
             hide(glossWrapper);
             hide(colorWrapper);
             return;
         }
+        
         show(variantWrapper);
 
-        if (currentVariant === 'Barwne') show(colorWrapper);
-        else hide(colorWrapper);
+        if (currentVariant === 'Barwne') {
+            show(colorWrapper);
+        } else {
+            hide(colorWrapper);
+        }
 
-        if (currentType === 'Lakierowanie') show(glossWrapper);
-        else hide(glossWrapper);
+        if (currentType === 'Lakierowanie') {
+            show(glossWrapper);
+        } else {
+            hide(glossWrapper);
+        }
     }
 
     typeButtons.forEach(btn => {
-        // ✅ USUŃ poprzednie listenery specyficzne dla tego formularza
+        // Usuń poprzednie listenery specyficzne dla tego formularza
         btn.removeEventListener('click', btn._formSpecificHandler);
         
         btn._formSpecificHandler = () => {
+            console.log('[typeButton clicked]', btn.dataset.finishingType);
             resetButtons(typeButtons);
             btn.classList.add('active');
-            currentType = btn.dataset.finishingType;
-            updateVisibility();
-            calculateFinishingCost(form); // ✅ Przekaż konkretny formularz
+            // ❌ USUNIĘTE: currentType = btn.dataset.finishingType;
+            updateVisibility(); // ✅ POPRAWKA: updateVisibility pobierze aktualną wartość
+            calculateFinishingCost(form);
             generateProductsSummary();
         };
         
@@ -709,11 +723,12 @@ function attachFinishingUIListeners(form) {
         btn.removeEventListener('click', btn._formSpecificHandler);
         
         btn._formSpecificHandler = () => {
+            console.log('[variantButton clicked]', btn.dataset.finishingVariant);
             resetButtons(variantButtons);
             btn.classList.add('active');
-            currentVariant = btn.dataset.finishingVariant;
-            updateVisibility();
-            calculateFinishingCost(form); // ✅ Przekaż konkretny formularz
+            // ❌ USUNIĘTE: currentVariant = btn.dataset.finishingVariant;
+            updateVisibility(); // ✅ POPRAWKA: updateVisibility pobierze aktualną wartość
+            calculateFinishingCost(form);
             generateProductsSummary();
         };
         
@@ -724,6 +739,7 @@ function attachFinishingUIListeners(form) {
         btn.removeEventListener('click', btn._formSpecificHandler);
         
         btn._formSpecificHandler = () => {
+            console.log('[glossButton clicked]', btn.dataset.finishingGloss);
             resetButtons(glossButtons);
             btn.classList.add('active');
             generateProductsSummary();
@@ -736,6 +752,7 @@ function attachFinishingUIListeners(form) {
         btn.removeEventListener('click', btn._formSpecificHandler);
         
         btn._formSpecificHandler = () => {
+            console.log('[colorButton clicked]', btn.dataset.finishingColor);
             resetButtons(colorButtons);
             btn.classList.add('active');
             generateProductsSummary();
@@ -744,6 +761,7 @@ function attachFinishingUIListeners(form) {
         btn.addEventListener('click', btn._formSpecificHandler);
     });
 
+    // Wywołaj updateVisibility na początku, żeby ustawić prawidłowy stan
     updateVisibility();
 }
 
@@ -906,6 +924,7 @@ function attachFormListeners(form) {
     
     // Oznacz formularz jako posiadający event listenery
     form.dataset.listenersAttached = "true";
+    attachFinishingUIListeners(form);
 }
 
 function syncClientTypeAcrossProducts(selectedType, sourceForm) {
