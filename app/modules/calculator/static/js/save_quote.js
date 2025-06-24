@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const switchToAddClient = document.getElementById('switchToAddClient');
     const searchInput = document.getElementById('clientSearchInput');
 
-    // NOWA FUNKCJA: Obsługa zmiany źródła zapytania
+    // POPRAWIONA FUNKCJA: Obsługa zmiany źródła zapytania
     function handleSourceChange() {
         const sourceSelect = document.querySelector('[name="quote_source"]');
         const phoneField = document.querySelector('[name="client_phone"]');
@@ -31,6 +31,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 emailLabel.innerHTML = emailLabel.innerHTML.replace('<span style="color: #E2B007">*</span>', '');
             }
             
+            // 🆕 KLUCZOWA POPRAWKA: Usuń atrybut required z pól
+            if (phoneField) {
+                phoneField.removeAttribute('required');
+                phoneField.setAttribute('data-olx-optional', 'true');
+            }
+            if (emailField) {
+                emailField.removeAttribute('required');
+                emailField.setAttribute('data-olx-optional', 'true');
+            }
+            
             // Aktualizuj tekst informacyjny
             const noteElement = document.querySelector('.input-note');
             if (noteElement) {
@@ -40,7 +50,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 `;
             }
             
-            console.log('[handleSourceChange] Usunięto wymagania dla OLX');
+            console.log('[handleSourceChange] Usunięto wymagania dla OLX (włącznie z atrybutem required)');
         } else {
             // Dla innych źródeł przywróć wymagania
             if (phoneLabel && !phoneLabel.innerHTML.includes('*')) {
@@ -48,6 +58,16 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             if (emailLabel && !emailLabel.innerHTML.includes('*')) {
                 emailLabel.innerHTML = emailLabel.innerHTML.replace('E-mail', 'E-mail <span style="color: #E2B007">*</span>');
+            }
+            
+            // 🆕 KLUCZOWA POPRAWKA: Przywróć logikę "jedno z pól wymagane"
+            if (phoneField) {
+                phoneField.removeAttribute('data-olx-optional');
+                // Nie dodajemy required="required" tutaj, bo to jest logika "jedno z pól"
+            }
+            if (emailField) {
+                emailField.removeAttribute('data-olx-optional');
+                // Nie dodajemy required="required" tutaj, bo to jest logika "jedno z pól"
             }
             
             // Przywróć standardowy tekst informacyjny
@@ -61,6 +81,121 @@ document.addEventListener('DOMContentLoaded', function () {
             
             console.log('[handleSourceChange] Przywrócono standardowe wymagania');
         }
+    }
+
+    // 🆕 NOWA FUNKCJA: Niestandardowa walidacja uwzględniająca źródło OLX
+    function validateEmailPhoneFields() {
+        const sourceSelect = document.querySelector('[name="quote_source"]');
+        const phoneField = document.querySelector('[name="client_phone"]');
+        const emailField = document.querySelector('[name="client_email"]');
+        
+        if (!sourceSelect || !phoneField || !emailField) {
+            return true; // Jeśli brak pól, nie blokuj
+        }
+        
+        const selectedSource = sourceSelect.value.toLowerCase();
+        const isOlxSource = selectedSource.includes('olx');
+        
+        const phoneValue = phoneField.value.trim();
+        const emailValue = emailField.value.trim();
+        
+        if (isOlxSource) {
+            // Dla OLX pola są opcjonalne - zawsze przejdź
+            console.log('[validateEmailPhoneFields] OLX: pola opcjonalne, walidacja przeszła');
+            clearFieldValidationError(phoneField);
+            clearFieldValidationError(emailField);
+            return true;
+        } else {
+            // Dla innych źródeł: wymagany email LUB telefon
+            const hasEmailOrPhone = phoneValue || emailValue;
+            
+            if (!hasEmailOrPhone) {
+                // Pokaż błąd na obu polach
+                showFieldValidationError(phoneField, 'Wymagany jest telefon lub e-mail');
+                showFieldValidationError(emailField, 'Wymagany jest telefon lub e-mail');
+                console.log('[validateEmailPhoneFields] Standardowe źródło: brak telefonu i e-maila');
+                return false;
+            }
+            
+            // Wyczyść ewentualne błędy
+            clearFieldValidationError(phoneField);
+            clearFieldValidationError(emailField);
+            console.log('[validateEmailPhoneFields] Standardowe źródło: walidacja przeszła');
+            return true;
+        }
+    }
+
+    // 🆕 FUNKCJE POMOCNICZE: Obsługa błędów walidacji
+    function showFieldValidationError(field, message) {
+        // Usuń poprzednie błędy
+        clearFieldValidationError(field);
+        
+        // Dodaj klasę błędu
+        field.classList.add('error');
+        
+        // Utwórz element błędu
+        const errorElement = document.createElement('div');
+        errorElement.className = 'field-error';
+        errorElement.textContent = message;
+        errorElement.style.color = 'red';
+        errorElement.style.fontSize = '12px';
+        errorElement.style.marginTop = '4px';
+        
+        // Wstaw po polu
+        field.parentNode.insertBefore(errorElement, field.nextSibling);
+    }
+
+    function clearFieldValidationError(field) {
+        field.classList.remove('error');
+        
+        // Usuń element błędu jeśli istnieje
+        const errorElement = field.nextSibling;
+        if (errorElement && errorElement.classList && errorElement.classList.contains('field-error')) {
+            errorElement.remove();
+        }
+    }
+
+    // 🆕 ZMODYFIKOWANA FUNKCJA: Główna walidacja formularza przed zapisem
+    function validateSaveQuoteForm() {
+        console.log('[validateSaveQuoteForm] Rozpoczynam walidację...');
+        
+        // 🆕 POPRAWKA: Pola są bezpośrednio w modalu, nie w tagu <form>
+        const modal = document.querySelector('#saveQuoteModal');
+        if (!modal) {
+            console.log('[validateSaveQuoteForm] Brak modala!');
+            return false;
+        }
+        
+        const requiredFields = modal.querySelectorAll('[required]');
+        let isValid = true;
+        
+        console.log(`[validateSaveQuoteForm] Znaleziono ${requiredFields.length} pól required:`);
+        
+        // Sprawdź wszystkie standardowe wymagane pola
+        requiredFields.forEach((field, index) => {
+            const value = field.value.trim();
+            const fieldName = field.name || field.id || `pole-${index}`;
+            
+            if (!value) {
+                field.classList.add('error');
+                isValid = false;
+                console.log(`[validateSaveQuoteForm] ❌ Pole "${fieldName}" jest puste (required)`);
+            } else {
+                field.classList.remove('error');
+                console.log(`[validateSaveQuoteForm] ✅ Pole "${fieldName}" = "${value}"`);
+            }
+        });
+        
+        // 🆕 KLUCZOWA ZMIANA: Niestandardowa walidacja email/telefon
+        if (!validateEmailPhoneFields()) {
+            isValid = false;
+            console.log('[validateSaveQuoteForm] ❌ Walidacja email/telefon nie przeszła');
+        } else {
+            console.log('[validateSaveQuoteForm] ✅ Walidacja email/telefon przeszła');
+        }
+        
+        console.log(`[validateSaveQuoteForm] Wynik końcowy: ${isValid ? 'PRZESZŁA' : 'NIE PRZESZŁA'}`);
+        return isValid;
     }
 
     searchInput?.addEventListener('input', async () => {
@@ -248,8 +383,19 @@ document.addEventListener('DOMContentLoaded', function () {
         setText("summary-total-netto", summary.total_netto);
     }
 
+    // 🆕 ZMODYFIKOWANY EVENT LISTENER dla przycisku zapisz
     saveQuoteBtn?.addEventListener('click', () => {
         console.log("[save_quote.js] Kliknięto Zapisz wycenę");
+
+        // 🆕 NAJPIERW: Walidacja uwzględniająca źródło OLX
+        if (!validateSaveQuoteForm()) {
+            console.log('[save_quote.js] Walidacja formularza nie przeszła');
+            const err = document.createElement('p');
+            err.textContent = 'Uzupełnij wszystkie wymagane pola.';
+            err.style.color = 'red';
+            renderFeedback(err);
+            return;
+        }
 
         // Sprawdź czy wszystkie formularze mają wybrane warianty
         const forms = document.querySelectorAll('.quote-form');
@@ -293,13 +439,16 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Sprawdź czy telefon lub e-mail zostały podane
-        if (!clientPhone && !clientEmail) {
+        // 🆕 ZMODYFIKOWANA WALIDACJA: Uwzględnij źródło OLX
+        const sourceSelect = document.querySelector('[name="quote_source"]');
+        const isOlxSource = sourceSelect && sourceSelect.value.toLowerCase().includes('olx');
+        
+        if (!isOlxSource && !clientPhone && !clientEmail) {
             const err = document.createElement('p');
             err.textContent = 'Podaj telefon lub e-mail klienta.';
             err.style.color = 'red';
             renderFeedback(err);
-            console.warn("[save_quote.js] Brak telefonu lub e-maila – przerywamy zapis");
+            console.warn("[save_quote.js] Brak telefonu lub e-maila dla źródła innego niż OLX – przerywamy zapis");
             return;
         }
 
