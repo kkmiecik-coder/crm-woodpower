@@ -1,276 +1,142 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-    <title>WoodPower - Szablon</title>
-    <style type="text/css">
-        /* Reset dla klientów poczty */
-        body, table, td, p {
-            margin: 0;
-            padding: 0;
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zgłoszenie błędu</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
         }
-
-        img {
-            border: 0;
-            display: block;
-            line-height: 100%;
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
         }
-
-        a {
-            text-decoration: none;
+        .content {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 0 0 8px 8px;
+            border: 1px solid #ddd;
+        }
+        .field {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+        }
+        .field-label {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        .field-value {
+            color: #333;
+            font-size: 14px;
+        }
+        .priority {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .priority-niski {
+            background: #d4edda;
+            color: #155724;
+        }
+        .priority-sredni {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .priority-wysoki {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .description {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+            white-space: pre-wrap;
+            font-family: Georgia, serif;
+            line-height: 1.8;
+        }
+        .footer {
+            margin-top: 30px;
+            padding: 20px;
+            background: #667eea;
+            color: white;
+            text-align: center;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        .attachments-info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .attachments-info .icon {
+            font-size: 18px;
+            margin-right: 8px;
         }
     </style>
 </head>
+<body>
+    <div class="header">
+        <h1>🐛 Nowe zgłoszenie błędu</h1>
+        <p>Otrzymano nowe zgłoszenie w systemie CRM</p>
+    </div>
+    
+    <div class="content">
+        <div class="field">
+            <div class="field-label">👤 Zgłaszający</div>
+            <div class="field-value">{{ user_email }}</div>
+        </div>
+        
+        <div class="field">
+            <div class="field-label">📍 Miejsce problemu</div>
+            <div class="field-value">{{ problem_location }}</div>
+        </div>
+        
+        <div class="field">
+            <div class="field-label">⚡ Priorytet</div>
+            <div class="field-value">
+                <span class="priority priority-{{ priority }}">{{ priority }}</span>
+            </div>
+        </div>
 
-<body style="margin: 0; padding: 0; background-color: #F8F8F8;">
-    <!-- Główna tabela - pełna szerokość -->
-    <table width="100%"
-           border="0"
-           cellspacing="0"
-           cellpadding="0"
-           align="center"
-           style="border-collapse: collapse; background-color: #F8F8F8;">
-        <tr>
-            <td align="center" style="padding: 30px 0;">
-                <!-- Biały kontener (szerokość 604px) -->
-                <table width="604"
-                       border="0"
-                       cellspacing="0"
-                       cellpadding="0"
-                       style="
-              border-collapse: collapse;
-              border-radius: 8px;
-              background: #ffffff;
-              box-shadow: 0px 50px 14px 0px rgba(237, 107, 36, 0.00),
-                          0px 32px 13px 0px rgba(237, 107, 36, 0.01),
-                          0px 18px 11px 0px rgba(0, 0, 0, 0.03),
-                          0px 8px 8px 0px rgba(0, 0, 0, 0.04),
-                          0px 2px 4px 0px rgba(0, 0, 0, 0.05);
-              overflow: hidden;
-
-            ">
-                    <!-- [header] -->
-                    <tr>
-                        <td style="
-                  background: #ED6B24;
-                  height: 80px;
-                  padding: 0 26px;
-                  vertical-align: middle;
-                ">
-                            <!-- Logo -->
-                            <a href="https://woodpower.pl"
-                               target="_blank"
-                               style="display: block;">
-                                <img src="https://serwer2100532.home.pl/woodpower/img/cms/mail/logowhite.png"
-                                     alt="WoodPower"
-                                     width="200"
-                                     height="36" />
-                            </a>
-                        </td>
-                    </tr>
-
-                    <!-- [content] -->
-                    <tr>
-                        <td>
-                            <!-- [main-content] -->
-                            <table width="100%"
-                                   border="0"
-                                   cellspacing="0"
-                                   cellpadding="0"
-                                   style="border-collapse: collapse; margin-bottom: 20px;">
-                                <!-- heading-cover -->
-                                <tr>
-                                    <td style="padding: 50px 40px 0;">
-                                        <p style="
-                          font-family: Poppins, Arial, sans-serif;
-                          font-size: 24px;
-                          font-weight: 600;
-                          color: #1F2020;
-                          margin: 0;
-                        ">
-                                            Nowe zgłoszenie błędu
-                                        </p>
-                                        <div style="
-                          width: 70px;
-                          height: 4px;
-                          background-color: #ED6B24;
-                          border-radius: 2px;
-                          margin-top: 6px;
-                        "></div>
-                                    </td>
-                                </tr>
-                                <!-- sign-in (kreska po lewej) - Dane klienta -->
-                                <tr>
-                                    <td style="padding: 30px 0 0;">
-                                        <table width="100%"
-                                               border="0"
-                                               cellspacing="0"
-                                               cellpadding="0"
-                                               style="border-collapse: collapse;">
-                                            <tr>
-                                                <td style="
-                              border-left: 6px solid #ED6B24;
-                              padding: 0 33px;
-                            ">
-                                                    <table width="100%"
-                                                           border="0"
-                                                           cellspacing="0"
-                                                           cellpadding="0"
-                                                           style="border-collapse: collapse;">
-                                                        <tr>
-                                                            <td style="padding-top: 0;">
-                                                                <p style="
-                                      font-family: Poppins, Arial, sans-serif;
-                                      font-size: 18px;
-                                      font-weight: 600;
-                                      color: #1F2020;
-                                      margin: 0;
-                                    ">
-                                                                    Szczegóły zgłoszenia
-                                                                </p>
-                                                                <div style="
-                                      width: 70px;
-                                      height: 2px;
-                                      background-color: #ED6B24;
-                                      border-radius: 2px;
-                                      margin: 0 0 18px;
-                                    "></div>
-                                                                <p style="
-                                      font-family: Poppins, Arial, sans-serif;
-                                      font-size: 14px;
-                                      font-weight: 600;
-                                      color: #1F2020;
-                                      margin: 0;
-                                      text-align: justify;
-                                    ">
-                                                                    Zgłaszający:
-                                                                    <span style="font-weight: 400;">
-                                                                        {{ user_email }}
-                                                                    </span>
-                                                                </p>
-                                                                <p style="
-                                      font-family: Poppins, Arial, sans-serif;
-                                      font-size: 14px;
-                                      font-weight: 600;
-                                      color: #1F2020;
-                                      margin: 0;
-                                      text-align: justify;
-                                    ">
-                                                                    Miejsce problemu:
-                                                                    <span style="font-weight: 400;">
-                                                                        {{ problem_location }}
-                                                                    </span>
-                                                                </p>
-                                                                <p style="
-                                      font-family: Poppins, Arial, sans-serif;
-                                      font-size: 14px;
-                                      font-weight: 600;
-                                      color: #1F2020;
-                                      margin: 0;
-                                      text-align: justify;
-                                    ">
-                                                                    Priorytet:
-                                                                    <span style="font-weight: 400;">
-                                                                        {{ priority }}
-                                                                    </span>
-                                                                </p>
-                                                            </td>
-                                                        </tr>
-                                                    </table>
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
-
-                                <!-- sign-in (kreska po lewej) - Wiadomość klienta -->
-                                <tr>
-                                    <td style="padding: 30px 0 0;">
-                                        <table width="100%"
-                                               border="0"
-                                               cellspacing="0"
-                                               cellpadding="0"
-                                               style="border-collapse: collapse;">
-                                            <tr>
-                                                <td style="
-                              border-left: 6px solid #ED6B24;
-                              padding: 0 33px;
-                            ">
-                                                    <table width="100%"
-                                                           border="0"
-                                                           cellspacing="0"
-                                                           cellpadding="0"
-                                                           style="border-collapse: collapse;">
-                                                        <tr>
-                                                            <td style="padding-top: 0;">
-                                                                <p style="
-                                      font-family: Poppins, Arial, sans-serif;
-                                      font-size: 18px;
-                                      font-weight: 600;
-                                      color: #1F2020;
-                                      margin: 0;
-                                    ">
-                                                                    Opis problemu
-                                                                </p>
-                                                                <div style="
-                                      width: 70px;
-                                      height: 2px;
-                                      background-color: #ED6B24;
-                                      border-radius: 2px;
-                                      margin: 0 0 18px;
-                                    "></div>
-                                                            </td>
-                                                        </tr>
-                                                        <!-- NOWA TABELA Z TŁEM #FFF4EE -->
-                                                        <tr>
-                                                            <td>
-                                                                <table width="100%"
-                                                                       border="0"
-                                                                       cellspacing="0"
-                                                                       cellpadding="0"
-                                                                       style="
-                                      border-collapse: collapse;
-                                      background: #FFF4EE;
-                                      border-radius: 8px;
-                                    ">
-                                                                    <tr>
-                                                                        <td style="
-                                          padding: 15px 10px;
-                                        ">
-                                                                            <p style="
-                                            color: #1F2020;
-                                            text-align: justify;
-                                            leading-trim: both;
-                                            text-edge: cap;
-                                            font-family: Poppins, Arial, sans-serif;
-                                            font-size: 14px;
-                                            font-style: normal;
-                                            font-weight: 400;
-                                            line-height: normal;
-                                            margin: 0
-                                          ">
-                                                                                {{ problem_description }}
-                                                                            </p>
-                                                                        </td>
-                                                                    </tr>
-                                                                </table>
-                                                            </td>
-                                                        </tr>
-                                                    </table>
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
-                            </table>
-                            <!-- Koniec main-content -->
-                        </td>
-                    </tr>
-                </table>
-                <!-- Koniec białego kontenera -->
-            </td>
-        </tr>
-    </table>
+        {% if attachments_count and attachments_count > 0 %}
+        <div class="attachments-info">
+            <span class="icon">📎</span>
+            <strong>Załączniki:</strong> {{ attachments_count }} 
+            {% if attachments_count == 1 %}plik{% elif attachments_count < 5 %}pliki{% else %}plików{% endif %} załączonych do wiadomości
+        </div>
+        {% endif %}
+        
+        <div class="field">
+            <div class="field-label">📝 Opis problemu</div>
+            <div class="description">{{ problem_description }}</div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>🕐 Zgłoszenie zostało automatycznie wygenerowane {{ moment().format('DD.MM.YYYY o HH:mm') if moment else 'przez system CRM' }}</p>
+        <p>Odpowiedz na tę wiadomość, aby skontaktować się bezpośrednio z użytkownikiem</p>
+    </div>
 </body>
 </html>
