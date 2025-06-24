@@ -8,362 +8,128 @@ from modules.clients.models import Client
 from extensions import db
 import sys
 from functools import wraps
+from modules.logging import get_logger
+
+# Inicjalizacja loggera dla całego modułu
+baselinker_logger = get_logger('baselinker.routers')
 
 def login_required(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         user_email = session.get('user_email')
         if not user_email:
+            baselinker_logger.warning("Próba dostępu bez autoryzacji",
+                                     endpoint=request.endpoint,
+                                     ip=request.remote_addr)
             flash("Twoja sesja wygasła. Zaloguj się ponownie.", "info")
             return redirect(url_for('login'))
         return func(*args, **kwargs)
     return wrapper
 
-def has_complete_client_data(quote):
-    """Sprawdza czy wycena ma kompletne dane klienta po nowej akceptacji"""
-    client = quote.client
-    if not client:
-        return False
-    
-    # Sprawdź wymagane dane podstawowe
-    if not (client.delivery_name and client.delivery_city and client.delivery_address):
-        return False
-    
-    # Sprawdź czy ma email LUB telefon
-    if not (client.email or client.phone):
-        return False
-    
-    return True
-
-@baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
-@login_required
-def get_order_modal_data(quote_id):
-    """Pobiera dane do wyświetlenia w modalu zamówienia"""
-    try:
-        quote = Quote.query.get_or_404(quote_id)
-        
-        # Sprawdź czy wycena może być złożona jako zamówienie
-        if not quote.is_eligible_for_order():
-            return jsonify({
-                'error': 'Wycena nie może zostać złożona jako zamówienie',
-                'details': 'Wycena musi być zaakceptowana przez klienta'
-            }), 400
-        
-        client_data_complete = has_complete_client_data(quote)
-        client_data_status = "complete" if client_data_complete else "incomplete"
-        
-        print(f"[get_order_modal_data] Wycena {quote_id} - dane klienta: {client_data_status}", file=sys.stderr)
-
-        # Pobierz konfigurację Baselinker
-        order_sources = BaselinkerConfig.query.filter_by(
-            config_type='order_source',
-            is_active=True
-        ).all()
-        
-        order_statuses = BaselinkerConfig.query.filter_by(
-            config_type='order_status', 
-            is_active=True
-        ).all()
-        
-        # POPRAWKA: Ustaw domyślne wartości dla statusów PRZED zwróceniem danych
-        # Znajdź status "Nowe - nieopłacone" (ID: 105112) i ustaw jako domyślny
-        default_status_set = False
-        for status in order_statuses:
-            if status.baselinker_id == 105112:
-                status.is_default = True
-                default_status_set = True
-                print(f"[get_order_modal_data] ✅ Ustawiono status '{status.name}' (ID: {status.baselinker_id}) jako domyślny", file=sys.stderr)
-            else:
-                status.is_default = False
-        
-        # Jeśli nie znaleziono statusu 105112, znajdź podobny
-        if not default_status_set:
-            for status in order_statuses:
-                if 'nowe' in status.name.lower() and 'nieopłacone' in status.name.lower():
-                    status.is_default = True
-                    default_status_set = True
-                    print(f"[get_order_modal_data] ✅ Fallback: Ustawiono status '{status.name}' (ID: {status.baselinker_id}) jako domyślny", file=sys.stderr)
-                    break
-        
-        if not default_status_set:
-            print(f"[get_order_modal_data] ⚠️ OSTRZEŻENIE: Nie znaleziono domyślnego statusu zamówienia", file=sys.stderr)
-
-        # Podobnie dla order_sources - ustaw pierwszy dostępny jako domyślny jeśli żaden nie jest oznaczony
-        default_source_set = any(source.is_default for source in order_sources)
-        if not default_source_set and order_sources:
-            # Filtruj źródła z prawidłowymi ID (nie równymi 0)
-            valid_sources = [source for source in order_sources if source.baselinker_id and source.baselinker_id != 0]
-            if valid_sources:
-                valid_sources[0].is_default = True
-                print(f"[get_order_modal_data] ✅ Ustawiono pierwsze prawidłowe źródło '{valid_sources[0].name}' (ID: {valid_sources[0].baselinker_id}) jako domyślne", file=sys.stderr)
-        
-        # Pobierz wybrane produkty
-        selected_items = [item for item in quote.items if item.is_selected]
-        
-        # POPRAWKA: Przygotuj dane produktów z quantity z finishing_details
-        products_data = []
-        for item in selected_items:
-            finishing_details = QuoteItemDetails.query.filter_by(
-                quote_id=quote.id, 
-                product_index=item.product_index
-            ).first()
-            
-            # POPRAWKA: Pobierz quantity z finishing_details
-            quantity = finishing_details.quantity if finishing_details and finishing_details.quantity else 1
-            
-            # POPRAWKA: Przygotuj dane wykończenia (tak jak w modalu szczegółów)
-            finishing_data = None
-            if finishing_details:
-                finishing_data = {
-                    'variant': finishing_details.finishing_variant,
-                    'type': finishing_details.finishing_type,
-                    'color': finishing_details.finishing_color,
-                    'gloss': finishing_details.finishing_gloss_level,  # <- POPRAWKA: finishing_gloss_level zamiast finishing_gloss
-                    'quantity': finishing_details.quantity or 1,  # <- KLUCZOWE POLE
-                    'brutto': float(finishing_details.finishing_price_brutto or 0),
-                    'netto': float(finishing_details.finishing_price_netto or 0)
-                }
-            
-            product_data = {
-                'id': item.id,
-                'name': _get_product_display_name(item, quote),
-                'variant_code': item.variant_code,
-                'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
-                'volume': item.volume_m3,
-                'price_netto': float(item.price_netto or 0),
-                'price_brutto': float(item.price_brutto or 0),
-                'quantity': quantity,
-                'finishing': finishing_data
-            }
-            
-            products_data.append(product_data)
-            print(f"[get_order_modal_data] Produkt {item.product_index}: quantity={quantity}, finishing_quantity={finishing_details.quantity if finishing_details else 'brak'}", file=sys.stderr)
-
-        # Oblicz koszty
-        cost_products_netto = sum(item.get_total_price_netto() for item in selected_items)
-        
-        # Pobierz szczegóły wykończenia bezpośrednio z bazy
-        finishing_details_all = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
-        cost_finishing_netto = sum(d.finishing_price_netto or 0 for d in finishing_details_all)
-        cost_shipping_brutto = quote.shipping_cost_brutto or 0
-        
-        # Oblicz z VAT
-        VAT_RATE = 0.23
-        products_brutto = cost_products_netto * (1 + VAT_RATE)
-        finishing_brutto = cost_finishing_netto * (1 + VAT_RATE) 
-        shipping_netto = cost_shipping_brutto / (1 + VAT_RATE)
-        total_brutto = products_brutto + finishing_brutto + cost_shipping_brutto
-        total_netto = cost_products_netto + cost_finishing_netto + shipping_netto
-        
-        print(f"[get_order_modal_data] Przygotowano dane dla {len(products_data)} produktów", file=sys.stderr)
-        
-        return jsonify({
-            'quote': {
-                'id': quote.id,
-                'quote_number': quote.quote_number,
-                'created_at': quote.created_at.isoformat() if quote.created_at else None,
-                'status': quote.quote_status.name if quote.quote_status else None,
-                'source': quote.source,
-                'client_id': quote.client_id  # DODANE: client_id do sekcji quote
-            },
-            'client': {
-                'id': quote.client.id if quote.client else None,  # DODANE: ID klienta
-                'name': quote.client.client_name if quote.client else None,
-                'number': quote.client.client_number if quote.client else None,
-                'company': quote.client.invoice_company or quote.client.delivery_company,
-                'email': quote.client.email if quote.client else None,
-                'phone': quote.client.phone if quote.client else None,
-                'delivery_name': quote.client.client_delivery_name if quote.client else None,
-                'delivery_company': quote.client.delivery_company if quote.client else None,
-                'delivery_address': quote.client.delivery_address if quote.client else None,
-                'delivery_postcode': quote.client.delivery_zip if quote.client else None,
-                'delivery_city': quote.client.delivery_city if quote.client else None,
-                'delivery_region': quote.client.delivery_region if quote.client else None,
-                'invoice_name': quote.client.invoice_name if quote.client else None,
-                'invoice_company': quote.client.invoice_company if quote.client else None,
-                'invoice_nip': quote.client.invoice_nip if quote.client else None,
-                'invoice_address': quote.client.invoice_address if quote.client else None,
-                'invoice_postcode': quote.client.invoice_zip if quote.client else None,
-                'invoice_city': quote.client.invoice_city if quote.client else None,
-                'invoice_region': quote.client.invoice_region if quote.client else None,
-                'want_invoice': bool(quote.client.invoice_nip) if quote.client else False,
-                'data_complete': client_data_complete,
-                'data_status': client_data_status
-            },
-            'products': products_data,  # <- POPRAWKA: Używamy nowej listy z quantity
-            'costs': {
-                'products_netto': round(cost_products_netto, 2),
-                'products_brutto': round(products_brutto, 2),
-                'finishing_netto': round(cost_finishing_netto, 2),
-                'finishing_brutto': round(finishing_brutto, 2),
-                'shipping_netto': round(shipping_netto, 2),
-                'shipping_brutto': round(cost_shipping_brutto, 2),
-                'total_netto': round(total_netto, 2),
-                'total_brutto': round(total_brutto, 2)
-            },
-            'courier': quote.courier_name,
-            'config': {
-                'order_sources': [
-                    {
-                        'id': source.baselinker_id,
-                        'name': source.name,
-                        'is_default': source.is_default
-                    }
-                    for source in order_sources
-                ],
-                'order_statuses': [
-                    {
-                        'id': status.baselinker_id,
-                        'name': status.name, 
-                        'is_default': status.is_default
-                    }
-                    for status in order_statuses
-                ],
-                'payment_methods': [
-                    'Przelew bankowy',  # POPRAWKA: Jako pierwszy (domyślny)
-                    'Płatność przy odbiorze', 
-                    'Przelewy24.pl',
-                    'Gotówka'
-                ],
-                'delivery_methods': [
-                    quote.courier_name or 'Przesyłka kurierska',
-                    'Transport własny',
-                    'Odbiór osobisty'  # DODANE: Opcja odbioru osobistego
-                ]
-            }
-        })
-        
-    except Exception as e:
-        print(f"[get_order_modal_data] Błąd: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        return jsonify({'error': 'Błąd pobierania danych zamówienia'}), 500
-
-def _get_product_display_name(item, quote):
-    """Generuje wyświetlaną nazwę produktu"""
-    service = BaselinkerService()
-    return service._translate_variant_code(item.variant_code)
-
-def _get_finishing_details(product_index, quote):
-    """Pobiera szczegóły wykończenia dla produktu"""
-    # POPRAWKA: Import już jest na górze pliku
-    finishing = QuoteItemDetails.query.filter_by(
-        quote_id=quote.id, 
-        product_index=product_index
-    ).first()
-    
-    if not finishing or finishing.finishing_type == 'Brak':
-        return None
-    
-    parts = [
-        finishing.finishing_variant,
-        finishing.finishing_type,
-        finishing.finishing_color,
-        finishing.finishing_gloss_level
-    ]
-    return ' - '.join(filter(None, parts))
-
 @baselinker_bp.route('/api/quote/<int:quote_id>/create-order', methods=['POST'])
 @login_required
 def create_order(quote_id):
-    """Tworzy zamówienie w Baselinker z obsługą danych klienta"""
+    """Tworzy zamówienie w Baselinker na podstawie wyceny"""
+    baselinker_logger.info("Rozpoczęcie tworzenia zamówienia w Baselinker",
+                          quote_id=quote_id,
+                          endpoint='create_order')
+    
     try:
+        # Pobierz wycenę
         quote = Quote.query.get_or_404(quote_id)
+        baselinker_logger.debug("Pobrano wycenę do przetworzenia",
+                               quote_id=quote_id,
+                               quote_number=quote.quote_number,
+                               client_id=quote.client_id,
+                               status_id=quote.status_id)
+        
+        # Sprawdź czy wycena ma wybrane produkty
+        selected_items = [item for item in quote.items if item.is_selected]
+        if not selected_items:
+            baselinker_logger.warning("Próba utworzenia zamówienia bez wybranych produktów",
+                                     quote_id=quote_id,
+                                     quote_number=quote.quote_number)
+            return jsonify({'error': 'Wycena nie ma wybranych produktów'}), 400
+        
+        baselinker_logger.debug("Znaleziono wybrane produkty",
+                               quote_id=quote_id,
+                               selected_items_count=len(selected_items))
+        
+        # Pobierz konfigurację z żądania
+        config = request.get_json()
+        if not config:
+            baselinker_logger.error("Brak konfiguracji w żądaniu",
+                                   quote_id=quote_id,
+                                   content_type=request.content_type)
+            return jsonify({'error': 'Brak konfiguracji zamówienia'}), 400
+        
+        baselinker_logger.debug("Otrzymana konfiguracja zamówienia",
+                               quote_id=quote_id,
+                               config_keys=list(config.keys()),
+                               order_source_id=config.get('order_source_id'),
+                               order_status_id=config.get('order_status_id'))
+        
+        # Pobierz użytkownika
         user_email = session.get('user_email')
         user = User.query.filter_by(email=user_email).first()
-        
         if not user:
-            return jsonify({'error': 'Nie znaleziono użytkownika'}), 401
+            baselinker_logger.error("Nie znaleziono użytkownika w sesji",
+                                   user_email=user_email,
+                                   quote_id=quote_id)
+            return jsonify({'error': 'Błąd autoryzacji'}), 401
         
-        # Sprawdź czy wycena może być złożona
-        if not quote.is_eligible_for_order():
-            return jsonify({
-                'error': 'Wycena nie może zostać złożona jako zamówienie',
-                'details': 'Wycena musi być zaakceptowana przez klienta'
-            }), 400
-        
-        if not has_complete_client_data(quote):
-            return jsonify({
-                'error': 'Brak kompletnych danych klienta',
-                'details': 'Klient musi najpierw wypełnić formularz z danymi dostawy przez nowy modalbox akceptacji'
-            }), 400
-        
-        # Sprawdź czy zamówienie już nie zostało złożone
-        if quote.base_linker_order_id:
-            return jsonify({
-                'error': 'Zamówienie już zostało złożone',
-                'order_id': quote.base_linker_order_id
-            }), 400
-        
-        data = request.get_json()
-        print(f"[create_order] Otrzymane dane: {data}", file=sys.stderr)
-        
-        config = {
-            'order_source_id': data.get('order_source_id'),
-            'order_status_id': data.get('order_status_id'),
-            'payment_method': data.get('payment_method'),
-            'delivery_method': data.get('delivery_method')
-        }
-        
-        print(f"[create_order] Konfiguracja: {config}", file=sys.stderr)
-        print(f"[create_order] Dane klienta pobrane z bazy - client_id: {quote.client_id}", file=sys.stderr)
+        baselinker_logger.debug("Zidentyfikowano użytkownika",
+                               user_id=user.id,
+                               user_email=user_email,
+                               user_role=user.role)
         
         # Walidacja konfiguracji
-        validation_errors = []
+        if not config.get('order_source_id') or not config.get('order_status_id'):
+            baselinker_logger.error("Niepełna konfiguracja zamówienia",
+                                   quote_id=quote_id,
+                                   missing_fields={
+                                       'order_source_id': not config.get('order_source_id'),
+                                       'order_status_id': not config.get('order_status_id')
+                                   })
+            return jsonify({'error': 'Niepełna konfiguracja zamówienia'}), 400
         
-        if config['order_source_id'] is None or config['order_source_id'] == '':
-            validation_errors.append('order_source_id jest wymagane')
-        else:
-            try:
-                config['order_source_id'] = int(config['order_source_id'])
-                print(f"[create_order] ✅ Prawidłowe order_source_id: {config['order_source_id']}", file=sys.stderr)
-            except (ValueError, TypeError):
-                validation_errors.append('order_source_id musi być liczbą')
-            
-        if not config['order_status_id']:
-            validation_errors.append('order_status_id jest wymagane')
-        else:
-            try:
-                config['order_status_id'] = int(config['order_status_id'])
-            except (ValueError, TypeError):
-                validation_errors.append('order_status_id musi być liczbą')
-            
-        if not config['payment_method']:
-            validation_errors.append('payment_method jest wymagane')
-        
-        if validation_errors:
-            error_msg = f"Brakuje wymaganych danych konfiguracji: {', '.join(validation_errors)}"
-            print(f"[create_order] BŁĄD WALIDACJI: {error_msg}", file=sys.stderr)
-            return jsonify({'error': error_msg}), 400
-        
-        # Sprawdź czy source_id i status_id istnieją w bazie
+        # Sprawdź czy źródło i status istnieją w bazie
         source_exists = BaselinkerConfig.query.filter_by(
             config_type='order_source',
-            baselinker_id=config['order_source_id'],
-            is_active=True
+            baselinker_id=config['order_source_id']
         ).first()
         
         status_exists = BaselinkerConfig.query.filter_by(
-            config_type='order_status', 
-            baselinker_id=config['order_status_id'],
-            is_active=True
+            config_type='order_status',
+            baselinker_id=config['order_status_id']
         ).first()
         
         if not source_exists:
-            print(f"[create_order] ❌ Źródło o ID {config['order_source_id']} nie istnieje w bazie", file=sys.stderr)
+            baselinker_logger.error("Źródło zamówienia nie istnieje w bazie",
+                                   quote_id=quote_id,
+                                   order_source_id=config['order_source_id'])
             return jsonify({'error': f'Źródło zamówienia o ID {config["order_source_id"]} nie istnieje'}), 400
             
         if not status_exists:
-            print(f"[create_order] ❌ Status o ID {config['order_status_id']} nie istnieje w bazie", file=sys.stderr)
+            baselinker_logger.error("Status zamówienia nie istnieje w bazie",
+                                   quote_id=quote_id,
+                                   order_status_id=config['order_status_id'])
             return jsonify({'error': f'Status zamówienia o ID {config["order_status_id"]} nie istnieje'}), 400
         
-        print(f"[create_order] ✅ Walidacja przeszła - źródło: {source_exists.name}, status: {status_exists.name}", file=sys.stderr)
+        baselinker_logger.info("Walidacja konfiguracji przeszła pomyślnie",
+                              quote_id=quote_id,
+                              source_name=source_exists.name,
+                              status_name=status_exists.name)
         
         # Utwórz zamówienie
         service = BaselinkerService()
         result = service.create_order_from_quote(quote, user.id, config)
         
-        print(f"[create_order] Wynik serwisu: {result}", file=sys.stderr)
+        baselinker_logger.info("Otrzymano wynik z serwisu Baselinker",
+                              quote_id=quote_id,
+                              service_success=result.get('success'),
+                              baselinker_order_id=result.get('order_id'),
+                              error=result.get('error'))
         
         if result['success']:
             # Zaktualizuj status wyceny na "Złożone" (ID: 4)
@@ -371,13 +137,30 @@ def create_order(quote_id):
                 from modules.quotes.models import QuoteStatus
                 ordered_status = QuoteStatus.query.filter_by(id=4).first()
                 if ordered_status:
+                    old_status_id = quote.status_id
                     quote.status_id = ordered_status.id
                     db.session.commit()
-                    print(f"[create_order] ✅ Status wyceny zmieniony na: {ordered_status.name}", file=sys.stderr)
+                    
+                    baselinker_logger.info("Status wyceny został zaktualizowany",
+                                          quote_id=quote_id,
+                                          old_status_id=old_status_id,
+                                          new_status_id=ordered_status.id,
+                                          new_status_name=ordered_status.name)
                 else:
-                    print(f"[create_order] ⚠️ Nie znaleziono statusu 'Złożone' (ID: 4)", file=sys.stderr)
-            except Exception as e:
-                print(f"[create_order] ⚠️ Błąd podczas zmiany statusu wyceny: {e}", file=sys.stderr)
+                    baselinker_logger.warning("Nie znaleziono statusu 'Złożone' w bazie",
+                                             expected_status_id=4,
+                                             quote_id=quote_id)
+            except Exception as status_error:
+                baselinker_logger.error("Błąd podczas zmiany statusu wyceny",
+                                       quote_id=quote_id,
+                                       error=str(status_error),
+                                       error_type=type(status_error).__name__)
+            
+            baselinker_logger.info("Zamówienie zostało pomyślnie utworzone",
+                                  quote_id=quote_id,
+                                  quote_number=quote.quote_number,
+                                  baselinker_order_id=result['order_id'],
+                                  user_id=user.id)
             
             return jsonify({
                 'success': True,
@@ -386,15 +169,24 @@ def create_order(quote_id):
                 'message': 'Zamówienie zostało pomyślnie utworzone w Baselinker'
             })
         else:
+            baselinker_logger.error("Tworzenie zamówienia nie powiodło się",
+                                   quote_id=quote_id,
+                                   error=result.get('error', 'Nieznany błąd'),
+                                   user_id=user.id)
             return jsonify({
                 'success': False,
                 'error': result.get('error', 'Nieznany błąd podczas tworzenia zamówienia')
             }), 500
         
     except Exception as e:
-        print(f"[create_order] 💥 Nieoczekiwany błąd: {str(e)}", file=sys.stderr)
+        baselinker_logger.error("Nieoczekiwany błąd podczas tworzenia zamówienia",
+                               quote_id=quote_id,
+                               error=str(e),
+                               error_type=type(e).__name__)
         import traceback
-        traceback.print_exc()
+        baselinker_logger.debug("Stack trace błędu",
+                               traceback=traceback.format_exc())
+        
         return jsonify({
             'success': False,
             'error': f'Błąd serwera: {str(e)}'
@@ -404,13 +196,26 @@ def create_order(quote_id):
 @login_required  
 def sync_config():
     """Synchronizuje konfigurację z Baselinker (źródła, statusy)"""
+    baselinker_logger.info("Rozpoczęcie synchronizacji konfiguracji Baselinker",
+                          endpoint='sync_config')
+    
     try:
         service = BaselinkerService()
         
+        baselinker_logger.debug("Rozpoczęcie synchronizacji źródeł zamówień")
         sources_synced = service.sync_order_sources()
+        
+        baselinker_logger.debug("Rozpoczęcie synchronizacji statusów zamówień")
         statuses_synced = service.sync_order_statuses()
         
-        if sources_synced and statuses_synced:
+        sync_success = sources_synced and statuses_synced
+        
+        baselinker_logger.info("Synchronizacja konfiguracji zakończona",
+                              sources_synced=sources_synced,
+                              statuses_synced=statuses_synced,
+                              overall_success=sync_success)
+        
+        if sync_success:
             return jsonify({
                 'success': True,
                 'message': 'Konfiguracja została zsynchronizowana'
@@ -422,38 +227,66 @@ def sync_config():
             }), 500
             
     except Exception as e:
-        print(f"[sync_config] Błąd: {e}", file=sys.stderr)
+        baselinker_logger.error("Błąd podczas synchronizacji konfiguracji",
+                               error=str(e),
+                               error_type=type(e).__name__)
         return jsonify({'error': 'Błąd synchronizacji'}), 500
 
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-logs')
 @login_required
 def get_order_logs(quote_id):
     """Pobiera logi operacji Baselinker dla wyceny"""
+    baselinker_logger.info("Pobieranie logów operacji Baselinker",
+                          quote_id=quote_id,
+                          endpoint='get_order_logs')
+    
     try:
         logs = BaselinkerOrderLog.query.filter_by(quote_id=quote_id)\
             .order_by(BaselinkerOrderLog.created_at.desc()).all()
         
-        return jsonify([log.to_dict() for log in logs])
+        baselinker_logger.debug("Pobrano logi z bazy danych",
+                               quote_id=quote_id,
+                               logs_count=len(logs))
+        
+        logs_data = [log.to_dict() for log in logs]
+        
+        baselinker_logger.info("Pomyślnie pobrano logi operacji",
+                              quote_id=quote_id,
+                              returned_logs=len(logs_data))
+        
+        return jsonify(logs_data)
         
     except Exception as e:
-        print(f"[get_order_logs] Błąd: {e}", file=sys.stderr)
+        baselinker_logger.error("Błąd podczas pobierania logów",
+                               quote_id=quote_id,
+                               error=str(e),
+                               error_type=type(e).__name__)
         return jsonify({'error': 'Błąd pobierania logów'}), 500
     
 @baselinker_bp.route('/api/order/<int:order_id>/status')
 @login_required
 def get_order_status(order_id):
     """Pobiera status zamówienia z Baselinker"""
-    print(f"[get_order_status] Rozpoczynam pobieranie statusu dla zamówienia ID: {order_id}", file=sys.stderr)
+    baselinker_logger.info("Rozpoczęcie pobierania statusu zamówienia",
+                          order_id=order_id,
+                          endpoint='get_order_status')
     
     try:
         service = BaselinkerService()
-        print(f"[get_order_status] Utworzono instancję BaselinkerService", file=sys.stderr)
+        baselinker_logger.debug("Utworzono instancję BaselinkerService")
         
         result = service.get_order_details(order_id)
-        print(f"[get_order_status] Wynik z get_order_details: {result}", file=sys.stderr)
+        baselinker_logger.debug("Otrzymano wynik z get_order_details",
+                               order_id=order_id,
+                               result_success=result.get('success'),
+                               has_order_data=bool(result.get('order')))
         
         if result['success']:
-            print(f"[get_order_status] Sukces - dane zamówienia: {result.get('order', {})}", file=sys.stderr)
+            order_data = result.get('order', {})
+            baselinker_logger.debug("Szczegóły zamówienia z API",
+                                   order_id=order_id,
+                                   baselinker_order_id=order_data.get('order_id'),
+                                   status_id=order_data.get('order_status_id'))
             
             # Mapuj ID statusu na nazwę (można rozszerzyć)
             status_map = {
@@ -470,28 +303,32 @@ def get_order_status(order_id):
                 149763: 'Wysłane - transport WoodPower',
                 149777: 'Czeka na odbiór osobisty',
                 138624: 'Dostarczona - kurier',
-                149778: 'Dostarczona - trans. WoodPower',
+                149778: 'Dostarczona - transport WoodPower',
                 149779: 'Odebrane',
                 138625: 'Zamówienie anulowane'
             }
             
-            order_status_id = result['order'].get('order_status_id')
-            print(f"[get_order_status] order_status_id z Baselinker: {order_status_id}", file=sys.stderr)
-            
+            order_status_id = order_data.get('order_status_id')
             status_name = status_map.get(order_status_id, f'Status {order_status_id}')
-            print(f"[get_order_status] Zamapowany status_name: {status_name}", file=sys.stderr)
+            
+            baselinker_logger.info("Pomyślnie zmapowano status zamówienia",
+                                  order_id=order_id,
+                                  baselinker_order_id=order_data.get('order_id'),
+                                  status_id=order_status_id,
+                                  status_name=status_name)
             
             response_data = {
                 'success': True,
                 'status_id': order_status_id,
                 'status_name': status_name
             }
-            print(f"[get_order_status] Zwracam odpowiedź: {response_data}", file=sys.stderr)
             
             return jsonify(response_data)
         else:
             error_msg = result.get('error', 'Nieznany błąd')
-            print(f"[get_order_status] Błąd z get_order_details: {error_msg}", file=sys.stderr)
+            baselinker_logger.warning("Nie udało się pobrać szczegółów zamówienia",
+                                     order_id=order_id,
+                                     error=error_msg)
             
             return jsonify({
                 'success': False,
@@ -499,8 +336,213 @@ def get_order_status(order_id):
             }), 400
             
     except Exception as e:
-        print(f"[get_order_status] WYJĄTEK: {e}", file=sys.stderr)
+        baselinker_logger.error("Wyjątek podczas pobierania statusu zamówienia",
+                               order_id=order_id,
+                               error=str(e),
+                               error_type=type(e).__name__)
         import traceback
-        traceback.print_exc(file=sys.stderr)
+        baselinker_logger.debug("Stack trace błędu pobierania statusu",
+                               traceback=traceback.format_exc())
         
         return jsonify({'error': 'Błąd pobierania statusu zamówienia'}), 500
+
+@baselinker_bp.route('/api/config/sources')
+@login_required
+def get_order_sources():
+    """Pobiera dostępne źródła zamówień z bazy"""
+    baselinker_logger.info("Pobieranie źródeł zamówień z bazy",
+                          endpoint='get_order_sources')
+    
+    try:
+        sources = BaselinkerConfig.query.filter_by(
+            config_type='order_source',
+            is_active=True
+        ).order_by(BaselinkerConfig.name).all()
+        
+        sources_data = [
+            {
+                'id': source.baselinker_id,
+                'name': source.name
+            }
+            for source in sources
+        ]
+        
+        baselinker_logger.debug("Pobrano źródła zamówień z bazy",
+                               sources_count=len(sources_data))
+        
+        return jsonify({
+            'success': True,
+            'sources': sources_data
+        })
+        
+    except Exception as e:
+        baselinker_logger.error("Błąd podczas pobierania źródeł zamówień",
+                               error=str(e),
+                               error_type=type(e).__name__)
+        return jsonify({'error': 'Błąd pobierania źródeł'}), 500
+
+@baselinker_bp.route('/api/config/statuses')
+@login_required
+def get_order_statuses():
+    """Pobiera dostępne statusy zamówień z bazy"""
+    baselinker_logger.info("Pobieranie statusów zamówień z bazy",
+                          endpoint='get_order_statuses')
+    
+    try:
+        statuses = BaselinkerConfig.query.filter_by(
+            config_type='order_status',
+            is_active=True
+        ).order_by(BaselinkerConfig.name).all()
+        
+        statuses_data = [
+            {
+                'id': status.baselinker_id,
+                'name': status.name
+            }
+            for status in statuses
+        ]
+        
+        baselinker_logger.debug("Pobrano statusy zamówień z bazy",
+                               statuses_count=len(statuses_data))
+        
+        return jsonify({
+            'success': True,
+            'statuses': statuses_data
+        })
+        
+    except Exception as e:
+        baselinker_logger.error("Błąd podczas pobierania statusów zamówień",
+                               error=str(e),
+                               error_type=type(e).__name__)
+        return jsonify({'error': 'Błąd pobierania statusów'}), 500
+
+@baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
+@login_required
+def get_order_modal_data(quote_id):
+    """Pobiera dane do wyświetlenia w modalu zamówienia"""
+    baselinker_logger.info("Pobieranie danych dla modalu zamówienia",
+                          quote_id=quote_id,
+                          endpoint='get_order_modal_data')
+    
+    try:
+        # Pobierz wycenę z relacjami
+        quote = Quote.query.get_or_404(quote_id)
+        
+        baselinker_logger.debug("Pobrano wycenę dla modalu",
+                               quote_id=quote_id,
+                               quote_number=quote.quote_number,
+                               client_id=quote.client_id,
+                               items_count=len(quote.items))
+        
+        # Pobierz wybrane produkty
+        selected_items = [item for item in quote.items if item.is_selected]
+        if not selected_items:
+            baselinker_logger.warning("Wycena nie ma wybranych produktów",
+                                     quote_id=quote_id)
+            return jsonify({'error': 'Wycena nie ma wybranych produktów'}), 400
+        
+        products = []
+        total_products_value = 0
+        
+        for item in selected_items:
+            # Pobierz szczegóły wykończenia
+            finishing_details = QuoteItemDetails.query.filter_by(
+                quote_id=quote.id, 
+                product_index=item.product_index
+            ).first()
+            
+            quantity = finishing_details.quantity if finishing_details and finishing_details.quantity else 1
+            unit_price_netto = float(item.price_netto or 0)
+            unit_price_brutto = float(item.price_brutto or 0)
+            
+            # Dodaj cenę wykończenia jeśli istnieje
+            if finishing_details and finishing_details.finishing_price_netto:
+                unit_price_netto += float(finishing_details.finishing_price_netto or 0)
+                unit_price_brutto += float(finishing_details.finishing_price_brutto or 0)
+            
+            total_price_netto = unit_price_netto * quantity
+            total_price_brutto = unit_price_brutto * quantity
+            total_products_value += total_price_brutto
+            
+            # Przygotuj nazwę produktu
+            variant_translations = {
+                'dab-lity-ab': 'Klejonka dębowa lita A/B',
+                'dab-lity-bb': 'Klejonka dębowa lita B/B',
+                'dab-micro-ab': 'Klejonka dębowa mikrowczep A/B',
+                'jes-lity-ab': 'Klejonka jesionowa lita A/B'
+            }
+            
+            product_name = variant_translations.get(
+                item.variant_code, 
+                f'Klejonka {item.variant_code}' if item.variant_code else 'Nieznany produkt'
+            )
+            
+            # Dodaj wymiary
+            product_name += f" {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
+            
+            # Dodaj wykończenie do nazwy jeśli istnieje
+            if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
+                finishing_parts = [finishing_details.finishing_type]
+                if finishing_details.finishing_color:
+                    finishing_parts.append(finishing_details.finishing_color)
+                product_name += f" ({' - '.join(finishing_parts)})"
+            
+            product_data = {
+                'name': product_name,
+                'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
+                'quantity': quantity,
+                'unit_price_netto': round(unit_price_netto, 2),
+                'unit_price_brutto': round(unit_price_brutto, 2),
+                'total_price_netto': round(total_price_netto, 2),
+                'total_price_brutto': round(total_price_brutto, 2)
+            }
+            
+            products.append(product_data)
+        
+        # Przygotuj dane klienta
+        client_data = {}
+        if quote.client:
+            client_data = {
+                'name': quote.client.client_name,
+                'delivery_name': quote.client.client_delivery_name or quote.client.client_name,
+                'email': quote.client.email,
+                'phone': quote.client.phone,
+                'delivery_address': f"{quote.client.delivery_address or ''} {quote.client.delivery_zip or ''} {quote.client.delivery_city or ''}".strip(),
+                'invoice_company': quote.client.invoice_company,
+                'invoice_nip': quote.client.invoice_nip
+            }
+        
+        # Oblicz koszty
+        shipping_cost = float(quote.shipping_cost_brutto or 0)
+        total_value = total_products_value + shipping_cost
+        
+        response_data = {
+            'quote': {
+                'id': quote.id,
+                'quote_number': quote.quote_number,
+                'created_at': quote.created_at.isoformat(),
+                'courier_name': quote.courier_name
+            },
+            'client': client_data,
+            'products': products,
+            'costs': {
+                'products_brutto': round(total_products_value, 2),
+                'shipping_brutto': round(shipping_cost, 2),
+                'total_brutto': round(total_value, 2)
+            }
+        }
+        
+        baselinker_logger.info("Przygotowano dane dla modalu zamówienia",
+                              quote_id=quote_id,
+                              products_count=len(products),
+                              total_value=total_value,
+                              has_client=bool(quote.client))
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        baselinker_logger.error("Błąd podczas przygotowywania danych modalu",
+                               quote_id=quote_id,
+                               error=str(e),
+                               error_type=type(e).__name__)
+        return jsonify({'error': 'Błąd pobierania danych'}), 500
