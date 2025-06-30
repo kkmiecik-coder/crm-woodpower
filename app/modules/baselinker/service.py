@@ -346,6 +346,13 @@ class BaselinkerService:
                         quote_id=quote.id,
                         quote_number=quote.quote_number,
                         user_id=user_id)
+        if config.get('client_data'):
+            client_override = config['client_data']
+            self.logger.debug("Otrzymano jednorazowe dane klienta",
+                             quote_id=quote.id,
+                             delivery_name=client_override.get('delivery_name'),
+                             email=client_override.get('email'),
+                             want_invoice=client_override.get('want_invoice'))
         
         try:
             # Przygotuj dane zamówienia
@@ -439,14 +446,15 @@ class BaselinkerService:
 
         self.logger.debug("Rozpoczęcie przygotowania danych zamówienia",
                         quote_id=quote.id,
-                        config_keys=list(config.keys()))
+                        config_keys=list(config.keys()),
+                        has_client_data_override=bool(config.get('client_data')))
 
         # 🔧 POPRAWKA: Zabezpieczenie przed błędem AppenderQuery
         try:
             # Konwertuj AppenderQuery na listę przed użyciem len()
             all_items = list(quote.items)
             selected_items = [item for item in all_items if item.is_selected]
-        
+    
             self.logger.debug("Wybrane produkty do zamówienia", 
                             selected_items_count=len(selected_items),
                             total_items_count=len(all_items))
@@ -459,7 +467,7 @@ class BaselinkerService:
             for item in quote.items:
                 if item.is_selected:
                     selected_items.append(item)
-        
+    
             self.logger.debug("Wybrane produkty do zamówienia (fallback)", 
                             selected_items_count=len(selected_items))
 
@@ -504,10 +512,10 @@ class BaselinkerService:
             if finishing_details and finishing_details.finishing_price_netto:
                 finishing_unit_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_unit_brutto = float(finishing_details.finishing_price_brutto or 0)
-            
+        
                 unit_price_netto += finishing_unit_netto
                 unit_price_brutto += finishing_unit_brutto
-            
+        
                 self.logger.debug("Dodano cenę wykończenia",
                                 product_index=item.product_index,
                                 finishing_netto=finishing_unit_netto,
@@ -548,9 +556,71 @@ class BaselinkerService:
                 'variant_id': 0
             })
 
-        client = quote.client
-        if not client:
-            self.logger.error("Wycena nie ma przypisanego klienta", quote_id=quote.id)
+        # 🆕 NOWA LOGIKA: Przygotuj dane klienta z obsługą jednorazowych zmian
+        client_data = {}
+    
+        # Sprawdź czy w config są jednorazowe dane klienta
+        if 'client_data' in config and config['client_data']:
+            # Użyj jednorazowych danych z formularza
+            form_data = config['client_data']
+        
+            self.logger.info("Używam jednorazowych danych klienta z formularza",
+                            quote_id=quote.id,
+                            delivery_name=form_data.get('delivery_name'),
+                            email=form_data.get('email'),
+                            want_invoice=form_data.get('want_invoice'))
+        
+            client_data = {
+                'name': form_data.get('delivery_name', ''),
+                'delivery_name': form_data.get('delivery_name', ''),
+                'email': form_data.get('email', ''),
+                'phone': form_data.get('phone', ''),
+                'delivery_address': form_data.get('delivery_address', ''),
+                'delivery_postcode': form_data.get('delivery_postcode', ''),
+                'delivery_city': form_data.get('delivery_city', ''),
+                'delivery_region': form_data.get('delivery_region', ''),
+                'delivery_company': form_data.get('delivery_company', ''),
+                'invoice_name': form_data.get('invoice_name', ''),
+                'invoice_company': form_data.get('invoice_company', ''),
+                'invoice_nip': form_data.get('invoice_nip', ''),
+                'invoice_address': form_data.get('invoice_address', ''),
+                'invoice_postcode': form_data.get('invoice_postcode', ''),
+                'invoice_city': form_data.get('invoice_city', ''),
+                'invoice_region': form_data.get('invoice_region', ''),
+                'want_invoice': form_data.get('want_invoice', False)
+            }
+        
+        elif quote.client:
+            # Fallback: użyj danych z bazy (istniejący kod)
+            client = quote.client
+        
+            self.logger.info("Używam danych klienta z bazy danych",
+                            quote_id=quote.id,
+                            client_id=client.id,
+                            client_name=client.client_name)
+        
+            client_data = {
+                'name': client.client_name,
+                'delivery_name': client.client_delivery_name or client.client_name,
+                'email': client.email,
+                'phone': client.phone,
+                'delivery_address': client.delivery_address or '',
+                'delivery_postcode': client.delivery_zip or '',
+                'delivery_city': client.delivery_city or '',
+                'delivery_region': client.delivery_region or '',
+                'delivery_company': client.delivery_company or '',
+                'invoice_name': client.invoice_name or client.client_name or '',
+                'invoice_company': client.invoice_company or '',
+                'invoice_nip': client.invoice_nip or '',
+                'invoice_address': client.invoice_address or '',
+                'invoice_postcode': client.invoice_zip or '',
+                'invoice_city': client.invoice_city or '',
+                'invoice_region': client.invoice_region or '',
+                'want_invoice': bool(client.invoice_nip)
+            }
+        else:
+            self.logger.error("Wycena nie ma przypisanego klienta i brak danych w formularzu", 
+                             quote_id=quote.id)
             raise ValueError("Wycena nie ma przypisanego klienta")
 
         # Konfiguracja zamówienia
@@ -558,7 +628,16 @@ class BaselinkerService:
         order_status_id = config.get('order_status_id')
         payment_method = config.get('payment_method', 'Przelew bankowy')
         delivery_method = config.get('delivery_method', quote.courier_name or 'Przesyłka kurierska')
-        delivery_price = float(quote.shipping_cost_brutto or 0)
+    
+        # Obsługa nadpisanych kosztów wysyłki
+        if 'shipping_cost_override' in config and config['shipping_cost_override'] is not None:
+            delivery_price = float(config['shipping_cost_override'])
+            self.logger.debug("Używam nadpisanych kosztów wysyłki",
+                             quote_id=quote.id,
+                             override_cost=delivery_price,
+                             original_cost=quote.shipping_cost_brutto)
+        else:
+            delivery_price = float(quote.shipping_cost_brutto or 0)
 
         self.logger.debug("Konfiguracja zamówienia",
                         order_source_id=order_source_id,
@@ -570,7 +649,8 @@ class BaselinkerService:
         total_quantity = sum(p['quantity'] for p in products)
         self.logger.info("Przygotowano produkty do zamówienia",
                        products_count=len(products),
-                       total_quantity=total_quantity)
+                       total_quantity=total_quantity,
+                       using_override_client_data=bool(config.get('client_data')))
 
         order_data = {
             'custom_source_id': order_source_id,
@@ -582,32 +662,32 @@ class BaselinkerService:
             'paid': '0',
             'user_comments': f"Zamówienie z wyceny {quote.quote_number}",
             'admin_comments': f"Automatycznie utworzone z wyceny {quote.quote_number} przez system Wood Power CRM",
-            'phone': client.phone or '',
-            'email': client.email or '',
-            'user_login': client.client_name or '',
+            'phone': client_data.get('phone', ''),
+            'email': client_data.get('email', ''),
+            'user_login': client_data.get('name', ''),
             'delivery_method': delivery_method,
             'delivery_price': delivery_price,
-            'delivery_fullname': client.client_delivery_name or client.client_name or '',
-            'delivery_company': client.delivery_company or client.invoice_company or '',
-            'delivery_address': client.delivery_address or '',
-            'delivery_postcode': client.delivery_zip or '',
-            'delivery_city': client.delivery_city or '',
-            'delivery_state': client.delivery_region or '',         # ← zamiast delivery_region
+            'delivery_fullname': client_data.get('delivery_name', ''),
+            'delivery_company': client_data.get('delivery_company', ''),
+            'delivery_address': client_data.get('delivery_address', ''),
+            'delivery_postcode': client_data.get('delivery_postcode', ''),
+            'delivery_city': client_data.get('delivery_city', ''),
+            'delivery_state': client_data.get('delivery_region', ''),
             'delivery_country_code': config.get('delivery_country', 'PL'),
             'delivery_point_id': '',
             'delivery_point_name': '',
             'delivery_point_address': '',
             'delivery_point_postcode': '',
             'delivery_point_city': '',
-            'invoice_fullname': client.invoice_name or client.client_name or '',
-            'invoice_company': client.invoice_company or '',
-            'invoice_nip': client.invoice_nip or '',
-            'invoice_address': client.invoice_address or client.delivery_address or '',
-            'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
-            'invoice_city': client.invoice_city or client.delivery_city or '',
-            'invoice_state': client.invoice_region or '',           # ← zamiast invoice_region
+            'invoice_fullname': client_data.get('invoice_name', ''),
+            'invoice_company': client_data.get('invoice_company', ''),
+            'invoice_nip': client_data.get('invoice_nip', ''),
+            'invoice_address': client_data.get('invoice_address', ''),
+            'invoice_postcode': client_data.get('invoice_postcode', ''),
+            'invoice_city': client_data.get('invoice_city', ''),
+            'invoice_state': client_data.get('invoice_region', ''),
             'invoice_country_code': config.get('delivery_country', 'PL'),
-            'want_invoice': bool(client.invoice_nip),
+            'want_invoice': client_data.get('want_invoice', False),
             'extra_field_1': '',
             'extra_field_2': '',
             'products': products
@@ -619,7 +699,9 @@ class BaselinkerService:
                        delivery_method=order_data['delivery_method'],
                        delivery_price=order_data['delivery_price'],
                        products_count=len(products),
-                       client_email=order_data['email'])
+                       client_email=order_data['email'],
+                       client_delivery_name=order_data['delivery_fullname'],
+                       client_invoice_name=order_data['invoice_fullname'])
 
         return order_data
     
