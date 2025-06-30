@@ -1,13 +1,13 @@
-# app/modules/baselinker/service.py - OCZYSZCZONA WERSJA TYLKO Z SERWISEM
+# app/modules/baselinker/service.py - WERSJA Z NOWYM STRUKTURALNYM LOGOWANIEM
 
 import requests
 import json
-import logging
 import sys
 from typing import Dict, List, Optional
-from flask import current_app
+from flask import current_app, session, request
 from extensions import db
 from .models import BaselinkerOrderLog, BaselinkerConfig
+from modules.logging import get_structured_logger
 
 class BaselinkerService:
     """Serwis do komunikacji z API Baselinker"""
@@ -15,11 +15,15 @@ class BaselinkerService:
     def __init__(self):
         self.api_key = current_app.config.get('API_BASELINKER', {}).get('api_key')
         self.endpoint = current_app.config.get('API_BASELINKER', {}).get('endpoint')
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_structured_logger('baselinker.service')
     
     def _make_request(self, method: str, parameters: Dict) -> Dict:
         """Wykonuje żądanie do API Baselinker"""
         if not self.api_key or not self.endpoint:
+            self.logger.error("Brak konfiguracji API Baselinker", 
+                            method=method, 
+                            has_api_key=bool(self.api_key),
+                            has_endpoint=bool(self.endpoint))
             raise ValueError("Brak konfiguracji API Baselinker")
         
         headers = {
@@ -32,35 +36,61 @@ class BaselinkerService:
             'parameters': json.dumps(parameters)
         }
         
-        print(f"[BaselinkerService._make_request] Wysylam zadanie API: method={method}, params={parameters}", file=sys.stderr)
-        print(f"[BaselinkerService._make_request] URL: {self.endpoint}", file=sys.stderr)
+        self.logger.info("Wysyłanie żądania API", 
+                        method=method, 
+                        endpoint=self.endpoint,
+                        params_keys=list(parameters.keys()))
         
         try:
             response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
-            print(f"[BaselinkerService._make_request] HTTP status: {response.status_code}", file=sys.stderr)
+            
+            self.logger.debug("Otrzymano odpowiedź API", 
+                            method=method,
+                            status_code=response.status_code,
+                            response_size=len(response.content))
             
             response.raise_for_status()
             response_json = response.json()
+            
+            api_status = response_json.get('status')
+            if api_status == 'SUCCESS':
+                self.logger.info("Pomyślne wywołanie API", 
+                               method=method, 
+                               api_status=api_status)
+            else:
+                self.logger.warning("API zwróciło błąd", 
+                                  method=method, 
+                                  api_status=api_status,
+                                  error_message=response_json.get('error_message'))
 
             return response_json
+            
         except requests.exceptions.RequestException as e:
-            print(f"[BaselinkerService._make_request] Blad zadania API: {e}", file=sys.stderr)
+            self.logger.error("Błąd żądania API", 
+                            method=method, 
+                            error=str(e),
+                            error_type=type(e).__name__)
             raise
     
     def get_order_sources(self) -> List[Dict]:
         """Pobiera dostępne źródła zamówień"""
+        self.logger.info("Pobieranie źródeł zamówień z API")
+        
         try:
             response = self._make_request('getOrderSources', {})
-            print(f"[BaselinkerService] getOrderSources response status: {response.get('status')}", file=sys.stderr)
         
             if response.get('status') == 'SUCCESS':
                 sources_data = response.get('sources', {})
-                print(f"[BaselinkerService] Raw sources data: {sources_data}", file=sys.stderr)
+                self.logger.debug("Odebrano dane źródeł", 
+                                categories_count=len(sources_data),
+                                raw_data_keys=list(sources_data.keys()))
             
                 sources_list = []
             
                 for category, items in sources_data.items():
-                    print(f"[BaselinkerService] Przetwarzam kategorie: {category} z {len(items)} elementami", file=sys.stderr)
+                    self.logger.debug("Przetwarzanie kategorii źródeł", 
+                                    category=category, 
+                                    items_count=len(items))
                 
                     for source_id, source_name in items.items():
                         sources_list.append({
@@ -68,53 +98,76 @@ class BaselinkerService:
                             'name': f"{source_name} ({category})",
                             'category': category
                         })
-                        print(f"[BaselinkerService] Dodano zrodlo: ID={source_id}, Name={source_name}, Category={category}", file=sys.stderr)
+                        self.logger.debug("Dodano źródło", 
+                                        source_id=source_id, 
+                                        source_name=source_name, 
+                                        category=category)
             
-                print(f"[BaselinkerService] Znaleziono {len(sources_list)} zrodel zamowien", file=sys.stderr)
+                self.logger.info("Pomyślnie pobrano źródła zamówień", 
+                               total_sources=len(sources_list))
                 return sources_list
             else:
                 error_msg = response.get('error_message', 'Unknown error')
-                print(f"[BaselinkerService] API Error w getOrderSources: {error_msg}", file=sys.stderr)
+                self.logger.error("API zwróciło błąd w getOrderSources", 
+                                error_message=error_msg)
                 raise Exception(f"API Error: {error_msg}")
+                
         except Exception as e:
-            print(f"[BaselinkerService] Blad pobierania zrodel zamowien: {e}", file=sys.stderr)
+            self.logger.error("Błąd pobierania źródeł zamówień", 
+                            error=str(e),
+                            error_type=type(e).__name__)
             raise
     
     def get_order_statuses(self) -> List[Dict]:
         """Pobiera dostępne statusy zamówień"""
+        self.logger.info("Pobieranie statusów zamówień z API")
+        
         try:
-            for method_name in ['getOrderStatusList', 'getOrderStatuses']:
+            methods_to_try = ['getOrderStatusList', 'getOrderStatuses']
+            
+            for method_name in methods_to_try:
                 try:
-                    print(f"[BaselinkerService] Probuje metode: {method_name}", file=sys.stderr)
+                    self.logger.debug("Próba wywołania metody", method=method_name)
                     response = self._make_request(method_name, {})
-                    print(f"[BaselinkerService] {method_name} response status: {response.get('status')}", file=sys.stderr)
                     
                     if response.get('status') == 'SUCCESS':
                         statuses = (response.get('order_statuses') or 
                                   response.get('statuses') or 
                                   response.get('order_status_list') or [])
-                        print(f"[BaselinkerService] Znaleziono {len(statuses)} statusow zamowien", file=sys.stderr)
+                        
+                        self.logger.info("Pomyślnie pobrano statusy", 
+                                       method=method_name,
+                                       statuses_count=len(statuses))
                         return statuses
                     else:
                         error_msg = response.get('error_message', 'Unknown error')
-                        print(f"[BaselinkerService] API Error w {method_name}: {error_msg}", file=sys.stderr)
+                        self.logger.warning("Metoda zwróciła błąd", 
+                                          method=method_name,
+                                          error_message=error_msg)
                         continue
                         
                 except Exception as method_error:
-                    print(f"[BaselinkerService] Metoda {method_name} nieudana: {method_error}", file=sys.stderr)
+                    self.logger.warning("Nieudana próba wywołania metody", 
+                                      method=method_name,
+                                      error=str(method_error))
                     continue
             
-            raise Exception("Wszystkie metody pobierania statusow nieudane")
+            self.logger.error("Wszystkie metody pobierania statusów nieudane")
+            raise Exception("Wszystkie metody pobierania statusów nieudane")
             
         except Exception as e:
-            print(f"[BaselinkerService] Blad pobierania statusow zamowien: {e}", file=sys.stderr)
+            self.logger.error("Błąd pobierania statusów zamówień", 
+                            error=str(e),
+                            error_type=type(e).__name__)
             raise
     
     def sync_order_sources(self) -> bool:
         """Synchronizuje źródła zamówień z Baselinker"""
+        self.logger.info("Rozpoczęcie synchronizacji źródeł zamówień")
+        
         try:
             sources = self.get_order_sources()
-            print(f"[BaselinkerService] Synchronizuje {len(sources)} zrodel", file=sys.stderr)
+            self.logger.debug("Pobrano źródła do synchronizacji", sources_count=len(sources))
         
             # DODAJ STANDARDOWE ŹRÓDŁA JEŚLI ICH BRAK
             standard_sources = [
@@ -124,9 +177,14 @@ class BaselinkerService:
         
             # Połącz źródła z API i standardowe
             all_sources = sources + standard_sources
+            
+            updated_count = 0
+            created_count = 0
         
             for source in all_sources:
-                print(f"[BaselinkerService] Przetwarzam zrodlo: {source}", file=sys.stderr)
+                self.logger.debug("Przetwarzanie źródła", 
+                                source_id=source.get('id'),
+                                source_name=source.get('name'))
             
                 existing = BaselinkerConfig.query.filter_by(
                     config_type='order_source',
@@ -140,32 +198,50 @@ class BaselinkerService:
                         name=source.get('name', 'Nieznane zrodlo')
                     )
                     db.session.add(config)
-                    print(f"[BaselinkerService] Dodano nowe zrodlo: {config.name}", file=sys.stderr)
+                    created_count += 1
+                    self.logger.debug("Utworzono nowe źródło", 
+                                    source_name=config.name,
+                                    source_id=config.baselinker_id)
                 else:
                     existing.name = source.get('name', existing.name)
                     existing.is_active = True
-                    print(f"[BaselinkerService] Zaktualizowano zrodlo: {existing.name}", file=sys.stderr)
+                    updated_count += 1
+                    self.logger.debug("Zaktualizowano źródło", 
+                                    source_name=existing.name,
+                                    source_id=existing.baselinker_id)
         
             db.session.commit()
         
             saved_count = BaselinkerConfig.query.filter_by(config_type='order_source').count()
-            print(f"[BaselinkerService] Zapisano {saved_count} zrodel do bazy", file=sys.stderr)
+            self.logger.info("Synchronizacja źródeł zakończona pomyślnie", 
+                           created_count=created_count,
+                           updated_count=updated_count,
+                           total_in_db=saved_count)
         
             return True
         
         except Exception as e:
             db.session.rollback()
-            print(f"[BaselinkerService] Blad synchronizacji zrodel: {e}", file=sys.stderr)
+            self.logger.error("Błąd synchronizacji źródeł", 
+                            error=str(e),
+                            error_type=type(e).__name__)
             return False
     
     def sync_order_statuses(self) -> bool:
         """Synchronizuje statusy zamówień z Baselinker"""
+        self.logger.info("Rozpoczęcie synchronizacji statusów zamówień")
+        
         try:
             statuses = self.get_order_statuses()
-            print(f"[BaselinkerService] Synchronizuje {len(statuses)} statusow", file=sys.stderr)
+            self.logger.debug("Pobrano statusy do synchronizacji", statuses_count=len(statuses))
+            
+            updated_count = 0
+            created_count = 0
             
             for status in statuses:
-                print(f"[BaselinkerService] Przetwarzam status: {status}", file=sys.stderr)
+                self.logger.debug("Przetwarzanie statusu", 
+                                status_id=status.get('id'),
+                                status_name=status.get('name'))
                 
                 existing = BaselinkerConfig.query.filter_by(
                     config_type='order_status',
@@ -179,26 +255,38 @@ class BaselinkerService:
                         name=status.get('name', 'Nieznany status')
                     )
                     db.session.add(config)
-                    print(f"[BaselinkerService] Dodano nowy status: {config.name}", file=sys.stderr)
+                    created_count += 1
+                    self.logger.debug("Utworzono nowy status", 
+                                    status_name=config.name,
+                                    status_id=config.baselinker_id)
                 else:
                     existing.name = status.get('name', existing.name)
                     existing.is_active = True
-                    print(f"[BaselinkerService] Zaktualizowano status: {existing.name}", file=sys.stderr)
+                    updated_count += 1
+                    self.logger.debug("Zaktualizowano status", 
+                                    status_name=existing.name,
+                                    status_id=existing.baselinker_id)
             
             db.session.commit()
             
             saved_count = BaselinkerConfig.query.filter_by(config_type='order_status').count()
-            print(f"[BaselinkerService] Zapisano {saved_count} statusow do bazy", file=sys.stderr)
+            self.logger.info("Synchronizacja statusów zakończona pomyślnie", 
+                           created_count=created_count,
+                           updated_count=updated_count,
+                           total_in_db=saved_count)
             
             return True
             
         except Exception as e:
             db.session.rollback()
-            print(f"[BaselinkerService] Blad synchronizacji statusow: {e}", file=sys.stderr)
+            self.logger.error("Błąd synchronizacji statusów", 
+                            error=str(e),
+                            error_type=type(e).__name__)
             return False
 
     def get_order_details(self, order_id: int) -> Dict:
         """Pobiera szczegóły zamówienia z Baselinker"""
+        self.logger.info("Pobieranie szczegółów zamówienia", order_id=order_id)
         
         try:
             parameters = {'order_id': order_id}
@@ -207,7 +295,9 @@ class BaselinkerService:
             
             if response.get('status') == 'SUCCESS':
                 orders = response.get('orders', [])
-                print(f"[BaselinkerService.get_order_details] Liczba zamówień w odpowiedzi: {len(orders)}", file=sys.stderr)
+                self.logger.debug("Otrzymano odpowiedź getOrders", 
+                                orders_count=len(orders),
+                                order_id=order_id)
                 
                 if orders:
                     order = orders[0]  # getOrders zwraca listę, ale z order_id powinien być jeden
@@ -222,29 +312,50 @@ class BaselinkerService:
                         'date_confirmed': order.get('date_confirmed')
                     }
 
-                    result = {
+                    self.logger.info("Pomyślnie pobrano szczegóły zamówienia",
+                                   order_id=order_id,
+                                   status_id=order_details['order_status_id'],
+                                   payment_done=order_details['payment_done'])
+
+                    return {
                         'success': True,
                         'order': order_details
                     }
-                    return result
                 else:
+                    self.logger.warning("Zamówienie nie znalezione", order_id=order_id)
                     return {'success': False, 'error': 'Zamówienie nie znalezione'}
             else:
                 error_msg = response.get('error_message', 'Unknown error')
-                print(f"[BaselinkerService.get_order_details] API error: {error_msg}", file=sys.stderr)
+                self.logger.error("API zwróciło błąd w get_order_details", 
+                                order_id=order_id,
+                                error_message=error_msg)
                 return {'success': False, 'error': error_msg}
                 
         except Exception as e:
-            print(f"[BaselinkerService.get_order_details] WYJĄTEK: {e}", file=sys.stderr)
+            self.logger.error("Wyjątek podczas pobierania szczegółów zamówienia", 
+                            order_id=order_id,
+                            error=str(e),
+                            error_type=type(e).__name__)
             import traceback
-            traceback.print_exc(file=sys.stderr)
+            self.logger.debug("Stack trace błędu", traceback=traceback.format_exc())
             return {'success': False, 'error': str(e)}
 
     def create_order_from_quote(self, quote, user_id: int, config: Dict) -> Dict:
         """Tworzy zamówienie w Baselinker na podstawie wyceny"""
+        self.logger.info("Rozpoczęcie tworzenia zamówienia z wyceny",
+                        quote_id=quote.id,
+                        quote_number=quote.quote_number,
+                        user_id=user_id)
+        
         try:
             # Przygotuj dane zamówienia
             order_data = self._prepare_order_data(quote, config)
+            
+            self.logger.debug("Przygotowano dane zamówienia",
+                            quote_id=quote.id,
+                            products_count=len(order_data.get('products', [])),
+                            order_source_id=order_data.get('custom_source_id'),
+                            order_status_id=order_data.get('order_status_id'))
             
             # Loguj żądanie
             log_entry = BaselinkerOrderLog(
@@ -256,6 +367,8 @@ class BaselinkerService:
             )
             db.session.add(log_entry)
             db.session.flush()
+            
+            self.logger.debug("Utworzono log entry", log_id=log_entry.id)
             
             # Wyślij żądanie do API
             response = self._make_request('addOrder', order_data)
@@ -276,6 +389,11 @@ class BaselinkerService:
                 
                 db.session.commit()
                 
+                self.logger.info("Pomyślnie utworzono zamówienie",
+                               quote_id=quote.id,
+                               baselinker_order_id=baselinker_order_id,
+                               log_id=log_entry.id)
+                
                 return {
                     'success': True,
                     'order_id': baselinker_order_id,
@@ -288,6 +406,11 @@ class BaselinkerService:
                 log_entry.response_data = json.dumps(response)
                 db.session.commit()
                 
+                self.logger.error("Błąd tworzenia zamówienia w API",
+                                quote_id=quote.id,
+                                error_message=error_msg,
+                                log_id=log_entry.id)
+                
                 return {
                     'success': False,
                     'error': error_msg
@@ -298,8 +421,12 @@ class BaselinkerService:
                 log_entry.status = 'error'
                 log_entry.error_message = str(e)
                 db.session.commit()
+                self.logger.debug("Zaktualizowano log entry z błędem", log_id=log_entry.id)
             
-            print(f"[BaselinkerService] Blad tworzenia zamowienia: {e}", file=sys.stderr)
+            self.logger.error("Wyjątek podczas tworzenia zamówienia", 
+                            quote_id=quote.id,
+                            error=str(e),
+                            error_type=type(e).__name__)
             return {
                 'success': False,
                 'error': str(e)
@@ -310,8 +437,15 @@ class BaselinkerService:
         import time
         from modules.calculator.models import QuoteItemDetails
 
+        self.logger.debug("Rozpoczęcie przygotowania danych zamówienia",
+                        quote_id=quote.id,
+                        config_keys=list(config.keys()))
+
         # Pobierz wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
+        self.logger.debug("Wybrane produkty do zamówienia", 
+                        selected_items_count=len(selected_items),
+                        total_items_count=len(quote.items))
 
         # Przygotuj produkty
         products = []
@@ -324,7 +458,11 @@ class BaselinkerService:
 
             # Pobierz quantity z QuoteItemDetails
             quantity = finishing_details.quantity if finishing_details else 1
-            print(f"[BaselinkerService] Produkt {item.product_index}: quantity={quantity}", file=sys.stderr)
+            self.logger.debug("Przetwarzanie produktu",
+                            product_index=item.product_index,
+                            variant_code=item.variant_code,
+                            quantity=quantity,
+                            has_finishing=bool(finishing_details))
 
             # Generuj SKU według schematu
             sku = self._generate_sku(item, finishing_details)
@@ -336,7 +474,10 @@ class BaselinkerService:
             unit_price_netto = float(item.price_netto or 0)
             unit_price_brutto = float(item.price_brutto or 0)
 
-            print(f"[BaselinkerService] Produkt {item.product_index}: unit_price_netto={unit_price_netto}, unit_price_brutto={unit_price_brutto}", file=sys.stderr)
+            self.logger.debug("Ceny produktu z bazy",
+                            product_index=item.product_index,
+                            unit_price_netto=unit_price_netto,
+                            unit_price_brutto=unit_price_brutto)
 
             # Dodaj cenę wykończenia do ceny jednostkowej (jeśli istnieje)
             if finishing_details and finishing_details.finishing_price_netto:
@@ -346,9 +487,16 @@ class BaselinkerService:
                 unit_price_netto += finishing_unit_netto
                 unit_price_brutto += finishing_unit_brutto
                 
-                print(f"[BaselinkerService] + wykończenie: {finishing_unit_netto} netto, {finishing_unit_brutto} brutto", file=sys.stderr)
+                self.logger.debug("Dodano cenę wykończenia",
+                                product_index=item.product_index,
+                                finishing_netto=finishing_unit_netto,
+                                finishing_brutto=finishing_unit_brutto)
 
-            print(f"[BaselinkerService] FINALNA cena jednostkowa: netto={unit_price_netto}, brutto={unit_price_brutto}, qty={quantity}", file=sys.stderr)
+            self.logger.debug("Finalne ceny produktu",
+                            product_index=item.product_index,
+                            final_unit_netto=unit_price_netto,
+                            final_unit_brutto=unit_price_brutto,
+                            quantity=quantity)
 
             # Oblicz wagę (zakładając gęstość drewna ~0.7 kg/dm³)
             volume_dm3 = float(item.volume_m3) * 1000  # m³ na dm³
@@ -375,6 +523,7 @@ class BaselinkerService:
 
         client = quote.client
         if not client:
+            self.logger.error("Wycena nie ma przypisanego klienta", quote_id=quote.id)
             raise ValueError("Wycena nie ma przypisanego klienta")
 
         # Konfiguracja zamówienia
@@ -384,8 +533,17 @@ class BaselinkerService:
         delivery_method = config.get('delivery_method', quote.courier_name or 'Przesyłka kurierska')
         delivery_price = float(quote.shipping_cost_brutto or 0)
 
-        print(f"[BaselinkerService] Przygotowuję zamówienie z {len(products)} produktami", file=sys.stderr)
-        print(f"[BaselinkerService] Łączna ilość produktów: {sum(p['quantity'] for p in products)}", file=sys.stderr)
+        self.logger.debug("Konfiguracja zamówienia",
+                        order_source_id=order_source_id,
+                        order_status_id=order_status_id,
+                        payment_method=payment_method,
+                        delivery_method=delivery_method,
+                        delivery_price=delivery_price)
+
+        total_quantity = sum(p['quantity'] for p in products)
+        self.logger.info("Przygotowano produkty do zamówienia",
+                       products_count=len(products),
+                       total_quantity=total_quantity)
 
         order_data = {
             'custom_source_id': order_source_id,
@@ -426,12 +584,13 @@ class BaselinkerService:
             'products': products  # ← Produkty z cenami jednostkowymi i quantity
         }
 
-        print(f"[BaselinkerService] ✅ Przygotowane dane zamówienia:", file=sys.stderr)
-        print(f"[BaselinkerService] - order_source_id: {order_data['custom_source_id']}", file=sys.stderr)
-        print(f"[BaselinkerService] - order_status_id: {order_data['order_status_id']}", file=sys.stderr)
-        print(f"[BaselinkerService] - delivery_method: {order_data['delivery_method']}", file=sys.stderr)
-        print(f"[BaselinkerService] - delivery_price: {order_data['delivery_price']}", file=sys.stderr)
-        print(f"[BaselinkerService] - produkty: {len(products)} szt.", file=sys.stderr)
+        self.logger.info("Dane zamówienia przygotowane",
+                       order_source_id=order_data['custom_source_id'],
+                       order_status_id=order_data['order_status_id'],
+                       delivery_method=order_data['delivery_method'],
+                       delivery_price=order_data['delivery_price'],
+                       products_count=len(products),
+                       client_email=order_data['email'])
 
         return order_data
     
@@ -491,16 +650,28 @@ class BaselinkerService:
             # Składamy SKU
             sku = f"{product_type}{species}{technology}{length}{width}{thickness}{wood_class}{finishing}"
             
-            print(f"[_generate_sku] Wygenerowano SKU: {sku} dla wariantu: {item.variant_code}", file=sys.stderr)
-            print(f"  - Produkt: {product_type}, Gatunek: {species}, Tech: {technology}", file=sys.stderr)
-            print(f"  - Wymiary: {length}x{width}x{thickness}, Klasa: {wood_class}, Wykończenie: {finishing}", file=sys.stderr)
+            self.logger.debug("Wygenerowano SKU",
+                            item_id=item.id,
+                            variant_code=item.variant_code,
+                            sku=sku,
+                            product_type=product_type,
+                            species=species,
+                            technology=technology,
+                            dimensions=f"{length}x{width}x{thickness}",
+                            wood_class=wood_class,
+                            finishing=finishing)
             
             return sku
             
         except Exception as e:
-            print(f"[BaselinkerService] Błąd generowania SKU: {e}", file=sys.stderr)
+            self.logger.error("Błąd generowania SKU", 
+                            item_id=getattr(item, 'id', None),
+                            variant_code=getattr(item, 'variant_code', None),
+                            error=str(e))
             # Fallback na stary format
-            return f"WP-{item.variant_code.upper()}-{item.id}" if item.variant_code else f"WP-UNKNOWN-{item.id}"
+            fallback_sku = f"WP-{item.variant_code.upper()}-{item.id}" if item.variant_code else f"WP-UNKNOWN-{item.id}"
+            self.logger.warning("Użyto fallback SKU", sku=fallback_sku)
+            return fallback_sku
     
     def _translate_variant_code(self, code: str) -> str:
         """Tłumaczy kod wariantu na czytelną nazwę"""
@@ -544,62 +715,10 @@ class BaselinkerService:
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""
         if item.volume_m3:
-            return round(item.volume_m3 * 800, 2)
+            weight = round(item.volume_m3 * 800, 2)
+            self.logger.debug("Obliczono wagę produktu",
+                            item_id=getattr(item, 'id', None),
+                            volume_m3=item.volume_m3,
+                            weight_kg=weight)
+            return weight
         return 0.0
-    
-def prepare_order_modal_data(self, quote_id: int) -> Dict:
-    """Przygotowuje dane do wyświetlenia w modalu zamówienia"""
-    quote = db.session.get(Quote, quote_id)
-    if not quote:
-        raise ValueError(f"Nie znaleziono wyceny o ID {quote_id}")
-
-    # Pobierz wybrane produkty
-    selected_items = [item for item in quote.items if item.is_selected]
-    
-    products = []
-    for item in selected_items:
-        # Pobierz quantity z QuoteItemDetails
-        finishing_details = QuoteItemDetails.query.filter_by(
-            quote_id=quote.id, 
-            product_index=item.product_index
-        ).first()
-        
-        quantity = finishing_details.quantity if finishing_details and finishing_details.quantity else 1
-        
-        print(f"[prepare_order_modal_data] Produkt {item.product_index}: quantity z bazy = {quantity}", file=sys.stderr)
-        
-        # NOWE: Używamy cen jednostkowych z bazy
-        unit_price_netto = float(item.price_netto or 0)
-        unit_price_brutto = float(item.price_brutto or 0)
-        
-        # Oblicz wartości całkowite dla wyświetlania
-        total_price_netto = unit_price_netto * quantity
-        total_price_brutto = unit_price_brutto * quantity
-        
-        product_data = {
-            'name': self.build_product_name(item, finishing_details),
-            'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
-            'quantity': quantity,
-            'unit_price_netto': unit_price_netto,     # NOWE: Cena jednostkowa
-            'unit_price_brutto': unit_price_brutto,   # NOWE: Cena jednostkowa
-            'total_price_netto': total_price_netto,   # NOWE: Wartość całkowita
-            'total_price_brutto': total_price_brutto, # NOWE: Wartość całkowita
-            'finishing': self.get_finishing_description(finishing_details) if finishing_details else None
-        }
-        
-        products.append(product_data)
-        print(f"[prepare_order_modal_data] Dodano produkt: {product_data}", file=sys.stderr)
-
-    return {
-        'quote': {
-            'id': quote.id,
-            'quote_number': quote.quote_number,
-            'created_at': quote.created_at.isoformat(),
-            'status': quote.status_name,
-            'source': quote.source
-        },
-        'client': self.prepare_client_data(quote.client),
-        'products': products,  # ← Lista z cenami jednostkowymi i całkowitymi
-        'costs': self.calculate_costs(quote),
-        'config': self.get_modal_config()
-    }

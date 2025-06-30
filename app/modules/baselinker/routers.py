@@ -8,10 +8,10 @@ from modules.clients.models import Client
 from extensions import db
 import sys
 from functools import wraps
-from modules.logging import get_logger
+from modules.logging import get_structured_logger
 
 # Inicjalizacja loggera dla całego modułu
-baselinker_logger = get_logger('baselinker.routers')
+baselinker_logger = get_structured_logger('baselinker.routers')
 
 def login_required(func):
     @wraps(func)
@@ -35,8 +35,9 @@ def create_order(quote_id):
                           endpoint='create_order')
     
     try:
-        # Pobierz wycenę
+        # Pobierz wycenę z eager loading
         quote = Quote.query.get_or_404(quote_id)
+        
         baselinker_logger.debug("Pobrano wycenę do przetworzenia",
                                quote_id=quote_id,
                                quote_number=quote.quote_number,
@@ -415,7 +416,6 @@ def get_order_statuses():
                                error=str(e),
                                error_type=type(e).__name__)
         return jsonify({'error': 'Błąd pobierania statusów'}), 500
-
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
 @login_required
 def get_order_modal_data(quote_id):
@@ -425,16 +425,23 @@ def get_order_modal_data(quote_id):
                           endpoint='get_order_modal_data')
     
     try:
-        # Pobierz wycenę z relacjami
+        # ZMIENIONE: Usuń eager loading - wróć do prostego zapytania
         quote = Quote.query.get_or_404(quote_id)
+        
+        # ZMIENIONE: Bezpieczne sprawdzenie długości bez eager loading
+        try:
+            items_list = list(quote.items)  # Konwertuj na listę
+            items_count = len(items_list)
+        except:
+            items_count = 0  # Fallback
         
         baselinker_logger.debug("Pobrano wycenę dla modalu",
                                quote_id=quote_id,
                                quote_number=quote.quote_number,
                                client_id=quote.client_id,
-                               items_count=len(quote.items))
+                               items_count=items_count)
         
-        # Pobierz wybrane produkty
+        # Pobierz wybrane produkty - użyj już przekonwertowanej listy
         selected_items = [item for item in quote.items if item.is_selected]
         if not selected_items:
             baselinker_logger.warning("Wycena nie ma wybranych produktów",
@@ -512,6 +519,77 @@ def get_order_modal_data(quote_id):
                 'invoice_nip': quote.client.invoice_nip
             }
         
+        # NOWE: Pobierz konfigurację Baselinker
+        baselinker_logger.debug("Pobieranie konfiguracji Baselinker")
+        
+        try:
+            # Pobierz źródła zamówień
+            order_sources = BaselinkerConfig.query.filter_by(
+                config_type='order_source',
+                is_active=True
+            ).order_by(BaselinkerConfig.name).all()
+            
+            sources_data = [
+                {
+                    'id': source.baselinker_id,
+                    'name': source.name
+                }
+                for source in order_sources
+            ]
+            
+            # Pobierz statusy zamówień
+            order_statuses = BaselinkerConfig.query.filter_by(
+                config_type='order_status',
+                is_active=True
+            ).order_by(BaselinkerConfig.name).all()
+            
+            statuses_data = [
+                {
+                    'id': status.baselinker_id,
+                    'name': status.name
+                }
+                for status in order_statuses
+            ]
+            
+            baselinker_logger.debug("Pobrano konfigurację Baselinker",
+                                   sources_count=len(sources_data),
+                                   statuses_count=len(statuses_data))
+            
+            # Przygotuj konfigurację
+            config_data = {
+                'order_sources': sources_data,
+                'order_statuses': statuses_data,
+                'payment_methods': [
+                    'Przelew bankowy',
+                    'Płatność przy odbiorze',
+                    'Karta płatnicza'
+                ],
+                'delivery_countries': [
+                    {'code': 'PL', 'name': 'Polska'},
+                    {'code': 'DE', 'name': 'Niemcy'},
+                    {'code': 'CZ', 'name': 'Czechy'}
+                ]
+            }
+            
+        except Exception as config_error:
+            baselinker_logger.error("Błąd podczas pobierania konfiguracji Baselinker",
+                                   error=str(config_error))
+            # Fallback - pusta konfiguracja
+            config_data = {
+                'order_sources': [],
+                'order_statuses': [],
+                'payment_methods': [
+                    'Przelew bankowy',
+                    'Płatność przy odbiorze',
+                    'Karta płatnicza'
+                ],
+                'delivery_countries': [
+                    {'code': 'PL', 'name': 'Polska'},
+                    {'code': 'DE', 'name': 'Niemcy'},
+                    {'code': 'CZ', 'name': 'Czechy'}
+                ]
+            }
+        
         # Oblicz koszty
         shipping_cost = float(quote.shipping_cost_brutto or 0)
         total_value = total_products_value + shipping_cost
@@ -521,7 +599,8 @@ def get_order_modal_data(quote_id):
                 'id': quote.id,
                 'quote_number': quote.quote_number,
                 'created_at': quote.created_at.isoformat(),
-                'courier_name': quote.courier_name
+                'courier_name': quote.courier_name,
+                'source': getattr(quote, 'source', '')  # DODANE: źródło wyceny
             },
             'client': client_data,
             'products': products,
@@ -529,14 +608,17 @@ def get_order_modal_data(quote_id):
                 'products_brutto': round(total_products_value, 2),
                 'shipping_brutto': round(shipping_cost, 2),
                 'total_brutto': round(total_value, 2)
-            }
+            },
+            'config': config_data  # NOWE: Dodana konfiguracja
         }
         
         baselinker_logger.info("Przygotowano dane dla modalu zamówienia",
                               quote_id=quote_id,
                               products_count=len(products),
                               total_value=total_value,
-                              has_client=bool(quote.client))
+                              has_client=bool(quote.client),
+                              sources_count=len(config_data['order_sources']),
+                              statuses_count=len(config_data['order_statuses']))
         
         return jsonify(response_data)
         
@@ -545,4 +627,7 @@ def get_order_modal_data(quote_id):
                                quote_id=quote_id,
                                error=str(e),
                                error_type=type(e).__name__)
+        import traceback
+        baselinker_logger.debug("Stack trace błędu",
+                               traceback=traceback.format_exc())
         return jsonify({'error': 'Błąd pobierania danych'}), 500
