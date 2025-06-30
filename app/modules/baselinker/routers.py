@@ -494,6 +494,11 @@ def get_order_modal_data(quote_id):
                     finishing_parts.append(finishing_details.finishing_color)
                 product_name += f" ({' - '.join(finishing_parts)})"
             
+            # 1) Pobierz objętość (m³) – jeśli nie ma, przyjmujemy 0
+            volume_m3 = getattr(item, 'volume_m3', 0) or 0
+            # 2) Oblicz wagę [kg] (przy gęstości 800 kg/m³)
+            weight_kg = round(float(volume_m3) * 800, 2)
+
             product_data = {
                 'name': product_name,
                 'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
@@ -501,7 +506,8 @@ def get_order_modal_data(quote_id):
                 'unit_price_netto': round(unit_price_netto, 2),
                 'unit_price_brutto': round(unit_price_brutto, 2),
                 'total_price_netto': round(total_price_netto, 2),
-                'total_price_brutto': round(total_price_brutto, 2)
+                'total_price_brutto': round(total_price_brutto, 2),
+                'weight': weight_kg,
             }
             
             products.append(product_data)
@@ -510,22 +516,23 @@ def get_order_modal_data(quote_id):
         client_data = {}
         if quote.client:
             client_data = {
-                'name': quote.client.client_name,
-                'delivery_name': quote.client.client_delivery_name or quote.client.client_name,
-                'email': quote.client.email,
-                'phone': quote.client.phone,
-                'delivery_address': quote.client.delivery_address or '',    # ODDZIELNIE
-                'delivery_postcode': quote.client.delivery_zip or '',       # ODDZIELNIE
-                'delivery_city': quote.client.delivery_city or '',          # ODDZIELNIE
-                'delivery_region': quote.client.delivery_region or '',      # ODDZIELNIE
-                'delivery_company': quote.client.delivery_company or '',    # DODANE
-                'invoice_name': quote.client.invoice_name or quote.client.client_name or '',  # DODANE
+                'name':            quote.client.client_name,
+                'delivery_name':   quote.client.client_delivery_name or quote.client.client_name,
+                'email':           quote.client.email,
+                'phone':           quote.client.phone,
+                'delivery_address':quote.client.delivery_address or '',
+                'delivery_postcode':quote.client.delivery_zip or '',
+                'delivery_city':   quote.client.delivery_city or '',
+                'delivery_region': quote.client.delivery_region or '',
+                'delivery_company':quote.client.delivery_company or '',
+                'invoice_name':    quote.client.invoice_name or quote.client.client_name or '',
                 'invoice_company': quote.client.invoice_company or '',
-                'invoice_nip': quote.client.invoice_nip or '',
-                'invoice_address': quote.client.invoice_address or '',      # ODDZIELNIE
-                'invoice_postcode': quote.client.invoice_zip or '',         # ODDZIELNIE
-                'invoice_city': quote.client.invoice_city or '',            # ODDZIELNIE
-                'invoice_region': quote.client.invoice_region or ''         # ODDZIELNIE
+                'invoice_nip':     quote.client.invoice_nip or '',
+                'invoice_address': quote.client.invoice_address or '',
+                'invoice_postcode':quote.client.invoice_zip or '',
+                'invoice_city':    quote.client.invoice_city or '',
+                'invoice_region':  quote.client.invoice_region or '',  # ← tu musi być
+                'want_invoice':    bool(quote.client.invoice_nip)
             }
         
         # NOWE: Pobierz konfigurację Baselinker
@@ -623,9 +630,21 @@ def get_order_modal_data(quote_id):
         shipping_cost = float(quote.shipping_cost_brutto or 0)
         total_value = total_products_value + shipping_cost
         
+        # Oblicz netto
+        total_products_netto = sum(
+            (float(item.price_netto or 0) + float(getattr(finishing_details, 'finishing_price_netto', 0))) *
+            (finishing_details.quantity if finishing_details and finishing_details.quantity else 1)
+            for item in selected_items
+            for finishing_details in [QuoteItemDetails.query.filter_by(
+                quote_id=quote.id, product_index=item.product_index).first()]
+        )
+        shipping_netto = float(getattr(quote, 'shipping_cost_netto', 0))
+        total_netto    = total_products_netto + shipping_netto
+
         response_data = {
             'quote': {
                 'id': quote.id,
+                'client_id':  quote.client_id,
                 'quote_number': quote.quote_number,
                 'created_at': quote.created_at.isoformat(),
                 'courier_name': quote.courier_name,
@@ -638,7 +657,10 @@ def get_order_modal_data(quote_id):
             'costs': {
                 'products_brutto': round(total_products_value, 2),
                 'shipping_brutto': round(shipping_cost, 2),
-                'total_brutto': round(total_value, 2)
+                'total_brutto': round(total_value, 2),
+                'products_netto': round(total_products_netto, 2),
+                'shipping_netto': round(shipping_netto, 2),
+                'total_netto': round(total_netto, 2)
             },
             'config': config_data  # NOWE: Dodana konfiguracja
         }

@@ -592,6 +592,7 @@ class BaselinkerService:
             'delivery_address': client.delivery_address or '',
             'delivery_postcode': client.delivery_zip or '',
             'delivery_city': client.delivery_city or '',
+            'delivery_state': client.delivery_region or '',         # ← zamiast delivery_region
             'delivery_country_code': config.get('delivery_country', 'PL'),
             'delivery_point_id': '',
             'delivery_point_name': '',
@@ -604,11 +605,12 @@ class BaselinkerService:
             'invoice_address': client.invoice_address or client.delivery_address or '',
             'invoice_postcode': client.invoice_zip or client.delivery_zip or '',
             'invoice_city': client.invoice_city or client.delivery_city or '',
+            'invoice_state': client.invoice_region or '',           # ← zamiast invoice_region
             'invoice_country_code': config.get('delivery_country', 'PL'),
             'want_invoice': bool(client.invoice_nip),
-            'extra_field_1': '',  # Możesz dodać dodatkowe pola jeśli potrzebujesz,
-            'extra_field_2': '', 
-            'products': products  # ← Produkty z cenami jednostkowymi i quantity
+            'extra_field_1': '',
+            'extra_field_2': '',
+            'products': products
         }
 
         self.logger.info("Dane zamówienia przygotowane",

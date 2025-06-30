@@ -370,7 +370,7 @@ class BaselinkerModal {
             </div>
             <div class="bl-style-summary-row">
                 <span>Status wyceny:</span>
-                <div class="bl-style-status-badge bl-style-status-ready">✓ ${quote.status}</div>
+                <div class="bl-style-status-badge bl-style-status-ready">✓ ${quote.status_name}</div>
             </div>
             <div class="bl-style-summary-row">
                 <span>Źródło wyceny:</span>
@@ -418,8 +418,8 @@ class BaselinkerModal {
                     <div class="bl-style-product-quantity">${quantity} szt.</div>
                     <div class="bl-style-product-price">
                         <div class="bl-style-amount">
-                            <div class="bl-style-amount-brutto">${this.formatCurrency(product.price_brutto)}</div>
-                            <div class="bl-style-amount-netto">${this.formatCurrency(product.price_netto)} netto</div>
+                            <div class="bl-style-amount-brutto">${this.formatCurrency(product.unit_price_brutto)}</div>
+                            <div class="bl-style-amount-netto">${this.formatCurrency(product.unit_price_netto)} netto</div>
                         </div>
                     </div>
                 </div>
@@ -1472,9 +1472,13 @@ class BaselinkerModal {
 
     // NOWA FUNKCJA: Oblicza wagę produktu
     calculateProductWeight(product) {
-        // Waga produktu na podstawie objętości (gęstość drewna 800kg/m³)
-        if (product.volume) {
-            return (product.volume * 800).toFixed(2);
+        // 1) jeśli backend dostarczył weight → użyj go
+        if (product.weight != null) {
+            return product.weight.toFixed(2);
+        }
+        // 2) w przeciwnym razie oblicz z volume_m3
+        if (product.volume_m3) {
+            return (product.volume_m3 * 1000 * 0.7).toFixed(2);
         }
         return '0.00';
     }
@@ -1550,12 +1554,25 @@ class BaselinkerModal {
 
     // Utility methods
     buildProductName(product) {
-        // Nowy format: Klejonka [gatunek]owa [technologia] [klasa] [wymiary] cm [wykończenie]
-        const variantInfo = this.parseVariantCode(product.variant_code);
-        const dimensions = product.dimensions;
-        const finishing = this.getFinishingDisplay(product.finishing);
+        // Jeśli API już dało w pełni sformatowaną nazwę → użyj jej
+        if (product.name && !product.variant_code) {
+            return product.name;
+        }
 
-        return `Klejonka ${variantInfo.species}owa ${variantInfo.technology} ${variantInfo.woodClass} ${dimensions} ${finishing}`;
+        // Parsujemy kod wariantu na poszczególne składowe
+        const { species, technology, woodClass } = this.parseVariantCode(product.variant_code);
+
+        // Wymiary są już w formacie "150.0×40.0×4.0 cm"
+        const dimensions = product.dimensions;
+
+        // Jeśli jest wykończenie różne od "brak", dokładamy je na końcu
+        const finishingDisplay = product.finishing && product.finishing !== 'brak'
+            ? ` ${this.getFinishingDisplay(product.finishing)}`
+            : '';
+
+        // Składamy całość:
+        // "Klejonka [gatunek]owa [technologia] [klasa] [wymiary] cm [wykończenie]"
+        return `Klejonka ${species}owa ${technology} ${woodClass} ${dimensions}${finishingDisplay}`.trim();
     }
 
     parseVariantCode(code) {
