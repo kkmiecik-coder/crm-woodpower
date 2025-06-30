@@ -532,9 +532,6 @@ class BaselinkerModal {
                 }
             }
 
-            // 🔧 POPRAWKA: USUŃ FALLBACK NA DOMYŚLNE ŹRÓDŁO
-            // NIE sprawdzaj is_default - pozostaw puste pole jeśli nie ma dopasowania
-
             // Komunikat o rezultacie
             if (!sourceSelected) {
                 if (quoteSource) {
@@ -631,34 +628,55 @@ class BaselinkerModal {
             }
         }
 
-        // 4. METODY DOSTAWY - BEZ ZMIAN
+        // 4. METODY DOSTAWY - POPRAWIONA LOGIKA Z ZABEZPIECZENIAMI
         const deliveryMethodSelect = document.getElementById('delivery-method-select');
         if (deliveryMethodSelect) {
             deliveryMethodSelect.innerHTML = '<option value="">Wybierz metodę...</option>';
 
+            // 🔧 POPRAWKA 1: Zabezpieczenie przed undefined delivery_methods
+            const deliveryMethods = config.delivery_methods || [];
+            console.log('[Baselinker] Dostępne metody dostawy:', deliveryMethods);
+
+            if (deliveryMethods.length === 0) {
+                console.warn('[Baselinker] ⚠️ Brak metod dostawy w konfiguracji - używam domyślnych');
+                // Fallback na wypadek problemów z backendem
+                deliveryMethods.push('Kurier', 'Odbiór osobisty');
+            }
+
             let courierMethodSet = false;
 
-            config.delivery_methods.forEach(method => {
+            // 🔧 POPRAWKA 2: Użycie prawidłowej ścieżki do nazwy kuriera
+            const courierFromQuote = this.modalData.quote?.courier_name; // BYŁO: this.modalData.courier
+            console.log(`[Baselinker] Kurier z wyceny: "${courierFromQuote}"`);
+
+            deliveryMethods.forEach(method => {
                 const option = document.createElement('option');
                 option.value = method;
                 option.textContent = method;
 
-                // Wybierz metodę kuriera z wyceny jako domyślną
-                if (method === this.modalData.courier && this.modalData.courier) {
+                // Wybierz metodę kuriera z wyceny jako domyślną (dopasowanie częściowe)
+                if (courierFromQuote && method.toLowerCase().includes(courierFromQuote.toLowerCase())) {
                     option.selected = true;
                     courierMethodSet = true;
-                    console.log(`[Baselinker] ✅ Ustawiono metodę dostawy z wyceny: ${method}`);
+                    console.log(`[Baselinker] ✅ Ustawiono metodę dostawy z wyceny: ${method} (dopasowana do: ${courierFromQuote})`);
                 }
 
                 deliveryMethodSelect.appendChild(option);
             });
 
             // Ustaw wartość select programowo
-            if (courierMethodSet && this.modalData.courier) {
-                deliveryMethodSelect.value = this.modalData.courier;
-            } else if (config.delivery_methods.length > 0) {
-                deliveryMethodSelect.value = config.delivery_methods[0];
-                console.log(`[Baselinker] ✅ Auto-wybrano pierwszą metodę dostawy: ${config.delivery_methods[0]}`);
+            if (courierMethodSet && courierFromQuote) {
+                // Znajdź metodę która najlepiej pasuje do kuriera z wyceny
+                const matchingMethod = deliveryMethods.find(method =>
+                    method.toLowerCase().includes(courierFromQuote.toLowerCase())
+                );
+                if (matchingMethod) {
+                    deliveryMethodSelect.value = matchingMethod;
+                    console.log(`[Baselinker] ✅ Programowo ustawiono metodę dostawy: ${matchingMethod}`);
+                }
+            } else if (deliveryMethods.length > 0) {
+                deliveryMethodSelect.value = deliveryMethods[0];
+                console.log(`[Baselinker] ✅ Auto-wybrano pierwszą metodę dostawy: ${deliveryMethods[0]}`);
             }
         }
 

@@ -514,9 +514,18 @@ def get_order_modal_data(quote_id):
                 'delivery_name': quote.client.client_delivery_name or quote.client.client_name,
                 'email': quote.client.email,
                 'phone': quote.client.phone,
-                'delivery_address': f"{quote.client.delivery_address or ''} {quote.client.delivery_zip or ''} {quote.client.delivery_city or ''}".strip(),
-                'invoice_company': quote.client.invoice_company,
-                'invoice_nip': quote.client.invoice_nip
+                'delivery_address': quote.client.delivery_address or '',    # ODDZIELNIE
+                'delivery_postcode': quote.client.delivery_zip or '',       # ODDZIELNIE
+                'delivery_city': quote.client.delivery_city or '',          # ODDZIELNIE
+                'delivery_region': quote.client.delivery_region or '',      # ODDZIELNIE
+                'delivery_company': quote.client.delivery_company or '',    # DODANE
+                'invoice_name': quote.client.invoice_name or quote.client.client_name or '',  # DODANE
+                'invoice_company': quote.client.invoice_company or '',
+                'invoice_nip': quote.client.invoice_nip or '',
+                'invoice_address': quote.client.invoice_address or '',      # ODDZIELNIE
+                'invoice_postcode': quote.client.invoice_zip or '',         # ODDZIELNIE
+                'invoice_city': quote.client.invoice_city or '',            # ODDZIELNIE
+                'invoice_region': quote.client.invoice_region or ''         # ODDZIELNIE
             }
         
         # NOWE: Pobierz konfigurację Baselinker
@@ -568,6 +577,16 @@ def get_order_modal_data(quote_id):
                     {'code': 'PL', 'name': 'Polska'},
                     {'code': 'DE', 'name': 'Niemcy'},
                     {'code': 'CZ', 'name': 'Czechy'}
+                ],
+                # DODANE: metody dostawy dla JavaScript
+                'delivery_methods': [
+                    'Kurier DPD',
+                    'Kurier InPost',
+                    'Kurier UPS',
+                    'Kurier DHL',
+                    'Paczkomaty InPost',
+                    'Odbiór osobisty',
+                    'Transport własny'
                 ]
             }
             
@@ -576,8 +595,8 @@ def get_order_modal_data(quote_id):
                                    error=str(config_error))
             # Fallback - pusta konfiguracja
             config_data = {
-                'order_sources': [],
-                'order_statuses': [],
+                'order_sources': sources_data,
+                'order_statuses': statuses_data,
                 'payment_methods': [
                     'Przelew bankowy',
                     'Płatność przy odbiorze',
@@ -587,6 +606,16 @@ def get_order_modal_data(quote_id):
                     {'code': 'PL', 'name': 'Polska'},
                     {'code': 'DE', 'name': 'Niemcy'},
                     {'code': 'CZ', 'name': 'Czechy'}
+                ],
+                # DODANE: metody dostawy dla JavaScript
+                'delivery_methods': [
+                    'Kurier DPD',
+                    'Kurier InPost',
+                    'Kurier UPS',
+                    'Kurier DHL',
+                    'Paczkomaty InPost',
+                    'Odbiór osobisty',
+                    'Transport własny'
                 ]
             }
         
@@ -600,7 +629,9 @@ def get_order_modal_data(quote_id):
                 'quote_number': quote.quote_number,
                 'created_at': quote.created_at.isoformat(),
                 'courier_name': quote.courier_name,
-                'source': getattr(quote, 'source', '')  # DODANE: źródło wyceny
+                'source': getattr(quote, 'source', ''),
+                'status_name': quote.quote_status.name if quote.quote_status else 'Nieznany',  # DODANE
+                'status_id': quote.status_id  # DODANE dla JS
             },
             'client': client_data,
             'products': products,

@@ -441,11 +441,32 @@ class BaselinkerService:
                         quote_id=quote.id,
                         config_keys=list(config.keys()))
 
-        # Pobierz wybrane produkty
-        selected_items = [item for item in quote.items if item.is_selected]
-        self.logger.debug("Wybrane produkty do zamówienia", 
-                        selected_items_count=len(selected_items),
-                        total_items_count=len(quote.items))
+        # 🔧 POPRAWKA: Zabezpieczenie przed błędem AppenderQuery
+        try:
+            # Konwertuj AppenderQuery na listę przed użyciem len()
+            all_items = list(quote.items)
+            selected_items = [item for item in all_items if item.is_selected]
+        
+            self.logger.debug("Wybrane produkty do zamówienia", 
+                            selected_items_count=len(selected_items),
+                            total_items_count=len(all_items))
+        except Exception as e:
+            # Fallback gdyby był problem z konwersją
+            self.logger.warning("Problem z konwersją quote.items na listę",
+                              quote_id=quote.id,
+                              error=str(e))
+            selected_items = []
+            for item in quote.items:
+                if item.is_selected:
+                    selected_items.append(item)
+        
+            self.logger.debug("Wybrane produkty do zamówienia (fallback)", 
+                            selected_items_count=len(selected_items))
+
+        # Sprawdź czy są wybrane produkty
+        if not selected_items:
+            self.logger.error("Brak wybranych produktów w wycenie", quote_id=quote.id)
+            raise ValueError("Wycena nie ma wybranych produktów")
 
         # Przygotuj produkty
         products = []
@@ -483,10 +504,10 @@ class BaselinkerService:
             if finishing_details and finishing_details.finishing_price_netto:
                 finishing_unit_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_unit_brutto = float(finishing_details.finishing_price_brutto or 0)
-                
+            
                 unit_price_netto += finishing_unit_netto
                 unit_price_brutto += finishing_unit_brutto
-                
+            
                 self.logger.debug("Dodano cenę wykończenia",
                                 product_index=item.product_index,
                                 finishing_netto=finishing_unit_netto,
@@ -499,8 +520,14 @@ class BaselinkerService:
                             quantity=quantity)
 
             # Oblicz wagę (zakładając gęstość drewna ~0.7 kg/dm³)
-            volume_dm3 = float(item.volume_m3) * 1000  # m³ na dm³
-            weight_kg = round(volume_dm3 * 0.7, 2)
+            volume_dm3 = float(item.volume_m3 or 0) * 1000  # m³ na dm³
+            weight_kg = round(volume_dm3 * 0.7, 2) if item.volume_m3 else 0.0
+
+            self.logger.debug("Obliczenie wagi produktu",
+                            product_index=item.product_index,
+                            volume_m3=item.volume_m3,
+                            volume_dm3=volume_dm3,
+                            weight_kg=weight_kg)
 
             # Dodaj wykończenie do nazwy jeśli istnieje
             product_name = base_name
