@@ -85,22 +85,30 @@ function applyFillet(mesh, edgeKey, radius) {
     const geometry = mesh.geometry.clone();
     const material = mesh.material;
     const dimensions = mesh.geometry.parameters;
-    const maxDim = Math.max(dimensions.width, dimensions.height, dimensions.depth);
 
-    const cyl = new THREE.CylinderGeometry(radius, radius, 2 * maxDim, 16);
-    cyl.rotateZ(Math.PI / 2);
+    // Zwiększamy długość cylindra aby upewnić się, że pokrywa całą krawędź
+    const edgeLength = getEdgeLength(edgeKey, dimensions);
+    const cyl = new THREE.CylinderGeometry(radius, radius, edgeLength + radius * 2, 32);
+
     const toolMesh = new THREE.Mesh(cyl);
-    toolMesh.position.copy(getEdgeCenterPoint(edgeKey, dimensions));
+
+    // Ustawiamy pozycję i orientację cylindra
+    const { position, rotation } = getEdgeTransform(edgeKey, dimensions);
+    toolMesh.position.copy(position);
+    toolMesh.rotation.set(rotation.x, rotation.y, rotation.z);
     toolMesh.updateMatrix();
 
-    // 💡 Oto właściwa linia – używamy CSG.fromMesh!
-    const bspBox = CSG.fromMesh(new THREE.Mesh(geometry, material));
-    const bspTool = CSG.fromMesh(toolMesh);
-
-    const result = bspBox.subtract(bspTool);
-    const meshOut = CSG.toMesh(result, mesh.matrix, material);
-    meshOut.userData.isBox = true;
-    return meshOut;
+    try {
+        const bspBox = CSG.fromMesh(new THREE.Mesh(geometry, material));
+        const bspTool = CSG.fromMesh(toolMesh);
+        const result = bspBox.subtract(bspTool);
+        const meshOut = CSG.toMesh(result, mesh.matrix, material);
+        meshOut.userData.isBox = true;
+        return meshOut;
+    } catch (error) {
+        console.error(`Błąd w applyFillet dla ${edgeKey}:`, error);
+        return mesh; // Zwróć oryginalny mesh w przypadku błędu
+    }
 }
 
 function applyChamfer(mesh, edgeKey, angle) {
@@ -108,60 +116,180 @@ function applyChamfer(mesh, edgeKey, angle) {
     const geometry = mesh.geometry.clone();
     const material = mesh.material;
     const dimensions = mesh.geometry.parameters;
-    const maxDim = Math.max(dimensions.width, dimensions.height, dimensions.depth);
 
-    const chamferGeo = new THREE.BoxGeometry(2 * maxDim, 2 * maxDim, 2 * maxDim);
+    // Tworzymy geometrię do cięcia na podstawie kąta
+    const chamferSize = Math.min(dimensions.length, dimensions.width, dimensions.height) * 0.3;
+    const chamferHeight = chamferSize * Math.tan(angle * Math.PI / 180);
+
+    // Używamy bardziej precyzyjnej geometrii do fazowania
+    const chamferGeo = createChamferGeometry(edgeKey, dimensions, chamferSize, chamferHeight);
     const toolMesh = new THREE.Mesh(chamferGeo);
-    toolMesh.position.copy(getEdgeCenterPoint(edgeKey, dimensions));
-    const rot = getChamferRotation(edgeKey, angle);
-    if (rot) toolMesh.rotation.set(rot.x, rot.y, rot.z);
+
+    const { position, rotation } = getEdgeTransform(edgeKey, dimensions);
+    toolMesh.position.copy(position);
+    toolMesh.rotation.set(rotation.x, rotation.y, rotation.z);
     toolMesh.updateMatrix();
 
-    const bspBox = CSG.fromMesh(new THREE.Mesh(geometry, material));
-    const bspTool = CSG.fromMesh(toolMesh);
-    const result = bspBox.subtract(bspTool);
-    const meshOut = CSG.toMesh(result, mesh.matrix, material);
-    meshOut.userData.isBox = true;
-    return meshOut;
+    try {
+        const bspBox = CSG.fromMesh(new THREE.Mesh(geometry, material));
+        const bspTool = CSG.fromMesh(toolMesh);
+        const result = bspBox.subtract(bspTool);
+        const meshOut = CSG.toMesh(result, mesh.matrix, material);
+        meshOut.userData.isBox = true;
+        return meshOut;
+    } catch (error) {
+        console.error(`Błąd w applyChamfer dla ${edgeKey}:`, error);
+        return mesh; // Zwróć oryginalny mesh w przypadku błędu
+    }
 }
 
-function getEdgeCenterPoint(edgeKey, dimensions) {
+function getEdgeLength(edgeKey, dimensions) {
+    const { length, width, height } = dimensions;
+
+    // Mapa długości krawędzi
+    const lengthMap = {
+        // Krawędzie poziome (górne i dolne)
+        "top-front": length,
+        "top-back": length,
+        "top-left": width,
+        "top-right": width,
+        "bottom-front": length,
+        "bottom-back": length,
+        "bottom-left": width,
+        "bottom-right": width,
+        // Krawędzie pionowe
+        "left-front": height,
+        "left-back": height,
+        "right-front": height,
+        "right-back": height
+    };
+
+    return lengthMap[edgeKey] || Math.max(length, width, height);
+}
+
+function getEdgeTransform(edgeKey, dimensions) {
     const { length, width, height } = dimensions;
     const halfL = length / 2;
     const halfW = width / 2;
     const halfH = height / 2;
 
-    const centerMap = {
-        "top-front": new THREE.Vector3(0, halfH, -halfW),
-        "top-back": new THREE.Vector3(0, halfH, halfW),
-        "top-left": new THREE.Vector3(-halfL, halfH, 0),
-        "top-right": new THREE.Vector3(halfL, halfH, 0),
-        "bottom-front": new THREE.Vector3(0, -halfH, -halfW),
-        "bottom-back": new THREE.Vector3(0, -halfH, halfW),
-        "bottom-left": new THREE.Vector3(-halfL, -halfH, 0),
-        "bottom-right": new THREE.Vector3(halfL, -halfH, 0),
-        "left-front": new THREE.Vector3(-halfL, 0, -halfW),
-        "left-back": new THREE.Vector3(-halfL, 0, halfW),
-        "right-front": new THREE.Vector3(halfL, 0, -halfW),
-        "right-back": new THREE.Vector3(halfL, 0, halfW)
+    // Mapa pozycji i rotacji dla każdej krawędzi
+    const transformMap = {
+        "top-front": {
+            position: new THREE.Vector3(0, halfH, -halfW),
+            rotation: new THREE.Vector3(0, 0, Math.PI / 2) // Obrót wokół Z
+        },
+        "top-back": {
+            position: new THREE.Vector3(0, halfH, halfW),
+            rotation: new THREE.Vector3(0, 0, Math.PI / 2)
+        },
+        "top-left": {
+            position: new THREE.Vector3(-halfL, halfH, 0),
+            rotation: new THREE.Vector3(Math.PI / 2, 0, 0) // Obrót wokół X
+        },
+        "top-right": {
+            position: new THREE.Vector3(halfL, halfH, 0),
+            rotation: new THREE.Vector3(Math.PI / 2, 0, 0)
+        },
+        "bottom-front": {
+            position: new THREE.Vector3(0, -halfH, -halfW),
+            rotation: new THREE.Vector3(0, 0, Math.PI / 2)
+        },
+        "bottom-back": {
+            position: new THREE.Vector3(0, -halfH, halfW),
+            rotation: new THREE.Vector3(0, 0, Math.PI / 2)
+        },
+        "bottom-left": {
+            position: new THREE.Vector3(-halfL, -halfH, 0),
+            rotation: new THREE.Vector3(Math.PI / 2, 0, 0)
+        },
+        "bottom-right": {
+            position: new THREE.Vector3(halfL, -halfH, 0),
+            rotation: new THREE.Vector3(Math.PI / 2, 0, 0)
+        },
+        // Krawędzie pionowe
+        "left-front": {
+            position: new THREE.Vector3(-halfL, 0, -halfW),
+            rotation: new THREE.Vector3(0, 0, 0) // Domyślna orientacja Y
+        },
+        "left-back": {
+            position: new THREE.Vector3(-halfL, 0, halfW),
+            rotation: new THREE.Vector3(0, 0, 0)
+        },
+        "right-front": {
+            position: new THREE.Vector3(halfL, 0, -halfW),
+            rotation: new THREE.Vector3(0, 0, 0)
+        },
+        "right-back": {
+            position: new THREE.Vector3(halfL, 0, halfW),
+            rotation: new THREE.Vector3(0, 0, 0)
+        }
     };
 
-    return centerMap[edgeKey] || new THREE.Vector3(0, 0, 0);
+    return transformMap[edgeKey] || {
+        position: new THREE.Vector3(0, 0, 0),
+        rotation: new THREE.Vector3(0, 0, 0)
+    };
+}
+
+function createChamferGeometry(edgeKey, dimensions, chamferSize, chamferHeight) {
+    // Tworzymy geometrię klina do fazowania
+    const geometry = new THREE.BufferGeometry();
+
+    // Określamy orientację klina na podstawie krawędzi
+    let vertices, indices;
+
+    if (edgeKey.includes('top') || edgeKey.includes('bottom')) {
+        // Dla krawędzi poziomych
+        vertices = new Float32Array([
+            -chamferSize, -chamferHeight, -chamferSize,
+            chamferSize, -chamferHeight, -chamferSize,
+            chamferSize, -chamferHeight, chamferSize,
+            -chamferSize, -chamferHeight, chamferSize,
+            -chamferSize, chamferHeight, -chamferSize,
+            chamferSize, chamferHeight, -chamferSize,
+            chamferSize, chamferHeight, chamferSize,
+            -chamferSize, chamferHeight, chamferSize
+        ]);
+    } else {
+        // Dla krawędzi pionowych
+        vertices = new Float32Array([
+            -chamferSize, -chamferSize, -chamferHeight,
+            chamferSize, -chamferSize, -chamferHeight,
+            chamferSize, chamferSize, -chamferHeight,
+            -chamferSize, chamferSize, -chamferHeight,
+            -chamferSize, -chamferSize, chamferHeight,
+            chamferSize, -chamferSize, chamferHeight,
+            chamferSize, chamferSize, chamferHeight,
+            -chamferSize, chamferSize, chamferHeight
+        ]);
+    }
+
+    indices = new Uint16Array([
+        0, 1, 2, 2, 3, 0, // bottom
+        4, 7, 6, 6, 5, 4, // top
+        0, 4, 5, 5, 1, 0, // front
+        2, 6, 7, 7, 3, 2, // back
+        0, 3, 7, 7, 4, 0, // left
+        1, 5, 6, 6, 2, 1  // right
+    ]);
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeVertexNormals();
+
+    return geometry;
+}
+
+// Stare funkcje dla kompatybilności - będą usunięte
+function getEdgeCenterPoint(edgeKey, dimensions) {
+    console.warn('getEdgeCenterPoint jest przestarzała, użyj getEdgeTransform');
+    return getEdgeTransform(edgeKey, dimensions).position;
 }
 
 function getChamferRotation(edgeKey, angle) {
-    const degToRad = angle => angle * (Math.PI / 180);
-    const rotMap = {
-        "top-front": new THREE.Vector3(degToRad(-45), 0, 0),
-        "top-back": new THREE.Vector3(degToRad(45), 0, 0),
-        "bottom-front": new THREE.Vector3(degToRad(45), 0, 0),
-        "bottom-back": new THREE.Vector3(degToRad(-45), 0, 0),
-        "top-left": new THREE.Vector3(0, 0, degToRad(-45)),
-        "top-right": new THREE.Vector3(0, 0, degToRad(45)),
-        "bottom-left": new THREE.Vector3(0, 0, degToRad(45)),
-        "bottom-right": new THREE.Vector3(0, 0, degToRad(-45))
-    };
-    return rotMap[edgeKey] || null;
+    console.warn('getChamferRotation jest przestarzała, użyj getEdgeTransform');
+    return getEdgeTransform(edgeKey, { length: 100, width: 100, height: 100 }).rotation;
 }
 
 window.Edge3DViewer = Edge3DViewer;

@@ -148,7 +148,7 @@ def api_quotes():
     try:
         # Mapa statusów
         statuses = {
-            s.name: {"name": s.name, "color": s.color_hex}
+            s.name: {"id": s.id, "name": s.name, "color": s.color_hex}
             for s in QuoteStatus.query.all()
         }
         print(f"[api_quotes] Zaladowano {len(statuses)} statusow", file=sys.stderr)
@@ -519,7 +519,7 @@ def get_quote_details(quote_id):
             "courier_name": quote.courier_name or "-",
             
             # Pozostałe pola
-            "all_statuses": {s.name: {"name": s.name, "color": s.color_hex} for s in all_statuses},
+            "all_statuses": {s.name: {"id": s.id, "name": s.name, "color": s.color_hex} for s in all_statuses},
             "finishing": [d.to_dict() if hasattr(d, 'to_dict') else {
                 "product_index": d.product_index,
                 "finishing_type": d.finishing_type,
