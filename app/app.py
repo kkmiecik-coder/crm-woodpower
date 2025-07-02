@@ -12,12 +12,11 @@ from modules.calculator import calculator_bp
 from extensions import db, mail
 from modules.calculator.models import User, Invitation, Price, Multiplier
 from modules.clients import clients_bp
-import logging
 from modules.public_calculator import public_calculator_bp
 from modules.analytics.routers import analytics_bp
 from modules.quotes.routers import quotes_bp
 from modules.baselinker import baselinker_bp
-from modules.logging import logging_bp
+from modules.logging import AppLogger, get_logger, logging_bp
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 
 def create_admin():
@@ -316,45 +315,47 @@ def create_app():
                                    multipliers=multipliers)
         else:
             return render_template("settings_page/user_settings.html")
-        
-    import logging
-
-    # Konfiguracja logowania na początku app.py
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('flask_debug.log'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
 
     @app.route("/settings/prices", methods=["GET", "POST"])
     @login_required
     def admin_prices():
-        logging.info("Wejście do endpointu /settings/prices")
+        # Nowy system logowania
+        prices_logger = get_logger('admin.prices')
+        prices_logger.info("Wejście do endpointu /settings/prices")
         
-        # 1. Sprawdź, czy zalogowany jest admin (jeśli masz mechanizm roli)
+        # 1. Sprawdź, czy zalogowany jest admin
         current_email = session.get('user_email')
-        logging.debug("Aktualny email: %s", current_email)
+        prices_logger.debug("Sprawdzanie uprawnień użytkownika", user_email=current_email)
         current_user = User.query.filter_by(email=current_email).first()
-        logging.debug("Pobrany użytkownik: %s", current_user)
+        prices_logger.debug("Pobrano użytkownika z bazy", 
+                        user_found=bool(current_user), 
+                        user_role=current_user.role if current_user else None)
         
         if not current_user or current_user.role != 'admin':
-            logging.warning("Brak uprawnień dla użytkownika: %s", current_email)
+            prices_logger.warning("Odmowa dostępu - brak uprawnień administratora", 
+                                user_email=current_email,
+                                user_role=current_user.role if current_user else 'brak_użytkownika')
             flash("Brak uprawnień. Tylko administrator może edytować cennik.", "error")
-            return redirect(url_for('settings'))  # lub dashboard
+            return redirect(url_for('settings'))
 
         # 2A. Obsługa zapisu (POST)
         if request.method == "POST":
-            logging.info("Otrzymano żądanie POST. Rozpoczynam aktualizację cennika.")
+            prices_logger.info("Rozpoczęcie aktualizacji cennika", operation='POST_update')
             all_prices = Price.query.all()
-            logging.debug("Pobrano %d rekordów z tabeli prices", len(all_prices))
+            prices_logger.debug("Pobrano rekordy cennika z bazy danych", 
+                            total_records=len(all_prices))
+            
+            updated_records = 0
+            errors_count = 0
             
             # Dla każdego rekordu w bazie:
             for price_record in all_prices:
                 prefix = f"price_{price_record.id}_"
-                logging.debug("Przetwarzanie rekordu ID: %s (prefix: %s)", price_record.id, prefix)
+                prices_logger.debug("Przetwarzanie rekordu cennika", 
+                                record_id=price_record.id,
+                                species=price_record.species,
+                                wood_class=price_record.wood_class,
+                                form_prefix=prefix)
                 
                 # Odczytujemy wartości z formularza i zamieniamy przecinek na kropkę
                 new_thickness_min = request.form.get(prefix + "thickness_min", "").replace(",", ".")
@@ -363,8 +364,16 @@ def create_app():
                 new_length_max = request.form.get(prefix + "length_max", "").replace(",", ".")
                 new_price_per_m3 = request.form.get(prefix + "price_per_m3", "").replace(",", ".")
                 
-                logging.debug("Dane wejściowe dla rekordu ID %s: thickness_min=%s, thickness_max=%s, length_min=%s, length_max=%s, price_per_m3=%s",
-                            price_record.id, new_thickness_min, new_thickness_max, new_length_min, new_length_max, new_price_per_m3)
+                prices_logger.debug("Otrzymane dane z formularza", 
+                                record_id=price_record.id,
+                                form_data={
+                                    'thickness_min_raw': new_thickness_min,
+                                    'thickness_max_raw': new_thickness_max,
+                                    'length_min_raw': new_length_min,
+                                    'length_max_raw': new_length_max,
+                                    'price_per_m3_raw': new_price_per_m3
+                                })
+                
                 try:
                     # Konwersja na float/int
                     thickness_min_val = float(new_thickness_min)
@@ -373,38 +382,169 @@ def create_app():
                     length_max_val = int(float(new_length_max))
                     price_per_m3_val = float(new_price_per_m3)
                     
-                    logging.debug("Skonwertowane wartości dla rekordu ID %s: thickness_min=%s, thickness_max=%s, length_min=%s, length_max=%s, price_per_m3=%s",
-                                price_record.id, thickness_min_val, thickness_max_val, length_min_val, length_max_val, price_per_m3_val)
+                    prices_logger.debug("Pomyślna konwersja wartości", 
+                                    record_id=price_record.id,
+                                    converted_values={
+                                        'thickness_min': thickness_min_val,
+                                        'thickness_max': thickness_max_val,
+                                        'length_min': length_min_val,
+                                        'length_max': length_max_val,
+                                        'price_per_m3': price_per_m3_val
+                                    })
                     
-                    # Sprawdzenie, czy wartości nie są ujemne:
+                    # Sprawdzenie, czy wartości nie są ujemne
                     if thickness_min_val < 0 or thickness_max_val < 0 or length_min_val < 0 or length_max_val < 0 or price_per_m3_val < 0:
-                        logging.error("Wprowadzono ujemne wartości dla rekordu ID %s", price_record.id)
+                        prices_logger.error("Wykryto ujemne wartości w formularzu", 
+                                        record_id=price_record.id,
+                                        species=price_record.species,
+                                        wood_class=price_record.wood_class,
+                                        invalid_values={
+                                            'thickness_min': thickness_min_val,
+                                            'thickness_max': thickness_max_val,
+                                            'length_min': length_min_val,
+                                            'length_max': length_max_val,
+                                            'price_per_m3': price_per_m3_val
+                                        },
+                                        validation_error='negative_values')
                         flash(f"Nie można wprowadzić ujemnych wartości (ID: {price_record.id}).", "error")
                         return redirect(url_for('admin_prices'))
                     
-                    # Aktualizacja rekordu
-                    price_record.thickness_min = thickness_min_val
-                    price_record.thickness_max = thickness_max_val
-                    price_record.length_min = length_min_val
-                    price_record.length_max = length_max_val
-                    price_record.price_per_m3 = price_per_m3_val
-                    logging.info("Zaktualizowano rekord ID %s", price_record.id)
+                    # Sprawdzenie logiki min/max
+                    if thickness_min_val > thickness_max_val:
+                        prices_logger.error("Nieprawidłowa logika min/max dla grubości", 
+                                        record_id=price_record.id,
+                                        thickness_min=thickness_min_val,
+                                        thickness_max=thickness_max_val,
+                                        validation_error='thickness_min_greater_than_max')
+                        flash(f"Grubość min nie może być większa od max (ID: {price_record.id}).", "error")
+                        return redirect(url_for('admin_prices'))
                     
-                except ValueError:
-                    logging.exception("Błąd konwersji wartości liczbowych przy rekordzie ID %s", price_record.id)
+                    if length_min_val > length_max_val:
+                        prices_logger.error("Nieprawidłowa logika min/max dla długości", 
+                                        record_id=price_record.id,
+                                        length_min=length_min_val,
+                                        length_max=length_max_val,
+                                        validation_error='length_min_greater_than_max')
+                        flash(f"Długość min nie może być większa od max (ID: {price_record.id}).", "error")
+                        return redirect(url_for('admin_prices'))
+                    
+                    # Sprawdź czy są zmiany
+                    changes_detected = (
+                        price_record.thickness_min != thickness_min_val or
+                        price_record.thickness_max != thickness_max_val or
+                        price_record.length_min != length_min_val or
+                        price_record.length_max != length_max_val or
+                        price_record.price_per_m3 != price_per_m3_val
+                    )
+                    
+                    if changes_detected:
+                        # Loguj stare vs nowe wartości
+                        prices_logger.info("Wykryto zmiany w rekordzie", 
+                                        record_id=price_record.id,
+                                        species=price_record.species,
+                                        wood_class=price_record.wood_class,
+                                        old_values={
+                                            'thickness_min': float(price_record.thickness_min),
+                                            'thickness_max': float(price_record.thickness_max),
+                                            'length_min': price_record.length_min,
+                                            'length_max': price_record.length_max,
+                                            'price_per_m3': float(price_record.price_per_m3)
+                                        },
+                                        new_values={
+                                            'thickness_min': thickness_min_val,
+                                            'thickness_max': thickness_max_val,
+                                            'length_min': length_min_val,
+                                            'length_max': length_max_val,
+                                            'price_per_m3': price_per_m3_val
+                                        })
+                        
+                        # Aktualizacja rekordu
+                        price_record.thickness_min = thickness_min_val
+                        price_record.thickness_max = thickness_max_val
+                        price_record.length_min = length_min_val
+                        price_record.length_max = length_max_val
+                        price_record.price_per_m3 = price_per_m3_val
+                        updated_records += 1
+                        
+                        prices_logger.info("Rekord został zaktualizowany", 
+                                        record_id=price_record.id,
+                                        species=price_record.species,
+                                        wood_class=price_record.wood_class,
+                                        update_successful=True)
+                    else:
+                        prices_logger.debug("Brak zmian w rekordzie", 
+                                        record_id=price_record.id,
+                                        species=price_record.species,
+                                        wood_class=price_record.wood_class)
+                    
+                except ValueError as e:
+                    errors_count += 1
+                    prices_logger.error("Błąd konwersji wartości liczbowych", 
+                                    record_id=price_record.id,
+                                    species=price_record.species,
+                                    wood_class=price_record.wood_class,
+                                    error_message=str(e),
+                                    error_type='ValueError',
+                                    form_data={
+                                        'thickness_min_raw': new_thickness_min,
+                                        'thickness_max_raw': new_thickness_max,
+                                        'length_min_raw': new_length_min,
+                                        'length_max_raw': new_length_max,
+                                        'price_per_m3_raw': new_price_per_m3
+                                    })
                     flash(f"Błąd konwersji wartości liczbowych przy rekordzie ID {price_record.id}.", "error")
+                    return redirect(url_for('admin_prices'))
+                
+                except Exception as e:
+                    errors_count += 1
+                    prices_logger.error("Nieoczekiwany błąd podczas przetwarzania rekordu", 
+                                    record_id=price_record.id,
+                                    species=price_record.species,
+                                    wood_class=price_record.wood_class,
+                                    error_message=str(e),
+                                    error_type=type(e).__name__)
+                    flash(f"Nieoczekiwany błąd przy rekordzie ID {price_record.id}.", "error")
                     return redirect(url_for('admin_prices'))
             
             # Po zaktualizowaniu wszystkich rekordów
-            db.session.commit()
-            logging.info("Pomyślnie zaktualizowano cennik. Dane zapisane do bazy.")
-            flash("Pomyślnie zaktualizowano cennik.", "success")
+            try:
+                db.session.commit()
+                prices_logger.info("Pomyślnie zakończono aktualizację cennika", 
+                                operation='database_commit',
+                                total_records_processed=len(all_prices),
+                                records_updated=updated_records,
+                                records_unchanged=len(all_prices) - updated_records,
+                                errors_count=errors_count,
+                                commit_successful=True)
+                
+                if updated_records > 0:
+                    flash(f"Pomyślnie zaktualizowano cennik. Zmieniono {updated_records} rekordów.", "success")
+                else:
+                    flash("Cennik sprawdzony - brak zmian do zapisania.", "info")
+                    
+            except Exception as e:
+                db.session.rollback()
+                prices_logger.error("Błąd podczas zapisywania do bazy danych", 
+                                error_message=str(e),
+                                error_type=type(e).__name__,
+                                operation='database_commit',
+                                records_to_update=updated_records)
+                flash("Błąd podczas zapisywania zmian do bazy danych.", "error")
+            
             return redirect(url_for('admin_prices'))
         
         # 2B. Obsługa GET – wyświetlenie
-        logging.info("Obsługa żądania GET – wyświetlam stronę z cennikiem.")
+        prices_logger.info("Wyświetlanie strony administracji cennika", operation='GET_display')
         all_prices = Price.query.order_by(Price.species, Price.wood_class).all()
-        logging.debug("Dla widoku GET pobrano %d rekordów", len(all_prices))
+        prices_logger.debug("Pobrano dane cennika do wyświetlenia", 
+                        total_records=len(all_prices),
+                        species_count=len(set(p.species for p in all_prices)),
+                        wood_classes=list(set(p.wood_class for p in all_prices)))
+        
+        prices_logger.info("Renderowanie szablonu admin_settings.html", 
+                        template='admin_settings.html',
+                        data_records=len(all_prices))
+        
         return render_template("settings_page/admin_settings.html", prices=all_prices)
 
     @app.route("/invite_user", methods=["POST"])
@@ -743,44 +883,67 @@ def create_app():
     @app.errorhandler(ResourceClosedError)
     def handle_resource_closed_error(e):
         db.session.rollback()
+        
+        error_logger = get_logger('app.errors')
+        error_logger.error("ResourceClosedError occurred", 
+                        error=str(e), 
+                        error_type='ResourceClosedError')
+        
         current_app.logger.error("ResourceClosedError – rollback wykonany")
         return render_template("error.html", message="Błąd połączenia z bazą. Spróbuj ponownie."), 500
 
     @app.errorhandler(OperationalError)
     def handle_operational_error(e):
         db.session.rollback()
+        
+        # DODAJ TO:
+        error_logger = get_logger('app.errors')
+        error_logger.error("OperationalError occurred", 
+                        error=str(e), 
+                        error_type='OperationalError')
+        
+        # ZOSTAW STARE:
         current_app.logger.error("OperationalError – rollback wykonany")
         return render_template("error.html", message="Problem z bazą danych. Spróbuj za chwilę."), 500
 
     @app.teardown_appcontext
     def shutdown_session(exception=None):
         if exception:
+            # DODAJ TO:
+            error_logger = get_logger('app.teardown')
+            error_logger.error("Teardown exception occurred", 
+                            error=str(exception), 
+                            error_type=type(exception).__name__)
+            
+            # ZOSTAW STARE:
             current_app.logger.error(f"Teardown exception: {exception}")
             db.session.rollback()
         db.session.remove()
 
-    # Konfiguracja loggera – warto przed returnem, by działał globalnie
-    if not app.logger.handlers:
-        file_handler = logging.FileHandler("stderr.log", encoding="utf-8")
-        file_handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-        file_handler.setFormatter(formatter)
-        app.logger.addHandler(file_handler)
+    # Konfiguracja nowego systemu logowania
+    AppLogger.setup()
+    app_logger = get_logger('main')
+    app_logger.info("Aplikacja Flask została uruchomiona")
 
-    # LOGI DEBUG na końcu create_app()
-    print("=== FLASK APP DEBUG ===", file=sys.stderr)
-    print(f"Flask app created: {app}", file=sys.stderr)
-    
+    # Logi debug aplikacji
+    app_logger.info(f"Flask app created: {str(app)}")
+
     # Sprawdź zarejestrowane blueprinty
-    print("=== REGISTERED BLUEPRINTS ===", file=sys.stderr)
-    for name, blueprint in app.blueprints.items():
-        print(f"Blueprint: {name} -> {blueprint}", file=sys.stderr)
-    
+    blueprints = list(app.blueprints.keys())
+    app_logger.debug(f"Registered blueprints: {blueprints}")
+
     # Sprawdź routy związane z wycenami
-    print("=== WYCENA ROUTES ===", file=sys.stderr)
+    wycena_routes = []
     for rule in app.url_map.iter_rules():
         if 'wycena' in str(rule.rule) or 'quotes' in str(rule.endpoint):
-            print(f"Route: {rule.rule} -> {rule.endpoint} [{', '.join(rule.methods)}]", file=sys.stderr)
+            wycena_routes.append({
+                'rule': str(rule.rule),
+                'endpoint': rule.endpoint,
+                'methods': list(rule.methods)
+            })
+
+    if wycena_routes:
+        app_logger.debug(f"Wycena routes registered: {len(wycena_routes)} routes")
 
     return app
 
