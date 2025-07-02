@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wood Power - Podgląd 3D</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            overflow: hidden;
+        }
+
+        .viewer-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .viewer-header {
+            background: rgba(237, 107, 36, 0.95);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+
+        .product-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .product-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .product-dimensions {
+            font-size: 14px;
+            opacity: 0.9;
+            background: rgba(255,255,255,0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .viewer-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+            .btn-secondary:hover {
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-1px);
+            }
+
+        .btn-close {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+            .btn-close:hover {
+                background: rgba(255,0,0,0.3);
+            }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background: #f8f9fa;
+        }
+
+        #wood-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 10;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #ED6B24;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .help-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            max-width: 250px;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+
+            .help-overlay:hover {
+                opacity: 1;
+            }
+
+        .help-item {
+            margin-bottom: 5px;
+        }
+
+        .error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #f5c6cb;
+            text-align: center;
+            max-width: 400px;
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .viewer-header {
+                padding: 10px 15px;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .product-info {
+                flex-direction: column;
+                gap: 5px;
+                text-align: center;
+            }
+
+            .help-overlay {
+                bottom: 10px;
+                left: 10px;
+                right: 10px;
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="viewer-container">
+        <!-- Header z informacjami o produkcie -->
+        <header class="viewer-header">
+            <div class="product-info">
+                <div class="product-title" id="product-title">
+                    Ładowanie produktu...
+                </div>
+                <div class="product-dimensions" id="product-dimensions">
+                    --- × --- × --- cm
+                </div>
+            </div>
+
+            <div class="viewer-controls">
+                <button class="btn btn-secondary" id="btn-ar" title="Włącz AR" style="display: none;">
+                    📱 AR
+                </button>
+                <button class="btn btn-secondary" id="btn-reset" title="Resetuj widok">
+                    🔄 Reset
+                </button>
+                <button class="btn btn-close" onclick="window.close()" title="Zamknij">
+                    ✕ Zamknij
+                </button>
+            </div>
+        </header>
+
+        <!-- Główny obszar canvas -->
+        <div class="canvas-container">
+            <canvas id="wood-canvas"></canvas>
+
+            <!-- Loading screen -->
+            <div class="loading" id="loading">
+                <div class="loading-spinner"></div>
+                <div>Ładowanie modelu 3D...</div>
+            </div>
+
+            <!-- Error message -->
+            <div class="error-message" id="error-message">
+                <h3>Błąd ładowania</h3>
+                <p id="error-text"></p>
+            </div>
+        </div>
+
+        <!-- Pomoc dla użytkownika -->
+        <div class="help-overlay">
+            <div class="help-item"><strong>🖱️ Mysz:</strong> Obracaj widok</div>
+            <div class="help-item"><strong>🔍 Scroll:</strong> Przybliż/oddal</div>
+            <div class="help-item"><strong>📱 Środkowy przycisk:</strong> Przesuń</div>
+            <div class="help-item"><strong>🔄 Reset:</strong> Przywróć domyślny widok</div>
+        </div>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Wood Viewer -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/wood-viewer.js') }}"></script>
+
+    <!-- Główny skrypt strony -->
+    <script>
+        // Pobierz dane produktu z URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const productDataParam = urlParams.get('data');
+
+        if (productDataParam) {
+            try {
+                const productData = JSON.parse(decodeURIComponent(productDataParam));
+                console.log('Product data:', productData);
+
+                // Inicjalizuj viewer
+                initializeWoodViewer(productData);
+            } catch (error) {
+                console.error('Error parsing product data:', error);
+                showError('Błąd parsowania danych produktu');
+            }
+        } else {
+            showError('Brak danych produktu');
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('error-text').textContent = message;
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function updateProductInfo(productData) {
+            const title = document.getElementById('product-title');
+            const dimensions = document.getElementById('product-dimensions');
+
+            // Sformatuj nazwę produktu
+            const variant = productData.variant || productData.variant_code || 'Unknown';
+            title.textContent = `Produkt: ${variant.toUpperCase()}`;
+
+            // Sformatuj wymiary
+            const dims = productData.dimensions || productData;
+            const length = dims.length || dims.length_cm || 0;
+            const width = dims.width || dims.width_cm || 0;
+            const thickness = dims.thickness || dims.thickness_cm || 0;
+            const quantity = productData.quantity || 1;
+
+            dimensions.textContent = `${length} × ${width} × ${thickness} cm${quantity > 1 ? ` (${quantity} szt.)` : ''}`;
+        }
+
+        async function initializeWoodViewer(productData) {
+            try {
+                updateProductInfo(productData);
+
+                // Utwórz instancję WoodViewer
+                const canvas = document.getElementById('wood-canvas');
+                const viewer = new WoodViewer(canvas);
+
+                // Inicjalizuj scenę Three.js
+                console.log('Inicjalizacja sceny Three.js...');
+                await viewer.init();
+
+                // Załaduj produkt
+                console.log('Ładowanie produktu...');
+                await viewer.loadProduct(productData);
+
+                // Ukryj loading
+                hideLoading();
+
+                // Setup przycisków
+                setupViewerControls(viewer);
+
+                // Zapisz referencję globalnie dla debugowania
+                window.currentViewer = viewer;
+
+                console.log('Wood viewer zainicjalizowany pomyślnie');
+
+            } catch (error) {
+                console.error('Błąd inicjalizacji wood viewer:', error);
+                showError(`Błąd ładowania modelu 3D: ${error.message}`);
+            }
+        }
+
+        function setupViewerControls(viewer) {
+            // Reset button
+            document.getElementById('btn-reset').onclick = () => {
+                viewer.resetCamera();
+            };
+
+            // AR button (TODO: implementacja AR)
+            const arBtn = document.getElementById('btn-ar');
+            if (isARSupported()) {
+                arBtn.style.display = 'block';
+                arBtn.onclick = () => {
+                    console.log('AR launch - TODO: implementacja');
+                    alert('Funkcja AR będzie dostępna wkrótce!');
+                };
+            }
+        }
+
+        function isARSupported() {
+            // Sprawdź czy urządzenie obsługuje AR
+            return /iPad|iPhone|iPod|Android/.test(navigator.userAgent);
+        }
+
+        // Reset button handler
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            if (window.currentViewer) {
+                window.currentViewer.resetCamera();
+            }
+        });
+
+        // AR button handler
+        document.getElementById('btn-ar').addEventListener('click', () => {
+            console.log('Launch AR - TODO');
+        });
+    </script>
+</body>
+</html>
