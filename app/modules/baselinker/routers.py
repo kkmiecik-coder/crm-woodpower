@@ -8,10 +8,10 @@ from modules.clients.models import Client
 from extensions import db
 import sys
 from functools import wraps
-from modules.logging import get_logger
+from modules.logging import get_structured_logger
 
 # Inicjalizacja loggera dla całego modułu
-baselinker_logger = get_logger('baselinker.routers')
+baselinker_logger = get_structured_logger('baselinker.routers')
 
 def login_required(func):
     @wraps(func)
@@ -35,8 +35,9 @@ def create_order(quote_id):
                           endpoint='create_order')
     
     try:
-        # Pobierz wycenę
+        # Pobierz wycenę z eager loading
         quote = Quote.query.get_or_404(quote_id)
+        
         baselinker_logger.debug("Pobrano wycenę do przetworzenia",
                                quote_id=quote_id,
                                quote_number=quote.quote_number,
@@ -415,7 +416,6 @@ def get_order_statuses():
                                error=str(e),
                                error_type=type(e).__name__)
         return jsonify({'error': 'Błąd pobierania statusów'}), 500
-
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
 @login_required
 def get_order_modal_data(quote_id):
@@ -425,16 +425,23 @@ def get_order_modal_data(quote_id):
                           endpoint='get_order_modal_data')
     
     try:
-        # Pobierz wycenę z relacjami
+        # ZMIENIONE: Usuń eager loading - wróć do prostego zapytania
         quote = Quote.query.get_or_404(quote_id)
+        
+        # ZMIENIONE: Bezpieczne sprawdzenie długości bez eager loading
+        try:
+            items_list = list(quote.items)  # Konwertuj na listę
+            items_count = len(items_list)
+        except:
+            items_count = 0  # Fallback
         
         baselinker_logger.debug("Pobrano wycenę dla modalu",
                                quote_id=quote_id,
                                quote_number=quote.quote_number,
                                client_id=quote.client_id,
-                               items_count=len(quote.items))
+                               items_count=items_count)
         
-        # Pobierz wybrane produkty
+        # Pobierz wybrane produkty - użyj już przekonwertowanej listy
         selected_items = [item for item in quote.items if item.is_selected]
         if not selected_items:
             baselinker_logger.warning("Wycena nie ma wybranych produktów",
@@ -487,6 +494,11 @@ def get_order_modal_data(quote_id):
                     finishing_parts.append(finishing_details.finishing_color)
                 product_name += f" ({' - '.join(finishing_parts)})"
             
+            # 1) Pobierz objętość (m³) – jeśli nie ma, przyjmujemy 0
+            volume_m3 = getattr(item, 'volume_m3', 0) or 0
+            # 2) Oblicz wagę [kg] (przy gęstości 800 kg/m³)
+            weight_kg = round(float(volume_m3) * 800, 2)
+
             product_data = {
                 'name': product_name,
                 'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
@@ -494,7 +506,8 @@ def get_order_modal_data(quote_id):
                 'unit_price_netto': round(unit_price_netto, 2),
                 'unit_price_brutto': round(unit_price_brutto, 2),
                 'total_price_netto': round(total_price_netto, 2),
-                'total_price_brutto': round(total_price_brutto, 2)
+                'total_price_brutto': round(total_price_brutto, 2),
+                'weight': weight_kg,
             }
             
             products.append(product_data)
@@ -503,40 +516,162 @@ def get_order_modal_data(quote_id):
         client_data = {}
         if quote.client:
             client_data = {
-                'name': quote.client.client_name,
-                'delivery_name': quote.client.client_delivery_name or quote.client.client_name,
-                'email': quote.client.email,
-                'phone': quote.client.phone,
-                'delivery_address': f"{quote.client.delivery_address or ''} {quote.client.delivery_zip or ''} {quote.client.delivery_city or ''}".strip(),
-                'invoice_company': quote.client.invoice_company,
-                'invoice_nip': quote.client.invoice_nip
+                'name':            quote.client.client_name,
+                'delivery_name':   quote.client.client_delivery_name or quote.client.client_name,
+                'email':           quote.client.email,
+                'phone':           quote.client.phone,
+                'delivery_address':quote.client.delivery_address or '',
+                'delivery_postcode':quote.client.delivery_zip or '',
+                'delivery_city':   quote.client.delivery_city or '',
+                'delivery_region': quote.client.delivery_region or '',
+                'delivery_company':quote.client.delivery_company or '',
+                'invoice_name':    quote.client.invoice_name or quote.client.client_name or '',
+                'invoice_company': quote.client.invoice_company or '',
+                'invoice_nip':     quote.client.invoice_nip or '',
+                'invoice_address': quote.client.invoice_address or '',
+                'invoice_postcode':quote.client.invoice_zip or '',
+                'invoice_city':    quote.client.invoice_city or '',
+                'invoice_region':  quote.client.invoice_region or '',  # ← tu musi być
+                'want_invoice':    bool(quote.client.invoice_nip)
+            }
+        
+        # NOWE: Pobierz konfigurację Baselinker
+        baselinker_logger.debug("Pobieranie konfiguracji Baselinker")
+        
+        try:
+            # Pobierz źródła zamówień
+            order_sources = BaselinkerConfig.query.filter_by(
+                config_type='order_source',
+                is_active=True
+            ).order_by(BaselinkerConfig.name).all()
+            
+            sources_data = [
+                {
+                    'id': source.baselinker_id,
+                    'name': source.name
+                }
+                for source in order_sources
+            ]
+            
+            # Pobierz statusy zamówień
+            order_statuses = BaselinkerConfig.query.filter_by(
+                config_type='order_status',
+                is_active=True
+            ).order_by(BaselinkerConfig.name).all()
+            
+            statuses_data = [
+                {
+                    'id': status.baselinker_id,
+                    'name': status.name
+                }
+                for status in order_statuses
+            ]
+            
+            baselinker_logger.debug("Pobrano konfigurację Baselinker",
+                                   sources_count=len(sources_data),
+                                   statuses_count=len(statuses_data))
+            
+            # Przygotuj konfigurację
+            config_data = {
+                'order_sources': sources_data,
+                'order_statuses': statuses_data,
+                'payment_methods': [
+                    'Przelew bankowy',
+                    'Płatność przy odbiorze',
+                    'Karta płatnicza'
+                ],
+                'delivery_countries': [
+                    {'code': 'PL', 'name': 'Polska'},
+                    {'code': 'DE', 'name': 'Niemcy'},
+                    {'code': 'CZ', 'name': 'Czechy'}
+                ],
+                # DODANE: metody dostawy dla JavaScript
+                'delivery_methods': [
+                    'Kurier DPD',
+                    'Kurier InPost',
+                    'Kurier UPS',
+                    'Kurier DHL',
+                    'Paczkomaty InPost',
+                    'Odbiór osobisty',
+                    'Transport własny'
+                ]
+            }
+            
+        except Exception as config_error:
+            baselinker_logger.error("Błąd podczas pobierania konfiguracji Baselinker",
+                                   error=str(config_error))
+            # Fallback - pusta konfiguracja
+            config_data = {
+                'order_sources': sources_data,
+                'order_statuses': statuses_data,
+                'payment_methods': [
+                    'Przelew bankowy',
+                    'Płatność przy odbiorze',
+                    'Karta płatnicza'
+                ],
+                'delivery_countries': [
+                    {'code': 'PL', 'name': 'Polska'},
+                    {'code': 'DE', 'name': 'Niemcy'},
+                    {'code': 'CZ', 'name': 'Czechy'}
+                ],
+                # DODANE: metody dostawy dla JavaScript
+                'delivery_methods': [
+                    'Kurier DPD',
+                    'Kurier InPost',
+                    'Kurier UPS',
+                    'Kurier DHL',
+                    'Paczkomaty InPost',
+                    'Odbiór osobisty',
+                    'Transport własny'
+                ]
             }
         
         # Oblicz koszty
         shipping_cost = float(quote.shipping_cost_brutto or 0)
         total_value = total_products_value + shipping_cost
         
+        # Oblicz netto
+        total_products_netto = sum(
+            (float(item.price_netto or 0) + float(getattr(finishing_details, 'finishing_price_netto', 0))) *
+            (finishing_details.quantity if finishing_details and finishing_details.quantity else 1)
+            for item in selected_items
+            for finishing_details in [QuoteItemDetails.query.filter_by(
+                quote_id=quote.id, product_index=item.product_index).first()]
+        )
+        shipping_netto = float(getattr(quote, 'shipping_cost_netto', 0))
+        total_netto    = total_products_netto + shipping_netto
+
         response_data = {
             'quote': {
                 'id': quote.id,
+                'client_id':  quote.client_id,
                 'quote_number': quote.quote_number,
                 'created_at': quote.created_at.isoformat(),
-                'courier_name': quote.courier_name
+                'courier_name': quote.courier_name,
+                'source': getattr(quote, 'source', ''),
+                'status_name': quote.quote_status.name if quote.quote_status else 'Nieznany',  # DODANE
+                'status_id': quote.status_id  # DODANE dla JS
             },
             'client': client_data,
             'products': products,
             'costs': {
                 'products_brutto': round(total_products_value, 2),
                 'shipping_brutto': round(shipping_cost, 2),
-                'total_brutto': round(total_value, 2)
-            }
+                'total_brutto': round(total_value, 2),
+                'products_netto': round(total_products_netto, 2),
+                'shipping_netto': round(shipping_netto, 2),
+                'total_netto': round(total_netto, 2)
+            },
+            'config': config_data  # NOWE: Dodana konfiguracja
         }
         
         baselinker_logger.info("Przygotowano dane dla modalu zamówienia",
                               quote_id=quote_id,
                               products_count=len(products),
                               total_value=total_value,
-                              has_client=bool(quote.client))
+                              has_client=bool(quote.client),
+                              sources_count=len(config_data['order_sources']),
+                              statuses_count=len(config_data['order_statuses']))
         
         return jsonify(response_data)
         
@@ -545,4 +680,7 @@ def get_order_modal_data(quote_id):
                                quote_id=quote_id,
                                error=str(e),
                                error_type=type(e).__name__)
+        import traceback
+        baselinker_logger.debug("Stack trace błędu",
+                               traceback=traceback.format_exc())
         return jsonify({'error': 'Błąd pobierania danych'}), 500

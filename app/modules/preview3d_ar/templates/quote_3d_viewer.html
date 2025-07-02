@@ -1,0 +1,163 @@
+<!-- app/modules/preview3d_ar/templates/quote_3d_viewer.html -->
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ quote.quote_number }} - Podgląd 3D/AR</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('preview3d_ar.static', filename='css/modal_style.css') }}">
+</head>
+<body>
+    <div class="viewer-container">
+        <!-- SIDEBAR - Lista produktów -->
+        <div class="product-sidebar">
+            <div class="sidebar-header">
+                <h1 class="sidebar-title">Produkty</h1>
+                <div class="quote-info">
+                    Wycena: <strong>{{ quote.quote_number }}</strong>
+                    {% if quote.client %}<br>Klient: {{ quote.client.client_name }}{% endif %}
+                </div>
+            </div>
+
+            <div class="products-list" id="products-list">
+                {% if error_message %}
+                <div class="error-message" style="display: block; position: relative; transform: none; top: auto; left: auto;">
+                    <h3>Błąd</h3>
+                    <p>{{ error_message }}</p>
+                </div>
+                {% else %}
+                {% for product in products %}
+                <div class="product-group">
+                    <div class="product-header">
+                        <div class="product-title">Produkt {{ product.product_index }}</div>
+                        <div class="product-dimensions">
+                            {{ "%.0f"|format(product.dimensions.length) }}×{{ "%.0f"|format(product.dimensions.width) }}×{{ "%.1f"|format(product.dimensions.thickness) }} cm
+                        </div>
+                    </div>
+
+                    <div class="variants-list">
+                        {% for variant in product.variants %}
+                        <div class="variant-item {% if variant.is_selected %}selected{% endif %} {% if not variant.has_textures %}disabled{% endif %}"
+                             data-product-index="{{ product.product_index }}"
+                             data-variant-code="{{ variant.variant_code }}"
+                             data-length="{{ product.dimensions.length }}"
+                             data-width="{{ product.dimensions.width }}"
+                             data-thickness="{{ product.dimensions.thickness }}"
+                             data-quantity="{{ variant.quantity }}"
+                             data-has-textures="{{ variant.has_textures|lower }}">
+
+                            <div class="variant-info">
+                                <div class="variant-name">{{ variant.variant_code|upper }}</div>
+                                <div class="variant-details">
+                                    Ilość: {{ variant.quantity }} szt. • {{ "%.2f"|format(variant.price_brutto) }} PLN
+                                </div>
+                            </div>
+
+                            <div class="variant-status">
+                                {% if variant.is_selected %}
+                                <span class="status-badge selected">Wybrany</span>
+                                {% endif %}
+                                {% if not variant.has_textures %}
+                                <span class="status-badge unavailable">Brak tekstur</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- MAIN VIEWER -->
+        <div class="viewer-main">
+            <!-- Header z informacjami o aktualnym produkcie -->
+            <header class="viewer-header">
+                <div class="product-info">
+                    <div class="product-main-title" id="current-product-title">
+                        {% if default_product %}
+                        {{ default_product.variant_code|upper }}
+                        {% else %}
+                        Wybierz produkt
+                        {% endif %}
+                    </div>
+                    <div class="product-main-dimensions" id="current-product-dimensions">
+                        {% if default_product %}
+                        {{ "%.0f"|format(default_product.dimensions.length) }}×{{ "%.0f"|format(default_product.dimensions.width) }}×{{ "%.1f"|format(default_product.dimensions.thickness) }} cm
+                        {% else %}
+                        --- × --- × --- cm
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="viewer-controls">
+                    <button class="btn btn-success" id="btn-ar" title="Włącz AR" style="display: none;">
+                        📱 AR
+                    </button>
+                    <button class="btn btn-secondary" id="btn-reset" title="Resetuj widok">
+                        🔄 Reset
+                    </button>
+                    <button class="btn btn-close" onclick="window.close()" title="Zamknij">
+                        ✕ Zamknij
+                    </button>
+                </div>
+            </header>
+
+            <!-- Główny obszar canvas -->
+            <div class="canvas-container">
+                <canvas id="wood-canvas"></canvas>
+
+                <!-- Loading screen -->
+                <div class="loading" id="loading">
+                    <div class="loading-spinner"></div>
+                    <div>Ładowanie modelu 3D...</div>
+                </div>
+
+                <!-- Error message -->
+                <div class="error-message" id="error-message">
+                    <h3>Błąd ładowania</h3>
+                    <p id="error-text"></p>
+                </div>
+
+                <!-- AR Notice -->
+                <div class="ar-notice" id="ar-notice">
+                    <p><strong>Funkcja AR:</strong> Dostępna na urządzeniach iOS (iPhone/iPad) z iOS 12+ oraz Android z obsługą ARCore.</p>
+                </div>
+            </div>
+
+            <!-- Pomoc dla użytkownika -->
+            <div class="help-overlay">
+                <div class="help-item"><strong>🖱️ Mysz:</strong> Obracaj widok</div>
+                <div class="help-item"><strong>🔍 Scroll:</strong> Przybliż/oddal</div>
+                <div class="help-item"><strong>📱 Środkowy przycisk:</strong> Przesuń</div>
+                <div class="help-item"><strong>🔄 Reset:</strong> Przywróć domyślny widok</div>
+                <div class="help-item"><strong>📱 AR:</strong> Wyświetl w rzeczywistości rozszerzonej</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Konfiguracja globalna -->
+    <script>
+        // Konfiguracja przekazana z backendu
+        window.Quote3DConfig = {
+            quoteId: {{ quote.id }},
+            quoteName: "{{ quote.quote_number }}",
+            defaultProduct: {% if default_product %}{{ default_product|tojson|safe }}{% else %}null{% endif %},
+            apiEndpoint: "{{ url_for('preview3d_ar.generate_product_3d') }}"
+        };
+    </script>
+
+    <!-- Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.140.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Wood Viewer -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/wood-viewer.js') }}"></script>
+
+    <!-- Quote 3D Handler -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/quote-3d.js') }}"></script>
+</body>
+</html>
