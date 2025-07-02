@@ -10,6 +10,7 @@ class WoodViewer {
         this.renderer = null;
         this.controls = null;
         this.currentMesh = null;
+        this.shadowPlane = null;
         this.isInitialized = false;
 
         // KONFIGURACJA KOLORÓW
@@ -66,6 +67,9 @@ class WoodViewer {
             console.log('[WoodViewer] Creating lights...');
             this._createLights();
 
+            console.log('[WoodViewer] Creating shadow plane...');
+            this._createShadowPlane();
+
             // Event listenery
             window.addEventListener('resize', () => this._onResize());
             this._onResize();
@@ -97,139 +101,186 @@ class WoodViewer {
         const h = this.canvas.clientHeight || 600;
         console.log('[WoodViewer] Camera dimensions:', w, 'x', h);
 
-        this.camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-        this.camera.position.set(0, 0, 5);
+        this.camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 1000);
+        this.camera.position.set(8, 8, 8);
         console.log('[WoodViewer] Camera created:', this.camera);
     }
 
     _createRenderer() {
         console.log('[WoodViewer] Creating renderer...');
+        
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
             antialias: true,
-            alpha: true
+            alpha: false,
+            powerPreference: "high-performance"
         });
-
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        this.renderer.toneMapping = THREE.ReinhardToneMapping;
-        this.renderer.toneMappingExposure = this.colorConfig.exposure;
-        this.renderer.outputEncoding = THREE.sRGBEncoding;
 
         const w = this.canvas.clientWidth || 800;
         const h = this.canvas.clientHeight || 600;
+
         this.renderer.setSize(w, h);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        // WŁĄCZ CIENIE
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Miękkie cienie
+        
+        // Lepsze renderowanie kolorów
+        this.renderer.outputEncoding = THREE.sRGBEncoding;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = this.colorConfig.exposure;
+        
+        // Lepsze zarządzanie pamięcią
+        this.renderer.info.autoReset = false;
 
         console.log('[WoodViewer] Renderer created:', this.renderer);
     }
 
     _createControls() {
         console.log('[WoodViewer] Creating controls...');
-
+        
         if (typeof THREE.OrbitControls === 'undefined') {
             throw new Error('OrbitControls is not loaded');
         }
 
-        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+        this.controls = new THREE.OrbitControls(this.camera, this.canvas);
         this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.1;
+        this.controls.dampingFactor = 0.05;
+        this.controls.target.set(0, 0, 0);
+        this.controls.minDistance = 2;
+        this.controls.maxDistance = 50;
+        this.controls.maxPolarAngle = Math.PI * 0.8;
 
         console.log('[WoodViewer] Controls created:', this.controls);
-    }
-
-    // Konwersja temperatury Kelvin na RGB
-    _kelvinToRGB(kelvin) {
-        const temp = kelvin / 100;
-        let red, green, blue;
-
-        if (temp <= 66) {
-            red = 255;
-            green = temp <= 19 ? 0 : 99.4708025861 * Math.log(temp - 10) - 161.1195681661;
-            blue = temp >= 66 ? 255 : temp <= 19 ? 0 : 138.5177312231 * Math.log(temp - 10) - 305.0447927307;
-        } else {
-            red = 329.698727446 * Math.pow(temp - 60, -0.1332047592);
-            green = 288.1221695283 * Math.pow(temp - 60, -0.0755148492);
-            blue = 255;
-        }
-
-        return {
-            r: Math.max(0, Math.min(255, red)) / 255,
-            g: Math.max(0, Math.min(255, green)) / 255,
-            b: Math.max(0, Math.min(255, blue)) / 255
-        };
-    }
-
-    // Aplikuj tint do koloru RGB
-    _applyTint(rgb, tint) {
-        const tintFactor = tint / 100; // Normalizuj do -1/+1
-
-        if (tintFactor > 0) {
-            // Pozytywny tint = więcej magenty/czerwieni
-            rgb.r = Math.min(1, rgb.r + tintFactor * 0.2);
-            rgb.g = Math.max(0, rgb.g - tintFactor * 0.1);
-        } else {
-            // Negatywny tint = więcej zieleni
-            rgb.g = Math.min(1, rgb.g - tintFactor * 0.2);
-            rgb.r = Math.max(0, rgb.r + tintFactor * 0.1);
-        }
-
-        return rgb;
-    }
-
-    // Konwertuj RGB na hex dla THREE.js
-    _rgbToHex(rgb) {
-        const r = Math.round(rgb.r * 255);
-        const g = Math.round(rgb.g * 255);
-        const b = Math.round(rgb.b * 255);
-        return (r << 16) | (g << 8) | b;
-    }
-
-    // Oblicz kolor na podstawie temperatury i tintu
-    _calculateLightColor(intensityMultiplier = 1.0) {
-        let rgb = this._kelvinToRGB(this.colorConfig.temperature);
-        rgb = this._applyTint(rgb, this.colorConfig.tint);
-
-        // Dostosuj intensywność
-        rgb.r = Math.min(1, rgb.r * intensityMultiplier);
-        rgb.g = Math.min(1, rgb.g * intensityMultiplier);
-        rgb.b = Math.min(1, rgb.b * intensityMultiplier);
-
-        return this._rgbToHex(rgb);
     }
 
     _createLights() {
         console.log('[WoodViewer] Creating lights...');
 
-        if (!this.scene) {
-            throw new Error('Scene must be created before lights');
+        // Usuń istniejące światła
+        const existingLights = [];
+        this.scene.traverse(child => {
+            if (child.isLight) existingLights.push(child);
+        });
+        existingLights.forEach(light => this.scene.remove(light));
+
+        // Oblicz kolory światła na podstawie temperatury
+        const temp = this.colorConfig.temperature;
+        const tint = this.colorConfig.tint;
+
+        function tempToRGB(kelvin) {
+            const temp = kelvin / 100;
+            let r, g, b;
+
+            if (temp <= 66) {
+                r = 255;
+                g = temp;
+                g = 99.4708025861 * Math.log(g) - 161.1195681661;
+                if (temp >= 19) {
+                    b = temp - 10;
+                    b = 138.5177312231 * Math.log(b) - 305.0447927307;
+                } else {
+                    b = 0;
+                }
+            } else {
+                r = temp - 60;
+                r = 329.698727446 * Math.pow(r, -0.1332047592);
+                g = temp - 60;
+                g = 288.1221695283 * Math.pow(g, -0.0755148492);
+                b = 255;
+            }
+
+            return {
+                r: Math.max(0, Math.min(255, r)) / 255,
+                g: Math.max(0, Math.min(255, g)) / 255,
+                b: Math.max(0, Math.min(255, b)) / 255
+            };
         }
 
-        const baseColor = this._calculateLightColor();
-        const dimColor = this._calculateLightColor(0.9);
-        const warmColor = this._calculateLightColor(1.1);
+        const rgb = tempToRGB(temp);
+        const tintFactor = tint / 100;
 
-        // Ambient light
-        const ambientLight = new THREE.AmbientLight(baseColor, 1.8);
+        // Aplikuj tint
+        const baseColor = new THREE.Color(
+            Math.max(0, Math.min(1, rgb.r + tintFactor * 0.1)),
+            Math.max(0, Math.min(1, rgb.g)),
+            Math.max(0, Math.min(1, rgb.b - tintFactor * 0.1))
+        );
+
+        const dimColor = baseColor.clone().multiplyScalar(0.6);
+        const warmColor = baseColor.clone().lerp(new THREE.Color(1, 0.8, 0.6), 0.3);
+
+        // Ambient light - ogólne oświetlenie
+        const ambientLight = new THREE.AmbientLight(baseColor, 0.3);
         this.scene.add(ambientLight);
 
-        // Główne światło z góry
-        const dir1 = new THREE.DirectionalLight(baseColor, 1.0);
-        dir1.position.set(5, 10, 5);
-        dir1.castShadow = true;
-        dir1.shadow.mapSize.width = 2048;
-        dir1.shadow.mapSize.height = 2048;
-        this.scene.add(dir1);
+        // Główne światło kierunkowe z cieniem
+        const mainLight = new THREE.DirectionalLight(baseColor, 0.8);
+        mainLight.position.set(10, 15, 5);
+        mainLight.target.position.set(0, 0, 0);
+        
+        // KONFIGURACJA CIENI
+        mainLight.castShadow = true;
+        mainLight.shadow.mapSize.width = 2048;
+        mainLight.shadow.mapSize.height = 2048;
+        mainLight.shadow.camera.near = 0.5;
+        mainLight.shadow.camera.far = 50;
+        mainLight.shadow.camera.left = -15;
+        mainLight.shadow.camera.right = 15;
+        mainLight.shadow.camera.top = 15;
+        mainLight.shadow.camera.bottom = -15;
+        mainLight.shadow.bias = -0.0001;
+        mainLight.shadow.normalBias = 0.02;
+        
+        this.scene.add(mainLight);
+        this.scene.add(mainLight.target);
 
         // Światło wypełniające
-        const dir2 = new THREE.DirectionalLight(dimColor, 0.7);
-        dir2.position.set(-5, -5, -5);
-        this.scene.add(dir2);
+        const fillLight = new THREE.DirectionalLight(dimColor, 0.4);
+        fillLight.position.set(-8, 8, -8);
+        this.scene.add(fillLight);
 
         // Dodatkowe światło z boku
-        const dir3 = new THREE.DirectionalLight(warmColor, 0.4);
-        dir3.position.set(-10, 2, 8);
-        this.scene.add(dir3);
+        const rimLight = new THREE.DirectionalLight(warmColor, 0.3);
+        rimLight.position.set(-12, 3, 10);
+        this.scene.add(rimLight);
+
+        // Subtelne światło od dołu
+        const bottomLight = new THREE.DirectionalLight(baseColor, 0.1);
+        bottomLight.position.set(0, -5, 0);
+        this.scene.add(bottomLight);
 
         console.log('[WoodViewer] Lights created - scene children count:', this.scene.children.length);
+    }
+
+    _createShadowPlane() {
+        console.log('[WoodViewer] Creating shadow plane...');
+
+        // Usuń istniejącą płaszczyznę
+        if (this.shadowPlane) {
+            this.scene.remove(this.shadowPlane);
+            this.shadowPlane = null;
+        }
+
+        // Utwórz geometrię płaszczyzny
+        const planeGeometry = new THREE.PlaneGeometry(50, 50);
+        
+        // Material który tylko odbiera cienie
+        const planeMaterial = new THREE.ShadowMaterial({
+            opacity: 0.25,
+            transparent: true
+        });
+        
+        this.shadowPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+        this.shadowPlane.rotation.x = -Math.PI / 2; // Obróć żeby była pozioma
+        this.shadowPlane.position.y = -2.5; // Umieść pod produktem
+        this.shadowPlane.receiveShadow = true; // Odbiera cienie
+        this.shadowPlane.name = 'shadowPlane';
+        
+        this.scene.add(this.shadowPlane);
+        
+        console.log('[WoodViewer] Shadow plane created');
     }
 
     _onResize() {
@@ -281,97 +332,40 @@ class WoodViewer {
 
             // Sprawdź strukturę odpowiedzi
             if (!cfg.geometry || !cfg.materials) {
-                throw new Error('Invalid API response structure');
+                throw new Error('Invalid API response: missing geometry or materials');
             }
 
-            // Usuń stary mesh
+            // Usuń poprzedni mesh
             if (this.currentMesh) {
-                console.log('[WoodViewer] Removing old mesh...');
                 this.scene.remove(this.currentMesh);
-                this.currentMesh.traverse(o => {
-                    if (o.isMesh) {
-                        o.geometry.dispose();
-                        if (Array.isArray(o.material)) {
-                            o.material.forEach(m => m.dispose());
-                        } else {
-                            o.material.dispose();
-                        }
-                    }
-                });
                 this.currentMesh = null;
             }
 
-            // Twórz nowy mesh
             console.log('[WoodViewer] Creating new mesh...');
-            const { dimensions } = cfg.geometry;
-            const lamW = 4 / 100;
-            const count = Math.round(dimensions.width / 4);
-            const group = new THREE.Group();
+            this.currentMesh = await this._createMesh(cfg);
+            
+            // WŁĄCZ CIENIE DLA PRODUKTU
+            this.currentMesh.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
 
-            let prevFace = null;
-            let prevSide = null;
+            this.scene.add(this.currentMesh);
 
-            for (let i = 0; i < count; i++) {
-                // unique face
-                let fi;
-                do {
-                    fi = Math.floor(Math.random() * cfg.materials.face.variants.length);
-                } while (fi === prevFace && cfg.materials.face.variants.length > 1);
-                prevFace = fi;
-
-                // unique side
-                let si;
-                do {
-                    si = Math.floor(Math.random() * cfg.materials.side.variants.length);
-                } while (si === prevSide && cfg.materials.side.variants.length > 1);
-                prevSide = si;
-
-                const facePath = cfg.materials.face.variants[fi];
-                const sidePath = cfg.materials.side.variants[si];
-                const edgeList = cfg.materials.edge.variants;
-                const edgePath = edgeList[Math.floor(Math.random() * edgeList.length)];
-
-                // random rotation for side in 0,90,180,270 deg
-                const sideRot = (Math.floor(Math.random() * 4) * Math.PI) / 2;
-
-                // mats: right, left, top, bottom, front, back
-                const mats = [
-                    await this._loadMat(sidePath, sideRot),
-                    await this._loadMat(sidePath, sideRot + Math.PI),
-                    await this._loadMat(facePath, Math.PI / 2),
-                    await this._loadMat(facePath, Math.PI / 2 + Math.PI),
-                    await this._loadMat(edgePath, 0),
-                    await this._loadMat(edgePath, Math.PI)
-                ];
-
-                const geom = new THREE.BoxGeometry(
-                    dimensions.length / 100,
-                    dimensions.thickness / 100,
-                    lamW
-                );
-
-                const mesh = new THREE.Mesh(geom, mats);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                mesh.position.set(0, 0, -(count * lamW) / 2 + lamW / 2 + i * lamW);
-                group.add(mesh);
-            }
-
-            // Dodaj do sceny
-            this.currentMesh = group;
-            this.scene.add(group);
+            // Wyśrodkuj kamerę
+            this.resetCamera();
 
             console.log('[WoodViewer] Mesh added to scene - children count:', this.scene.children.length);
 
-            // Ustaw kamerę
-            const maxd = Math.max(dimensions.length, dimensions.width, dimensions.thickness) / 100;
-            this.camera.position.set(maxd * 2, maxd * 2, maxd * 2);
-            this.controls.minDistance = maxd * 0.5;
-            this.controls.maxDistance = maxd * 5;
-            this.controls.target.set(0, 0, 0);
-            this.controls.update();
+            // Force render
+            if (this.renderer && this.scene && this.camera) {
+                this.renderer.render(this.scene, this.camera);
+            }
 
             console.log('[WoodViewer] Product loaded successfully');
+            return true;
 
         } catch (error) {
             console.error('[WoodViewer] Error loading product:', error);
@@ -379,50 +373,56 @@ class WoodViewer {
         }
     }
 
-    _loadMat(url, rotationAngle) {
-        return new Promise(resolve => {
-            new THREE.TextureLoader().load(url, tex => {
-                tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-                tex.encoding = THREE.sRGBEncoding;
-                tex.center.set(0.5, 0.5);
-                tex.rotation = rotationAngle;
-                tex.magFilter = THREE.LinearFilter;
-                tex.minFilter = THREE.LinearMipmapLinearFilter;
+    _calculateMaterialColor(baseColor) {
+        const color = new THREE.Color(baseColor);
+        const temp = this.colorConfig.temperature;
+        const tint = this.colorConfig.tint;
 
-                // Oblicz kolor materiału na podstawie konfiguracji
-                const materialColor = this._calculateLightColor(0.95);
+        // Zastosuj temperaturę kolorystyczną
+        if (temp < 3200) {
+            // Ciepłe światło
+            color.r = Math.min(1, color.r * 1.1);
+            color.g = Math.min(1, color.g * 1.05);
+            color.b = Math.max(0, color.b * 0.9);
+        } else if (temp > 5500) {
+            // Zimne światło
+            color.r = Math.max(0, color.r * 0.95);
+            color.g = Math.min(1, color.g * 1.02);
+            color.b = Math.min(1, color.b * 1.1);
+        }
 
-                const material = new THREE.MeshPhysicalMaterial({
-                    map: tex,
-                    color: materialColor,   // Automatycznie obliczony kolor
-                    roughness: 0.9,
-                    metalness: 0,
-                    clearcoat: 0,
-                    emissive: 0x0a0604,
-                    emissiveIntensity: 0.15,
-                    transmission: 0,
-                    ior: 1.0,
-                    reflectivity: 0.1
-                });
+        // Zastosuj tint
+        const tintFactor = tint / 1000;
+        color.r = Math.max(0, Math.min(1, color.r + tintFactor));
+        color.b = Math.max(0, Math.min(1, color.b - tintFactor));
 
-                resolve(material);
-            }, undefined, () => resolve(new THREE.MeshPhysicalMaterial({
-                color: 0x999999,
-                roughness: 0.6
-            })));
-        });
+        return color;
     }
 
     resetCamera() {
         if (this.currentMesh && this.camera && this.controls) {
-            const maxd = Math.max(
-                this.currentMesh.children[0]?.geometry?.parameters?.width || 1,
-                this.currentMesh.children[0]?.geometry?.parameters?.height || 1,
-                this.currentMesh.children[0]?.geometry?.parameters?.depth || 1
+            // Oblicz bounding box produktu
+            const box = new THREE.Box3().setFromObject(this.currentMesh);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = this.camera.fov * (Math.PI / 180);
+            let cameraDistance = Math.abs(maxDim / Math.sin(fov / 2)) * 1.5;
+
+            // Minimum distance
+            cameraDistance = Math.max(cameraDistance, maxDim * 2);
+
+            this.camera.position.set(
+                center.x + cameraDistance * 0.7,
+                center.y + cameraDistance * 0.7,
+                center.z + cameraDistance * 0.7
             );
-            this.camera.position.set(maxd * 2, maxd * 2, maxd * 2);
-            this.controls.target.set(0, 0, 0);
+
+            this.controls.target.copy(center);
             this.controls.update();
+
+            console.log('[WoodViewer] Camera reset - position:', this.camera.position, 'target:', this.controls.target);
         }
     }
 
@@ -447,7 +447,7 @@ class WoodViewer {
     _updateLighting() {
         if (!this.scene) return;
 
-        // Usuń stare światła
+        // Usuń stare światła (zachowaj inne obiekty)
         const lightsToRemove = [];
         this.scene.traverse(child => {
             if (child.isLight) lightsToRemove.push(child);
@@ -467,11 +467,14 @@ class WoodViewer {
             hasRenderer: !!this.renderer,
             hasControls: !!this.controls,
             hasCurrentMesh: !!this.currentMesh,
+            hasShadowPlane: !!this.shadowPlane,
+            shadowsEnabled: this.renderer ? this.renderer.shadowMap.enabled : false,
             sceneChildrenCount: this.scene ? this.scene.children.length : 0,
             canvasSize: this.canvas ? {
                 width: this.canvas.clientWidth,
                 height: this.canvas.clientHeight
-            } : null
+            } : null,
+            colorConfig: this.colorConfig
         };
     }
 }

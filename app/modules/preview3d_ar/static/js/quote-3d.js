@@ -1,7 +1,8 @@
 // app/modules/preview3d_ar/static/js/quote-3d.js
 
 /**
- * Quote 3D Viewer - obsługa wycen z wieloma produktami
+ * Quote 3D Viewer - obsługa wycen z wieloma wariantami
+ * Uproszczona wersja skupiona na wyborze wariantów
  */
 
 class Quote3DHandler {
@@ -19,9 +20,9 @@ class Quote3DHandler {
         this.canvasEl = document.getElementById('wood-canvas');
         this.btnReset = document.getElementById('btn-reset');
         this.btnAr = document.getElementById('btn-ar');
-        this.arNoticeEl = document.getElementById('ar-notice');
+        this.arInfoEl = document.getElementById('ar-info');
 
-        console.log('[Quote3D] Inicjalizacja handlera');
+        console.log('[Quote3D] Inicjalizacja handlera - uproszczona wersja');
     }
 
     /**
@@ -32,13 +33,13 @@ class Quote3DHandler {
             console.log('[Quote3D] Inicjalizacja viewer\'a');
 
             this.setupEventListeners();
-            this.detectARSupport();
+            this.setupARButton();
 
             // Załaduj domyślny produkt jeśli dostępny
             if (window.Quote3DConfig && window.Quote3DConfig.defaultProduct) {
                 await this.loadProduct(window.Quote3DConfig.defaultProduct);
             } else {
-                this.showError('Brak dostępnych produktów z teksturami');
+                this.showError('Brak dostępnych wariantów z teksturami');
             }
 
             console.log('[Quote3D] Viewer zainicjalizowany pomyślnie');
@@ -53,16 +54,13 @@ class Quote3DHandler {
      * Konfiguruje event listenery
      */
     setupEventListeners() {
-        // Kliknięcia w warianty
-        document.querySelectorAll('.variant-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                if (item.classList.contains('disabled')) {
-                    return;
-                }
-
-                this.selectVariant(item);
-            });
-        });
+        // Event listenery dla wariantów są już dodane w HTML
+        // Sprawdzamy czy jest pending selection
+        if (window.pendingVariantSelection) {
+            console.log('[Quote3D] Wykonanie pending selection');
+            this.selectVariant(window.pendingVariantSelection);
+            window.pendingVariantSelection = null;
+        }
 
         // Przycisk Reset
         if (this.btnReset) {
@@ -73,54 +71,66 @@ class Quote3DHandler {
             });
         }
 
-        // Przycisk AR
-        if (this.btnAr) {
-            this.btnAr.addEventListener('click', () => {
-                if (this.currentProduct) {
-                    this.initiateAR(this.currentProduct);
-                }
-            });
-        }
-
         console.log('[Quote3D] Event listenery skonfigurowane');
     }
 
     /**
-     * Wybiera wariant i ładuje produkt
+     * Konfiguruje przycisk AR
      */
-    async selectVariant(variantElement) {
-        try {
-            // Usuń poprzednie zaznaczenie
-            document.querySelectorAll('.variant-item').forEach(item => {
-                item.classList.remove('selected');
+    setupARButton() {
+        if (!this.btnAr) return;
+
+        const isARSupported = this.isARSupported();
+        
+        if (isARSupported) {
+            this.btnAr.addEventListener('click', () => {
+                this.handleARClick();
             });
-
-            // Zaznacz nowy wariant
-            variantElement.classList.add('selected');
-
-            // Pobierz dane produktu
-            const productData = {
-                product_index: parseInt(variantElement.dataset.productIndex),
-                variant_code: variantElement.dataset.variantCode,
-                dimensions: {
-                    length: parseFloat(variantElement.dataset.length),
-                    width: parseFloat(variantElement.dataset.width),
-                    thickness: parseFloat(variantElement.dataset.thickness)
-                },
-                quantity: parseInt(variantElement.dataset.quantity)
-            };
-
-            console.log('[Quote3D] Wybrano wariant:', productData);
-            await this.loadProduct(productData);
-
-        } catch (error) {
-            console.error('[Quote3D] Błąd wyboru wariantu:', error);
-            this.showError(`Błąd wyboru wariantu: ${error.message}`);
+        } else {
+            // Ukryj przycisk AR jeśli nie jest obsługiwany
+            this.btnAr.style.display = 'none';
         }
     }
 
     /**
-     * Ładuje produkt do viewer'a 3D
+     * Obsługuje wybór wariantu
+     */
+    async selectVariant(card) {
+        try {
+            // Usuń zaznaczenie z poprzedniego wariantu
+            document.querySelectorAll('.variant-card.selected').forEach(c => {
+                c.classList.remove('selected');
+            });
+
+            // Zaznacz nowy wariant
+            card.classList.add('selected');
+
+            // Pobierz dane produktu z atrybutów
+            const productData = {
+                variant_code: card.dataset.variantCode,
+                product_index: parseInt(card.dataset.productIndex),
+                dimensions: {
+                    length: parseFloat(card.dataset.length),
+                    width: parseFloat(card.dataset.width),
+                    thickness: parseFloat(card.dataset.thickness)
+                },
+                quantity: parseInt(card.dataset.quantity),
+                has_textures: card.dataset.hasTextures === 'true'
+            };
+
+            console.log('[Quote3D] Wybrano wariant:', productData);
+
+            // Załaduj produkt
+            await this.loadProduct(productData);
+
+        } catch (error) {
+            console.error('[Quote3D] Błąd wyboru wariantu:', error);
+            this.showError(`Błąd ładowania wariantu: ${error.message}`);
+        }
+    }
+
+    /**
+     * Ładuje produkt w viewerze
      */
     async loadProduct(productData) {
         if (this.isLoading) return;
@@ -132,42 +142,16 @@ class Quote3DHandler {
 
             console.log('[Quote3D] Ładowanie produktu:', productData);
 
-            // Aktualizuj interfejs
+            // Aktualizuj informacje w headerze
             this.updateProductInfo(productData);
 
-            // Jeśli viewer nie istnieje, stwórz go
+            // Inicjalizuj viewer jeśli jeszcze nie istnieje
             if (!this.viewer) {
                 await this.initializeViewer();
             }
 
-            // Przygotuj dane dla API
-            const apiData = {
-                variant_code: productData.variant_code,
-                length_cm: productData.dimensions.length,
-                width_cm: productData.dimensions.width,
-                thickness_cm: productData.dimensions.thickness,
-                quantity: productData.quantity
-            };
-
-            // Wywołaj API
-            const response = await fetch(window.Quote3DConfig.apiEndpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(apiData)
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `HTTP ${response.status}`);
-            }
-
-            const result = await response.json();
-            console.log('[Quote3D] Odpowiedź API:', result);
-
-            // Załaduj do viewer'a
-            await this.viewer.loadProduct(apiData);
+            // Załaduj produkt w viewerze
+            await this.viewer.loadProduct(productData);
 
             this.currentProduct = productData;
             this.hideLoading();
@@ -176,7 +160,7 @@ class Quote3DHandler {
 
         } catch (error) {
             console.error('[Quote3D] Błąd ładowania produktu:', error);
-            this.showError(`Błąd ładowania produktu: ${error.message}`);
+            this.showError(`Błąd ładowania: ${error.message}`);
         } finally {
             this.isLoading = false;
         }
@@ -187,42 +171,27 @@ class Quote3DHandler {
      */
     async initializeViewer() {
         try {
-            if (!this.canvasEl) {
-                throw new Error('Canvas element not found');
-            }
-
-            if (typeof THREE === 'undefined') {
-                throw new Error('THREE.js library not loaded');
-            }
-
-            if (typeof WoodViewer === 'undefined') {
-                throw new Error('WoodViewer class not loaded');
-            }
-
             console.log('[Quote3D] Tworzenie WoodViewer...');
-            this.viewer = new WoodViewer(this.canvasEl);
+            
+            if (typeof WoodViewer === 'undefined') {
+                throw new Error('WoodViewer nie jest załadowany');
+            }
 
-            console.log('[Quote3D] Inicjalizacja sceny Three.js...');
+            this.viewer = new WoodViewer(this.canvasEl);
             await this.viewer.init();
 
-            // Sprawdź czy wszystko jest zainicjalizowane
-            if (!this.viewer.scene) {
-                throw new Error('Scene nie została zainicjalizowana');
-            }
-            if (!this.viewer.camera) {
-                throw new Error('Camera nie została zainicjalizowana');
-            }
-            if (!this.viewer.renderer) {
-                throw new Error('Renderer nie został zainicjalizowany');
+            // Sprawdź czy wszystko zostało zainicjalizowane
+            if (!this.viewer.scene || !this.viewer.camera || !this.viewer.renderer) {
+                throw new Error('Błąd inicjalizacji sceny 3D');
             }
 
-            console.log('[Quote3D] WoodViewer zainicjalizowany pomyślnie');
+            console.log('[Quote3D] WoodViewer zainicjalizowany');
 
             // Zapisz referencję globalnie dla debugowania
             window.currentViewer = this.viewer;
 
         } catch (error) {
-            console.error('[Quote3D] Błąd inicjalizacji viewer\'a:', error);
+            console.error('[Quote3D] Błąd inicjalizacji viewera:', error);
             throw error;
         }
     }
@@ -231,65 +200,98 @@ class Quote3DHandler {
      * Aktualizuje informacje o produkcie w headerze
      */
     updateProductInfo(productData) {
+        console.log('[Quote3D] Aktualizacja informacji produktu:', productData);
+        
         if (this.currentTitleEl) {
-            this.currentTitleEl.textContent = productData.variant_code.toUpperCase();
+            // Użyj funkcji tłumaczenia jeśli jest dostępna
+            const translatedName = window.translateVariantCode ? 
+                window.translateVariantCode(productData.variant_code) : 
+                productData.variant_code?.toUpperCase() || 'Nieznany wariant';
+            
+            this.currentTitleEl.textContent = translatedName;
+            console.log('[Quote3D] Zaktualizowano tytuł na:', translatedName);
         }
 
         if (this.currentDimensionsEl) {
-            this.currentDimensionsEl.textContent =
-                `${productData.dimensions.length.toFixed(0)}×${productData.dimensions.width.toFixed(0)}×${productData.dimensions.thickness.toFixed(1)} cm`;
-        }
-    }
-
-    /**
-     * Wykrywa obsługę AR
-     */
-    detectARSupport() {
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        const isAndroid = /Android/.test(navigator.userAgent);
-        const hasARCore = 'xr' in navigator;
-
-        console.log('[Quote3D] Wykrywanie AR:', { isIOS, isAndroid, hasARCore });
-
-        if (isIOS || (isAndroid && hasARCore)) {
-            if (this.btnAr) {
-                this.btnAr.style.display = 'flex';
-            }
-            if (this.arNoticeEl) {
-                this.arNoticeEl.classList.add('visible');
+            const dimensions = productData.dimensions;
+            if (dimensions) {
+                const length = Math.round(dimensions.length);
+                const width = Math.round(dimensions.width);
+                const thickness = dimensions.thickness.toFixed(1);
+                const dimensionsText = `${length}×${width}×${thickness} cm`;
+                this.currentDimensionsEl.textContent = dimensionsText;
+                console.log('[Quote3D] Zaktualizowano wymiary na:', dimensionsText);
+            } else {
+                this.currentDimensionsEl.textContent = '--- × --- × --- cm';
             }
         }
     }
 
     /**
-     * Inicjuje AR
+     * Sprawdza czy AR jest obsługiwane
      */
-    initiateAR(productData) {
-        console.log('[Quote3D] Inicjowanie AR dla:', productData);
+    isARSupported() {
+        const userAgent = navigator.userAgent;
+        const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+        const isAndroid = /Android/.test(userAgent);
+        
+        return isIOS || isAndroid;
+    }
 
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    /**
+     * Obsługuje kliknięcie przycisku AR
+     */
+    handleARClick() {
+        if (!this.currentProduct) {
+            alert('Wybierz najpierw wariant do wyświetlenia w AR.');
+            return;
+        }
+
+        // Pokazuje informację o AR (na razie)
+        this.showARInfo();
+
+        const userAgent = navigator.userAgent;
+        const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+        const isAndroid = /Android/.test(userAgent);
 
         if (isIOS) {
-            this.initiateIOSAR(productData);
+            this.showARComingSoon('iOS', 'QuickLook AR będzie dostępny wkrótce!');
+        } else if (isAndroid) {
+            this.showARComingSoon('Android', 'WebXR AR będzie dostępny wkrótce!');
         } else {
-            this.initiateAndroidAR(productData);
+            alert('AR jest dostępny tylko na urządzeniach mobilnych (iOS/Android).');
         }
     }
 
     /**
-     * AR dla iOS (USDZ)
+     * Pokazuje informację o nadchodzącej funkcji AR
      */
-    initiateIOSAR(productData) {
-        // TODO: Implementacja generowania pliku USDZ
-        alert('Funkcja AR dla iOS będzie dostępna wkrótce!\n\nPlatforma: iOS\nProdukt: ' + productData.variant_code);
+    showARComingSoon(platform, message) {
+        const productInfo = this.currentProduct ? 
+            `\n\nWariant: ${this.currentProduct.variant_code}\nWymiary: ${Math.round(this.currentProduct.dimensions.length)}×${Math.round(this.currentProduct.dimensions.width)}×${this.currentProduct.dimensions.thickness.toFixed(1)} cm` : '';
+
+        alert(`${message}${productInfo}\n\nPlatforma: ${platform}\n\nWkrótce będziesz mógł wyświetlić ten wariant w rzeczywistości rozszerzonej!`);
     }
 
     /**
-     * AR dla Android (WebXR)
+     * Pokazuje informację AR w interfejsie
      */
-    initiateAndroidAR(productData) {
-        // TODO: Implementacja WebXR
-        alert('Funkcja AR dla Android będzie dostępna wkrótce!\n\nPlatforma: Android\nProdukt: ' + productData.variant_code);
+    showARInfo() {
+        if (this.arInfoEl) {
+            this.arInfoEl.classList.add('visible');
+            
+            // Ukryj po 5 sekundach
+            setTimeout(() => {
+                this.arInfoEl.classList.remove('visible');
+            }, 5000);
+        }
+    }
+
+    /**
+     * Pokazuje komunikat o niedostępności wariantu
+     */
+    showVariantUnavailableMessage() {
+        alert('Ten wariant nie ma dostępnych tekstur 3D.\n\nWybierz inny wariant z listy.');
     }
 
     /**
@@ -297,7 +299,7 @@ class Quote3DHandler {
      */
     showLoading() {
         if (this.loadingEl) {
-            this.loadingEl.style.display = 'block';
+            this.loadingEl.style.display = 'flex';
         }
     }
 
@@ -314,14 +316,17 @@ class Quote3DHandler {
      * Pokazuje błąd
      */
     showError(message) {
-        this.hideLoading();
+        console.error('[Quote3D] Error:', message);
+        
         if (this.errorTextEl) {
             this.errorTextEl.textContent = message;
         }
+        
         if (this.errorEl) {
-            this.errorEl.style.display = 'block';
+            this.errorEl.classList.add('visible');
         }
-        console.error('[Quote3D]', message);
+
+        this.hideLoading();
     }
 
     /**
@@ -329,58 +334,51 @@ class Quote3DHandler {
      */
     hideError() {
         if (this.errorEl) {
-            this.errorEl.style.display = 'none';
+            this.errorEl.classList.remove('visible');
         }
-    }
-
-    /**
-     * Debug helper
-     */
-    debug() {
-        return {
-            config: window.Quote3DConfig,
-            currentProduct: this.currentProduct,
-            viewer: this.viewer,
-            isLoading: this.isLoading,
-            elements: {
-                canvas: this.canvasEl,
-                loading: this.loadingEl,
-                error: this.errorEl
-            },
-            canvasSize: this.canvasEl ? {
-                width: this.canvasEl.clientWidth,
-                height: this.canvasEl.clientHeight
-            } : null
-        };
     }
 }
 
 // Inicjalizacja po załadowaniu DOM
-document.addEventListener('DOMContentLoaded', async function () {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Quote3D] DOM załadowany, inicjalizacja...');
 
-    // Sprawdź czy wszystkie biblioteki są załadowane
+    // Sprawdź czy Three.js jest załadowany
     if (typeof THREE === 'undefined') {
-        console.error('[Quote3D] THREE.js nie jest załadowane!');
+        console.error('[Quote3D] Three.js nie jest załadowany!');
+        alert('Błąd: Three.js nie jest załadowany. Odśwież stronę.');
         return;
     }
 
     if (typeof WoodViewer === 'undefined') {
         console.error('[Quote3D] WoodViewer nie jest załadowany!');
+        alert('Błąd: WoodViewer nie jest załadowany. Sprawdź pliki JavaScript.');
         return;
     }
 
     // Sprawdź czy jest konfiguracja
     if (typeof window.Quote3DConfig === 'undefined') {
         console.error('[Quote3D] Brak konfiguracji Quote3DConfig!');
+        alert('Błąd: Brak konfiguracji aplikacji.');
         return;
     }
 
-    // Utwórz i zainicjalizuj handler
-    const quote3D = new Quote3DHandler();
-    window.quote3DHandler = quote3D; // Dla debugowania
+    console.log('[Quote3D] Wszystkie zależności załadowane poprawnie');
+    console.log('[Quote3D] Konfiguracja:', window.Quote3DConfig);
 
-    await quote3D.init();
+    // Utwórz i zainicjalizuj handler
+    try {
+        const quote3D = new Quote3DHandler();
+        window.quote3DHandler = quote3D; // Dla debugowania
+
+        console.log('[Quote3D] Rozpoczęcie inicjalizacji handlera...');
+        await quote3D.init();
+        console.log('[Quote3D] Handler zainicjalizowany pomyślnie');
+        
+    } catch (error) {
+        console.error('[Quote3D] Błąd inicjalizacji handlera:', error);
+        alert(`Błąd inicjalizacji: ${error.message}`);
+    }
 });
 
 // Export dla compatibility
@@ -388,4 +386,4 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = Quote3DHandler;
 }
 
-console.log('[Quote3D] Script załadowany');
+console.log('[Quote3D] Script załadowany - uproszczona wersja');
