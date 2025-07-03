@@ -1,4 +1,4 @@
-# modules/preview3d_ar/routers.py - KOMPLETNA NAPRAWIONA WERSJA
+# modules/preview3d_ar/routers.py - NAPRAWIONA WERSJA
 
 from flask import jsonify, request, render_template, current_app, send_file, send_from_directory, url_for, make_response, abort
 from . import preview3d_ar_bp
@@ -13,15 +13,13 @@ import mimetypes
 # Globalna instancja generatora Reality
 reality_generator = None
 
-# Dodaj MIME types dla Reality
+# Dodaj MIME types
 mimetypes.add_type('model/vnd.reality', '.reality')
 mimetypes.add_type('model/vnd.usdz+zip', '.usdz')
 
 @preview3d_ar_bp.route('/api/product-3d', methods=['POST'])
 def generate_product_3d():
-    """
-    API endpoint do generowania konfiguracji 3D dla produktu
-    """
+    """API endpoint do generowania konfiguracji 3D dla produktu"""
     try:
         data = request.json
         if not data:
@@ -104,11 +102,9 @@ def generate_product_3d():
 
 @preview3d_ar_bp.route('/api/generate-reality', methods=['POST'])
 def generate_reality():
-    """
-    NOWY: Generuje plik Reality dla iOS QuickLook AR
-    """
+    """POPRAWIONY: Generuje plik Reality/USDZ"""
     try:
-        print("[generate_reality] Rozpoczecie generowania Reality", file=sys.stderr)
+        print("[generate_reality] Rozpoczęcie generowania Reality/USDZ", file=sys.stderr)
         
         data = request.json
         if not data:
@@ -125,58 +121,61 @@ def generate_reality():
         
         print(f"[generate_reality] Dane: {variant_code}, {dimensions}", file=sys.stderr)
         
-        # Pobierz tekstury
-        try:
-            textures = TextureConfig.get_all_textures_for_variant(variant_code)
-            print(f"[generate_reality] Tekstury pobrane: {len(textures)} typow", file=sys.stderr)
-        except Exception as e:
-            print(f"[generate_reality] Blad tekstur: {e}", file=sys.stderr)
-            return jsonify({'error': f'Blad tekstur: {str(e)}'}), 500
+        # Walidacja wymiarów
+        if not all(dimensions.values()) or any(d <= 0 for d in dimensions.values()):
+            return jsonify({'error': 'Nieprawidłowe wymiary'}), 400
         
         # Przygotuj dane produktu
         product_data = {
             'variant_code': variant_code,
-            'dimensions': dimensions,
-            'textures': textures
+            'dimensions': dimensions
         }
         
-        # Generuj Reality
+        # Generuj Reality/USDZ
         generator = get_reality_generator()
         reality_path = generator.generate_reality(product_data)
         
         if not reality_path or not os.path.exists(reality_path):
-            return jsonify({'error': 'Blad generowania pliku Reality'}), 500
-        
-        # Zwroc pelny URL z protokolem
-        filename = os.path.basename(reality_path)
-        file_url = request.url_root.rstrip('/') + url_for('preview3d_ar.serve_ar_model', filename=filename)
+            return jsonify({'error': 'Błąd generowania pliku AR'}), 500
         
         # Pobierz informacje o pliku
         model_info = generator.get_model_info(reality_path)
         
-        print(f"[generate_reality] Reality wygenerowany: {filename}", file=sys.stderr)
+        # Określ format na podstawie rozszerzenia
+        file_ext = os.path.splitext(reality_path)[1].lower()
+        format_name = 'Reality' if file_ext == '.reality' else 'USDZ'
         
-        return jsonify({
+        # Zwróć pełny URL
+        filename = os.path.basename(reality_path)
+        file_url = request.url_root.rstrip('/') + url_for('preview3d_ar.serve_ar_model', filename=filename)
+        
+        print(f"[generate_reality] {format_name} wygenerowany: {filename}", file=sys.stderr)
+        
+        response = {
             'success': True,
-            'reality_url': file_url,
+            'reality_url': file_url,  # Zachowaj nazwę dla kompatybilności
             'filename': filename,
             'model_info': model_info,
-            'format': 'Reality'
-        })
+            'format': format_name
+        }
+        
+        # Dodaj validację dla USDZ
+        if format_name == 'USDZ' and model_info and 'is_valid_usdz' in model_info:
+            response['validation'] = model_info['is_valid_usdz']
+        
+        return jsonify(response)
         
     except Exception as e:
-        print(f"[generate_reality] Blad: {str(e)}", file=sys.stderr)
+        print(f"[generate_reality] Błąd: {str(e)}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        return jsonify({'error': f'Blad serwera: {str(e)}'}), 500
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
 
 @preview3d_ar_bp.route('/api/generate-usdz', methods=['POST'])
 def generate_usdz():
-    """
-    BACKWARD COMPATIBILITY: Uzywa nowego generatora Reality ale zwraca jako USDZ
-    """
+    """BACKWARD COMPATIBILITY: Przekierowuje do generate_reality"""
     try:
-        print("[generate_usdz] DEPRECATED: Przekierowanie do Reality generator", file=sys.stderr)
+        print("[generate_usdz] Backward compatibility - przekierowanie do Reality generator", file=sys.stderr)
         
         data = request.json
         if not data:
@@ -188,49 +187,40 @@ def generate_usdz():
         if not variant_code or not dimensions:
             return jsonify({'error': 'Brak variant_code lub dimensions'}), 400
         
-        # Uzyj nowego generatora
+        # Użyj tego samego generatora
         generator = get_reality_generator()
         
         product_data = {
             'variant_code': variant_code,
-            'dimensions': dimensions,
-            'textures': TextureConfig.get_all_textures_for_variant(variant_code)
+            'dimensions': dimensions
         }
         
-        reality_path = generator.generate_reality(product_data)
+        ar_file_path = generator.generate_reality(product_data)
         
-        if not reality_path or not os.path.exists(reality_path):
-            return jsonify({'error': 'Blad generowania pliku'}), 500
+        if not ar_file_path or not os.path.exists(ar_file_path):
+            return jsonify({'error': 'Błąd generowania pliku'}), 500
         
-        # Skopiuj .reality jako .usdz dla backward compatibility
-        cache_key = generator._generate_cache_key(product_data)
-        usdz_path = os.path.join(generator.cache_dir, f"{cache_key}.usdz")
-        
-        import shutil
-        shutil.copy2(reality_path, usdz_path)
-        
-        filename = os.path.basename(usdz_path)
+        filename = os.path.basename(ar_file_path)
         file_url = request.url_root.rstrip('/') + url_for('preview3d_ar.serve_ar_model', filename=filename)
-        model_info = generator.get_model_info(usdz_path)
+        model_info = generator.get_model_info(ar_file_path)
         
-        print(f"[generate_usdz] Backward compatibility USDZ: {filename}", file=sys.stderr)
+        print(f"[generate_usdz] Backward compatibility response: {filename}", file=sys.stderr)
         
         return jsonify({
             'success': True,
-            'usdz_url': file_url,
+            'usdz_url': file_url,  # Stara nazwa dla kompatybilności
             'filename': filename,
-            'model_info': model_info
+            'model_info': model_info,
+            'note': 'Generated via Reality generator for compatibility'
         })
         
     except Exception as e:
-        print(f"[generate_usdz] Blad: {str(e)}", file=sys.stderr)
-        return jsonify({'error': f'Blad serwera: {str(e)}'}), 500
+        print(f"[generate_usdz] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
 
 @preview3d_ar_bp.route('/ar-models/<filename>')
 def serve_ar_model(filename):
-    """
-    POPRAWIONY: Serwuje pliki 3D dla AR z obsluga Reality format
-    """
+    """POPRAWIONY: Serwuje pliki 3D dla AR z proper USDZ handling"""
     try:
         cache_dir = os.path.join(
             current_app.root_path,
@@ -239,23 +229,70 @@ def serve_ar_model(filename):
         file_path = os.path.join(cache_dir, filename)
 
         if not os.path.exists(file_path):
+            print(f"[serve_ar_model] Plik nie istnieje: {file_path}", file=sys.stderr)
             abort(404)
 
         _, ext = os.path.splitext(filename.lower())
+        file_size = os.path.getsize(file_path)
 
-        # NOWE: Obsluga plikow Reality
-        if ext == '.reality':
-            file_size = os.path.getsize(file_path)
-            print(f"[serve_ar_model] Serving Reality: {filename}, size: {file_size} bytes", file=sys.stderr)
+        print(f"[serve_ar_model] Serwowanie: {filename} ({ext}), rozmiar: {file_size} bytes", file=sys.stderr)
+
+        # USDZ - główny format (nawet jeśli nazywa się .reality)
+        if ext in ['.usdz', '.reality']:
+            # Sprawdź czy to prawdziwy Reality czy USDZ
+            is_real_reality = False
+            try:
+                # Sprawdź nagłówek pliku
+                with open(file_path, 'rb') as f:
+                    header = f.read(16)
+                    # Reality ma specjalny nagłówek binarny
+                    # USDZ to ZIP, więc zaczyna się od 'PK'
+                    is_real_reality = not header.startswith(b'PK')
+            except:
+                pass
+
+            if is_real_reality and ext == '.reality':
+                # Prawdziwy plik Reality
+                print(f"[serve_ar_model] Serwowanie prawdziwego Reality: {filename}", file=sys.stderr)
+                
+                response = make_response(send_file(
+                    file_path,
+                    as_attachment=False,
+                    download_name=filename,
+                    mimetype='model/vnd.reality'
+                ))
+                
+                response.headers['Content-Type'] = 'model/vnd.reality'
+                response.headers['X-AR-Format'] = 'Reality'
+                response.headers['X-iOS-QuickLook'] = 'true'
+                
+            else:
+                # USDZ (lub USDZ nazywający się .reality)
+                print(f"[serve_ar_model] Serwowanie USDZ: {filename}", file=sys.stderr)
+                
+                # KLUCZOWE: Sprawdź czy USDZ jest prawidłowy
+                generator = get_reality_generator()
+                validation = generator._validate_usdz(file_path)
+                
+                if not validation.get('is_valid_zip', False):
+                    print(f"[serve_ar_model] BŁĄD: Nieprawidłowy USDZ: {validation}", file=sys.stderr)
+                    abort(500)
+                
+                if not validation.get('has_usd_file', False):
+                    print(f"[serve_ar_model] OSTRZEŻENIE: USDZ bez pliku USD", file=sys.stderr)
+                
+                response = make_response(send_file(
+                    file_path,
+                    as_attachment=False,
+                    download_name=filename.replace('.reality', '.usdz'),  # Wymuszenie .usdz
+                    mimetype='model/vnd.usdz+zip'
+                ))
+                
+                response.headers['Content-Type'] = 'model/vnd.usdz+zip'
+                response.headers['X-AR-Format'] = 'USDZ'
+                response.headers['X-USDZ-Validation'] = 'valid' if validation.get('first_file_is_usd') else 'warning'
             
-            response = make_response(send_file(
-                file_path,
-                as_attachment=False,
-                download_name=filename,
-                mimetype='model/vnd.reality'
-            ))
-            
-            response.headers['Content-Type'] = 'model/vnd.reality'
+            # Wspólne nagłówki dla obu formatów
             response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
             response.headers['Content-Length'] = str(file_size)
             response.headers['Accept-Ranges'] = 'bytes'
@@ -263,36 +300,10 @@ def serve_ar_model(filename):
             response.headers['X-Content-Type-Options'] = 'nosniff'
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['X-AR-Model'] = 'true'
-            response.headers['X-AR-Format'] = 'Reality'
-            response.headers['X-iOS-QuickLook'] = 'true'
             
             return response
 
-        # POPRAWIONE: Obsluga USDZ z prawidlowym MIME type
-        elif ext == '.usdz':
-            file_size = os.path.getsize(file_path)
-            print(f"[serve_ar_model] Serving USDZ: {filename}, size: {file_size} bytes", file=sys.stderr)
-            
-            response = make_response(send_file(
-                file_path,
-                as_attachment=False,
-                download_name=filename,
-                mimetype='model/vnd.usdz+zip'
-            ))
-            
-            response.headers['Content-Type'] = 'model/vnd.usdz+zip'
-            response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
-            response.headers['Content-Length'] = str(file_size)
-            response.headers['Accept-Ranges'] = 'bytes'
-            response.headers['Cache-Control'] = 'public, max-age=3600'
-            response.headers['X-Content-Type-Options'] = 'nosniff'
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['X-AR-Model'] = 'true'
-            response.headers['X-AR-Format'] = 'USDZ'
-            
-            return response
-
-        # Obsluga GLB
+        # GLB files
         elif ext == '.glb':
             response = make_response(send_file(
                 file_path,
@@ -302,18 +313,20 @@ def serve_ar_model(filename):
             ))
             response.headers['Content-Type'] = 'model/gltf-binary'
             response.headers['Cache-Control'] = 'public, max-age=3600'
+            response.headers['X-AR-Format'] = 'GLB'
             return response
 
         else:
+            # Inne pliki
             return send_file(file_path, as_attachment=False, download_name=filename)
 
     except Exception as e:
-        print(f"[serve_ar_model] Blad: {str(e)}", file=sys.stderr)
-        return jsonify({'error': f'Blad serwera: {str(e)}'}), 500
+        print(f"[serve_ar_model] Błąd serwowania: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
 
 @preview3d_ar_bp.route('/api/check-textures/<variant>')
 def check_textures(variant):
-    """Sprawdza dostepnosc tekstur dla danego wariantu"""
+    """Sprawdza dostępność tekstur dla danego wariantu"""
     try:
         textures = TextureConfig.get_all_textures_for_variant(variant)
         species, technology, wood_class = TextureConfig.parse_variant(variant)
@@ -336,9 +349,7 @@ def check_textures(variant):
 
 @preview3d_ar_bp.route('/quote/<int:quote_id>')
 def show_quote_3d_viewer(quote_id):
-    """
-    Endpoint dla wycen - wyswietla viewer 3D
-    """
+    """Endpoint dla wycen - wyświetla viewer 3D"""
     try:
         print(f"[show_quote_3d_viewer] Starting for quote_id: {quote_id}", file=sys.stderr)
         
@@ -371,7 +382,7 @@ def show_quote_3d_viewer(quote_id):
                     'variants': []
                 }
             
-            # Sprawdz dostepnosc tekstur
+            # Sprawdź dostępność tekstur
             try:
                 textures = TextureConfig.get_all_textures_for_variant(item.variant_code)
                 has_textures = any(len(tex.get('variants', [])) > 0 for tex in textures.values())
@@ -395,7 +406,7 @@ def show_quote_3d_viewer(quote_id):
         # Sortuj produkty
         sorted_products = sorted(products.values(), key=lambda x: x['product_index'])
         
-        # Znajdz domyslnie wybrany produkt
+        # Znajdź domyślnie wybrany produkt
         default_product = None
         for product in sorted_products:
             selected_variant = next((v for v in product['variants'] if v['is_selected']), None)
@@ -408,7 +419,7 @@ def show_quote_3d_viewer(quote_id):
                 break
         
         if not default_product:
-            # Fallback - pierwszy produkt z dostepnymi teksturami
+            # Fallback - pierwszy produkt z dostępnymi teksturami
             for product in sorted_products:
                 for variant in product['variants']:
                     if variant['has_textures']:
@@ -427,7 +438,7 @@ def show_quote_3d_viewer(quote_id):
                 quote={'quote_number': quote.quote_number, 'id': quote_id, 'client': quote.client},
                 products=[],
                 default_product=None,
-                error_message="Brak produktow z dostepnymi teksturami w tej wycenie"
+                error_message="Brak produktów z dostępnymi teksturami w tej wycenie"
             )
         
         return render_template(
@@ -452,11 +463,11 @@ def test_endpoint():
     return jsonify({
         'module': 'preview3d_ar',
         'status': 'active',
-        'formats': ['Reality', 'USDZ (deprecated)', 'GLB (planned)'],
+        'formats': ['USDZ (primary)', 'Reality (macOS only)', 'GLB (planned)'],
         'endpoints': [
             '/api/product-3d [POST]',
-            '/api/generate-reality [POST] - NEW!',
-            '/api/generate-usdz [POST] - DEPRECATED',
+            '/api/generate-reality [POST] - Returns USDZ or Reality',
+            '/api/generate-usdz [POST] - Backward compatibility',
             '/api/check-textures/<variant> [GET]',
             '/quote/<quote_id> [GET]',
             '/modal [GET]',
@@ -466,11 +477,11 @@ def test_endpoint():
 
 @preview3d_ar_bp.route('/api/ar-info', methods=['GET'])
 def ar_info():
-    """Informacje o mozliwosciach AR"""
+    """Informacje o możliwościach AR"""
     try:
         generator = get_reality_generator()
         
-        formats = ['Reality', 'USDZ (compatibility)']
+        formats = ['USDZ (primary)', 'Reality (macOS only)', 'GLB (planned)']
         
         cache_files = []
         if os.path.exists(generator.cache_dir):
@@ -489,16 +500,17 @@ def ar_info():
             },
             'cache_dir': generator.cache_dir,
             'temp_dir': generator.temp_dir,
-            'primary_format': 'Reality'
+            'primary_format': 'USDZ',
+            'reality_converter_available': generator._check_reality_converter_available()
         })
         
     except Exception as e:
-        print(f"[ar_info] Blad: {str(e)}", file=sys.stderr)
-        return jsonify({'error': f'Blad serwera: {str(e)}'}), 500
+        print(f"[ar_info] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
 
 @preview3d_ar_bp.route('/api/ar-cleanup', methods=['POST'])
 def ar_cleanup():
-    """Czysci pliki tymczasowe AR"""
+    """Czyści pliki tymczasowe AR"""
     try:
         generator = get_reality_generator()
         generator.cleanup_temp_files()
@@ -509,8 +521,60 @@ def ar_cleanup():
         })
         
     except Exception as e:
-        print(f"[ar_cleanup] Blad: {str(e)}", file=sys.stderr)
-        return jsonify({'error': f'Blad serwera: {str(e)}'}), 500
+        print(f"[ar_cleanup] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
+
+@preview3d_ar_bp.route('/api/validate-usdz/<filename>')
+def validate_usdz_file(filename):
+    """NOWY: Waliduje konkretny plik USDZ"""
+    try:
+        cache_dir = os.path.join(
+            current_app.root_path,
+            'modules', 'preview3d_ar', 'static', 'ar-models', 'cache'
+        )
+        file_path = os.path.join(cache_dir, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'Plik nie istnieje'}), 404
+        
+        generator = get_reality_generator()
+        validation = generator._validate_usdz(file_path)
+        model_info = generator.get_model_info(file_path)
+        
+        return jsonify({
+            'filename': filename,
+            'validation': validation,
+            'model_info': model_info,
+            'recommendations': _get_usdz_recommendations(validation)
+        })
+        
+    except Exception as e:
+        print(f"[validate_usdz_file] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
+
+def _get_usdz_recommendations(validation):
+    """Zwraca rekomendacje na podstawie walidacji USDZ"""
+    recommendations = []
+    
+    if not validation.get('is_valid_zip', False):
+        recommendations.append('KRYTYCZNE: Plik nie jest prawidłowym archiwum ZIP')
+        return recommendations
+    
+    if not validation.get('has_usd_file', False):
+        recommendations.append('BŁĄD: Brak pliku USD w archiwum')
+    
+    if not validation.get('first_file_is_usd', False):
+        recommendations.append('OSTRZEŻENIE: Pierwszy plik nie jest plikiem USD (może powodować problemy w iOS)')
+    
+    if validation.get('files_count', 0) == 1:
+        recommendations.append('OK: Minimalistyczna struktura (tylko USD)')
+    elif validation.get('files_count', 0) > 10:
+        recommendations.append('UWAGA: Dużo plików w archiwum (może wpływać na wydajność)')
+    
+    if len(recommendations) == 0:
+        recommendations.append('✅ Plik USDZ wygląda na prawidłowy')
+    
+    return recommendations
 
 @preview3d_ar_bp.errorhandler(404)
 def not_found(error):

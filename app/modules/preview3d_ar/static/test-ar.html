@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>USDZ Debug Tool</title>
+    <title>Test AR - Wood Power</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -20,22 +20,11 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
 
-        .debug-section {
+        .test-section {
             margin: 20px 0;
             padding: 15px;
             background: #f8f9fa;
             border-radius: 8px;
-        }
-
-        .debug-output {
-            background: #000;
-            color: #0f0;
-            padding: 15px;
-            border-radius: 8px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            max-height: 300px;
-            overflow-y: auto;
         }
 
         .test-button {
@@ -61,6 +50,18 @@
                 background: #FF3B30;
             }
 
+        .debug-output {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
         .info-box {
             background: #e8f4f8;
             padding: 15px;
@@ -76,61 +77,233 @@
             border-left: 4px solid #ffc107;
         }
     </style>
+
+    <!-- AR Handler CSS -->
+    <style>
+        /* AR Modal styles */
+        .ar-modal-overlay, .ar-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .ar-modal-content, .ar-loading-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            animation: slideUp 0.3s ease;
+        }
+
+        .ar-modal-header {
+            display: flex;
+            align-items: center;
+            padding: 24px;
+            border-bottom: 1px solid #eee;
+            background: #f8f9fa;
+            border-radius: 16px 16px 0 0;
+        }
+
+        .ar-modal-icon {
+            font-size: 32px;
+            margin-right: 16px;
+        }
+
+        .ar-modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0;
+            color: #212529;
+        }
+
+        .ar-modal-body {
+            padding: 24px;
+        }
+
+        .ar-modal-message {
+            font-size: 16px;
+            line-height: 1.5;
+            color: #495057;
+            margin-bottom: 16px;
+            white-space: pre-line;
+        }
+
+        .ar-modal-details {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .ar-detail-item {
+            padding: 4px 0;
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .ar-modal-footer {
+            padding: 24px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .ar-modal-btn {
+            padding: 12px 24px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            background: white;
+            color: #495057;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+            .ar-modal-btn:hover {
+                background: #f8f9fa;
+                transform: translateY(-1px);
+            }
+
+            .ar-modal-btn.primary {
+                background: #ED6B24;
+                color: white;
+                border-color: #ED6B24;
+            }
+
+                .ar-modal-btn.primary:hover {
+                    background: #d8571a;
+                    border-color: #d8571a;
+                }
+
+        .ar-loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #ED6B24;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        .ar-loading-message {
+            text-align: center;
+            font-size: 16px;
+            color: #495057;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .ar-modal-content {
+                margin: 20px;
+                max-width: none;
+            }
+
+            .ar-modal-footer {
+                flex-direction: column;
+            }
+
+            .ar-modal-btn {
+                width: 100%;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔍 USDZ Debug Tool</h1>
+        <h1>🚀 Test AR - Wood Power</h1>
 
         <div class="info-box">
-            <strong>Instrukcja:</strong> To narzędzie pomoże zdiagnozować problemy z plikami USDZ dla iOS AR.
+            <strong>Instrukcja:</strong> Ta strona pozwala przetestować funkcjonalność AR bez konieczności przechodzenia przez cały interfejs aplikacji.
         </div>
 
-        <div class="debug-section">
+        <div class="test-section">
             <h3>1. Informacje o urządzeniu</h3>
             <div id="device-info" class="debug-output"></div>
         </div>
 
-        <div class="debug-section">
-            <h3>2. Test generowania USDZ</h3>
-            <button class="test-button" onclick="testUSDZGeneration()">Generuj USDZ</button>
-            <button class="test-button" onclick="checkFileHeaders()">Sprawdź nagłówki</button>
-            <div id="usdz-test-output" class="debug-output"></div>
-        </div>
-
-        <div class="debug-section">
-            <h3>3. Test różnych metod otwarcia AR</h3>
-            <button class="test-button" onclick="testMethod1()">window.open()</button>
-            <button class="test-button" onclick="testMethod2()">rel="ar" link</button>
-            <button class="test-button" onclick="testMethod3()">programmatic click</button>
-            <button class="test-button" onclick="testMethod4()">direct navigation</button>
+        <div class="test-section">
+            <h3>2. Test popup AR</h3>
+            <button class="test-button" onclick="testARPopup()">Test popup potwierdzającego</button>
+            <button class="test-button" onclick="testDirectAR()">Test bezpośredniego AR</button>
             <div id="ar-test-output" class="debug-output"></div>
         </div>
 
-        <div class="debug-section">
+        <div class="test-section">
+            <h3>3. Test generowania plików</h3>
+            <button class="test-button" onclick="testUSDZGeneration()">Generuj USDZ</button>
+            <button class="test-button" onclick="testRealityGeneration()">Generuj Reality</button>
+            <button class="test-button" onclick="checkFileHeaders()">Sprawdź nagłówki</button>
+            <div id="file-test-output" class="debug-output"></div>
+        </div>
+
+        <div class="test-section">
             <h3>4. Test z przykładowym plikiem Apple</h3>
             <button class="test-button" onclick="testAppleExample()">Test Apple USDZ</button>
             <div id="apple-test-output" class="debug-output"></div>
         </div>
 
-        <div class="debug-section">
-            <h3>5. Analiza zawartości pliku</h3>
-            <button class="test-button" onclick="analyzeUSDZStructure()">Analizuj strukturę</button>
-            <div id="structure-output" class="debug-output"></div>
-        </div>
-
         <div class="warning-box">
-            <strong>Uwaga:</strong> Ten tool działa najlepiej w Safari na iOS. Funkcje AR będą dostępne tylko na urządzeniach iOS 12+.
+            <strong>Uwaga:</strong> AR działa tylko w Safari na iOS 12+. Na innych przeglądarkach/systemach zostanie pokazany odpowiedni komunikat.
         </div>
     </div>
 
     <script>
-        let currentUSDZUrl = null;
+        let currentARUrl = null;
+        let currentProduct = {
+            variant_code: 'dab-lity-ab',
+            dimensions: {
+                length: 150,
+                width: 80,
+                thickness: 3
+            }
+        };
 
         function log(message, outputId = 'device-info') {
             const output = document.getElementById(outputId);
             const timestamp = new Date().toLocaleTimeString();
             output.textContent += `[${timestamp}] ${message}\n`;
-            console.log(`[USDZ Debug] ${message}`);
+            console.log(`[AR Test] ${message}`);
         }
 
         function clearLog(outputId) {
@@ -150,18 +323,55 @@
             log(`iOS Version: ${isIOS ? iosVersion : 'N/A'}`, 'device-info');
             log(`Safari: ${isSafari ? 'Yes' : 'No'}`, 'device-info');
             log(`User Agent: ${navigator.userAgent}`, 'device-info');
-            log(`Supports AR: ${isIOS && iosVersion >= 12 && isSafari ? 'YES' : 'NO'}`, 'device-info');
+            log(`AR Support: ${isIOS && iosVersion >= 12 && isSafari ? 'YES ✅' : 'NO ❌'}`, 'device-info');
+        }
 
-            // Sprawdź MIME types
-            const testLink = document.createElement('a');
-            testLink.href = 'data:model/vnd.usdz+zip;base64,';
-            log(`USDZ MIME support: ${testLink.href.includes('model/vnd.usdz+zip') ? 'YES' : 'NO'}`, 'device-info');
+        // Test popup AR
+        async function testARPopup() {
+            clearLog('ar-test-output');
+            log('Test popup AR...', 'ar-test-output');
+
+            if (typeof window.ARHandler === 'undefined') {
+                log('❌ ARHandler nie jest załadowany!', 'ar-test-output');
+                return;
+            }
+
+            try {
+                log('✅ ARHandler dostępny', 'ar-test-output');
+                log('Wywołanie ARHandler.initiateAR()...', 'ar-test-output');
+
+                await window.ARHandler.initiateAR(currentProduct);
+                log('✅ Popup AR wywołany pomyślnie', 'ar-test-output');
+
+            } catch (error) {
+                log(`❌ Błąd popup AR: ${error.message}`, 'ar-test-output');
+            }
+        }
+
+        // Test bezpośredniego AR
+        async function testDirectAR() {
+            clearLog('ar-test-output');
+            log('Test bezpośredniego AR...', 'ar-test-output');
+
+            if (!currentARUrl) {
+                log('Najpierw wygeneruj plik AR!', 'ar-test-output');
+                return;
+            }
+
+            try {
+                log('Bezpośrednie otwarcie AR...', 'ar-test-output');
+                window.open(currentARUrl, '_blank');
+                log('✅ AR otwarty w nowej karcie', 'ar-test-output');
+
+            } catch (error) {
+                log(`❌ Błąd bezpośredniego AR: ${error.message}`, 'ar-test-output');
+            }
         }
 
         // Test generowania USDZ
         async function testUSDZGeneration() {
-            clearLog('usdz-test-output');
-            log('Rozpoczęcie testu generowania USDZ...', 'usdz-test-output');
+            clearLog('file-test-output');
+            log('Generowanie USDZ...', 'file-test-output');
 
             try {
                 const response = await fetch('/preview3d-ar/api/generate-usdz', {
@@ -169,190 +379,91 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        variant_code: 'dab-lity-ab',
-                        dimensions: {
-                            length: 150,
-                            width: 80,
-                            thickness: 3
-                        }
-                    })
+                    body: JSON.stringify(currentProduct)
                 });
 
-                log(`Response status: ${response.status}`, 'usdz-test-output');
-                log(`Response headers:`, 'usdz-test-output');
-
-                for (let [key, value] of response.headers.entries()) {
-                    log(`  ${key}: ${value}`, 'usdz-test-output');
-                }
+                log(`Response status: ${response.status}`, 'file-test-output');
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    log(`Error: ${errorText}`, 'usdz-test-output');
+                    log(`❌ Error: ${errorText}`, 'file-test-output');
                     return;
                 }
 
                 const data = await response.json();
-                log(`Success: ${JSON.stringify(data, null, 2)}`, 'usdz-test-output');
+                log(`✅ USDZ wygenerowany:`, 'file-test-output');
+                log(`URL: ${data.usdz_url}`, 'file-test-output');
+                log(`Rozmiar: ${data.model_info?.file_size_mb || 'N/A'} MB`, 'file-test-output');
 
-                currentUSDZUrl = data.usdz_url;
-                log(`Current USDZ URL: ${currentUSDZUrl}`, 'usdz-test-output');
+                currentARUrl = data.usdz_url;
 
             } catch (error) {
-                log(`Error: ${error.message}`, 'usdz-test-output');
+                log(`❌ Błąd generowania USDZ: ${error.message}`, 'file-test-output');
+            }
+        }
+
+        // Test generowania Reality
+        async function testRealityGeneration() {
+            clearLog('file-test-output');
+            log('Generowanie Reality...', 'file-test-output');
+
+            try {
+                const response = await fetch('/preview3d-ar/api/generate-reality', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(currentProduct)
+                });
+
+                log(`Response status: ${response.status}`, 'file-test-output');
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    log(`❌ Error: ${errorText}`, 'file-test-output');
+                    return;
+                }
+
+                const data = await response.json();
+                log(`✅ Reality wygenerowany:`, 'file-test-output');
+                log(`URL: ${data.reality_url}`, 'file-test-output');
+                log(`Rozmiar: ${data.model_info?.file_size_mb || 'N/A'} MB`, 'file-test-output');
+
+                currentARUrl = data.reality_url;
+
+            } catch (error) {
+                log(`❌ Błąd generowania Reality: ${error.message}`, 'file-test-output');
             }
         }
 
         // Sprawdź nagłówki pliku
         async function checkFileHeaders() {
-            if (!currentUSDZUrl) {
-                log('Najpierw wygeneruj plik USDZ!', 'usdz-test-output');
+            if (!currentARUrl) {
+                log('Najpierw wygeneruj plik AR!', 'file-test-output');
                 return;
             }
 
-            clearLog('usdz-test-output');
-            log('Sprawdzanie nagłówków pliku...', 'usdz-test-output');
+            clearLog('file-test-output');
+            log('Sprawdzanie nagłówków pliku...', 'file-test-output');
 
             try {
-                const response = await fetch(currentUSDZUrl, { method: 'HEAD' });
+                const response = await fetch(currentARUrl, { method: 'HEAD' });
 
-                log(`File HEAD response status: ${response.status}`, 'usdz-test-output');
-                log(`File headers:`, 'usdz-test-output');
+                log(`File HEAD response status: ${response.status}`, 'file-test-output');
+                log(`File headers:`, 'file-test-output');
 
                 for (let [key, value] of response.headers.entries()) {
-                    log(`  ${key}: ${value}`, 'usdz-test-output');
+                    log(`  ${key}: ${value}`, 'file-test-output');
                 }
 
                 // Sprawdź Content-Type
                 const contentType = response.headers.get('content-type');
-                const isCorrectMime = contentType === 'model/vnd.usdz+zip';
-                log(`Content-Type correct: ${isCorrectMime ? 'YES' : 'NO'} (${contentType})`, 'usdz-test-output');
+                const isCorrectMime = contentType === 'model/vnd.usdz+zip' || contentType === 'model/vnd.reality';
+                log(`Content-Type correct: ${isCorrectMime ? 'YES ✅' : 'NO ❌'} (${contentType})`, 'file-test-output');
 
             } catch (error) {
-                log(`Error checking headers: ${error.message}`, 'usdz-test-output');
+                log(`❌ Błąd sprawdzania nagłówków: ${error.message}`, 'file-test-output');
             }
-        }
-
-        // Test Method 1: window.open()
-        function testMethod1() {
-            clearLog('ar-test-output');
-            if (!currentUSDZUrl) {
-                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
-                return;
-            }
-
-            log('Test Method 1: window.open()', 'ar-test-output');
-            try {
-                const popup = window.open(currentUSDZUrl, '_blank');
-                log('window.open() wykonane', 'ar-test-output');
-
-                setTimeout(() => {
-                    if (popup && popup.closed) {
-                        log('Popup został zamknięty - prawdopodobnie otworzył się AR', 'ar-test-output');
-                    } else if (popup) {
-                        log('Popup nadal otwarty - prawdopodobnie problem z AR', 'ar-test-output');
-                    } else {
-                        log('Popup zablokowany lub błąd', 'ar-test-output');
-                    }
-                }, 2000);
-
-            } catch (error) {
-                log(`Error: ${error.message}`, 'ar-test-output');
-            }
-        }
-
-        // Test Method 2: rel="ar" link
-        function testMethod2() {
-            clearLog('ar-test-output');
-            if (!currentUSDZUrl) {
-                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
-                return;
-            }
-
-            log('Test Method 2: rel="ar" link', 'ar-test-output');
-            try {
-                const link = document.createElement('a');
-                link.href = currentUSDZUrl;
-                link.rel = 'ar';
-                link.type = 'model/vnd.usdz+zip';
-                link.style.display = 'none';
-
-                // Dodaj metadane
-                link.setAttribute('data-ar-placement', 'floor');
-                link.setAttribute('data-ar-scale', 'auto');
-
-                document.body.appendChild(link);
-
-                log('Link rel="ar" utworzony', 'ar-test-output');
-                log(`Link href: ${link.href}`, 'ar-test-output');
-                log(`Link rel: ${link.rel}`, 'ar-test-output');
-                log(`Link type: ${link.type}`, 'ar-test-output');
-
-                // Symuluj kliknięcie
-                const event = new MouseEvent('click', {
-                    view: window,
-                    bubbles: true,
-                    cancelable: true
-                });
-
-                link.dispatchEvent(event);
-                log('Click event dispatched', 'ar-test-output');
-
-                setTimeout(() => {
-                    document.body.removeChild(link);
-                    log('Link usunięty', 'ar-test-output');
-                }, 3000);
-
-            } catch (error) {
-                log(`Error: ${error.message}`, 'ar-test-output');
-            }
-        }
-
-        // Test Method 3: programmatic click
-        function testMethod3() {
-            clearLog('ar-test-output');
-            if (!currentUSDZUrl) {
-                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
-                return;
-            }
-
-            log('Test Method 3: programmatic click', 'ar-test-output');
-            try {
-                const link = document.createElement('a');
-                link.href = currentUSDZUrl;
-                link.rel = 'ar';
-                link.download = 'test-model.usdz';
-                link.style.display = 'none';
-
-                document.body.appendChild(link);
-                link.click();
-
-                log('Programmatic click wykonany', 'ar-test-output');
-
-                setTimeout(() => {
-                    if (document.body.contains(link)) {
-                        document.body.removeChild(link);
-                    }
-                }, 1000);
-
-            } catch (error) {
-                log(`Error: ${error.message}`, 'ar-test-output');
-            }
-        }
-
-        // Test Method 4: direct navigation
-        function testMethod4() {
-            clearLog('ar-test-output');
-            if (!currentUSDZUrl) {
-                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
-                return;
-            }
-
-            log('Test Method 4: direct navigation', 'ar-test-output');
-            log('Przekierowywanie do USDZ...', 'ar-test-output');
-
-            // Bezpośrednia nawigacja
-            window.location.href = currentUSDZUrl;
         }
 
         // Test z przykładem Apple
@@ -372,7 +483,7 @@
                 document.body.appendChild(link);
                 link.click();
 
-                log('Apple USDZ test wykonany', 'apple-test-output');
+                log('✅ Apple USDZ test wykonany', 'apple-test-output');
                 log('Jeśli AR się otworzył - problem jest z naszym plikiem', 'apple-test-output');
                 log('Jeśli nie - problem z konfiguracją Safari/iOS', 'apple-test-output');
 
@@ -383,57 +494,30 @@
                 }, 1000);
 
             } catch (error) {
-                log(`Error: ${error.message}`, 'apple-test-output');
-            }
-        }
-
-        // Analiza struktury USDZ
-        async function analyzeUSDZStructure() {
-            if (!currentUSDZUrl) {
-                log('Najpierw wygeneruj plik USDZ!', 'structure-output');
-                return;
-            }
-
-            clearLog('structure-output');
-            log('Analizowanie struktury pliku USDZ...', 'structure-output');
-
-            try {
-                // Pobierz plik jako blob
-                const response = await fetch(currentUSDZUrl);
-                const blob = await response.blob();
-
-                log(`File size: ${blob.size} bytes`, 'structure-output');
-                log(`File type: ${blob.type}`, 'structure-output');
-
-                // Sprawdź nagłówek ZIP
-                const arrayBuffer = await blob.arrayBuffer();
-                const bytes = new Uint8Array(arrayBuffer);
-
-                // ZIP signature: PK (0x504B)
-                const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B;
-                log(`Is ZIP format: ${isZip ? 'YES' : 'NO'}`, 'structure-output');
-
-                if (isZip) {
-                    log('File appears to be a valid ZIP archive', 'structure-output');
-
-                    // Spróbuj znaleźć .usd pliki w strukturze (bardzo podstawowa analiza)
-                    const fileContent = new TextDecoder().decode(bytes);
-                    const hasUSDContent = fileContent.includes('.usd') || fileContent.includes('usda');
-                    log(`Contains USD references: ${hasUSDContent ? 'YES' : 'NO'}`, 'structure-output');
-                } else {
-                    log('ERROR: File is not a valid ZIP archive!', 'structure-output');
-                    log('First 16 bytes:', 'structure-output');
-                    log(Array.from(bytes.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' '), 'structure-output');
-                }
-
-            } catch (error) {
-                log(`Error analyzing structure: ${error.message}`, 'structure-output');
+                log(`❌ Błąd testu Apple: ${error.message}`, 'apple-test-output');
             }
         }
 
         // Inicjalizacja po załadowaniu strony
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             initDeviceInfo();
+        });
+    </script>
+
+    <!-- Załaduj ARHandler -->
+    <script src="/preview3d-ar/static/js/ar-handler.js"></script>
+
+    <script>
+        // Sprawdź czy ARHandler się załadował
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(() => {
+                if (typeof window.ARHandler !== 'undefined') {
+                    log('✅ ARHandler załadowany pomyślnie', 'ar-test-output');
+                    log(`Status: ${JSON.stringify(window.ARHandler.getStatus(), null, 2)}`, 'ar-test-output');
+                } else {
+                    log('❌ ARHandler nie załadowany!', 'ar-test-output');
+                }
+            }, 1000);
         });
     </script>
 </body>
