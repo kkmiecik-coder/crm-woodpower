@@ -1,0 +1,43 @@
+# .htaccess w katalogu app/modules/preview3d_ar/static/ar-models/
+
+# KLUCZOWE: Obsługa MIME types dla AR
+AddType model/vnd.usd+zip .usdz
+AddType model/gltf-binary .glb
+AddType model/gltf+json .gltf
+
+# Headery dla plików AR
+<Files "*.usdz">
+    Header set Content-Type "model/vnd.usd+zip"
+    Header set Content-Disposition "inline"
+    Header set Cache-Control "public, max-age=3600"
+    Header set X-Content-Type-Options "nosniff"
+    Header set Access-Control-Allow-Origin "*"
+</Files>
+
+<Files "*.glb">
+    Header set Content-Type "model/gltf-binary"
+    Header set Content-Disposition "inline"
+    Header set Cache-Control "public, max-age=3600"
+</Files>
+
+# Zapobieganie bezpośredniemu dostępowi do plików tymczasowych
+<FilesMatch "\.(usd|obj|mtl|tmp)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Tylko GET dla plików 3D
+<Files "*.usdz">
+    <RequireAll>
+        Require method GET
+    </RequireAll>
+</Files>
+
+# Kompresja dla plików tekstowych
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE model/gltf+json
+    AddOutputFilterByType DEFLATE application/json
+</IfModule>
+
+# Bezpieczeństwo - zapobieganie listowaniu katalogów
+Options -Indexes

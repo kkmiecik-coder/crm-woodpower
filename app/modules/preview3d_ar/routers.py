@@ -1,5 +1,5 @@
 # modules/preview3d_ar/routers.py
-from flask import jsonify, request, render_template, current_app, send_file, send_from_directory, url_for
+from flask import jsonify, request, render_template, current_app, send_file, send_from_directory, url_for, make_response, abort
 from . import preview3d_ar_bp
 from .models import TextureConfig, AR3DGenerator
 from modules.calculator.models import Quote, QuoteItem, QuoteItemDetails
@@ -7,18 +7,17 @@ from extensions import db
 from sqlalchemy.orm import joinedload
 import sys
 import os
+import mimetypes
 
 # Globalna instancja generatora AR
 ar_generator = None
+
+mimetypes.add_type('model/vnd.usd+zip', '.usdz')
 
 @preview3d_ar_bp.route('/api/product-3d', methods=['POST'])
 def generate_product_3d():
     """
     API endpoint do generowania konfiguracji 3D dla produktu
-    
-    Obsługuje dane z kalkulatora i quotes w formacie:
-    - Kalkulator: {"variant": "dab-lity-ab", "dimensions": {"length": 200, "width": 80, "thickness": 3}, "quantity": 1}
-    - Quotes: {"variant_code": "dab-lity-ab", "length_cm": 200, "width_cm": 80, "thickness_cm": 3, "quantity": 1}
     """
     try:
         data = request.json
@@ -109,9 +108,7 @@ def generate_product_3d():
 
 @preview3d_ar_bp.route('/api/check-textures/<variant>')
 def check_textures(variant):
-    """
-    Sprawdza dostępność tekstur dla danego wariantu (endpoint diagnostyczny)
-    """
+    """Sprawdza dostępność tekstur dla danego wariantu"""
     try:
         textures = TextureConfig.get_all_textures_for_variant(variant)
         species, technology, wood_class = TextureConfig.parse_variant(variant)
@@ -302,13 +299,7 @@ def get_ar_generator():
 @preview3d_ar_bp.route('/api/generate-usdz', methods=['POST'])
 def generate_usdz():
     """
-    Generuje plik USDZ dla iOS QuickLook AR
-    
-    Oczekuje JSON:
-    {
-        "variant_code": "dab-lity-ab",
-        "dimensions": {"length": 200, "width": 80, "thickness": 3}
-    }
+    Generuje plik USDZ dla iOS QuickLook AR - POPRAWIONA WERSJA
     """
     try:
         print(f"[generate_usdz] Rozpoczęcie generowania USDZ", file=sys.stderr)
@@ -350,14 +341,17 @@ def generate_usdz():
         if not usdz_path or not os.path.exists(usdz_path):
             return jsonify({'error': 'Błąd generowania pliku USDZ'}), 500
         
-        # Zwróć URL do pliku
+        # KLUCZOWA POPRAWKA: Zwróć pełny URL z protokołem
         filename = os.path.basename(usdz_path)
-        file_url = url_for('preview3d_ar.serve_ar_model', filename=filename)
+        
+        # Zbuduj pełny URL z protokołem i hostem
+        file_url = request.url_root.rstrip('/') + url_for('preview3d_ar.serve_ar_model', filename=filename)
         
         # Pobierz informacje o pliku
         model_info = generator.get_model_info(usdz_path)
         
         print(f"[generate_usdz] USDZ wygenerowany: {filename}", file=sys.stderr)
+        print(f"[generate_usdz] Pełny URL: {file_url}", file=sys.stderr)
         
         return jsonify({
             'success': True,
@@ -448,46 +442,64 @@ def generate_glb():
 @preview3d_ar_bp.route('/ar-models/<filename>')
 def serve_ar_model(filename):
     """
-    Serwuje pliki 3D dla AR z cache
+    Serwuje pliki 3D dla AR (USDZ i GLB).
+    Dla .usdz ustawia Content-Type model/vnd.usd+zip i inline disposition,
+    dzięki czemu Safari Quick Look powinien próbować otworzyć model zamiast pobierać.
     """
     try:
-        print(f"[serve_ar_model] Żądanie pliku: {filename}", file=sys.stderr)
-        
-        # Ścieżka do pliku w cache
+        # Ścieżka do katalogu z cache plików AR
         cache_dir = os.path.join(
-            current_app.root_path, 
+            current_app.root_path,
             'modules', 'preview3d_ar', 'static', 'ar-models', 'cache'
         )
-        
         file_path = os.path.join(cache_dir, filename)
-        
+
+        # Sprawdzenie, czy plik istnieje
         if not os.path.exists(file_path):
-            print(f"[serve_ar_model] Plik nie istnieje: {file_path}", file=sys.stderr)
-            return jsonify({'error': 'Plik nie znaleziony'}), 404
-        
-        # Sprawdź rozszerzenie dla właściwego Content-Type
-        _, ext = os.path.splitext(filename)
-        content_type = 'application/octet-stream'
-        
-        if ext.lower() == '.glb':
-            content_type = 'model/gltf-binary'
-        elif ext.lower() == '.usdz':
-            content_type = 'model/vnd.usd+zip'
-        elif ext.lower() == '.obj':
-            content_type = 'text/plain'
-        
-        print(f"[serve_ar_model] Serwowanie pliku: {filename} ({content_type})", file=sys.stderr)
-        
-        return send_file(
-            file_path,
-            mimetype=content_type,
-            as_attachment=False,
-            download_name=filename
-        )
-        
+            abort(404)
+
+        # Rozszerzenie pliku (w małych literach)
+        _, ext = os.path.splitext(filename.lower())
+
+        # Obsługa USDZ
+        if ext == '.usdz':
+            response = make_response(send_file(
+                file_path,
+                as_attachment=False,
+                download_name=filename
+            ))
+            response.headers['Content-Type'] = 'model/vnd.usd+zip'
+            response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            return response
+
+        # Obsługa GLB
+        elif ext == '.glb':
+            response = make_response(send_file(
+                file_path,
+                as_attachment=False,
+                download_name=filename
+            ))
+            response.headers['Content-Type'] = 'model/gltf-binary'
+            response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+            return response
+
+        # Inne pliki - po prostu wyślij
+        else:
+            return send_file(
+                file_path,
+                as_attachment=False,
+                download_name=filename
+            )
+
     except Exception as e:
+        # Logujemy błąd po stronie serwera
         print(f"[serve_ar_model] Błąd: {str(e)}", file=sys.stderr)
         return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
+
 
 @preview3d_ar_bp.route('/api/ar-info', methods=['GET'])
 def ar_info():

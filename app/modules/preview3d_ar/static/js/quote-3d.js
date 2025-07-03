@@ -49,15 +49,13 @@ class Quote3DHandler {
      * Konfiguruje event listenery
      */
     setupEventListeners() {
-        // Event listenery dla wariantów są już dodane w HTML
-        // Sprawdzamy czy jest pending selection
+        // Obsługa „pending” wyboru wariantu
         if (window.pendingVariantSelection) {
-            console.log('[Quote3D] Wykonanie pending selection');
             this.selectVariant(window.pendingVariantSelection);
             window.pendingVariantSelection = null;
         }
 
-        // Przycisk Reset
+        // Reset kamery
         if (this.btnReset) {
             this.btnReset.addEventListener('click', () => {
                 if (this.viewer && typeof this.viewer.resetCamera === 'function') {
@@ -66,43 +64,93 @@ class Quote3DHandler {
             });
         }
 
+        // Przygotuj przycisk AR
         this.setupARButton();
 
         console.log('[Quote3D] Event listenery skonfigurowane');
     }
 
+    async handleARClick() {
+        console.log('[Quote3D] handleARClick start');
+
+        // 1) Upewnij się, że wybrano produkt
+        if (!this.currentProduct) {
+            alert('Najpierw wybierz wariant produktu');
+            return;
+        }
+
+        // 2) Sprawdź, czy ARHandler jest załadowany
+        if (typeof window.ARHandler === 'undefined') {
+            console.error('[Quote3D] ARHandler nie jest załadowany');
+            alert('Błąd: Moduł AR nie jest dostępny. Odśwież stronę.');
+            return;
+        }
+
+        // 3) Przygotuj dane dla ARHandler
+        const arProductData = {
+            variant_code: this.currentProduct.variant_code,
+            dimensions: {
+                length: this.currentProduct.dimensions.length,
+                width: this.currentProduct.dimensions.width,
+                thickness: this.currentProduct.dimensions.thickness
+            },
+            quantity: this.currentProduct.quantity || 1
+        };
+
+        console.log('[Quote3D] Generowanie USDZ przez ARHandler...', arProductData);
+
+        // 4) Zablokuj przycisk na czas generowania
+        this.btnAr.disabled = true;
+
+        try {
+            // 5) Pobierz URL do pliku USDZ
+            const usdzUrl = await window.ARHandler.generateUSDZFile(arProductData);
+            console.log('[Quote3D] generateUSDZFile zwróciło URL:', usdzUrl);
+
+            // 6) Utwórz link <a rel="ar"> i kliknij w nim
+            const link = document.createElement('a');
+            link.href = usdzUrl;
+            link.rel = 'ar';
+            link.type = 'model/vnd.usd+zip';
+            link.style.display = 'none';
+            document.body.appendChild(link);
+
+            console.log('[Quote3D] Wywołuję link.click()');
+            link.click();
+
+            // 7) Posprzątaj
+            setTimeout(() => {
+                document.body.removeChild(link);
+            }, 1000);
+
+            console.log('[Quote3D] Quick Look powinien się otworzyć');
+
+        } catch (error) {
+            console.error('[Quote3D] Błąd AR:', error);
+            alert(`Błąd uruchamiania AR: ${error.message}`);
+        } finally {
+            // 8) Odblokuj przycisk
+            this.btnAr.disabled = false;
+        }
+    }
+
+
     /**
-    * Konfiguruje przycisk AR - ROZSZERZONA WERSJA Z TOUCH SUPPORT
+    * Dodaje click/touch listener tylko do handleARClick()
     */
     setupARButton() {
         if (!this.btnAr) return;
-
         console.log('[Quote3D] Konfiguracja przycisku AR');
-
-        // Dodaj event listenery dla różnych typów eventów
-        const handleARClick = (e) => {
+        const handler = e => {
             e.preventDefault();
             e.stopPropagation();
-            console.log('[Quote3D] AR button clicked/touched');
             this.handleARClick();
         };
-
-        // Mouse events (desktop)
-        this.btnAr.addEventListener('click', handleARClick);
-
-        // Touch events (mobile iOS/Android)
-        this.btnAr.addEventListener('touchstart', handleARClick);
-        this.btnAr.addEventListener('touchend', (e) => {
-            e.preventDefault(); // Zapobiega podwójnemu wywołaniu
-        });
-
-        // Dodaj dodatkowe style dla lepszej responsywności
+        this.btnAr.addEventListener('click', handler);
+        this.btnAr.addEventListener('touchstart', handler);
+        // poprawa UX na dotyku
         this.btnAr.style.cursor = 'pointer';
         this.btnAr.style.userSelect = 'none';
-        this.btnAr.style.webkitUserSelect = 'none';
-        this.btnAr.style.webkitTouchCallout = 'none';
-
-        console.log('[Quote3D] Event listenery AR dodane (click + touch)');
     }
 
     /**
@@ -158,38 +206,37 @@ class Quote3DHandler {
      * Ładuje produkt w viewer'ze
      */
     async loadProduct(productData) {
-        if (this.isLoading) {
-            console.log('[Quote3D] Ładowanie w toku, ignoruj żądanie');
-            return;
-        }
-
+        if (this.isLoading) return;
+        this.isLoading = true;
+        this.showLoading();
         try {
-            this.isLoading = true;
-            this.showLoading();
+            await this.viewer.loadProduct(productData);
+            this.updateProductInfo(productData);
+            this.currentProduct = productData;
 
-            console.log('[Quote3D] Ładowanie produktu:', productData);
-
-            // Sprawdź czy viewer jest gotowy
-            if (!this.viewer) {
-                throw new Error('Viewer nie jest zainicjalizowany');
+            // --- PREFETCH USDZ ---
+            try {
+                const usdzUrl = await window.ARHandler.generateUSDZFile(productData);
+                this.currentProduct.usdzUrl = usdzUrl;
+                let arLink = document.getElementById('ar-link');
+                if (!arLink) {
+                    arLink = document.createElement('a');
+                    arLink.id = 'ar-link';
+                    arLink.rel = 'ar';
+                    arLink.type = 'model/vnd.usd+zip';
+                    arLink.style.display = 'none';
+                    document.body.appendChild(arLink);
+                }
+                arLink.href = usdzUrl;
+                console.log('[Quote3D] USDZ prefetched:', usdzUrl);
+            } catch (prefetchError) {
+                console.warn('[Quote3D] Prefetch USDZ failed:', prefetchError);
             }
 
-            // Załaduj produkt przez WoodViewer
-            await this.viewer.loadProduct(productData);
-
-            // Zaktualizuj informacje o produkcie
-            this.updateProductInfo(productData);
-
-            // Zapisz aktualny produkt
-            this.currentProduct = productData;
-            this.hideLoading();
-
-            console.log('[Quote3D] Produkt załadowany pomyślnie');
-
-        } catch (error) {
-            console.error('[Quote3D] Błąd ładowania produktu:', error);
-            this.showError(`Błąd ładowania: ${error.message}`);
+        } catch (err) {
+            this.showError(`Błąd ładowania produktu: ${err.message}`);
         } finally {
+            this.hideLoading();
             this.isLoading = false;
         }
     }
@@ -304,49 +351,6 @@ class Quote3DHandler {
      */
     isARSupported() {
         return 'xr' in navigator && 'isSessionSupported' in navigator.xr;
-    }
-
-    /**
-    * Obsługuje kliknięcie w AR - ZAKTUALIZOWANA WERSJA
-    */
-    async handleARClick() {
-        try {
-            console.log('[Quote3D] Kliknięcie przycisku AR');
-
-            if (!this.currentProduct) {
-                alert('Najpierw wybierz wariant produktu');
-                return;
-            }
-
-            console.log('[Quote3D] Dane produktu dla AR:', this.currentProduct);
-
-            // Sprawdź czy ARHandler jest dostępny
-            if (typeof window.ARHandler === 'undefined') {
-                console.error('[Quote3D] ARHandler nie jest załadowany');
-                alert('Błąd: Moduł AR nie jest dostępny. Odśwież stronę.');
-                return;
-            }
-
-            // Przygotuj dane produktu w formacie oczekiwanym przez ARHandler
-            const arProductData = {
-                variant_code: this.currentProduct.variant_code,
-                dimensions: {
-                    length: this.currentProduct.dimensions.length,
-                    width: this.currentProduct.dimensions.width,
-                    thickness: this.currentProduct.dimensions.thickness
-                },
-                quantity: this.currentProduct.quantity || 1
-            };
-
-            console.log('[Quote3D] Wywołanie ARHandler.initiateAR');
-
-            // Wywołaj ARHandler
-            await window.ARHandler.initiateAR(arProductData);
-
-        } catch (error) {
-            console.error('[Quote3D] Błąd AR:', error);
-            alert(`Błąd uruchamiania AR: ${error.message}`);
-        }
     }
 
     /**
