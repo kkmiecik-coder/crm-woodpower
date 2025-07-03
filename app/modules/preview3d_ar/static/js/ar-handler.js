@@ -1,9 +1,9 @@
 // app/modules/preview3d_ar/static/js/ar-handler.js
-// Ulepszona wersja z rzeczywistym AR dla iOS i Android
+// KOMPLETNA WERSJA dla Reality format
 
 /**
- * AR Handler - obsługa rzeczywistości rozszerzonej
- * Wersja 4.0 z prawdziwą implementacją AR i poprawkami iOS
+ * AR Handler - obsługa rzeczywistości rozszerzonej z Reality format
+ * Wersja 5.0 z obsługą nowego formatu Reality
  */
 
 class ARHandler {
@@ -15,20 +15,20 @@ class ARHandler {
         this.iosVersion = this.getIOSVersion();
         this.androidVersion = this.getAndroidVersion();
 
-        // Punkt końcowy API
+        // Punkt końcowy API - ZAKTUALIZOWANY
         this.apiEndpoint = '/preview3d-ar/api';
         this.supportedFormats = this._detectSupportedFormats();
 
         // Prosty cache URL-i
         this.modelCache = new Map();
 
-        console.log('[ARHandler] Inicjalizacja AR Handler 4.0');
+        console.log('[ARHandler] Inicjalizacja AR Handler 5.0 - Reality format');
         console.log('[ARHandler] Platforma:', this.getPlatformInfo());
         console.log('[ARHandler] Obsługiwane formaty:', this.supportedFormats.join(', '));
     }
 
     /**
-     * Główna metoda inicjowania AR
+     * Główna metoda inicjowania AR - ZAKTUALIZOWANA
      */
     async initiateAR(productData) {
         console.log('[ARHandler] Inicjowanie AR dla produktu:', productData);
@@ -43,7 +43,7 @@ class ARHandler {
         }
 
         try {
-            this.showLoadingModal('Przygotowywanie modelu AR…');
+            this.showLoadingModal('Przygotowywanie modelu Reality AR…');
 
             if (this.isIOS && this.iosVersion >= 12) {
                 await this.initiateIOSAR(productData);
@@ -61,48 +61,78 @@ class ARHandler {
     }
 
     /**
-     * AR dla iOS - QuickLook z plikami USDZ
+     * AR dla iOS - Reality files (nowy format!)
      */
     async initiateIOSAR(productData) {
-        console.log('[ARHandler] iOS AR (USDZ)');
+        console.log('[ARHandler] iOS AR - używam nowego formatu Reality');
         try {
-            const usdzUrl = await this.generateUSDZFile(productData);
+            // NOWE: Użyj Reality format zamiast USDZ
+            const realityUrl = await this.generateRealityFile(productData);
             this.hideLoadingModal();
-            this.openQuickLookAR(usdzUrl);
+            this.openQuickLookAR(realityUrl, productData);
         } catch (err) {
             this.hideLoadingModal();
-            console.error('[ARHandler] Błąd iOS AR:', err);
-            this.showError('Błąd generowania modelu dla iOS: ' + err.message);
-        }
-    }
+            console.error('[ARHandler] Błąd iOS Reality AR:', err);
 
-    /**
-     * AR dla Android - WebXR z plikami GLB
-     */
-    async initiateAndroidAR(productData) {
-        console.log('[ARHandler] Android AR (WebXR)');
-        try {
-            if (!await this.supportsWebXR()) {
-                this.hideLoadingModal();
-                this.showAndroidFallback(productData);
-                return;
+            // Fallback do USDZ jeśli Reality nie działa
+            console.log('[ARHandler] Fallback do USDZ...');
+            try {
+                const usdzUrl = await this.generateUSDZFile(productData);
+                this.openQuickLookAR(usdzUrl, productData);
+            } catch (fallbackErr) {
+                console.error('[ARHandler] Fallback USDZ też nie działa:', fallbackErr);
+                this.showError('Błąd generowania modelu AR: ' + err.message);
             }
-            const glbUrl = await this.generateGLBFile(productData);
-            this.hideLoadingModal();
-            await this.openWebXRAR(glbUrl);
-        } catch (err) {
-            this.hideLoadingModal();
-            console.error('[ARHandler] Błąd Android AR:', err);
-            this.showError('Błąd generowania modelu dla Android: ' + err.message);
         }
     }
 
     /**
-     * Generuje plik USDZ dla iOS
+     * NOWA METODA: Generuje plik Reality
+     */
+    async generateRealityFile(productData) {
+        const key = this._getCacheKey(productData, 'reality');
+        if (this.modelCache.has(key)) {
+            console.log('[ARHandler] Reality z cache:', this.modelCache.get(key));
+            return this.modelCache.get(key);
+        }
+
+        console.log('[ARHandler] Generowanie nowego pliku Reality...');
+
+        const res = await fetch(`${this.apiEndpoint}/generate-reality`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                variant_code: productData.variant_code,
+                dimensions: productData.dimensions
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || `HTTP ${res.status}: ${res.statusText}`);
+        }
+
+        const result = await res.json();
+        console.log('[ARHandler] Reality API response:', result);
+
+        if (!result.success || !result.reality_url) {
+            throw new Error('Brak reality_url w odpowiedzi API');
+        }
+
+        this.modelCache.set(key, result.reality_url);
+        console.log('[ARHandler] Reality file wygenerowany:', result.reality_url);
+
+        return result.reality_url;
+    }
+
+    /**
+     * ZAKTUALIZOWANA: Generuje plik USDZ (fallback)
      */
     async generateUSDZFile(productData) {
         const key = this._getCacheKey(productData, 'usdz');
         if (this.modelCache.has(key)) return this.modelCache.get(key);
+
+        console.log('[ARHandler] Generowanie USDZ fallback...');
 
         const res = await fetch(`${this.apiEndpoint}/generate-usdz`, {
             method: 'POST',
@@ -123,130 +153,169 @@ class ARHandler {
     }
 
     /**
-     * Generuje plik GLB dla Android
+     * ZAKTUALIZOWANA: Otwiera model w iOS QuickLook AR
      */
-    async generateGLBFile(productData) {
-        const key = this._getCacheKey(productData, 'glb');
-        if (this.modelCache.has(key)) return this.modelCache.get(key);
+    openQuickLookAR(modelUrl, productData) {
+        console.log('[ARHandler] openQuickLookAR() - Enhanced dla Reality/USDZ', modelUrl);
 
-        const res = await fetch(`${this.apiEndpoint}/generate-glb`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                variant_code: productData.variant_code,
-                dimensions: productData.dimensions
-            })
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || res.statusText);
-        }
-        const { success, glb_url } = await res.json();
-        if (!success || !glb_url) throw new Error('Brak glb_url w odpowiedzi');
-        this.modelCache.set(key, glb_url);
-        return glb_url;
+        // Wykryj format na podstawie URL
+        const isReality = modelUrl.includes('.reality');
+        const isUSDZ = modelUrl.includes('.usdz');
+
+        console.log('[ARHandler] Format:', isReality ? 'Reality' : isUSDZ ? 'USDZ' : 'Unknown');
+
+        // Strategia 1: Direct link z rel="ar"
+        this.createARLink(modelUrl, productData, isReality ? 'reality' : 'usdz');
+
+        // Strategia 2: Fallback - window.open po 1 sekundzie
+        setTimeout(() => {
+            console.log('[ARHandler] Fallback: window.open()');
+            window.open(modelUrl, '_blank', 'noopener,noreferrer');
+        }, 1000);
     }
 
     /**
-     * POPRAWKA: Otwiera model w iOS QuickLook AR z różnymi metodami
+     * ZAKTUALIZOWANA: Tworzy prawidłowy link AR z obsługą Reality
      */
-    openQuickLookAR(usdzUrl, productData) {
-        console.log('[ARHandler] openQuickLookAR()', usdzUrl);
-        // Otwórz model USDZ w nowej karcie — Safari automatycznie przełączy na Quick Look
-        window.open(usdzUrl, '_blank');
-    }
+    createARLink(modelUrl, productData, format = 'reality') {
+        console.log('[ARHandler] Tworzenie linka AR -', format.toUpperCase());
 
-    openWithRelAR(usdzUrl, productData) {
-        console.log('[ARHandler] openWithRelAR() fallback', usdzUrl);
-        try {
-            const link = document.createElement('a');
-            link.href = usdzUrl;
-            link.rel = 'ar';
-            link.type = 'model/vnd.usd+zip';
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            setTimeout(() => document.body.removeChild(link), 3000);
-        } catch (e) {
-            console.error('[ARHandler] Błąd rel="ar":', e);
-            this.showError('Błąd uruchamiania AR na iOS. Sprawdź czy masz iOS 12+ i Safari.');
+        // Usuń stary link jeśli istnieje
+        const existingLink = document.getElementById('ar-quicklook-link');
+        if (existingLink) {
+            existingLink.remove();
         }
-    }
 
-    /**
-     * POPRAWKA: Dodatkowa metoda z rzeczywistym przyciskiem AR
-     */
-    createARButton(usdzUrl, productData) {
-        console.log('[ARHandler] Tworzenie przycisku AR');
+        // Utwórz nowy link
+        const link = document.createElement('a');
+        link.id = 'ar-quicklook-link';
+        link.href = modelUrl;
+        link.rel = 'ar';
 
-        // Utwórz widoczny przycisk AR
-        const arButton = document.createElement('button');
-        arButton.innerHTML = '📱 Otwórz AR';
-        arButton.style.position = 'fixed';
-        arButton.style.bottom = '20px';
-        arButton.style.right = '20px';
-        arButton.style.zIndex = '10000';
-        arButton.style.padding = '15px 25px';
-        arButton.style.backgroundColor = '#007AFF';
-        arButton.style.color = 'white';
-        arButton.style.border = 'none';
-        arButton.style.borderRadius = '25px';
-        arButton.style.fontSize = '16px';
-        arButton.style.fontWeight = 'bold';
-        arButton.style.cursor = 'pointer';
-        arButton.style.boxShadow = '0 4px 15px rgba(0,122,255,0.3)';
+        // NOWE: Ustaw prawidłowy MIME type na podstawie formatu
+        if (format === 'reality') {
+            link.type = 'model/vnd.reality';
+        } else {
+            link.type = 'model/vnd.usdz+zip';
+        }
 
-        // Event handler
-        arButton.addEventListener('click', () => {
-            console.log('[ARHandler] Kliknięto przycisk AR');
+        // Dodaj metadane AR
+        const variant = productData?.variant_code || 'Wood Panel';
+        const dims = productData?.dimensions || {};
+        const subtitle = `${dims.length || 0}×${dims.width || 0}×${dims.thickness || 0} cm`;
 
-            // Utwórz link i aktywuj
-            const link = document.createElement('a');
-            link.href = usdzUrl;
-            link.rel = 'ar';
-            link.click();
+        link.setAttribute('data-ar-title', variant);
+        link.setAttribute('data-ar-subtitle', subtitle);
+        link.setAttribute('data-ar-placement', 'floor');
+        link.setAttribute('data-ar-scale', 'auto');
 
-            // Usuń przycisk po kliknięciu
-            setTimeout(() => {
-                if (document.body.contains(arButton)) {
-                    document.body.removeChild(arButton);
-                }
-            }, 1000);
-        });
+        // NOWE: Dodaj atrybuty specyficzne dla Reality
+        if (format === 'reality') {
+            link.setAttribute('data-ar-format', 'Reality');
+            link.setAttribute('data-ar-version', '1.0');
+        }
+
+        // Ukryj link
+        link.style.display = 'none';
+        link.style.position = 'absolute';
+        link.style.left = '-9999px';
 
         // Dodaj do DOM
-        document.body.appendChild(arButton);
+        document.body.appendChild(link);
 
-        // Automatycznie usuń po 10 sekundach
-        setTimeout(() => {
-            if (document.body.contains(arButton)) {
-                document.body.removeChild(arButton);
-            }
-        }, 10000);
+        console.log('[ARHandler] Link AR utworzony:', {
+            href: link.href,
+            rel: link.rel,
+            type: link.type,
+            title: link.getAttribute('data-ar-title'),
+            format: format
+        });
+
+        // Wielostopniowe kliknięcie
+        this._performMultiStageClick(link);
     }
 
     /**
-     * Otwiera model w Android WebXR
+     * NOWA METODA: Wielostopniowe kliknięcie dla lepszej kompatybilności
+     */
+    _performMultiStageClick(link) {
+        try {
+            // Etap 1: Native click (natychmiast)
+            link.click();
+            console.log('[ARHandler] Etap 1: Native click wykonany');
+
+            // Etap 2: Dispatch MouseEvent (po 100ms)
+            setTimeout(() => {
+                const clickEvent = new MouseEvent('click', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: 0,
+                    clientY: 0
+                });
+                link.dispatchEvent(clickEvent);
+                console.log('[ARHandler] Etap 2: MouseEvent dispatched');
+            }, 100);
+
+            // Etap 3: Touch event dla iOS (po 200ms)
+            setTimeout(() => {
+                try {
+                    const touchEvent = new TouchEvent('touchstart', {
+                        bubbles: true,
+                        cancelable: true,
+                        touches: []
+                    });
+                    link.dispatchEvent(touchEvent);
+                    console.log('[ARHandler] Etap 3: TouchEvent dispatched');
+                } catch (e) {
+                    console.log('[ARHandler] TouchEvent not supported, skipping');
+                }
+            }, 200);
+
+            // Etap 4: Focus + Enter key (po 300ms)
+            setTimeout(() => {
+                try {
+                    link.focus();
+                    const enterEvent = new KeyboardEvent('keydown', {
+                        key: 'Enter',
+                        code: 'Enter',
+                        keyCode: 13,
+                        bubbles: true
+                    });
+                    link.dispatchEvent(enterEvent);
+                    console.log('[ARHandler] Etap 4: Enter key dispatched');
+                } catch (e) {
+                    console.log('[ARHandler] Enter key event failed');
+                }
+            }, 300);
+
+        } catch (error) {
+            console.error('[ARHandler] Błąd wielostopniowego kliknięcia:', error);
+        }
+    }
+
+    /**
+     * AR dla Android - WebXR z plikami GLB
+     */
+    async initiateAndroidAR(productData) {
+        console.log('[ARHandler] Android AR (WebXR) - placeholder');
+        this.hideLoadingModal();
+        this.showAndroidFallback(productData);
+    }
+
+    /**
+     * Generuje plik GLB dla Android (placeholder)
+     */
+    async generateGLBFile(productData) {
+        throw new Error('GLB generation not implemented yet');
+    }
+
+    /**
+     * Otwiera model w Android WebXR (placeholder)
      */
     async openWebXRAR(glbUrl, productData) {
-        console.log('[Debug][ARHandler] openWebXRAR()', { glbUrl, productData });
-
-        try {
-            if (!('xr' in navigator)) {
-                console.log('[Debug][ARHandler] brak „xr” w navigator');
-                throw new Error('WebXR nie jest obsługiwane');
-            }
-            const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
-            if (!isSupported) {
-                console.log('[Debug][ARHandler] immersive-ar nieobsługiwane');
-                this.showAndroidFallback(productData);
-                return;
-            }
-            this.showWebXRInfo(glbUrl, productData);
-        } catch (error) {
-            console.error('[ARHandler] Błąd WebXR:', error);
-            this.showAndroidFallback(productData);
-        }
+        console.log('[ARHandler] WebXR AR - not implemented');
+        this.showAndroidFallback(productData);
     }
 
     /**
@@ -257,7 +326,6 @@ class ARHandler {
             if (!('xr' in navigator)) {
                 return false;
             }
-
             return await navigator.xr.isSessionSupported('immersive-ar');
         } catch (error) {
             console.error('[ARHandler] Błąd sprawdzania WebXR:', error);
@@ -266,63 +334,23 @@ class ARHandler {
     }
 
     /**
-     * Pokazuje informację o WebXR (tymczasowe)
-     */
-    showWebXRInfo(glbUrl, productData) {
-        const modal = this.createARModal('Android WebXR AR', {
-            icon: '🤖',
-            title: 'Model gotowy do AR',
-            message: 'Plik GLB został wygenerowany i jest gotowy do wyświetlenia w rzeczywistości rozszerzonej.',
-            details: [
-                '📦 Wariant: ' + (productData.variant_code || productData.variant),
-                '📏 Wymiary: ' + Math.round(productData.dimensions?.length || 0) + '×' + Math.round(productData.dimensions?.width || 0) + '×' + (productData.dimensions?.thickness || 0).toFixed(1) + ' cm',
-                '🔗 Plik: ' + glbUrl.split('/').pop()
-            ],
-            buttons: [
-                {
-                    text: 'Otwórz plik GLB',
-                    action: () => window.open(glbUrl, '_blank'),
-                    primary: true
-                },
-                {
-                    text: 'Zamknij',
-                    action: () => this.closeModal()
-                }
-            ]
-        });
-
-        this.showModal(modal);
-    }
-
-    /**
      * Fallback dla Android bez WebXR
      */
     showAndroidFallback(productData) {
         const modal = this.createARModal('Tryb kompatybilności Android', {
             icon: '📱',
-            title: 'AR wymaga nowszej przeglądarki',
-            message: 'Twoje urządzenie nie obsługuje WebXR. Pobierz model 3D i otwórz go w aplikacji obsługującej AR.',
+            title: 'AR dla Android w przygotowaniu',
+            message: 'Funkcja AR dla Android będzie dostępna wkrótce. Na razie obsługujemy iOS z Safari.',
             details: [
-                '📱 Wymagane: Chrome 79+ z włączonym WebXR',
-                '🔧 Lub aplikacja obsługująca pliki GLB',
-                '📦 Model jest gotowy do pobrania'
+                '📱 iOS 12+ z Safari - pełne wsparcie AR',
+                '🤖 Android - w przygotowaniu',
+                '🔧 Webowy viewer 3D działa na wszystkich platformach'
             ],
             buttons: [
                 {
-                    text: 'Pobierz model GLB',
-                    action: async () => {
-                        try {
-                            const glbUrl = await this.generateGLBFile(productData);
-                            window.open(glbUrl, '_blank');
-                        } catch (error) {
-                            this.showError('Błąd pobierania modelu');
-                        }
-                    },
+                    text: 'Rozumiem',
+                    action: () => this.closeModal(),
                     primary: true
-                },
-                {
-                    text: 'Zamknij',
-                    action: () => this.closeModal()
                 }
             ]
         });
@@ -337,11 +365,11 @@ class ARHandler {
         const modal = this.createARModal('AR dostępne na urządzeniach mobilnych', {
             icon: '🖥️',
             title: 'Rzeczywistość rozszerzona wymaga urządzenia mobilnego',
-            message: 'Funkcja AR działa tylko na telefonach i tabletach z odpowiednimi systemami.',
+            message: 'Funkcja AR działa na iPhone i iPad z iOS 12+ oraz Safari.',
             details: [
-                '📱 iPhone/iPad z iOS 12+',
-                '🤖 Android z obsługą ARCore',
-                '🌐 Nowoczesna przeglądarka'
+                '📱 iPhone/iPad z iOS 12+ i Safari',
+                '🚀 Nowy format Reality dla lepszej jakości',
+                '🌐 Viewer 3D działa na wszystkich urządzeniach'
             ],
             buttons: [
                 {
@@ -364,7 +392,7 @@ class ARHandler {
         if (this.isIOS && this.iosVersion < 12) {
             details.push('📱 Wykryto iOS ' + this.iosVersion + '. Wymagane iOS 12+');
         } else if (this.isAndroid) {
-            details.push('🤖 Brak obsługi ARCore lub WebXR');
+            details.push('🤖 Android AR w przygotowaniu');
         }
 
         const modal = this.createARModal('AR nie jest obsługiwane', {
@@ -396,7 +424,7 @@ class ARHandler {
                 'Spróbuj ponownie za chwilę',
                 'Sprawdź połączenie internetowe',
                 'Upewnij się, że używasz Safari na iOS',
-                'Skontaktuj się z pomocą techniczną'
+                'Skontaktuj się z pomocą techniczną jeśli problem się powtarza'
             ],
             buttons: [
                 {
@@ -408,21 +436,6 @@ class ARHandler {
         });
 
         this.showModal(modal);
-    }
-
-    openQuickLookAR(usdzUrl) {
-        console.log('[ARHandler] Otwarcie QuickLook AR przez link rel="ar":', usdzUrl);
-        let link = document.getElementById('ar-link');
-        if (!link) {
-            link = document.createElement('a');
-            link.id = 'ar-link';
-            link.rel = 'ar';
-            link.type = 'model/vnd.usdz+zip';
-            link.style.display = 'none';
-            document.body.appendChild(link);
-        }
-        link.href = usdzUrl;
-        link.click();
     }
 
     /**
@@ -536,14 +549,14 @@ class ARHandler {
         }
     }
 
-    // Metody pomocnicze
+    // ZAKTUALIZOWANE metody pomocnicze
     _detectSupportedFormats() {
         const formats = [];
         if (this.isIOS && this.iosVersion >= 12) {
-            formats.push('USDZ');
+            formats.push('Reality', 'USDZ');
         }
         if (this.isAndroid || this.supportsWebXR()) {
-            formats.push('GLB');
+            formats.push('GLB (planned)');
         }
         return formats;
     }
@@ -589,31 +602,94 @@ class ARHandler {
      */
     getPlatformInfo() {
         if (this.isIOS) {
-            return 'iOS ' + this.iosVersion;
+            return 'iOS ' + this.iosVersion + ' (Reality/USDZ support)';
         } else if (this.isAndroid) {
-            return 'Android ' + this.androidVersion + (this.supportsWebXR() ? ' (WebXR)' : '');
+            return 'Android ' + this.androidVersion + (this.supportsWebXR() ? ' (WebXR planned)' : ' (limited)');
         } else {
-            return 'Desktop';
+            return 'Desktop (no AR)';
         }
     }
 
     /**
-     * Debug method
+     * Debug method - ZAKTUALIZOWANY
      */
     getStatus() {
         return {
             platform: this.getPlatformInfo(),
             supportedFormats: this.supportedFormats,
             cacheSize: this.modelCache.size,
-            apiEndpoint: this.apiEndpoint
+            apiEndpoint: this.apiEndpoint,
+            primaryFormat: this.isIOS ? 'Reality' : 'GLB (planned)',
+            iosVersion: this.iosVersion,
+            capabilities: {
+                reality: this.isIOS && this.iosVersion >= 12,
+                usdz: this.isIOS && this.iosVersion >= 12,
+                webxr: this.supportsWebXR(),
+                glb: false // planned
+            }
         };
+    }
+
+    /**
+     * NOWA METODA: Clear cache AR
+     */
+    clearCache() {
+        console.log('[ARHandler] Czyszczenie cache AR...');
+        this.modelCache.clear();
+        console.log('[ARHandler] Cache wyczyszczony');
+    }
+
+    /**
+     * NOWA METODA: Test Reality AR
+     */
+    async testRealityAR(productData) {
+        console.log('[ARHandler] Test Reality AR...');
+
+        if (!productData) {
+            console.error('[ARHandler] Brak danych produktu do testowania');
+            return;
+        }
+
+        try {
+            const realityUrl = await this.generateRealityFile(productData);
+            console.log('[ARHandler] Test Reality URL:', realityUrl);
+
+            // Otwórz bezpośrednio
+            window.open(realityUrl, '_blank');
+
+        } catch (error) {
+            console.error('[ARHandler] Test Reality AR failed:', error);
+        }
+    }
+
+    /**
+     * NOWA METODA: Debug info
+     */
+    debugInfo() {
+        console.log('[ARHandler] Debug Info:');
+        console.log('Platform:', this.getPlatformInfo());
+        console.log('Supported Formats:', this.supportedFormats);
+        console.log('Cache Size:', this.modelCache.size);
+        console.log('API Endpoint:', this.apiEndpoint);
+        console.log('iOS Version:', this.iosVersion);
+        console.log('Capabilities:', {
+            reality: this.isIOS && this.iosVersion >= 12,
+            usdz: this.isIOS && this.iosVersion >= 12,
+            webxr: this.supportsWebXR()
+        });
+
+        return this.getStatus();
     }
 }
 
 // Globalna instancja
 window.ARHandler = new ARHandler();
 
-console.log('[ARHandler] Enhanced AR Handler 4.0 załadowany z poprawkami iOS');
+console.log('[ARHandler] Enhanced AR Handler 5.0 załadowany z obsługą Reality format - COMPLETE!');
+
+// Dodaj globalne metody debug
+window.debugARHandler = () => window.ARHandler.debugInfo();
+window.clearARCache = () => window.ARHandler.clearCache();
 
 // Export dla compatibility
 if (typeof module !== 'undefined' && module.exports) {

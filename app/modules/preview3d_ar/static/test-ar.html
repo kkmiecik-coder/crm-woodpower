@@ -3,231 +3,167 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test AR USDZ</title>
+    <title>USDZ Debug Tool</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             padding: 20px;
             background: #f5f5f5;
+            max-width: 800px;
+            margin: 0 auto;
         }
 
         .container {
-            max-width: 600px;
-            margin: 0 auto;
             background: white;
             padding: 30px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
 
-        .ar-button {
-            display: inline-block;
-            background: #007AFF;
-            color: white;
-            padding: 15px 30px;
-            text-decoration: none;
-            border-radius: 25px;
-            font-weight: bold;
-            margin: 10px;
-            transition: all 0.3s ease;
-        }
-
-            .ar-button:hover {
-                background: #0056CC;
-                transform: translateY(-2px);
-            }
-
-        .info {
-            background: #e8f4f8;
-            padding: 15px;
-            border-radius: 8px;
+        .debug-section {
             margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
         }
 
-        .debug {
-            background: #f0f0f0;
+        .debug-output {
+            background: #000;
+            color: #0f0;
             padding: 15px;
             border-radius: 8px;
             font-family: monospace;
-            font-size: 12px;
-            margin: 20px 0;
-        }
-
-        .test-buttons {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
         }
 
         .test-button {
-            background: #34C759;
+            background: #007AFF;
             color: white;
-            padding: 12px 20px;
+            padding: 12px 24px;
             border: none;
             border-radius: 8px;
             cursor: pointer;
+            margin: 10px 5px;
             font-weight: bold;
         }
 
             .test-button:hover {
-                background: #28A745;
+                background: #0056CC;
             }
+
+            .test-button.success {
+                background: #34C759;
+            }
+
+            .test-button.error {
+                background: #FF3B30;
+            }
+
+        .info-box {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #ffc107;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔍 Test AR USDZ</h1>
+        <h1>🔍 USDZ Debug Tool</h1>
 
-        <div class="info">
-            <strong>Instrukcja:</strong><br>
-            1. Otwórz tę stronę w Safari na iPhone/iPad<br>
-            2. Kliknij jeden z przycisków AR poniżej<br>
-            3. Powinien uruchomić się podgląd AR z kamerą<br>
-            4. Sprawdź logi w konsoli Safari
+        <div class="info-box">
+            <strong>Instrukcja:</strong> To narzędzie pomoże zdiagnozować problemy z plikami USDZ dla iOS AR.
         </div>
 
-        <div class="test-buttons">
-            <button class="test-button" onclick="testDirectUSDZ()">
-                📱 Test Direct USDZ
-            </button>
-            <button class="test-button" onclick="testRelAR()">
-                🔗 Test rel="ar"
-            </button>
-            <button class="test-button" onclick="testWindowOpen()">
-                🪟 Test window.open
-            </button>
-            <button class="test-button" onclick="generateAndTest()">
-                🏗️ Generate & Test
-            </button>
+        <div class="debug-section">
+            <h3>1. Informacje o urządzeniu</h3>
+            <div id="device-info" class="debug-output"></div>
         </div>
 
-        <!-- Bezpośrednie linki do testowania -->
-        <div style="margin: 20px 0;">
-            <h3>Bezpośrednie linki:</h3>
-            <a href="#" id="direct-link" class="ar-button" rel="ar" style="display: none;">
-                📱 Otwórz w AR
-            </a>
+        <div class="debug-section">
+            <h3>2. Test generowania USDZ</h3>
+            <button class="test-button" onclick="testUSDZGeneration()">Generuj USDZ</button>
+            <button class="test-button" onclick="checkFileHeaders()">Sprawdź nagłówki</button>
+            <div id="usdz-test-output" class="debug-output"></div>
         </div>
 
-        <div class="debug" id="debug-info">
-            <strong>Debug Info:</strong><br>
-            Platforma: <span id="platform"></span><br>
-            iOS Version: <span id="ios-version"></span><br>
-            Safari: <span id="safari-check"></span><br>
-            WebXR: <span id="webxr-check"></span><br>
-            User Agent: <span id="user-agent"></span>
+        <div class="debug-section">
+            <h3>3. Test różnych metod otwarcia AR</h3>
+            <button class="test-button" onclick="testMethod1()">window.open()</button>
+            <button class="test-button" onclick="testMethod2()">rel="ar" link</button>
+            <button class="test-button" onclick="testMethod3()">programmatic click</button>
+            <button class="test-button" onclick="testMethod4()">direct navigation</button>
+            <div id="ar-test-output" class="debug-output"></div>
         </div>
 
-        <div class="debug" id="test-log">
-            <strong>Test Log:</strong><br>
-            <div id="log-content"></div>
+        <div class="debug-section">
+            <h3>4. Test z przykładowym plikiem Apple</h3>
+            <button class="test-button" onclick="testAppleExample()">Test Apple USDZ</button>
+            <div id="apple-test-output" class="debug-output"></div>
+        </div>
+
+        <div class="debug-section">
+            <h3>5. Analiza zawartości pliku</h3>
+            <button class="test-button" onclick="analyzeUSDZStructure()">Analizuj strukturę</button>
+            <div id="structure-output" class="debug-output"></div>
+        </div>
+
+        <div class="warning-box">
+            <strong>Uwaga:</strong> Ten tool działa najlepiej w Safari na iOS. Funkcje AR będą dostępne tylko na urządzeniach iOS 12+.
         </div>
     </div>
 
     <script>
-        // Debug info
-        function updateDebugInfo() {
+        let currentUSDZUrl = null;
+
+        function log(message, outputId = 'device-info') {
+            const output = document.getElementById(outputId);
+            const timestamp = new Date().toLocaleTimeString();
+            output.textContent += `[${timestamp}] ${message}\n`;
+            console.log(`[USDZ Debug] ${message}`);
+        }
+
+        function clearLog(outputId) {
+            document.getElementById(outputId).textContent = '';
+        }
+
+        // Inicjalizacja - informacje o urządzeniu
+        function initDeviceInfo() {
+            clearLog('device-info');
+
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             const iosMatch = navigator.userAgent.match(/OS (\d+)_/);
             const iosVersion = iosMatch ? parseInt(iosMatch[1]) : 0;
             const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-            const hasWebXR = 'xr' in navigator;
 
-            document.getElementById('platform').textContent = isIOS ? 'iOS' : 'Other';
-            document.getElementById('ios-version').textContent = isIOS ? iosVersion : 'N/A';
-            document.getElementById('safari-check').textContent = isSafari ? 'Yes' : 'No';
-            document.getElementById('webxr-check').textContent = hasWebXR ? 'Yes' : 'No';
-            document.getElementById('user-agent').textContent = navigator.userAgent;
+            log(`Platform: ${isIOS ? 'iOS' : 'Other'}`, 'device-info');
+            log(`iOS Version: ${isIOS ? iosVersion : 'N/A'}`, 'device-info');
+            log(`Safari: ${isSafari ? 'Yes' : 'No'}`, 'device-info');
+            log(`User Agent: ${navigator.userAgent}`, 'device-info');
+            log(`Supports AR: ${isIOS && iosVersion >= 12 && isSafari ? 'YES' : 'NO'}`, 'device-info');
+
+            // Sprawdź MIME types
+            const testLink = document.createElement('a');
+            testLink.href = 'data:model/vnd.usdz+zip;base64,';
+            log(`USDZ MIME support: ${testLink.href.includes('model/vnd.usdz+zip') ? 'YES' : 'NO'}`, 'device-info');
         }
 
-        // Logging
-        function log(message) {
-            const logContent = document.getElementById('log-content');
-            const timestamp = new Date().toLocaleTimeString();
-            logContent.innerHTML += `[${timestamp}] ${message}<br>`;
-            console.log(`[AR Test] ${message}`);
-        }
-
-        // Test 1: Direct USDZ URL
-        function testDirectUSDZ() {
-            log('Test 1: Direct USDZ URL');
-            const usdzUrl = 'https://developer.apple.com/augmented-reality/quick-look/models/cupandsaucer/Cup_and_Saucer.usdz';
+        // Test generowania USDZ
+        async function testUSDZGeneration() {
+            clearLog('usdz-test-output');
+            log('Rozpoczęcie testu generowania USDZ...', 'usdz-test-output');
 
             try {
-                window.open(usdzUrl, '_blank');
-                log('✓ window.open() wykonany');
-            } catch (error) {
-                log('✗ Błąd window.open(): ' + error.message);
-            }
-        }
-
-        // Test 2: rel="ar" method
-        function testRelAR() {
-            log('Test 2: rel="ar" method');
-            const usdzUrl = 'https://developer.apple.com/augmented-reality/quick-look/models/cupandsaucer/Cup_and_Saucer.usdz';
-
-            try {
-                // Utwórz link
-                const link = document.createElement('a');
-                link.href = usdzUrl;
-                link.rel = 'ar';
-                link.style.display = 'none';
-
-                // Dodaj metadane
-                link.setAttribute('data-ar-title', 'Test Cup');
-                link.setAttribute('data-ar-subtitle', 'Test Model');
-
-                document.body.appendChild(link);
-
-                // Symuluj kliknięcie
-                const event = new MouseEvent('click', {
-                    view: window,
-                    bubbles: true,
-                    cancelable: true
-                });
-
-                link.dispatchEvent(event);
-
-                setTimeout(() => {
-                    if (document.body.contains(link)) {
-                        document.body.removeChild(link);
-                    }
-                }, 1000);
-
-                log('✓ rel="ar" link created and clicked');
-            } catch (error) {
-                log('✗ Błąd rel="ar": ' + error.message);
-            }
-        }
-
-        // Test 3: window.open method
-        function testWindowOpen() {
-            log('Test 3: window.open method');
-            const usdzUrl = 'https://developer.apple.com/augmented-reality/quick-look/models/cupandsaucer/Cup_and_Saucer.usdz';
-
-            try {
-                const arWindow = window.open(usdzUrl, '_blank', 'noopener,noreferrer');
-
-                setTimeout(() => {
-                    if (arWindow && !arWindow.closed) {
-                        log('✓ AR window opened successfully');
-                    } else {
-                        log('⚠ AR window may have been blocked or closed');
-                    }
-                }, 1000);
-
-            } catch (error) {
-                log('✗ Błąd window.open: ' + error.message);
-            }
-        }
-
-        // Test 4: Generate and test with our API
-        async function generateAndTest() {
-            log('Test 4: Generate and test with our API');
-
-            try {
-                // Wywołaj API do generowania USDZ
                 const response = await fetch('/preview3d-ar/api/generate-usdz', {
                     method: 'POST',
                     headers: {
@@ -243,43 +179,261 @@
                     })
                 });
 
+                log(`Response status: ${response.status}`, 'usdz-test-output');
+                log(`Response headers:`, 'usdz-test-output');
+
+                for (let [key, value] of response.headers.entries()) {
+                    log(`  ${key}: ${value}`, 'usdz-test-output');
+                }
+
                 if (!response.ok) {
-                    throw new Error(`API Error: ${response.status}`);
+                    const errorText = await response.text();
+                    log(`Error: ${errorText}`, 'usdz-test-output');
+                    return;
                 }
 
                 const data = await response.json();
-                log('✓ USDZ generated: ' + data.filename);
-                log('USDZ URL: ' + data.usdz_url);
+                log(`Success: ${JSON.stringify(data, null, 2)}`, 'usdz-test-output');
 
-                // Zaktualizuj direct link
-                const directLink = document.getElementById('direct-link');
-                directLink.href = data.usdz_url;
-                directLink.style.display = 'inline-block';
-
-                // Automatycznie przetestuj
-                window.open(data.usdz_url, '_blank');
+                currentUSDZUrl = data.usdz_url;
+                log(`Current USDZ URL: ${currentUSDZUrl}`, 'usdz-test-output');
 
             } catch (error) {
-                log('✗ Błąd API: ' + error.message);
+                log(`Error: ${error.message}`, 'usdz-test-output');
             }
         }
 
-        // Initialize
+        // Sprawdź nagłówki pliku
+        async function checkFileHeaders() {
+            if (!currentUSDZUrl) {
+                log('Najpierw wygeneruj plik USDZ!', 'usdz-test-output');
+                return;
+            }
+
+            clearLog('usdz-test-output');
+            log('Sprawdzanie nagłówków pliku...', 'usdz-test-output');
+
+            try {
+                const response = await fetch(currentUSDZUrl, { method: 'HEAD' });
+
+                log(`File HEAD response status: ${response.status}`, 'usdz-test-output');
+                log(`File headers:`, 'usdz-test-output');
+
+                for (let [key, value] of response.headers.entries()) {
+                    log(`  ${key}: ${value}`, 'usdz-test-output');
+                }
+
+                // Sprawdź Content-Type
+                const contentType = response.headers.get('content-type');
+                const isCorrectMime = contentType === 'model/vnd.usdz+zip';
+                log(`Content-Type correct: ${isCorrectMime ? 'YES' : 'NO'} (${contentType})`, 'usdz-test-output');
+
+            } catch (error) {
+                log(`Error checking headers: ${error.message}`, 'usdz-test-output');
+            }
+        }
+
+        // Test Method 1: window.open()
+        function testMethod1() {
+            clearLog('ar-test-output');
+            if (!currentUSDZUrl) {
+                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
+                return;
+            }
+
+            log('Test Method 1: window.open()', 'ar-test-output');
+            try {
+                const popup = window.open(currentUSDZUrl, '_blank');
+                log('window.open() wykonane', 'ar-test-output');
+
+                setTimeout(() => {
+                    if (popup && popup.closed) {
+                        log('Popup został zamknięty - prawdopodobnie otworzył się AR', 'ar-test-output');
+                    } else if (popup) {
+                        log('Popup nadal otwarty - prawdopodobnie problem z AR', 'ar-test-output');
+                    } else {
+                        log('Popup zablokowany lub błąd', 'ar-test-output');
+                    }
+                }, 2000);
+
+            } catch (error) {
+                log(`Error: ${error.message}`, 'ar-test-output');
+            }
+        }
+
+        // Test Method 2: rel="ar" link
+        function testMethod2() {
+            clearLog('ar-test-output');
+            if (!currentUSDZUrl) {
+                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
+                return;
+            }
+
+            log('Test Method 2: rel="ar" link', 'ar-test-output');
+            try {
+                const link = document.createElement('a');
+                link.href = currentUSDZUrl;
+                link.rel = 'ar';
+                link.type = 'model/vnd.usdz+zip';
+                link.style.display = 'none';
+
+                // Dodaj metadane
+                link.setAttribute('data-ar-placement', 'floor');
+                link.setAttribute('data-ar-scale', 'auto');
+
+                document.body.appendChild(link);
+
+                log('Link rel="ar" utworzony', 'ar-test-output');
+                log(`Link href: ${link.href}`, 'ar-test-output');
+                log(`Link rel: ${link.rel}`, 'ar-test-output');
+                log(`Link type: ${link.type}`, 'ar-test-output');
+
+                // Symuluj kliknięcie
+                const event = new MouseEvent('click', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true
+                });
+
+                link.dispatchEvent(event);
+                log('Click event dispatched', 'ar-test-output');
+
+                setTimeout(() => {
+                    document.body.removeChild(link);
+                    log('Link usunięty', 'ar-test-output');
+                }, 3000);
+
+            } catch (error) {
+                log(`Error: ${error.message}`, 'ar-test-output');
+            }
+        }
+
+        // Test Method 3: programmatic click
+        function testMethod3() {
+            clearLog('ar-test-output');
+            if (!currentUSDZUrl) {
+                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
+                return;
+            }
+
+            log('Test Method 3: programmatic click', 'ar-test-output');
+            try {
+                const link = document.createElement('a');
+                link.href = currentUSDZUrl;
+                link.rel = 'ar';
+                link.download = 'test-model.usdz';
+                link.style.display = 'none';
+
+                document.body.appendChild(link);
+                link.click();
+
+                log('Programmatic click wykonany', 'ar-test-output');
+
+                setTimeout(() => {
+                    if (document.body.contains(link)) {
+                        document.body.removeChild(link);
+                    }
+                }, 1000);
+
+            } catch (error) {
+                log(`Error: ${error.message}`, 'ar-test-output');
+            }
+        }
+
+        // Test Method 4: direct navigation
+        function testMethod4() {
+            clearLog('ar-test-output');
+            if (!currentUSDZUrl) {
+                log('Najpierw wygeneruj plik USDZ!', 'ar-test-output');
+                return;
+            }
+
+            log('Test Method 4: direct navigation', 'ar-test-output');
+            log('Przekierowywanie do USDZ...', 'ar-test-output');
+
+            // Bezpośrednia nawigacja
+            window.location.href = currentUSDZUrl;
+        }
+
+        // Test z przykładem Apple
+        function testAppleExample() {
+            clearLog('apple-test-output');
+            log('Test z oficjalnym przykładem Apple...', 'apple-test-output');
+
+            const appleUSDZ = 'https://developer.apple.com/augmented-reality/quick-look/models/cupandsaucer/Cup_and_Saucer.usdz';
+
+            try {
+                const link = document.createElement('a');
+                link.href = appleUSDZ;
+                link.rel = 'ar';
+                link.type = 'model/vnd.usdz+zip';
+                link.style.display = 'none';
+
+                document.body.appendChild(link);
+                link.click();
+
+                log('Apple USDZ test wykonany', 'apple-test-output');
+                log('Jeśli AR się otworzył - problem jest z naszym plikiem', 'apple-test-output');
+                log('Jeśli nie - problem z konfiguracją Safari/iOS', 'apple-test-output');
+
+                setTimeout(() => {
+                    if (document.body.contains(link)) {
+                        document.body.removeChild(link);
+                    }
+                }, 1000);
+
+            } catch (error) {
+                log(`Error: ${error.message}`, 'apple-test-output');
+            }
+        }
+
+        // Analiza struktury USDZ
+        async function analyzeUSDZStructure() {
+            if (!currentUSDZUrl) {
+                log('Najpierw wygeneruj plik USDZ!', 'structure-output');
+                return;
+            }
+
+            clearLog('structure-output');
+            log('Analizowanie struktury pliku USDZ...', 'structure-output');
+
+            try {
+                // Pobierz plik jako blob
+                const response = await fetch(currentUSDZUrl);
+                const blob = await response.blob();
+
+                log(`File size: ${blob.size} bytes`, 'structure-output');
+                log(`File type: ${blob.type}`, 'structure-output');
+
+                // Sprawdź nagłówek ZIP
+                const arrayBuffer = await blob.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+
+                // ZIP signature: PK (0x504B)
+                const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B;
+                log(`Is ZIP format: ${isZip ? 'YES' : 'NO'}`, 'structure-output');
+
+                if (isZip) {
+                    log('File appears to be a valid ZIP archive', 'structure-output');
+
+                    // Spróbuj znaleźć .usd pliki w strukturze (bardzo podstawowa analiza)
+                    const fileContent = new TextDecoder().decode(bytes);
+                    const hasUSDContent = fileContent.includes('.usd') || fileContent.includes('usda');
+                    log(`Contains USD references: ${hasUSDContent ? 'YES' : 'NO'}`, 'structure-output');
+                } else {
+                    log('ERROR: File is not a valid ZIP archive!', 'structure-output');
+                    log('First 16 bytes:', 'structure-output');
+                    log(Array.from(bytes.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' '), 'structure-output');
+                }
+
+            } catch (error) {
+                log(`Error analyzing structure: ${error.message}`, 'structure-output');
+            }
+        }
+
+        // Inicjalizacja po załadowaniu strony
         document.addEventListener('DOMContentLoaded', function() {
-            updateDebugInfo();
-            log('AR Test Page loaded');
-
-            // Sprawdź czy to iOS
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-            if (!isIOS) {
-                log('⚠ Warning: AR działa tylko na iOS devices');
-            }
-
-            // Sprawdź czy to Safari
-            const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-            if (!isSafari) {
-                log('⚠ Warning: AR wymaga Safari browser');
-            }
+            initDeviceInfo();
         });
     </script>
 </body>

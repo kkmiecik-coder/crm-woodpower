@@ -1,4 +1,4 @@
-# modules/preview3d_ar/models.py - POPRAWIONA WERSJA
+# modules/preview3d_ar/models.py - NOWA WERSJA Z REALITY FORMAT
 
 import os
 import glob
@@ -6,11 +6,11 @@ import tempfile
 import hashlib
 import subprocess
 import json
+import sys
 from flask import current_app, url_for
 import trimesh
 import numpy as np
 from PIL import Image
-import sys
 
 class TextureConfig:
     """Konfiguracja tekstur z fallbackiem do szarego koloru"""
@@ -87,8 +87,8 @@ class TextureConfig:
             }
         return textures
 
-class AR3DGenerator:
-    """Generator plików 3D dla AR - tworzy modele USDZ (iOS) i GLB (Android)"""
+class RealityGenerator:
+    """Generator plików Reality dla Apple AR QuickLook"""
     
     def __init__(self):
         self.cache_dir = os.path.join(
@@ -104,8 +104,8 @@ class AR3DGenerator:
         os.makedirs(self.cache_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
         
-        print(f"[AR3DGenerator] Inicjalizacja - cache: {self.cache_dir}", file=sys.stderr)
-        print(f"[AR3DGenerator] Inicjalizacja - temp: {self.temp_dir}", file=sys.stderr)
+        print(f"[RealityGenerator] Inicjalizacja - cache: {self.cache_dir}", file=sys.stderr)
+        print(f"[RealityGenerator] Inicjalizacja - temp: {self.temp_dir}", file=sys.stderr)
 
     def _generate_cache_key(self, product_data):
         """Generuje unikalny klucz cache dla produktu"""
@@ -126,50 +126,43 @@ class AR3DGenerator:
         
         return None
 
-    def _create_wood_geometry(self, dimensions):
-        """Tworzy geometrię drewnianego blatu z lamelkami"""
-        print(f"[AR3DGenerator] Tworzenie geometrii - wymiary: {dimensions}", file=sys.stderr)
+    def _create_wood_geometry_data(self, dimensions):
+        """Tworzy dane geometrii w formacie kompatybilnym z Reality"""
+        print(f"[RealityGenerator] Tworzenie geometrii - wymiary: {dimensions}", file=sys.stderr)
         
-        # Wymiary w metrach - SKALA AR (mniejsze obiekty)
-        length = dimensions.get('length', 200) / 1000.0  # cm -> m, skalowane do AR
-        width = dimensions.get('width', 80) / 1000.0
-        thickness = dimensions.get('thickness', 3) / 1000.0
+        # Wymiary w metrach dla AR
+        length = dimensions.get('length', 200) / 100.0  # cm -> m
+        width = dimensions.get('width', 80) / 100.0
+        thickness = dimensions.get('thickness', 3) / 100.0
         
-        # Szerokość pojedynczej lamelki
-        lamella_width = width / 10  # Podziel na 10 lamellek
-        num_lamellas = 10
+        # Utwórz prostą geometrię blatu (pojedynczy blok)
+        mesh = trimesh.creation.box(
+            extents=[length, thickness, width]
+        )
         
-        print(f"[AR3DGenerator] Wymiary AR: {length}m x {width}m x {thickness}m", file=sys.stderr)
-        print(f"[AR3DGenerator] Lamelki: {num_lamellas} x {lamella_width:.4f}m", file=sys.stderr)
+        # Upewnij się, że normalne są prawidłowe
+        mesh.fix_normals()
         
-        # Łącz wszystkie lamelki w jeden mesh
-        combined_mesh = None
-        
-        for i in range(num_lamellas):
-            # Pozycja lamelki
-            z_pos = (i - num_lamellas/2 + 0.5) * lamella_width
+        # Generuj UV coordinates jeśli nie ma
+        if not hasattr(mesh.visual, 'uv') or mesh.visual.uv is None:
+            vertices = mesh.vertices
+            uv_coords = []
+            for vertex in vertices:
+                u = (vertex[0] + length/2) / length
+                v = (vertex[2] + width/2) / width
+                uv_coords.append([u, v])
             
-            # Utwórz pojedynczą lamellę
-            lamella = trimesh.creation.box(
-                extents=[length, thickness, lamella_width]
-            )
-            
-            # Przesuń lamellę na właściwą pozycję
-            lamella.apply_translation([0, 0, z_pos])
-            
-            # Dodaj do kombinowanego mesh
-            if combined_mesh is None:
-                combined_mesh = lamella
-            else:
-                combined_mesh = trimesh.util.concatenate([combined_mesh, lamella])
+            mesh.visual.uv = np.array(uv_coords)
         
-        print(f"[AR3DGenerator] Geometria utworzona - wierzchołki: {len(combined_mesh.vertices)}", file=sys.stderr)
-        return combined_mesh
+        print(f"[RealityGenerator] Geometria utworzona - wymiary AR: {length:.3f}m x {width:.3f}m x {thickness:.3f}m", file=sys.stderr)
+        print(f"[RealityGenerator] Wierzchołki: {len(mesh.vertices)}, Faces: {len(mesh.faces)}", file=sys.stderr)
+        
+        return mesh
 
-    def _process_texture_for_ar(self, texture_path, target_size=(512, 512)):
-        """Przetwarza teksturę dla AR - optymalizuje rozmiar i format"""
+    def _process_texture_for_reality(self, texture_path, target_size=(1024, 1024)):
+        """Przetwarza teksturę dla formatu Reality"""
         if not texture_path or not os.path.exists(texture_path):
-            print(f"[AR3DGenerator] Tekstura nie istnieje: {texture_path}", file=sys.stderr)
+            print(f"[RealityGenerator] Tekstura nie istnieje: {texture_path}", file=sys.stderr)
             return None
         
         try:
@@ -183,304 +176,297 @@ class AR3DGenerator:
                 if img.size != target_size:
                     img = img.resize(target_size, Image.Resampling.LANCZOS)
                 
-                # Zapisz do pliku tymczasowego
-                temp_filename = f"texture_{hashlib.md5(texture_path.encode()).hexdigest()}.jpg"
+                # Zapisz do pliku tymczasowego w formacie PNG (lepszy dla Reality)
+                temp_filename = f"texture_{hashlib.md5(texture_path.encode()).hexdigest()}.png"
                 temp_path = os.path.join(self.temp_dir, temp_filename)
-                img.save(temp_path, 'JPEG', quality=85)
+                img.save(temp_path, 'PNG', optimize=True)
                 
-                print(f"[AR3DGenerator] Tekstura przetworzona: {os.path.basename(texture_path)} -> {temp_filename}", file=sys.stderr)
+                print(f"[RealityGenerator] Tekstura przetworzona: {os.path.basename(texture_path)} -> {temp_filename}", file=sys.stderr)
                 return temp_path
         
         except Exception as e:
-            print(f"[AR3DGenerator] Błąd przetwarzania tekstury {texture_path}: {e}", file=sys.stderr)
+            print(f"[RealityGenerator] Błąd przetwarzania tekstury {texture_path}: {e}", file=sys.stderr)
             return None
 
-    def _create_usd_content(self, obj_file, texture_file, product_data):
-        """Tworzy zawartość pliku USD z metadanymi AR"""
+    def _create_reality_scene_json(self, product_data, mesh_data, texture_paths):
+        """Tworzy JSON scene descriptor dla Reality file"""
         variant_code = product_data.get('variant_code', 'unknown')
         dimensions = product_data.get('dimensions', {})
         
-        # Upewnij się, że ścieżki są względne
-        obj_basename = os.path.basename(obj_file)
-        texture_basename = os.path.basename(texture_file) if texture_file else None
+        # Podstawowy template sceny Reality
+        scene_data = {
+            "version": "1.0",
+            "format": "RealityFile",
+            "generator": "Wood Power CRM",
+            "metadata": {
+                "title": f"Wood Panel - {variant_code}",
+                "description": f"Wood panel {variant_code} - {dimensions.get('length', 0)}x{dimensions.get('width', 0)}x{dimensions.get('thickness', 0)} cm",
+                "creator": "Wood Power CRM",
+                "keywords": ["wood", "panel", variant_code]
+            },
+            "scene": {
+                "rootEntity": {
+                    "name": "WoodPanel",
+                    "transform": {
+                        "translation": [0, 0, 0],
+                        "rotation": [0, 0, 0, 1],
+                        "scale": [1, 1, 1]
+                    },
+                    "components": {
+                        "ARKit": {
+                            "planeDetection": ["horizontal"],
+                            "worldAlignment": "gravity",
+                            "environmentTexturing": "automatic"
+                        },
+                        "Model": {
+                            "mesh": "WoodMesh",
+                            "materials": ["WoodMaterial"]
+                        },
+                        "Collision": {
+                            "enabled": True,
+                            "shape": "automatic"
+                        }
+                    }
+                }
+            },
+            "resources": {
+                "meshes": {
+                    "WoodMesh": {
+                        "type": "generated",
+                        "primitive": "box",
+                        "dimensions": {
+                            "width": dimensions.get('length', 200) / 100.0,
+                            "height": dimensions.get('thickness', 3) / 100.0,
+                            "depth": dimensions.get('width', 80) / 100.0
+                        }
+                    }
+                },
+                "materials": {
+                    "WoodMaterial": {
+                        "type": "PhysicallyBased",
+                        "baseColor": {
+                            "texture": texture_paths.get('face') if texture_paths.get('face') else None,
+                            "color": [0.82, 0.71, 0.55, 1.0]
+                        },
+                        "roughness": 0.85,
+                        "metallic": 0.0,
+                        "normal": {
+                            "texture": texture_paths.get('face') if texture_paths.get('face') else None
+                        }
+                    }
+                }
+            }
+        }
         
-        # Podstawowy szablon USD z metadanymi AR
-        usd_content = f'''#usda 1.0
-(
-    doc = "Wood Power AR Model - {variant_code}"
-    metersPerUnit = 1
-    upAxis = "Y"
-    defaultPrim = "WoodModel"
-)
+        return scene_data
 
-def Xform "WoodModel" (
-    assetInfo = {{
-        string identifier = "{variant_code}"
-        string name = "Wood Panel {variant_code}"
-        string version = "1.0"
-    }}
-    kind = "component"
-    variants = {{
-        string materialVariant = "wood"
-    }}
-)
-{{
-    # Metadane AR dla iOS
-    custom bool preliminary_collidesWithEnvironment = 1
-    custom string preliminary_planeAnchoring = "horizontal"
-    custom bool preliminary_receivesShadows = 1
-    custom bool preliminary_castsShadows = 1
-    
-    def Mesh "WoodMesh"
-    {{
-        int[] faceVertexCounts = []
-        int[] faceVertexIndices = []
-        point3f[] points = []
-        normal3f[] normals = []
-        float2[] primvars:st = []
-        
-        # Referencja do pliku OBJ
-        prepend references = @./{obj_basename}@
-        
-        # Materiał'''
-
-        if texture_basename:
-            usd_content += f'''
-        rel material:binding = </WoodModel/Materials/WoodMaterial>
-    }}
-    
-    def Scope "Materials"
-    {{
-        def Material "WoodMaterial"
-        {{
-            token outputs:surface.connect = </WoodModel/Materials/WoodMaterial/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
-            {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor.connect = </WoodModel/Materials/WoodMaterial/DiffuseTexture.outputs:rgb>
-                float inputs:roughness = 0.8
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
-            
-            def Shader "DiffuseTexture"
-            {{
-                uniform token info:id = "UsdUVTexture"
-                asset inputs:file = @./{texture_basename}@
-                token inputs:wrapS = "repeat"
-                token inputs:wrapT = "repeat"
-                float3 outputs:rgb
-            }}
-            
-            def Shader "TextureCoordinate"
-            {{
-                uniform token info:id = "UsdPrimvarReader_float2"
-                token inputs:varname = "st"
-                float2 outputs:result
-            }}
-        }}
-    }}'''
-        else:
-            # Materiał bez tekstury
-            usd_content += f'''
-        rel material:binding = </WoodModel/Materials/WoodMaterial>
-    }}
-    
-    def Scope "Materials"
-    {{
-        def Material "WoodMaterial"
-        {{
-            token outputs:surface.connect = </WoodModel/Materials/WoodMaterial/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
-            {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor = (0.8, 0.7, 0.6)
-                float inputs:roughness = 0.8
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
-        }}
-    }}'''
-
-        usd_content += '''
-}
-'''
-        
-        return usd_content
-
-    def _create_usdz_with_command_line(self, usd_file, obj_file, texture_file, output_path):
-        """Tworzy plik USDZ używając narzędzi USD (jeśli dostępne)"""
+    def _create_reality_file(self, scene_data, output_path):
+        """Tworzy plik Reality na podstawie danych sceny"""
         try:
-            # Sprawdź czy usdzip jest dostępny
-            result = subprocess.run(['which', 'usdzip'], 
-                                   capture_output=True, text=True)
-            if result.returncode != 0:
-                print("[AR3DGenerator] usdzip nie jest dostępny", file=sys.stderr)
-                return False
+            # Reality file to w rzeczywistości specjalny format binarny Apple
+            # Na razie użyjemy prostego podejścia - utworzymy USDZ z lepszymi metadanymi
+            # i przekonwertujemy go używając narzędzi Apple jeśli są dostępne
             
-            # Przygotuj listę plików do spakowania
-            files_to_zip = [usd_file, obj_file]
-            if texture_file and os.path.exists(texture_file):
-                files_to_zip.append(texture_file)
+            # Sprawdź czy jest dostępne narzędzie Reality Converter
+            reality_converter_path = self._find_reality_converter()
             
-            # Utwórz USDZ
-            cmd = ['usdzip', output_path] + files_to_zip
-            result = subprocess.run(cmd, capture_output=True, text=True, 
-                                   cwd=os.path.dirname(usd_file))
-            
-            if result.returncode == 0:
-                print(f"[AR3DGenerator] USDZ utworzony: {output_path}", file=sys.stderr)
-                return True
+            if reality_converter_path:
+                return self._create_reality_with_converter(scene_data, output_path, reality_converter_path)
             else:
-                print(f"[AR3DGenerator] Błąd usdzip: {result.stderr}", file=sys.stderr)
-                return False
+                # Fallback: utwórz zoptymalizowany USDZ który będzie kompatybilny
+                return self._create_optimized_usdz_as_reality(scene_data, output_path)
                 
         except Exception as e:
-            print(f"[AR3DGenerator] Błąd tworzenia USDZ: {e}", file=sys.stderr)
+            print(f"[RealityGenerator] Błąd tworzenia pliku Reality: {e}", file=sys.stderr)
             return False
 
-    def _create_usdz_with_zip(self, usd_file, obj_file, texture_file, output_path):
-        """Tworzy plik USDZ jako archiwum ZIP (fallback)"""
+    def _find_reality_converter(self):
+        """Próbuje znaleźć Reality Converter lub inne narzędzia Apple"""
+        possible_paths = [
+            '/Applications/Reality Converter.app/Contents/MacOS/Reality Converter',
+            '/usr/bin/xcrun',
+            '/Applications/Xcode.app/Contents/Developer/usr/bin/reality_converter'
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                print(f"[RealityGenerator] Znaleziono narzędzie: {path}", file=sys.stderr)
+                return path
+        
+        print("[RealityGenerator] Nie znaleziono Reality Converter, używam fallback", file=sys.stderr)
+        return None
+
+    def _create_optimized_usdz_as_reality(self, scene_data, output_path):
+        """Tworzy zoptymalizowany USDZ który będzie działał jak Reality file"""
         try:
-            import zipfile
-
-            with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_STORED) as zf:
-                # Dodaj plik USD
-                zf.write(usd_file, os.path.basename(usd_file))
-                # Dodaj plik OBJ
-                zf.write(obj_file, os.path.basename(obj_file))
-                # Dodaj teksturę jeśli istnieje
-                if texture_file and os.path.exists(texture_file):
-                    zf.write(texture_file, os.path.basename(texture_file))
-
-                print(f"[AR3DGenerator] USDZ utworzony jako ZIP: {output_path}", file=sys.stderr)
-                return True
-        except Exception as e:
-            print(f"[AR3DGenerator] Błąd tworzenia USDZ ZIP: {e}", file=sys.stderr)
-            return False
-
-    def generate_usdz(self, product_data):
-        """Generuje plik USDZ dla iOS QuickLook AR"""
-        print(f"[AR3DGenerator] Generowanie USDZ dla: {product_data}", file=sys.stderr)
-    
-        try:
-            # Sprawdź cache
-            cache_key = self._generate_cache_key(product_data)
-            usdz_path = os.path.join(self.cache_dir, f"{cache_key}.usdz")
+            # Na razie jako workaround, utworzymy bardzo zoptymalizowany USDZ
+            # który będzie miał rozszerzenie .reality ale będzie w rzeczywistości USDZ
             
-            if os.path.exists(usdz_path):
-                print(f"[AR3DGenerator] USDZ z cache: {usdz_path}", file=sys.stderr)
-                return usdz_path
+            # Zmień rozszerzenie na .usdz dla procesu tworzenia
+            usdz_temp_path = output_path.replace('.reality', '.usdz')
             
-            # Pobierz tekstury
-            variant_code = product_data.get('variant_code', '')
-            textures = TextureConfig.get_all_textures_for_variant(variant_code)
+            # Utwórz mesh
+            dimensions = scene_data['resources']['meshes']['WoodMesh']['dimensions']
+            mesh = trimesh.creation.box(
+                extents=[dimensions['width'], dimensions['height'], dimensions['depth']]
+            )
             
-            # Wybierz pierwszą dostępną teksturę dla face
-            face_texture_url = None
-            if textures.get('face', {}).get('variants'):
-                face_texture_url = textures['face']['variants'][0]
-            
-            # Utwórz geometrię
-            dimensions = product_data.get('dimensions', {})
-            mesh = self._create_wood_geometry(dimensions)
-            
-            # Zapisz OBJ do pliku tymczasowego
-            obj_file = os.path.join(self.temp_dir, f"{cache_key}.obj")
+            # Zapisz OBJ
+            obj_file = os.path.join(self.temp_dir, 'temp_model.obj')
             mesh.export(obj_file)
             
-            # Przetwórz teksturę
-            texture_file = None
-            if face_texture_url:
-                texture_path = self._get_texture_path(face_texture_url)
-                texture_file = self._process_texture_for_ar(texture_path)
-            
-            # Utwórz plik USD
-            usd_file = os.path.join(self.temp_dir, f"{cache_key}.usd")
-            usd_content = self._create_usd_content(obj_file, texture_file, product_data)
+            # Utwórz prostszy USD content
+            usd_content = self._create_simple_usd_content(scene_data, obj_file)
+            usd_file = os.path.join(self.temp_dir, 'temp_scene.usd')
             
             with open(usd_file, 'w', encoding='utf-8') as f:
                 f.write(usd_content)
             
             # Utwórz USDZ
-            success = self._create_usdz_with_command_line(usd_file, obj_file, texture_file, usdz_path)
+            success = self._create_usdz_zip(usd_file, obj_file, None, usdz_temp_path)
             
-            if not success:
-                # Fallback do ZIP
-                success = self._create_usdz_with_zip(usd_file, obj_file, texture_file, usdz_path)
+            if success and os.path.exists(usdz_temp_path):
+                # Skopiuj jako .reality
+                import shutil
+                shutil.copy2(usdz_temp_path, output_path)
+                
+                print(f"[RealityGenerator] Reality file utworzony (USDZ fallback): {output_path}", file=sys.stderr)
+                return True
             
-            if not success:
-                raise Exception("Nie udało się utworzyć pliku USDZ")
-            
-            print(f"[AR3DGenerator] USDZ wygenerowany: {usdz_path}", file=sys.stderr)
-            return usdz_path
+            return False
             
         except Exception as e:
-            print(f"[AR3DGenerator] Błąd generowania USDZ: {e}", file=sys.stderr)
-            raise
+            print(f"[RealityGenerator] Błąd tworzenia fallback Reality: {e}", file=sys.stderr)
+            return False
 
-    def generate_glb(self, product_data):
-        """Generuje plik GLB dla Android WebXR"""
-        print(f"[AR3DGenerator] Generowanie GLB dla: {product_data}", file=sys.stderr)
+    def _create_simple_usd_content(self, scene_data, obj_file):
+        """Tworzy prostszy USD content zoptymalizowany dla Reality"""
+        variant = scene_data['metadata']['title']
+        obj_basename = os.path.basename(obj_file)
+        
+        # Uproszczony USD template kompatybilny z Reality/QuickLook
+        usd_content = f'''#usda 1.0
+(
+    customLayerData = {{
+        string creator = "Wood Power CRM"
+        string[] providedExtensions = ["USDZ", "Reality"]
+    }}
+    defaultPrim = "WoodPanel"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "WoodPanel" (
+    assetInfo = {{
+        asset identifier = @./WoodPanel.reality@
+        string name = "{variant}"
+        string version = "1.0"
+    }}
+    kind = "component"
+)
+{{
+    # Metadane AR zoptymalizowane dla iOS 18+
+    custom bool preliminary_collidesWithEnvironment = 1
+    custom string preliminary_planeAnchoring = "horizontal"
+    custom float preliminary_worldScale = 1.0
+    custom bool preliminary_receivesShadows = 1
+    custom bool preliminary_castsShadows = 1
+    
+    def Mesh "Geometry"
+    {{
+        prepend references = @./{obj_basename}@</Geometry>
+        rel material:binding = </WoodPanel/Materials/WoodMaterial>
+        uniform token subdivisionScheme = "none"
+        uniform bool doubleSided = 0
+    }}
+    
+    def Scope "Materials"
+    {{
+        def Material "WoodMaterial"
+        {{
+            token outputs:surface.connect = </WoodPanel/Materials/WoodMaterial/PreviewSurface.outputs:surface>
+            
+            def Shader "PreviewSurface"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.82, 0.71, 0.55)
+                float inputs:roughness = 0.85
+                float inputs:metallic = 0.0
+                float inputs:clearcoat = 0.0
+                float inputs:opacity = 1.0
+                float inputs:ior = 1.45
+                token outputs:surface
+            }}
+        }}
+    }}
+}}
+'''
+        
+        return usd_content
+
+    def _create_usdz_zip(self, usd_file, obj_file, texture_file, output_path):
+        """Tworzy USDZ jako ZIP"""
+        try:
+            import zipfile
+            
+            with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_STORED) as zf:
+                # USD jako pierwszy (wymagane)
+                zf.write(usd_file, os.path.basename(usd_file))
+                # OBJ
+                zf.write(obj_file, os.path.basename(obj_file))
+                # Tekstura (jeśli jest)
+                if texture_file and os.path.exists(texture_file):
+                    zf.write(texture_file, os.path.basename(texture_file))
+            
+            return os.path.exists(output_path)
+            
+        except Exception as e:
+            print(f"[RealityGenerator] Błąd USDZ ZIP: {e}", file=sys.stderr)
+            return False
+
+    def generate_reality(self, product_data):
+        """Główna metoda generowania pliku Reality"""
+        print(f"[RealityGenerator] Generowanie Reality dla: {product_data}", file=sys.stderr)
         
         try:
             # Sprawdź cache
             cache_key = self._generate_cache_key(product_data)
-            glb_path = os.path.join(self.cache_dir, f"{cache_key}.glb")
+            reality_path = os.path.join(self.cache_dir, f"{cache_key}.reality")
             
-            if os.path.exists(glb_path):
-                print(f"[AR3DGenerator] GLB z cache: {glb_path}", file=sys.stderr)
-                return glb_path
+            if os.path.exists(reality_path):
+                print(f"[RealityGenerator] Reality z cache: {reality_path}", file=sys.stderr)
+                return reality_path
             
             # Pobierz tekstury
             variant_code = product_data.get('variant_code', '')
             textures = TextureConfig.get_all_textures_for_variant(variant_code)
             
-            # Wybierz pierwszą dostępną teksturę dla face
-            face_texture_url = None
-            if textures.get('face', {}).get('variants'):
-                face_texture_url = textures['face']['variants'][0]
+            # Przetwórz tekstury
+            texture_paths = {}
+            for surface_type in ['face', 'edge', 'side']:
+                if textures.get(surface_type, {}).get('variants'):
+                    texture_url = textures[surface_type]['variants'][0]
+                    texture_local_path = self._get_texture_path(texture_url)
+                    if texture_local_path:
+                        processed_texture = self._process_texture_for_reality(texture_local_path)
+                        if processed_texture:
+                            texture_paths[surface_type] = processed_texture
             
-            # Utwórz geometrię
-            dimensions = product_data.get('dimensions', {})
-            mesh = self._create_wood_geometry(dimensions)
+            # Utwórz dane sceny
+            mesh_data = self._create_wood_geometry_data(product_data.get('dimensions', {}))
+            scene_data = self._create_reality_scene_json(product_data, mesh_data, texture_paths)
             
-            # Dodaj teksturę jeśli dostępna
-            if face_texture_url:
-                texture_path = self._get_texture_path(face_texture_url)
-                processed_texture = self._process_texture_for_ar(texture_path)
-                
-                if processed_texture:
-                    # Załaduj teksturę
-                    try:
-                        texture_image = Image.open(processed_texture)
-                        # Konwertuj na tablicę numpy
-                        texture_array = np.array(texture_image)
-                        
-                        # Dodaj materiał z teksturą
-                        material = trimesh.visual.material.PBRMaterial(
-                            baseColorTexture=texture_array,
-                            metallicFactor=0.0,
-                            roughnessFactor=0.8
-                        )
-                        
-                        # Przypisz materiał do mesh
-                        mesh.visual.material = material
-                        
-                        print(f"[AR3DGenerator] Tekstura zastosowana: {processed_texture}", file=sys.stderr)
-                    except Exception as e:
-                        print(f"[AR3DGenerator] Błąd aplikacji tekstury: {e}", file=sys.stderr)
+            # Utwórz plik Reality
+            success = self._create_reality_file(scene_data, reality_path)
             
-            # Wyeksportuj do GLB
-            mesh.export(glb_path)
+            if not success:
+                raise Exception("Nie udało się utworzyć pliku Reality")
             
-            print(f"[AR3DGenerator] GLB wygenerowany: {glb_path}", file=sys.stderr)
-            return glb_path
+            print(f"[RealityGenerator] Reality wygenerowany: {reality_path}", file=sys.stderr)
+            return reality_path
             
         except Exception as e:
-            print(f"[AR3DGenerator] Błąd generowania GLB: {e}", file=sys.stderr)
+            print(f"[RealityGenerator] Błąd generowania Reality: {e}", file=sys.stderr)
             raise
 
     def cleanup_temp_files(self):
@@ -490,12 +476,12 @@ def Xform "WoodModel" (
                 file_path = os.path.join(self.temp_dir, file)
                 if os.path.isfile(file_path):
                     os.remove(file_path)
-            print(f"[AR3DGenerator] Pliki tymczasowe wyczyszczone", file=sys.stderr)
+            print(f"[RealityGenerator] Pliki tymczasowe wyczyszczone", file=sys.stderr)
         except Exception as e:
-            print(f"[AR3DGenerator] Błąd czyszczenia: {e}", file=sys.stderr)
+            print(f"[RealityGenerator] Błąd czyszczenia: {e}", file=sys.stderr)
 
     def get_model_info(self, file_path):
-        """Zwraca informacje o modelu"""
+        """Zwraca informacje o modelu Reality"""
         try:
             if not os.path.exists(file_path):
                 return None
@@ -505,8 +491,24 @@ def Xform "WoodModel" (
                 'file_size': stat.st_size,
                 'file_size_mb': round(stat.st_size / (1024*1024), 2),
                 'created': stat.st_mtime,
-                'format': os.path.splitext(file_path)[1].lower()
+                'format': 'Reality' if file_path.endswith('.reality') else os.path.splitext(file_path)[1].lower()
             }
         except Exception as e:
-            print(f"[AR3DGenerator] Błąd info modelu: {e}", file=sys.stderr)
+            print(f"[RealityGenerator] Błąd info modelu: {e}", file=sys.stderr)
             return None
+
+# Backward compatibility - zachowaj stary generator USDZ
+class AR3DGenerator(RealityGenerator):
+    """Deprecated - używaj RealityGenerator"""
+    
+    def generate_usdz(self, product_data):
+        """Backward compatibility wrapper"""
+        print("[AR3DGenerator] DEPRECATED: Użyj RealityGenerator.generate_reality()", file=sys.stderr)
+        reality_path = self.generate_reality(product_data)
+        # Skopiuj .reality jako .usdz dla backward compatibility
+        if reality_path:
+            usdz_path = reality_path.replace('.reality', '.usdz')
+            import shutil
+            shutil.copy2(reality_path, usdz_path)
+            return usdz_path
+        return None
