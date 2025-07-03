@@ -1,11 +1,15 @@
 # modules/preview3d_ar/routers.py
-from flask import jsonify, request, render_template, current_app
+from flask import jsonify, request, render_template, current_app, send_file, send_from_directory, url_for
 from . import preview3d_ar_bp
-from .models import TextureConfig
+from .models import TextureConfig, AR3DGenerator
 from modules.calculator.models import Quote, QuoteItem, QuoteItemDetails
 from extensions import db
 from sqlalchemy.orm import joinedload
 import sys
+import os
+
+# Globalna instancja generatora AR
+ar_generator = None
 
 @preview3d_ar_bp.route('/api/product-3d', methods=['POST'])
 def generate_product_3d():
@@ -287,3 +291,246 @@ def test_endpoint():
 @preview3d_ar_bp.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found in preview3d_ar module'}), 404
+
+def get_ar_generator():
+    """Lazy initialization generatora AR"""
+    global ar_generator
+    if ar_generator is None:
+        ar_generator = AR3DGenerator()
+    return ar_generator
+
+@preview3d_ar_bp.route('/api/generate-usdz', methods=['POST'])
+def generate_usdz():
+    """
+    Generuje plik USDZ dla iOS QuickLook AR
+    
+    Oczekuje JSON:
+    {
+        "variant_code": "dab-lity-ab",
+        "dimensions": {"length": 200, "width": 80, "thickness": 3}
+    }
+    """
+    try:
+        print(f"[generate_usdz] Rozpoczęcie generowania USDZ", file=sys.stderr)
+        
+        data = request.json
+        if not data:
+            return jsonify({'error': 'Brak danych JSON'}), 400
+        
+        variant_code = data.get('variant_code')
+        dimensions = data.get('dimensions')
+        
+        if not variant_code:
+            return jsonify({'error': 'Brak variant_code'}), 400
+        
+        if not dimensions:
+            return jsonify({'error': 'Brak dimensions'}), 400
+        
+        print(f"[generate_usdz] Dane: {variant_code}, {dimensions}", file=sys.stderr)
+        
+        # Pobierz tekstury przez istniejącą metodę
+        try:
+            textures = TextureConfig.get_all_textures_for_variant(variant_code)
+            print(f"[generate_usdz] Tekstury pobrane: {len(textures)} typów", file=sys.stderr)
+        except Exception as e:
+            print(f"[generate_usdz] Błąd tekstur: {e}", file=sys.stderr)
+            return jsonify({'error': f'Błąd tekstur: {str(e)}'}), 500
+        
+        # Przygotuj dane produktu
+        product_data = {
+            'variant_code': variant_code,
+            'dimensions': dimensions,
+            'textures': textures
+        }
+        
+        # Generuj USDZ
+        generator = get_ar_generator()
+        usdz_path = generator.generate_usdz(product_data)
+        
+        if not usdz_path or not os.path.exists(usdz_path):
+            return jsonify({'error': 'Błąd generowania pliku USDZ'}), 500
+        
+        # Zwróć URL do pliku
+        filename = os.path.basename(usdz_path)
+        file_url = url_for('preview3d_ar.serve_ar_model', filename=filename)
+        
+        # Pobierz informacje o pliku
+        model_info = generator.get_model_info(usdz_path)
+        
+        print(f"[generate_usdz] USDZ wygenerowany: {filename}", file=sys.stderr)
+        
+        return jsonify({
+            'success': True,
+            'usdz_url': file_url,
+            'filename': filename,
+            'model_info': model_info
+        })
+        
+    except Exception as e:
+        print(f"[generate_usdz] Błąd: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
+
+@preview3d_ar_bp.route('/api/generate-glb', methods=['POST'])
+def generate_glb():
+    """
+    Generuje plik GLB dla Android WebXR AR
+    
+    Oczekuje JSON:
+    {
+        "variant_code": "dab-lity-ab",
+        "dimensions": {"length": 200, "width": 80, "thickness": 3}
+    }
+    """
+    try:
+        print(f"[generate_glb] Rozpoczęcie generowania GLB", file=sys.stderr)
+        
+        data = request.json
+        if not data:
+            return jsonify({'error': 'Brak danych JSON'}), 400
+        
+        variant_code = data.get('variant_code')
+        dimensions = data.get('dimensions')
+        
+        if not variant_code:
+            return jsonify({'error': 'Brak variant_code'}), 400
+        
+        if not dimensions:
+            return jsonify({'error': 'Brak dimensions'}), 400
+        
+        print(f"[generate_glb] Dane: {variant_code}, {dimensions}", file=sys.stderr)
+        
+        # Pobierz tekstury przez istniejącą metodę
+        try:
+            textures = TextureConfig.get_all_textures_for_variant(variant_code)
+            print(f"[generate_glb] Tekstury pobrane: {len(textures)} typów", file=sys.stderr)
+        except Exception as e:
+            print(f"[generate_glb] Błąd tekstur: {e}", file=sys.stderr)
+            return jsonify({'error': f'Błąd tekstur: {str(e)}'}), 500
+        
+        # Przygotuj dane produktu
+        product_data = {
+            'variant_code': variant_code,
+            'dimensions': dimensions,
+            'textures': textures
+        }
+        
+        # Generuj GLB
+        generator = get_ar_generator()
+        glb_path = generator.generate_glb(product_data)
+        
+        if not glb_path or not os.path.exists(glb_path):
+            return jsonify({'error': 'Błąd generowania pliku GLB'}), 500
+        
+        # Zwróć URL do pliku
+        filename = os.path.basename(glb_path)
+        file_url = url_for('preview3d_ar.serve_ar_model', filename=filename)
+        
+        # Pobierz informacje o pliku
+        model_info = generator.get_model_info(glb_path)
+        
+        print(f"[generate_glb] GLB wygenerowany: {filename}", file=sys.stderr)
+        
+        return jsonify({
+            'success': True,
+            'glb_url': file_url,
+            'filename': filename,
+            'model_info': model_info
+        })
+        
+    except Exception as e:
+        print(f"[generate_glb] Błąd: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
+
+@preview3d_ar_bp.route('/ar-models/<filename>')
+def serve_ar_model(filename):
+    """
+    Serwuje pliki 3D dla AR z cache
+    """
+    try:
+        print(f"[serve_ar_model] Żądanie pliku: {filename}", file=sys.stderr)
+        
+        # Ścieżka do pliku w cache
+        cache_dir = os.path.join(
+            current_app.root_path, 
+            'modules', 'preview3d_ar', 'static', 'ar-models', 'cache'
+        )
+        
+        file_path = os.path.join(cache_dir, filename)
+        
+        if not os.path.exists(file_path):
+            print(f"[serve_ar_model] Plik nie istnieje: {file_path}", file=sys.stderr)
+            return jsonify({'error': 'Plik nie znaleziony'}), 404
+        
+        # Sprawdź rozszerzenie dla właściwego Content-Type
+        _, ext = os.path.splitext(filename)
+        content_type = 'application/octet-stream'
+        
+        if ext.lower() == '.glb':
+            content_type = 'model/gltf-binary'
+        elif ext.lower() == '.usdz':
+            content_type = 'model/vnd.usd+zip'
+        elif ext.lower() == '.obj':
+            content_type = 'text/plain'
+        
+        print(f"[serve_ar_model] Serwowanie pliku: {filename} ({content_type})", file=sys.stderr)
+        
+        return send_file(
+            file_path,
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        print(f"[serve_ar_model] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
+
+@preview3d_ar_bp.route('/api/ar-info', methods=['GET'])
+def ar_info():
+    """
+    Zwraca informacje o możliwościach AR
+    """
+    try:
+        generator = get_ar_generator()
+        
+        # Sprawdź dostępne formaty
+        formats = ['GLB', 'OBJ']  # USDZ dodamy później
+        
+        # Sprawdź cache
+        cache_files = []
+        if os.path.exists(generator.cache_dir):
+            cache_files = os.listdir(generator.cache_dir)
+        
+        return jsonify({
+            'ar_enabled': True,
+            'supported_formats': formats,
+            'cache_files': len(cache_files),
+            'cache_dir': generator.cache_dir,
+            'temp_dir': generator.temp_dir
+        })
+        
+    except Exception as e:
+        print(f"[ar_info] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500
+
+@preview3d_ar_bp.route('/api/ar-cleanup', methods=['POST'])
+def ar_cleanup():
+    """
+    Czyści pliki tymczasowe AR
+    """
+    try:
+        generator = get_ar_generator()
+        generator.cleanup_temp_files()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Pliki tymczasowe wyczyszczone'
+        })
+        
+    except Exception as e:
+        print(f"[ar_cleanup] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({'error': f'Błąd serwera: {str(e)}'}), 500

@@ -66,25 +66,43 @@ class Quote3DHandler {
             });
         }
 
+        this.setupARButton();
+
         console.log('[Quote3D] Event listenery skonfigurowane');
     }
 
     /**
-     * Konfiguruje przycisk AR
-     */
+    * Konfiguruje przycisk AR - ROZSZERZONA WERSJA Z TOUCH SUPPORT
+    */
     setupARButton() {
         if (!this.btnAr) return;
 
-        const isARSupported = this.isARSupported();
-        
-        if (isARSupported) {
-            this.btnAr.addEventListener('click', () => {
-                this.handleARClick();
-            });
-        } else {
-            // Ukryj przycisk AR jeśli nie jest obsługiwany
-            this.btnAr.style.display = 'none';
-        }
+        console.log('[Quote3D] Konfiguracja przycisku AR');
+
+        // Dodaj event listenery dla różnych typów eventów
+        const handleARClick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('[Quote3D] AR button clicked/touched');
+            this.handleARClick();
+        };
+
+        // Mouse events (desktop)
+        this.btnAr.addEventListener('click', handleARClick);
+
+        // Touch events (mobile iOS/Android)
+        this.btnAr.addEventListener('touchstart', handleARClick);
+        this.btnAr.addEventListener('touchend', (e) => {
+            e.preventDefault(); // Zapobiega podwójnemu wywołaniu
+        });
+
+        // Dodaj dodatkowe style dla lepszej responsywności
+        this.btnAr.style.cursor = 'pointer';
+        this.btnAr.style.userSelect = 'none';
+        this.btnAr.style.webkitUserSelect = 'none';
+        this.btnAr.style.webkitTouchCallout = 'none';
+
+        console.log('[Quote3D] Event listenery AR dodane (click + touch)');
     }
 
     /**
@@ -289,22 +307,45 @@ class Quote3DHandler {
     }
 
     /**
-     * Obsługuje kliknięcie w AR
-     */
+    * Obsługuje kliknięcie w AR - ZAKTUALIZOWANA WERSJA
+    */
     async handleARClick() {
         try {
+            console.log('[Quote3D] Kliknięcie przycisku AR');
+
             if (!this.currentProduct) {
                 alert('Najpierw wybierz wariant produktu');
                 return;
             }
 
-            // Implementacja AR - placeholder
-            console.log('[Quote3D] AR nie jest jeszcze zaimplementowane');
-            alert('Funkcja AR będzie dostępna w przyszłej wersji');
+            console.log('[Quote3D] Dane produktu dla AR:', this.currentProduct);
+
+            // Sprawdź czy ARHandler jest dostępny
+            if (typeof window.ARHandler === 'undefined') {
+                console.error('[Quote3D] ARHandler nie jest załadowany');
+                alert('Błąd: Moduł AR nie jest dostępny. Odśwież stronę.');
+                return;
+            }
+
+            // Przygotuj dane produktu w formacie oczekiwanym przez ARHandler
+            const arProductData = {
+                variant_code: this.currentProduct.variant_code,
+                dimensions: {
+                    length: this.currentProduct.dimensions.length,
+                    width: this.currentProduct.dimensions.width,
+                    thickness: this.currentProduct.dimensions.thickness
+                },
+                quantity: this.currentProduct.quantity || 1
+            };
+
+            console.log('[Quote3D] Wywołanie ARHandler.initiateAR');
+
+            // Wywołaj ARHandler
+            await window.ARHandler.initiateAR(arProductData);
 
         } catch (error) {
             console.error('[Quote3D] Błąd AR:', error);
-            alert('Błąd uruchamiania AR');
+            alert(`Błąd uruchamiania AR: ${error.message}`);
         }
     }
 
