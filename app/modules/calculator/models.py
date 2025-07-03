@@ -212,13 +212,27 @@ class QuoteItem(db.Model):
     # ========== NOWE METODY POMOCNICZE ==========
     
     def get_quantity(self):
-        """Pobiera ilość z QuoteItemDetails"""
-        from modules.calculator.models import QuoteItemDetails
-        details = QuoteItemDetails.query.filter_by(
-            quote_id=self.quote_id, 
-            product_index=self.product_index
-        ).first()
-        return details.quantity if details else 1
+        """
+        Pobiera ilość dla tego wariantu z QuoteItemDetails lub zwraca 1 jako domyślną
+        """
+        try:
+            # Importuj dynamicznie aby uniknąć circular imports
+            from extensions import db
+        
+            # Znajdź odpowiadający QuoteItemDetails
+            result = db.session.execute(
+                db.text("SELECT quantity FROM quote_items_details WHERE quote_id = :quote_id AND product_index = :product_index"),
+                {'quote_id': self.quote_id, 'product_index': self.product_index}
+            ).fetchone()
+        
+            if result and result[0]:
+                return int(result[0])
+            else:
+                return 1
+            
+        except Exception as e:
+            print(f"[QuoteItem.get_quantity] Error getting quantity: {str(e)}", file=sys.stderr)
+            return 1
     
     def get_total_price_netto(self):
         """Zwraca wartość całkowitą netto (cena jednostkowa × ilość)"""

@@ -2663,11 +2663,10 @@ function removeUserAcceptanceBanner(modalBox) {
  */
 function isQuoteAcceptedByUser(quoteData) {
     // Sprawdź czy w accepted_by_email jest oznaczenie użytkownika wewnętrznego
-    return quoteData.accepted_by_email && 
-           quoteData.accepted_by_email.startsWith('internal_user_') &&
-           !quoteData.is_client_editable;
+    return quoteData.accepted_by_email &&
+        quoteData.accepted_by_email.startsWith('internal_user_') &&
+        !quoteData.is_client_editable;
 }
-
 
 /**
  * Inicjalizuje przycisk Preview3D w modalu szczegółów wyceny
@@ -2689,7 +2688,7 @@ function initializePreview3DButton(quoteData) {
         // Aktywuj przycisk
         preview3DBtn.disabled = false;
         preview3DBtn.style.opacity = '1';
-        preview3DBtn.title = `Podgląd 3D: ${selectedVariant.variant_code} (${selectedVariant.length_cm}×${selectedVariant.width_cm}×${selectedVariant.thickness_cm} cm)`;
+        preview3DBtn.title = `Podgląd 3D/AR: ${selectedVariant.variant_code} (${selectedVariant.length_cm}×${selectedVariant.width_cm}×${selectedVariant.thickness_cm} cm)`;
 
         // Usuń stary event listener i dodaj nowy
         const newBtn = preview3DBtn.cloneNode(true);
@@ -2705,7 +2704,7 @@ function initializePreview3DButton(quoteData) {
         // Dezaktywuj przycisk
         preview3DBtn.disabled = true;
         preview3DBtn.style.opacity = '0.6';
-        preview3DBtn.title = 'Wybierz wariant produktu aby zobaczyć podgląd 3D';
+        preview3DBtn.title = 'Wybierz wariant produktu aby zobaczyć podgląd 3D/AR';
 
         console.log('[Preview3D] Przycisk nieaktywny - brak wybranego wariantu');
     }
@@ -2743,38 +2742,68 @@ function findSelectedVariantFromQuote(quoteData) {
 }
 
 /**
- * Obsługuje kliknięcie przycisku Preview3D
+ * Obsługuje kliknięcie przycisku Preview3D - NOWA WERSJA z Quote Viewer i AR
  * @param {Object} quoteData - Dane wyceny
- * @param {Object} selectedVariant - Wybrany wariant
+ * @param {Object} selectedVariant - Wybrany wariant (opcjonalne)
  */
-function handlePreview3DClick(quoteData, selectedVariant) {
+function handlePreview3DClick(quoteData, selectedVariant = null) {
     try {
-        console.log('[Preview3D] Uruchamianie Preview 3D dla wyceny:', quoteData.quote_number);
-        console.log('[Preview3D] Wybrany wariant:', selectedVariant);
+        console.log('[Preview3D] Uruchamianie Quote Viewer 3D/AR dla wyceny:', quoteData.quote_number);
 
-        // Walidacja danych
-        if (!validateVariantForPreview3D(selectedVariant)) {
-            alert('Błąd: Nieprawidłowe dane wybranego wariantu.');
+        // Walidacja danych wyceny
+        if (!quoteData || !quoteData.id) {
+            alert('Błąd: Brak danych wyceny.');
             return;
         }
 
-        // Przygotuj dane dla Preview3D_AR
-        const productData = {
-            variant_code: selectedVariant.variant_code,
-            length_cm: selectedVariant.length_cm,
-            width_cm: selectedVariant.width_cm,
-            thickness_cm: selectedVariant.thickness_cm,
-            quantity: selectedVariant.quantity
-        };
+        // Sprawdź czy są produkty w wycenie
+        if (!quoteData.items || quoteData.items.length === 0) {
+            alert('Błąd: Wycena nie zawiera żadnych produktów.');
+            return;
+        }
 
-        console.log('[Preview3D] Dane produktu dla 3D:', productData);
+        // URL nowego viewer'a z listą produktów i AR
+        const viewerUrl = `/preview3d-ar/quote/${quoteData.id}`;
 
-        // Uruchom Preview 3D
-        openPreview3DWindow(productData, `Wycena ${quoteData.quote_number} - ${selectedVariant.variant_code}`);
+        // Parametry okna - większe dla nowego viewer'a
+        const windowFeatures = [
+            'width=1600',
+            'height=1000',
+            'scrollbars=yes',
+            'resizable=yes',
+            'menubar=no',
+            'toolbar=no',
+            'location=no',
+            'status=no',
+            'left=' + Math.max(0, (screen.width - 1600) / 2),
+            'top=' + Math.max(0, (screen.height - 1000) / 2)
+        ].join(',');
+
+        // Otwórz nowy viewer
+        const preview3DWindow = window.open(viewerUrl, 'QuoteViewer3D_' + quoteData.id, windowFeatures);
+
+        if (!preview3DWindow) {
+            // Fallback - spróbuj otworzyć w nowej karcie
+            window.open(viewerUrl, '_blank');
+            alert('Quote Viewer 3D/AR został otwarty w nowej karcie (sprawdź ustawienia blokady popup).');
+        } else {
+            console.log('[Preview3D] Quote Viewer 3D/AR otwarty pomyślnie');
+
+            // Spróbuj ustawić tytuł okna
+            try {
+                preview3DWindow.addEventListener('load', function () {
+                    if (preview3DWindow.document) {
+                        preview3DWindow.document.title = `${quoteData.quote_number} - Podgląd 3D/AR`;
+                    }
+                });
+            } catch (e) {
+                // Ignore cross-origin errors
+            }
+        }
 
     } catch (error) {
-        console.error('[Preview3D] Błąd uruchamiania Preview 3D:', error);
-        alert('Błąd uruchamiania podglądu 3D. Sprawdź konsolę przeglądarki.');
+        console.error('[Preview3D] Błąd uruchamiania Quote Viewer:', error);
+        alert('Błąd uruchamiania Quote Viewer 3D/AR. Sprawdź konsolę przeglądarki.');
     }
 }
 
@@ -2799,12 +2828,12 @@ function validateVariantForPreview3D(variant) {
 }
 
 /**
- * Otwiera okno Preview3D z danymi produktu
+ * Otwiera okno Preview3D z danymi produktu (stara wersja - dla kompatybilności)
  * @param {Object} productData - Dane produktu
  * @param {string} windowTitle - Tytuł okna
  */
 function openPreview3DWindow(productData, windowTitle = 'Wood Power - Podgląd 3D') {
-    console.log('[Preview3D] Otwieranie okna Preview3D:', productData);
+    console.log('[Preview3D] Otwieranie starego modala Preview3D:', productData);
 
     // Zakoduj dane do URL
     const encodedData = encodeURIComponent(JSON.stringify(productData));
@@ -2849,7 +2878,9 @@ function openPreview3DWindow(productData, windowTitle = 'Wood Power - Podgląd 3
     }
 }
 
-// Helper do debugowania Preview3D
+/**
+ * Helper do debugowania Preview3D
+ */
 window.debugQuotePreview3D = function () {
     const button = document.getElementById('quote-preview3d-btn');
     console.log('[Preview3D Debug] Przycisk 3D:', button);
@@ -2862,4 +2893,4 @@ window.debugQuotePreview3D = function () {
     }
 };
 
-console.log('[Preview3D] Funkcje Preview3D załadowane do quotes.js');
+console.log('[Preview3D] Funkcje Preview3D załadowane - używa Quote Viewer 3D/AR');
