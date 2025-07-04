@@ -1,4 +1,4 @@
-# modules/preview3d_ar/models.py - PROSTA POPRAWKA z teksturami
+# modules/preview3d_ar/models.py - POPRAWKA z działającymi teksturami AR
 
 import os
 import glob
@@ -126,7 +126,7 @@ class TextureConfig:
         return textures
 
 class RealityGenerator:
-    """Generator plików Reality/USDZ dla Apple AR QuickLook z obsługą tekstur"""
+    """Generator plików Reality/USDZ dla Apple AR QuickLook z DZIAŁAJĄCYMI teksturami"""
     
     def __init__(self):
         self.cache_dir = os.path.join(
@@ -180,8 +180,8 @@ class RealityGenerator:
         print(f"[RealityGenerator] URL format not recognized: {texture_url}", file=sys.stderr)
         return None
 
-    def _process_texture_for_ar(self, texture_path, surface_type='face', target_size=(1024, 1024)):
-        """Przetwarza teksturę dla formatu AR/USDZ"""
+    def _process_texture_for_ar(self, texture_path, surface_type='face', target_size=(256, 256)):
+        """ZMNIEJSZONE: Bardzo małe tekstury dla lepszej kompatybilności"""
         if not texture_path or not os.path.exists(texture_path):
             print(f"[RealityGenerator] Texture not found: {texture_path}", file=sys.stderr)
             return None
@@ -193,20 +193,35 @@ class RealityGenerator:
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 
-                # Zmień rozmiar dla AR - ograniczenie do maksymalnie 1024x1024
-                max_size = min(target_size[0], 1024)
+                # BARDZO MAŁE tekstury - 256x256 dla maksymalnej kompatybilności
+                max_size = 256
                 if img.size[0] > max_size or img.size[1] > max_size:
                     img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                
+                # ZWIĘKSZ kontrast dla lepszej widoczności
+                from PIL import ImageEnhance
+                
+                # Znacznie większe zwiększenie kontrastu
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.5)
+                
+                # Zwiększenie nasycenia
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(1.3)
+                
+                # Zwiększenie jasności
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(1.1)
                 
                 # Utwórz nazwę pliku z hashem dla unikalności
                 texture_hash = hashlib.md5(texture_path.encode()).hexdigest()[:8]
                 temp_filename = f"{surface_type}_{texture_hash}.jpg"
                 temp_path = os.path.join(self.temp_dir, temp_filename)
                 
-                # Zapisz jako JPEG z kompresją dla AR (lepsze dla iOS)
-                img.save(temp_path, 'JPEG', quality=85, optimize=True)
+                # NAJWYŻSZA jakość JPEG dla AR
+                img.save(temp_path, 'JPEG', quality=100, optimize=False, progressive=False)
                 
-                print(f"[RealityGenerator] Texture processed: {os.path.basename(texture_path)} -> {temp_filename}", file=sys.stderr)
+                print(f"[RealityGenerator] ENHANCED texture processed: {os.path.basename(texture_path)} -> {temp_filename} ({img.size})", file=sys.stderr)
                 return temp_path
         
         except Exception as e:
@@ -214,47 +229,26 @@ class RealityGenerator:
             return None
 
     def _create_wood_geometry_usd_with_textures(self, dimensions, variant_code, texture_filenames):
-        """Tworzy USD geometrię z teksturami"""
-        print(f"[RealityGenerator] Creating USD geometry with textures - wymiary: {dimensions}", file=sys.stderr)
+        """PROSTY: Trzy oddzielne mesh'e z własnymi teksturami - jak wood-viewer.js"""
+        print(f"[RealityGenerator] Creating THREE MESH USD with separate textures - wymiary: {dimensions}", file=sys.stderr)
         
         # Wymiary w metrach dla AR (konwersja z cm)
         length = dimensions.get('length', 200) / 100.0  # cm -> m
         width = dimensions.get('width', 80) / 100.0
         thickness = dimensions.get('thickness', 3) / 100.0
         
-        # Przygotuj referencje tekstur
-        diffuse_texture = texture_filenames.get('face', '')
+        # TEKSTURY - wszystkie dostępne
+        face_texture = texture_filenames.get('face', '')
+        edge_texture = texture_filenames.get('edge', '')
+        side_texture = texture_filenames.get('side', '')
         
-        # USD content z teksturami
-        if diffuse_texture:
-            texture_usd = f'''
-                color3f inputs:diffuseColor.connect = </WoodPanel/Materials/WoodMaterial/DiffuseTexture.outputs:rgb>
-                
-                def Shader "DiffuseTexture"
-                {{
-                    uniform token info:id = "UsdUVTexture"
-                    asset inputs:file = @./{diffuse_texture}@
-                    float2 inputs:st.connect = </WoodPanel/Materials/WoodMaterial/UVReader.outputs:result>
-                    token inputs:wrapS = "repeat"
-                    token inputs:wrapT = "repeat"
-                    color3f outputs:rgb
-                }}'''
-            
-            uv_reader_usd = '''
-            def Shader "UVReader"
-            {
-                uniform token info:id = "UsdPrimvarReader_float2"
-                string inputs:varname = "st"
-                float2 outputs:result
-            }'''
-        else:
-            texture_usd = 'color3f inputs:diffuseColor = (0.82, 0.71, 0.55)'
-            uv_reader_usd = ''
+        print(f"[RealityGenerator] Available textures: face={bool(face_texture)}, edge={bool(edge_texture)}, side={bool(side_texture)}", file=sys.stderr)
         
+        # STRUKTURA USD - TRZY ODDZIELNE MESH'E
         usd_content = f'''#usda 1.0
 (
     customLayerData = {{
-        string creator = "Wood Power CRM"
+        string creator = "Wood Power CRM - Three Mesh Version"
         string[] providedExtensions = ["USDZ"]
     }}
     defaultPrim = "WoodPanel"
@@ -278,71 +272,284 @@ def Xform "WoodPanel" (
     custom bool preliminary_receivesShadows = 1
     custom bool preliminary_castsShadows = 1
     
-    def Mesh "WoodMesh"
+    # MESH 1: GŁÓWNE POWIERZCHNIE (góra + dół) - FACE TEXTURE
+    def Mesh "MainSurfaces"
     {{
-        # Geometria box z UV coordinates
-        int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
-        int[] faceVertexIndices = [0, 1, 3, 2, 4, 6, 7, 5, 0, 2, 6, 4, 1, 5, 7, 3, 0, 4, 5, 1, 2, 3, 7, 6]
+        # Tylko góra i dół - 2 quady z ZEWNĘTRZNYMI normalami
+        int[] faceVertexCounts = [4, 4]
+        int[] faceVertexIndices = [
+            # Top face (Y+) - counter-clockwise z góry
+            0, 1, 2, 3,
+            # Bottom face (Y-) - counter-clockwise z dołu (odwrócona kolejność)
+            4, 7, 6, 5
+        ]
         point3f[] points = [
-            ({-length/2}, {-thickness/2}, {-width/2}),
-            ({length/2}, {-thickness/2}, {-width/2}),
-            ({-length/2}, {thickness/2}, {-width/2}),
-            ({length/2}, {thickness/2}, {-width/2}),
-            ({-length/2}, {-thickness/2}, {width/2}),
-            ({length/2}, {-thickness/2}, {width/2}),
-            ({-length/2}, {thickness/2}, {width/2}),
-            ({length/2}, {thickness/2}, {width/2})
+            # Top face points (Y+)
+            ({-length/2}, {thickness/2}, {-width/2}),  # 0
+            ({length/2}, {thickness/2}, {-width/2}),   # 1  
+            ({length/2}, {thickness/2}, {width/2}),    # 2
+            ({-length/2}, {thickness/2}, {width/2}),   # 3
+            # Bottom face points (Y-)
+            ({-length/2}, {-thickness/2}, {-width/2}), # 4
+            ({length/2}, {-thickness/2}, {-width/2}),  # 5
+            ({length/2}, {-thickness/2}, {width/2}),   # 6
+            ({-length/2}, {-thickness/2}, {width/2})   # 7
         ]
         
-        # UV coordinates dla tekstur
+        # UV coordinates - pionowe dla face
         float2[] primvars:st = [
+            # Top face UV (pionowe słoje)
             (0, 0), (1, 0), (1, 1), (0, 1),
-            (0, 0), (1, 0), (1, 1), (0, 1),
-            (0, 0), (1, 0), (1, 1), (0, 1),
-            (0, 0), (1, 0), (1, 1), (0, 1),
-            (0, 0), (1, 0), (1, 1), (0, 1),
+            # Bottom face UV (pionowe słoje)
             (0, 0), (1, 0), (1, 1), (0, 1)
         ]
         
-        rel material:binding = </WoodPanel/Materials/WoodMaterial>
+        rel material:binding = </WoodPanel/Materials/FaceMaterial>
+        uniform token subdivisionScheme = "none"
+        uniform bool doubleSided = 0
+    }}
+    
+    # MESH 2: BRZEGI (przód + tył) - EDGE TEXTURE
+    def Mesh "Edges"
+    {{
+        # Przód i tył - 2 quady z ZEWNĘTRZNYMI normalami
+        int[] faceVertexCounts = [4, 4]
+        int[] faceVertexIndices = [
+            # Front face (Z-) - counter-clockwise z przodu
+            0, 1, 2, 3,
+            # Back face (Z+) - counter-clockwise z tyłu (odwrócona kolejność)
+            4, 7, 6, 5
+        ]
+        point3f[] points = [
+            # Front face points (Z-)
+            ({-length/2}, {-thickness/2}, {-width/2}), # 0
+            ({length/2}, {-thickness/2}, {-width/2}),  # 1
+            ({length/2}, {thickness/2}, {-width/2}),   # 2
+            ({-length/2}, {thickness/2}, {-width/2}),  # 3
+            # Back face points (Z+)
+            ({-length/2}, {-thickness/2}, {width/2}),  # 4
+            ({length/2}, {-thickness/2}, {width/2}),   # 5
+            ({length/2}, {thickness/2}, {width/2}),    # 6
+            ({-length/2}, {thickness/2}, {width/2})    # 7
+        ]
+        
+        # UV coordinates - poziome dla edge
+        float2[] primvars:st = [
+            # Front face UV (poziome słoje)
+            (0, 0), (1, 0), (1, 1), (0, 1),
+            # Back face UV (poziome słoje)
+            (0, 0), (1, 0), (1, 1), (0, 1)
+        ]
+        
+        rel material:binding = </WoodPanel/Materials/EdgeMaterial>
+        uniform token subdivisionScheme = "none"
+        uniform bool doubleSided = 0
+    }}
+    
+    # MESH 3: BOKI (lewy + prawy) - SIDE TEXTURE
+    def Mesh "Sides"
+    {{
+        # Lewy i prawy - 2 quady z ZEWNĘTRZNYMI normalami
+        int[] faceVertexCounts = [4, 4]
+        int[] faceVertexIndices = [
+            # Left face (X-) - counter-clockwise z lewej
+            0, 1, 2, 3,
+            # Right face (X+) - counter-clockwise z prawej (odwrócona kolejność)
+            4, 7, 6, 5
+        ]
+        point3f[] points = [
+            # Left face points (X-)
+            ({-length/2}, {-thickness/2}, {width/2}),  # 0
+            ({-length/2}, {-thickness/2}, {-width/2}), # 1
+            ({-length/2}, {thickness/2}, {-width/2}),  # 2
+            ({-length/2}, {thickness/2}, {width/2}),   # 3
+            # Right face points (X+)
+            ({length/2}, {-thickness/2}, {width/2}),   # 4
+            ({length/2}, {-thickness/2}, {-width/2}),  # 5
+            ({length/2}, {thickness/2}, {-width/2}),   # 6
+            ({length/2}, {thickness/2}, {width/2})     # 7
+        ]
+        
+        # UV coordinates - kwadratowe dla side
+        float2[] primvars:st = [
+            # Left face UV
+            (0, 0), (1, 0), (1, 1), (0, 1),
+            # Right face UV
+            (0, 0), (1, 0), (1, 1), (0, 1)
+        ]
+        
+        rel material:binding = </WoodPanel/Materials/SideMaterial>
         uniform token subdivisionScheme = "none"
         uniform bool doubleSided = 0
     }}
     
     def Scope "Materials"
-    {{
-        def Material "WoodMaterial"
+    {{'''
+
+        # FACE MATERIAL (główne powierzchnie)
+        if face_texture:
+            usd_content += f'''
+        def Material "FaceMaterial"
         {{
-            token outputs:surface.connect = </WoodPanel/Materials/WoodMaterial/PreviewSurface.outputs:surface>
+            token outputs:surface.connect = </WoodPanel/Materials/FaceMaterial/PreviewSurface.outputs:surface>
             
             def Shader "PreviewSurface"
             {{
                 uniform token info:id = "UsdPreviewSurface"
-                
-                {texture_usd}
-                
+                color3f inputs:diffuseColor.connect = </WoodPanel/Materials/FaceMaterial/DiffuseTexture.outputs:rgb>
                 float inputs:roughness = 0.85
                 float inputs:metallic = 0.0
-                float inputs:clearcoat = 0.0
                 float inputs:opacity = 1.0
-                float inputs:ior = 1.45
                 token outputs:surface
             }}
             
-            {uv_reader_usd}
-        }}
-    }}
-}}
+            def Shader "DiffuseTexture"
+            {{
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./{face_texture}@
+                float2 inputs:st.connect = </WoodPanel/Materials/FaceMaterial/UVReader.outputs:result>
+                token inputs:wrapS = "repeat"
+                token inputs:wrapT = "repeat"
+                color3f outputs:rgb
+            }}
+            
+            def Shader "UVReader"
+            {{
+                uniform token info:id = "UsdPrimvarReader_float2"
+                string inputs:varname = "st"
+                float2 outputs:result
+            }}
+        }}'''
+        else:
+            usd_content += '''
+        def Material "FaceMaterial"
+        {
+            token outputs:surface.connect = </WoodPanel/Materials/FaceMaterial/PreviewSurface.outputs:surface>
+            
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.82, 0.71, 0.55)
+                float inputs:roughness = 0.85
+                float inputs:metallic = 0.0
+                token outputs:surface
+            }
+        }'''
+
+        # EDGE MATERIAL (brzegi)
+        if edge_texture:
+            usd_content += f'''
+        def Material "EdgeMaterial"
+        {{
+            token outputs:surface.connect = </WoodPanel/Materials/EdgeMaterial/PreviewSurface.outputs:surface>
+            
+            def Shader "PreviewSurface"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </WoodPanel/Materials/EdgeMaterial/DiffuseTexture.outputs:rgb>
+                float inputs:roughness = 0.9
+                float inputs:metallic = 0.0
+                float inputs:opacity = 1.0
+                token outputs:surface
+            }}
+            
+            def Shader "DiffuseTexture"
+            {{
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./{edge_texture}@
+                float2 inputs:st.connect = </WoodPanel/Materials/EdgeMaterial/UVReader.outputs:result>
+                token inputs:wrapS = "repeat"
+                token inputs:wrapT = "repeat"
+                color3f outputs:rgb
+            }}
+            
+            def Shader "UVReader"
+            {{
+                uniform token info:id = "UsdPrimvarReader_float2"
+                string inputs:varname = "st"
+                float2 outputs:result
+            }}
+        }}'''
+        else:
+            usd_content += '''
+        def Material "EdgeMaterial"
+        {
+            token outputs:surface.connect = </WoodPanel/Materials/EdgeMaterial/PreviewSurface.outputs:surface>
+            
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.7, 0.6, 0.45)
+                float inputs:roughness = 0.9
+                float inputs:metallic = 0.0
+                token outputs:surface
+            }
+        }'''
+
+        # SIDE MATERIAL (boki)
+        if side_texture:
+            usd_content += f'''
+        def Material "SideMaterial"
+        {{
+            token outputs:surface.connect = </WoodPanel/Materials/SideMaterial/PreviewSurface.outputs:surface>
+            
+            def Shader "PreviewSurface"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </WoodPanel/Materials/SideMaterial/DiffuseTexture.outputs:rgb>
+                float inputs:roughness = 0.85
+                float inputs:metallic = 0.0
+                float inputs:opacity = 1.0
+                token outputs:surface
+            }}
+            
+            def Shader "DiffuseTexture"
+            {{
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./{side_texture}@
+                float2 inputs:st.connect = </WoodPanel/Materials/SideMaterial/UVReader.outputs:result>
+                token inputs:wrapS = "repeat"
+                token inputs:wrapT = "repeat"
+                color3f outputs:rgb
+            }}
+            
+            def Shader "UVReader"
+            {{
+                uniform token info:id = "UsdPrimvarReader_float2"
+                string inputs:varname = "st"
+                float2 outputs:result
+            }}
+        }}'''
+        else:
+            usd_content += '''
+        def Material "SideMaterial"
+        {
+            token outputs:surface.connect = </WoodPanel/Materials/SideMaterial/PreviewSurface.outputs:surface>
+            
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.75, 0.65, 0.5)
+                float inputs:roughness = 0.85
+                float inputs:metallic = 0.0
+                token outputs:surface
+            }
+        }'''
+
+        # Zamknij strukturę
+        usd_content += '''
+    }
+}
 '''
         
-        print(f"[RealityGenerator] USD content created - AR dimensions: {length:.3f}m x {width:.3f}m x {thickness:.3f}m", file=sys.stderr)
-        print(f"[RealityGenerator] Using texture: {diffuse_texture if diffuse_texture else 'none'}", file=sys.stderr)
+        print(f"[RealityGenerator] THREE MESH USD created - AR dimensions: {length:.3f}m x {width:.3f}m x {thickness:.3f}m", file=sys.stderr)
+        print(f"[RealityGenerator] Textures used: face={bool(face_texture)}, edge={bool(edge_texture)}, side={bool(side_texture)}", file=sys.stderr)
         return usd_content
 
     def _create_usdz_with_textures(self, usd_content, processed_textures, output_path):
-        """Tworzy USDZ z teksturami"""
+        """POPRAWIONA: Tworzy USDZ z teksturami w poprawnej kolejności"""
         try:
-            print(f"[RealityGenerator] Creating USDZ with textures: {list(processed_textures.keys())}", file=sys.stderr)
+            print(f"[RealityGenerator] Creating USDZ with WORKING textures: {list(processed_textures.keys())}", file=sys.stderr)
             
             # Utwórz pliki tymczasowe
             usd_file = os.path.join(self.temp_dir, 'model.usd')
@@ -351,29 +558,46 @@ def Xform "WoodPanel" (
             with open(usd_file, 'w', encoding='utf-8') as f:
                 f.write(usd_content)
             
-            # Utwórz USDZ jako ZIP z teksturami
+            print(f"[RealityGenerator] USD file written: {usd_file}", file=sys.stderr)
+            
+            # POPRAWIONE: Utwórz USDZ jako ZIP z teksturami w poprawnej kolejności
             with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_STORED) as zf:
-                # USD musi być pierwszym plikiem w archiwum
+                # KRYTYCZNE: USD musi być pierwszym plikiem w archiwum dla iOS
                 zf.write(usd_file, 'model.usd')
+                print(f"[RealityGenerator] Added USD to USDZ: model.usd", file=sys.stderr)
                 
                 # Dodaj wszystkie tekstury
                 for surface_type, texture_path in processed_textures.items():
                     if texture_path and os.path.exists(texture_path):
                         texture_filename = os.path.basename(texture_path)
                         zf.write(texture_path, texture_filename)
-                        print(f"[RealityGenerator] Added texture to USDZ: {texture_filename}", file=sys.stderr)
+                        
+                        # Sprawdź rozmiar dodanej tekstury
+                        texture_size = os.path.getsize(texture_path)
+                        print(f"[RealityGenerator] Added texture to USDZ: {texture_filename} ({texture_size} bytes)", file=sys.stderr)
             
             # Sprawdź czy plik został utworzony
             if not os.path.exists(output_path):
                 raise Exception(f"Failed to create USDZ file: {output_path}")
             
             file_size = os.path.getsize(output_path)
-            print(f"[RealityGenerator] USDZ with textures created: {output_path}, size: {file_size} bytes", file=sys.stderr)
+            print(f"[RealityGenerator] USDZ with WORKING textures created: {output_path}, size: {file_size} bytes", file=sys.stderr)
+            
+            # NOWA WALIDACJA: Sprawdź zawartość archiwum
+            with zipfile.ZipFile(output_path, 'r') as zf:
+                files_in_archive = zf.namelist()
+                print(f"[RealityGenerator] Files in USDZ archive: {files_in_archive}", file=sys.stderr)
+                
+                # Sprawdź czy first file to USD
+                if files_in_archive and not files_in_archive[0].endswith('.usd'):
+                    print(f"[RealityGenerator] WARNING: First file is not USD: {files_in_archive[0]}", file=sys.stderr)
             
             return True
             
         except Exception as e:
-            print(f"[RealityGenerator] Error creating USDZ with textures: {e}", file=sys.stderr)
+            print(f"[RealityGenerator] Error creating USDZ with WORKING textures: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             return False
         finally:
             # Wyczyść pliki tymczasowe
@@ -512,9 +736,9 @@ def Xform "WoodPanel" (
 
     def generate_reality(self, product_data):
         """
-        POPRAWIONA METODA: Generuje plik Reality/USDZ z teksturami
+        POPRAWIONA METODA: Generuje plik Reality/USDZ z DZIAŁAJĄCYMI teksturami
         """
-        print(f"[RealityGenerator] Generating AR with textures for: {product_data}", file=sys.stderr)
+        print(f"[RealityGenerator] Generating AR with WORKING textures for: {product_data}", file=sys.stderr)
         
         try:
             # Sprawdź cache
@@ -547,7 +771,7 @@ def Xform "WoodPanel" (
             if not all(dimensions.values()) or any(d <= 0 for d in dimensions.values()):
                 raise ValueError("Invalid product dimensions")
             
-            # NOWE: Pobierz i przetwórz tekstury
+            # POPRAWIONE: Pobierz i przetwórz tekstury z lepszą obsługą błędów
             processed_textures = {}
             texture_filenames = {}
             
@@ -557,29 +781,45 @@ def Xform "WoodPanel" (
                 
                 for surface_type in ['face', 'edge', 'side']:
                     texture_variants = textures.get(surface_type, {}).get('variants', [])
+                    print(f"[RealityGenerator] {surface_type} variants: {len(texture_variants)}", file=sys.stderr)
+                    
                     if texture_variants:
-                        # Wybierz losową teksturę z dostępnych wariantów
-                        selected_texture_url = random.choice(texture_variants)
-                        texture_local_path = self._get_texture_path(selected_texture_url)
+                        # Filtruj tylko prawdziwe pliki (nie data: URLs)
+                        real_textures = [t for t in texture_variants if not t.startswith('data:')]
                         
-                        if texture_local_path:
-                            processed_texture = self._process_texture_for_ar(texture_local_path, surface_type)
-                            if processed_texture:
-                                processed_textures[surface_type] = processed_texture
-                                texture_filenames[surface_type] = os.path.basename(processed_texture)
-                                print(f"[RealityGenerator] Texture {surface_type} processed: {texture_filenames[surface_type]}", file=sys.stderr)
+                        if real_textures:
+                            # Wybierz losową teksturę z dostępnych wariantów
+                            selected_texture_url = random.choice(real_textures)
+                            print(f"[RealityGenerator] Selected {surface_type} texture: {selected_texture_url}", file=sys.stderr)
+                            
+                            texture_local_path = self._get_texture_path(selected_texture_url)
+                            
+                            if texture_local_path:
+                                processed_texture = self._process_texture_for_ar(texture_local_path, surface_type)
+                                if processed_texture:
+                                    processed_textures[surface_type] = processed_texture
+                                    texture_filenames[surface_type] = os.path.basename(processed_texture)
+                                    print(f"[RealityGenerator] Texture {surface_type} processed: {texture_filenames[surface_type]}", file=sys.stderr)
+                                else:
+                                    print(f"[RealityGenerator] Failed to process texture for {surface_type}", file=sys.stderr)
+                            else:
+                                print(f"[RealityGenerator] Local path not found for {surface_type}: {selected_texture_url}", file=sys.stderr)
                         else:
-                            print(f"[RealityGenerator] Local path not found for {surface_type}: {selected_texture_url}", file=sys.stderr)
+                            print(f"[RealityGenerator] No real texture files for {surface_type} (only data: URLs)", file=sys.stderr)
                     else:
                         print(f"[RealityGenerator] No texture variants for {surface_type}", file=sys.stderr)
                 
             except Exception as e:
                 print(f"[RealityGenerator] Error processing textures for {variant_code}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
                 # Kontynuuj bez tekstur
             
-            # Wybierz metodę tworzenia USD na podstawie dostępności tekstur
+            # POPRAWIONE: Wybierz metodę tworzenia USD na podstawie dostępności tekstur
             if processed_textures:
-                print(f"[RealityGenerator] Using {len(processed_textures)} textures for AR model", file=sys.stderr)
+                print(f"[RealityGenerator] Using {len(processed_textures)} WORKING textures for AR model", file=sys.stderr)
+                print(f"[RealityGenerator] Processed textures: {list(processed_textures.keys())}", file=sys.stderr)
+                
                 usd_content = self._create_wood_geometry_usd_with_textures(dimensions, variant_code, texture_filenames)
                 success = self._create_usdz_with_textures(usd_content, processed_textures, usdz_path)
             else:
@@ -590,11 +830,20 @@ def Xform "WoodPanel" (
             if not success:
                 raise Exception("Failed to create USDZ file")
             
-            print(f"[RealityGenerator] USDZ generated: {usdz_path}", file=sys.stderr)
+            # DODANA WALIDACJA: Sprawdź finalny plik
+            final_validation = self._validate_usdz(usdz_path)
+            print(f"[RealityGenerator] Final USDZ validation: {final_validation}", file=sys.stderr)
+            
+            if not final_validation.get('is_valid_zip', False):
+                raise Exception(f"Generated USDZ is not valid: {final_validation}")
+            
+            print(f"[RealityGenerator] USDZ with WORKING textures generated: {usdz_path}", file=sys.stderr)
             return usdz_path
             
         except Exception as e:
             print(f"[RealityGenerator] Error generating Reality/USDZ: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             raise
 
     def cleanup_temp_files(self):
@@ -653,20 +902,32 @@ def Xform "WoodPanel" (
             return None
 
     def _validate_usdz(self, file_path):
-        """Waliduje plik USDZ"""
+        """POPRAWIONA: Waliduje plik USDZ z szczegółowymi informacjami"""
         try:
             # Sprawdź czy to prawidłowy ZIP
             with zipfile.ZipFile(file_path, 'r') as zf:
                 files = zf.namelist()
                 
                 # Sprawdź czy zawiera plik USD
-                has_usd = any(f.endswith('.usd') or f.endswith('.usda') for f in files)
+                usd_files = [f for f in files if f.endswith('.usd') or f.endswith('.usda')]
+                has_usd = len(usd_files) > 0
                 
                 # Sprawdź czy USD jest pierwszym plikiem (wymagane dla iOS)
                 first_file_is_usd = len(files) > 0 and (files[0].endswith('.usd') or files[0].endswith('.usda'))
                 
                 # Sprawdź tekstury
                 texture_files = [f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+                
+                # NOWE: Sprawdź zawartość USD
+                usd_content = ""
+                if usd_files:
+                    try:
+                        with zf.open(usd_files[0]) as usd_file:
+                            usd_content = usd_file.read().decode('utf-8')
+                    except:
+                        pass
+                
+                has_texture_references = 'DiffuseTexture' in usd_content and 'inputs:file' in usd_content
                 
                 return {
                     'is_valid_zip': True,
@@ -675,7 +936,10 @@ def Xform "WoodPanel" (
                     'files_count': len(files),
                     'texture_count': len(texture_files),
                     'texture_files': texture_files,
-                    'files': files[:5]  # pierwsze 5 plików
+                    'usd_files': usd_files,
+                    'has_texture_references_in_usd': has_texture_references,
+                    'files': files[:10],  # pierwsze 10 plików
+                    'total_size': sum(zf.getinfo(f).file_size for f in files if f in files)
                 }
                 
         except Exception as e:
@@ -692,3 +956,4 @@ class AR3DGenerator(RealityGenerator):
         """Backward compatibility wrapper"""
         print("[AR3DGenerator] DEPRECATED: Use RealityGenerator.generate_reality()", file=sys.stderr)
         return self.generate_reality(product_data)
+
