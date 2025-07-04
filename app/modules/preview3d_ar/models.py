@@ -191,11 +191,6 @@ class RealityGenerator:
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
 
-                # ==> USUNIĘTO fragment przycinający/skalujący <==
-                # max_size = 512
-                # if img.size[0] > max_size or img.size[1] > max_size:
-                #     img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-
                 from PIL import ImageEnhance
                 img = ImageEnhance.Contrast(img).enhance(1)
                 img = ImageEnhance.Color(img).enhance(1)
@@ -987,17 +982,23 @@ def Xform "WoodPanel" (
             # Sprawdź czy to prawidłowy ZIP
             with zipfile.ZipFile(file_path, 'r') as zf:
                 files = zf.namelist()
-                
+
                 # Sprawdź czy zawiera plik USD
                 usd_files = [f for f in files if f.endswith('.usd') or f.endswith('.usda')]
                 has_usd = len(usd_files) > 0
-                
+
                 # Sprawdź czy USD jest pierwszym plikiem (wymagane dla iOS)
-                first_file_is_usd = len(files) > 0 and (files[0].endswith('.usd') or files[0].endswith('.usda'))
-                
+                first_file_is_usd = (
+                    len(files) > 0 and
+                    (files[0].endswith('.usd') or files[0].endswith('.usda'))
+                )
+
                 # Sprawdź tekstury
-                texture_files = [f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-                
+                texture_files = [
+                    f for f in files
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png'))
+                ]
+
                 # NOWE: Sprawdź zawartość USD
                 usd_content = ""
                 if usd_files:
@@ -1006,9 +1007,12 @@ def Xform "WoodPanel" (
                             usd_content = usd_file.read().decode('utf-8')
                     except:
                         pass
-                
-                has_texture_references = 'DiffuseTexture' in usd_content and 'inputs:file' in usd_content
-                
+
+                has_texture_references = (
+                    'DiffuseTexture' in usd_content and
+                    'inputs:file' in usd_content
+                )
+
                 return {
                     'is_valid_zip': True,
                     'has_usd_file': has_usd,
@@ -1019,9 +1023,9 @@ def Xform "WoodPanel" (
                     'usd_files': usd_files,
                     'has_texture_references_in_usd': has_texture_references,
                     'files': files[:10],  # pierwsze 10 plików
-                    'total_size': sum(zf.getinfo(f).file_size for f in files if f in files)
+                    'total_size': sum(zf.getinfo(f).file_size for f in files)
                 }
-                
+
         except Exception as e:
             return {
                 'is_valid_zip': False,
