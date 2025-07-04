@@ -1,30 +1,30 @@
 // app/modules/preview3d_ar/static/js/ar-handler.js
-
-/**
- * AR Handler - obsługa rzeczywistości rozszerzonej
- * Wersja 2.0 z lepszym UX i przygotowaniem pod prawdziwy AR
- */
+// POPRAWIONA WERSJA z popup potwierdzającym
 
 class ARHandler {
     constructor() {
         this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         this.isAndroid = /Android/.test(navigator.userAgent);
         this.isMobile = this.isIOS || this.isAndroid;
-        
-        // Sprawdź wersje systemów
+
         this.iosVersion = this.getIOSVersion();
-        this.androidVersion = this.getAndroidVersion();
-        
-        console.log('[ARHandler] Inicjalizacja AR Handler 2.0');
-        console.log(`[ARHandler] Platforma: ${this.getPlatformInfo()}`);
+        this.isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+
+        // Punkt końcowy API
+        this.apiEndpoint = '/preview3d-ar/api';
+
+        // Cache URL-i
+        this.modelCache = new Map();
+
+        console.log('[ARHandler] Inicjalizacja AR Handler z popup');
+        console.log('[ARHandler] iOS:', this.iosVersion, 'Safari:', this.isSafari);
     }
 
     /**
-     * Główna metoda inicjowania AR
-     * @param {Object} productData - dane produktu
+     * NOWA: Główna metoda z popup potwierdzającym
      */
     async initiateAR(productData) {
-        console.log('[ARHandler] Inicjowanie AR dla produktu:', productData);
+        console.log('[ARHandler] Inicjowanie AR z popup dla produktu:', productData);
 
         if (!this.isMobile) {
             this.showDesktopMessage();
@@ -36,552 +36,496 @@ class ARHandler {
             return;
         }
 
+        // NOWE: Pokaż popup potwierdzający
+        this.showARConfirmationPopup(productData);
+    }
+
+    /**
+     * NOWA METODA: Popup potwierdzający AR
+     */
+    showARConfirmationPopup(productData) {
+        const variant = productData.variant_code || 'Produkt';
+        const dims = productData.dimensions || {};
+        const dimensions = `${dims.length || 0}×${dims.width || 0}×${dims.thickness || 0} cm`;
+
+        const modal = this.createARModal('Otwórz w rzeczywistości rozszerzonej', {
+            icon: '📱',
+            title: 'Czy chcesz otworzyć model w AR?',
+            message: `Model: ${variant}\nWymiary: ${dimensions}`,
+            details: [
+                '📱 Wymagane: iPhone/iPad z iOS 12+',
+                '🌐 Potrzebne: Safari (nie Chrome)',
+                '🚀 Technologia: Apple QuickLook AR',
+                '⚡ Model zostanie pobrany automatycznie'
+            ],
+            buttons: [
+                {
+                    text: 'Anuluj',
+                    action: () => this.closeModal(),
+                    primary: false
+                },
+                {
+                    text: 'Otwórz AR',
+                    action: () => this.confirmOpenAR(productData),
+                    primary: true
+                }
+            ]
+        });
+
+        this.showModal(modal);
+    }
+
+    /**
+     * NOWA METODA: Potwierdzenie otwarcia AR
+     */
+    async confirmOpenAR(productData) {
+        console.log('[ARHandler] Użytkownik potwierdził otwarcie AR');
+
+        // Zamknij popup
+        this.closeModal();
+
+        // Sprawdź kompatybilność
+        if (!this.isIOS || this.iosVersion < 12 || !this.isSafari) {
+            this.showUnsupportedMessage();
+            return;
+        }
+
         try {
-            if (this.isIOS && this.iosVersion >= 12) {
-                await this.initiateIOSAR(productData);
-            } else if (this.isAndroid && this.supportsWebXR()) {
-                await this.initiateAndroidAR(productData);
-            } else {
-                this.showUnsupportedMessage();
-            }
-        } catch (error) {
-            console.error('[ARHandler] Błąd AR:', error);
-            this.showError(`Błąd AR: ${error.message}`);
+            // Pokaż loading
+            this.showLoadingModal('Przygotowywanie modelu AR...');
+
+            // Wygeneruj i otwórz AR
+            await this.initiateIOSAR(productData);
+
+        } catch (err) {
+            this.hideLoadingModal();
+            console.error('[ARHandler] Błąd AR:', err);
+            this.showError('Błąd generowania modelu AR: ' + err.message);
         }
     }
 
     /**
-     * AR dla iOS - przygotowanie pod USDZ
-     * @param {Object} productData
+     * POPRAWIONA: AR dla iOS z lepszym plikiem USDZ
      */
     async initiateIOSAR(productData) {
-        console.log('[ARHandler] Przygotowanie iOS AR (USDZ)');
+        console.log('[ARHandler] iOS AR - generowanie poprawnego USDZ');
 
-        // TODO: Po implementacji backendu do generowania USDZ
-        // const usdzUrl = await this.generateUSDZFile(productData);
-        // this.openUSDZFile(usdzUrl);
+        try {
+            // Użyj USDZ zamiast Reality (bardziej stabilne)
+            const usdzUrl = await this.generateUSDZFile(productData);
 
-        // Na razie pokazujemy informację
-        this.showIOSARPreview(productData);
+            this.hideLoadingModal();
+
+            // BEZPOŚREDNIE uruchomienie AR bez przekierowań
+            this.openQuickLookARDirect(usdzUrl, productData);
+
+        } catch (err) {
+            this.hideLoadingModal();
+            console.error('[ARHandler] Błąd iOS AR:', err);
+            this.showError('Błąd generowania modelu AR: ' + err.message);
+        }
     }
 
     /**
-     * AR dla Android - przygotowanie pod WebXR/Model Viewer
-     * @param {Object} productData
+     * POPRAWIONA: Generowanie USDZ z lepszymi parametrami
      */
-    async initiateAndroidAR(productData) {
-        console.log('[ARHandler] Przygotowanie Android AR (WebXR)');
+    async generateUSDZFile(productData) {
+        const key = this._getCacheKey(productData, 'usdz');
+        if (this.modelCache.has(key)) {
+            console.log('[ARHandler] USDZ z cache:', this.modelCache.get(key));
+            return this.modelCache.get(key);
+        }
 
-        // TODO: Po implementacji WebXR
-        // const glbUrl = await this.generateGLBFile(productData);
-        // this.openWebXRAR(glbUrl);
+        console.log('[ARHandler] Generowanie nowego pliku USDZ...');
 
-        // Na razie pokazujemy informację
-        this.showAndroidARPreview(productData);
-    }
+        const requestData = {
+            variant_code: productData.variant_code,
+            dimensions: {
+                length: productData.dimensions.length,
+                width: productData.dimensions.width,
+                thickness: productData.dimensions.thickness
+            },
+            // NOWE: Dodatkowe parametry dla lepszej jakości
+            quality: 'high',
+            format: 'usdz',
+            optimize_for_ar: true
+        };
 
-    /**
-     * Pokazuje podgląd dla iOS AR
-     */
-    showIOSARPreview(productData) {
-        const modal = this.createARPreviewModal('iOS QuickLook AR', productData, {
-            icon: '📱',
-            description: 'Wybierz "Wyświetl w AR" w prawym górnym rogu',
-            features: [
-                '🎯 Automatyczne wykrywanie powierzchni',
-                '👆 Gestów dotykowe do manipulacji',
-                '📏 Skalowanie w czasie rzeczywistym',
-                '🔄 Obracanie dwoma palcami'
-            ],
-            requirements: 'iPhone/iPad z iOS 12+ i procesorem A9+',
-            comingSoon: true
+        const res = await fetch(`${this.apiEndpoint}/generate-usdz`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(requestData)
         });
 
-        this.showModal(modal);
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error('[ARHandler] USDZ API error:', res.status, errorText);
+            throw new Error(`Błąd API (${res.status}): ${errorText}`);
+        }
+
+        const result = await res.json();
+        console.log('[ARHandler] USDZ API response:', result);
+
+        if (!result.success || !result.usdz_url) {
+            throw new Error('Brak usdz_url w odpowiedzi API');
+        }
+
+        // Sprawdź czy plik istnieje
+        await this.validateARFile(result.usdz_url);
+
+        this.modelCache.set(key, result.usdz_url);
+        console.log('[ARHandler] USDZ file wygenerowany:', result.usdz_url);
+
+        return result.usdz_url;
     }
 
     /**
-     * Pokazuje podgląd dla Android AR
+     * NOWA METODA: Walidacja pliku AR
      */
-    showAndroidARPreview(productData) {
-        const modal = this.createARPreviewModal('Android WebXR AR', productData, {
-            icon: '🤖',
-            description: 'AR uruchomi się w przeglądarce z obsługą WebXR',
-            features: [
-                '🎯 Wykrywanie płaskich powierzchni',
-                '👆 Dotknij aby umieścić model',
-                '🎮 Kontrolki AR w przeglądarce',
-                '📐 Pomiary w czasie rzeczywistym'
-            ],
-            requirements: 'Android 7.0+ z Google Play Services for AR',
-            comingSoon: true
+    async validateARFile(fileUrl) {
+        console.log('[ARHandler] Walidacja pliku AR:', fileUrl);
+
+        try {
+            const response = await fetch(fileUrl, { method: 'HEAD' });
+
+            if (!response.ok) {
+                throw new Error(`Plik AR niedostępny (${response.status})`);
+            }
+
+            const contentType = response.headers.get('content-type');
+            const contentLength = response.headers.get('content-length');
+
+            console.log('[ARHandler] Plik AR - Type:', contentType, 'Size:', contentLength);
+
+            // Sprawdź MIME type
+            if (!contentType || (!contentType.includes('usdz') && !contentType.includes('octet-stream'))) {
+                console.warn('[ARHandler] Nieprawidłowy MIME type:', contentType);
+            }
+
+            // Sprawdź rozmiar
+            if (!contentLength || parseInt(contentLength) < 1000) {
+                throw new Error('Plik AR jest za mały (prawdopodobnie uszkodzony)');
+            }
+
+            console.log('[ARHandler] Plik AR zwalidowany pomyślnie');
+
+        } catch (error) {
+            console.error('[ARHandler] Błąd walidacji pliku AR:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * POPRAWIONA: Bezpośrednie otwarcie QuickLook AR
+     */
+    openQuickLookARDirect(modelUrl, productData) {
+        console.log('[ARHandler] Bezpośrednie otwarcie QuickLook AR:', modelUrl);
+
+        // Usuń stary link jeśli istnieje
+        const existingLink = document.getElementById('ar-quicklook-link');
+        if (existingLink) {
+            existingLink.remove();
+        }
+
+        // Utwórz nowy link AR
+        const link = document.createElement('a');
+        link.id = 'ar-quicklook-link';
+        link.href = modelUrl;
+        link.rel = 'ar';
+        link.type = 'model/vnd.usdz+zip';
+
+        // Metadane AR
+        const variant = productData?.variant_code || 'Wood Panel';
+        const dims = productData?.dimensions || {};
+        const subtitle = `${dims.length || 0}×${dims.width || 0}×${dims.thickness || 0} cm`;
+
+        link.setAttribute('data-ar-title', variant);
+        link.setAttribute('data-ar-subtitle', subtitle);
+        link.setAttribute('data-ar-placement', 'floor');
+        link.setAttribute('data-ar-scale', 'auto');
+
+        // KRYTYCZNE: Link musi być widoczny dla iOS
+        link.style.position = 'fixed';
+        link.style.top = '-1000px';
+        link.style.left = '-1000px';
+        link.style.width = '1px';
+        link.style.height = '1px';
+        link.style.opacity = '0';
+        link.style.pointerEvents = 'none';
+
+        // Dodaj do DOM
+        document.body.appendChild(link);
+
+        console.log('[ARHandler] Link AR utworzony:', {
+            href: link.href,
+            rel: link.rel,
+            type: link.type
         });
 
-        this.showModal(modal);
+        // NATYCHMIASTOWE kliknięcie
+        setTimeout(() => {
+            try {
+                console.log('[ARHandler] Kliknięcie w link AR...');
+
+                // Metoda 1: Native click
+                link.click();
+
+                // Metoda 2: Dispatch event (fallback)
+                setTimeout(() => {
+                    const clickEvent = new MouseEvent('click', {
+                        view: window,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    link.dispatchEvent(clickEvent);
+
+                    console.log('[ARHandler] AR click events wykonane');
+                }, 100);
+
+                // Cleanup po 3 sekundach
+                setTimeout(() => {
+                    if (document.body.contains(link)) {
+                        document.body.removeChild(link);
+                    }
+                }, 3000);
+
+            } catch (error) {
+                console.error('[ARHandler] Błąd kliknięcia AR:', error);
+            }
+        }, 50);
     }
 
     /**
-     * Tworzy modal podglądu AR
+     * Pomocnicze metody UI
      */
-    createARPreviewModal(title, productData, options) {
+    createARModal(title, options) {
         const modal = document.createElement('div');
-        modal.className = 'ar-preview-modal';
-        
-        const productInfo = `${productData.variant_code?.toUpperCase() || 'Wariant'} - ${Math.round(productData.dimensions?.length || 0)}×${Math.round(productData.dimensions?.width || 0)}×${(productData.dimensions?.thickness || 0).toFixed(1)} cm`;
+        modal.className = 'ar-modal-overlay';
 
-        modal.innerHTML = `
-            <div class="ar-preview-content">
-                <div class="ar-preview-header">
-                    <div class="ar-icon">${options.icon}</div>
-                    <h2>${title}</h2>
-                    <button class="ar-close-btn" onclick="this.closest('.ar-preview-modal').remove()">×</button>
-                </div>
-                
-                <div class="ar-preview-body">
-                    <div class="product-preview">
-                        <div class="product-swatch"></div>
-                        <div class="product-details">
-                            <h3>${productInfo}</h3>
-                            <p>${options.description}</p>
-                        </div>
-                    </div>
+        const detailsHtml = options.details ? options.details.map(detail =>
+            '<div class="ar-detail-item">' + detail + '</div>'
+        ).join('') : '';
 
-                    ${options.comingSoon ? `
-                        <div class="coming-soon-banner">
-                            🚀 <strong>Funkcja dostępna wkrótce!</strong>
-                            <p>Pracujemy nad implementacją pełnej obsługi AR</p>
-                        </div>
-                    ` : ''}
+        const buttonsHtml = options.buttons ? options.buttons.map(btn =>
+            '<button class="ar-modal-btn ' + (btn.primary ? 'primary' : '') + '" data-action="' + btn.text + '">' +
+            btn.text +
+            '</button>'
+        ).join('') : '';
 
-                    <div class="ar-features">
-                        <h4>Funkcje AR:</h4>
-                        <ul>
-                            ${options.features.map(feature => `<li>${feature}</li>`).join('')}
-                        </ul>
-                    </div>
+        modal.innerHTML =
+            '<div class="ar-modal-content">' +
+            '<div class="ar-modal-header">' +
+            '<div class="ar-modal-icon">' + options.icon + '</div>' +
+            '<h2 class="ar-modal-title">' + title + '</h2>' +
+            '</div>' +
+            '<div class="ar-modal-body">' +
+            '<div class="ar-modal-message" style="white-space: pre-line;">' + options.message + '</div>' +
+            (detailsHtml ? '<div class="ar-modal-details">' + detailsHtml + '</div>' : '') +
+            '</div>' +
+            '<div class="ar-modal-footer">' +
+            buttonsHtml +
+            '</div>' +
+            '</div>';
 
-                    <div class="ar-requirements">
-                        <h4>Wymagania:</h4>
-                        <p>${options.requirements}</p>
-                    </div>
-                </div>
-
-                <div class="ar-preview-footer">
-                    ${options.comingSoon ? `
-                        <button class="btn-ar-demo" onclick="this.closest('.ar-preview-modal').remove()">
-                            Rozumiem
-                        </button>
-                        <button class="btn-ar-notify">
-                            Powiadom o dostępności
-                        </button>
-                    ` : `
-                        <button class="btn-ar-cancel" onclick="this.closest('.ar-preview-modal').remove()">
-                            Anuluj
-                        </button>
-                        <button class="btn-ar-start">
-                            Uruchom AR
-                        </button>
-                    `}
-                </div>
-            </div>
-        `;
-
-        // Dodaj style inline (lepiej byłoby w CSS)
-        modal.style.cssText = `
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 10000;
-            animation: fadeIn 0.3s ease;
-        `;
+        // Event listenery dla przycisków
+        if (options.buttons) {
+            options.buttons.forEach(btn => {
+                const btnElement = modal.querySelector('[data-action="' + btn.text + '"]');
+                if (btnElement) {
+                    btnElement.addEventListener('click', btn.action);
+                }
+            });
+        }
 
         return modal;
     }
 
-    /**
-     * Pokazuje modal
-     */
-    showModal(modal) {
+    showLoadingModal(message) {
+        const modal = document.createElement('div');
+        modal.className = 'ar-loading-overlay';
+        modal.innerHTML =
+            '<div class="ar-loading-content">' +
+            '<div class="ar-loading-spinner"></div>' +
+            '<div class="ar-loading-message">' + message + '</div>' +
+            '</div>';
+
+        modal.id = 'ar-loading-modal';
         document.body.appendChild(modal);
-        
-        // Dodaj obsługę zamykania na ESC
-        const handleEscape = (e) => {
+    }
+
+    hideLoadingModal() {
+        const modal = document.getElementById('ar-loading-modal');
+        if (modal) {
+            modal.remove();
+        }
+    }
+
+    showModal(modal) {
+        this.closeModal();
+        modal.id = 'ar-modal';
+        document.body.appendChild(modal);
+
+        // ESC key handler
+        this._escHandler = (e) => {
             if (e.key === 'Escape') {
-                modal.remove();
-                document.removeEventListener('keydown', handleEscape);
+                this.closeModal();
             }
         };
-        document.addEventListener('keydown', handleEscape);
+        document.addEventListener('keydown', this._escHandler);
 
-        // Dodaj obsługę kliknięcia w tło
+        // Click outside handler
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
-                modal.remove();
-                document.removeEventListener('keydown', handleEscape);
+                this.closeModal();
             }
         });
     }
 
-    /**
-     * Pokazuje komunikat dla komputerów
-     */
-    showDesktopMessage() {
-        const message = `
-            🖥️ Rzeczywistość rozszerzona (AR) jest dostępna tylko na urządzeniach mobilnych.
-            
-            Obsługiwane urządzenia:
-            📱 iPhone/iPad z iOS 12+
-            🤖 Android z obsługą ARCore
-            
-            Użyj telefonu lub tabletu, aby skorzystać z funkcji AR.
-        `;
-        
-        alert(message);
-    }
-
-    /**
-     * Pokazuje komunikat o braku obsługi
-     */
-    showUnsupportedMessage() {
-        let message = '❌ AR nie jest obsługiwane na tym urządzeniu.\n\n';
-        
-        if (this.isIOS && this.iosVersion < 12) {
-            message += `📱 Wykryto iOS ${this.iosVersion}. Wymagane iOS 12+.\n`;
-        } else if (this.isAndroid && !this.supportsWebXR()) {
-            message += '🤖 Twoje urządzenie Android nie obsługuje WebXR.\n';
+    closeModal() {
+        const modal = document.getElementById('ar-modal');
+        if (modal) {
+            modal.remove();
+            if (this._escHandler) {
+                document.removeEventListener('keydown', this._escHandler);
+                this._escHandler = null;
+            }
         }
-        
-        message += '\nSkontaktuj się z pomocą techniczną, jeśli uważasz, że to błąd.';
-        
-        alert(message);
     }
 
-    /**
-     * Pokazuje błąd AR
-     */
+    showDesktopMessage() {
+        const modal = this.createARModal('AR dostępne na urządzeniach mobilnych', {
+            icon: '🖥️',
+            title: 'Rzeczywistość rozszerzona wymaga urządzenia mobilnego',
+            message: 'Funkcja AR działa na iPhone i iPad z iOS 12+ oraz Safari.',
+            details: [
+                '📱 iPhone/iPad z iOS 12+',
+                '🌐 Safari (nie Chrome)',
+                '🔧 Viewer 3D działa na wszystkich urządzeniach'
+            ],
+            buttons: [
+                {
+                    text: 'Rozumiem',
+                    action: () => this.closeModal(),
+                    primary: true
+                }
+            ]
+        });
+
+        this.showModal(modal);
+    }
+
+    showUnsupportedMessage() {
+        let details = [];
+        let message = 'Twoje urządzenie nie spełnia wymagań dla rzeczywistości rozszerzonej.';
+
+        if (!this.isIOS) {
+            details.push('❌ Wykryto: ' + (this.isAndroid ? 'Android' : 'Desktop'));
+            details.push('✅ Wymagane: iPhone/iPad');
+        } else if (this.iosVersion < 12) {
+            details.push('❌ iOS ' + this.iosVersion + ' (za stara wersja)');
+            details.push('✅ Wymagane: iOS 12 lub nowszy');
+        } else if (!this.isSafari) {
+            details.push('❌ Wykryta przeglądarka: ' + this.getBrowserName());
+            details.push('✅ Wymagana: Safari');
+            message = 'AR działa tylko w przeglądarce Safari na iOS.';
+        }
+
+        const modal = this.createARModal('AR nie jest obsługiwane', {
+            icon: '⚠️',
+            title: 'Urządzenie nie obsługuje AR',
+            message: message,
+            details: details,
+            buttons: [
+                {
+                    text: 'Zamknij',
+                    action: () => this.closeModal(),
+                    primary: true
+                }
+            ]
+        });
+
+        this.showModal(modal);
+    }
+
     showError(message) {
-        alert(`🚫 ${message}\n\nSpróbuj ponownie lub skontaktuj się z pomocą techniczną.`);
+        const modal = this.createARModal('Błąd AR', {
+            icon: '🚫',
+            title: 'Wystąpił błąd',
+            message: message,
+            details: [
+                'Spróbuj ponownie za chwilę',
+                'Sprawdź połączenie internetowe',
+                'Upewnij się, że używasz Safari na iOS',
+                'Skontaktuj się z pomocą techniczną jeśli problem się powtarza'
+            ],
+            buttons: [
+                {
+                    text: 'Zamknij',
+                    action: () => this.closeModal(),
+                    primary: true
+                }
+            ]
+        });
+
+        this.showModal(modal);
     }
 
-    /**
-     * Sprawdza wersję iOS
-     */
+    // Pomocnicze metody
     getIOSVersion() {
         if (!this.isIOS) return 0;
-        
         const match = navigator.userAgent.match(/OS (\d+)_/);
         return match ? parseInt(match[1]) : 0;
     }
 
-    /**
-     * Sprawdza wersję Android
-     */
-    getAndroidVersion() {
-        if (!this.isAndroid) return 0;
-        
-        const match = navigator.userAgent.match(/Android (\d+)/);
-        return match ? parseInt(match[1]) : 0;
+    getBrowserName() {
+        const ua = navigator.userAgent;
+        if (ua.includes('Chrome')) return 'Chrome';
+        if (ua.includes('Firefox')) return 'Firefox';
+        if (ua.includes('Safari')) return 'Safari';
+        if (ua.includes('Edge')) return 'Edge';
+        return 'Nieznana';
     }
 
-    /**
-     * Sprawdza obsługę WebXR
-     */
-    supportsWebXR() {
-        return 'xr' in navigator && 'XRSystem' in window;
+    _getCacheKey(productData, format) {
+        const variant = productData.variant_code || 'unknown';
+        const dims = productData.dimensions || {};
+        const l = dims.length || 0;
+        const w = dims.width || 0;
+        const t = dims.thickness || 0;
+        return `${variant}-${l}x${w}x${t}-${format}`;
     }
 
-    /**
-     * Sprawdza czy urządzenie ma LiDAR
-     */
-    hasLiDAR() {
-        if (!this.isIOS) return false;
-        
-        const lidarModels = [
-            'iPhone13,3', 'iPhone13,4',  // iPhone 12 Pro/Pro Max
-            'iPhone14,2', 'iPhone14,3',  // iPhone 13 Pro/Pro Max  
-            'iPhone15,2', 'iPhone15,3',  // iPhone 14 Pro/Pro Max
-            'iPhone16,1', 'iPhone16,2',  // iPhone 15 Pro/Pro Max
-            'iPad13,4', 'iPad13,5', 'iPad13,6', 'iPad13,7'  // iPad Pro 2020+
-        ];
-        
-        return lidarModels.some(model => navigator.userAgent.includes(model));
+    getStatus() {
+        return {
+            platform: this.isIOS ? `iOS ${this.iosVersion}` : 'Other',
+            browser: this.getBrowserName(),
+            safari: this.isSafari,
+            arSupported: this.isIOS && this.iosVersion >= 12 && this.isSafari,
+            cacheSize: this.modelCache.size,
+            apiEndpoint: this.apiEndpoint
+        };
     }
 
-    /**
-     * Zwraca informacje o platformie
-     */
-    getPlatformInfo() {
-        if (this.isIOS) {
-            return `iOS ${this.iosVersion}${this.hasLiDAR() ? ' (LiDAR)' : ''}`;
-        } else if (this.isAndroid) {
-            return `Android ${this.androidVersion}${this.supportsWebXR() ? ' (WebXR)' : ''}`;
-        } else {
-            return 'Desktop';
-        }
+    // Debug methods
+    clearCache() {
+        this.modelCache.clear();
+        console.log('[ARHandler] Cache wyczyszczony');
     }
 
-    // TODO: Metody do implementacji po stronie backendu
-
-    /**
-     * Generuje plik USDZ dla iOS (TODO)
-     */
-    async generateUSDZFile(productData) {
-        const params = new URLSearchParams({
-            variant: productData.variant_code,
-            length: productData.dimensions.length,
-            width: productData.dimensions.width,
-            thickness: productData.dimensions.thickness
-        });
-
-        const response = await fetch(`/preview3d-ar/api/generate-usdz?${params}`);
-        if (!response.ok) throw new Error('Błąd generowania pliku USDZ');
-        
-        return response.url;
-    }
-
-    /**
-     * Generuje plik GLB dla Android (TODO)
-     */
-    async generateGLBFile(productData) {
-        const params = new URLSearchParams({
-            variant: productData.variant_code,
-            length: productData.dimensions.length,
-            width: productData.dimensions.width,
-            thickness: productData.dimensions.thickness
-        });
-
-        const response = await fetch(`/preview3d-ar/api/generate-glb?${params}`);
-        if (!response.ok) throw new Error('Błąd generowania pliku GLB');
-        
-        return response.url;
-    }
-
-    /**
-     * Otwiera plik USDZ w QuickLook (TODO)
-     */
-    openUSDZFile(usdzUrl) {
-        const link = document.createElement('a');
-        link.href = usdzUrl;
-        link.rel = 'ar';
-        link.click();
-    }
-
-    /**
-     * Uruchamia WebXR AR (TODO)
-     */
-    async openWebXRAR(glbUrl) {
-        if (!this.supportsWebXR()) {
-            throw new Error('WebXR nie jest obsługiwane');
-        }
-        
-        // Implementacja WebXR AR
-        const session = await navigator.xr.requestSession('immersive-ar');
-        // ... kod WebXR
+    debugInfo() {
+        console.log('[ARHandler] Debug Info:', this.getStatus());
+        return this.getStatus();
     }
 }
 
 // Globalna instancja
 window.ARHandler = new ARHandler();
 
-// Dodaj style CSS dla modali AR (można przenieść do osobnego pliku CSS)
-const arStyles = document.createElement('style');
-arStyles.textContent = `
-    @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
+console.log('[ARHandler] AR Handler z popup załadowany');
 
-    .ar-preview-content {
-        background: white;
-        border-radius: 16px;
-        max-width: 500px;
-        max-height: 90vh;
-        overflow-y: auto;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-        animation: slideUp 0.3s ease;
-    }
-
-    @keyframes slideUp {
-        from { transform: translateY(50px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
-    }
-
-    .ar-preview-header {
-        display: flex;
-        align-items: center;
-        padding: 20px;
-        border-bottom: 1px solid #eee;
-        background: #f8f9fa;
-        border-radius: 16px 16px 0 0;
-    }
-
-    .ar-icon {
-        font-size: 24px;
-        margin-right: 12px;
-    }
-
-    .ar-preview-header h2 {
-        flex: 1;
-        margin: 0;
-        font-size: 18px;
-        font-weight: 600;
-    }
-
-    .ar-close-btn {
-        background: none;
-        border: none;
-        font-size: 24px;
-        cursor: pointer;
-        color: #666;
-        width: 32px;
-        height: 32px;
-        border-radius: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .ar-close-btn:hover {
-        background: #e9ecef;
-    }
-
-    .ar-preview-body {
-        padding: 20px;
-    }
-
-    .product-preview {
-        display: flex;
-        align-items: center;
-        margin-bottom: 20px;
-        padding: 16px;
-        background: #f8f9fa;
-        border-radius: 8px;
-    }
-
-    .product-swatch {
-        width: 48px;
-        height: 48px;
-        background: linear-gradient(135deg, #8B4513, #A0522D);
-        border-radius: 8px;
-        margin-right: 16px;
-        border: 2px solid #dee2e6;
-    }
-
-    .product-details h3 {
-        margin: 0 0 4px 0;
-        font-size: 16px;
-        font-weight: 600;
-    }
-
-    .product-details p {
-        margin: 0;
-        color: #6c757d;
-        font-size: 14px;
-    }
-
-    .coming-soon-banner {
-        background: linear-gradient(135deg, #ED6B24, #ff8c42);
-        color: white;
-        padding: 16px;
-        border-radius: 8px;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-
-    .coming-soon-banner strong {
-        display: block;
-        margin-bottom: 4px;
-    }
-
-    .ar-features, .ar-requirements {
-        margin-bottom: 20px;
-    }
-
-    .ar-features h4, .ar-requirements h4 {
-        margin: 0 0 12px 0;
-        font-size: 14px;
-        font-weight: 600;
-        color: #495057;
-    }
-
-    .ar-features ul {
-        margin: 0;
-        padding-left: 0;
-        list-style: none;
-    }
-
-    .ar-features li {
-        padding: 4px 0;
-        font-size: 14px;
-        color: #6c757d;
-    }
-
-    .ar-requirements p {
-        margin: 0;
-        font-size: 14px;
-        color: #6c757d;
-        background: #f8f9fa;
-        padding: 12px;
-        border-radius: 6px;
-    }
-
-    .ar-preview-footer {
-        padding: 20px;
-        border-top: 1px solid #eee;
-        display: flex;
-        gap: 12px;
-        justify-content: flex-end;
-    }
-
-    .ar-preview-footer button {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 6px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .btn-ar-demo, .btn-ar-cancel {
-        background: #6c757d;
-        color: white;
-    }
-
-    .btn-ar-demo:hover, .btn-ar-cancel:hover {
-        background: #5a6268;
-    }
-
-    .btn-ar-notify, .btn-ar-start {
-        background: #ED6B24;
-        color: white;
-    }
-
-    .btn-ar-notify:hover, .btn-ar-start:hover {
-        background: #d8571a;
-    }
-
-    @media (max-width: 768px) {
-        .ar-preview-content {
-            margin: 20px;
-            max-width: none;
-        }
-
-        .ar-preview-footer {
-            flex-direction: column;
-        }
-
-        .ar-preview-footer button {
-            width: 100%;
-        }
-    }
-`;
-
-document.head.appendChild(arStyles);
-
-console.log('[ARHandler] AR Handler 2.0 załadowany z nowoczesnymi modalami');
-
-// Export dla compatibility
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = ARHandler;
-}
+// Debug methods
+window.debugARHandler = () => window.ARHandler.debugInfo();
+window.clearARCache = () => window.ARHandler.clearCache();
