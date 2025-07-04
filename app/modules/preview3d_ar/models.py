@@ -210,392 +210,439 @@ class RealityGenerator:
             return None
 
     def _create_wood_geometry_usd_with_textures(self, dimensions, variant_code, texture_filenames):
-        """DOKŁADNA KOPIA wood-viewer.js - każda lamela osobno z teksturami z serwera"""
-        print(f"[RealityGenerator] Creating EXACT WOOD-VIEWER COPY - wymiary: {dimensions}", file=sys.stderr)
-        
+        """NAPRAWIONA: Dokładne odwzorowanie wood-viewer.js z prawidłowymi UV i orientacją tekstur"""
+        print(f"[RealityGenerator] Creating CORRECTED WOOD-VIEWER COPY - wymiary: {dimensions}", file=sys.stderr)
+
         # Wymiary w metrach dla AR (konwersja z cm)
         length = dimensions.get('length', 200) / 100.0  # cm -> m
         width = dimensions.get('width', 80) / 100.0
         thickness = dimensions.get('thickness', 3) / 100.0
-        
+
         # DOKŁADNIE JAK W WOOD-VIEWER.JS - 4cm na lamelę
         lam_width = 4 / 100.0  # 4cm -> 0.04m
         count = round(width / lam_width)  # Math.round jak w JS
-        
-        print(f"[RealityGenerator] WOOD-VIEWER LOGIC: {count} lamelas, each {lam_width}m wide", file=sys.stderr)
-        
-        # POBIERZ WSZYSTKIE DOSTĘPNE TEKSTURY - używaj oryginalnych URL-i
+
+        print(f"[RealityGenerator] CORRECTED LOGIC: {count} lamelas, each {lam_width}m wide", file=sys.stderr)
+
+        # POBIERZ WSZYSTKIE DOSTĘPNE TEKSTURY
         try:
             textures = TextureConfig.get_all_textures_for_variant(variant_code)
             face_variants = textures.get('face', {}).get('variants', [])
             edge_variants = textures.get('edge', {}).get('variants', [])
             side_variants = textures.get('side', {}).get('variants', [])
-            
+
             # Filtruj tylko prawdziwe pliki (nie data: URLs)
             face_variants = [t for t in face_variants if not t.startswith('data:')]
             edge_variants = [t for t in edge_variants if not t.startswith('data:')]
             side_variants = [t for t in side_variants if not t.startswith('data:')]
-            
+
             print(f"[RealityGenerator] Available variants: face={len(face_variants)}, edge={len(edge_variants)}, side={len(side_variants)}", file=sys.stderr)
-            
+
         except Exception as e:
             print(f"[RealityGenerator] Error getting textures: {e}", file=sys.stderr)
             face_variants = edge_variants = side_variants = []
-        
+
         # FALLBACK jeśli brak tekstur
         if not face_variants:
             face_variants = ['fallback_face']
         if not edge_variants:
-            edge_variants = face_variants  # Użyj face jako fallback
+            edge_variants = face_variants
         if not side_variants:
-            side_variants = face_variants  # Użyj face jako fallback
-        
+            side_variants = face_variants
+
         # USD HEADER
         usd_content = f'''#usda 1.0
-(
-    customLayerData = {{
-        string creator = "Wood Power CRM - Wood Viewer Clone"
-        string[] providedExtensions = ["USDZ"]
-    }}
-    defaultPrim = "WoodPanel"
-    metersPerUnit = 1
-    upAxis = "Y"
-)
+    (
+        customLayerData = {{
+            string creator = "Wood Power CRM - Fixed UV Mapping"
+            string[] providedExtensions = ["USDZ"]
+        }}
+        defaultPrim = "WoodPanel"
+        metersPerUnit = 1
+        upAxis = "Y"
+    )
 
-def Xform "WoodPanel" (
-    assetInfo = {{
-        string name = "Wood Panel {variant_code}"
-        string identifier = "{variant_code}"
-        string version = "1.0"
-    }}
-    kind = "component"
-)
-{{
-    # Metadane AR dla iOS QuickLook
-    custom bool preliminary_collidesWithEnvironment = 1
-    custom string preliminary_planeAnchoring = "horizontal"
-    custom float preliminary_worldScale = 1.0
-    custom bool preliminary_receivesShadows = 1
-    custom bool preliminary_castsShadows = 1
-'''
+    def Xform "WoodPanel" (
+        assetInfo = {{
+            string name = "Wood Panel {variant_code}"
+            string identifier = "{variant_code}"
+            string version = "2.0"
+        }}
+        kind = "component"
+    )
+    {{
+        # Metadane AR dla iOS QuickLook
+        custom bool preliminary_collidesWithEnvironment = 1
+        custom string preliminary_planeAnchoring = "horizontal"
+        custom float preliminary_worldScale = 1.0
+        custom bool preliminary_receivesShadows = 1
+        custom bool preliminary_castsShadows = 1
+    '''
 
         # TRACK poprzednie wybory (jak w wood-viewer.js)
         prev_face = None
         prev_side = None
-        
-        # GENERUJ KAŻDĄ LAMELĘ OSOBNO - dokładnie jak w wood-viewer.js
+    
+        # GENERUJ KAŻDĄ LAMELĘ OSOBNO z POPRAWNYMI UV
         for i in range(count):
             # Pozycja Z lameli
             z_pos = -(count * lam_width) / 2 + lam_width / 2 + i * lam_width
-            
+        
             # LOSOWY WYBÓR TEKSTUR - unikaj powtórzeń jak w JS
-            # Unique face texture
             face_idx = None
             attempts = 0
             while (face_idx == prev_face or face_idx is None) and attempts < 10:
                 face_idx = random.randint(0, len(face_variants) - 1) if len(face_variants) > 1 else 0
                 attempts += 1
             prev_face = face_idx
-            
-            # Unique side texture  
+        
             side_idx = None
             attempts = 0
             while (side_idx == prev_side or side_idx is None) and attempts < 10:
                 side_idx = random.randint(0, len(side_variants) - 1) if len(side_variants) > 1 else 0
                 attempts += 1
             prev_side = side_idx
-            
-            # Edge texture (może się powtarzać)
+        
             edge_idx = random.randint(0, len(edge_variants) - 1)
-            
-            # Random rotation dla side (jak w wood-viewer.js)
-            side_rotation = random.choice([0, 90, 180, 270])  # stopnie
-            
+        
+            # Random rotation dla side (jak w wood-viewer.js) - w radianach dla USD
+            side_rotation_deg = random.choice([0, 90, 180, 270])
+            side_rotation_rad = side_rotation_deg * 3.14159 / 180.0
+        
             selected_face = face_variants[face_idx] if face_variants[0] != 'fallback_face' else None
             selected_edge = edge_variants[edge_idx] if edge_variants[0] != 'fallback_face' else None
             selected_side = side_variants[side_idx] if side_variants[0] != 'fallback_face' else None
-            
-            print(f"[RealityGenerator] Lamela {i+1}: face={face_idx}, edge={edge_idx}, side={side_idx} (rot={side_rotation}°)", file=sys.stderr)
-            
-            # GEOMETRIA POJEDYNCZEJ LAMELI
+        
+            print(f"[RealityGenerator] Lamela {i+1}: face={face_idx}, edge={edge_idx}, side={side_idx} (rot={side_rotation_deg}°)", file=sys.stderr)
+        
+            # POPRAWIONE UV MAPOWANIE - każda powierzchnia ma odpowiednie skalowanie i orientację
+        
+            # FACE (góra/dół) - orientacja pionowa, skalowanie według długości/szerokości lameli
+            face_u_scale = length / lam_width  # Tekstura face jest kwadratowa, skaluj według rzeczywistych wymiarów
+            face_v_scale = 1.0  # Zachowaj proporcje
+        
+            # EDGE (przód/tył) - orientacja pozioma, skalowanie według długości/grubości
+            edge_u_scale = length / 0.04  # Normalizuj do 4cm jednostki
+            edge_v_scale = thickness / 0.04
+        
+            # SIDE (lewy/prawy) - orientacja z rotacją, skalowanie według szerokości lameli/grubości
+            side_u_scale = lam_width / 0.04
+            side_v_scale = thickness / 0.04
+        
+            # GEOMETRIA POJEDYNCZEJ LAMELI Z POPRAWNYMI UV
             usd_content += f'''
-    # LAMELA {i+1}/{count}
-    def Xform "Lamela_{i}"
-    {{
-        # GŁÓWNE POWIERZCHNIE (góra + dół) - FACE TEXTURE
-        def Mesh "Face_{i}"
+        # LAMELA {i+1}/{count} - POPRAWIONE UV
+        def Xform "Lamela_{i}"
         {{
-            int[] faceVertexCounts = [4, 4]
-            int[] faceVertexIndices = [
-                # Top (Y+) - ZEWNĘTRZNA normalna
-                3, 2, 1, 0,
-                # Bottom (Y-) - ZEWNĘTRZNA normalna (odwrócone)
-                4, 5, 6, 7
-            ]
-            point3f[] points = [
-                # Top vertices
-                ({-length/2}, {thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {thickness/2}, {z_pos + lam_width/2}),
-                ({-length/2}, {thickness/2}, {z_pos + lam_width/2}),
-                # Bottom vertices  
-                ({-length/2}, {-thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {-thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {-thickness/2}, {z_pos + lam_width/2}),
-                ({-length/2}, {-thickness/2}, {z_pos + lam_width/2})
-            ]
-            float2[] primvars:st = [
-                # Top UV (pionowe słoje)
-                (0, 0), (1, 0), (1, 1), (0, 1),
-                # Bottom UV (pionowe słoje)
-                (0, 0), (1, 0), (1, 1), (0, 1)
-            ]
-            rel material:binding = </WoodPanel/Materials/FaceMaterial_{i}>
-            uniform token subdivisionScheme = "none"
-            uniform bool doubleSided = 1
-        }}
+            # GŁÓWNE POWIERZCHNIE (góra + dół) - FACE TEXTURE (orientacja pionowa)
+            def Mesh "Face_{i}"
+            {{
+                int[] faceVertexCounts = [4, 4]
+                int[] faceVertexIndices = [
+                    # Top (Y+) - ZEWNĘTRZNA normalna
+                    3, 2, 1, 0,
+                    # Bottom (Y-) - ZEWNĘTRZNA normalna (odwrócone)
+                    4, 5, 6, 7
+                ]
+                point3f[] points = [
+                    # Top vertices (Y+)
+                    ({-length/2}, {thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {thickness/2}, {z_pos + lam_width/2}),
+                    ({-length/2}, {thickness/2}, {z_pos + lam_width/2}),
+                    # Bottom vertices (Y-)
+                    ({-length/2}, {-thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {-thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {-thickness/2}, {z_pos + lam_width/2}),
+                    ({-length/2}, {-thickness/2}, {z_pos + lam_width/2})
+                ]
+                float2[] primvars:st = [
+                    # Top UV - face texture (pionowe słoje drewna)
+                    (0, 0), ({face_u_scale}, 0), ({face_u_scale}, {face_v_scale}), (0, {face_v_scale}),
+                    # Bottom UV - lustrzane odbicie
+                    (0, 0), ({face_u_scale}, 0), ({face_u_scale}, {face_v_scale}), (0, {face_v_scale})
+                ]
+                normal3f[] normals = [
+                    (0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0),  # Top
+                    (0, -1, 0), (0, -1, 0), (0, -1, 0), (0, -1, 0)  # Bottom
+                ]
+                rel material:binding = </WoodPanel/Materials/FaceMaterial_{i}>
+                uniform token subdivisionScheme = "none"
+                uniform bool doubleSided = 1
+            }}
         
-        # BRZEGI (przód + tył) - EDGE TEXTURE
-        def Mesh "Edge_{i}"
-        {{
-            int[] faceVertexCounts = [4, 4]
-            int[] faceVertexIndices = [
-                # Front (Z-) - ZEWNĘTRZNA normalna
-                3, 2, 1, 0,
-                # Back (Z+) - ZEWNĘTRZNA normalna (odwrócone)
-                4, 5, 6, 7
-            ]
-            point3f[] points = [
-                # Front vertices
-                ({-length/2}, {-thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {-thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {thickness/2}, {z_pos - lam_width/2}),
-                ({-length/2}, {thickness/2}, {z_pos - lam_width/2}),
-                # Back vertices
-                ({-length/2}, {-thickness/2}, {z_pos + lam_width/2}),
-                ({length/2}, {-thickness/2}, {z_pos + lam_width/2}),
-                ({length/2}, {thickness/2}, {z_pos + lam_width/2}),
-                ({-length/2}, {thickness/2}, {z_pos + lam_width/2})
-            ]
-            float2[] primvars:st = [
-                # Front UV (poziome słoje)
-                (0, 0), (1, 0), (1, 1), (0, 1),
-                # Back UV (poziome słoje)  
-                (0, 0), (1, 0), (1, 1), (0, 1)
-            ]
-            rel material:binding = </WoodPanel/Materials/EdgeMaterial_{i}>
-            uniform token subdivisionScheme = "none"
-            uniform bool doubleSided = 1
-        }}
+            # BRZEGI (przód + tył) - EDGE TEXTURE (orientacja pozioma)
+            def Mesh "Edge_{i}"
+            {{
+                int[] faceVertexCounts = [4, 4]
+                int[] faceVertexIndices = [
+                    # Front (Z-) - ZEWNĘTRZNA normalna
+                    3, 2, 1, 0,
+                    # Back (Z+) - ZEWNĘTRZNA normalna (odwrócone)
+                    4, 5, 6, 7
+                ]
+                point3f[] points = [
+                    # Front vertices (Z-)
+                    ({-length/2}, {-thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {-thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {thickness/2}, {z_pos - lam_width/2}),
+                    ({-length/2}, {thickness/2}, {z_pos - lam_width/2}),
+                    # Back vertices (Z+)
+                    ({-length/2}, {-thickness/2}, {z_pos + lam_width/2}),
+                    ({length/2}, {-thickness/2}, {z_pos + lam_width/2}),
+                    ({length/2}, {thickness/2}, {z_pos + lam_width/2}),
+                    ({-length/2}, {thickness/2}, {z_pos + lam_width/2})
+                ]
+                float2[] primvars:st = [
+                    # Front UV - edge texture (poziome słoje)
+                    (0, 0), ({edge_u_scale}, 0), ({edge_u_scale}, {edge_v_scale}), (0, {edge_v_scale}),
+                    # Back UV
+                    (0, 0), ({edge_u_scale}, 0), ({edge_u_scale}, {edge_v_scale}), (0, {edge_v_scale})
+                ]
+                normal3f[] normals = [
+                    (0, 0, -1), (0, 0, -1), (0, 0, -1), (0, 0, -1),  # Front
+                    (0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)  # Back
+                ]
+                rel material:binding = </WoodPanel/Materials/EdgeMaterial_{i}>
+                uniform token subdivisionScheme = "none"
+                uniform bool doubleSided = 1
+            }}
         
-        # BOKI (lewy + prawy) - SIDE TEXTURE
-        def Mesh "Side_{i}"
-        {{
-            int[] faceVertexCounts = [4, 4]
-            int[] faceVertexIndices = [
-                # Left (X-) - ZEWNĘTRZNA normalna
-                3, 2, 1, 0,
-                # Right (X+) - ZEWNĘTRZNA normalna (odwrócone)
-                4, 5, 6, 7
-            ]
-            point3f[] points = [
-                # Left vertices
-                ({-length/2}, {-thickness/2}, {z_pos + lam_width/2}),
-                ({-length/2}, {-thickness/2}, {z_pos - lam_width/2}),
-                ({-length/2}, {thickness/2}, {z_pos - lam_width/2}),
-                ({-length/2}, {thickness/2}, {z_pos + lam_width/2}),
-                # Right vertices
-                ({length/2}, {-thickness/2}, {z_pos + lam_width/2}),
-                ({length/2}, {-thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {thickness/2}, {z_pos - lam_width/2}),
-                ({length/2}, {thickness/2}, {z_pos + lam_width/2})
-            ]
-            float2[] primvars:st = [
-                # Left UV
-                (0, 0), (1, 0), (1, 1), (0, 1),
-                # Right UV
-                (0, 0), (1, 0), (1, 1), (0, 1)
-            ]
-            rel material:binding = </WoodPanel/Materials/SideMaterial_{i}>
-            uniform token subdivisionScheme = "none"
-            uniform bool doubleSided = 1
-        }}
-    }}'''
+            # BOKI (lewy + prawy) - SIDE TEXTURE (z losową rotacją)
+            def Mesh "Side_{i}"
+            {{
+                int[] faceVertexCounts = [4, 4]
+                int[] faceVertexIndices = [
+                    # Left (X-) - ZEWNĘTRZNA normalna
+                    3, 2, 1, 0,
+                    # Right (X+) - ZEWNĘTRZNA normalna (odwrócone)
+                    4, 5, 6, 7
+                ]
+                point3f[] points = [
+                    # Left vertices (X-)
+                    ({-length/2}, {-thickness/2}, {z_pos + lam_width/2}),
+                    ({-length/2}, {-thickness/2}, {z_pos - lam_width/2}),
+                    ({-length/2}, {thickness/2}, {z_pos - lam_width/2}),
+                    ({-length/2}, {thickness/2}, {z_pos + lam_width/2}),
+                    # Right vertices (X+)
+                    ({length/2}, {-thickness/2}, {z_pos + lam_width/2}),
+                    ({length/2}, {-thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {thickness/2}, {z_pos - lam_width/2}),
+                    ({length/2}, {thickness/2}, {z_pos + lam_width/2})
+                ]
+                float2[] primvars:st = [
+                    # Left UV - side texture (z rotacją {side_rotation_deg}°)
+                    (0, 0), ({side_u_scale}, 0), ({side_u_scale}, {side_v_scale}), (0, {side_v_scale}),
+                    # Right UV
+                    (0, 0), ({side_u_scale}, 0), ({side_u_scale}, {side_v_scale}), (0, {side_v_scale})
+                ]
+                normal3f[] normals = [
+                    (-1, 0, 0), (-1, 0, 0), (-1, 0, 0), (-1, 0, 0),  # Left
+                    (1, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)  # Right
+                ]
+                rel material:binding = </WoodPanel/Materials/SideMaterial_{i}>
+                uniform token subdivisionScheme = "none"
+                uniform bool doubleSided = 1
+            }}
+        }}'''
 
-        # MATERIAŁY - dla każdej lameli osobno
+        # MATERIAŁY z poprawionymi ustawieniami tekstur
         usd_content += '''
     
-    def Scope "Materials"
-    {'''
+        def Scope "Materials"
+        {'''
 
         for i in range(count):
-            # Wybierz tekstury dla tej lameli (powtórz logikę)
+            # Wybierz tekstury dla tej lameli
             face_idx = i % len(face_variants) if face_variants else 0
             edge_idx = i % len(edge_variants) if edge_variants else 0
             side_idx = i % len(side_variants) if side_variants else 0
-            
+        
             selected_face = face_variants[face_idx] if face_variants[0] != 'fallback_face' else None
             selected_edge = edge_variants[edge_idx] if edge_variants[0] != 'fallback_face' else None
             selected_side = side_variants[side_idx] if side_variants[0] != 'fallback_face' else None
-            
-            # FACE MATERIAL dla lameli i
+        
+            # Random rotation dla side texture (jak w wood-viewer.js)
+            side_rotation_deg = random.choice([0, 90, 180, 270])
+        
+            # FACE MATERIAL z odpowiednią orientacją
             if selected_face:
-                # Konwertuj URL na względną ścieżkę
                 texture_name = os.path.basename(selected_face)
                 usd_content += f'''
-        def Material "FaceMaterial_{i}"
-        {{
-            token outputs:surface.connect = </WoodPanel/Materials/FaceMaterial_{i}/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
+            def Material "FaceMaterial_{i}"
             {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor.connect = </WoodPanel/Materials/FaceMaterial_{i}/DiffuseTexture.outputs:rgb>
-                float inputs:roughness = 0.9
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
+                token outputs:surface.connect = </WoodPanel/Materials/FaceMaterial_{i}/PreviewSurface.outputs:surface>
             
-            def Shader "DiffuseTexture"
-            {{
-                uniform token info:id = "UsdUVTexture"
-                asset inputs:file = @./{texture_name}@
-                float2 inputs:st.connect = </WoodPanel/Materials/FaceMaterial_{i}/UVReader.outputs:result>
-                token inputs:wrapS = "repeat"
-                token inputs:wrapT = "repeat"
-                color3f outputs:rgb
-            }}
+                def Shader "PreviewSurface"
+                {{
+                    uniform token info:id = "UsdPreviewSurface"
+                    color3f inputs:diffuseColor.connect = </WoodPanel/Materials/FaceMaterial_{i}/DiffuseTexture.outputs:rgb>
+                    float inputs:roughness = 0.9
+                    float inputs:metallic = 0.0
+                    token outputs:surface
+                }}
             
-            def Shader "UVReader"
-            {{
-                uniform token info:id = "UsdPrimvarReader_float2"
-                string inputs:varname = "st"
-                float2 outputs:result
-            }}
-        }}'''
+                def Shader "DiffuseTexture"
+                {{
+                    uniform token info:id = "UsdUVTexture"
+                    asset inputs:file = @./{texture_name}@
+                    float2 inputs:st.connect = </WoodPanel/Materials/FaceMaterial_{i}/UVTransform.outputs:result>
+                    token inputs:wrapS = "repeat"
+                    token inputs:wrapT = "repeat"
+                    color3f outputs:rgb
+                }}
+            
+                def Shader "UVTransform"
+                {{
+                    uniform token info:id = "UsdTransform2d"
+                    float2 inputs:in.connect = </WoodPanel/Materials/FaceMaterial_{i}/UVReader.outputs:result>
+                    float inputs:rotation = 1.5708  # 90° w radianach - face tekstura jest pionowa
+                    float2 inputs:scale = (1.0, 1.0)
+                    float2 inputs:translation = (0.0, 0.0)
+                    float2 outputs:result
+                }}
+            
+                def Shader "UVReader"
+                {{
+                    uniform token info:id = "UsdPrimvarReader_float2"
+                    string inputs:varname = "st"
+                    float2 outputs:result
+                }}
+            }}'''
             else:
                 usd_content += f'''
-        def Material "FaceMaterial_{i}"
-        {{
-            token outputs:surface.connect = </WoodPanel/Materials/FaceMaterial_{i}/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
+            def Material "FaceMaterial_{i}"
             {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor = (0.82, 0.71, 0.55)
-                float inputs:roughness = 0.9
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
-        }}'''
+                token outputs:surface.connect = </WoodPanel/Materials/FaceMaterial_{i}/PreviewSurface.outputs:surface>
+            
+                def Shader "PreviewSurface"
+                {{
+                    uniform token info:id = "UsdPreviewSurface"
+                    color3f inputs:diffuseColor = (0.82, 0.71, 0.55)
+                    float inputs:roughness = 0.9
+                    float inputs:metallic = 0.0
+                    token outputs:surface
+                }}
+            }}'''
 
-            # EDGE MATERIAL dla lameli i  
+            # EDGE MATERIAL - pozioma orientacja
             if selected_edge:
                 texture_name = os.path.basename(selected_edge)
                 usd_content += f'''
-        def Material "EdgeMaterial_{i}"
-        {{
-            token outputs:surface.connect = </WoodPanel/Materials/EdgeMaterial_{i}/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
+            def Material "EdgeMaterial_{i}"
             {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor.connect = </WoodPanel/Materials/EdgeMaterial_{i}/DiffuseTexture.outputs:rgb>
-                float inputs:roughness = 0.9
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
+                token outputs:surface.connect = </WoodPanel/Materials/EdgeMaterial_{i}/PreviewSurface.outputs:surface>
             
-            def Shader "DiffuseTexture"
-            {{
-                uniform token info:id = "UsdUVTexture"
-                asset inputs:file = @./{texture_name}@
-                float2 inputs:st.connect = </WoodPanel/Materials/EdgeMaterial_{i}/UVReader.outputs:result>
-                token inputs:wrapS = "repeat"
-                token inputs:wrapT = "repeat"
-                color3f outputs:rgb
-            }}
+                def Shader "PreviewSurface"
+                {{
+                    uniform token info:id = "UsdPreviewSurface"
+                    color3f inputs:diffuseColor.connect = </WoodPanel/Materials/EdgeMaterial_{i}/DiffuseTexture.outputs:rgb>
+                    float inputs:roughness = 0.9
+                    float inputs:metallic = 0.0
+                    token outputs:surface
+                }}
             
-            def Shader "UVReader"
-            {{
-                uniform token info:id = "UsdPrimvarReader_float2"
-                string inputs:varname = "st"
-                float2 outputs:result
-            }}
-        }}'''
+                def Shader "DiffuseTexture"
+                {{
+                    uniform token info:id = "UsdUVTexture"
+                    asset inputs:file = @./{texture_name}@
+                    float2 inputs:st.connect = </WoodPanel/Materials/EdgeMaterial_{i}/UVReader.outputs:result>
+                    token inputs:wrapS = "repeat"
+                    token inputs:wrapT = "repeat"
+                    color3f outputs:rgb
+                }}
+            
+                def Shader "UVReader"
+                {{
+                    uniform token info:id = "UsdPrimvarReader_float2"
+                    string inputs:varname = "st"
+                    float2 outputs:result
+                }}
+            }}'''
             else:
                 usd_content += f'''
-        def Material "EdgeMaterial_{i}"
-        {{
-            token outputs:surface.connect = </WoodPanel/Materials/EdgeMaterial_{i}/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
+            def Material "EdgeMaterial_{i}"
             {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor = (0.7, 0.6, 0.45)
-                float inputs:roughness = 0.9
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
-        }}'''
+                token outputs:surface.connect = </WoodPanel/Materials/EdgeMaterial_{i}/PreviewSurface.outputs:surface>
+            
+                def Shader "PreviewSurface"
+                {{
+                    uniform token info:id = "UsdPreviewSurface"
+                    color3f inputs:diffuseColor = (0.7, 0.6, 0.45)
+                    float inputs:roughness = 0.9
+                    float inputs:metallic = 0.0
+                    token outputs:surface
+                }}
+            }}'''
 
-            # SIDE MATERIAL dla lameli i
+            # SIDE MATERIAL z losową rotacją
             if selected_side:
                 texture_name = os.path.basename(selected_side)
+                side_rotation_rad = side_rotation_deg * 3.14159 / 180.0
                 usd_content += f'''
-        def Material "SideMaterial_{i}"
-        {{
-            token outputs:surface.connect = </WoodPanel/Materials/SideMaterial_{i}/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
+            def Material "SideMaterial_{i}"
             {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor.connect = </WoodPanel/Materials/SideMaterial_{i}/DiffuseTexture.outputs:rgb>
-                float inputs:roughness = 0.9
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
+                token outputs:surface.connect = </WoodPanel/Materials/SideMaterial_{i}/PreviewSurface.outputs:surface>
             
-            def Shader "DiffuseTexture"
-            {{
-                uniform token info:id = "UsdUVTexture"
-                asset inputs:file = @./{texture_name}@
-                float2 inputs:st.connect = </WoodPanel/Materials/SideMaterial_{i}/UVReader.outputs:result>
-                token inputs:wrapS = "repeat"
-                token inputs:wrapT = "repeat"
-                color3f outputs:rgb
-            }}
+                def Shader "PreviewSurface"
+                {{
+                    uniform token info:id = "UsdPreviewSurface"
+                    color3f inputs:diffuseColor.connect = </WoodPanel/Materials/SideMaterial_{i}/DiffuseTexture.outputs:rgb>
+                    float inputs:roughness = 0.9
+                    float inputs:metallic = 0.0
+                    token outputs:surface
+                }}
             
-            def Shader "UVReader"
-            {{
-                uniform token info:id = "UsdPrimvarReader_float2"
-                string inputs:varname = "st"
-                float2 outputs:result
-            }}
-        }}'''
+                def Shader "DiffuseTexture"
+                {{
+                    uniform token info:id = "UsdUVTexture"
+                    asset inputs:file = @./{texture_name}@
+                    float2 inputs:st.connect = </WoodPanel/Materials/SideMaterial_{i}/UVTransform.outputs:result>
+                    token inputs:wrapS = "repeat"
+                    token inputs:wrapT = "repeat"
+                    color3f outputs:rgb
+                }}
+            
+                def Shader "UVTransform"
+                {{
+                    uniform token info:id = "UsdTransform2d"
+                    float2 inputs:in.connect = </WoodPanel/Materials/SideMaterial_{i}/UVReader.outputs:result>
+                    float inputs:rotation = {side_rotation_rad}  # Losowa rotacja {side_rotation_deg}°
+                    float2 inputs:scale = (1.0, 1.0)
+                    float2 inputs:translation = (0.0, 0.0)
+                    float2 outputs:result
+                }}
+            
+                def Shader "UVReader"
+                {{
+                    uniform token info:id = "UsdPrimvarReader_float2"
+                    string inputs:varname = "st"
+                    float2 outputs:result
+                }}
+            }}'''
             else:
                 usd_content += f'''
-        def Material "SideMaterial_{i}"
-        {{
-            token outputs:surface.connect = </WoodPanel/Materials/SideMaterial_{i}/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
+            def Material "SideMaterial_{i}"
             {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor = (0.75, 0.65, 0.5)
-                float inputs:roughness = 0.9
-                float inputs:metallic = 0.0
-                token outputs:surface
-            }}
-        }}'''
+                token outputs:surface.connect = </WoodPanel/Materials/SideMaterial_{i}/PreviewSurface.outputs:surface>
+            
+                def Shader "PreviewSurface"
+                {{
+                    uniform token info:id = "UsdPreviewSurface"
+                    color3f inputs:diffuseColor = (0.75, 0.65, 0.5)
+                    float inputs:roughness = 0.9
+                    float inputs:metallic = 0.0
+                    token outputs:surface
+                }}
+            }}'''
 
         # Zamknij strukturę
         usd_content += '''
+        }
     }
-}
-'''
-        
-        print(f"[RealityGenerator] WOOD-VIEWER CLONE USD created - {count} lamelas with individual textures", file=sys.stderr)
+    '''
+
+        print(f"[RealityGenerator] CORRECTED USD created - {count} lamelas with proper UV mapping and texture orientation", file=sys.stderr)
         return usd_content
 
     def _create_usdz_with_textures(self, usd_content, processed_textures, output_path):
