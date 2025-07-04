@@ -106,11 +106,7 @@ class Quote3DHandler {
 
         // Sprawdź czy jest wybrany produkt
         if (!this.currentProduct) {
-<<<<<<< HEAD
             alert('Poczekaj na załadowanie modelu 3D.');
-=======
-            alert('Najpierw wybierz wariant produktu');
->>>>>>> d9dd60425830afd2744bfa657e470685bb9f5b31
             return;
         }
 
