@@ -1,8 +1,10 @@
 // modules/analytics/static/js/clients_analytics.js
+// POPRAWIONA WERSJA z obsługą błędów CORS i rate limiting
 
 /**
- * CLIENTS ANALYTICS - Moduł zakładki klientów
+ * CLIENTS ANALYTICS - Moduł zakładki klientów  
  * Obsługuje: top klientów, geografię, źródła, wykresy, mapę Polski
+ * POPRAWKI: geokodowanie z cache, obsługa błędów CORS, fallback coordinates
  */
 
 class ClientsAnalytics {
@@ -15,9 +17,31 @@ class ClientsAnalytics {
             cities: null,
             sources: null
         };
-        this.map = null; // Mapa Polski
+        this.map = null;
         this.isInitialized = false;
         this.currentLimit = 20;
+
+        // NOWE: Cache geokodowania i fallback coordinates
+        this.geocodeCache = new Map();
+        this.rateLimitDelay = 1000; // 1 sekunda między zapytaniami
+        this.maxRetries = 2;
+
+        // Fallback coordinates dla popularnych miast Polski
+        this.fallbackCoordinates = {
+            'Warszawa': [52.2297, 21.0122],
+            'Kraków': [50.0647, 19.9450],
+            'Gdańsk': [54.3520, 18.6466],
+            'Wrocław': [51.1079, 17.0385],
+            'Poznań': [52.4064, 16.9252],
+            'Łódź': [51.7592, 19.4560],
+            'Katowice': [50.2649, 19.0238],
+            'Szczecin': [53.4285, 14.5528],
+            'Lublin': [51.2465, 22.5684],
+            'Bydgoszcz': [53.1235, 18.0084],
+            'Białystok': [53.1325, 23.1688],
+            'Rzeszów': [50.0412, 21.9991],
+            'Toruń': [53.0138, 18.5984]
+        };
 
         this.init();
     }
@@ -160,13 +184,13 @@ class ClientsAnalytics {
 
         this.updateCitiesChart();
         this.updateSourcesChart();
-        this.updatePolandMap(); // MAPA POLSKI
+        this.updatePolandMap(); // POPRAWIONA MAPA POLSKI
 
         console.log('[ClientsAnalytics] Wykresy geograficzne i mapa zaktualizowane');
     }
 
     /**
-     * MAPA POLSKI - główna funkcja
+     * MAPA POLSKI - POPRAWIONA FUNKCJA z obsługą błędów
      */
     updatePolandMap() {
         if (!this.data.geography || !this.data.geography.cities) return;
@@ -174,6 +198,7 @@ class ClientsAnalytics {
         // Sprawdź czy Leaflet jest dostępny
         if (typeof L === 'undefined') {
             console.warn('[ClientsAnalytics] Leaflet nie jest załadowany - mapa niedostępna');
+            this.showMapError('Biblioteka mapy nie jest załadowana');
             return;
         }
 
@@ -196,6 +221,7 @@ class ClientsAnalytics {
                 console.log('[ClientsAnalytics] Mapa Polski zainicjalizowana');
             } catch (error) {
                 console.error('[ClientsAnalytics] Błąd inicjalizacji mapy:', error);
+                this.showMapError('Nie można zainicjalizować mapy');
                 return;
             }
         }
@@ -207,71 +233,190 @@ class ClientsAnalytics {
             }
         });
 
-        // Dodaj markery dla miast
-        this.data.geography.cities.forEach(city => {
-            this.geocodeAndAddMarker(city);
-        });
+        // NOWE: Dodaj markery z opóźnieniem i obsługą błędów
+        this.addMarkersWithDelay();
 
         console.log('[ClientsAnalytics] Markery miast dodane do mapy');
     }
 
     /**
-     * Geokodowanie i dodawanie markerów
+     * NOWA FUNKCJA: Dodawanie markerów z opóźnieniem
+     */
+    async addMarkersWithDelay() {
+        const cities = this.data.geography.cities;
+        let successfulMarkers = 0;
+        let failedMarkers = 0;
+
+        console.log(`[ClientsAnalytics] Dodawanie ${cities.length} markerów...`);
+
+        for (let i = 0; i < cities.length; i++) {
+            const city = cities[i];
+
+            try {
+                await this.geocodeAndAddMarker(city);
+                successfulMarkers++;
+
+                // Opóźnienie między zapytaniami (rate limiting)
+                if (i < cities.length - 1) {
+                    await this.sleep(this.rateLimitDelay);
+                }
+            } catch (error) {
+                failedMarkers++;
+                console.warn(`[ClientsAnalytics] Nie udało się dodać markera dla ${city.city}:`, error.message);
+            }
+        }
+
+        console.log(`[ClientsAnalytics] Markery dodane: ${successfulMarkers} sukces, ${failedMarkers} błędów`);
+
+        // Pokaż summary jeśli są błędy
+        if (failedMarkers > 0) {
+            this.showMapWarning(`Nie udało się zlokalizować ${failedMarkers} miast na mapie`);
+        }
+    }
+
+    /**
+     * POPRAWIONE Geokodowanie i dodawanie markerów
      */
     async geocodeAndAddMarker(cityData) {
+        const cityName = cityData.city;
+
+        // Sprawdź cache
+        if (this.geocodeCache.has(cityName)) {
+            const coords = this.geocodeCache.get(cityName);
+            if (coords) {
+                this.addMarkerToMap(coords[0], coords[1], cityData);
+                return;
+            }
+        }
+
+        // Sprawdź fallback coordinates
+        if (this.fallbackCoordinates[cityName]) {
+            const coords = this.fallbackCoordinates[cityName];
+            this.geocodeCache.set(cityName, coords);
+            this.addMarkerToMap(coords[0], coords[1], cityData);
+            console.log(`[ClientsAnalytics] Użyto fallback coordinates dla ${cityName}`);
+            return;
+        }
+
+        // Spróbuj geokodowania z retry
+        let lastError;
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                const coords = await this.geocodeCityWithTimeout(cityName, 5000); // 5s timeout
+
+                if (coords) {
+                    this.geocodeCache.set(cityName, coords);
+                    this.addMarkerToMap(coords[0], coords[1], cityData);
+                    return;
+                }
+            } catch (error) {
+                lastError = error;
+                console.warn(`[ClientsAnalytics] Geokodowanie ${cityName} - próba ${attempt}/${this.maxRetries} nie powiodła się:`, error.message);
+
+                if (attempt < this.maxRetries) {
+                    await this.sleep(this.rateLimitDelay * attempt); // Zwiększaj opóźnienie
+                }
+            }
+        }
+
+        // Jeśli wszystkie próby się nie powiodły, zapisz w cache jako brak
+        this.geocodeCache.set(cityName, null);
+        throw new Error(`Nie udało się zlokalizować miasta ${cityName} po ${this.maxRetries} próbach: ${lastError?.message}`);
+    }
+
+    /**
+     * NOWA FUNKCJA: Geokodowanie z timeout
+     */
+    async geocodeCityWithTimeout(cityName, timeout = 5000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
         try {
-            // Geokodowanie przez Nominatim API
+            // Użyj proxy lub alternatywnego serwisu jeśli CORS jest problemem
             const response = await fetch(
-                `https://nominatim.openstreetmap.org/search?format=json&country=Poland&city=${encodeURIComponent(cityData.city)}&limit=1`,
+                `https://nominatim.openstreetmap.org/search?format=json&country=Poland&city=${encodeURIComponent(cityName)}&limit=1`,
                 {
                     headers: {
-                        'User-Agent': 'WoodPowerCRM/1.0'
-                    }
+                        'User-Agent': 'WoodPowerCRM/1.0 (analytics@woodpower.pl)'
+                    },
+                    signal: controller.signal
                 }
             );
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                if (response.status === 429) {
+                    throw new Error('Rate limit exceeded - zbyt wiele zapytań');
+                }
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const results = await response.json();
 
             if (results.length > 0) {
                 const lat = parseFloat(results[0].lat);
                 const lon = parseFloat(results[0].lon);
-
-                // Dodaj marker na mapę
-                const marker = L.circleMarker([lat, lon], {
-                    radius: this.getMarkerSize(cityData.quotes_count),
-                    fillColor: this.getMarkerColor(cityData.quotes_count),
-                    color: 'white',
-                    weight: 2,
-                    opacity: 1,
-                    fillOpacity: 0.8
-                }).addTo(this.map);
-
-                // Popup z informacjami o mieście
-                marker.bindPopup(`
-                    <div class="map-popup">
-                        <h4 style="margin: 0 0 8px 0; color: #ED6B24;">📍 ${cityData.city}</h4>
-                        <div style="font-size: 13px; line-height: 1.4;">
-                            <p style="margin: 4px 0;"><strong>Klienci:</strong> ${cityData.clients_count}</p>
-                            <p style="margin: 4px 0;"><strong>Oferty:</strong> ${cityData.quotes_count}</p>
-                            <p style="margin: 4px 0;"><strong>Wartość:</strong> ${window.AnalyticsUtils.formatCurrency(cityData.total_value)}</p>
-                        </div>
-                    </div>
-                `);
-
-                // Tooltip na hover
-                marker.bindTooltip(
-                    `${cityData.city}: ${cityData.quotes_count} ofert`,
-                    {
-                        permanent: false,
-                        direction: 'top',
-                        className: 'city-tooltip'
-                    }
-                );
-
-            } else {
-                console.warn(`[ClientsAnalytics] Nie znaleziono współrzędnych dla miasta: ${cityData.city}`);
+                return [lat, lon];
             }
+
+            return null;
+
         } catch (error) {
-            console.error(`[ClientsAnalytics] Błąd geokodowania dla ${cityData.city}:`, error);
+            clearTimeout(timeoutId);
+
+            if (error.name === 'AbortError') {
+                throw new Error('Timeout - zapytanie trwało zbyt długo');
+            }
+
+            if (error.message.includes('CORS')) {
+                throw new Error('CORS error - problem z cross-origin');
+            }
+
+            throw error;
+        }
+    }
+
+    /**
+     * NOWA FUNKCJA: Dodawanie markera do mapy
+     */
+    addMarkerToMap(lat, lon, cityData) {
+        if (!this.map) return;
+
+        try {
+            const marker = L.circleMarker([lat, lon], {
+                radius: this.getMarkerSize(cityData.quotes_count),
+                fillColor: this.getMarkerColor(cityData.quotes_count),
+                color: 'white',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(this.map);
+
+            // Popup z informacjami o mieście
+            marker.bindPopup(`
+                <div class="map-popup">
+                    <h4 style="margin: 0 0 8px 0; color: #ED6B24;">📍 ${cityData.city}</h4>
+                    <div style="font-size: 13px; line-height: 1.4;">
+                        <p style="margin: 4px 0;"><strong>Klienci:</strong> ${cityData.clients_count}</p>
+                        <p style="margin: 4px 0;"><strong>Oferty:</strong> ${cityData.quotes_count}</p>
+                        <p style="margin: 4px 0;"><strong>Wartość:</strong> ${window.AnalyticsUtils.formatCurrency(cityData.total_value)}</p>
+                    </div>
+                </div>
+            `);
+
+            // Tooltip na hover
+            marker.bindTooltip(
+                `${cityData.city}: ${cityData.quotes_count} ofert`,
+                {
+                    permanent: false,
+                    direction: 'top',
+                    className: 'city-tooltip'
+                }
+            );
+
+        } catch (error) {
+            console.error(`[ClientsAnalytics] Błąd dodawania markera dla ${cityData.city}:`, error);
         }
     }
 
@@ -461,7 +606,50 @@ class ClientsAnalytics {
             });
         }
 
+        // NOWY: Przycisk odświeżenia mapy
+        this.addMapRefreshButton();
+
         console.log('[ClientsAnalytics] Event listeners skonfigurowane');
+    }
+
+    /**
+     * NOWA FUNKCJA: Dodaj przycisk odświeżenia mapy
+     */
+    addMapRefreshButton() {
+        const mapContainer = document.getElementById('poland-map');
+        if (!mapContainer) return;
+
+        const refreshButton = document.createElement('button');
+        refreshButton.innerHTML = '🔄 Odśwież mapę';
+        refreshButton.className = 'btn btn-sm btn-outline-primary map-refresh-btn';
+        refreshButton.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            font-size: 12px;
+            padding: 4px 8px;
+        `;
+
+        refreshButton.addEventListener('click', () => {
+            this.refreshMap();
+        });
+
+        mapContainer.style.position = 'relative';
+        mapContainer.appendChild(refreshButton);
+    }
+
+    /**
+     * NOWA FUNKCJA: Odśwież mapę
+     */
+    async refreshMap() {
+        console.log('[ClientsAnalytics] Odświeżanie mapy...');
+
+        // Wyczyść cache
+        this.geocodeCache.clear();
+
+        // Zaktualizuj mapę
+        this.updatePolandMap();
     }
 
     /**
@@ -500,6 +688,13 @@ class ClientsAnalytics {
     }
 
     /**
+     * Sleep utility
+     */
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
      * Wyświetlanie błędów
      */
     showError(message) {
@@ -515,6 +710,56 @@ class ClientsAnalytics {
         const clientsTab = document.getElementById('clients-analytics');
         if (clientsTab) {
             clientsTab.insertBefore(errorDiv, clientsTab.firstChild);
+        }
+    }
+
+    /**
+     * NOWA FUNKCJA: Wyświetlanie ostrzeżeń map
+     */
+    showMapWarning(message) {
+        console.warn(`[ClientsAnalytics] ${message}`);
+
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'analytics-warning alert alert-warning';
+        warningDiv.innerHTML = `
+            <strong>Ostrzeżenie:</strong> ${message}
+            <button type="button" class="btn-close" onclick="this.parentElement.remove()"></button>
+        `;
+
+        const mapBox = document.querySelector('#poland-map').closest('.analytics-box');
+        if (mapBox) {
+            mapBox.insertBefore(warningDiv, mapBox.firstChild);
+        }
+    }
+
+    /**
+     * NOWA FUNKCJA: Wyświetlanie błędów mapy
+     */
+    showMapError(message) {
+        console.error(`[ClientsAnalytics] Map error: ${message}`);
+
+        const mapContainer = document.getElementById('poland-map');
+        if (mapContainer) {
+            mapContainer.innerHTML = `
+                <div class="map-error" style="
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 400px;
+                    background: #f8f9fa;
+                    border: 2px dashed #dee2e6;
+                    border-radius: 8px;
+                    flex-direction: column;
+                    color: #6c757d;
+                ">
+                    <div style="font-size: 48px; margin-bottom: 16px;">🗺️</div>
+                    <h4>Mapa niedostępna</h4>
+                    <p>${message}</p>
+                    <button class="btn btn-outline-primary btn-sm" onclick="window.ClientsAnalytics.refreshMap()">
+                        Spróbuj ponownie
+                    </button>
+                </div>
+            `;
         }
     }
 
@@ -558,7 +803,8 @@ class ClientsAnalytics {
         return {
             top_clients: this.data.top_clients,
             geography: this.data.geography,
-            current_limit: this.currentLimit
+            current_limit: this.currentLimit,
+            geocode_cache_size: this.geocodeCache.size
         };
     }
 }
