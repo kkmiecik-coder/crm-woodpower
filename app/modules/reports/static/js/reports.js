@@ -8,8 +8,10 @@ class ReportsManager {
     constructor() {
         this.currentData = [];
         this.currentStats = {};
+        this.currentComparison = {};
         this.currentFilters = {};
-        this.dateRange = 'last_month';
+        this.dateFrom = null;
+        this.dateTo = null;
         this.isLoading = false;
 
         // Referencias do elementów DOM
@@ -26,6 +28,7 @@ class ReportsManager {
 
         this.cacheElements();
         this.setupEventListeners();
+        this.setDefaultDates();
         this.loadInitialData();
 
         console.log('[ReportsManager] Initialization complete');
@@ -36,8 +39,9 @@ class ReportsManager {
      */
     cacheElements() {
         this.elements = {
-            // Kontrolki
-            dateRange: document.getElementById('dateRange'),
+            // Kontrolki dat
+            dateFrom: document.getElementById('dateFrom'),
+            dateTo: document.getElementById('dateTo'),
             syncBtn: document.getElementById('syncBtn'),
             addManualRowBtn: document.getElementById('addManualRowBtn'),
             exportExcelBtn: document.getElementById('exportExcelBtn'),
@@ -61,9 +65,26 @@ class ReportsManager {
             statProductionValueNet: document.getElementById('statProductionValueNet'),
             statReadyPickupVolume: document.getElementById('statReadyPickupVolume'),
 
+            // Statystyki porównawcze
+            compTotalM3: document.getElementById('compTotalM3'),
+            compOrderAmountNet: document.getElementById('compOrderAmountNet'),
+            compValueNet: document.getElementById('compValueNet'),
+            compValueGross: document.getElementById('compValueGross'),
+            compPricePerM3: document.getElementById('compPricePerM3'),
+            compDeliveryCost: document.getElementById('compDeliveryCost'),
+            compPaidAmountNet: document.getElementById('compPaidAmountNet'),
+            compBalanceDue: document.getElementById('compBalanceDue'),
+            compProductionVolume: document.getElementById('compProductionVolume'),
+            compProductionValueNet: document.getElementById('compProductionValueNet'),
+            compReadyPickupVolume: document.getElementById('compReadyPickupVolume'),
+
             // Tabela
             reportsTable: document.getElementById('reportsTable'),
-            reportsTableBody: document.getElementById('reportsTableBody')
+            reportsTableBody: document.getElementById('reportsTableBody'),
+
+            // Filtry aktywne
+            activeFilters: document.getElementById('activeFilters'),
+            activeFiltersList: document.getElementById('activeFiltersList')
         };
 
         console.log('[ReportsManager] Elements cached');
@@ -73,10 +94,17 @@ class ReportsManager {
      * Ustawienie event listenerów
      */
     setupEventListeners() {
-        // Zmiana zakresu dat
-        if (this.elements.dateRange) {
-            this.elements.dateRange.addEventListener('change', (e) => {
-                this.dateRange = e.target.value;
+        // Zmiana dat
+        if (this.elements.dateFrom) {
+            this.elements.dateFrom.addEventListener('change', () => {
+                this.dateFrom = this.elements.dateFrom.value;
+                this.loadData();
+            });
+        }
+
+        if (this.elements.dateTo) {
+            this.elements.dateTo.addEventListener('change', () => {
+                this.dateTo = this.elements.dateTo.value;
                 this.loadData();
             });
         }
@@ -125,15 +153,30 @@ class ReportsManager {
     }
 
     /**
+     * Ustawienie domyślnych dat (ostatni miesiąc)
+     */
+    setDefaultDates() {
+        const today = new Date();
+        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+
+        this.dateFrom = lastMonth.toISOString().split('T')[0];
+        this.dateTo = today.toISOString().split('T')[0];
+
+        if (this.elements.dateFrom) {
+            this.elements.dateFrom.value = this.dateFrom;
+        }
+        if (this.elements.dateTo) {
+            this.elements.dateTo.value = this.dateTo;
+        }
+
+        console.log('[ReportsManager] Default dates set:', this.dateFrom, 'to', this.dateTo);
+    }
+
+    /**
      * Ładowanie początkowych danych
      */
     async loadInitialData() {
         console.log('[ReportsManager] Loading initial data...');
-
-        // Ustaw domyślny zakres dat
-        if (this.elements.dateRange) {
-            this.elements.dateRange.value = this.dateRange;
-        }
 
         // Załaduj dane
         await this.loadData();
@@ -160,19 +203,30 @@ class ReportsManager {
 
         try {
             console.log('[ReportsManager] Loading data...', {
-                dateRange: this.dateRange,
+                dateFrom: this.dateFrom,
+                dateTo: this.dateTo,
                 filters: this.currentFilters
             });
 
             // Przygotuj parametry
-            const params = new URLSearchParams({
-                date_range: this.dateRange
-            });
+            const params = new URLSearchParams();
 
-            // Dodaj filtry kolumn
-            for (const [key, value] of Object.entries(this.currentFilters)) {
-                if (value && value.trim()) {
-                    params.append(`filter_${key}`, value.trim());
+            // Dodaj daty
+            if (this.dateFrom) {
+                params.append('date_from', this.dateFrom);
+            }
+            if (this.dateTo) {
+                params.append('date_to', this.dateTo);
+            }
+
+            // Dodaj filtry kolumn (obsługa multiple values)
+            for (const [key, values] of Object.entries(this.currentFilters)) {
+                if (values && Array.isArray(values) && values.length > 0) {
+                    values.forEach(value => {
+                        if (value && value.trim()) {
+                            params.append(`filter_${key}`, value.trim());
+                        }
+                    });
                 }
             }
 
@@ -187,14 +241,18 @@ class ReportsManager {
             // Aktualizuj dane
             this.currentData = result.data || [];
             this.currentStats = result.stats || {};
+            this.currentComparison = result.comparison || {};
 
             // Aktualizuj interfejs
             this.updateTable();
             this.updateStatistics(this.currentStats);
+            this.updateComparisons(this.currentComparison);
+            this.updateActiveFilters();
 
             console.log('[ReportsManager] Data loaded successfully', {
                 recordsCount: this.currentData.length,
-                stats: this.currentStats
+                stats: this.currentStats,
+                comparison: this.currentComparison
             });
 
         } catch (error) {
@@ -239,6 +297,9 @@ class ReportsManager {
 
         this.elements.reportsTableBody.innerHTML = html;
 
+        // Dodaj hover effect dla grupowanych zamówień
+        this.setupOrderHoverEffects();
+
         console.log('[ReportsManager] Table updated');
     }
 
@@ -265,13 +326,19 @@ class ReportsManager {
     renderOrderRows(orders) {
         let html = '';
         const orderCount = orders.length;
+        const baselinkerOrderId = orders[0].baselinker_order_id;
 
         orders.forEach((order, index) => {
             const isFirst = index === 0;
             const isLast = index === orderCount - 1;
 
             html += `
-                <tr data-record-id="${order.id}" ${order.is_manual ? 'data-manual="true"' : ''}>
+                <tr data-record-id="${order.id}" 
+                    data-baselinker-id="${baselinkerOrderId || `manual_${order.id}`}"
+                    data-order-group="${baselinkerOrderId || `manual_${order.id}`}"
+                    ${order.is_manual ? 'data-manual="true"' : ''}
+                    ${isFirst ? 'class="order-group-start"' : ''}
+                    ${isLast ? 'class="order-group-end"' : ''}>
                     ${this.renderMergedCell(order.date_created, orderCount, isFirst, 'cell-date')}
                     <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
                     ${this.renderMergedCell(this.formatCurrency(order.order_amount_net), orderCount, isFirst, 'cell-currency')}
@@ -308,7 +375,7 @@ class ReportsManager {
                     ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
                     ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
                     ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
-                    ${this.renderMergedCell(this.formatCurrency(order.balance_due), orderCount, isFirst, 'cell-currency')}
+                    ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
                     <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
                     <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
                     <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
@@ -448,6 +515,80 @@ class ReportsManager {
     }
 
     /**
+     * Ustawienie hover effects dla grupowanych zamówień
+     */
+    setupOrderHoverEffects() {
+        if (!this.elements.reportsTableBody) return;
+
+        const rows = this.elements.reportsTableBody.querySelectorAll('tr[data-order-group]');
+
+        rows.forEach(row => {
+            const orderGroup = row.dataset.orderGroup;
+
+            row.addEventListener('mouseenter', () => {
+                // Podświetl wszystkie wiersze z tym samym order-group
+                const relatedRows = this.elements.reportsTableBody.querySelectorAll(`tr[data-order-group="${orderGroup}"]`);
+                relatedRows.forEach(relatedRow => {
+                    relatedRow.classList.add('hover-group');
+                });
+            });
+
+            row.addEventListener('mouseleave', () => {
+                // Usuń podświetlenie ze wszystkich wierszy z tym samym order-group
+                const relatedRows = this.elements.reportsTableBody.querySelectorAll(`tr[data-order-group="${orderGroup}"]`);
+                relatedRows.forEach(relatedRow => {
+                    relatedRow.classList.remove('hover-group');
+                });
+            });
+        });
+    }
+    updateComparisons(comparison) {
+        if (!comparison) return;
+
+        console.log('[ReportsManager] Updating comparisons:', comparison);
+
+        const fields = [
+            'total_m3', 'order_amount_net', 'value_net', 'value_gross',
+            'avg_price_per_m3', 'delivery_cost', 'paid_amount_net', 'balance_due',
+            'production_volume', 'production_value_net', 'ready_pickup_volume'
+        ];
+
+        const elementMap = {
+            'total_m3': 'compTotalM3',
+            'order_amount_net': 'compOrderAmountNet',
+            'value_net': 'compValueNet',
+            'value_gross': 'compValueGross',
+            'avg_price_per_m3': 'compPricePerM3',
+            'delivery_cost': 'compDeliveryCost',
+            'paid_amount_net': 'compPaidAmountNet',
+            'balance_due': 'compBalanceDue',
+            'production_volume': 'compProductionVolume',
+            'production_value_net': 'compProductionValueNet',
+            'ready_pickup_volume': 'compReadyPickupVolume'
+        };
+
+        fields.forEach(field => {
+            const elementId = elementMap[field];
+            const element = this.elements[elementId];
+            const compData = comparison[field];
+
+            if (element && compData) {
+                const changePercent = compData.change_percent;
+                const isPositive = compData.is_positive;
+
+                if (changePercent !== 0) {
+                    const sign = isPositive ? '+' : '';
+                    element.textContent = `${sign}${changePercent}%`;
+                    element.className = `stat-comparison ${isPositive ? 'positive' : 'negative'}`;
+                } else {
+                    element.textContent = '';
+                    element.className = 'stat-comparison';
+                }
+            }
+        });
+    }
+
+    /**
      * Aktualizacja pojedynczej statystyki
      */
     updateStat(elementId, value, decimals = 2, suffix = '') {
@@ -455,6 +596,90 @@ class ReportsManager {
         if (element) {
             const formattedValue = this.formatNumber(value || 0, decimals);
             element.textContent = formattedValue + suffix;
+        }
+    }
+
+    /**
+     * Aktualizacja aktywnych filtrów
+     */
+    updateActiveFilters() {
+        if (!this.elements.activeFilters || !this.elements.activeFiltersList) return;
+
+        const activeFiltersCount = Object.keys(this.currentFilters).reduce((count, key) => {
+            const values = this.currentFilters[key];
+            return count + (values && Array.isArray(values) ? values.length : 0);
+        }, 0);
+
+        if (activeFiltersCount === 0) {
+            this.elements.activeFilters.style.display = 'none';
+            return;
+        }
+
+        // Pokaż sekcję aktywnych filtrów
+        this.elements.activeFilters.style.display = 'block';
+
+        // Wygeneruj tagi filtrów
+        let tagsHtml = '';
+        for (const [key, values] of Object.entries(this.currentFilters)) {
+            if (values && Array.isArray(values) && values.length > 0) {
+                const filterLabel = this.getFilterLabel(key);
+                values.forEach(value => {
+                    tagsHtml += `
+                        <span class="active-filter-tag" data-filter="${key}" data-value="${value}">
+                            ${filterLabel}: ${value}
+                            <span class="active-filter-remove" data-filter="${key}" data-value="${value}">×</span>
+                        </span>
+                    `;
+                });
+            }
+        }
+
+        this.elements.activeFiltersList.innerHTML = tagsHtml;
+
+        // Dodaj event listenery do usuwania filtrów
+        this.elements.activeFiltersList.querySelectorAll('.active-filter-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const filter = btn.dataset.filter;
+                const value = btn.dataset.value;
+                this.removeFilter(filter, value);
+            });
+        });
+    }
+
+    /**
+     * Pobieranie etykiety filtra
+     */
+    getFilterLabel(filterKey) {
+        const labels = {
+            'customer_name': 'Klient',
+            'delivery_state': 'Województwo',
+            'wood_species': 'Gatunek',
+            'current_status': 'Status'
+        };
+        return labels[filterKey] || filterKey;
+    }
+
+    /**
+     * Usuwanie pojedynczego filtra
+     */
+    removeFilter(filterKey, value) {
+        if (this.currentFilters[filterKey] && Array.isArray(this.currentFilters[filterKey])) {
+            const index = this.currentFilters[filterKey].indexOf(value);
+            if (index > -1) {
+                this.currentFilters[filterKey].splice(index, 1);
+                if (this.currentFilters[filterKey].length === 0) {
+                    delete this.currentFilters[filterKey];
+                }
+            }
+        }
+
+        // Odśwież dane i aktywne filtry
+        this.loadData();
+
+        // Powiadom TableManager o zmianie
+        if (window.tableManager) {
+            window.tableManager.updateFilterCheckboxes(filterKey, value, false);
         }
     }
 
@@ -585,16 +810,54 @@ class ReportsManager {
     /**
      * Ustawienie filtra
      */
-    setFilter(column, value) {
-        console.log('[ReportsManager] Setting filter:', column, value);
+    setFilter(column, values) {
+        console.log('[ReportsManager] Setting filter:', column, values);
 
-        if (value && value.trim()) {
-            this.currentFilters[column] = value.trim();
+        if (values && Array.isArray(values) && values.length > 0) {
+            // Filtruj puste wartości
+            const filteredValues = values.filter(v => v && v.trim());
+            if (filteredValues.length > 0) {
+                this.currentFilters[column] = filteredValues;
+            } else {
+                delete this.currentFilters[column];
+            }
         } else {
             delete this.currentFilters[column];
         }
 
         this.loadData();
+    }
+
+    /**
+     * Dodawanie wartości do filtra
+     */
+    addFilterValue(column, value) {
+        if (!value || !value.trim()) return;
+
+        if (!this.currentFilters[column]) {
+            this.currentFilters[column] = [];
+        }
+
+        if (!this.currentFilters[column].includes(value)) {
+            this.currentFilters[column].push(value);
+            this.loadData();
+        }
+    }
+
+    /**
+     * Usuwanie wartości z filtra
+     */
+    removeFilterValue(column, value) {
+        if (this.currentFilters[column] && Array.isArray(this.currentFilters[column])) {
+            const index = this.currentFilters[column].indexOf(value);
+            if (index > -1) {
+                this.currentFilters[column].splice(index, 1);
+                if (this.currentFilters[column].length === 0) {
+                    delete this.currentFilters[column];
+                }
+                this.loadData();
+            }
+        }
     }
 
     /**
@@ -648,6 +911,32 @@ class ReportsManager {
     }
 
     /**
+     * Formatowanie waluty ze znakiem (dla sald)
+     */
+    formatCurrencyWithSign(value) {
+        const num = parseFloat(value || 0);
+        const formatted = this.formatNumber(Math.abs(num), 2);
+
+        if (num > 0) {
+            return `+${formatted}`;
+        } else if (num < 0) {
+            return `-${formatted}`;
+        } else {
+            return formatted;
+        }
+    }
+
+    /**
+     * Pobieranie bieżących dat dla innych managerów
+     */
+    getCurrentDateRange() {
+        return {
+            date_from: this.dateFrom,
+            date_to: this.dateTo
+        };
+    }
+
+    /**
      * Publiczne API dla innych managerów
      */
     refreshData() {
@@ -667,8 +956,120 @@ class ReportsManager {
         return { ...this.currentFilters };
     }
 
+    getDateFrom() {
+        return this.dateFrom;
+    }
+
+    getDateTo() {
+        return this.dateTo;
+    }
+
+    // Kompatybilność z poprzednimi wersjami
     getDateRange() {
-        return this.dateRange;
+        // Zwraca string reprezentujący zakres dat
+        if (!this.dateFrom || !this.dateTo) {
+            return 'custom';
+        }
+
+        const today = new Date();
+        const from = new Date(this.dateFrom);
+        const to = new Date(this.dateTo);
+
+        const todayStr = today.toISOString().split('T')[0];
+
+        // Sprawdź czy to dzisiaj
+        if (this.dateFrom === todayStr && this.dateTo === todayStr) {
+            return 'today';
+        }
+
+        // Sprawdź czy to ostatni tydzień
+        const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+        if (from >= weekAgo && to.toDateString() === today.toDateString()) {
+            return 'last_week';
+        }
+
+        // Sprawdź czy to ostatni miesiąc
+        const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+        if (from >= monthAgo && to.toDateString() === today.toDateString()) {
+            return 'last_month';
+        }
+
+        return 'custom';
+    }
+
+    /**
+     * Ustawienie dat programowo
+     */
+    setDateRange(dateFrom, dateTo) {
+        this.dateFrom = dateFrom;
+        this.dateTo = dateTo;
+
+        if (this.elements.dateFrom) {
+            this.elements.dateFrom.value = dateFrom;
+        }
+        if (this.elements.dateTo) {
+            this.elements.dateTo.value = dateTo;
+        }
+
+        this.loadData();
+    }
+
+    /**
+     * Ustawienie dat na podstawie predefiniowanych zakresów
+     */
+    setDateRangePreset(preset) {
+        const today = new Date();
+        let dateFrom, dateTo;
+
+        switch (preset) {
+            case 'today':
+                dateFrom = dateTo = today.toISOString().split('T')[0];
+                break;
+            case 'yesterday':
+                const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                dateFrom = dateTo = yesterday.toISOString().split('T')[0];
+                break;
+            case 'last_week':
+                dateFrom = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                dateTo = today.toISOString().split('T')[0];
+                break;
+            case 'last_month':
+                dateFrom = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                dateTo = today.toISOString().split('T')[0];
+                break;
+            case 'last_3_months':
+                dateFrom = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                dateTo = today.toISOString().split('T')[0];
+                break;
+            case 'last_6_months':
+                dateFrom = new Date(today.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                dateTo = today.toISOString().split('T')[0];
+                break;
+            case 'last_year':
+                dateFrom = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                dateTo = today.toISOString().split('T')[0];
+                break;
+            default:
+                console.warn('[ReportsManager] Unknown date preset:', preset);
+                return;
+        }
+
+        this.setDateRange(dateFrom, dateTo);
+    }
+
+    /**
+     * Debug info
+     */
+    getDebugInfo() {
+        return {
+            currentData: this.currentData.length,
+            currentStats: this.currentStats,
+            currentComparison: this.currentComparison,
+            currentFilters: this.currentFilters,
+            dateFrom: this.dateFrom,
+            dateTo: this.dateTo,
+            isLoading: this.isLoading
+        };
     }
 }
 

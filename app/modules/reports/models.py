@@ -6,6 +6,7 @@ Modele bazy danych dla modułu Reports
 from extensions import db
 from datetime import datetime, timedelta
 from sqlalchemy import Index
+import re
 
 class BaselinkerReportOrder(db.Model):
     """
@@ -92,7 +93,7 @@ class BaselinkerReportOrder(db.Model):
         Pobiera zamówienia z filtrami
         
         Args:
-            filters (dict): Słownik filtrów {kolumna: wartość}
+            filters (dict): Słownik filtrów {kolumna: lista_wartości}
             date_from (date): Data od
             date_to (date): Data do
             
@@ -107,19 +108,33 @@ class BaselinkerReportOrder(db.Model):
         if date_to:
             query = query.filter(cls.date_created <= date_to)
             
-        # Dodatkowe filtry
+        # Filtruj statusy - wyłącz anulowane i nieopłacone
+        excluded_statuses = ['Zamówienie anulowane', 'Nowe - nieopłacone']
+        query = query.filter(~cls.current_status.in_(excluded_statuses))
+            
+        # Dodatkowe filtry (obsługa multiple values)
         if filters:
-            for column, value in filters.items():
-                if value and hasattr(cls, column):
+            for column, values in filters.items():
+                if values and hasattr(cls, column):
                     column_attr = getattr(cls, column)
-                    if isinstance(value, str) and value.strip():
-                        # Dla stringów używamy LIKE
-                        query = query.filter(column_attr.like(f'%{value.strip()}%'))
-                    elif value is not None:
-                        # Dla innych typów używamy równości
-                        query = query.filter(column_attr == value)
+                    if isinstance(values, list) and values:
+                        # Multiple values - użyj IN
+                        query = query.filter(column_attr.in_(values))
+                    elif isinstance(values, str) and values.strip():
+                        # Single value - użyj LIKE
+                        query = query.filter(column_attr.like(f'%{values.strip()}%'))
         
-        return query.order_by(cls.date_created.desc(), cls.baselinker_order_id.desc())
+        # Sortowanie: najwyższy numer Baselinker na górze, potem po dacie
+        # MySQL/MariaDB nie obsługuje NULLS LAST, więc używamy CASE
+        from sqlalchemy import case
+        return query.order_by(
+            case(
+                (cls.baselinker_order_id.is_(None), 1),
+                else_=0
+            ),
+            cls.baselinker_order_id.desc(),
+            cls.date_created.desc()
+        )
     
     @classmethod
     def get_orders_by_date_range(cls, days_back=30):
@@ -168,10 +183,17 @@ class BaselinkerReportOrder(db.Model):
         if not orders:
             return stats
             
+        # Grupuj zamówienia by uniknąć duplikowania order_amount_net
+        orders_by_baselinker_id = {}
+        for order in orders:
+            bl_id = order.baselinker_order_id or f"manual_{order.id}"
+            if bl_id not in orders_by_baselinker_id:
+                orders_by_baselinker_id[bl_id] = []
+            orders_by_baselinker_id[bl_id].append(order)
+        
         # Sumuj wartości
         for order in orders:
             stats['total_m3'] += float(order.total_volume or 0)
-            stats['order_amount_net'] += float(order.order_amount_net or 0)
             stats['value_net'] += float(order.value_net or 0)
             stats['value_gross'] += float(order.value_gross or 0)
             stats['delivery_cost'] += float(order.delivery_cost or 0)
@@ -181,11 +203,75 @@ class BaselinkerReportOrder(db.Model):
             stats['production_value_net'] += float(order.production_value_net or 0)
             stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
         
+        # Oblicz order_amount_net bez duplikowania na poziomie zamówienia
+        for bl_id, order_products in orders_by_baselinker_id.items():
+            # Weź order_amount_net z pierwszego produktu (wszystkie mają tę samą wartość)
+            if order_products:
+                stats['order_amount_net'] += float(order_products[0].order_amount_net or 0)
+        
         # Oblicz średnią cenę za m3
         if stats['total_m3'] > 0:
             stats['avg_price_per_m3'] = stats['value_net'] / stats['total_m3']
             
         return stats
+    
+    @classmethod
+    def get_comparison_statistics(cls, current_filters=None, current_date_from=None, current_date_to=None):
+        """
+        Oblicza statystyki porównawcze dla poprzedniego okresu
+        
+        Args:
+            current_filters: Filtry dla bieżącego okresu
+            current_date_from: Data początkowa bieżącego okresu
+            current_date_to: Data końcowa bieżącego okresu
+            
+        Returns:
+            dict: Słownik z procentowymi zmianami
+        """
+        if not current_date_from or not current_date_to:
+            return {}
+            
+        # Oblicz długość okresu
+        period_length = (current_date_to - current_date_from).days + 1
+        
+        # Oblicz datę końcową poprzedniego okresu (dzień przed current_date_from)
+        prev_date_to = current_date_from - timedelta(days=1)
+        prev_date_from = prev_date_to - timedelta(days=period_length - 1)
+        
+        # Pobierz statystyki dla bieżącego okresu
+        current_query = cls.get_filtered_orders(current_filters, current_date_from, current_date_to)
+        current_stats = cls.get_statistics(current_query)
+        
+        # Pobierz statystyki dla poprzedniego okresu
+        prev_query = cls.get_filtered_orders(current_filters, prev_date_from, prev_date_to)
+        prev_stats = cls.get_statistics(prev_query)
+        
+        # Oblicz procentowe zmiany
+        comparison = {}
+        for key in current_stats.keys():
+            current_val = float(current_stats[key] or 0)
+            prev_val = float(prev_stats[key] or 0)
+            
+            if prev_val > 0:
+                change_percent = ((current_val - prev_val) / prev_val) * 100
+                comparison[key] = {
+                    'change_percent': round(change_percent, 1),
+                    'is_positive': change_percent >= 0
+                }
+            else:
+                # Jeśli poprzednia wartość = 0, ale obecna > 0, to 100% wzrost
+                if current_val > 0:
+                    comparison[key] = {
+                        'change_percent': 100.0,
+                        'is_positive': True
+                    }
+                else:
+                    comparison[key] = {
+                        'change_percent': 0.0,
+                        'is_positive': True
+                    }
+        
+        return comparison
     
     def calculate_fields(self):
         """
@@ -224,12 +310,65 @@ class BaselinkerReportOrder(db.Model):
                 target_date += timedelta(days=1)
             self.realization_date = target_date
             
-        # Oblicz saldo (wartość netto - zapłacono)
-        if self.value_net is not None and self.paid_amount_net is not None:
-            self.balance_due = float(self.value_net) - float(self.paid_amount_net)
+        # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
+        # POPRAWKA: Saldo obliczane na podstawie order_amount_net (całe zamówienie netto)
+        if self.order_amount_net is not None and self.paid_amount_net is not None:
+            self.balance_due = float(self.order_amount_net) - float(self.paid_amount_net)
             
         # Oblicz produkcję i odbiór na podstawie statusu
         self.update_production_fields()
+        
+        # Normalizuj województwo
+        self.normalize_delivery_state()
+        
+        # Ustaw domyślny product_type na 'deska' jeśli nie ma
+        if not self.product_type:
+            self.product_type = 'deska'
+    
+    def normalize_delivery_state(self):
+        """
+        Normalizuje nazwę województwa do standardowego formatu
+        """
+        if not self.delivery_state:
+            return
+            
+        state_lower = self.delivery_state.lower().strip()
+        
+        # Mapowanie województw
+        states_map = {
+            'dolnośląskie': 'Dolnośląskie',
+            'dolnoslaskie': 'Dolnośląskie',
+            'kujawsko-pomorskie': 'Kujawsko-Pomorskie',
+            'kujawsko pomorskie': 'Kujawsko-Pomorskie',
+            'lubelskie': 'Lubelskie',
+            'lubuskie': 'Lubuskie',
+            'łódzkie': 'Łódzkie',
+            'lodzkie': 'Łódzkie',
+            'małopolskie': 'Małopolskie',
+            'malopolskie': 'Małopolskie',
+            'mazowieckie': 'Mazowieckie',
+            'opolskie': 'Opolskie',
+            'podkarpackie': 'Podkarpackie',
+            'podlaskie': 'Podlaskie',
+            'pomorskie': 'Pomorskie',
+            'śląskie': 'Śląskie',
+            'slaskie': 'Śląskie',
+            'świętokrzyskie': 'Świętokrzyskie',
+            'swietokrzyskie': 'Świętokrzyskie',
+            'warmińsko-mazurskie': 'Warmińsko-Mazurskie',
+            'warminsko-mazurskie': 'Warmińsko-Mazurskie',
+            'warminsko mazurskie': 'Warmińsko-Mazurskie',
+            'wielkopolskie': 'Wielkopolskie',
+            'zachodniopomorskie': 'Zachodniopomorskie'
+        }
+        
+        # Sprawdź czy istnieje mapowanie
+        normalized = states_map.get(state_lower)
+        if normalized:
+            self.delivery_state = normalized
+        else:
+            # Capitalize pierwszą literę jeśli nie ma mapowania
+            self.delivery_state = self.delivery_state.strip().capitalize()
     
     def update_production_fields(self):
         """
@@ -261,7 +400,7 @@ class BaselinkerReportOrder(db.Model):
         return {
             'id': self.id,
             'is_manual': self.is_manual,
-            'date_created': self.date_created.isoformat() if self.date_created else None,
+            'date_created': self.date_created.strftime('%d-%m-%Y') if self.date_created else None,
             'total_m3': float(self.total_volume or 0),
             'order_amount_net': float(self.order_amount_net or 0),
             'baselinker_order_id': self.baselinker_order_id,
@@ -292,7 +431,7 @@ class BaselinkerReportOrder(db.Model):
             'volume_per_piece': float(self.volume_per_piece or 0),
             'total_volume': float(self.total_volume or 0),
             'price_per_m3': float(self.price_per_m3 or 0),
-            'realization_date': self.realization_date.isoformat() if self.realization_date else None,
+            'realization_date': self.realization_date.strftime('%d-%m-%Y') if self.realization_date else None,
             'current_status': self.current_status,
             'delivery_cost': float(self.delivery_cost or 0),
             'payment_method': self.payment_method,

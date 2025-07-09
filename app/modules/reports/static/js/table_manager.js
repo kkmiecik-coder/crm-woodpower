@@ -1,7 +1,7 @@
 // modules/reports/static/js/table_manager.js
 /**
- * Manager zarządzający tabelą i filtrami
- * Odpowiedzialny za filtry dropdown, dodawanie/edycję wierszy
+ * Manager zarządzający filtrami checkbox i dodawaniem/edycją wierszy
+ * Odpowiedzialny za filtry wielokrotne, dodawanie/edycję wierszy
  */
 
 class TableManager {
@@ -21,6 +21,14 @@ class TableManager {
             payment_method: []
         };
 
+        // Aktywne filtry (checkbox states)
+        this.activeFilters = {
+            customer_name: [],
+            delivery_state: [],
+            wood_species: [],
+            current_status: []
+        };
+
         console.log('[TableManager] Initialized');
     }
 
@@ -32,6 +40,7 @@ class TableManager {
 
         this.cacheElements();
         this.setupEventListeners();
+        this.setupCheckboxFilters();
         this.loadDropdownData();
 
         this.isInitialized = true;
@@ -42,13 +51,23 @@ class TableManager {
      * Cache elementów DOM
      */
     cacheElements() {
-        // Filtry
+        // Filtry checkbox
         this.filterElements = {
-            dateCreated: document.getElementById('filterDateCreated'),
-            customerName: document.getElementById('filterCustomerName'),
-            deliveryState: document.getElementById('filterDeliveryState'),
-            woodSpecies: document.getElementById('filterWoodSpecies'),
-            currentStatus: document.getElementById('filterCurrentStatus')
+            customerNameContainer: document.getElementById('filterCustomerNameContainer'),
+            customerNameOptions: document.getElementById('filterCustomerNameOptions'),
+            searchCustomerName: document.getElementById('searchCustomerName'),
+
+            deliveryStateContainer: document.getElementById('filterDeliveryStateContainer'),
+            deliveryStateOptions: document.getElementById('filterDeliveryStateOptions'),
+            searchDeliveryState: document.getElementById('searchDeliveryState'),
+
+            woodSpeciesContainer: document.getElementById('filterWoodSpeciesContainer'),
+            woodSpeciesOptions: document.getElementById('filterWoodSpeciesOptions'),
+            searchWoodSpecies: document.getElementById('searchWoodSpecies'),
+
+            currentStatusContainer: document.getElementById('filterCurrentStatusContainer'),
+            currentStatusOptions: document.getElementById('filterCurrentStatusOptions'),
+            searchCurrentStatus: document.getElementById('searchCurrentStatus')
         };
 
         // Modal dodawania/edycji
@@ -95,15 +114,6 @@ class TableManager {
      * Ustawienie event listenerów
      */
     setupEventListeners() {
-        // Filtry dropdown
-        Object.entries(this.filterElements).forEach(([key, element]) => {
-            if (element) {
-                element.addEventListener('change', (e) => {
-                    this.handleFilterChange(key, e.target.value);
-                });
-            }
-        });
-
         // Modal events
         if (this.modalElements.modal) {
             // Zamknięcie modala
@@ -145,6 +155,43 @@ class TableManager {
         this.setupRealTimeValidation();
 
         console.log('[TableManager] Event listeners setup complete');
+    }
+
+    /**
+     * Ustawienie filtrów checkbox
+     */
+    setupCheckboxFilters() {
+        // Event listenery dla wyszukiwania
+        Object.keys(this.activeFilters).forEach(filterKey => {
+            const searchElement = this.filterElements[`search${this.capitalizeFirst(filterKey.replace('_', ''))}`];
+            if (searchElement) {
+                searchElement.addEventListener('input', (e) => {
+                    this.filterDropdownOptions(filterKey, e.target.value);
+                });
+            }
+        });
+
+        console.log('[TableManager] Checkbox filters setup complete');
+    }
+
+    /**
+     * Filtrowanie opcji dropdown'a na podstawie wyszukiwania
+     */
+    filterDropdownOptions(filterKey, searchTerm) {
+        const optionsContainer = this.filterElements[`${filterKey.replace('_', '')}Options`];
+        if (!optionsContainer) return;
+
+        const options = optionsContainer.querySelectorAll('.filter-option');
+        const term = searchTerm.toLowerCase();
+
+        options.forEach(option => {
+            const label = option.querySelector('label').textContent.toLowerCase();
+            if (label.includes(term)) {
+                option.style.display = 'flex';
+            } else {
+                option.style.display = 'none';
+            }
+        });
     }
 
     /**
@@ -225,59 +272,136 @@ class TableManager {
      * Aktualizacja opcji dropdown'a
      */
     updateDropdownOptions(fieldName) {
-        const mapping = {
-            customer_name: this.filterElements.customerName,
-            delivery_state: this.filterElements.deliveryState,
-            wood_species: this.filterElements.woodSpecies,
-            current_status: this.filterElements.currentStatus
+        // Mapowanie nazw pól na kontenery
+        const containerMapping = {
+            customer_name: this.filterElements.customerNameOptions,
+            delivery_state: this.filterElements.deliveryStateOptions,
+            wood_species: this.filterElements.woodSpeciesOptions,
+            current_status: this.filterElements.currentStatusOptions
         };
 
-        const element = mapping[fieldName];
-        if (!element) return;
+        const container = containerMapping[fieldName];
+        if (!container) return;
 
         const values = this.dropdownData[fieldName] || [];
-        const currentValue = element.value;
 
-        // Zachowaj pierwszą opcję "Wszystkie"
-        const firstOption = element.options[0];
-        element.innerHTML = '';
-        element.appendChild(firstOption);
+        // Wyczyść kontener
+        container.innerHTML = '';
 
-        // Dodaj nowe opcje
+        // Dodaj opcje checkbox
         values.forEach(value => {
-            const option = document.createElement('option');
-            option.value = value;
-            option.textContent = value;
-            element.appendChild(option);
+            const isChecked = this.activeFilters[fieldName] &&
+                this.activeFilters[fieldName].includes(value);
+
+            const optionHtml = `
+                <div class="filter-option">
+                    <input type="checkbox" 
+                           id="${fieldName}_${this.sanitizeId(value)}" 
+                           value="${value}" 
+                           ${isChecked ? 'checked' : ''}
+                           data-filter="${fieldName}">
+                    <label for="${fieldName}_${this.sanitizeId(value)}">${value}</label>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', optionHtml);
         });
 
-        // Przywróć poprzednią wartość jeśli istnieje
-        if (currentValue && values.includes(currentValue)) {
-            element.value = currentValue;
-        }
+        // Dodaj event listenery do nowych checkbox'ów
+        container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                this.handleFilterChange(e.target.dataset.filter, e.target.value, e.target.checked);
+            });
+        });
 
         console.log(`[TableManager] Updated dropdown ${fieldName} with ${values.length} options`);
     }
 
     /**
-     * Obsługa zmiany filtra
+     * Sanityzacja ID dla HTML
      */
-    handleFilterChange(filterKey, value) {
-        console.log('[TableManager] Filter changed:', filterKey, value);
+    sanitizeId(value) {
+        return value.replace(/[^a-zA-Z0-9]/g, '_');
+    }
 
-        // Mapowanie kluczy filtrów na nazwy kolumn
-        const columnMapping = {
-            dateCreated: 'date_created',
-            customerName: 'customer_name',
-            deliveryState: 'delivery_state',
-            woodSpecies: 'wood_species',
-            currentStatus: 'current_status'
+    /**
+     * Obsługa zmiany filtra checkbox
+     */
+    handleFilterChange(filterKey, value, isChecked) {
+        console.log('[TableManager] Filter changed:', filterKey, value, isChecked);
+
+        if (!this.activeFilters[filterKey]) {
+            this.activeFilters[filterKey] = [];
+        }
+
+        if (isChecked) {
+            // Dodaj wartość do filtra
+            if (!this.activeFilters[filterKey].includes(value)) {
+                this.activeFilters[filterKey].push(value);
+            }
+        } else {
+            // Usuń wartość z filtra
+            const index = this.activeFilters[filterKey].indexOf(value);
+            if (index > -1) {
+                this.activeFilters[filterKey].splice(index, 1);
+            }
+        }
+
+        // Wyczyść puste filtry
+        if (this.activeFilters[filterKey].length === 0) {
+            delete this.activeFilters[filterKey];
+        }
+
+        // Prześlij zmiany do ReportsManager
+        if (window.reportsManager) {
+            window.reportsManager.setFilter(filterKey, this.activeFilters[filterKey] || []);
+        }
+    }
+
+    /**
+     * Aktualizacja checkboxów z zewnątrz (z ReportsManager)
+     */
+    updateFilterCheckboxes(filterKey, value, isChecked) {
+        const container = this.getFilterContainer(filterKey);
+        if (!container) return;
+
+        const checkbox = container.querySelector(`input[value="${value}"]`);
+        if (checkbox) {
+            checkbox.checked = isChecked;
+        }
+
+        // Aktualizuj lokalny stan
+        if (!this.activeFilters[filterKey]) {
+            this.activeFilters[filterKey] = [];
+        }
+
+        if (isChecked) {
+            if (!this.activeFilters[filterKey].includes(value)) {
+                this.activeFilters[filterKey].push(value);
+            }
+        } else {
+            const index = this.activeFilters[filterKey].indexOf(value);
+            if (index > -1) {
+                this.activeFilters[filterKey].splice(index, 1);
+            }
+        }
+
+        if (this.activeFilters[filterKey].length === 0) {
+            delete this.activeFilters[filterKey];
+        }
+    }
+
+    /**
+     * Pobieranie kontenera filtru
+     */
+    getFilterContainer(filterKey) {
+        const containerMapping = {
+            customer_name: this.filterElements.customerNameOptions,
+            delivery_state: this.filterElements.deliveryStateOptions,
+            wood_species: this.filterElements.woodSpeciesOptions,
+            current_status: this.filterElements.currentStatusOptions
         };
 
-        const columnName = columnMapping[filterKey];
-        if (columnName && window.reportsManager) {
-            window.reportsManager.setFilter(columnName, value);
-        }
+        return containerMapping[filterKey];
     }
 
     /**
@@ -338,7 +462,7 @@ class TableManager {
 
         // Podstawowe dane
         this.setFieldValue('recordId', record.id);
-        this.setFieldValue('dateCreated', record.date_created);
+        this.setFieldValue('dateCreated', record.date_created.split('T')[0]); // Konwersja do YYYY-MM-DD
         this.setFieldValue('internalOrderNumber', record.internal_order_number);
         this.setFieldValue('customerName', record.customer_name);
         this.setFieldValue('phone', record.phone);
@@ -391,7 +515,8 @@ class TableManager {
         this.setFieldValue('finishState', 'surowy');
         this.setFieldValue('deliveryCost', '0');
         this.setFieldValue('paidAmountNet', '0');
-        this.setFieldValue('currentStatus', 'Nowe - nieopłacone');
+        this.setFieldValue('currentStatus', 'Nowe - opłacone');
+        this.setFieldValue('productType', 'deska'); // Domyślnie deska
         this.setFieldValue('recordId', '');
 
         console.log('[TableManager] Form reset');
@@ -581,6 +706,13 @@ class TableManager {
     }
 
     /**
+     * Kapitalizacja pierwszej litery
+     */
+    capitalizeFirst(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    /**
      * Ustawienie stanu ładowania dla modala
      */
     setLoadingState(loading) {
@@ -602,11 +734,32 @@ class TableManager {
     clearFilters() {
         console.log('[TableManager] Clearing filters...');
 
-        Object.values(this.filterElements).forEach(element => {
-            if (element && element.tagName === 'SELECT') {
-                element.selectedIndex = 0; // Wybierz pierwszą opcję (Wszystkie)
+        // Wyczyść stany checkbox'ów
+        Object.keys(this.activeFilters).forEach(filterKey => {
+            const container = this.getFilterContainer(filterKey);
+            if (container) {
+                container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
             }
         });
+
+        // Wyczyść wyszukiwania
+        Object.keys(this.activeFilters).forEach(filterKey => {
+            const searchElement = this.filterElements[`search${this.capitalizeFirst(filterKey.replace('_', ''))}`];
+            if (searchElement) {
+                searchElement.value = '';
+                this.filterDropdownOptions(filterKey, ''); // Pokaż wszystkie opcje
+            }
+        });
+
+        // Wyczyść lokalny stan
+        this.activeFilters = {
+            customer_name: [],
+            delivery_state: [],
+            wood_species: [],
+            current_status: []
+        };
 
         console.log('[TableManager] Filters cleared');
     }
@@ -635,6 +788,19 @@ class TableManager {
 
     getDropdownData(fieldName) {
         return this.dropdownData[fieldName] || [];
+    }
+
+    getActiveFilters() {
+        return { ...this.activeFilters };
+    }
+
+    setActiveFilters(filters) {
+        this.activeFilters = { ...filters };
+
+        // Aktualizuj interfejs
+        Object.keys(this.activeFilters).forEach(filterKey => {
+            this.updateDropdownOptions(filterKey);
+        });
     }
 }
 

@@ -157,6 +157,9 @@ class BaselinkerReportsService:
             # Przefiltruj nowe zamówienia
             new_orders = [order for order in orders if order['order_id'] not in existing_order_ids]
             
+            # Dodaj nowe zamówienia
+            added_count = self.add_orders_to_database(new_orders)
+            
             # Aktualizuj istniejące zamówienia (statusy)
             updated_count = self._update_existing_orders(orders, existing_order_ids)
             
@@ -164,7 +167,7 @@ class BaselinkerReportsService:
             sync_log = ReportsSyncLog(
                 sync_type=sync_type,
                 orders_processed=len(orders),
-                orders_added=len(new_orders),
+                orders_added=added_count,
                 orders_updated=updated_count,
                 status='success',
                 duration_seconds=int((datetime.utcnow() - sync_start).total_seconds())
@@ -174,14 +177,14 @@ class BaselinkerReportsService:
             
             self.logger.info("Synchronizacja zakończona pomyślnie",
                            orders_processed=len(orders),
-                           orders_added=len(new_orders),
+                           orders_added=added_count,
                            orders_updated=updated_count)
             
             return {
                 'success': True,
                 'message': f'Synchronizacja zakończona pomyślnie',
                 'orders_processed': len(orders),
-                'orders_added': len(new_orders),
+                'orders_added': added_count,
                 'orders_updated': updated_count,
                 'new_orders': new_orders,
                 'sync_log_id': sync_log.id
@@ -265,6 +268,19 @@ class BaselinkerReportsService:
         # Podstawowe dane zamówienia (wspólne dla wszystkich produktów)
         base_data = self._extract_base_order_data(order)
         
+        # Oblicz łączną wartość zamówienia netto (dla order_amount_net)
+        total_order_value_gross = 0
+        for product in products:
+            product_value = float(product.get('price_brutto', 0)) * int(product.get('quantity', 1))
+            total_order_value_gross += product_value
+        
+        # Dodaj koszt dostawy
+        delivery_cost_gross = float(order.get('delivery_price', 0))
+        total_order_value_gross += delivery_cost_gross
+        
+        # Przelicz na netto (VAT 23%)
+        total_order_value_net = total_order_value_gross / 1.23
+        
         for product in products:
             try:
                 # Parsuj nazwę produktu
@@ -275,13 +291,16 @@ class BaselinkerReportsService:
                     # Dane zamówienia
                     **base_data,
                     
+                    # Kwota zamówienia netto (wspólna dla wszystkich produktów tego zamówienia)
+                    order_amount_net=total_order_value_net,
+                    
                     # Dane produktu z Baselinker
                     raw_product_name=product.get('name'),
                     quantity=product.get('quantity', 1),
                     price_gross=product.get('price_brutto', 0),
                     
                     # Dane z parsera
-                    product_type=parsed_product.get('product_type'),
+                    product_type=parsed_product.get('product_type') or 'deska',  # Domyślnie deska
                     wood_species=parsed_product.get('wood_species'),
                     technology=parsed_product.get('technology'),
                     wood_class=parsed_product.get('wood_class'),
@@ -334,6 +353,14 @@ class BaselinkerReportsService:
         status_id = order.get('order_status_id')
         current_status = self.status_map.get(status_id, f'Status {status_id}')
         
+        # Oblicz zapłaconą kwotę netto z brutto
+        payment_done_gross = order.get('payment_done', 0)
+        paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
+        
+        # Oblicz koszt dostawy netto
+        delivery_price_gross = order.get('delivery_price', 0)
+        delivery_cost_net = float(delivery_price_gross) / 1.23 if delivery_price_gross else 0
+        
         return {
             'date_created': date_created,
             'baselinker_order_id': order.get('order_id'),
@@ -349,9 +376,9 @@ class BaselinkerReportsService:
             'order_source': order.get('order_source'),
             'current_status': current_status,
             'baselinker_status_id': status_id,
-            'delivery_cost': order.get('delivery_price', 0),
+            'delivery_cost': delivery_cost_net,  # Koszt dostawy netto
             'payment_method': order.get('payment_method'),
-            'paid_amount_net': order.get('payment_done', 0) / 1.23 if order.get('payment_done') else 0,
+            'paid_amount_net': paid_amount_net,  # Zapłacono netto
             'email': order.get('email')
         }
     
@@ -380,24 +407,27 @@ class BaselinkerReportsService:
                 # Pobierz status z Baselinker
                 status_id = order.get('order_status_id')
                 new_status = self.status_map.get(status_id, f'Status {status_id}')
-                paid_amount = order.get('payment_done', 0) / 1.23 if order.get('payment_done') else 0
+                
+                # Oblicz zapłaconą kwotę netto z brutto
+                payment_done_gross = order.get('payment_done', 0)
+                paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
                 
                 # Aktualizuj wszystkie rekordy tego zamówienia
                 records = BaselinkerReportOrder.query.filter_by(baselinker_order_id=order_id).all()
                 
                 for record in records:
-                    if record.current_status != new_status or record.paid_amount_net != paid_amount:
+                    if record.current_status != new_status or record.paid_amount_net != paid_amount_net:
                         record.current_status = new_status
                         record.baselinker_status_id = status_id
-                        record.paid_amount_net = paid_amount
+                        record.paid_amount_net = paid_amount_net
                         record.updated_at = datetime.utcnow()
                         
                         # Przelicz pola produkcji na podstawie nowego statusu
                         record.update_production_fields()
                         
-                        # Przelicz saldo
-                        if record.value_net is not None:
-                            record.balance_due = record.value_net - paid_amount
+                        # Przelicz saldo (order_amount_net - paid_amount_net)
+                        if record.order_amount_net is not None:
+                            record.balance_due = float(record.order_amount_net) - paid_amount_net
                         
                         updated_count += 1
                 

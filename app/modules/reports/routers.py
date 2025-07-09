@@ -7,6 +7,8 @@ from flask import render_template, jsonify, request, session, redirect, url_for,
 from datetime import datetime, timedelta, date
 from functools import wraps
 from typing import List, Dict
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import pandas as pd
 import io
 import sys
@@ -82,36 +84,53 @@ def api_get_data():
     """
     try:
         # Pobierz parametry filtrów
-        filters = {}
-        date_range = request.args.get('date_range', 'last_month')  # dziś, last_week, last_month, last_3_months, last_6_months, last_year, all
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
         
-        # Ustaw zakres dat
-        date_from, date_to = _parse_date_range(date_range)
+        # Parsuj daty
+        date_from = None
+        date_to = None
         
-        # Pobierz filtry kolumn
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Nieprawidłowy format daty początkowej'}), 400
+                
+        if date_to_str:
+            try:
+                date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Nieprawidłowy format daty końcowej'}), 400
+        
+        # Pobierz filtry kolumn (obsługa multiple values)
         column_filters = {}
-        for key, value in request.args.items():
-            if key.startswith('filter_') and value:
+        for key, values in request.args.items(multi=True):
+            if key.startswith('filter_') and values:
                 column_name = key.replace('filter_', '')
                 if hasattr(BaselinkerReportOrder, column_name):
-                    column_filters[column_name] = value
+                    # Grupuj wartości dla tego samego filtra
+                    if column_name not in column_filters:
+                        column_filters[column_name] = []
+                    column_filters[column_name].extend(values if isinstance(values, list) else [values])
+        
+        # Wyczyść puste wartości
+        for column_name in list(column_filters.keys()):
+            column_filters[column_name] = [v for v in column_filters[column_name] if v and v.strip()]
+            if not column_filters[column_name]:
+                del column_filters[column_name]
         
         reports_logger.debug("Pobieranie danych z filtrami",
-                           date_range=date_range,
                            date_from=date_from.isoformat() if date_from else None,
                            date_to=date_to.isoformat() if date_to else None,
                            filters=column_filters)
         
         try:
             # Pobierz dane z bazy
-            # Konwertuj datetime na date dla zapytania do modelu
-            date_from_for_query = date_from.date() if date_from else None
-            date_to_for_query = date_to.date() if date_to else None
-            
             query = BaselinkerReportOrder.get_filtered_orders(
                 filters=column_filters,
-                date_from=date_from_for_query,
-                date_to=date_to_for_query
+                date_from=date_from,
+                date_to=date_to
             )
             
             orders = query.all()
@@ -126,8 +145,8 @@ def api_get_data():
                 
                 query = BaselinkerReportOrder.get_filtered_orders(
                     filters=column_filters,
-                    date_from=date_from_for_query,
-                    date_to=date_to_for_query
+                    date_from=date_from,
+                    date_to=date_to
                 )
                 orders = query.all()
                 
@@ -141,14 +160,23 @@ def api_get_data():
         # Oblicz statystyki dla przefiltrowanych danych
         stats = BaselinkerReportOrder.get_statistics(query)
         
+        # Oblicz statystyki porównawcze jeśli mamy daty
+        comparison = {}
+        if date_from and date_to:
+            comparison = BaselinkerReportOrder.get_comparison_statistics(
+                column_filters, date_from, date_to
+            )
+        
         reports_logger.info("Pobrano dane tabeli",
                           orders_count=len(data),
-                          date_range=date_range)
+                          date_from=date_from.isoformat() if date_from else None,
+                          date_to=date_to.isoformat() if date_to else None)
         
         return jsonify({
             'success': True,
             'data': data,
             'stats': stats,
+            'comparison': comparison,
             'total_count': len(data)
         })
         
@@ -171,17 +199,25 @@ def api_sync_with_baselinker():
     try:
         # Pobierz parametry
         data = request.get_json() or {}
-        date_range = data.get('date_range', 'last_month')
+        date_from_str = data.get('date_from')
+        date_to_str = data.get('date_to')
         selected_orders = data.get('selected_orders', [])  # Lista ID zamówień do synchronizacji
+        
+        # Parsuj daty jeśli podane
+        date_from = None
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
+            except ValueError:
+                date_from = datetime.now() - timedelta(days=30)
+        else:
+            date_from = datetime.now() - timedelta(days=30)
         
         reports_logger.info("Rozpoczęcie synchronizacji z Baselinker",
                           user_email=user_email,
-                          date_range=date_range,
+                          date_from=date_from.isoformat() if date_from else None,
                           selected_orders_count=len(selected_orders),
                           selected_orders=selected_orders)
-        
-        # Ustaw datę od
-        date_from, _ = _parse_date_range(date_range)
         
         # Pobierz serwis
         service = get_reports_service()
@@ -225,8 +261,17 @@ def api_check_new_orders():
     API endpoint do sprawdzania nowych zamówień przed synchronizacją
     """
     try:
-        date_range = request.args.get('date_range', 'last_month')
-        date_from, _ = _parse_date_range(date_range)
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # Parsuj daty
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
+            except ValueError:
+                date_from = datetime.now() - timedelta(days=30)
+        else:
+            date_from = datetime.now() - timedelta(days=30)
         
         service = get_reports_service()
         
@@ -255,13 +300,17 @@ def api_check_new_orders():
                     'Nieznany klient'
                 )
                 
+                # Oblicz wartości brutto i netto
+                total_gross = sum(p.get('price_brutto', 0) * p.get('quantity', 1) for p in order.get('products', [])) + order.get('delivery_price', 0)
+                total_net = total_gross / 1.23
+                
                 order_info = {
                     'order_id': order['order_id'],
-                    'date_add': datetime.fromtimestamp(order['date_add']).strftime('%Y-%m-%d %H:%M') if order.get('date_add') else '',
+                    'date_add': datetime.fromtimestamp(order['date_add']).strftime('%d-%m-%Y %H:%M') if order.get('date_add') else '',
                     'customer_name': customer_name,
                     'products_count': len(order.get('products', [])),
-                    'total_gross': sum(p.get('price_brutto', 0) * p.get('quantity', 1) for p in order.get('products', [])) + order.get('delivery_price', 0),
-                    'total_net': (sum(p.get('price_brutto', 0) * p.get('quantity', 1) for p in order.get('products', [])) + order.get('delivery_price', 0)) / 1.23,
+                    'total_gross': total_gross,
+                    'total_net': total_net,
                     'delivery_price': order.get('delivery_price', 0),
                     'internal_number': order.get('extra_field_1', ''),
                     'products': [p.get('name') for p in order.get('products', [])]
@@ -317,7 +366,7 @@ def api_add_manual_row():
             delivery_method=data.get('delivery_method'),
             order_source=data.get('order_source'),
             group_type=data.get('group_type'),
-            product_type=data.get('product_type'),
+            product_type=data.get('product_type', 'deska'),  # Domyślnie deska
             finish_state=data.get('finish_state', 'surowy'),
             wood_species=data.get('wood_species'),
             technology=data.get('technology'),
@@ -330,7 +379,8 @@ def api_add_manual_row():
             delivery_cost=float(data.get('delivery_cost', 0)) if data.get('delivery_cost') else None,
             payment_method=data.get('payment_method'),
             paid_amount_net=float(data.get('paid_amount_net', 0)) if data.get('paid_amount_net') else 0,
-            current_status=data.get('current_status', 'Nowe - nieopłacone')
+            current_status=data.get('current_status', 'Nowe - opłacone'),  # Domyślnie opłacone dla ręcznych
+            order_amount_net=float(data.get('price_gross', 0)) / 1.23 if data.get('price_gross') else 0  # Oblicz order_amount_net
         )
         
         # Oblicz pola pochodne
@@ -406,6 +456,10 @@ def api_update_manual_row():
                 else:
                     setattr(record, field, value)
         
+        # Przelicz order_amount_net dla ręcznych rekordów
+        if record.price_gross:
+            record.order_amount_net = float(record.price_gross) / 1.23
+        
         # Przelicz pola pochodne
         record.calculate_fields()
         record.updated_at = datetime.utcnow()
@@ -425,7 +479,7 @@ def api_update_manual_row():
         db.session.rollback()
         reports_logger.error("Błąd edycji ręcznego wiersza",
                            user_email=user_email,
-                           record_id=record_id,
+                           record_id=record_id if 'record_id' in locals() else None,
                            error=str(e))
         return jsonify({
             'success': False,
@@ -442,21 +496,46 @@ def api_export_excel():
     user_email = session.get('user_email')
     
     try:
-        # Pobierz te same filtry co w tabeli
-        date_range = request.args.get('date_range', 'last_month')
-        date_from, date_to = _parse_date_range(date_range)
+        # Pobierz parametry filtrów
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # Parsuj daty
+        date_from = None
+        date_to = None
+        
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+                
+        if date_to_str:
+            try:
+                date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
         
         # Pobierz filtry kolumn
         column_filters = {}
-        for key, value in request.args.items():
-            if key.startswith('filter_') and value:
+        for key, values in request.args.items(multi=True):
+            if key.startswith('filter_') and values:
                 column_name = key.replace('filter_', '')
                 if hasattr(BaselinkerReportOrder, column_name):
-                    column_filters[column_name] = value
+                    if column_name not in column_filters:
+                        column_filters[column_name] = []
+                    column_filters[column_name].extend(values if isinstance(values, list) else [values])
+        
+        # Wyczyść puste wartości
+        for column_name in list(column_filters.keys()):
+            column_filters[column_name] = [v for v in column_filters[column_name] if v and v.strip()]
+            if not column_filters[column_name]:
+                del column_filters[column_name]
         
         reports_logger.info("Eksport do Excel",
                           user_email=user_email,
-                          date_range=date_range,
+                          date_from=date_from.isoformat() if date_from else None,
+                          date_to=date_to.isoformat() if date_to else None,
                           filters_count=len(column_filters))
         
         # Pobierz dane
@@ -477,7 +556,7 @@ def api_export_excel():
         excel_data = []
         for order in orders:
             excel_data.append({
-                'Data': order.date_created.strftime('%Y-%m-%d') if order.date_created else '',
+                'Data': order.date_created.strftime('%d-%m-%Y') if order.date_created else '',
                 'TTL m3': float(order.total_volume or 0),
                 'Kwota zamówień netto': float(order.order_amount_net or 0),
                 'Numer zamówienia Baselinker': order.baselinker_order_id or '',
@@ -508,7 +587,7 @@ def api_export_excel():
                 'Objętość 1 szt.': float(order.volume_per_piece or 0),
                 'Objętość TTL': float(order.total_volume or 0),
                 'Cena za m3': float(order.price_per_m3 or 0),
-                'Data realizacji': order.realization_date.strftime('%Y-%m-%d') if order.realization_date else '',
+                'Data realizacji': order.realization_date.strftime('%d-%m-%Y') if order.realization_date else '',
                 'Status': order.current_status or '',
                 'Koszt kuriera': float(order.delivery_cost or 0),
                 'Sposób płatności': order.payment_method or '',
@@ -530,15 +609,12 @@ def api_export_excel():
         output.seek(0)
         
         # Nazwa pliku
-        filename = f"raporty_sprzedazy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = f"raporty_sprzedazy_{datetime.now().strftime('%d-%m-%Y_%H%M%S')}.xlsx"
         
         reports_logger.info("Wygenerowano eksport Excel",
                           user_email=user_email,
                           records_count=len(excel_data),
                           filename=filename)
-        
-        # NAPRAWKA: Używaj Response zamiast send_file
-        from flask import Response
         
         return Response(
             output.getvalue(),
@@ -569,9 +645,16 @@ def api_get_dropdown_values(field_name):
         if not hasattr(BaselinkerReportOrder, field_name):
             return jsonify({'success': False, 'error': 'Nieprawidłowe pole'}), 400
         
-        # Pobierz unikalne wartości z bazy
+        # Pobierz unikalne wartości z bazy (wykluczając anulowane i nieopłacone)
+        excluded_statuses = ['Zamówienie anulowane', 'Nowe - nieopłacone']
         column = getattr(BaselinkerReportOrder, field_name)
-        values = db.session.query(column).filter(column.isnot(None)).distinct().all()
+        
+        query = db.session.query(column)\
+            .filter(column.isnot(None))\
+            .filter(~BaselinkerReportOrder.current_status.in_(excluded_statuses))\
+            .distinct()
+        
+        values = query.all()
         
         # Wyciągnij wartości z tupli
         unique_values = sorted([value[0] for value in values if value[0]])
@@ -592,40 +675,6 @@ def api_get_dropdown_values(field_name):
 
 
 # ===== FUNKCJE POMOCNICZE =====
-
-def _parse_date_range(date_range: str) -> tuple:
-    """
-    Parsuje zakres dat na podstawie parametru
-    Zwraca tuple (datetime, datetime) dla kompatybilności z timestamp()
-    """
-    today = datetime.now()
-    
-    if date_range == 'today':
-        start_of_day = today.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_day = today.replace(hour=23, minute=59, second=59, microsecond=999999)
-        return start_of_day, end_of_day
-    elif date_range == 'last_week':
-        date_from = today - timedelta(days=7)
-        return date_from, today
-    elif date_range == 'last_month':
-        date_from = today - timedelta(days=30)
-        return date_from, today
-    elif date_range == 'last_3_months':
-        date_from = today - timedelta(days=90)
-        return date_from, today
-    elif date_range == 'last_6_months':
-        date_from = today - timedelta(days=180)
-        return date_from, today
-    elif date_range == 'last_year':
-        date_from = today - timedelta(days=365)
-        return date_from, today
-    elif date_range == 'all':
-        return None, None
-    else:
-        # Domyślnie ostatni miesiąc
-        date_from = today - timedelta(days=30)
-        return date_from, today
-
 
 def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int]) -> Dict:
     """

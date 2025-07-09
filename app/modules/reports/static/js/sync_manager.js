@@ -124,9 +124,9 @@ class SyncManager {
             this.syncModal.style.display = 'none';
         }
 
-        // NIE resetuj danych tutaj - przenieś na koniec synchronizacji
-        // this.newOrders = [];
-        // this.selectedOrders = [];
+        // Reset danych po ukryciu modala
+        this.newOrders = [];
+        this.selectedOrders = [];
     }
 
     /**
@@ -136,10 +136,18 @@ class SyncManager {
         console.log('[SyncManager] Checking for new orders...');
 
         try {
-            // Pobierz aktualny zakres dat
-            const dateRange = window.reportsManager ? window.reportsManager.getDateRange() : 'last_month';
+            // Pobierz aktualny zakres dat z ReportsManager
+            const dateRange = this.getCurrentDateRange();
 
-            const response = await fetch(`/reports/api/check-new-orders?date_range=${dateRange}`);
+            const params = new URLSearchParams();
+            if (dateRange.date_from) {
+                params.append('date_from', dateRange.date_from);
+            }
+            if (dateRange.date_to) {
+                params.append('date_to', dateRange.date_to);
+            }
+
+            const response = await fetch(`/reports/api/check-new-orders?${params}`);
             const result = await response.json();
 
             if (!result.success) {
@@ -160,6 +168,24 @@ class SyncManager {
             console.error('[SyncManager] Error checking new orders:', error);
             throw error;
         }
+    }
+
+    /**
+     * Pobieranie bieżącego zakresu dat
+     */
+    getCurrentDateRange() {
+        if (window.reportsManager && typeof window.reportsManager.getCurrentDateRange === 'function') {
+            return window.reportsManager.getCurrentDateRange();
+        }
+
+        // Fallback - ostatni miesiąc
+        const today = new Date();
+        const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        return {
+            date_from: lastMonth.toISOString().split('T')[0],
+            date_to: today.toISOString().split('T')[0]
+        };
     }
 
     /**
@@ -258,7 +284,7 @@ class SyncManager {
                     </div>
                     
                     <div class="sync-order-products">
-                        <strong>Produkty:</strong> ${order.products.join(', ')}
+                        <strong>Produkty:</strong> ${order.products.slice(0, 3).join(', ')}${order.products.length > 3 ? '...' : ''}
                     </div>
                 </div>
                 
@@ -295,7 +321,7 @@ class SyncManager {
         const orderCheckboxes = document.querySelectorAll('.order-checkbox');
         orderCheckboxes.forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
-                this.toggleOrder(e.target.dataset.orderId, e.target.checked);
+                this.toggleOrder(parseInt(e.target.dataset.orderId), e.target.checked);
                 this.updateSelectAllState();
             });
         });
@@ -312,7 +338,7 @@ class SyncManager {
         const orderCheckboxes = document.querySelectorAll('.order-checkbox');
         orderCheckboxes.forEach(checkbox => {
             checkbox.checked = checked;
-            this.toggleOrder(checkbox.dataset.orderId, checked);
+            this.toggleOrder(parseInt(checkbox.dataset.orderId), checked);
         });
 
         this.updateConfirmButton();
@@ -322,16 +348,14 @@ class SyncManager {
      * Zaznaczenie/odznaczenie pojedynczego zamówienia
      */
     toggleOrder(orderId, checked) {
-        const orderIdNum = parseInt(orderId);
-
-        console.log('[SyncManager] toggleOrder called:', { orderId, orderIdNum, checked, currentSelected: this.selectedOrders });
+        console.log('[SyncManager] toggleOrder called:', { orderId, checked, currentSelected: this.selectedOrders });
 
         if (checked) {
-            if (!this.selectedOrders.includes(orderIdNum)) {
-                this.selectedOrders.push(orderIdNum);
+            if (!this.selectedOrders.includes(orderId)) {
+                this.selectedOrders.push(orderId);
             }
         } else {
-            const index = this.selectedOrders.indexOf(orderIdNum);
+            const index = this.selectedOrders.indexOf(orderId);
             if (index > -1) {
                 this.selectedOrders.splice(index, 1);
             }
@@ -403,7 +427,6 @@ class SyncManager {
         const ordersToSync = [...this.selectedOrders];
 
         console.log('[SyncManager] Performing sync with orders:', ordersToSync);
-        console.log('[SyncManager] this.selectedOrders:', this.selectedOrders);
 
         if (ordersToSync.length === 0) {
             this.showError('Nie wybrano żadnych zamówień do synchronizacji');
@@ -417,9 +440,13 @@ class SyncManager {
         this.showSyncLoading('Synchronizowanie zamówień...');
 
         try {
+            // Pobierz zakres dat
+            const dateRange = this.getCurrentDateRange();
+
             const requestData = {
-                date_range: window.reportsManager ? window.reportsManager.getDateRange() : 'last_month',
-                selected_orders: ordersToSync  // Użyj kopii zamiast this.selectedOrders
+                date_from: dateRange.date_from,
+                date_to: dateRange.date_to,
+                selected_orders: ordersToSync
             };
 
             console.log('[SyncManager] Sending request data:', requestData);
@@ -440,17 +467,18 @@ class SyncManager {
                 console.log('[SyncManager] Sync completed successfully:', result);
 
                 // Pokaż komunikat sukcesu
-                this.showSyncLoading(`Synchronizacja zakończona pomyślnie!<br>
-                    Dodano: ${result.orders_added || 0} zamówień<br>
-                    Zaktualizowano: ${result.orders_updated || 0} zamówień`);
+                this.showSyncLoading(`
+                    <div style="text-align: center;">
+                        <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
+                        <h4>Synchronizacja zakończona pomyślnie!</h4>
+                        <p>Dodano: ${result.orders_added || 0} zamówień</p>
+                        <p>Zaktualizowano: ${result.orders_updated || 0} zamówień</p>
+                    </div>
+                `);
 
                 // Ukryj loading po 3 sekundach
                 setTimeout(() => {
                     this.hideSyncLoading();
-
-                    // Reset danych po udanej synchronizacji
-                    this.newOrders = [];
-                    this.selectedOrders = [];
 
                     // Odśwież dane
                     if (window.reportsManager) {
@@ -520,13 +548,20 @@ class SyncManager {
         console.log('[SyncManager] Background check for new orders...');
 
         try {
-            const response = await fetch('/reports/api/check-new-orders?date_range=today');
+            // Sprawdź tylko dzisiejsze zamówienia w tle
+            const today = new Date().toISOString().split('T')[0];
+            const params = new URLSearchParams({
+                date_from: today,
+                date_to: today
+            });
+
+            const response = await fetch(`/reports/api/check-new-orders?${params}`);
             const result = await response.json();
 
             if (result.success && result.has_new_orders) {
                 console.log('[SyncManager] Found new orders in background:', result.new_orders.length);
 
-                // Można tutaj dodać notyfikację badge lub toast
+                // Aktualizuj badge z nowymi zamówieniami
                 this.updateNewOrdersBadge(result.new_orders.length);
 
                 return result.new_orders.length;
@@ -553,6 +588,8 @@ class SyncManager {
                 badge.style.display = 'none';
             }
         }
+
+        console.log('[SyncManager] Updated new orders badge:', count);
     }
 
     /**
@@ -568,6 +605,76 @@ class SyncManager {
         setInterval(() => {
             this.checkForNewOrdersInBackground();
         }, 30 * 60 * 1000); // 30 minut
+    }
+
+    /**
+     * Synchronizacja z konkretnym zakresem dat
+     */
+    async syncWithDateRange(dateFrom, dateTo) {
+        console.log('[SyncManager] Manual sync with date range:', dateFrom, dateTo);
+
+        this.showSyncLoading('Synchronizowanie z wybranym zakresem dat...');
+
+        try {
+            const requestData = {
+                date_from: dateFrom,
+                date_to: dateTo,
+                selected_orders: [] // Puste - zsynchronizuj wszystkie nowe z zakresu
+            };
+
+            const response = await fetch('/reports/api/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                this.showSyncLoading(`
+                    <div style="text-align: center;">
+                        <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
+                        <h4>Synchronizacja zakończona!</h4>
+                        <p>Dodano: ${result.orders_added || 0} zamówień</p>
+                    </div>
+                `);
+
+                setTimeout(() => {
+                    this.hideSyncLoading();
+                    if (window.reportsManager) {
+                        window.reportsManager.refreshData();
+                    }
+                }, 2000);
+
+            } else {
+                throw new Error(result.error || 'Błąd synchronizacji');
+            }
+
+        } catch (error) {
+            console.error('[SyncManager] Manual sync error:', error);
+            this.hideSyncLoading();
+            this.showError('Błąd synchronizacji: ' + error.message);
+        }
+    }
+
+    /**
+     * Sprawdzenie czy synchronizacja jest w toku
+     */
+    isSyncInProgress() {
+        return this.isSync;
+    }
+
+    /**
+     * Debug info
+     */
+    getDebugInfo() {
+        return {
+            newOrders: this.newOrders.length,
+            selectedOrders: this.selectedOrders.length,
+            isSync: this.isSync
+        };
     }
 }
 

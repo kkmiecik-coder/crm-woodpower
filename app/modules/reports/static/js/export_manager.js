@@ -56,9 +56,9 @@ class ExportManager {
         this.setExportingState(true);
 
         try {
-            // Pobierz aktualne filtry i zakres dat
-            const filters = window.reportsManager ? window.reportsManager.getCurrentFilters() : {};
-            const dateRange = window.reportsManager ? window.reportsManager.getDateRange() : 'last_month';
+            // Pobierz aktualne filtry i zakres dat z ReportsManager
+            const dateRange = this.getCurrentDateRange();
+            const filters = this.getCurrentFilters();
 
             console.log('[ExportManager] Export parameters:', {
                 dateRange,
@@ -66,14 +66,24 @@ class ExportManager {
             });
 
             // Przygotuj parametry URL
-            const params = new URLSearchParams({
-                date_range: dateRange
-            });
+            const params = new URLSearchParams();
 
-            // Dodaj filtry
-            for (const [key, value] of Object.entries(filters)) {
-                if (value && value.trim()) {
-                    params.append(`filter_${key}`, value.trim());
+            // Dodaj daty
+            if (dateRange.date_from) {
+                params.append('date_from', dateRange.date_from);
+            }
+            if (dateRange.date_to) {
+                params.append('date_to', dateRange.date_to);
+            }
+
+            // Dodaj filtry (obsługa multiple values)
+            for (const [key, values] of Object.entries(filters)) {
+                if (values && Array.isArray(values) && values.length > 0) {
+                    values.forEach(value => {
+                        if (value && value.trim()) {
+                            params.append(`filter_${key}`, value.trim());
+                        }
+                    });
                 }
             }
 
@@ -144,10 +154,24 @@ class ExportManager {
      */
     generateFilename() {
         const now = new Date();
-        const dateString = now.toISOString().slice(0, 19).replace(/[T:]/g, '_');
-        const dateRange = window.reportsManager ? window.reportsManager.getDateRange() : 'unknown';
+        const dateString = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+        const timeString = now.toTimeString().slice(0, 8).replace(/:/g, ''); // HHMMSS
 
-        return `raporty_sprzedazy_${dateRange}_${dateString}.xlsx`;
+        // Pobierz informacje o zakresie dat
+        const dateRange = this.getCurrentDateRange();
+        let dateRangeStr = 'custom';
+
+        if (dateRange.date_from && dateRange.date_to) {
+            const fromStr = dateRange.date_from.replace(/-/g, '');
+            const toStr = dateRange.date_to.replace(/-/g, '');
+            if (fromStr === toStr) {
+                dateRangeStr = fromStr;
+            } else {
+                dateRangeStr = `${fromStr}_${toStr}`;
+            }
+        }
+
+        return `raporty_sprzedazy_${dateRangeStr}_${dateString}_${timeString}.xlsx`;
     }
 
     /**
@@ -300,12 +324,18 @@ class ExportManager {
      */
     generateCustomFilename(params) {
         const now = new Date();
-        const dateString = now.toISOString().slice(0, 10); // YYYY-MM-DD
-        const timeString = now.toTimeString().slice(0, 8).replace(/:/g, '-'); // HH-MM-SS
+        const dateString = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+        const timeString = now.toTimeString().slice(0, 8).replace(/:/g, ''); // HHMMSS
 
         let suffix = '';
-        if (params.date_range) {
-            suffix = `_${params.date_range}`;
+        if (params.date_from && params.date_to) {
+            const fromStr = params.date_from.replace(/-/g, '');
+            const toStr = params.date_to.replace(/-/g, '');
+            if (fromStr === toStr) {
+                suffix = `_${fromStr}`;
+            } else {
+                suffix = `_${fromStr}_${toStr}`;
+            }
         }
 
         return `raporty_sprzedazy${suffix}_${dateString}_${timeString}.xlsx`;
@@ -316,9 +346,9 @@ class ExportManager {
      */
     canExport() {
         // Sprawdź czy są dane do eksportu
-        const currentData = window.reportsManager ? window.reportsManager.getCurrentData() : [];
+        const currentData = this.getCurrentData();
 
-        if (currentData.length === 0) {
+        if (!currentData || currentData.length === 0) {
             console.log('[ExportManager] Cannot export: no data available');
             this.showNotification('Brak danych do eksportu. Zmień filtry lub zakres dat.', 'warning');
             return false;
@@ -348,13 +378,13 @@ class ExportManager {
      * Pobieranie informacji o aktualnych danych do eksportu
      */
     getExportInfo() {
-        const currentData = window.reportsManager ? window.reportsManager.getCurrentData() : [];
-        const currentStats = window.reportsManager ? window.reportsManager.getCurrentStats() : {};
-        const dateRange = window.reportsManager ? window.reportsManager.getDateRange() : 'unknown';
-        const filters = window.reportsManager ? window.reportsManager.getCurrentFilters() : {};
+        const currentData = this.getCurrentData();
+        const currentStats = this.getCurrentStats();
+        const dateRange = this.getCurrentDateRange();
+        const filters = this.getCurrentFilters();
 
         return {
-            recordsCount: currentData.length,
+            recordsCount: currentData ? currentData.length : 0,
             dateRange: dateRange,
             filtersCount: Object.keys(filters).length,
             totalValue: currentStats.value_net || 0,
@@ -386,17 +416,26 @@ Czy chcesz kontynuować eksport?
      * Etykiety dla zakresów dat
      */
     getDateRangeLabel(dateRange) {
-        const labels = {
-            'today': 'Dziś',
-            'last_week': 'Ostatni tydzień',
-            'last_month': 'Ostatni miesiąc',
-            'last_3_months': 'Ostatnie 3 miesiące',
-            'last_6_months': 'Ostatnie pół roku',
-            'last_year': 'Ostatni rok',
-            'all': 'Całość'
+        if (!dateRange.date_from || !dateRange.date_to) {
+            return 'Nieokreślony';
+        }
+
+        const fromDate = new Date(dateRange.date_from);
+        const toDate = new Date(dateRange.date_to);
+
+        // Format dd-mm-yyyy
+        const formatDate = (date) => {
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}-${month}-${year}`;
         };
 
-        return labels[dateRange] || dateRange;
+        if (dateRange.date_from === dateRange.date_to) {
+            return formatDate(fromDate);
+        } else {
+            return `${formatDate(fromDate)} do ${formatDate(toDate)}`;
+        }
     }
 
     /**
@@ -410,6 +449,99 @@ Czy chcesz kontynuować eksport?
         if (this.showExportPreview()) {
             await this.exportToExcel();
         }
+    }
+
+    /**
+     * Pobieranie danych z ReportsManager
+     */
+    getCurrentData() {
+        if (window.reportsManager && typeof window.reportsManager.getCurrentData === 'function') {
+            return window.reportsManager.getCurrentData();
+        }
+        return [];
+    }
+
+    getCurrentStats() {
+        if (window.reportsManager && typeof window.reportsManager.getCurrentStats === 'function') {
+            return window.reportsManager.getCurrentStats();
+        }
+        return {};
+    }
+
+    getCurrentFilters() {
+        if (window.reportsManager && typeof window.reportsManager.getCurrentFilters === 'function') {
+            return window.reportsManager.getCurrentFilters();
+        }
+        return {};
+    }
+
+    getCurrentDateRange() {
+        if (window.reportsManager && typeof window.reportsManager.getCurrentDateRange === 'function') {
+            return window.reportsManager.getCurrentDateRange();
+        }
+
+        // Fallback - ostatni miesiąc
+        const today = new Date();
+        const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        return {
+            date_from: lastMonth.toISOString().split('T')[0],
+            date_to: today.toISOString().split('T')[0]
+        };
+    }
+
+    /**
+     * Eksport konkretnego zakresu dat
+     */
+    async exportDateRange(dateFrom, dateTo, additionalFilters = {}) {
+        console.log('[ExportManager] Export date range:', dateFrom, dateTo);
+
+        const params = {
+            date_from: dateFrom,
+            date_to: dateTo,
+            ...additionalFilters
+        };
+
+        await this.exportWithCustomParams(params);
+    }
+
+    /**
+     * Eksport wszystkich danych (bez filtrów)
+     */
+    async exportAll() {
+        console.log('[ExportManager] Export all data...');
+
+        const params = {
+            // Brak date_from i date_to - pobierze wszystkie dane
+        };
+
+        await this.exportWithCustomParams(params);
+    }
+
+    /**
+     * Eksport z konkretnymi filtrami
+     */
+    async exportWithFilters(filters) {
+        console.log('[ExportManager] Export with specific filters:', filters);
+
+        const dateRange = this.getCurrentDateRange();
+        const params = {
+            date_from: dateRange.date_from,
+            date_to: dateRange.date_to
+        };
+
+        // Dodaj filtry
+        for (const [key, values] of Object.entries(filters)) {
+            if (values && Array.isArray(values) && values.length > 0) {
+                values.forEach(value => {
+                    if (value && value.trim()) {
+                        params[`filter_${key}`] = value.trim();
+                    }
+                });
+            }
+        }
+
+        await this.exportWithCustomParams(params);
     }
 
     /**
@@ -437,6 +569,16 @@ Czy chcesz kontynuować eksport?
             isExporting: this.isExporting,
             canExport: this.canExport(),
             exportInfo: this.getExportInfo()
+        };
+    }
+
+    // Debug info
+    getDebugInfo() {
+        return {
+            isExporting: this.isExporting,
+            exportInfo: this.getExportInfo(),
+            currentData: this.getCurrentData().length,
+            currentFilters: this.getCurrentFilters()
         };
     }
 }

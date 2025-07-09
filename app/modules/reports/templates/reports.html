@@ -9,6 +9,10 @@
 
     <!-- Font Awesome dla ikon -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="app-container">
@@ -21,18 +25,13 @@
 
                 <!-- Kontrolki -->
                 <div class="reports-controls">
-                    <!-- Filtr zakresu dat -->
+                    <!-- Filtr zakresów dat -->
                     <div class="date-range-filter">
-                        <label for="dateRange">Zakres dat:</label>
-                        <select id="dateRange" class="form-select">
-                            <option value="today">Dziś</option>
-                            <option value="last_week">Ostatni tydzień</option>
-                            <option value="last_month" selected>Ostatni miesiąc</option>
-                            <option value="last_3_months">Ostatnie 3 miesiące</option>
-                            <option value="last_6_months">Ostatnie pół roku</option>
-                            <option value="last_year">Ostatni rok</option>
-                            <option value="all">Całość</option>
-                        </select>
+                        <label for="dateFrom">Data od:</label>
+                        <input type="date" id="dateFrom" class="form-select date-input">
+
+                        <label for="dateTo">Data do:</label>
+                        <input type="date" id="dateTo" class="form-select date-input">
                     </div>
 
                     <!-- Przycisk synchronizacji -->
@@ -67,46 +66,57 @@
                 <div class="stat-box">
                     <div class="stat-label">TTL m³</div>
                     <div class="stat-value" id="statTotalM3">0.00</div>
+                    <div class="stat-comparison" id="compTotalM3"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Kwota zamówień netto</div>
                     <div class="stat-value" id="statOrderAmountNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compOrderAmountNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Wartość netto</div>
                     <div class="stat-value" id="statValueNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compValueNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Wartość brutto</div>
                     <div class="stat-value" id="statValueGross">0.00 zł</div>
+                    <div class="stat-comparison" id="compValueGross"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Cena za m³</div>
                     <div class="stat-value" id="statPricePerM3">0.00 zł</div>
+                    <div class="stat-comparison" id="compPricePerM3"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Koszt kuriera</div>
                     <div class="stat-value" id="statDeliveryCost">0.00 zł</div>
+                    <div class="stat-comparison" id="compDeliveryCost"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Zapłacono TTL netto</div>
                     <div class="stat-value" id="statPaidAmountNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compPaidAmountNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Saldo</div>
                     <div class="stat-value" id="statBalanceDue">0.00 zł</div>
+                    <div class="stat-comparison" id="compBalanceDue"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Ilość m³ w produkcji</div>
                     <div class="stat-value" id="statProductionVolume">0.00</div>
+                    <div class="stat-comparison" id="compProductionVolume"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Wartość netto w produkcji</div>
                     <div class="stat-value" id="statProductionValueNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compProductionValueNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Gotowe do odbioru</div>
                     <div class="stat-value" id="statReadyPickupVolume">0.00</div>
+                    <div class="stat-comparison" id="compReadyPickupVolume"></div>
                 </div>
             </div>
 
@@ -122,40 +132,66 @@
                 <div class="column-filters">
                     <div class="filter-row">
                         <div class="filter-item">
-                            <label>Data:</label>
-                            <select id="filterDateCreated" class="filter-select">
-                                <option value="">Wszystkie</option>
-                            </select>
+                            <label>Klienci:</label>
+                            <div class="filter-checkbox-container" id="filterCustomerNameContainer">
+                                <div class="filter-search">
+                                    <input type="text" id="searchCustomerName" placeholder="Szukaj klienta..." class="filter-search-input">
+                                </div>
+                                <div class="filter-options" id="filterCustomerNameOptions">
+                                    <!-- Opcje ładowane dynamicznie -->
+                                </div>
+                            </div>
                         </div>
+
                         <div class="filter-item">
-                            <label>Klient:</label>
-                            <select id="filterCustomerName" class="filter-select">
-                                <option value="">Wszystkich</option>
-                            </select>
+                            <label>Województwa:</label>
+                            <div class="filter-checkbox-container" id="filterDeliveryStateContainer">
+                                <div class="filter-search">
+                                    <input type="text" id="searchDeliveryState" placeholder="Szukaj województwo..." class="filter-search-input">
+                                </div>
+                                <div class="filter-options" id="filterDeliveryStateOptions">
+                                    <!-- Opcje ładowane dynamicznie -->
+                                </div>
+                            </div>
                         </div>
+
                         <div class="filter-item">
-                            <label>Województwo:</label>
-                            <select id="filterDeliveryState" class="filter-select">
-                                <option value="">Wszystkie</option>
-                            </select>
+                            <label>Gatunki:</label>
+                            <div class="filter-checkbox-container" id="filterWoodSpeciesContainer">
+                                <div class="filter-search">
+                                    <input type="text" id="searchWoodSpecies" placeholder="Szukaj gatunek..." class="filter-search-input">
+                                </div>
+                                <div class="filter-options" id="filterWoodSpeciesOptions">
+                                    <!-- Opcje ładowane dynamicznie -->
+                                </div>
+                            </div>
                         </div>
+
                         <div class="filter-item">
-                            <label>Gatunek:</label>
-                            <select id="filterWoodSpecies" class="filter-select">
-                                <option value="">Wszystkie</option>
-                            </select>
+                            <label>Statusy:</label>
+                            <div class="filter-checkbox-container" id="filterCurrentStatusContainer">
+                                <div class="filter-search">
+                                    <input type="text" id="searchCurrentStatus" placeholder="Szukaj status..." class="filter-search-input">
+                                </div>
+                                <div class="filter-options" id="filterCurrentStatusOptions">
+                                    <!-- Opcje ładowane dynamicznie -->
+                                </div>
+                            </div>
                         </div>
-                        <div class="filter-item">
-                            <label>Status:</label>
-                            <select id="filterCurrentStatus" class="filter-select">
-                                <option value="">Wszystkie</option>
-                            </select>
-                        </div>
+
                         <div class="filter-item">
                             <button id="clearFiltersBtn" class="btn btn-secondary btn-sm">
                                 <i class="fas fa-times"></i>
-                                Wyczyść
+                                Wyczyść filtry
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Aktywne filtry -->
+                    <div class="active-filters" id="activeFilters" style="display: none;">
+                        <div class="active-filters-label">Aktywne filtry:</div>
+                        <div class="active-filters-list" id="activeFiltersList">
+                            <!-- Aktywne filtry wyświetlane dynamicznie -->
                         </div>
                     </div>
                 </div>
@@ -315,7 +351,7 @@
                                     <select id="productType" name="product_type" required>
                                         <option value="">Wybierz...</option>
                                         <option value="klejonka">Klejonka</option>
-                                        <option value="deska">Deska</option>
+                                        <option value="deska" selected>Deska</option>
                                     </select>
                                 </div>
                             </div>
@@ -350,7 +386,7 @@
                                 <div class="form-group">
                                     <label for="finishState">Stan:</label>
                                     <select id="finishState" name="finish_state">
-                                        <option value="surowy">Surowy</option>
+                                        <option value="surowy" selected>Surowy</option>
                                         <option value="lakierowany">Lakierowany</option>
                                         <option value="olejowany">Olejowany</option>
                                     </select>
@@ -419,7 +455,7 @@
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="currentStatus">Status:</label>
-                                    <input type="text" id="currentStatus" name="current_status" value="Nowe - nieopłacone">
+                                    <input type="text" id="currentStatus" name="current_status" value="Nowe - opłacone">
                                 </div>
                             </div>
                         </div>
