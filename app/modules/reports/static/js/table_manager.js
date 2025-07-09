@@ -292,12 +292,36 @@ class TableManager {
             menu.classList.add('show');
             this.dropdownStates[filterKey] = true;
 
+            // NOWE: Dostosuj pozycję menu w fullscreen
+            if (this.isInFullscreenMode()) {
+                this.adjustDropdownPosition(menu);
+            }
+
             // Focus na search input
             if (search) {
                 setTimeout(() => {
                     search.focus();
                 }, 100);
             }
+        }
+    }
+
+    /**
+     * NOWA METODA - Dostosowanie pozycji dropdown'a w fullscreen
+     */
+    adjustDropdownPosition(menu) {
+        if (!menu) return;
+
+        const rect = menu.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+
+        // Jeśli menu wykracza poza ekran, dostosuj pozycję
+        if (rect.bottom > viewportHeight) {
+            menu.style.top = 'auto';
+            menu.style.bottom = '100%';
+        } else {
+            menu.style.top = '100%';
+            menu.style.bottom = 'auto';
         }
     }
 
@@ -353,17 +377,53 @@ class TableManager {
         const options = optionsContainer.querySelectorAll('.filter-option');
         const term = searchTerm.toLowerCase();
 
+        let visibleCount = 0;
+        const maxVisible = this.isInFullscreenMode() ? 6 : 8; // Mniej opcji w fullscreen
+
         options.forEach(option => {
             const label = option.querySelector('label');
             if (label) {
                 const labelText = label.textContent.toLowerCase();
-                if (labelText.includes(term)) {
+                const matches = labelText.includes(term);
+
+                if (matches && visibleCount < maxVisible) {
                     option.classList.remove('hidden');
-                } else {
+                    visibleCount++;
+                } else if (!matches || visibleCount >= maxVisible) {
                     option.classList.add('hidden');
                 }
             }
         });
+
+        // Pokaż komunikat jeśli zbyt dużo wyników
+        if (visibleCount >= maxVisible && this.isInFullscreenMode()) {
+            this.showTooManyResultsMessage(optionsContainer);
+        } else {
+            this.hideTooManyResultsMessage(optionsContainer);
+        }
+    }
+
+    /**
+     * NOWA METODA - Pokazanie komunikatu o zbyt dużej liczbie wyników
+     */
+    showTooManyResultsMessage(container) {
+        let message = container.querySelector('.too-many-results-message');
+        if (!message) {
+            message = document.createElement('div');
+            message.className = 'too-many-results-message';
+            message.innerHTML = '<small style="color: #6c757d; padding: 0.5rem; display: block;">Doprecyzuj wyszukiwanie...</small>';
+            container.appendChild(message);
+        }
+    }
+
+    /**
+     * NOWA METODA - Ukrycie komunikatu o zbyt dużej liczbie wyników
+     */
+    hideTooManyResultsMessage(container) {
+        const message = container.querySelector('.too-many-results-message');
+        if (message) {
+            message.remove();
+        }
     }
 
     /**
@@ -440,8 +500,11 @@ class TableManager {
         // Wyczyść kontener
         container.innerHTML = '';
 
-        // Dodaj opcje checkbox
-        values.forEach(value => {
+        // Dodaj opcje checkbox - w fullscreen ograniczamy liczbę wyświetlanych
+        const maxOptions = this.isInFullscreenMode() ? 50 : 100;
+        const displayValues = values.slice(0, maxOptions);
+
+        displayValues.forEach(value => {
             const isChecked = this.activeFilters[fieldName] &&
                 this.activeFilters[fieldName].includes(value);
 
@@ -458,6 +521,18 @@ class TableManager {
             container.insertAdjacentHTML('beforeend', optionHtml);
         });
 
+        // Pokaż komunikat jeśli ograniczono opcje
+        if (values.length > maxOptions) {
+            const messageHtml = `
+                <div class="options-limited-message">
+                    <small style="color: #6c757d; padding: 0.5rem; display: block;">
+                        Pokazano ${maxOptions} z ${values.length} opcji. Użyj wyszukiwania.
+                    </small>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', messageHtml);
+        }
+
         // Dodaj event listenery do nowych checkbox'ów
         container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
@@ -468,7 +543,7 @@ class TableManager {
         // Aktualizuj label dropdown'a
         this.updateDropdownLabel(fieldName);
 
-        console.log(`[TableManager] Updated dropdown ${fieldName} with ${values.length} options`);
+        console.log(`[TableManager] Updated dropdown ${fieldName} with ${displayValues.length} options`);
     }
 
     /**
@@ -490,8 +565,18 @@ class TableManager {
             current_status: 'Wszystkie statusy'
         };
 
+        // W fullscreen skracamy etykiety
+        const compactLabels = {
+            customer_name: 'Klienci',
+            delivery_state: 'Województwa',
+            wood_species: 'Gatunki',
+            current_status: 'Statusy'
+        };
+
+        const labels = this.isInFullscreenMode() ? compactLabels : defaultLabels;
+
         if (activeCount === 0) {
-            label.textContent = defaultLabels[fieldName];
+            label.textContent = labels[fieldName];
             label.classList.add('placeholder');
             toggle.classList.remove('has-selection');
 
@@ -503,9 +588,11 @@ class TableManager {
         } else {
             const selectedValues = this.activeFilters[fieldName];
 
-            if (activeCount === 1) {
+            if (activeCount === 1 && !this.isInFullscreenMode()) {
+                // W trybie normalnym pokaż pełną nazwę dla pojedynczej wartości
                 label.textContent = selectedValues[0];
             } else {
+                // W fullscreen lub dla wielokrotnego wyboru pokaż liczbę
                 label.textContent = `${activeCount} wybranych`;
             }
 
@@ -619,6 +706,13 @@ class TableManager {
                 container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
                     checkbox.checked = false;
                 });
+
+                // Wyczyść komunikaty w fullscreen
+                this.hideTooManyResultsMessage(container);
+                const limitedMessage = container.querySelector('.options-limited-message');
+                if (limitedMessage) {
+                    limitedMessage.remove();
+                }
             }
 
             // Wyczyść search input
@@ -647,6 +741,31 @@ class TableManager {
         });
 
         console.log('[TableManager] Filters cleared');
+    }
+
+    /**
+     * AKTUALIZOWANA METODA - Walidacja stanu managera z fullscreen
+     */
+    validateState() {
+        const issues = [];
+
+        if (!this.filterElements.filterDateFrom || !this.filterElements.filterDateTo) {
+            issues.push('Missing date filter elements');
+        }
+
+        if (this.elementsToMove && this.elementsToMove.some(item => !item.element)) {
+            issues.push('Some filter elements are missing');
+        }
+
+        // NOWE: Sprawdź czy FullscreenManager jest dostępny
+        if (!window.fullscreenManager) {
+            issues.push('FullscreenManager not available');
+        }
+
+        return {
+            isValid: issues.length === 0,
+            issues: issues
+        };
     }
 
     /**
@@ -1168,7 +1287,82 @@ class TableManager {
     }
 
     /**
-     * Debug info
+     * NOWA METODA - Obsługa zmiany trybu fullscreen
+     */
+    onFullscreenChange(isFullscreen) {
+        console.log('[TableManager] Fullscreen mode changed:', isFullscreen);
+
+        // Dostosuj filtry do trybu fullscreen
+        this.adaptFiltersToFullscreen(isFullscreen);
+
+        // Odśwież dropdown'y po zmianie trybu
+        setTimeout(() => {
+            this.refreshAllDropdowns();
+        }, 300);
+    }
+
+    /**
+     * NOWA METODA - Dostosowanie filtrów do trybu fullscreen
+     */
+    adaptFiltersToFullscreen(isFullscreen) {
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+
+        filterKeys.forEach(filterKey => {
+            const camelCase = this.snakeToCamel(filterKey);
+            const dropdown = this.filterElements[`${camelCase}Dropdown`];
+            const menu = this.filterElements[`${camelCase}Menu`];
+
+            if (dropdown && menu) {
+                if (isFullscreen) {
+                    // Zmniejsz maksymalną wysokość menu w fullscreen
+                    menu.style.maxHeight = '180px';
+
+                    // Dodaj klasy fullscreen
+                    dropdown.classList.add('fullscreen-mode');
+                } else {
+                    // Przywróć normalne rozmiary
+                    menu.style.maxHeight = '300px';
+
+                    // Usuń klasy fullscreen
+                    dropdown.classList.remove('fullscreen-mode');
+                }
+            }
+        });
+
+        // Dostosuj wysokość options containers
+        const optionsContainers = document.querySelectorAll('.filter-options');
+        optionsContainers.forEach(container => {
+            if (isFullscreen) {
+                container.style.maxHeight = '150px';
+            } else {
+                container.style.maxHeight = '200px';
+            }
+        });
+    }
+
+    /**
+     * NOWA METODA - Odświeżenie wszystkich dropdown'ów
+     */
+    refreshAllDropdowns() {
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+
+        filterKeys.forEach(filterKey => {
+            this.refreshDropdown(filterKey);
+        });
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie czy jesteśmy w trybie fullscreen
+     */
+    isInFullscreenMode() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.isFullscreenActive === 'function') {
+            return window.fullscreenManager.isFullscreenActive();
+        }
+        return false;
+    }
+
+    /**
+     * AKTUALIZOWANA METODA - Debug info z fullscreen
      */
     getDebugInfo() {
         return {
@@ -1180,9 +1374,94 @@ class TableManager {
             }, {}),
             hasActiveFilters: this.hasActiveFilters(),
             activeFiltersCount: this.getActiveFiltersCount(),
-            isInitialized: this.isInitialized
+            isInitialized: this.isInitialized,
+            isFullscreen: this.isInFullscreenMode(), // NOWE
+            // NOWE: Informacje o fullscreen
+            fullscreenManager: {
+                available: !!window.fullscreenManager,
+                active: this.isInFullscreenMode()
+            }
         };
     }
+
+    /**
+     * NOWA METODA - Publiczne API dla fullscreen
+     */
+
+    // Dostosuj filtry do fullscreen
+    adaptToFullscreen() {
+        this.adaptFiltersToFullscreen(true);
+    }
+
+    // Przywróć filtry do normalnego trybu
+    adaptToNormal() {
+        this.adaptFiltersToFullscreen(false);
+    }
+
+    // Odśwież wszystkie dropdown'y
+    refreshAllFilters() {
+        this.refreshAllDropdowns();
+    }
+
+    // Sprawdź czy filtry są w trybie fullscreen
+    isFiltersInFullscreen() {
+        return this.isInFullscreenMode();
+    }
+
+    /**
+     * NOWA METODA - Optymalizacja dla fullscreen
+     */
+    optimizeForFullscreen() {
+        // Zamknij wszystkie otwarte dropdown'y
+        this.closeAllDropdowns();
+
+        // Wyczyść search inputy
+        const searchInputs = document.querySelectorAll('.filter-search-input');
+        searchInputs.forEach(input => {
+            input.value = '';
+        });
+
+        // Dostosuj rozmiary
+        this.adaptFiltersToFullscreen(true);
+
+        console.log('[TableManager] Optimized for fullscreen');
+    }
+
+    /**
+     * NOWA METODA - Przywrócenie po fullscreen
+     */
+    restoreFromFullscreen() {
+        // Przywróć normalne rozmiary
+        this.adaptFiltersToFullscreen(false);
+
+        // Odśwież wszystkie dropdown'y
+        this.refreshAllDropdowns();
+
+        console.log('[TableManager] Restored from fullscreen');
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie czy dropdown może być otwarty w fullscreen
+     */
+    canOpenDropdownInFullscreen(filterKey) {
+        if (!this.isInFullscreenMode()) return true;
+
+        const dataLength = this.dropdownData[filterKey] ? this.dropdownData[filterKey].length : 0;
+        return dataLength <= 100; // Limit dla fullscreen
+    }
+
+    /**
+     * AKTUALIZOWANA METODA - Otwarcie dropdown z walidacją fullscreen
+     */
+    openDropdownWithValidation(filterKey) {
+        if (!this.canOpenDropdownInFullscreen(filterKey)) {
+            console.warn(`[TableManager] Too many options for dropdown in fullscreen: ${filterKey}`);
+            return;
+        }
+
+        this.openDropdown(filterKey);
+    }
+
 }
 
 // Export dla global scope

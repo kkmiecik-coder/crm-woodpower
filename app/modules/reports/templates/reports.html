@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>Raporty - Wood Power CRM</title>
+    <title>Raport sprzedażowy - Wood Power CRM</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('reports.static', filename='css/reports.css') }}">
@@ -21,7 +21,7 @@
         <main class="main-content">
             <!-- Nagłówek -->
             <div class="reports-header">
-                <h1 class="title-with-underline">Raporty</h1>
+                <h1 class="title-with-underline">Raport sprzedażowy</h1>
 
                 <!-- Kontrolki -->
                 <div class="reports-controls">
@@ -221,6 +221,12 @@
                         <button id="clearFiltersBtn" class="btn btn-secondary btn-sm">
                             <i class="fas fa-times"></i>
                             Wyczyść filtry
+                        </button>
+
+                        <!-- NOWY PRZYCISK FULLSCREEN -->
+                        <button id="fullscreenToggle" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-expand"></i>
+                            <span class="fullscreen-text">Pełny ekran</span>
                         </button>
                     </div>
 
@@ -521,6 +527,7 @@
     <script src="{{ url_for('reports.static', filename='js/table_manager.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/sync_manager.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/export_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/fullscreen_manager.js') }}"></script>
 
     <script>
     // Globalne zmienne - poprawiona wersja
@@ -561,6 +568,12 @@
         if (typeof ExportManager !== 'undefined') {
             window.exportManager = new ExportManager();
             window.exportManager.init();
+        }
+
+        // NOWY: Inicjalizuj FullscreenManager
+        if (typeof FullscreenManager !== 'undefined') {
+            window.fullscreenManager = new FullscreenManager();
+            window.fullscreenManager.init();
         }
 
         // Jeśli brak danych w bazie, pokaż komunikat

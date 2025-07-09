@@ -77,7 +77,8 @@ class ExportManager {
 
             console.log('[ExportManager] Export parameters:', {
                 dateRange,
-                filtersCount: Object.keys(filters).length
+                filtersCount: Object.keys(filters).length,
+                isFullscreen: this.isInFullscreenMode()
             });
 
             // Walidacja danych przed eksportem
@@ -106,6 +107,11 @@ class ExportManager {
                         }
                     });
                 }
+            }
+
+            // NOWE: Dodaj informację o trybie fullscreen
+            if (this.isInFullscreenMode()) {
+                params.append('fullscreen_mode', 'true');
             }
 
             // POPRAWKA: Dodano timeout i retry logic
@@ -147,7 +153,8 @@ class ExportManager {
 
             console.log('[ExportManager] Excel export completed successfully', {
                 filename,
-                fileSize: blob.size
+                fileSize: blob.size,
+                isFullscreen: this.isInFullscreenMode()
             });
 
             // Pokaż komunikat sukcesu
@@ -280,7 +287,10 @@ class ExportManager {
         const filtersCount = Object.keys(filters).length;
         const filtersStr = filtersCount > 0 ? `_filtered_${filtersCount}` : '';
 
-        return `raporty_sprzedazy_${dateRangeStr}${filtersStr}_${dateString}_${timeString}.xlsx`;
+        // NOWE: Dodaj informację o fullscreen
+        const fullscreenStr = this.isInFullscreenMode() ? '_fullscreen' : '';
+
+        return `raporty_sprzedazy_${dateRangeStr}${filtersStr}${fullscreenStr}_${dateString}_${timeString}.xlsx`;
     }
 
     /**
@@ -324,6 +334,7 @@ class ExportManager {
     setExportingState(isExporting) {
         this.isExporting = isExporting;
 
+        // Standardowy przycisk eksportu
         if (this.exportButton) {
             this.exportButton.disabled = isExporting;
 
@@ -340,6 +351,26 @@ class ExportManager {
             }
         }
 
+        // Floating przycisk w fullscreen
+        const fullscreenBtn = document.getElementById('fullscreenExportBtn');
+        if (fullscreenBtn) {
+            fullscreenBtn.disabled = isExporting;
+
+            if (isExporting) {
+                fullscreenBtn.innerHTML = `
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span class="tooltip">Eksportowanie...</span>
+                `;
+                fullscreenBtn.style.background = '#6c757d';
+            } else {
+                fullscreenBtn.innerHTML = `
+                    <i class="fas fa-download"></i>
+                    <span class="tooltip">Eksport Excel</span>
+                `;
+                fullscreenBtn.style.background = '#17a2b8';
+            }
+        }
+
         console.log('[ExportManager] Export state changed:', isExporting);
     }
 
@@ -352,8 +383,12 @@ class ExportManager {
 
         console.log('[ExportManager] Export success:', message);
 
-        // POPRAWKA: Lepsze powiadomienie o sukcesie
-        this.showNotification(message, 'success');
+        // NOWE: W fullscreen pokaż bardziej dyskretną notyfikację
+        if (this.isInFullscreenMode()) {
+            this.showFullscreenNotification(message, 'success');
+        } else {
+            this.showNotification(message, 'success');
+        }
     }
 
     /**
@@ -364,7 +399,91 @@ class ExportManager {
 
         console.error('[ExportManager] Export error:', message);
 
-        this.showNotification(message, 'error');
+        // NOWE: W fullscreen pokaż bardziej dyskretną notyfikację
+        if (this.isInFullscreenMode()) {
+            this.showFullscreenNotification(message, 'error');
+        } else {
+            this.showNotification(message, 'error');
+        }
+    }
+
+    /**
+     * NOWA METODA - Notyfikacja w trybie fullscreen
+     */
+    showFullscreenNotification(message, type = 'info') {
+        console.log(`[ExportManager] Fullscreen ${type.toUpperCase()}: ${message}`);
+
+        // Utwórz toast notification
+        const notification = document.createElement('div');
+        notification.className = `fullscreen-notification ${type}`;
+        notification.innerHTML = `
+            <i class="fas fa-${this.getNotificationIcon(type)}"></i>
+            <span>${message}</span>
+        `;
+
+        // Style dla notyfikacji
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${this.getNotificationColor(type)};
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 10003;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            max-width: 300px;
+            animation: slideInRight 0.3s ease;
+        `;
+
+        // Dodaj do fullscreen container
+        const fullscreenContainer = document.getElementById('fullscreenContainer');
+        if (fullscreenContainer) {
+            fullscreenContainer.appendChild(notification);
+        } else {
+            document.body.appendChild(notification);
+        }
+
+        // Automatyczne usunięcie po 5 sekundach
+        setTimeout(() => {
+            notification.style.animation = 'slideOutRight 0.3s ease';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 5000);
+    }
+
+    /**
+     * NOWA METODA - Pobieranie ikony dla notyfikacji
+     */
+    getNotificationIcon(type) {
+        const icons = {
+            success: 'check-circle',
+            error: 'exclamation-circle',
+            warning: 'exclamation-triangle',
+            info: 'info-circle'
+        };
+        return icons[type] || 'info-circle';
+    }
+
+    /**
+     * NOWA METODA - Pobieranie koloru dla notyfikacji
+     */
+    getNotificationColor(type) {
+        const colors = {
+            success: '#28a745',
+            error: '#dc3545',
+            warning: '#ffc107',
+            info: '#17a2b8'
+        };
+        return colors[type] || '#17a2b8';
     }
 
     /**
@@ -472,27 +591,51 @@ class ExportManager {
 
         if (!currentData || currentData.length === 0) {
             console.log('[ExportManager] Cannot export: no data available');
-            this.showNotification('Brak danych do eksportu. Zmień filtry lub zakres dat.', 'warning');
+            const message = 'Brak danych do eksportu. Zmień filtry lub zakres dat.';
+
+            if (this.isInFullscreenMode()) {
+                this.showFullscreenNotification(message, 'warning');
+            } else {
+                this.showNotification(message, 'warning');
+            }
             return false;
         }
 
         if (this.isExporting) {
             console.log('[ExportManager] Cannot export: export in progress');
-            this.showNotification('Eksport już w toku. Proszę czekać...', 'warning');
+            const message = 'Eksport już w toku. Proszę czekać...';
+
+            if (this.isInFullscreenMode()) {
+                this.showFullscreenNotification(message, 'warning');
+            } else {
+                this.showNotification(message, 'warning');
+            }
             return false;
         }
 
         // POPRAWKA: Sprawdź throttling
         if (this.lastExportTime && (Date.now() - this.lastExportTime) < 2000) {
             console.log('[ExportManager] Cannot export: too soon after last export');
-            this.showNotification('Proszę poczekać przed kolejnym eksportem', 'warning');
+            const message = 'Proszę poczekać przed kolejnym eksportem';
+
+            if (this.isInFullscreenMode()) {
+                this.showFullscreenNotification(message, 'warning');
+            } else {
+                this.showNotification(message, 'warning');
+            }
             return false;
         }
 
         // POPRAWKA: Sprawdź czy ReportsManager jest dostępny
         if (!window.reportsManager) {
             console.log('[ExportManager] Cannot export: ReportsManager not available');
-            this.showNotification('System raportów nie jest dostępny', 'error');
+            const message = 'System raportów nie jest dostępny';
+
+            if (this.isInFullscreenMode()) {
+                this.showFullscreenNotification(message, 'error');
+            } else {
+                this.showNotification(message, 'error');
+            }
             return false;
         }
 
@@ -694,6 +837,128 @@ Czy chcesz kontynuować eksport?
     }
 
     /**
+     * NOWA METODA - Obsługa zmiany trybu fullscreen
+     */
+    onFullscreenChange(isFullscreen) {
+        console.log('[ExportManager] Fullscreen mode changed:', isFullscreen);
+
+        // Dostosuj UI do trybu fullscreen
+        this.adaptExportUIToFullscreen(isFullscreen);
+
+        // Aktualizuj pozycję notyfikacji
+        this.updateNotificationPosition(isFullscreen);
+    }
+
+    /**
+     * NOWA METODA - Dostosowanie UI eksportu do fullscreen
+     */
+    adaptExportUIToFullscreen(isFullscreen) {
+        if (!this.exportButton) return;
+
+        if (isFullscreen) {
+            // W fullscreen - przycisk eksportu jest ukryty w normalnym UI
+            // Można dodać floating action button lub przycisk w fullscreen header
+            this.createFullscreenExportButton();
+        } else {
+            // W normalnym trybie - usuń floating button jeśli istnieje
+            this.removeFullscreenExportButton();
+        }
+    }
+
+    /**
+     * NOWA METODA - Utworzenie floating przycisku eksportu w fullscreen
+     */
+    createFullscreenExportButton() {
+        // Sprawdź czy przycisk już istnieje
+        if (document.getElementById('fullscreenExportBtn')) return;
+
+        const fullscreenContainer = document.getElementById('fullscreenContainer');
+        if (!fullscreenContainer) return;
+
+        // Utwórz floating action button
+        const floatingBtn = document.createElement('button');
+        floatingBtn.id = 'fullscreenExportBtn';
+        floatingBtn.className = 'fullscreen-export-btn';
+        floatingBtn.innerHTML = `
+            <i class="fas fa-download"></i>
+            <span class="tooltip">Eksport Excel</span>
+        `;
+        floatingBtn.title = 'Eksport do Excel';
+
+        // Dodaj style
+        floatingBtn.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: #17a2b8;
+            color: white;
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            cursor: pointer;
+            z-index: 10002;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        `;
+
+        // Hover effect
+        floatingBtn.addEventListener('mouseenter', () => {
+            floatingBtn.style.transform = 'scale(1.1)';
+            floatingBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.4)';
+        });
+
+        floatingBtn.addEventListener('mouseleave', () => {
+            floatingBtn.style.transform = 'scale(1)';
+            floatingBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+        });
+
+        // Event listener
+        floatingBtn.addEventListener('click', () => {
+            this.exportToExcel();
+        });
+
+        // Dodaj do fullscreen container
+        fullscreenContainer.appendChild(floatingBtn);
+
+        console.log('[ExportManager] Fullscreen export button created');
+    }
+
+    /**
+     * NOWA METODA - Usunięcie floating przycisku eksportu
+     */
+    removeFullscreenExportButton() {
+        const floatingBtn = document.getElementById('fullscreenExportBtn');
+        if (floatingBtn) {
+            floatingBtn.remove();
+            console.log('[ExportManager] Fullscreen export button removed');
+        }
+    }
+
+    /**
+     * NOWA METODA - Aktualizacja pozycji notyfikacji
+     */
+    updateNotificationPosition(isFullscreen) {
+        // Możemy dostosować pozycję notyfikacji w fullscreen
+        // Na razie używamy standardowych alert'ów, ale można rozszerzyć
+        console.log('[ExportManager] Notification position updated for fullscreen:', isFullscreen);
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie czy jesteśmy w trybie fullscreen
+     */
+    isInFullscreenMode() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.isFullscreenActive === 'function') {
+            return window.fullscreenManager.isFullscreenActive();
+        }
+        return false;
+    }
+
+    /**
      * NOWA METODA - Walidacja stanu managera
      */
     validateState() {
@@ -705,6 +970,11 @@ Czy chcesz kontynuować eksport?
 
         if (!window.reportsManager) {
             issues.push('ReportsManager not available');
+        }
+
+        // NOWE: Sprawdź czy FullscreenManager jest dostępny
+        if (!window.fullscreenManager) {
+            issues.push('FullscreenManager not available');
         }
 
         return {
@@ -753,11 +1023,61 @@ Czy chcesz kontynuować eksport?
             currentData: this.getCurrentData().length,
             currentFilters: this.getCurrentFilters(),
             validation: validation,
+            isFullscreen: this.isInFullscreenMode(), // NOWE
             elements: {
-                exportButton: !!this.exportButton
+                exportButton: !!this.exportButton,
+                fullscreenExportBtn: !!document.getElementById('fullscreenExportBtn')
+            },
+            // NOWE: Informacje o fullscreen
+            fullscreenManager: {
+                available: !!window.fullscreenManager,
+                active: this.isInFullscreenMode()
             }
         };
     }
+
+    /**
+     * NOWA METODA - Publiczne API dla fullscreen
+     */
+
+    // Aktywuj tryb fullscreen
+    activateFullscreenMode() {
+        this.adaptExportUIToFullscreen(true);
+    }
+
+    // Deaktywuj tryb fullscreen
+    deactivateFullscreenMode() {
+        this.adaptExportUIToFullscreen(false);
+    }
+
+    // Sprawdź czy jest w trybie fullscreen
+    isFullscreenActive() {
+        return this.isInFullscreenMode();
+    }
+
+    // Eksport z informacją o fullscreen
+    async exportWithFullscreenInfo() {
+        console.log('[ExportManager] Export with fullscreen info, mode:', this.isInFullscreenMode());
+        await this.exportToExcel();
+    }
+
+    /**
+     * NOWA METODA - Cleanup przy wyjściu z fullscreen
+     */
+    cleanupFullscreenElements() {
+        this.removeFullscreenExportButton();
+
+        // Usuń wszystkie fullscreen notifications
+        const notifications = document.querySelectorAll('.fullscreen-notification');
+        notifications.forEach(notification => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        });
+
+        console.log('[ExportManager] Fullscreen elements cleaned up');
+    }
+
 }
 
 // Export dla global scope

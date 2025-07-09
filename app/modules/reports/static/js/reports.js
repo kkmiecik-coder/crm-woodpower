@@ -149,6 +149,11 @@ class ReportsManager {
             this.handleKeyboardShortcuts(e);
         });
 
+        // NOWE: Obsługa resize z fullscreen
+        window.addEventListener('resize', () => {
+            this.handleFullscreenResize();
+        });
+
         console.log('[ReportsManager] Event listeners setup complete');
     }
 
@@ -395,6 +400,13 @@ class ReportsManager {
 
         // Dodaj hover effect dla grupowanych zamówień
         this.setupOrderHoverEffects();
+
+        // NOWE: Odśwież layout w fullscreen
+        if (this.isInFullscreenMode()) {
+            setTimeout(() => {
+                this.refreshTableLayout();
+            }, 100);
+        }
 
         console.log('[ReportsManager] Table updated');
     }
@@ -833,6 +845,18 @@ class ReportsManager {
             e.preventDefault();
             this.handleAddManualRow();
         }
+
+        // NOWE: F11 - Fullscreen toggle
+        if (e.key === 'F11') {
+            e.preventDefault();
+            this.toggleFullscreen();
+        }
+
+        // NOWE: Escape - Wyjście z fullscreen (jeśli aktywny)
+        if (e.key === 'Escape' && this.isInFullscreenMode()) {
+            // Pozwól FullscreenManager obsłużyć to pierwsze
+            // ReportsManager nie robi nic - to tylko backup
+        }
     }
 
     /**
@@ -976,6 +1000,13 @@ class ReportsManager {
     showLoading(message = 'Pobieranie danych...') {
         if (this.elements.loadingOverlay) {
             this.elements.loadingOverlay.classList.remove('hidden');
+
+            // W trybie fullscreen - wyższy z-index
+            if (this.isInFullscreenMode()) {
+                this.elements.loadingOverlay.style.zIndex = '10001';
+            } else {
+                this.elements.loadingOverlay.style.zIndex = '9999';
+            }
         }
     }
 
@@ -985,6 +1016,7 @@ class ReportsManager {
     hideLoading() {
         if (this.elements.loadingOverlay) {
             this.elements.loadingOverlay.classList.add('hidden');
+            this.elements.loadingOverlay.style.zIndex = ''; // Reset z-index
         }
     }
 
@@ -1101,6 +1133,36 @@ class ReportsManager {
     }
 
     /**
+     * NOWA METODA - Sprawdzenie czy jesteśmy w trybie fullscreen
+     */
+    isInFullscreenMode() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.isFullscreenActive === 'function') {
+            return window.fullscreenManager.isFullscreenActive();
+        }
+        return false;
+    }
+
+    /**
+     * NOWA METODA - Przełączenie trybu fullscreen
+     */
+    toggleFullscreen() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.toggle === 'function') {
+            window.fullscreenManager.toggle();
+        } else {
+            console.warn('[ReportsManager] FullscreenManager not available');
+        }
+    }
+
+    /**
+     * NOWA METODA - Wymuszenie wyjścia z fullscreen
+     */
+    exitFullscreen() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.exitFullscreen === 'function') {
+            window.fullscreenManager.exitFullscreen();
+        }
+    }
+
+    /**
      * NOWA METODA - Resetowanie filtrów bez resetowania dat
      */
     clearFiltersOnly() {
@@ -1130,6 +1192,62 @@ class ReportsManager {
     }
 
     /**
+     * NOWA METODA - Obsługa zmiany trybu fullscreen
+     */
+    onFullscreenChange(isFullscreen) {
+        console.log('[ReportsManager] Fullscreen mode changed:', isFullscreen);
+
+        // Odśwież layout po zmianie trybu
+        setTimeout(() => {
+            // Powiadom o zmianie rozmiaru okna
+            window.dispatchEvent(new Event('resize'));
+
+            // Odśwież tabele jeśli potrzeba
+            if (this.elements.reportsTable) {
+                this.refreshTableLayout();
+            }
+        }, 300);
+
+        // Aktualizuj inne managery o zmianie
+        this.notifyManagersAboutFullscreen(isFullscreen);
+    }
+
+    /**
+     * NOWA METODA - Powiadomienie managerów o zmianie fullscreen
+     */
+    notifyManagersAboutFullscreen(isFullscreen) {
+        // Powiadom TableManager
+        if (window.tableManager && typeof window.tableManager.onFullscreenChange === 'function') {
+            window.tableManager.onFullscreenChange(isFullscreen);
+        }
+
+        // Powiadom ExportManager
+        if (window.exportManager && typeof window.exportManager.onFullscreenChange === 'function') {
+            window.exportManager.onFullscreenChange(isFullscreen);
+        }
+
+        // Powiadom SyncManager
+        if (window.syncManager && typeof window.syncManager.onFullscreenChange === 'function') {
+            window.syncManager.onFullscreenChange(isFullscreen);
+        }
+    }
+
+    /**
+     * NOWA METODA - Odświeżenie layoutu tabeli
+     */
+    refreshTableLayout() {
+        if (!this.elements.reportsTable) return;
+
+        // Wymuś recalculation layoutu
+        this.elements.reportsTable.style.display = 'none';
+        this.elements.reportsTable.offsetHeight; // Trigger reflow
+        this.elements.reportsTable.style.display = '';
+
+        // Odśwież hover effects dla grupowanych zamówień
+        this.setupOrderHoverEffects();
+    }
+
+    /**
      * NOWA METODA - Weryfikacja stanu managera
      */
     validateState() {
@@ -1147,10 +1265,58 @@ class ReportsManager {
             issues.push('Date range not set');
         }
 
+        // NOWE: Sprawdź dostępność FullscreenManager
+        if (!window.fullscreenManager) {
+            issues.push('FullscreenManager not available');
+        }
+
         return {
             isValid: issues.length === 0,
             issues: issues
         };
+    }
+
+    /**
+     * NOWA METODA - Publiczne API dla fullscreen
+     */
+
+    // Aktywuj fullscreen
+    activateFullscreen() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.activate === 'function') {
+            window.fullscreenManager.activate();
+        }
+    }
+
+    // Deaktywuj fullscreen
+    deactivateFullscreen() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.deactivate === 'function') {
+            window.fullscreenManager.deactivate();
+        }
+    }
+
+    // Pobierz stan fullscreen
+    getFullscreenState() {
+        if (window.fullscreenManager && typeof window.fullscreenManager.getState === 'function') {
+            return window.fullscreenManager.getState();
+        }
+        return { isFullscreen: false, isCompatible: false };
+    }
+
+    /**
+     * NOWA METODA - Obsługa resize w fullscreen
+     */
+    handleFullscreenResize() {
+        if (this.isInFullscreenMode()) {
+            // Odśwież layout po resize
+            setTimeout(() => {
+                this.refreshTableLayout();
+
+                // Powiadom FullscreenManager
+                if (window.fullscreenManager && typeof window.fullscreenManager.handleWindowResize === 'function') {
+                    window.fullscreenManager.handleWindowResize();
+                }
+            }, 150);
+        }
     }
 
     /**
@@ -1168,10 +1334,16 @@ class ReportsManager {
             dateTo: this.dateTo,
             isLoading: this.isLoading,
             hasActiveFilters: this.hasActiveFilters(),
+            isFullscreen: this.isInFullscreenMode(), // NOWE
             validation: validation,
             elements: {
                 cached: Object.keys(this.elements).length,
                 missing: Object.keys(this.elements).filter(key => !this.elements[key]).length
+            },
+            // NOWE: Informacje o fullscreen
+            fullscreenManager: {
+                available: !!window.fullscreenManager,
+                active: this.isInFullscreenMode()
             }
         };
     }
