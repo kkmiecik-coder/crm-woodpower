@@ -50,10 +50,22 @@ def reports_home():
         service = get_reports_service()
         has_new_orders, new_orders_count = service.check_for_new_orders(hours_back=48)
         
-        # Pobierz podstawowe statystyki (ostatnie 30 dni)
+        # Pobierz podstawowe statystyki (ostatnie 30 dni) - DOMYŚLNIE AKTYWNE
         date_from = datetime.now().date() - timedelta(days=30)
-        query = BaselinkerReportOrder.get_filtered_orders(date_from=date_from)
+        date_to = datetime.now().date()
+        
+        query = BaselinkerReportOrder.get_filtered_orders(
+            date_from=date_from,
+            date_to=date_to
+        )
         stats = BaselinkerReportOrder.get_statistics(query)
+        
+        # Pobierz porównania tylko jeśli mamy dane
+        comparison = {}
+        if stats.get('total_m3', 0) > 0:  # Tylko jeśli są jakieś dane
+            comparison = BaselinkerReportOrder.get_comparison_statistics(
+                {}, date_from, date_to
+            )
         
         # Pobierz ostatni log synchronizacji
         last_sync = ReportsSyncLog.query.order_by(ReportsSyncLog.sync_date.desc()).first()
@@ -63,7 +75,10 @@ def reports_home():
             'has_new_orders': has_new_orders,
             'new_orders_count': new_orders_count,
             'stats': stats,
-            'last_sync': last_sync
+            'comparison': comparison,  # Dodane porównanie
+            'last_sync': last_sync,
+            'default_date_from': date_from.isoformat(),  # Przekaż domyślne daty
+            'default_date_to': date_to.isoformat()
         }
         
         return render_template('reports.html', **context)
@@ -73,8 +88,10 @@ def reports_home():
                            user_email=user_email, 
                            error=str(e))
         flash("Wystąpił błąd podczas ładowania danych.", "error")
-        return render_template('reports.html', user_email=user_email)
-
+        return render_template('reports.html', 
+                             user_email=user_email,
+                             stats={},
+                             comparison={})
 
 @reports_bp.route('/api/data')
 @login_required
@@ -152,7 +169,10 @@ def api_get_data():
                 
             except Exception as retry_error:
                 reports_logger.error("Błąd bazy danych przy ponownej próbie", error=str(retry_error))
-                raise retry_error
+                return jsonify({
+                    'success': False,
+                    'error': f'Błąd bazy danych: {str(retry_error)}'
+                }), 500
         
         # Konwertuj na JSON
         data = [order.to_dict() for order in orders]
@@ -163,9 +183,13 @@ def api_get_data():
         # Oblicz statystyki porównawcze jeśli mamy daty
         comparison = {}
         if date_from and date_to:
-            comparison = BaselinkerReportOrder.get_comparison_statistics(
-                column_filters, date_from, date_to
-            )
+            try:
+                comparison = BaselinkerReportOrder.get_comparison_statistics(
+                    column_filters, date_from, date_to
+                )
+            except Exception as comp_error:
+                reports_logger.warning("Błąd obliczania porównań", error=str(comp_error))
+                comparison = {}
         
         reports_logger.info("Pobrano dane tabeli",
                           orders_count=len(data),
@@ -184,7 +208,7 @@ def api_get_data():
         reports_logger.error("Błąd pobierania danych API", error=str(e))
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': f'Błąd serwera: {str(e)}'
         }), 500
 
 

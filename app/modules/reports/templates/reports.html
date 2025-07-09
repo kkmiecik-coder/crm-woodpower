@@ -131,6 +131,15 @@
                 <!-- Filtry kolumn -->
                 <div class="column-filters">
                     <div class="filter-row">
+                        <!-- NOWY FILTR DAT -->
+                        <div class="filter-item">
+                            <label>Zakres dat:</label>
+                            <div class="date-range-container">
+                                <input type="date" id="filterDateFrom" class="date-input" placeholder="Od">
+                                <input type="date" id="filterDateTo" class="date-input" placeholder="Do">
+                            </div>
+                        </div>
+
                         <div class="filter-item">
                             <label>Klienci:</label>
                             <div class="filter-checkbox-container" id="filterCustomerNameContainer">
@@ -178,13 +187,13 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <div class="filter-item">
-                            <button id="clearFiltersBtn" class="btn btn-secondary btn-sm">
-                                <i class="fas fa-times"></i>
-                                Wyczyść filtry
-                            </button>
-                        </div>
+                    <div class="filter-item">
+                        <button id="clearFiltersBtn" class="btn btn-secondary btn-sm">
+                            <i class="fas fa-times"></i>
+                            Wyczyść filtry
+                        </button>
                     </div>
 
                     <!-- Aktywne filtry -->
@@ -486,13 +495,16 @@
     <script src="{{ url_for('reports.static', filename='js/export_manager.js') }}"></script>
 
     <script>
-        // Globalne zmienne - uproszczona wersja
+        // Globalne zmienne - wersja bez tojson
         window.reportsConfig = {
-            userEmail: {% if user_email %}"{{ user_email | e }}"{% else %}""{% endif %},
+            userEmail: "{{ user_email | e if user_email else '' }}",
             hasNewOrders: {{ 'true' if has_new_orders else 'false' }},
-            newOrdersCount: {{ new_orders_count or 0 }},
+            newOrdersCount: {{ new_orders_count | int if new_orders_count else 0 }},
             stats: {},
-            lastSync: null
+            comparison: {},
+            default_date_from: "{{ default_date_from if default_date_from else '' }}",
+            default_date_to: "{{ default_date_to if default_date_to else '' }}",
+            lastSync: {% if last_sync %}"{{ last_sync.sync_date.isoformat() }}"{% else %}null{% endif %}
         };
 
         // Inicjalizacja po załadowaniu strony

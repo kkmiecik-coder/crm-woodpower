@@ -87,6 +87,7 @@ class BaselinkerReportOrder(db.Model):
     def __repr__(self):
         return f'<BaselinkerReportOrder {self.id}: Order {self.baselinker_order_id}, {self.customer_name}>'
     
+    
     @classmethod
     def get_filtered_orders(cls, filters=None, date_from=None, date_to=None):
         """
@@ -124,16 +125,17 @@ class BaselinkerReportOrder(db.Model):
                         # Single value - użyj LIKE
                         query = query.filter(column_attr.like(f'%{values.strip()}%'))
         
-        # Sortowanie: najwyższy numer Baselinker na górze, potem po dacie
-        # MySQL/MariaDB nie obsługuje NULLS LAST, więc używamy CASE
-        from sqlalchemy import case
+        # POPRAWKA SORTOWANIA: Kompatybilność z MariaDB
+        # Używamy CASE WHEN zamiast NULLS LAST
+        from sqlalchemy import case, desc
+        
         return query.order_by(
-            case(
-                (cls.baselinker_order_id.is_(None), 1),
-                else_=0
-            ),
-            cls.baselinker_order_id.desc(),
-            cls.date_created.desc()
+            cls.is_manual.asc(),  # Najpierw Baselinker (False), potem ręczne (True)
+            desc(case(
+                (cls.baselinker_order_id.is_(None), 0),  # NULL na końcu (0)
+                else_=cls.baselinker_order_id  # Nie-NULL sortowane normalnie
+            )),
+            desc(cls.date_created)  # Najnowsze na górze
         )
     
     @classmethod

@@ -94,7 +94,7 @@ class ReportsManager {
      * Ustawienie event listenerów
      */
     setupEventListeners() {
-        // Zmiana dat
+        // Zmiana dat - główne kontrolki
         if (this.elements.dateFrom) {
             this.elements.dateFrom.addEventListener('change', () => {
                 this.dateFrom = this.elements.dateFrom.value;
@@ -156,11 +156,21 @@ class ReportsManager {
      * Ustawienie domyślnych dat (ostatni miesiąc)
      */
     setDefaultDates() {
-        const today = new Date();
-        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+        // Sprawdź czy są domyślne daty z serwera
+        const serverDateFrom = window.reportsConfig?.default_date_from;
+        const serverDateTo = window.reportsConfig?.default_date_to;
 
-        this.dateFrom = lastMonth.toISOString().split('T')[0];
-        this.dateTo = today.toISOString().split('T')[0];
+        if (serverDateFrom && serverDateTo) {
+            this.dateFrom = serverDateFrom;
+            this.dateTo = serverDateTo;
+        } else {
+            // Fallback - ostatni miesiąc
+            const today = new Date();
+            const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+
+            this.dateFrom = lastMonth.toISOString().split('T')[0];
+            this.dateTo = today.toISOString().split('T')[0];
+        }
 
         if (this.elements.dateFrom) {
             this.elements.dateFrom.value = this.dateFrom;
@@ -173,6 +183,14 @@ class ReportsManager {
     }
 
     /**
+     * Resetowanie do domyślnych dat (publiczna metoda)
+     */
+    resetToDefaultDates() {
+        this.setDefaultDates();
+        this.loadData();
+    }
+
+    /**
      * Ładowanie początkowych danych
      */
     async loadInitialData() {
@@ -182,8 +200,13 @@ class ReportsManager {
         await this.loadData();
 
         // Aktualizuj statystyki z konfiguracji (jeśli dostępne)
-        if (window.reportsConfig && window.reportsConfig.stats) {
-            this.updateStatistics(window.reportsConfig.stats);
+        if (window.reportsConfig) {
+            if (window.reportsConfig.stats) {
+                this.updateStatistics(window.reportsConfig.stats);
+            }
+            if (window.reportsConfig.comparison) {
+                this.updateComparisons(window.reportsConfig.comparison);
+            }
         }
 
         console.log('[ReportsManager] Initial data loaded');
@@ -526,7 +549,7 @@ class ReportsManager {
             const orderGroup = row.dataset.orderGroup;
 
             row.addEventListener('mouseenter', () => {
-                // Podświetl wszystkie wiersze z tym samym order-group
+                // Podświetl TYLKO wiersze z tym samym order-group (to samo zamówienie)
                 const relatedRows = this.elements.reportsTableBody.querySelectorAll(`tr[data-order-group="${orderGroup}"]`);
                 relatedRows.forEach(relatedRow => {
                     relatedRow.classList.add('hover-group');
@@ -534,7 +557,7 @@ class ReportsManager {
             });
 
             row.addEventListener('mouseleave', () => {
-                // Usuń podświetlenie ze wszystkich wierszy z tym samym order-group
+                // Usuń podświetlenie TYLKO z wierszy z tym samym order-group
                 const relatedRows = this.elements.reportsTableBody.querySelectorAll(`tr[data-order-group="${orderGroup}"]`);
                 relatedRows.forEach(relatedRow => {
                     relatedRow.classList.remove('hover-group');
@@ -542,6 +565,10 @@ class ReportsManager {
             });
         });
     }
+
+    /**
+     * Aktualizacja porównań
+     */
     updateComparisons(comparison) {
         if (!comparison) return;
 
@@ -804,7 +831,7 @@ class ReportsManager {
             window.tableManager.clearFilters();
         }
 
-        this.loadData();
+        this.resetToDefaultDates();
     }
 
     /**
@@ -964,39 +991,6 @@ class ReportsManager {
         return this.dateTo;
     }
 
-    // Kompatybilność z poprzednimi wersjami
-    getDateRange() {
-        // Zwraca string reprezentujący zakres dat
-        if (!this.dateFrom || !this.dateTo) {
-            return 'custom';
-        }
-
-        const today = new Date();
-        const from = new Date(this.dateFrom);
-        const to = new Date(this.dateTo);
-
-        const todayStr = today.toISOString().split('T')[0];
-
-        // Sprawdź czy to dzisiaj
-        if (this.dateFrom === todayStr && this.dateTo === todayStr) {
-            return 'today';
-        }
-
-        // Sprawdź czy to ostatni tydzień
-        const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-        if (from >= weekAgo && to.toDateString() === today.toDateString()) {
-            return 'last_week';
-        }
-
-        // Sprawdź czy to ostatni miesiąc
-        const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-        if (from >= monthAgo && to.toDateString() === today.toDateString()) {
-            return 'last_month';
-        }
-
-        return 'custom';
-    }
-
     /**
      * Ustawienie dat programowo
      */
@@ -1005,56 +999,13 @@ class ReportsManager {
         this.dateTo = dateTo;
 
         if (this.elements.dateFrom) {
-            this.elements.dateFrom.value = dateFrom;
+            this.elements.dateFrom.value = dateFrom || '';
         }
         if (this.elements.dateTo) {
-            this.elements.dateTo.value = dateTo;
+            this.elements.dateTo.value = dateTo || '';
         }
 
         this.loadData();
-    }
-
-    /**
-     * Ustawienie dat na podstawie predefiniowanych zakresów
-     */
-    setDateRangePreset(preset) {
-        const today = new Date();
-        let dateFrom, dateTo;
-
-        switch (preset) {
-            case 'today':
-                dateFrom = dateTo = today.toISOString().split('T')[0];
-                break;
-            case 'yesterday':
-                const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-                dateFrom = dateTo = yesterday.toISOString().split('T')[0];
-                break;
-            case 'last_week':
-                dateFrom = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                dateTo = today.toISOString().split('T')[0];
-                break;
-            case 'last_month':
-                dateFrom = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                dateTo = today.toISOString().split('T')[0];
-                break;
-            case 'last_3_months':
-                dateFrom = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                dateTo = today.toISOString().split('T')[0];
-                break;
-            case 'last_6_months':
-                dateFrom = new Date(today.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                dateTo = today.toISOString().split('T')[0];
-                break;
-            case 'last_year':
-                dateFrom = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                dateTo = today.toISOString().split('T')[0];
-                break;
-            default:
-                console.warn('[ReportsManager] Unknown date preset:', preset);
-                return;
-        }
-
-        this.setDateRange(dateFrom, dateTo);
     }
 
     /**

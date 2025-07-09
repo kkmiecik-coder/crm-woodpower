@@ -53,6 +53,9 @@ class TableManager {
     cacheElements() {
         // Filtry checkbox
         this.filterElements = {
+            filterDateFrom: document.getElementById('filterDateFrom'),
+            filterDateTo: document.getElementById('filterDateTo'),
+
             customerNameContainer: document.getElementById('filterCustomerNameContainer'),
             customerNameOptions: document.getElementById('filterCustomerNameOptions'),
             searchCustomerName: document.getElementById('searchCustomerName'),
@@ -115,6 +118,18 @@ class TableManager {
      */
     setupEventListeners() {
         // Modal events
+        if (this.filterElements.filterDateFrom) {
+            this.filterElements.filterDateFrom.addEventListener('change', () => {
+                this.handleDateFilterChange();
+            });
+        }
+
+        if (this.filterElements.filterDateTo) {
+            this.filterElements.filterDateTo.addEventListener('change', () => {
+                this.handleDateFilterChange();
+            });
+        }
+
         if (this.modalElements.modal) {
             // Zamknięcie modala
             const closeBtn = this.modalElements.modal.querySelector('.close');
@@ -155,6 +170,21 @@ class TableManager {
         this.setupRealTimeValidation();
 
         console.log('[TableManager] Event listeners setup complete');
+    }
+
+    /**
+     * Obsługa zmiany filtrów dat
+     */
+    handleDateFilterChange() {
+        const dateFrom = this.filterElements.filterDateFrom?.value;
+        const dateTo = this.filterElements.filterDateTo?.value;
+
+        console.log('[TableManager] Date filter changed:', { dateFrom, dateTo });
+
+        // Przekaż do ReportsManager
+        if (window.reportsManager) {
+            window.reportsManager.setDateRange(dateFrom, dateTo);
+        }
     }
 
     /**
@@ -733,6 +763,14 @@ class TableManager {
      */
     clearFilters() {
         console.log('[TableManager] Clearing filters...');
+
+        // Wyczyść daty
+        if (this.filterElements.filterDateFrom) {
+            this.filterElements.filterDateFrom.value = '';
+        }
+        if (this.filterElements.filterDateTo) {
+            this.filterElements.filterDateTo.value = '';
+        }
 
         // Wyczyść stany checkbox'ów
         Object.keys(this.activeFilters).forEach(filterKey => {
