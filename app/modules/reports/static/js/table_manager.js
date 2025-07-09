@@ -1,6 +1,6 @@
 // modules/reports/static/js/table_manager.js
 /**
- * Manager zarządzający filtrami checkbox i dodawaniem/edycją wierszy
+ * Manager zarządzający filtrami dropdown i dodawaniem/edycją wierszy
  * Odpowiedzialny za filtry wielokrotne, dodawanie/edycję wierszy
  */
 
@@ -29,6 +29,14 @@ class TableManager {
             current_status: []
         };
 
+        // Stany dropdown'ów
+        this.dropdownStates = {
+            customer_name: false,
+            delivery_state: false,
+            wood_species: false,
+            current_status: false
+        };
+
         console.log('[TableManager] Initialized');
     }
 
@@ -40,7 +48,6 @@ class TableManager {
 
         this.cacheElements();
         this.setupEventListeners();
-        this.setupCheckboxFilters();
         this.loadDropdownData();
 
         this.isInitialized = true;
@@ -48,32 +55,45 @@ class TableManager {
     }
 
     /**
-     * Cache elementów DOM
+     * Cache elementów DOM - NOWA WERSJA DLA DROPDOWN'ÓW
      */
     cacheElements() {
-        // Filtry checkbox
+        // Filtry dat
         this.filterElements = {
             filterDateFrom: document.getElementById('filterDateFrom'),
             filterDateTo: document.getElementById('filterDateTo'),
 
-            customerNameContainer: document.getElementById('filterCustomerNameContainer'),
+            // Dropdown elementy - NOWA STRUKTURA
+            customerNameDropdown: document.getElementById('filterCustomerNameDropdown'),
+            customerNameToggle: document.getElementById('filterCustomerNameToggle'),
+            customerNameMenu: document.getElementById('filterCustomerNameMenu'),
+            customerNameLabel: document.querySelector('#filterCustomerNameToggle .filter-dropdown-label'),
             customerNameOptions: document.getElementById('filterCustomerNameOptions'),
             searchCustomerName: document.getElementById('searchCustomerName'),
 
-            deliveryStateContainer: document.getElementById('filterDeliveryStateContainer'),
+            deliveryStateDropdown: document.getElementById('filterDeliveryStateDropdown'),
+            deliveryStateToggle: document.getElementById('filterDeliveryStateToggle'),
+            deliveryStateMenu: document.getElementById('filterDeliveryStateMenu'),
+            deliveryStateLabel: document.querySelector('#filterDeliveryStateToggle .filter-dropdown-label'),
             deliveryStateOptions: document.getElementById('filterDeliveryStateOptions'),
             searchDeliveryState: document.getElementById('searchDeliveryState'),
 
-            woodSpeciesContainer: document.getElementById('filterWoodSpeciesContainer'),
+            woodSpeciesDropdown: document.getElementById('filterWoodSpeciesDropdown'),
+            woodSpeciesToggle: document.getElementById('filterWoodSpeciesToggle'),
+            woodSpeciesMenu: document.getElementById('filterWoodSpeciesMenu'),
+            woodSpeciesLabel: document.querySelector('#filterWoodSpeciesToggle .filter-dropdown-label'),
             woodSpeciesOptions: document.getElementById('filterWoodSpeciesOptions'),
             searchWoodSpecies: document.getElementById('searchWoodSpecies'),
 
-            currentStatusContainer: document.getElementById('filterCurrentStatusContainer'),
+            currentStatusDropdown: document.getElementById('filterCurrentStatusDropdown'),
+            currentStatusToggle: document.getElementById('filterCurrentStatusToggle'),
+            currentStatusMenu: document.getElementById('filterCurrentStatusMenu'),
+            currentStatusLabel: document.querySelector('#filterCurrentStatusToggle .filter-dropdown-label'),
             currentStatusOptions: document.getElementById('filterCurrentStatusOptions'),
             searchCurrentStatus: document.getElementById('searchCurrentStatus')
         };
 
-        // Modal dodawania/edycji
+        // Modal elementy
         this.modalElements = {
             modal: document.getElementById('manualRowModal'),
             title: document.getElementById('manualRowModalTitle'),
@@ -114,10 +134,10 @@ class TableManager {
     }
 
     /**
-     * Ustawienie event listenerów
+     * Ustawienie event listenerów - NOWA WERSJA
      */
     setupEventListeners() {
-        // Modal events
+        // Obsługa dat
         if (this.filterElements.filterDateFrom) {
             this.filterElements.filterDateFrom.addEventListener('change', () => {
                 this.handleDateFilterChange();
@@ -130,14 +150,26 @@ class TableManager {
             });
         }
 
+        // NOWA OBSŁUGA DROPDOWN'ÓW
+        this.setupDropdownEventListeners();
+
+        // Zamknięcie dropdown'ów przy kliknięciu poza nimi
+        document.addEventListener('click', (e) => {
+            this.handleOutsideClick(e);
+        });
+
+        // Obsługa klawisza Escape
+        document.addEventListener('keydown', (e) => {
+            this.handleEscapeKey(e);
+        });
+
+        // Modal events
         if (this.modalElements.modal) {
-            // Zamknięcie modala
             const closeBtn = this.modalElements.modal.querySelector('.close');
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => this.hideManualRowModal());
             }
 
-            // Kliknięcie poza modalem
             this.modalElements.modal.addEventListener('click', (e) => {
                 if (e.target === this.modalElements.modal) {
                     this.hideManualRowModal();
@@ -145,7 +177,6 @@ class TableManager {
             });
         }
 
-        // Przyciski modala
         if (this.modalElements.cancelBtn) {
             this.modalElements.cancelBtn.addEventListener('click', () => {
                 this.hideManualRowModal();
@@ -158,7 +189,6 @@ class TableManager {
             });
         }
 
-        // Submit formularza
         if (this.modalElements.form) {
             this.modalElements.form.addEventListener('submit', (e) => {
                 e.preventDefault();
@@ -166,7 +196,6 @@ class TableManager {
             });
         }
 
-        // Walidacja w czasie rzeczywistym
         this.setupRealTimeValidation();
 
         console.log('[TableManager] Event listeners setup complete');
@@ -188,79 +217,169 @@ class TableManager {
     }
 
     /**
-     * Ustawienie filtrów checkbox
+     * NOWA METODA - Ustawienie event listenerów dla dropdown'ów
      */
-    setupCheckboxFilters() {
-        // Event listenery dla wyszukiwania
-        Object.keys(this.activeFilters).forEach(filterKey => {
-            const searchElement = this.filterElements[`search${this.capitalizeFirst(filterKey.replace('_', ''))}`];
-            if (searchElement) {
-                searchElement.addEventListener('input', (e) => {
+    setupDropdownEventListeners() {
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+
+        filterKeys.forEach(filterKey => {
+            const camelCase = this.snakeToCamel(filterKey);
+            const toggle = this.filterElements[`${camelCase}Toggle`];
+            const menu = this.filterElements[`${camelCase}Menu`];
+            const search = this.filterElements[`search${this.capitalizeFirst(camelCase)}`];
+
+            // Toggle dropdown
+            if (toggle) {
+                toggle.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.toggleDropdown(filterKey);
+                });
+            }
+
+            // Search input
+            if (search) {
+                search.addEventListener('input', (e) => {
                     this.filterDropdownOptions(filterKey, e.target.value);
+                });
+
+                // Zapobiegaj zamykaniu dropdown'a przy kliknięciu w search
+                search.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+            }
+
+            // Zapobiegaj zamykaniu dropdown'a przy kliknięciu w menu
+            if (menu) {
+                menu.addEventListener('click', (e) => {
+                    e.stopPropagation();
                 });
             }
         });
-
-        console.log('[TableManager] Checkbox filters setup complete');
     }
 
     /**
-     * Filtrowanie opcji dropdown'a na podstawie wyszukiwania
+     * NOWA METODA - Toggle dropdown'a
+     */
+    toggleDropdown(filterKey) {
+        const isOpen = this.dropdownStates[filterKey];
+
+        // Zamknij wszystkie inne dropdown'y
+        Object.keys(this.dropdownStates).forEach(key => {
+            if (key !== filterKey) {
+                this.closeDropdown(key);
+            }
+        });
+
+        if (isOpen) {
+            this.closeDropdown(filterKey);
+        } else {
+            this.openDropdown(filterKey);
+        }
+    }
+
+    /**
+     * NOWA METODA - Otwórz dropdown
+     */
+    openDropdown(filterKey) {
+        const camelCase = this.snakeToCamel(filterKey);
+        const toggle = this.filterElements[`${camelCase}Toggle`];
+        const menu = this.filterElements[`${camelCase}Menu`];
+        const search = this.filterElements[`search${this.capitalizeFirst(camelCase)}`];
+
+        if (toggle && menu) {
+            toggle.classList.add('active');
+            menu.classList.add('show');
+            this.dropdownStates[filterKey] = true;
+
+            // Focus na search input
+            if (search) {
+                setTimeout(() => {
+                    search.focus();
+                }, 100);
+            }
+        }
+    }
+
+    /**
+     * NOWA METODA - Zamknij dropdown
+     */
+    closeDropdown(filterKey) {
+        const camelCase = this.snakeToCamel(filterKey);
+        const toggle = this.filterElements[`${camelCase}Toggle`];
+        const menu = this.filterElements[`${camelCase}Menu`];
+
+        if (toggle && menu) {
+            toggle.classList.remove('active');
+            menu.classList.remove('show');
+            this.dropdownStates[filterKey] = false;
+        }
+    }
+
+    /**
+     * NOWA METODA - Zamknij dropdown przy kliknięciu poza nim
+     */
+    handleOutsideClick(e) {
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+
+        filterKeys.forEach(filterKey => {
+            const camelCase = this.snakeToCamel(filterKey);
+            const dropdown = this.filterElements[`${camelCase}Dropdown`];
+
+            if (dropdown && !dropdown.contains(e.target)) {
+                this.closeDropdown(filterKey);
+            }
+        });
+    }
+
+    /**
+     * NOWA METODA - Obsługa klawisza Escape
+     */
+    handleEscapeKey(e) {
+        if (e.key === 'Escape') {
+            this.closeAllDropdowns();
+        }
+    }
+
+    /**
+     * POPRAWIONA METODA - Filtrowanie opcji dropdown'a
      */
     filterDropdownOptions(filterKey, searchTerm) {
-        const optionsContainer = this.filterElements[`${filterKey.replace('_', '')}Options`];
+        const camelCase = this.snakeToCamel(filterKey);
+        const optionsContainer = this.filterElements[`${camelCase}Options`];
+
         if (!optionsContainer) return;
 
         const options = optionsContainer.querySelectorAll('.filter-option');
         const term = searchTerm.toLowerCase();
 
         options.forEach(option => {
-            const label = option.querySelector('label').textContent.toLowerCase();
-            if (label.includes(term)) {
-                option.style.display = 'flex';
-            } else {
-                option.style.display = 'none';
+            const label = option.querySelector('label');
+            if (label) {
+                const labelText = label.textContent.toLowerCase();
+                if (labelText.includes(term)) {
+                    option.classList.remove('hidden');
+                } else {
+                    option.classList.add('hidden');
+                }
             }
         });
     }
 
     /**
-     * Ustawienie walidacji w czasie rzeczywistym
-     */
-    setupRealTimeValidation() {
-        // Walidacja wymiarów dla automatycznego obliczania objętości
-        const dimensionFields = [
-            this.modalElements.lengthCm,
-            this.modalElements.widthCm,
-            this.modalElements.thicknessCm,
-            this.modalElements.quantity
-        ];
-
-        dimensionFields.forEach(field => {
-            if (field) {
-                field.addEventListener('input', () => {
-                    this.calculateVolumePreview();
-                });
-            }
-        });
-
-        // Walidacja ceny brutto dla obliczania netto
-        if (this.modalElements.priceGross) {
-            this.modalElements.priceGross.addEventListener('input', () => {
-                this.calculatePricePreview();
-            });
-        }
-    }
-
-    /**
-     * Ładowanie danych dla dropdown'ów
+     * POPRAWIONA METODA - Ładowanie danych dla dropdown'ów
      */
     async loadDropdownData() {
         console.log('[TableManager] Loading dropdown data...');
 
-        const fieldsToLoad = Object.keys(this.dropdownData);
+        const fieldsToLoad = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
 
         try {
+            // Ustaw wszystkie dropdown'y w trybie loading
+            fieldsToLoad.forEach(field => {
+                this.setDropdownLoading(field, true);
+            });
+
             // Ładuj dane dla każdego pola równolegle
             const promises = fieldsToLoad.map(field => this.loadDropdownValues(field));
             const results = await Promise.all(promises);
@@ -268,6 +387,7 @@ class TableManager {
             // Aktualizuj dropdown'y
             fieldsToLoad.forEach((field, index) => {
                 this.dropdownData[field] = results[index] || [];
+                this.setDropdownLoading(field, false);
                 this.updateDropdownOptions(field);
             });
 
@@ -275,6 +395,11 @@ class TableManager {
 
         } catch (error) {
             console.error('[TableManager] Error loading dropdown data:', error);
+
+            // W przypadku błędu, usuń loading ze wszystkich dropdown'ów
+            fieldsToLoad.forEach(field => {
+                this.setDropdownLoading(field, false);
+            });
         }
     }
 
@@ -299,19 +424,16 @@ class TableManager {
     }
 
     /**
-     * Aktualizacja opcji dropdown'a
+     * POPRAWIONA METODA - Aktualizacja opcji dropdown'a
      */
     updateDropdownOptions(fieldName) {
-        // Mapowanie nazw pól na kontenery
-        const containerMapping = {
-            customer_name: this.filterElements.customerNameOptions,
-            delivery_state: this.filterElements.deliveryStateOptions,
-            wood_species: this.filterElements.woodSpeciesOptions,
-            current_status: this.filterElements.currentStatusOptions
-        };
+        const camelCase = this.snakeToCamel(fieldName);
+        const container = this.filterElements[`${camelCase}Options`];
 
-        const container = containerMapping[fieldName];
-        if (!container) return;
+        if (!container) {
+            console.warn(`[TableManager] Container not found for field: ${fieldName}`);
+            return;
+        }
 
         const values = this.dropdownData[fieldName] || [];
 
@@ -343,18 +465,66 @@ class TableManager {
             });
         });
 
+        // Aktualizuj label dropdown'a
+        this.updateDropdownLabel(fieldName);
+
         console.log(`[TableManager] Updated dropdown ${fieldName} with ${values.length} options`);
     }
 
     /**
-     * Sanityzacja ID dla HTML
+     * NOWA METODA - Aktualizacja label dropdown'a
      */
-    sanitizeId(value) {
-        return value.replace(/[^a-zA-Z0-9]/g, '_');
+    updateDropdownLabel(fieldName) {
+        const camelCase = this.snakeToCamel(fieldName);
+        const label = this.filterElements[`${camelCase}Label`];
+        const toggle = this.filterElements[`${camelCase}Toggle`];
+
+        if (!label || !toggle) return;
+
+        const activeCount = this.activeFilters[fieldName] ? this.activeFilters[fieldName].length : 0;
+
+        const defaultLabels = {
+            customer_name: 'Wszyscy klienci',
+            delivery_state: 'Wszystkie województwa',
+            wood_species: 'Wszystkie gatunki',
+            current_status: 'Wszystkie statusy'
+        };
+
+        if (activeCount === 0) {
+            label.textContent = defaultLabels[fieldName];
+            label.classList.add('placeholder');
+            toggle.classList.remove('has-selection');
+
+            // Usuń counter jeśli istnieje
+            const existingCounter = toggle.querySelector('.filter-dropdown-counter');
+            if (existingCounter) {
+                existingCounter.remove();
+            }
+        } else {
+            const selectedValues = this.activeFilters[fieldName];
+
+            if (activeCount === 1) {
+                label.textContent = selectedValues[0];
+            } else {
+                label.textContent = `${activeCount} wybranych`;
+            }
+
+            label.classList.remove('placeholder');
+            toggle.classList.add('has-selection');
+
+            // Dodaj lub aktualizuj counter
+            let counter = toggle.querySelector('.filter-dropdown-counter');
+            if (!counter) {
+                counter = document.createElement('span');
+                counter.className = 'filter-dropdown-counter';
+                toggle.insertBefore(counter, toggle.querySelector('i'));
+            }
+            counter.textContent = activeCount;
+        }
     }
 
     /**
-     * Obsługa zmiany filtra checkbox
+     * POPRAWIONA METODA - Obsługa zmiany filtra
      */
     handleFilterChange(filterKey, value, isChecked) {
         console.log('[TableManager] Filter changed:', filterKey, value, isChecked);
@@ -364,12 +534,10 @@ class TableManager {
         }
 
         if (isChecked) {
-            // Dodaj wartość do filtra
             if (!this.activeFilters[filterKey].includes(value)) {
                 this.activeFilters[filterKey].push(value);
             }
         } else {
-            // Usuń wartość z filtra
             const index = this.activeFilters[filterKey].indexOf(value);
             if (index > -1) {
                 this.activeFilters[filterKey].splice(index, 1);
@@ -381,6 +549,9 @@ class TableManager {
             delete this.activeFilters[filterKey];
         }
 
+        // Aktualizuj label dropdown'a
+        this.updateDropdownLabel(filterKey);
+
         // Prześlij zmiany do ReportsManager
         if (window.reportsManager) {
             window.reportsManager.setFilter(filterKey, this.activeFilters[filterKey] || []);
@@ -388,10 +559,12 @@ class TableManager {
     }
 
     /**
-     * Aktualizacja checkboxów z zewnątrz (z ReportsManager)
+     * POPRAWIONA METODA - Aktualizacja checkboxów z zewnątrz
      */
     updateFilterCheckboxes(filterKey, value, isChecked) {
-        const container = this.getFilterContainer(filterKey);
+        const camelCase = this.snakeToCamel(filterKey);
+        const container = this.filterElements[`${camelCase}Options`];
+
         if (!container) return;
 
         const checkbox = container.querySelector(`input[value="${value}"]`);
@@ -418,20 +591,149 @@ class TableManager {
         if (this.activeFilters[filterKey].length === 0) {
             delete this.activeFilters[filterKey];
         }
+
+        // Aktualizuj label
+        this.updateDropdownLabel(filterKey);
     }
 
     /**
-     * Pobieranie kontenera filtru
+     * POPRAWIONA METODA - Czyszczenie filtrów
      */
-    getFilterContainer(filterKey) {
-        const containerMapping = {
-            customer_name: this.filterElements.customerNameOptions,
-            delivery_state: this.filterElements.deliveryStateOptions,
-            wood_species: this.filterElements.woodSpeciesOptions,
-            current_status: this.filterElements.currentStatusOptions
+    clearFilters() {
+        console.log('[TableManager] Clearing filters...');
+
+        // Wyczyść daty
+        if (this.filterElements.filterDateFrom) {
+            this.filterElements.filterDateFrom.value = '';
+        }
+        if (this.filterElements.filterDateTo) {
+            this.filterElements.filterDateTo.value = '';
+        }
+
+        // Wyczyść stany checkbox'ów i dropdown'ów
+        Object.keys(this.activeFilters).forEach(filterKey => {
+            const camelCase = this.snakeToCamel(filterKey);
+            const container = this.filterElements[`${camelCase}Options`];
+
+            if (container) {
+                container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+            }
+
+            // Wyczyść search input
+            const searchElement = this.filterElements[`search${this.capitalizeFirst(camelCase)}`];
+            if (searchElement) {
+                searchElement.value = '';
+                // Pokaż wszystkie opcje
+                this.filterDropdownOptions(filterKey, '');
+            }
+
+            // Zamknij dropdown
+            this.closeDropdown(filterKey);
+        });
+
+        // Wyczyść lokalny stan
+        this.activeFilters = {
+            customer_name: [],
+            delivery_state: [],
+            wood_species: [],
+            current_status: []
         };
 
-        return containerMapping[filterKey];
+        // Aktualizuj wszystkie labels
+        Object.keys(this.activeFilters).forEach(filterKey => {
+            this.updateDropdownLabel(filterKey);
+        });
+
+        console.log('[TableManager] Filters cleared');
+    }
+
+    /**
+     * NOWA METODA - Zamknięcie wszystkich dropdown'ów
+     */
+    closeAllDropdowns() {
+        Object.keys(this.dropdownStates).forEach(filterKey => {
+            this.closeDropdown(filterKey);
+        });
+    }
+
+    /**
+     * NOWA METODA - Ustawienie dropdown'a w trybie loading
+     */
+    setDropdownLoading(filterKey, isLoading) {
+        const camelCase = this.snakeToCamel(filterKey);
+        const container = this.filterElements[`${camelCase}Options`];
+
+        if (!container) return;
+
+        if (isLoading) {
+            container.innerHTML = `
+                <div class="filter-option">
+                    <div class="loading-spinner"></div>
+                    <label>Ładowanie...</label>
+                </div>
+            `;
+        } else {
+            this.updateDropdownOptions(filterKey);
+        }
+    }
+
+    /**
+     * NOWA METODA - Konwersja snake_case na camelCase
+     */
+    snakeToCamel(str) {
+        return str.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
+    }
+
+    /**
+     * Sanityzacja ID dla HTML
+     */
+    sanitizeId(value) {
+        return value.replace(/[^a-zA-Z0-9]/g, '_');
+    }
+
+    /**
+     * Kapitalizacja pierwszej litery
+     */
+    capitalizeFirst(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    /**
+     * NOWA METODA - Pobieranie kontenera filtru (dla kompatybilności)
+     */
+    getFilterContainer(filterKey) {
+        const camelCase = this.snakeToCamel(filterKey);
+        return this.filterElements[`${camelCase}Options`];
+    }
+
+    /**
+     * Ustawienie walidacji w czasie rzeczywistym
+     */
+    setupRealTimeValidation() {
+        // Walidacja wymiarów dla automatycznego obliczania objętości
+        const dimensionFields = [
+            this.modalElements.lengthCm,
+            this.modalElements.widthCm,
+            this.modalElements.thicknessCm,
+            this.modalElements.quantity
+        ];
+
+        dimensionFields.forEach(field => {
+            if (field) {
+                field.addEventListener('input', () => {
+                    this.calculateVolumePreview();
+                });
+            }
+        });
+
+        // Walidacja ceny brutto dla obliczania netto
+        if (this.modalElements.priceGross) {
+            this.modalElements.priceGross.addEventListener('input', () => {
+                this.calculatePricePreview();
+            });
+        }
     }
 
     /**
@@ -736,13 +1038,6 @@ class TableManager {
     }
 
     /**
-     * Kapitalizacja pierwszej litery
-     */
-    capitalizeFirst(str) {
-        return str.charAt(0).toUpperCase() + str.slice(1);
-    }
-
-    /**
      * Ustawienie stanu ładowania dla modala
      */
     setLoadingState(loading) {
@@ -759,50 +1054,6 @@ class TableManager {
     }
 
     /**
-     * Czyszczenie filtrów
-     */
-    clearFilters() {
-        console.log('[TableManager] Clearing filters...');
-
-        // Wyczyść daty
-        if (this.filterElements.filterDateFrom) {
-            this.filterElements.filterDateFrom.value = '';
-        }
-        if (this.filterElements.filterDateTo) {
-            this.filterElements.filterDateTo.value = '';
-        }
-
-        // Wyczyść stany checkbox'ów
-        Object.keys(this.activeFilters).forEach(filterKey => {
-            const container = this.getFilterContainer(filterKey);
-            if (container) {
-                container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-                    checkbox.checked = false;
-                });
-            }
-        });
-
-        // Wyczyść wyszukiwania
-        Object.keys(this.activeFilters).forEach(filterKey => {
-            const searchElement = this.filterElements[`search${this.capitalizeFirst(filterKey.replace('_', ''))}`];
-            if (searchElement) {
-                searchElement.value = '';
-                this.filterDropdownOptions(filterKey, ''); // Pokaż wszystkie opcje
-            }
-        });
-
-        // Wyczyść lokalny stan
-        this.activeFilters = {
-            customer_name: [],
-            delivery_state: [],
-            wood_species: [],
-            current_status: []
-        };
-
-        console.log('[TableManager] Filters cleared');
-    }
-
-    /**
      * Pokazywanie komunikatu
      */
     showMessage(message, type = 'info') {
@@ -814,6 +1065,81 @@ class TableManager {
         } else {
             alert(message);
         }
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie czy dropdown jest otwarty
+     */
+    isDropdownOpen(filterKey) {
+        return this.dropdownStates[filterKey] || false;
+    }
+
+    /**
+     * NOWA METODA - Refresh dropdown'a po zmianie danych
+     */
+    refreshDropdown(filterKey) {
+        this.updateDropdownOptions(filterKey);
+
+        // Jeśli dropdown jest otwarty, odśwież search
+        if (this.isDropdownOpen(filterKey)) {
+            const camelCase = this.snakeToCamel(filterKey);
+            const search = this.filterElements[`search${this.capitalizeFirst(camelCase)}`];
+            if (search) {
+                this.filterDropdownOptions(filterKey, search.value);
+            }
+        }
+    }
+
+    /**
+     * NOWA METODA - Pobieranie aktualnych filtrów
+     */
+    getCurrentFilters() {
+        return { ...this.activeFilters };
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie czy jakiś filtr jest aktywny
+     */
+    hasActiveFilters() {
+        return Object.keys(this.activeFilters).some(key =>
+            this.activeFilters[key] && this.activeFilters[key].length > 0
+        );
+    }
+
+    /**
+     * NOWA METODA - Pobieranie liczby aktywnych filtrów
+     */
+    getActiveFiltersCount() {
+        return Object.keys(this.activeFilters).reduce((count, key) => {
+            return count + (this.activeFilters[key] ? this.activeFilters[key].length : 0);
+        }, 0);
+    }
+
+    /**
+     * NOWA METODA - Eksport stanu filtrów
+     */
+    exportFiltersState() {
+        return {
+            activeFilters: { ...this.activeFilters },
+            dropdownStates: { ...this.dropdownStates }
+        };
+    }
+
+    /**
+     * NOWA METODA - Import stanu filtrów
+     */
+    importFiltersState(state) {
+        if (state.activeFilters) {
+            this.activeFilters = { ...state.activeFilters };
+        }
+        if (state.dropdownStates) {
+            this.dropdownStates = { ...state.dropdownStates };
+        }
+
+        // Aktualizuj interfejs
+        Object.keys(this.activeFilters).forEach(filterKey => {
+            this.updateDropdownOptions(filterKey);
+        });
     }
 
     /**
@@ -839,6 +1165,23 @@ class TableManager {
         Object.keys(this.activeFilters).forEach(filterKey => {
             this.updateDropdownOptions(filterKey);
         });
+    }
+
+    /**
+     * Debug info
+     */
+    getDebugInfo() {
+        return {
+            activeFilters: this.activeFilters,
+            dropdownStates: this.dropdownStates,
+            dropdownData: Object.keys(this.dropdownData).reduce((acc, key) => {
+                acc[key] = this.dropdownData[key].length;
+                return acc;
+            }, {}),
+            hasActiveFilters: this.hasActiveFilters(),
+            activeFiltersCount: this.getActiveFiltersCount(),
+            isInitialized: this.isInitialized
+        };
     }
 }
 

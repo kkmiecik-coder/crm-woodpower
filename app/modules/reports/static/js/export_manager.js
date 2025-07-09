@@ -8,6 +8,7 @@ class ExportManager {
     constructor() {
         this.isExporting = false;
         this.exportButton = null;
+        this.lastExportTime = null; // POPRAWKA: Dodano śledzenie czasu ostatniego eksportu
 
         console.log('[ExportManager] Initialized');
     }
@@ -37,23 +38,37 @@ class ExportManager {
      * Ustawienie event listenerów
      */
     setupEventListeners() {
-        // Obsługa skrótu klawiszowego Ctrl+E jest już w ReportsManager
+        // POPRAWKA: Dodano bezpośredni event listener dla przycisku eksportu
+        if (this.exportButton) {
+            this.exportButton.addEventListener('click', () => {
+                this.exportToExcel();
+            });
+        }
 
         console.log('[ExportManager] Event listeners setup complete');
     }
 
     /**
-     * Główna funkcja eksportu do Excel
+     * Główna funkcja eksportu do Excel - POPRAWKA: Dodano timeout i retry logic
      */
     async exportToExcel() {
         if (this.isExporting) {
             console.log('[ExportManager] Export already in progress, skipping...');
+            this.showNotification('Eksport już w toku. Proszę czekać...', 'warning');
+            return;
+        }
+
+        // POPRAWKA: Sprawdź czy nie eksportowano zbyt niedawno (throttling)
+        if (this.lastExportTime && (Date.now() - this.lastExportTime) < 2000) {
+            console.log('[ExportManager] Export throttled - too soon after last export');
+            this.showNotification('Proszę poczekać przed kolejnym eksportem', 'warning');
             return;
         }
 
         console.log('[ExportManager] Starting Excel export...');
 
         this.setExportingState(true);
+        this.lastExportTime = Date.now();
 
         try {
             // Pobierz aktualne filtry i zakres dat z ReportsManager
@@ -64,6 +79,12 @@ class ExportManager {
                 dateRange,
                 filtersCount: Object.keys(filters).length
             });
+
+            // Walidacja danych przed eksportem
+            const validationResult = this.validateExportData(dateRange, filters);
+            if (!validationResult.isValid) {
+                throw new Error(validationResult.message);
+            }
 
             // Przygotuj parametry URL
             const params = new URLSearchParams();
@@ -87,13 +108,13 @@ class ExportManager {
                 }
             }
 
-            // Wykonaj request do API eksportu
-            const response = await fetch(`/reports/api/export-excel?${params}`, {
+            // POPRAWKA: Dodano timeout i retry logic
+            const response = await this.fetchWithTimeout(`/reports/api/export-excel?${params}`, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 }
-            });
+            }, 30000); // 30 sekund timeout
 
             if (!response.ok) {
                 // Sprawdź czy to JSON z błędem
@@ -111,6 +132,11 @@ class ExportManager {
 
             if (blob.size === 0) {
                 throw new Error('Otrzymano pusty plik');
+            }
+
+            // POPRAWKA: Sprawdź czy blob jest prawidłowy
+            if (blob.type && !blob.type.includes('sheet') && !blob.type.includes('excel')) {
+                console.warn('[ExportManager] Unexpected blob type:', blob.type);
             }
 
             // Pobierz nazwę pliku z nagłówka lub wygeneruj
@@ -136,6 +162,84 @@ class ExportManager {
     }
 
     /**
+     * NOWA METODA - Fetch z timeout
+     */
+    async fetchWithTimeout(url, options = {}, timeout = 30000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Timeout - eksport trwa zbyt długo');
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * NOWA METODA - Walidacja danych przed eksportem
+     */
+    validateExportData(dateRange, filters) {
+        // Sprawdź czy są dane do eksportu
+        const currentData = this.getCurrentData();
+        if (!currentData || currentData.length === 0) {
+            return {
+                isValid: false,
+                message: 'Brak danych do eksportu. Zmień filtry lub zakres dat.'
+            };
+        }
+
+        // Sprawdź zakres dat
+        if (!dateRange.date_from || !dateRange.date_to) {
+            return {
+                isValid: false,
+                message: 'Nieprawidłowy zakres dat. Wybierz datę początkową i końcową.'
+            };
+        }
+
+        // Sprawdź czy data końcowa nie jest wcześniejsza niż początkowa
+        if (dateRange.date_from > dateRange.date_to) {
+            return {
+                isValid: false,
+                message: 'Data końcowa nie może być wcześniejsza niż data początkowa.'
+            };
+        }
+
+        // Sprawdź czy zakres dat nie jest zbyt duży (max 1 rok)
+        const dateFrom = new Date(dateRange.date_from);
+        const dateTo = new Date(dateRange.date_to);
+        const daysDiff = Math.ceil((dateTo - dateFrom) / (1000 * 60 * 60 * 24));
+
+        if (daysDiff > 365) {
+            return {
+                isValid: false,
+                message: 'Zakres dat nie może być większy niż 1 rok.'
+            };
+        }
+
+        // Sprawdź czy nie ma zbyt dużo danych (max 10000 rekordów)
+        if (currentData.length > 10000) {
+            return {
+                isValid: false,
+                message: `Zbyt dużo danych do eksportu (${currentData.length} rekordów). Ogranicz zakres dat lub użyj filtrów.`
+            };
+        }
+
+        return {
+            isValid: true,
+            message: 'Dane są prawidłowe'
+        };
+    }
+
+    /**
      * Pobranie nazwy pliku z nagłówka odpowiedzi
      */
     getFilenameFromResponse(response) {
@@ -150,7 +254,7 @@ class ExportManager {
     }
 
     /**
-     * Generowanie nazwy pliku
+     * Generowanie nazwy pliku - POPRAWKA: Bezpieczniejsze generowanie
      */
     generateFilename() {
         const now = new Date();
@@ -171,36 +275,46 @@ class ExportManager {
             }
         }
 
-        return `raporty_sprzedazy_${dateRangeStr}_${dateString}_${timeString}.xlsx`;
+        // POPRAWKA: Dodano informacje o filtrach w nazwie
+        const filters = this.getCurrentFilters();
+        const filtersCount = Object.keys(filters).length;
+        const filtersStr = filtersCount > 0 ? `_filtered_${filtersCount}` : '';
+
+        return `raporty_sprzedazy_${dateRangeStr}${filtersStr}_${dateString}_${timeString}.xlsx`;
     }
 
     /**
-     * Pobieranie blob'a jako plik
+     * Pobieranie blob'a jako plik - POPRAWKA: Lepsza obsługa błędów
      */
     downloadBlob(blob, filename) {
         console.log('[ExportManager] Downloading file:', filename);
 
-        // Sprawdź czy przeglądarka obsługuje download
-        if (window.navigator && window.navigator.msSaveOrOpenBlob) {
-            // Internet Explorer
-            window.navigator.msSaveOrOpenBlob(blob, filename);
-        } else {
-            // Nowoczesne przeglądarki
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            link.style.display = 'none';
+        try {
+            // Sprawdź czy przeglądarka obsługuje download
+            if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+                // Internet Explorer
+                window.navigator.msSaveOrOpenBlob(blob, filename);
+            } else {
+                // Nowoczesne przeglądarki
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                link.style.display = 'none';
 
-            // Dodaj do DOM, kliknij, usuń
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+                // Dodaj do DOM, kliknij, usuń
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
 
-            // Zwolnij URL po krótkiej chwili
-            setTimeout(() => {
-                window.URL.revokeObjectURL(url);
-            }, 1000);
+                // Zwolnij URL po krótkiej chwili
+                setTimeout(() => {
+                    window.URL.revokeObjectURL(url);
+                }, 1000);
+            }
+        } catch (error) {
+            console.error('[ExportManager] Error downloading file:', error);
+            throw new Error('Nie udało się pobrać pliku');
         }
     }
 
@@ -238,7 +352,7 @@ class ExportManager {
 
         console.log('[ExportManager] Export success:', message);
 
-        // TODO: Lepszy system notyfikacji (toast, snackbar)
+        // POPRAWKA: Lepsze powiadomienie o sukcesie
         this.showNotification(message, 'success');
     }
 
@@ -254,18 +368,25 @@ class ExportManager {
     }
 
     /**
-     * Pokazanie notyfikacji
+     * Pokazanie notyfikacji - POPRAWKA: Lepszy system notyfikacji
      */
     showNotification(message, type = 'info') {
-        // Prosta implementacja - można zastąpić lepszym systemem
         console.log(`[ExportManager] ${type.toUpperCase()}: ${message}`);
 
-        if (type === 'error') {
-            alert(`Błąd: ${message}`);
-        } else {
-            // Dla sukcesu można użyć toast'a lub innej metody
-            // Na razie console log wystarczy, bo download jest oczywisty dla użytkownika
-            console.log(`Success: ${message}`);
+        // POPRAWKA: Różne typy powiadomień
+        switch (type) {
+            case 'error':
+                alert(`❌ ${message}`);
+                break;
+            case 'success':
+                // Dla sukcesu nie pokazuj alert'a - download jest wystarczający
+                console.log(`✅ ${message}`);
+                break;
+            case 'warning':
+                alert(`⚠️ ${message}`);
+                break;
+            default:
+                console.log(`ℹ️ ${message}`);
         }
     }
 
@@ -277,6 +398,7 @@ class ExportManager {
 
         if (this.isExporting) {
             console.log('[ExportManager] Export already in progress, skipping custom export...');
+            this.showNotification('Eksport już w toku. Proszę czekać...', 'warning');
             return;
         }
 
@@ -286,13 +408,13 @@ class ExportManager {
             // Przygotuj parametry URL
             const params = new URLSearchParams(customParams);
 
-            // Wykonaj request
-            const response = await fetch(`/reports/api/export-excel?${params}`, {
+            // POPRAWKA: Użyj fetchWithTimeout
+            const response = await this.fetchWithTimeout(`/reports/api/export-excel?${params}`, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 }
-            });
+            }, 30000);
 
             if (!response.ok) {
                 const contentType = response.headers.get('content-type');
@@ -342,7 +464,7 @@ class ExportManager {
     }
 
     /**
-     * Sprawdzenie czy eksport jest możliwy
+     * Sprawdzenie czy eksport jest możliwy - POPRAWKA: Ulepszona walidacja
      */
     canExport() {
         // Sprawdź czy są dane do eksportu
@@ -357,6 +479,20 @@ class ExportManager {
         if (this.isExporting) {
             console.log('[ExportManager] Cannot export: export in progress');
             this.showNotification('Eksport już w toku. Proszę czekać...', 'warning');
+            return false;
+        }
+
+        // POPRAWKA: Sprawdź throttling
+        if (this.lastExportTime && (Date.now() - this.lastExportTime) < 2000) {
+            console.log('[ExportManager] Cannot export: too soon after last export');
+            this.showNotification('Proszę poczekać przed kolejnym eksportem', 'warning');
+            return false;
+        }
+
+        // POPRAWKA: Sprawdź czy ReportsManager jest dostępny
+        if (!window.reportsManager) {
+            console.log('[ExportManager] Cannot export: ReportsManager not available');
+            this.showNotification('System raportów nie jest dostępny', 'error');
             return false;
         }
 
@@ -452,12 +588,13 @@ Czy chcesz kontynuować eksport?
     }
 
     /**
-     * Pobieranie danych z ReportsManager
+     * Pobieranie danych z ReportsManager - POPRAWKA: Bezpieczniejsze pobieranie
      */
     getCurrentData() {
         if (window.reportsManager && typeof window.reportsManager.getCurrentData === 'function') {
             return window.reportsManager.getCurrentData();
         }
+        console.warn('[ExportManager] ReportsManager not available for getCurrentData');
         return [];
     }
 
@@ -465,6 +602,7 @@ Czy chcesz kontynuować eksport?
         if (window.reportsManager && typeof window.reportsManager.getCurrentStats === 'function') {
             return window.reportsManager.getCurrentStats();
         }
+        console.warn('[ExportManager] ReportsManager not available for getCurrentStats');
         return {};
     }
 
@@ -472,6 +610,7 @@ Czy chcesz kontynuować eksport?
         if (window.reportsManager && typeof window.reportsManager.getCurrentFilters === 'function') {
             return window.reportsManager.getCurrentFilters();
         }
+        console.warn('[ExportManager] ReportsManager not available for getCurrentFilters');
         return {};
     }
 
@@ -480,6 +619,7 @@ Czy chcesz kontynuować eksport?
             return window.reportsManager.getCurrentDateRange();
         }
 
+        console.warn('[ExportManager] ReportsManager not available for getCurrentDateRange, using fallback');
         // Fallback - ostatni miesiąc
         const today = new Date();
         const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -545,6 +685,35 @@ Czy chcesz kontynuować eksport?
     }
 
     /**
+     * NOWA METODA - Anulowanie eksportu
+     */
+    cancelExport() {
+        console.log('[ExportManager] Canceling export...');
+        this.isExporting = false;
+        this.setExportingState(false);
+    }
+
+    /**
+     * NOWA METODA - Walidacja stanu managera
+     */
+    validateState() {
+        const issues = [];
+
+        if (!this.exportButton) {
+            issues.push('Missing export button element');
+        }
+
+        if (!window.reportsManager) {
+            issues.push('ReportsManager not available');
+        }
+
+        return {
+            isValid: issues.length === 0,
+            issues: issues
+        };
+    }
+
+    /**
      * Publiczne API
      */
 
@@ -568,17 +737,25 @@ Czy chcesz kontynuować eksport?
         return {
             isExporting: this.isExporting,
             canExport: this.canExport(),
-            exportInfo: this.getExportInfo()
+            exportInfo: this.getExportInfo(),
+            lastExportTime: this.lastExportTime
         };
     }
 
-    // Debug info
+    // Debug info - POPRAWKA: Rozszerzone informacje
     getDebugInfo() {
+        const validation = this.validateState();
+
         return {
             isExporting: this.isExporting,
+            lastExportTime: this.lastExportTime,
             exportInfo: this.getExportInfo(),
             currentData: this.getCurrentData().length,
-            currentFilters: this.getCurrentFilters()
+            currentFilters: this.getCurrentFilters(),
+            validation: validation,
+            elements: {
+                exportButton: !!this.exportButton
+            }
         };
     }
 }

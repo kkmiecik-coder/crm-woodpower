@@ -14,6 +14,10 @@ class SyncManager {
         this.newOrders = [];
         this.selectedOrders = [];
 
+        // POPRAWKA: Dodano elementy przycisków
+        this.syncModalCancel = null;
+        this.syncModalConfirm = null;
+
         console.log('[SyncManager] Initialized');
     }
 
@@ -78,6 +82,13 @@ class SyncManager {
             });
         }
 
+        // POPRAWKA: Dodano obsługę klawisza Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.syncModal && this.syncModal.style.display === 'block') {
+                this.hideSyncModal();
+            }
+        });
+
         console.log('[SyncManager] Event listeners setup complete');
     }
 
@@ -89,6 +100,14 @@ class SyncManager {
 
         if (!this.syncModal) {
             console.error('[SyncManager] Sync modal not found');
+            this.showError('Modal synchronizacji nie został znaleziony');
+            return;
+        }
+
+        // POPRAWKA: Sprawdź czy już trwa synchronizacja
+        if (this.isSync) {
+            console.log('[SyncManager] Sync already in progress');
+            this.showError('Synchronizacja już trwa');
             return;
         }
 
@@ -127,6 +146,7 @@ class SyncManager {
         // Reset danych po ukryciu modala
         this.newOrders = [];
         this.selectedOrders = [];
+        this.isSync = false; // POPRAWKA: Reset flagi synchronizacji
     }
 
     /**
@@ -148,6 +168,12 @@ class SyncManager {
             }
 
             const response = await fetch(`/reports/api/check-new-orders?${params}`);
+
+            // POPRAWKA: Sprawdź status HTTP
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const result = await response.json();
 
             if (!result.success) {
@@ -255,12 +281,17 @@ class SyncManager {
     }
 
     /**
-     * Renderowanie pojedynczego zamówienia
+     * Renderowanie pojedynczego zamówienia - POPRAWKA: Bezpieczniejsze renderowanie
      */
     renderOrderItem(order) {
         const totalNetFormatted = this.formatCurrency(order.total_net);
         const totalGrossFormatted = this.formatCurrency(order.total_gross);
         const deliveryFormatted = this.formatCurrency(order.delivery_price);
+
+        // POPRAWKA: Bezpieczne renderowanie produktów
+        const products = order.products || [];
+        const productsDisplay = products.length > 0 ? products.slice(0, 3).join(', ') : 'Brak produktów';
+        const moreProductsIndicator = products.length > 3 ? '...' : '';
 
         return `
             <div class="sync-order-item">
@@ -278,13 +309,13 @@ class SyncManager {
                     </div>
                     
                     <div class="sync-order-meta">
-                        <i class="fas fa-calendar"></i> ${order.date_add} |
-                        <i class="fas fa-user"></i> ${order.customer_name} |
-                        <i class="fas fa-box"></i> ${order.products_count} produktów
+                        <i class="fas fa-calendar"></i> ${order.date_add || 'Brak daty'} |
+                        <i class="fas fa-user"></i> ${order.customer_name || 'Nieznany klient'} |
+                        <i class="fas fa-box"></i> ${products.length} produktów
                     </div>
                     
                     <div class="sync-order-products">
-                        <strong>Produkty:</strong> ${order.products.slice(0, 3).join(', ')}${order.products.length > 3 ? '...' : ''}
+                        <strong>Produkty:</strong> ${productsDisplay}${moreProductsIndicator}
                     </div>
                 </div>
                 
@@ -295,7 +326,7 @@ class SyncManager {
                     <div class="sync-order-amount text-muted">
                         ${totalNetFormatted} netto
                     </div>
-                    ${order.delivery_price > 0 ? `
+                    ${(order.delivery_price && order.delivery_price > 0) ? `
                         <div class="sync-order-delivery">
                             + ${deliveryFormatted} dostawa
                         </div>
@@ -420,7 +451,7 @@ class SyncManager {
     }
 
     /**
-     * Wykonanie synchronizacji
+     * Wykonanie synchronizacji - POPRAWKA: Lepsza obsługa błędów
      */
     async performSync() {
         // Skopiuj selectedOrders na początku - zabezpieczenie przed wyczyszczeniem
@@ -432,6 +463,15 @@ class SyncManager {
             this.showError('Nie wybrano żadnych zamówień do synchronizacji');
             return;
         }
+
+        // POPRAWKA: Sprawdź czy już trwa synchronizacja
+        if (this.isSync) {
+            console.log('[SyncManager] Sync already in progress');
+            return;
+        }
+
+        // Ustaw flagę synchronizacji
+        this.isSync = true;
 
         // Ukryj modal
         this.hideSyncModal();
@@ -460,6 +500,12 @@ class SyncManager {
             });
 
             console.log('[SyncManager] Response status:', response.status);
+
+            // POPRAWKA: Sprawdź status HTTP
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const result = await response.json();
             console.log('[SyncManager] Response data:', result);
 
@@ -494,6 +540,9 @@ class SyncManager {
             console.error('[SyncManager] Sync error:', error);
             this.hideSyncLoading();
             this.showError('Błąd synchronizacji: ' + error.message);
+        } finally {
+            // POPRAWKA: Zawsze resetuj flagę synchronizacji
+            this.isSync = false;
         }
     }
 
@@ -556,6 +605,12 @@ class SyncManager {
             });
 
             const response = await fetch(`/reports/api/check-new-orders?${params}`);
+
+            // POPRAWKA: Sprawdź status HTTP
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const result = await response.json();
 
             if (result.success && result.has_new_orders) {
@@ -608,11 +663,19 @@ class SyncManager {
     }
 
     /**
-     * Synchronizacja z konkretnym zakresem dat
+     * Synchronizacja z konkretnym zakresem dat - POPRAWKA: Lepsza obsługa błędów
      */
     async syncWithDateRange(dateFrom, dateTo) {
         console.log('[SyncManager] Manual sync with date range:', dateFrom, dateTo);
 
+        // POPRAWKA: Sprawdź czy już trwa synchronizacja
+        if (this.isSync) {
+            console.log('[SyncManager] Sync already in progress');
+            this.showError('Synchronizacja już trwa');
+            return;
+        }
+
+        this.isSync = true;
         this.showSyncLoading('Synchronizowanie z wybranym zakresem dat...');
 
         try {
@@ -629,6 +692,11 @@ class SyncManager {
                 },
                 body: JSON.stringify(requestData)
             });
+
+            // POPRAWKA: Sprawdź status HTTP
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
 
             const result = await response.json();
 
@@ -656,6 +724,9 @@ class SyncManager {
             console.error('[SyncManager] Manual sync error:', error);
             this.hideSyncLoading();
             this.showError('Błąd synchronizacji: ' + error.message);
+        } finally {
+            // POPRAWKA: Zawsze resetuj flagę synchronizacji
+            this.isSync = false;
         }
     }
 
@@ -667,13 +738,72 @@ class SyncManager {
     }
 
     /**
-     * Debug info
+     * NOWA METODA - Anulowanie synchronizacji
+     */
+    cancelSync() {
+        console.log('[SyncManager] Canceling sync...');
+        this.isSync = false;
+        this.hideSyncLoading();
+        this.hideSyncModal();
+    }
+
+    /**
+     * NOWA METODA - Walidacja stanu managera
+     */
+    validateState() {
+        const issues = [];
+
+        if (!this.syncModal) {
+            issues.push('Missing sync modal element');
+        }
+
+        if (!this.syncModalContent) {
+            issues.push('Missing sync modal content element');
+        }
+
+        if (!this.syncLoadingOverlay) {
+            issues.push('Missing sync loading overlay element');
+        }
+
+        return {
+            isValid: issues.length === 0,
+            issues: issues
+        };
+    }
+
+    /**
+     * NOWA METODA - Reset stanu managera
+     */
+    resetState() {
+        console.log('[SyncManager] Resetting state...');
+
+        this.isSync = false;
+        this.newOrders = [];
+        this.selectedOrders = [];
+        this.hideSyncModal();
+        this.hideSyncLoading();
+    }
+
+    /**
+     * Debug info - POPRAWKA: Rozszerzone informacje
      */
     getDebugInfo() {
+        const validation = this.validateState();
+
         return {
             newOrders: this.newOrders.length,
             selectedOrders: this.selectedOrders.length,
-            isSync: this.isSync
+            isSync: this.isSync,
+            modalVisible: this.syncModal ? (this.syncModal.style.display === 'block') : false,
+            loadingVisible: this.syncLoadingOverlay ? !this.syncLoadingOverlay.classList.contains('hidden') : false,
+            validation: validation,
+            elements: {
+                syncModal: !!this.syncModal,
+                syncModalContent: !!this.syncModalContent,
+                syncLoadingOverlay: !!this.syncLoadingOverlay,
+                syncModalCancel: !!this.syncModalCancel,
+                syncModalConfirm: !!this.syncModalConfirm
+            }
         };
     }
 }

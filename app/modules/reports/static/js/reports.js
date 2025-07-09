@@ -35,13 +35,13 @@ class ReportsManager {
     }
 
     /**
-     * Cache elementów DOM
+     * Cache elementów DOM - POPRAWKA: Dodano filtry dropdown
      */
     cacheElements() {
         this.elements = {
-            // Kontrolki dat
-            dateFrom: document.getElementById('dateFrom'),
-            dateTo: document.getElementById('dateTo'),
+            // Kontrolki dat - POPRAWKA: Zmieniono na filterDateFrom/To
+            dateFrom: document.getElementById('filterDateFrom'),
+            dateTo: document.getElementById('filterDateTo'),
             syncBtn: document.getElementById('syncBtn'),
             addManualRowBtn: document.getElementById('addManualRowBtn'),
             exportExcelBtn: document.getElementById('exportExcelBtn'),
@@ -91,10 +91,10 @@ class ReportsManager {
     }
 
     /**
-     * Ustawienie event listenerów
+     * Ustawienie event listenerów - POPRAWKA: Poprawiono obsługę dat
      */
     setupEventListeners() {
-        // Zmiana dat - główne kontrolki
+        // POPRAWKA: Zmiana dat - używamy filterDateFrom/To zamiast dateFrom/To
         if (this.elements.dateFrom) {
             this.elements.dateFrom.addEventListener('change', () => {
                 this.dateFrom = this.elements.dateFrom.value;
@@ -172,6 +172,7 @@ class ReportsManager {
             this.dateTo = today.toISOString().split('T')[0];
         }
 
+        // POPRAWKA: Ustaw wartości w prawidłowych elementach
         if (this.elements.dateFrom) {
             this.elements.dateFrom.value = this.dateFrom;
         }
@@ -191,25 +192,91 @@ class ReportsManager {
     }
 
     /**
-     * Ładowanie początkowych danych
+     * Ładowanie początkowych danych - POPRAWKA: Ulepszona obsługa błędów
      */
     async loadInitialData() {
         console.log('[ReportsManager] Loading initial data...');
 
-        // Załaduj dane
-        await this.loadData();
+        try {
+            // Najpierw wyczyść statystyki i porównania
+            this.clearStatistics();
+            this.clearComparisons();
 
-        // Aktualizuj statystyki z konfiguracji (jeśli dostępne)
-        if (window.reportsConfig) {
-            if (window.reportsConfig.stats) {
-                this.updateStatistics(window.reportsConfig.stats);
+            // Załaduj dane z API
+            await this.loadData();
+
+            // Tylko jeśli nie mamy danych z API, użyj window.reportsConfig
+            if (this.currentData.length === 0 && window.reportsConfig) {
+                if (window.reportsConfig.stats && Object.keys(window.reportsConfig.stats).length > 0) {
+                    this.updateStatistics(window.reportsConfig.stats);
+                }
+                if (window.reportsConfig.comparison && Object.keys(window.reportsConfig.comparison).length > 0) {
+                    this.updateComparisons(window.reportsConfig.comparison);
+                }
             }
-            if (window.reportsConfig.comparison) {
-                this.updateComparisons(window.reportsConfig.comparison);
-            }
+
+            console.log('[ReportsManager] Initial data loaded');
+        } catch (error) {
+            console.error('[ReportsManager] Error loading initial data:', error);
+            // W przypadku błędu wyczyść wszystko
+            this.clearStatistics();
+            this.clearComparisons();
         }
+    }
 
-        console.log('[ReportsManager] Initial data loaded');
+    /**
+     * Czyszczenie statystyk
+     */
+    clearStatistics() {
+        console.log('[ReportsManager] Clearing statistics...');
+
+        const emptyStats = {
+            total_m3: 0,
+            order_amount_net: 0,
+            value_net: 0,
+            value_gross: 0,
+            avg_price_per_m3: 0,
+            delivery_cost: 0,
+            paid_amount_net: 0,
+            balance_due: 0,
+            production_volume: 0,
+            production_value_net: 0,
+            ready_pickup_volume: 0
+        };
+
+        this.updateStatistics(emptyStats);
+    }
+
+    /**
+     * Czyszczenie porównań
+     */
+    clearComparisons() {
+        console.log('[ReportsManager] Clearing comparisons...');
+
+        const elementMap = {
+            'total_m3': 'compTotalM3',
+            'order_amount_net': 'compOrderAmountNet',
+            'value_net': 'compValueNet',
+            'value_gross': 'compValueGross',
+            'avg_price_per_m3': 'compPricePerM3',
+            'delivery_cost': 'compDeliveryCost',
+            'paid_amount_net': 'compPaidAmountNet',
+            'balance_due': 'compBalanceDue',
+            'production_volume': 'compProductionVolume',
+            'production_value_net': 'compProductionValueNet',
+            'ready_pickup_volume': 'compReadyPickupVolume'
+        };
+
+        // Wyczyść porównania - ustaw puste teksty
+        Object.keys(elementMap).forEach(field => {
+            const elementId = elementMap[field];
+            const element = this.elements[elementId];
+
+            if (element) {
+                element.textContent = '';
+                element.className = 'stat-comparison';
+            }
+        });
     }
 
     /**
@@ -255,6 +322,12 @@ class ReportsManager {
 
             // Wykonaj zapytanie
             const response = await fetch(`/reports/api/data?${params}`);
+
+            // POPRAWKA: Sprawdź czy odpowiedź jest OK
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const result = await response.json();
 
             if (!result.success) {
@@ -567,10 +640,14 @@ class ReportsManager {
     }
 
     /**
-     * Aktualizacja porównań
+     * Aktualizacja porównań - POPRAWKA: Ulepszona obsługa
      */
     updateComparisons(comparison) {
-        if (!comparison) return;
+        if (!comparison || Object.keys(comparison).length === 0) {
+            console.log('[ReportsManager] No comparison data, clearing comparisons');
+            this.clearComparisons();
+            return;
+        }
 
         console.log('[ReportsManager] Updating comparisons:', comparison);
 
@@ -599,15 +676,21 @@ class ReportsManager {
             const element = this.elements[elementId];
             const compData = comparison[field];
 
-            if (element && compData) {
-                const changePercent = compData.change_percent;
-                const isPositive = compData.is_positive;
+            if (element) {
+                if (compData && compData.change_percent !== undefined) {
+                    const changePercent = compData.change_percent;
+                    const isPositive = compData.is_positive;
 
-                if (changePercent !== 0) {
-                    const sign = isPositive ? '+' : '';
-                    element.textContent = `${sign}${changePercent}%`;
-                    element.className = `stat-comparison ${isPositive ? 'positive' : 'negative'}`;
+                    if (changePercent !== 0) {
+                        const sign = isPositive ? '+' : '';
+                        element.textContent = `${sign}${changePercent}%`;
+                        element.className = `stat-comparison ${isPositive ? 'positive' : 'negative'}`;
+                    } else {
+                        element.textContent = '';
+                        element.className = 'stat-comparison';
+                    }
                 } else {
+                    // Brak danych porównawczych dla tego pola
                     element.textContent = '';
                     element.className = 'stat-comparison';
                 }
@@ -835,7 +918,7 @@ class ReportsManager {
     }
 
     /**
-     * Ustawienie filtra
+     * Ustawienie filtra - POPRAWKA: Lepsze logowanie
      */
     setFilter(column, values) {
         console.log('[ReportsManager] Setting filter:', column, values);
@@ -954,6 +1037,25 @@ class ReportsManager {
     }
 
     /**
+     * POPRAWKA: Ustawienie dat programowo - lepsze logowanie
+     */
+    setDateRange(dateFrom, dateTo) {
+        console.log('[ReportsManager] Setting date range:', dateFrom, dateTo);
+
+        this.dateFrom = dateFrom;
+        this.dateTo = dateTo;
+
+        if (this.elements.dateFrom) {
+            this.elements.dateFrom.value = dateFrom || '';
+        }
+        if (this.elements.dateTo) {
+            this.elements.dateTo.value = dateTo || '';
+        }
+
+        this.loadData();
+    }
+
+    /**
      * Pobieranie bieżących dat dla innych managerów
      */
     getCurrentDateRange() {
@@ -992,26 +1094,71 @@ class ReportsManager {
     }
 
     /**
-     * Ustawienie dat programowo
+     * NOWA METODA - Sprawdzenie czy dane są ładowane
      */
-    setDateRange(dateFrom, dateTo) {
-        this.dateFrom = dateFrom;
-        this.dateTo = dateTo;
+    isDataLoading() {
+        return this.isLoading;
+    }
 
-        if (this.elements.dateFrom) {
-            this.elements.dateFrom.value = dateFrom || '';
-        }
-        if (this.elements.dateTo) {
-            this.elements.dateTo.value = dateTo || '';
+    /**
+     * NOWA METODA - Resetowanie filtrów bez resetowania dat
+     */
+    clearFiltersOnly() {
+        console.log('[ReportsManager] Clearing filters only (keeping dates)');
+
+        this.currentFilters = {};
+
+        if (window.tableManager) {
+            window.tableManager.clearFilters();
         }
 
         this.loadData();
     }
 
     /**
+     * NOWA METODA - Sprawdzenie czy są aktywne filtry
+     */
+    hasActiveFilters() {
+        return Object.keys(this.currentFilters).length > 0;
+    }
+
+    /**
+     * NOWA METODA - Pobieranie liczby rekordów
+     */
+    getRecordsCount() {
+        return this.currentData.length;
+    }
+
+    /**
+     * NOWA METODA - Weryfikacja stanu managera
+     */
+    validateState() {
+        const issues = [];
+
+        if (!this.elements.reportsTableBody) {
+            issues.push('Missing table body element');
+        }
+
+        if (!this.elements.dateFrom || !this.elements.dateTo) {
+            issues.push('Missing date filter elements');
+        }
+
+        if (!this.dateFrom || !this.dateTo) {
+            issues.push('Date range not set');
+        }
+
+        return {
+            isValid: issues.length === 0,
+            issues: issues
+        };
+    }
+
+    /**
      * Debug info
      */
     getDebugInfo() {
+        const validation = this.validateState();
+
         return {
             currentData: this.currentData.length,
             currentStats: this.currentStats,
@@ -1019,7 +1166,13 @@ class ReportsManager {
             currentFilters: this.currentFilters,
             dateFrom: this.dateFrom,
             dateTo: this.dateTo,
-            isLoading: this.isLoading
+            isLoading: this.isLoading,
+            hasActiveFilters: this.hasActiveFilters(),
+            validation: validation,
+            elements: {
+                cached: Object.keys(this.elements).length,
+                missing: Object.keys(this.elements).filter(key => !this.elements[key]).length
+            }
         };
     }
 }

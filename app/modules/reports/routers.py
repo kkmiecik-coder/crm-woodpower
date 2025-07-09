@@ -54,18 +54,65 @@ def reports_home():
         date_from = datetime.now().date() - timedelta(days=30)
         date_to = datetime.now().date()
         
-        query = BaselinkerReportOrder.get_filtered_orders(
-            date_from=date_from,
-            date_to=date_to
-        )
-        stats = BaselinkerReportOrder.get_statistics(query)
+        # POPRAWKA: Sprawdź czy są jakiekolwiek dane w bazie
+        total_records = BaselinkerReportOrder.query.count()
         
-        # Pobierz porównania tylko jeśli mamy dane
-        comparison = {}
-        if stats.get('total_m3', 0) > 0:  # Tylko jeśli są jakieś dane
-            comparison = BaselinkerReportOrder.get_comparison_statistics(
-                {}, date_from, date_to
+        if total_records == 0:
+            # Brak danych w bazie - ustaw puste statystyki
+            stats = {
+                'total_m3': 0.0,
+                'order_amount_net': 0.0,
+                'value_net': 0.0,
+                'value_gross': 0.0,
+                'avg_price_per_m3': 0.0,
+                'delivery_cost': 0.0,
+                'paid_amount_net': 0.0,
+                'balance_due': 0.0,
+                'production_volume': 0.0,
+                'production_value_net': 0.0,
+                'ready_pickup_volume': 0.0
+            }
+            comparison = {}
+        else:
+            # Pobierz dane dla domyślnego zakresu dat
+            query = BaselinkerReportOrder.get_filtered_orders(
+                date_from=date_from,
+                date_to=date_to
             )
+            
+            # Sprawdź czy query zwraca jakieś dane
+            query_results = query.all()
+            
+            if not query_results:
+                # Brak danych dla domyślnego zakresu - ustaw puste statystyki
+                stats = {
+                    'total_m3': 0.0,
+                    'order_amount_net': 0.0,
+                    'value_net': 0.0,
+                    'value_gross': 0.0,
+                    'avg_price_per_m3': 0.0,
+                    'delivery_cost': 0.0,
+                    'paid_amount_net': 0.0,
+                    'balance_due': 0.0,
+                    'production_volume': 0.0,
+                    'production_value_net': 0.0,
+                    'ready_pickup_volume': 0.0
+                }
+                comparison = {}
+            else:
+                # Oblicz statystyki dla istniejących danych
+                stats = BaselinkerReportOrder.get_statistics(query)
+                
+                # Oblicz porównania tylko jeśli mamy dane i sensowne wartości
+                comparison = {}
+                if stats.get('total_m3', 0) > 0 or stats.get('order_amount_net', 0) > 0:
+                    try:
+                        comparison = BaselinkerReportOrder.get_comparison_statistics(
+                            {}, date_from, date_to
+                        )
+                    except Exception as comp_error:
+                        reports_logger.warning("Błąd obliczania porównań", error=str(comp_error))
+                        comparison = {}
         
         # Pobierz ostatni log synchronizacji
         last_sync = ReportsSyncLog.query.order_by(ReportsSyncLog.sync_date.desc()).first()
@@ -75,10 +122,11 @@ def reports_home():
             'has_new_orders': has_new_orders,
             'new_orders_count': new_orders_count,
             'stats': stats,
-            'comparison': comparison,  # Dodane porównanie
+            'comparison': comparison,
             'last_sync': last_sync,
-            'default_date_from': date_from.isoformat(),  # Przekaż domyślne daty
-            'default_date_to': date_to.isoformat()
+            'default_date_from': date_from.isoformat(),
+            'default_date_to': date_to.isoformat(),
+            'total_records': total_records  # Dodaj informację o liczbie rekordów
         }
         
         return render_template('reports.html', **context)
@@ -88,10 +136,27 @@ def reports_home():
                            user_email=user_email, 
                            error=str(e))
         flash("Wystąpił błąd podczas ładowania danych.", "error")
+        
+        # W przypadku błędu zwróć puste statystyki
         return render_template('reports.html', 
                              user_email=user_email,
-                             stats={},
-                             comparison={})
+                             stats={
+                                 'total_m3': 0.0,
+                                 'order_amount_net': 0.0,
+                                 'value_net': 0.0,
+                                 'value_gross': 0.0,
+                                 'avg_price_per_m3': 0.0,
+                                 'delivery_cost': 0.0,
+                                 'paid_amount_net': 0.0,
+                                 'balance_due': 0.0,
+                                 'production_volume': 0.0,
+                                 'production_value_net': 0.0,
+                                 'ready_pickup_volume': 0.0
+                             },
+                             comparison={},
+                             default_date_from=date_from.isoformat(),
+                             default_date_to=date_to.isoformat(),
+                             total_records=0)
 
 @reports_bp.route('/api/data')
 @login_required

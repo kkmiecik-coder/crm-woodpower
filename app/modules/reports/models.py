@@ -92,27 +92,27 @@ class BaselinkerReportOrder(db.Model):
     def get_filtered_orders(cls, filters=None, date_from=None, date_to=None):
         """
         Pobiera zamówienia z filtrami
-        
+    
         Args:
             filters (dict): Słownik filtrów {kolumna: lista_wartości}
             date_from (date): Data od
             date_to (date): Data do
-            
+        
         Returns:
             Query: SQLAlchemy Query object
         """
         query = cls.query
-        
+    
         # Filtr daty
         if date_from:
             query = query.filter(cls.date_created >= date_from)
         if date_to:
             query = query.filter(cls.date_created <= date_to)
-            
+        
         # Filtruj statusy - wyłącz anulowane i nieopłacone
         excluded_statuses = ['Zamówienie anulowane', 'Nowe - nieopłacone']
         query = query.filter(~cls.current_status.in_(excluded_statuses))
-            
+        
         # Dodatkowe filtry (obsługa multiple values)
         if filters:
             for column, values in filters.items():
@@ -124,18 +124,22 @@ class BaselinkerReportOrder(db.Model):
                     elif isinstance(values, str) and values.strip():
                         # Single value - użyj LIKE
                         query = query.filter(column_attr.like(f'%{values.strip()}%'))
-        
-        # POPRAWKA SORTOWANIA: Kompatybilność z MariaDB
-        # Używamy CASE WHEN zamiast NULLS LAST
-        from sqlalchemy import case, desc
-        
+    
+        # POPRAWIONE SORTOWANIE: najpierw po baselinker_order_id (malejąco), potem po dacie
+        from sqlalchemy import case, desc, asc
+    
         return query.order_by(
-            cls.is_manual.asc(),  # Najpierw Baselinker (False), potem ręczne (True)
+            # Najpierw ręczne wpisy (is_manual = True) na końcu
+            cls.is_manual.asc(),
+            # Potem sortuj po baselinker_order_id malejąco (NULL na końcu)
             desc(case(
-                (cls.baselinker_order_id.is_(None), 0),  # NULL na końcu (0)
-                else_=cls.baselinker_order_id  # Nie-NULL sortowane normalnie
+                (cls.baselinker_order_id.is_(None), 0),  # NULL = 0 (najniższy priorytet)
+                else_=cls.baselinker_order_id  # Nie-NULL sortowane malejąco
             )),
-            desc(cls.date_created)  # Najnowsze na górze
+            # Na końcu po dacie malejąco (najnowsze na górze)
+            desc(cls.date_created),
+            # Dodatkowo po ID dla stabilności sortowania
+            desc(cls.id)
         )
     
     @classmethod

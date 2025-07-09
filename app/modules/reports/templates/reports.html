@@ -131,7 +131,7 @@
                 <!-- Filtry kolumn -->
                 <div class="column-filters">
                     <div class="filter-row">
-                        <!-- NOWY FILTR DAT -->
+                        <!-- Filtry dat (bez zmian) -->
                         <div class="filter-item">
                             <label>Zakres dat:</label>
                             <div class="date-range-container">
@@ -140,56 +140,84 @@
                             </div>
                         </div>
 
+                        <!-- NOWY FILTR KLIENTÓW - DROPDOWN -->
                         <div class="filter-item">
                             <label>Klienci:</label>
-                            <div class="filter-checkbox-container" id="filterCustomerNameContainer">
-                                <div class="filter-search">
-                                    <input type="text" id="searchCustomerName" placeholder="Szukaj klienta..." class="filter-search-input">
+                            <div class="filter-dropdown" id="filterCustomerNameDropdown">
+                                <div class="filter-dropdown-toggle" id="filterCustomerNameToggle">
+                                    <span class="filter-dropdown-label">Wszyscy klienci</span>
+                                    <i class="fas fa-chevron-down"></i>
                                 </div>
-                                <div class="filter-options" id="filterCustomerNameOptions">
-                                    <!-- Opcje ładowane dynamicznie -->
+                                <div class="filter-dropdown-menu" id="filterCustomerNameMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchCustomerName" placeholder="Szukaj klienta..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterCustomerNameOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
+                        <!-- NOWY FILTR WOJEWÓDZTW - DROPDOWN -->
                         <div class="filter-item">
                             <label>Województwa:</label>
-                            <div class="filter-checkbox-container" id="filterDeliveryStateContainer">
-                                <div class="filter-search">
-                                    <input type="text" id="searchDeliveryState" placeholder="Szukaj województwo..." class="filter-search-input">
+                            <div class="filter-dropdown" id="filterDeliveryStateDropdown">
+                                <div class="filter-dropdown-toggle" id="filterDeliveryStateToggle">
+                                    <span class="filter-dropdown-label">Wszystkie województwa</span>
+                                    <i class="fas fa-chevron-down"></i>
                                 </div>
-                                <div class="filter-options" id="filterDeliveryStateOptions">
-                                    <!-- Opcje ładowane dynamicznie -->
+                                <div class="filter-dropdown-menu" id="filterDeliveryStateMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchDeliveryState" placeholder="Szukaj województwo..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterDeliveryStateOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
+                        <!-- NOWY FILTR GATUNKÓW - DROPDOWN -->
                         <div class="filter-item">
                             <label>Gatunki:</label>
-                            <div class="filter-checkbox-container" id="filterWoodSpeciesContainer">
-                                <div class="filter-search">
-                                    <input type="text" id="searchWoodSpecies" placeholder="Szukaj gatunek..." class="filter-search-input">
+                            <div class="filter-dropdown" id="filterWoodSpeciesDropdown">
+                                <div class="filter-dropdown-toggle" id="filterWoodSpeciesToggle">
+                                    <span class="filter-dropdown-label">Wszystkie gatunki</span>
+                                    <i class="fas fa-chevron-down"></i>
                                 </div>
-                                <div class="filter-options" id="filterWoodSpeciesOptions">
-                                    <!-- Opcje ładowane dynamicznie -->
+                                <div class="filter-dropdown-menu" id="filterWoodSpeciesMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchWoodSpecies" placeholder="Szukaj gatunek..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterWoodSpeciesOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
+                        <!-- NOWY FILTR STATUSÓW - DROPDOWN -->
                         <div class="filter-item">
                             <label>Statusy:</label>
-                            <div class="filter-checkbox-container" id="filterCurrentStatusContainer">
-                                <div class="filter-search">
-                                    <input type="text" id="searchCurrentStatus" placeholder="Szukaj status..." class="filter-search-input">
+                            <div class="filter-dropdown" id="filterCurrentStatusDropdown">
+                                <div class="filter-dropdown-toggle" id="filterCurrentStatusToggle">
+                                    <span class="filter-dropdown-label">Wszystkie statusy</span>
+                                    <i class="fas fa-chevron-down"></i>
                                 </div>
-                                <div class="filter-options" id="filterCurrentStatusOptions">
-                                    <!-- Opcje ładowane dynamicznie -->
+                                <div class="filter-dropdown-menu" id="filterCurrentStatusMenu">
+                                    <div class="filter-search">
+                                        <input type="text" id="searchCurrentStatus" placeholder="Szukaj status..." class="filter-search-input">
+                                    </div>
+                                    <div class="filter-options" id="filterCurrentStatusOptions">
+                                        <!-- Opcje ładowane dynamicznie -->
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="filter-item">
+                    <div class="filter-actions">
                         <button id="clearFiltersBtn" class="btn btn-secondary btn-sm">
                             <i class="fas fa-times"></i>
                             Wyczyść filtry
@@ -495,45 +523,53 @@
     <script src="{{ url_for('reports.static', filename='js/export_manager.js') }}"></script>
 
     <script>
-        // Globalne zmienne - wersja bez tojson
-        window.reportsConfig = {
-            userEmail: "{{ user_email | e if user_email else '' }}",
-            hasNewOrders: {{ 'true' if has_new_orders else 'false' }},
-            newOrdersCount: {{ new_orders_count | int if new_orders_count else 0 }},
-            stats: {},
-            comparison: {},
-            default_date_from: "{{ default_date_from if default_date_from else '' }}",
-            default_date_to: "{{ default_date_to if default_date_to else '' }}",
-            lastSync: {% if last_sync %}"{{ last_sync.sync_date.isoformat() }}"{% else %}null{% endif %}
-        };
+    // Globalne zmienne - poprawiona wersja
+    window.reportsConfig = {
+        userEmail: "{{ user_email | e if user_email else '' }}",
+        hasNewOrders: {{ 'true' if has_new_orders else 'false' }},
+        newOrdersCount: {{ new_orders_count | int if new_orders_count else 0 }},
+        totalRecords: {{ total_records | int if total_records else 0 }},
+        // POPRAWKA: Przekazuj stats i comparison tylko jeśli mają sensowne wartości
+        stats: {% if stats and (stats.total_m3 > 0 or stats.order_amount_net > 0) %}{{ stats | tojson }}{% else %}{}{% endif %},
+        comparison: {% if comparison and comparison %}{{ comparison | tojson }}{% else %}{}{% endif %},
+        default_date_from: "{{ default_date_from if default_date_from else '' }}",
+        default_date_to: "{{ default_date_to if default_date_to else '' }}",
+        lastSync: {% if last_sync %}"{{ last_sync.sync_date.isoformat() }}"{% else %}null{% endif %}
+    };
 
-        // Inicjalizacja po załadowaniu strony
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('[Reports] Inicjalizacja modułu...');
+    // Inicjalizacja po załadowaniu strony
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Reports] Inicjalizacja modułu...');
+        console.log('[Reports] Config:', window.reportsConfig);
 
-            // Inicjalizuj managery
-            if (typeof ReportsManager !== 'undefined') {
-                window.reportsManager = new ReportsManager();
-                window.reportsManager.init();
-            }
+        // Inicjalizuj managery
+        if (typeof ReportsManager !== 'undefined') {
+            window.reportsManager = new ReportsManager();
+            window.reportsManager.init();
+        }
 
-            if (typeof TableManager !== 'undefined') {
-                window.tableManager = new TableManager();
-                window.tableManager.init();
-            }
+        if (typeof TableManager !== 'undefined') {
+            window.tableManager = new TableManager();
+            window.tableManager.init();
+        }
 
-            if (typeof SyncManager !== 'undefined') {
-                window.syncManager = new SyncManager();
-                window.syncManager.init();
-            }
+        if (typeof SyncManager !== 'undefined') {
+            window.syncManager = new SyncManager();
+            window.syncManager.init();
+        }
 
-            if (typeof ExportManager !== 'undefined') {
-                window.exportManager = new ExportManager();
-                window.exportManager.init();
-            }
+        if (typeof ExportManager !== 'undefined') {
+            window.exportManager = new ExportManager();
+            window.exportManager.init();
+        }
 
-            console.log('[Reports] Moduł zainicjalizowany');
-        });
+        // Jeśli brak danych w bazie, pokaż komunikat
+        if (window.reportsConfig.totalRecords === 0) {
+            console.log('[Reports] Brak danych w bazie - pierwsza synchronizacja wymagana');
+        }
+
+        console.log('[Reports] Moduł zainicjalizowany');
+    });
     </script>
 </body>
 </html>
