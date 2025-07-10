@@ -6,6 +6,7 @@ from sqlalchemy import func
 from extensions import db
 import os
 import json
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import pandas as pd
 from io import BytesIO
 import zipfile

@@ -449,6 +449,9 @@ class BaselinkerService:
                         config_keys=list(config.keys()),
                         has_client_data_override=bool(config.get('client_data')))
 
+        creator = getattr(quote, 'user', None)
+        creator_name = f"{creator.first_name} {creator.last_name}" if creator else ''
+
         # 🔧 POPRAWKA: Zabezpieczenie przed błędem AppenderQuery
         try:
             # Konwertuj AppenderQuery na listę przed użyciem len()
@@ -690,6 +693,9 @@ class BaselinkerService:
             'want_invoice': client_data.get('want_invoice', False),
             'extra_field_1': '',
             'extra_field_2': '',
+            'custom_extra_fields': {
+                '105623': creator_name
+            },
             'products': products
         }
 
