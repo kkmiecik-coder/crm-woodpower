@@ -1,3 +1,5 @@
+# Zastąp plik app/modules/production/models.py tym kodem
+
 from datetime import datetime
 from extensions import db
 # Import User z modułu calculator
@@ -6,6 +8,7 @@ from modules.calculator.models import User
 class Workstation(db.Model):
     """Model stanowisk pracy w hali produkcyjnej"""
     __tablename__ = 'workstations'
+    __table_args__ = {'extend_existing': True}
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)  # "Cięcie drewna", "Sklejanie", etc.
@@ -13,16 +16,13 @@ class Workstation(db.Model):
     tablet_identifier = db.Column(db.String(50), unique=True)  # "TABLET_CUTTING", etc.
     is_active = db.Column(db.Boolean, default=True)
     
-    # Relacje
-    progress_records = db.relationship('ProductionProgress', backref='workstation', lazy=True)
-    current_batches = db.relationship('ProductionBatch', backref='current_workstation', lazy=True)
-    
     def __repr__(self):
         return f'<Workstation {self.name}>'
 
 class ProductionTask(db.Model):
     """Model zadań produkcyjnych utworzonych z zamówień Baselinker"""
     __tablename__ = 'production_tasks'
+    __table_args__ = {'extend_existing': True}
     
     id = db.Column(db.Integer, primary_key=True)
     
@@ -45,158 +45,174 @@ class ProductionTask(db.Model):
     needs_coating = db.Column(db.Boolean, default=False)
     coating_type = db.Column(db.String(20), nullable=True)  # "lakier", "olej", "wosk"
     coating_color = db.Column(db.String(50), nullable=True)  # "bezbarwny", "biały", etc.
-    coating_gloss = db.Column(db.String(20), nullable=True)  # "mat", "półmat", "połysk"
-    coating_notes = db.Column(db.Text, nullable=True)  # dodatkowe info z komentarzy
     
-    # Zarządzanie produkcją
-    priority_order = db.Column(db.Integer, nullable=False, default=1000)
-    estimated_completion_date = db.Column(db.Date, nullable=True)
+    # Status i priorytety
+    status = db.Column(db.Enum('pending', 'in_progress', 'completed', 'cancelled', name='task_status'),
+                      default='pending', nullable=False)
+    priority_order = db.Column(db.Integer, default=999)  # im niższa wartość, tym wyższy priorytet
+    
+    # Daty
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    planned_start_date = db.Column(db.Date, nullable=True)
     actual_start_date = db.Column(db.DateTime, nullable=True)
+    estimated_completion_date = db.Column(db.Date, nullable=True)
     actual_completion_date = db.Column(db.DateTime, nullable=True)
-    status = db.Column(db.Enum('pending', 'in_progress', 'completed', 'on_hold', 'cancelled', name='task_status'), 
-                      default='pending')
     
-    # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Dodatkowe informacje
+    notes = db.Column(db.Text, nullable=True)  # uwagi do zadania
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     
-    # Relacje
-    progress_records = db.relationship('ProductionProgress', backref='production_task', lazy=True, cascade='all, delete-orphan')
-    batch_relations = db.relationship('ProductionBatchTask', backref='task', lazy=True)
-    alerts = db.relationship('ProductionAlert', backref='related_task', lazy=True)
-    
-    def __repr__(self):
-        return f'<ProductionTask {self.id}: {self.product_name[:50]}>'
-    
+    def get_completion_percentage(self) -> int:
+        """Oblicza procent ukończenia zadania"""
+        try:
+            total_steps = ProductionProgress.query.filter_by(production_task_id=self.id).count()
+            completed_steps = ProductionProgress.query.filter_by(
+                production_task_id=self.id, 
+                status='completed'
+            ).count()
+            
+            if total_steps == 0:
+                return 0
+            
+            return int((completed_steps / total_steps) * 100)
+            
+        except Exception:
+            return 0
+
     def get_current_workstation(self):
-        """Zwraca aktualne stanowisko pracy lub None jeśli ukończone"""
-        if self.status == 'completed':
+        """Pobiera aktualne stanowisko dla zadania"""
+        try:
+            current_progress = ProductionProgress.query.filter_by(
+                production_task_id=self.id,
+                status='in_progress'
+            ).first()
+            
+            if current_progress:
+                return current_progress.workstation
+            
+            # Jeśli brak zadania w trakcie, sprawdź następne oczekujące
+            next_progress = ProductionProgress.query.filter_by(
+                production_task_id=self.id,
+                status='pending'
+            ).order_by(ProductionProgress.sequence_order).first()
+            
+            if next_progress:
+                return next_progress.workstation
+            
             return None
             
-        # Znajdź pierwszy niezakończony etap
-        for progress in sorted(self.progress_records, key=lambda x: x.workstation.sequence_order):
-            if progress.status in ['pending', 'in_progress']:
-                return progress.workstation
-        return None
+        except Exception:
+            return None
+
+    def update_status_based_on_progress(self):
+        """Aktualizuje status zadania na podstawie postępu"""
+        try:
+            in_progress_count = ProductionProgress.query.filter_by(
+                production_task_id=self.id,
+                status='in_progress'
+            ).count()
+            
+            total_count = ProductionProgress.query.filter_by(production_task_id=self.id).count()
+            completed_count = ProductionProgress.query.filter_by(
+                production_task_id=self.id,
+                status='completed'
+            ).count()
+            
+            if in_progress_count > 0:
+                self.status = 'in_progress'
+            elif completed_count == total_count and total_count > 0:
+                self.status = 'completed'
+                self.actual_completion_date = datetime.utcnow()
+            else:
+                self.status = 'pending'
+                
+        except Exception as e:
+            print(f"Błąd aktualizacji statusu zadania {self.id}: {str(e)}")
     
-    def get_completion_percentage(self):
-        """Zwraca procent ukończenia zadania"""
-        if not self.progress_records:
-            return 0
-        
-        completed_count = sum(1 for p in self.progress_records if p.status == 'completed')
-        total_count = len(self.progress_records)
-        
-        return int((completed_count / total_count) * 100) if total_count > 0 else 0
+    def __repr__(self):
+        return f'<ProductionTask {self.id}: {self.product_name[:30]}>'
 
 class ProductionProgress(db.Model):
-    """Model postępu zadania na poszczególnych stanowiskach"""
+    """Model postępu zadania produkcyjnego przez stanowiska"""
     __tablename__ = 'production_progress'
+    __table_args__ = (
+        db.UniqueConstraint('production_task_id', 'workstation_id', name='unique_task_workstation'),
+        {'extend_existing': True}
+    )
     
     id = db.Column(db.Integer, primary_key=True)
+    
+    # Powiązania
     production_task_id = db.Column(db.Integer, db.ForeignKey('production_tasks.id'), nullable=False)
     workstation_id = db.Column(db.Integer, db.ForeignKey('workstations.id'), nullable=False)
     
-    status = db.Column(db.Enum('pending', 'in_progress', 'completed', 'skipped', name='progress_status'), 
-                      default='pending')
+    # Kolejność i status
+    sequence_order = db.Column(db.Integer, nullable=False)  # kolejność w workflow (1,2,3...)
+    status = db.Column(db.Enum('pending', 'in_progress', 'completed', 'skipped', name='progress_status'),
+                      default='pending', nullable=False)
     
-    # Timestamps
-    started_at = db.Column(db.DateTime, nullable=True)
-    completed_at = db.Column(db.DateTime, nullable=True)
-    time_spent_minutes = db.Column(db.Integer, nullable=True)  # czas wykonania w minutach
+    # Czasy
+    planned_start_time = db.Column(db.DateTime, nullable=True)
+    actual_start_time = db.Column(db.DateTime, nullable=True)
+    estimated_duration_minutes = db.Column(db.Integer, nullable=True)
+    actual_duration_minutes = db.Column(db.Integer, nullable=True)
+    actual_end_time = db.Column(db.DateTime, nullable=True)
     
-    # Pracownik i urządzenie
-    worker_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    tablet_identifier = db.Column(db.String(50), nullable=True)  # który tablet zarejestrował
-    
-    notes = db.Column(db.Text, nullable=True)  # uwagi pracownika
+    # Dodatkowe informacje
+    worker_notes = db.Column(db.Text, nullable=True)
+    quality_check_passed = db.Column(db.Boolean, nullable=True)
     
     # Relacje
-    worker = db.relationship('User', backref='work_progress')
+    task = db.relationship('ProductionTask', backref='progress_entries')
+    workstation = db.relationship('Workstation', backref='progress_records')
     
     def __repr__(self):
-        return f'<ProductionProgress Task:{self.production_task_id} Station:{self.workstation_id}>'
-    
-    def start_work(self, worker_user_id=None, tablet_id=None):
-        """Rozpoczyna pracę na stanowisku"""
-        self.status = 'in_progress'
-        self.started_at = datetime.utcnow()
-        self.worker_user_id = worker_user_id
-        self.tablet_identifier = tablet_id
-        db.session.commit()
-    
-    def complete_work(self, notes=None):
-        """Kończy pracę na stanowisku"""
-        self.status = 'completed'
-        self.completed_at = datetime.utcnow()
-        if self.started_at:
-            time_diff = self.completed_at - self.started_at
-            self.time_spent_minutes = int(time_diff.total_seconds() / 60)
-        if notes:
-            self.notes = notes
-        db.session.commit()
+        return f'<ProductionProgress T:{self.production_task_id} W:{self.workstation_id} {self.status}>'
 
 class ProductionBatch(db.Model):
     """Model partii produkcyjnych - grupowanie zadań"""
     __tablename__ = 'production_batches'
+    __table_args__ = {'extend_existing': True}
     
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), nullable=False)  # "DĄB-MIK-001"
-    
-    # Właściwości partii
-    wood_species = db.Column(db.String(20), nullable=False)  # "dąb"
-    technology = db.Column(db.String(20), nullable=False)  # "mikrowczep"
-    
-    # Daty
-    batch_date = db.Column(db.Date, default=datetime.utcnow().date)
+    batch_name = db.Column(db.String(100), nullable=False)
+    batch_date = db.Column(db.Date, nullable=False)
+    wood_species = db.Column(db.String(20), nullable=False)
+    technology = db.Column(db.String(20), nullable=False)
+    status = db.Column(db.Enum('planned', 'in_progress', 'completed', 'cancelled', name='batch_status'),
+                      default='planned', nullable=False)
     planned_start_date = db.Column(db.Date, nullable=True)
     actual_start_date = db.Column(db.Date, nullable=True)
+    planned_completion_date = db.Column(db.Date, nullable=True)
     actual_completion_date = db.Column(db.Date, nullable=True)
-    
-    # Status i postęp
     current_workstation_id = db.Column(db.Integer, db.ForeignKey('workstations.id'), nullable=True)
-    status = db.Column(db.Enum('planned', 'in_progress', 'completed', 'cancelled', name='batch_status'), 
-                      default='planned')
-    
-    # Statystyki
     task_count = db.Column(db.Integer, default=0)
     completed_task_count = db.Column(db.Integer, default=0)
-    
-    # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    notes = db.Column(db.Text, nullable=True)
     
     # Relacje
-    task_relations = db.relationship('ProductionBatchTask', backref='batch', lazy=True)
-    alerts = db.relationship('ProductionAlert', backref='related_batch', lazy=True)
+    current_workstation = db.relationship('Workstation', backref='current_batches')
     
     def __repr__(self):
-        return f'<ProductionBatch {self.name}>'
-    
-    def get_completion_percentage(self):
-        """Zwraca procent ukończenia partii"""
-        if self.task_count == 0:
-            return 0
-        return int((self.completed_task_count / self.task_count) * 100)
-    
-    def update_task_counts(self):
-        """Aktualizuje liczniki zadań w partii"""
-        self.task_count = len(self.task_relations)
-        self.completed_task_count = sum(1 for tr in self.task_relations 
-                                      if tr.task.status == 'completed')
-        db.session.commit()
+        return f'<ProductionBatch {self.batch_name}>'
 
 class ProductionBatchTask(db.Model):
     """Model relacji między zadaniami a partiami"""
     __tablename__ = 'production_batch_tasks'
+    __table_args__ = (
+        db.UniqueConstraint('batch_id', 'production_task_id', name='unique_batch_task'),
+        {'extend_existing': True}
+    )
     
     id = db.Column(db.Integer, primary_key=True)
     batch_id = db.Column(db.Integer, db.ForeignKey('production_batches.id'), nullable=False)
     production_task_id = db.Column(db.Integer, db.ForeignKey('production_tasks.id'), nullable=False)
     sequence_in_batch = db.Column(db.Integer, nullable=False)  # kolejność w partii
     
-    # Unikalne powiązanie zadanie-partia
-    __table_args__ = (db.UniqueConstraint('batch_id', 'production_task_id', name='unique_batch_task'),)
+    # Relacje
+    batch = db.relationship('ProductionBatch', backref='task_relations')
+    task = db.relationship('ProductionTask', backref='batch_relations')
     
     def __repr__(self):
         return f'<BatchTask B:{self.batch_id} T:{self.production_task_id}>'
@@ -204,6 +220,7 @@ class ProductionBatchTask(db.Model):
 class ProductionAlert(db.Model):
     """Model alertów i powiadomień"""
     __tablename__ = 'production_alerts'
+    __table_args__ = {'extend_existing': True}
     
     id = db.Column(db.Integer, primary_key=True)
     alert_type = db.Column(db.Enum('delay', 'bottleneck', 'completion', 'error', name='alert_type'), 
@@ -222,12 +239,20 @@ class ProductionAlert(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # Relacje
+    related_task = db.relationship('ProductionTask', backref='alerts')
+    related_batch = db.relationship('ProductionBatch', backref='alerts')
+    
     def __repr__(self):
         return f'<ProductionAlert {self.alert_type}: {self.title}>'
 
 class ProductionWorkflow(db.Model):
     """Model definicji workflow dla różnych typów produktów"""
     __tablename__ = 'production_workflows'
+    __table_args__ = (
+        db.UniqueConstraint('wood_species', 'technology', 'needs_coating', name='unique_workflow'),
+        {'extend_existing': True}
+    )
     
     id = db.Column(db.Integer, primary_key=True)
     
@@ -239,10 +264,6 @@ class ProductionWorkflow(db.Model):
     # Definicja workflow
     workstation_sequence = db.Column(db.JSON)  # [1,2,3,4,5,6] lub [1,2,3,4,6]
     estimated_time_minutes = db.Column(db.JSON)  # {"1": 45, "2": 60, "3": 30, ...}
-    
-    # Unikalne połączenie typu produktu
-    __table_args__ = (db.UniqueConstraint('wood_species', 'technology', 'needs_coating', 
-                                        name='unique_workflow'),)
     
     def __repr__(self):
         return f'<Workflow {self.wood_species}-{self.technology}-coating:{self.needs_coating}>'

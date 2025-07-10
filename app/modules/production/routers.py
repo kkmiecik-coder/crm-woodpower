@@ -12,6 +12,7 @@ from .models import (
 from .services import ProductionService
 from .analyzers import ProductAnalyzer
 from extensions import db
+from . import production_bp as bp
 
 logger = logging.getLogger(__name__)
 
@@ -527,4 +528,99 @@ def get_workstation_tasks_api(workstation_id):
         
     except Exception as e:
         logger.error(f"Błąd w get_workstation_tasks_api: {str(e)}")
+        return jsonify({'error': 'Wystąpił błąd serwera'}), 500
+
+@production_bp.route('/api/sync/baselinker', methods=['POST'])
+@admin_required
+def sync_baselinker():
+    """Synchronizacja zamówień z Baselinker do systemu produkcji"""
+    try:
+        logger.info("Rozpoczęcie synchronizacji zamówień z Baselinker")
+        
+        # Pobierz opłacone zamówienia z ostatnich 7 dni
+        date_from = datetime.now() - timedelta(days=7)
+        
+        # Synchronizuj zamówienia przez serwis
+        result = ProductionService.sync_orders_from_baselinker(date_from)
+        
+        if result['success']:
+            logger.info(f"Synchronizacja zakończona: {result['orders_processed']} zamówień, "
+                       f"{result['tasks_created']} zadań utworzonych")
+            
+            return jsonify({
+                'success': True,
+                'orders_processed': result['orders_processed'],
+                'tasks_created': result['tasks_created'],
+                'message': f"Zsynchronizowano {result['orders_processed']} zamówień, "
+                          f"utworzono {result['tasks_created']} zadań produkcyjnych"
+            })
+        else:
+            logger.error(f"Błąd synchronizacji: {result.get('error')}")
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Nieznany błąd synchronizacji')
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Błąd w sync_baselinker: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Wystąpił błąd podczas synchronizacji'
+        }), 500
+
+@production_bp.route('/api/workstations/status', methods=['GET'])
+@admin_required
+def get_workstations_status():
+    """Pobierz status wszystkich stanowisk pracy"""
+    try:
+        workstations = Workstation.query.filter_by(is_active=True).order_by(
+            Workstation.sequence_order
+        ).all()
+        
+        workstations_data = []
+        for workstation in workstations:
+            # Pobierz aktualne zadanie dla stanowiska (zadanie w trakcie)
+            current_task_progress = ProductionProgress.query.filter_by(
+                workstation_id=workstation.id,
+                status='in_progress'
+            ).first()
+            
+            # Pobierz liczbę oczekujących zadań
+            pending_tasks_count = ProductionProgress.query.filter_by(
+                workstation_id=workstation.id,
+                status='pending'
+            ).count()
+            
+            # Określ status stanowiska
+            if current_task_progress:
+                status = 'busy'
+                current_task = current_task_progress.task
+            elif pending_tasks_count > 0:
+                status = 'active'
+                current_task = None
+            else:
+                status = 'idle'
+                current_task = None
+            
+            workstation_data = {
+                'id': workstation.id,
+                'name': workstation.name,
+                'status': status,
+                'sequence_order': workstation.sequence_order,
+                'current_task': {
+                    'id': current_task.id,
+                    'description': current_task.product_name,
+                    'started_at': current_task_progress.actual_start_time.isoformat() if current_task_progress.actual_start_time else None
+                } if current_task else None,
+                'pending_tasks_count': pending_tasks_count
+            }
+            workstations_data.append(workstation_data)
+        
+        return jsonify({
+            'success': True,
+            'workstations': workstations_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Błąd w get_workstations_status: {str(e)}")
         return jsonify({'error': 'Wystąpił błąd serwera'}), 500

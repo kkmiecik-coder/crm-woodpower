@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zarządzanie Produkcją - Wood Power CRM</title>
-    
+
     <!-- Style globalne -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- Style modułu production -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
-    
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+
     <!-- Font Awesome dla ikon -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -295,7 +296,10 @@
     <script>
         // Inicjalizacja dashboard
         document.addEventListener('DOMContentLoaded', function() {
-            ProductionDashboard.init();
+            if (typeof ProductionDashboard !== 'undefined') {
+                const dashboard = new ProductionDashboard();
+                dashboard.init();
+            }
             
             // Auto-refresh co 30 sekund
             setInterval(function() {
