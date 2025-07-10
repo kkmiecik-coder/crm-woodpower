@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Alertów - Wood Power CRM</title>
+    
+    <!-- Style globalne -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Style modułu production -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
+    
+    <!-- Font Awesome dla ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        {% include 'sidebar/sidebar.html' %}
+        
+        <!-- Główna zawartość -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="production-header">
+                <div class="header-content">
+                    <div class="header-left">
+                        <h1 class="page-title">
+                            <i class="fas fa-bell"></i>
+                            Panel Alertów Produkcji
+                        </h1>
+                        <p class="page-subtitle">Powiadomienia o opóźnieniach, wąskich gardłach i problemach</p>
+                    </div>
+                    <div class="header-right">
+                        <button class="btn btn-primary" onclick="markAllAsRead()">
+                            <i class="fas fa-check-double"></i>
+                            Oznacz wszystkie jako przeczytane
+                        </button>
+                        <button class="btn btn-outline" onclick="refreshAlerts()">
+                            <i class="fas fa-sync"></i>
+                            Odśwież
+                        </button>
+                        <a href="{{ url_for('production.production_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i>
+                            Powrót
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Podsumowanie alertów -->
+            <div class="alerts-summary">
+                <div class="summary-card critical">
+                    <div class="summary-icon">
+                        <i class="fas fa-exclamation-circle"></i>
+                    </div>
+                    <div class="summary-content">
+                        <h3 id="criticalCount">3</h3>
+                        <p>Krytyczne</p>
+                    </div>
+                </div>
+                
+                <div class="summary-card warning">
+                    <div class="summary-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <div class="summary-content">
+                        <h3 id="warningCount">7</h3>
+                        <p>Ostrzeżenia</p>
+                    </div>
+                </div>
+                
+                <div class="summary-card info">
+                    <div class="summary-icon">
+                        <i class="fas fa-info-circle"></i>
+                    </div>
+                    <div class="summary-content">
+                        <h3 id="infoCount">5</h3>
+                        <p>Informacyjne</p>
+                    </div>
+                </div>
+                
+                <div class="summary-card success">
+                    <div class="summary-icon">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <div class="summary-content">
+                        <h3 id="resolvedCount">12</h3>
+                        <p>Rozwiązane dziś</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filtry alertów -->
+            <div class="alerts-filters">
+                <div class="filters-content">
+                    <div class="filter-group">
+                        <label for="alertTypeFilter">Typ alertu:</label>
+                        <select id="alertTypeFilter" class="form-select" onchange="applyFilters()">
+                            <option value="">Wszystkie typy</option>
+                            <option value="delay">Opóźnienia</option>
+                            <option value="bottleneck">Wąskie gardła</option>
+                            <option value="error">Błędy systemu</option>
+                            <option value="completion">Ukończenia</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="statusFilter">Status:</label>
+                        <select id="statusFilter" class="form-select" onchange="applyFilters()">
+                            <option value="">Wszystkie</option>
+                            <option value="unread">Nieprzeczytane</option>
+                            <option value="read">Przeczytane</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="priorityFilter">Priorytet:</label>
+                        <select id="priorityFilter" class="form-select" onchange="applyFilters()">
+                            <option value="">Wszystkie</option>
+                            <option value="critical">Krytyczne</option>
+                            <option value="warning">Ostrzeżenia</option>
+                            <option value="info">Informacyjne</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="dateFilter">Data:</label>
+                        <select id="dateFilter" class="form-select" onchange="applyFilters()">
+                            <option value="today">Dzisiaj</option>
+                            <option value="yesterday">Wczoraj</option>
+                            <option value="week">Ostatnie 7 dni</option>
+                            <option value="month">Ostatnie 30 dni</option>
+                            <option value="all">Wszystkie</option>
+                        </select>
+                    </div>
+                    
+                    <button class="btn btn-outline" onclick="clearFilters()">
+                        <i class="fas fa-times"></i>
+                        Wyczyść filtry
+                    </button>
+                </div>
+            </div>
+
+            <!-- Lista alertów -->
+            <div class="alerts-section">
+                <div class="section-header">
+                    <h2>
+                        <i class="fas fa-list"></i>
+                        Lista alertów (<span id="alertsCount">15</span>)
+                    </h2>
+                    <div class="sort-options">
+                        <label for="sortBy">Sortuj według:</label>
+                        <select id="sortBy" class="form-select" onchange="sortAlerts()">
+                            <option value="created_desc">Najnowsze pierwsze</option>
+                            <option value="created_asc">Najstarsze pierwsze</option>
+                            <option value="priority_desc">Priorytet (wysokie → niskie)</option>
+                            <option value="priority_asc">Priorytet (niskie → wysokie)</option>
+                            <option value="type">Typ alertu</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="alerts-list" id="alertsList">
+                    <!-- Alert krytyczny - opóźnienie -->
+                    <div class="alert-item alert-critical" data-alert-id="1" data-type="delay" data-priority="critical" data-status="unread" data-date="2025-07-10">
+                        <div class="alert-indicator">
+                            <div class="alert-dot critical"></div>
+                        </div>
+                        
+                        <div class="alert-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        
+                        <div class="alert-content">
+                            <div class="alert-header">
+                                <h3>🔴 KRYTYCZNE: Zadanie #1247 - 2 dni po terminie</h3>
+                                <div class="alert-meta">
+                                    <span class="alert-time">10.07.2025 09:15</span>
+                                    <span class="alert-type-badge delay">Opóźnienie</span>
+                                </div>
+                            </div>
+                            <div class="alert-message">
+                                Zadanie produkcyjne wymaga natychmiastowej interwencji:<br>
+                                <strong>Produkt:</strong> Blat drewniany dębowy mikrowczep 180x70x3 cm<br>
+                                <strong>Termin:</strong> 08.07.2025<br>
+                                <strong>Aktualny etap:</strong> Lakierowanie<br>
+                                <strong>Status:</strong> 2 DNI PO TERMINIE
+                            </div>
+                            <div class="alert-actions">
+                                <button class="btn btn-small btn-primary" onclick="viewTaskDetails(1247)">
+                                    <i class="fas fa-eye"></i>
+                                    Zobacz zadanie
+                                </button>
+                                <button class="btn btn-small btn-outline" onclick="markAsRead(1)">
+                                    <i class="fas fa-check"></i>
+                                    Oznacz jako przeczytane
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="alert-close">
+                            <button class="btn-close" onclick="dismissAlert(1)">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Alert ostrzeżenia - wąskie gardło -->
+                    <div class="alert-item alert-warning" data-alert-id="2" data-type="bottleneck" data-priority="warning" data-status="unread" data-date="2025-07-10">
+                        <div class="alert-indicator">
+                            <div class="alert-dot warning"></div>
+                        </div>
+                        
+                        <div class="alert-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        
+                        <div class="alert-content">
+                            <div class="alert-header">
+                                <h3>🚧 WĄSKIE GARDŁO: Stanowisko Lakierowania</h3>
+                                <div class="alert-meta">
+                                    <span class="alert-time">10.07.2025 08:30</span>
+                                    <span class="alert-type-badge bottleneck">Wąskie gardło</span>
+                                </div>
+                            </div>
+                            <div class="alert-message">
+                                Wykryto wąskie gardło w produkcji:<br>
+                                <strong>Stanowisko:</strong> Lakierowanie<br>
+                                <strong>Zadania oczekujące:</strong> 8<br>
+                                <strong>Zadania w trakcie:</strong> 2<br>
+                                <strong>Rekomendacja:</strong> Sprawdź czy stanowisko potrzebuje wsparcia
+                            </div>
+                            <div class="alert-actions">
+                                <button class="btn btn-small btn-primary" onclick="viewWorkstationDetails('lakierowanie')">
+                                    <i class="fas fa-industry"></i>
+                                    Zobacz stanowisko
+                                </button>
+                                <button class="btn btn-small btn-outline" onclick="markAsRead(2)">
+                                    <i class="fas fa-check"></i>
+                                    Przeczytane
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="alert-close">
+                            <button class="btn-close" onclick="dismissAlert(2)">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Alert informacyjny - ukończenie -->
+                    <div class="alert-item alert-info" data-alert-id="3" data-type="completion" data-priority="info" data-status="read" data-date="2025-07-10">
+                        <div class="alert-indicator">
+                            <div class="alert-dot info"></div>
+                        </div>
+                        
+                        <div class="alert-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        
+                        <div class="alert-content">
+                            <div class="alert-header">
+                                <h3>✅ Partia DĄB-MIK-003 ukończona</h3>
+                                <div class="alert-meta">
+                                    <span class="alert-time">10.07.2025 07:45</span>
+                                    <span class="alert-type-badge completion">Ukończenie</span>
+                                    <span class="alert-status-badge read">Przeczytane</span>
+                                </div>
+                            </div>
+                            <div class="alert-message">
+                                Partia produkcyjna została pomyślnie ukończona:<br>
+                                <strong>Partia:</strong> DĄB-MIK-003<br>
+                                <strong>Zadania:</strong> 12/12 ukończonych<br>
+                                <strong>Czas realizacji:</strong> 3 dni, 2 godziny<br>
+                                <strong>Wydajność:</strong> 98% (powyżej planu)
+                            </div>
+                            <div class="alert-actions">
+                                <button class="btn btn-small btn-outline" onclick="viewBatchDetails(3)">
+                                    <i class="fas fa-layer-group"></i>
+                                    Zobacz partię
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="alert-close">
+                            <button class="btn-close" onclick="dismissAlert(3)">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Alert błędu systemu -->
+                    <div class="alert-item alert-error" data-alert-id="4" data-type="error" data-priority="critical" data-status="unread" data-date="2025-07-10">
+                        <div class="alert-indicator">
+                            <div class="alert-dot critical pulsing"></div>
+                        </div>
+                        
+                        <div class="alert-icon">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        
+                        <div class="alert-content">
+                            <div class="alert-header">
+                                <h3>🔴 BŁĄD: Problem synchronizacji z Baselinker</h3>
+                                <div class="alert-meta">
+                                    <span class="alert-time">10.07.2025 06:00</span>
+                                    <span class="alert-type-badge error">Błąd systemu</span>
+                                </div>
+                            </div>
+                            <div class="alert-message">
+                                Wystąpił błąd podczas synchronizacji z Baselinker:<br>
+                                <strong>Błąd:</strong> Connection timeout after 30 seconds<br>
+                                <strong>Ostatnia udana synchronizacja:</strong> 09.07.2025 23:45<br>
+                                <strong>Wpływ:</strong> Nowe zamówienia mogą nie być widoczne<br>
+                                <strong>Rekomendacja:</strong> Sprawdź połączenie i spróbuj ponownie
+                            </div>
+                            <div class="alert-actions">
+                                <button class="btn btn-small btn-danger" onclick="retrySync()">
+                                    <i class="fas fa-sync"></i>
+                                    Spróbuj ponownie
+                                </button>
+                                <button class="btn btn-small btn-outline" onclick="viewErrorDetails(4)">
+                                    <i class="fas fa-bug"></i>
+                                    Szczegóły błędu
+                                </button>
+                                <button class="btn btn-small btn-outline" onclick="markAsRead(4)">
+                                    <i class="fas fa-check"></i>
+                                    Przeczytane
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="alert-close">
+                            <button class="btn-close" onclick="dismissAlert(4)">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Alert ostrzeżenia - termin zbliża się -->
+                    <div class="alert-item alert-warning" data-alert-id="5" data-type="delay" data-priority="warning" data-status="unread" data-date="2025-07-10">
+                        <div class="alert-indicator">
+                            <div class="alert-dot warning"></div>
+                        </div>
+                        
+                        <div class="alert-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        
+                        <div class="alert-content">
+                            <div class="alert-header">
+                                <h3>⚠️ OSTRZEŻENIE: Zadanie #1251 - 2 dni przed terminem</h3>
+                                <div class="alert-meta">
+                                    <span class="alert-time">10.07.2025 05:30</span>
+                                    <span class="alert-type-badge delay">Ostrzeżenie terminu</span>
+                                </div>
+                            </div>
+                            <div class="alert-message">
+                                Zadanie zbliża się do terminu realizacji:<br>
+                                <strong>Produkt:</strong> Parapet dębowy lity 120x25x3 cm<br>
+                                <strong>Termin:</strong> 12.07.2025<br>
+                                <strong>Aktualny etap:</strong> Sklejanie<br>
+                                <strong>Postęp:</strong> 40% (pozostało 3 etapy)
+                            </div>
+                            <div class="alert-actions">
+                                <button class="btn btn-small btn-primary" onclick="prioritizeTask(1251)">
+                                    <i class="fas fa-arrow-up"></i>
+                                    Zwiększ priorytet
+                                </button>
+                                <button class="btn btn-small btn-outline" onclick="viewTaskDetails(1251)">
+                                    <i class="fas fa-eye"></i>
+                                    Zobacz zadanie
+                                </button>
+                                <button class="btn btn-small btn-outline" onclick="markAsRead(5)">
+                                    <i class="fas fa-check"></i>
+                                    Przeczytane
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="alert-close">
+                            <button class="btn-close" onclick="dismissAlert(5)">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Paginacja -->
+                <div class="alerts-pagination">
+                    <button class="btn btn-outline" onclick="loadPreviousPage()" id="prevBtn" disabled>
+                        <i class="fas fa-chevron-left"></i>
+                        Poprzednia
+                    </button>
+                    <span class="pagination-info">
+                        Strona <span id="currentPage">1</span> z <span id="totalPages">3</span>
+                    </span>
+                    <button class="btn btn-outline" onclick="loadNextPage()" id="nextBtn">
+                        Następna
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal szczegółów błędu -->
+    <div id="errorDetailsModal" class="modal" style="display: none;">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>Szczegóły błędu systemu</h3>
+                <button class="modal-close" onclick="closeErrorDetails()">&times;</button>
+            </div>
+            <div class="modal-body" id="errorDetailsContent">
+                <!-- Treść będzie ładowana dynamicznie -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Ładowanie alertów...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/production_dashboard.js') }}"></script>
+    
+    <script>
+        let currentPage = 1;
+        let totalPages = 3;
+        let currentFilters = {};
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeAlertsPanel();
+            updateAlertsCounts();
+            
+            // Auto-refresh co 30 sekund
+            setInterval(() => {
+                refreshAlerts();
+            }, 30000);
+        });
+
+        function initializeAlertsPanel() {
+            // Ustaw domyślne filtry
+            document.getElementById('dateFilter').value = 'today';
+            document.getElementById('statusFilter').value = 'unread';
+            
+            applyFilters();
+        }
+
+        function applyFilters() {
+            currentFilters = {
+                type: document.getElementById('alertTypeFilter').value,
+                status: document.getElementById('statusFilter').value,
+                priority: document.getElementById('priorityFilter').value,
+                date: document.getElementById('dateFilter').value
+            };
+            
+            filterAlerts();
+            updateAlertsCounts();
+        }
+
+        function filterAlerts() {
+            const alerts = document.querySelectorAll('.alert-item');
+            let visibleCount = 0;
+            
+            alerts.forEach(alert => {
+                let show = true;
+                
+                // Filtr typu
+                if (currentFilters.type && alert.dataset.type !== currentFilters.type) {
+                    show = false;
+                }
+                
+                // Filtr statusu
+                if (currentFilters.status && alert.dataset.status !== currentFilters.status) {
+                    show = false;
+                }
+                
+                // Filtr priorytetu
+                if (currentFilters.priority && alert.dataset.priority !== currentFilters.priority) {
+                    show = false;
+                }
+                
+                // Filtr daty
+                if (currentFilters.date && currentFilters.date !== 'all') {
+                    const alertDate = new Date(alert.dataset.date);
+                    const today = new Date();
+                    let showByDate = false;
+                    
+                    switch(currentFilters.date) {
+                        case 'today':
+                            showByDate = alertDate.toDateString() === today.toDateString();
+                            break;
+                        case 'yesterday':
+                            const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                            showByDate = alertDate.toDateString() === yesterday.toDateString();
+                            break;
+                        case 'week':
+                            const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+                            showByDate = alertDate >= weekAgo;
+                            break;
+                        case 'month':
+                            const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+                            showByDate = alertDate >= monthAgo;
+                            break;
+                    }
+                    
+                    if (!showByDate) show = false;
+                }
+                
+                alert.style.display = show ? 'flex' : 'none';
+                if (show) visibleCount++;
+            });
+            
+            document.getElementById('alertsCount').textContent = visibleCount;
+        }
+
+        function clearFilters() {
+            document.getElementById('alertTypeFilter').value = '';
+            document.getElementById('statusFilter').value = '';
+            document.getElementById('priorityFilter').value = '';
+            document.getElementById('dateFilter').value = 'all';
+            
+            applyFilters();
+        }
+
+        function sortAlerts() {
+            const sortBy = document.getElementById('sortBy').value;
+            const alertsList = document.getElementById('alertsList');
+            const alerts = Array.from(alertsList.children);
+            
+            alerts.sort((a, b) => {
+                switch(sortBy) {
+                    case 'created_desc':
+                        return new Date(b.dataset.date) - new Date(a.dataset.date);
+                    case 'created_asc':
+                        return new Date(a.dataset.date) - new Date(b.dataset.date);
+                    case 'priority_desc':
+                        const priorityOrder = {'critical': 3, 'warning': 2, 'info': 1};
+                        return priorityOrder[b.dataset.priority] - priorityOrder[a.dataset.priority];
+                    case 'priority_asc':
+                        const priorityOrderAsc = {'critical': 3, 'warning': 2, 'info': 1};
+                        return priorityOrderAsc[a.dataset.priority] - priorityOrderAsc[b.dataset.priority];
+                    case 'type':
+                        return a.dataset.type.localeCompare(b.dataset.type);
+                    default:
+                        return 0;
+                }
+            });
+            
+            // Usuń wszystkie alerty i dodaj je w nowej kolejności
+            alerts.forEach(alert => alertsList.removeChild(alert));
+            alerts.forEach(alert => alertsList.appendChild(alert));
+        }
+
+        function updateAlertsCounts() {
+            const alerts = document.querySelectorAll('.alert-item[style*="flex"], .alert-item:not([style*="none"])');
+            
+            let criticalCount = 0;
+            let warningCount = 0;
+            let infoCount = 0;
+            let resolvedCount = 0;
+            
+            alerts.forEach(alert => {
+                const priority = alert.dataset.priority;
+                const status = alert.dataset.status;
+                
+                if (status === 'read') {
+                    resolvedCount++;
+                } else {
+                    switch(priority) {
+                        case 'critical':
+                            criticalCount++;
+                            break;
+                        case 'warning':
+                            warningCount++;
+                            break;
+                        case 'info':
+                            infoCount++;
+                            break;
+                    }
+                }
+            });
+            
+            document.getElementById('criticalCount').textContent = criticalCount;
+            document.getElementById('warningCount').textContent = warningCount;
+            document.getElementById('infoCount').textContent = infoCount;
+            document.getElementById('resolvedCount').textContent = resolvedCount;
+        }
+
+        function markAsRead(alertId) {
+            showLoading();
+            
+            fetch(`/production/api/alert/${alertId}/read`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    const alertElement = document.querySelector(`[data-alert-id="${alertId}"]`);
+                    if (alertElement) {
+                        alertElement.dataset.status = 'read';
+                        alertElement.classList.remove('alert-critical', 'alert-warning', 'alert-error');
+                        alertElement.classList.add('alert-read');
+                        
+                        // Dodaj badge "przeczytane"
+                        const meta = alertElement.querySelector('.alert-meta');
+                        if (!meta.querySelector('.alert-status-badge')) {
+                            const badge = document.createElement('span');
+                            badge.className = 'alert-status-badge read';
+                            badge.textContent = 'Przeczytane';
+                            meta.appendChild(badge);
+                        }
+                    }
+                    
+                    updateAlertsCounts();
+                    showToast('Alert oznaczony jako przeczytany', 'success');
+                } else {
+                    showToast('Błąd oznaczania alertu', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showToast('Błąd połączenia z serwerem', 'error');
+            });
+        }
+
+        function markAllAsRead() {
+            if (confirm('Czy na pewno chcesz oznaczyć wszystkie alerty jako przeczytane?')) {
+                showLoading();
+                
+                fetch('/production/api/alerts/mark-all-read', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        // Oznacz wszystkie widoczne alerty jako przeczytane
+                        document.querySelectorAll('.alert-item[data-status="unread"]').forEach(alert => {
+                            alert.dataset.status = 'read';
+                            alert.classList.remove('alert-critical', 'alert-warning', 'alert-error');
+                            alert.classList.add('alert-read');
+                            
+                            const meta = alert.querySelector('.alert-meta');
+                            if (!meta.querySelector('.alert-status-badge')) {
+                                const badge = document.createElement('span');
+                                badge.className = 'alert-status-badge read';
+                                badge.textContent = 'Przeczytane';
+                                meta.appendChild(badge);
+                            }
+                        });
+                        
+                        updateAlertsCounts();
+                        showToast(`Oznaczono ${data.marked_count} alertów jako przeczytane`, 'success');
+                    } else {
+                        showToast('Błąd oznaczania alertów', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                });
+            }
+        }
+
+        function dismissAlert(alertId) {
+            if (confirm('Czy na pewno chcesz usunąć ten alert?')) {
+                const alertElement = document.querySelector(`[data-alert-id="${alertId}"]`);
+                if (alertElement) {
+                    alertElement.style.animation = 'slideOut 0.3s ease-out';
+                    setTimeout(() => {
+                        alertElement.remove();
+                        updateAlertsCounts();
+                    }, 300);
+                }
+                
+                // Wywołaj API do usunięcia alertu
+                fetch(`/production/api/alert/${alertId}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('Alert został usunięty', 'info');
+                    }
+                })
+                .catch(error => {
+                    console.error('Błąd usuwania alertu:', error);
+                });
+            }
+        }
+
+        function refreshAlerts() {
+            showLoading();
+            
+            fetch('/production/api/alerts?page=' + currentPage)
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        updateAlertsDisplay(data.alerts);
+                        updatePagination(data.pagination);
+                        updateAlertsCounts();
+                        showToast('Alerty odświeżone', 'success');
+                    } else {
+                        showToast('Błąd odświeżania alertów', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                });
+        }
+
+        function updateAlertsDisplay(alerts) {
+            // TODO: Dynamiczna aktualizacja listy alertów
+            // Na razie przekieruj na reload strony
+            console.log('Aktualizacja alertów:', alerts);
+        }
+
+        function updatePagination(pagination) {
+            currentPage = pagination.current_page;
+            totalPages = pagination.total_pages;
+            
+            document.getElementById('currentPage').textContent = currentPage;
+            document.getElementById('totalPages').textContent = totalPages;
+            
+            document.getElementById('prevBtn').disabled = currentPage <= 1;
+            document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+        }
+
+        function loadPreviousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                refreshAlerts();
+            }
+        }
+
+        function loadNextPage() {
+            if (currentPage < totalPages) {
+                currentPage++;
+                refreshAlerts();
+            }
+        }
+
+        function viewTaskDetails(taskId) {
+            window.open(`/production/api/task/${taskId}/details`, '_blank');
+        }
+
+        function viewWorkstationDetails(workstationName) {
+            window.location.href = `/production/dashboard?workstation=${workstationName}`;
+        }
+
+        function viewBatchDetails(batchId) {
+            window.location.href = `/production/batches?batch=${batchId}`;
+        }
+
+        function prioritizeTask(taskId) {
+            if (confirm('Czy na pewno chcesz zwiększyć priorytet tego zadania?')) {
+                showLoading();
+                
+                fetch(`/production/api/task/${taskId}/priority`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'increase' })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        showToast('Priorytet zadania został zwiększony', 'success');
+                    } else {
+                        showToast('Błąd zmiany priorytetu', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                });
+            }
+        }
+
+        function retrySync() {
+            showLoading();
+            
+            fetch('/production/api/sync/baselinker', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showToast('Synchronizacja z Baselinker zakończona pomyślnie', 'success');
+                    
+                    // Usuń alert o błędzie synchronizacji
+                    const errorAlert = document.querySelector('[data-alert-id="4"]');
+                    if (errorAlert) {
+                        errorAlert.remove();
+                        updateAlertsCounts();
+                    }
+                } else {
+                    showToast(`Błąd synchronizacji: ${data.error}`, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showToast('Błąd połączenia z serwerem', 'error');
+            });
+        }
+
+        function viewErrorDetails(alertId) {
+            showLoading();
+            
+            fetch(`/production/api/alert/${alertId}/details`)
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        displayErrorDetails(data.error_details);
+                    } else {
+                        showToast('Błąd pobierania szczegółów', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                });
+        }
+
+        function displayErrorDetails(errorDetails) {
+            const content = document.getElementById('errorDetailsContent');
+            content.innerHTML = `
+                <div class="error-details">
+                    <div class="error-section">
+                        <h4>Informacje o błędzie</h4>
+                        <div class="error-info">
+                            <div class="info-row">
+                                <label>Czas wystąpienia:</label>
+                                <span>${errorDetails.timestamp}</span>
+                            </div>
+                            <div class="info-row">
+                                <label>Typ błędu:</label>
+                                <span>${errorDetails.error_type}</span>
+                            </div>
+                            <div class="info-row">
+                                <label>Moduł:</label>
+                                <span>${errorDetails.module}</span>
+                            </div>
+                            <div class="info-row">
+                                <label>Kod błędu:</label>
+                                <span>${errorDetails.error_code}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="error-section">
+                        <h4>Opis błędu</h4>
+                        <div class="error-message">
+                            ${errorDetails.message}
+                        </div>
+                    </div>
+                    
+                    <div class="error-section">
+                        <h4>Szczegóły techniczne</h4>
+                        <div class="error-stack">
+                            <pre>${errorDetails.stack_trace || 'Brak dostępnych szczegółów'}</pre>
+                        </div>
+                    </div>
+                    
+                    <div class="error-section">
+                        <h4>Sugerowane działania</h4>
+                        <ul class="error-actions-list">
+                            ${errorDetails.suggested_actions.map(action => `<li>${action}</li>`).join('')}
+                        </ul>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('errorDetailsModal').style.display = 'flex';
+        }
+
+        function closeErrorDetails() {
+            document.getElementById('errorDetailsModal').style.display = 'none';
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function showToast(message, type = 'info') {
+            // TODO: Implementacja toast notifications
+            console.log(`Toast [${type}]: ${message}`);
+        }
+
+        // CSS Animations (dodaj do pliku CSS)
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideOut {
+                from {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(100%);
+                }
+            }
+            
+            .alert-dot.pulsing {
+                animation: pulse 2s infinite;
+            }
+            
+            @keyframes pulse {
+                0% {
+                    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+                }
+                70% {
+                    box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+                }
+                100% {
+                    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>

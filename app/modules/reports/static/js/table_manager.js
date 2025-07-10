@@ -292,10 +292,8 @@ class TableManager {
             menu.classList.add('show');
             this.dropdownStates[filterKey] = true;
 
-            // NOWE: Dostosuj pozycję menu w fullscreen
-            if (this.isInFullscreenMode()) {
-                this.adjustDropdownPosition(menu);
-            }
+            // POPRAWKA: Dostosuj pozycję w fullscreen
+            this.adjustDropdownPosition(menu);
 
             // Focus na search input
             if (search) {
@@ -303,6 +301,50 @@ class TableManager {
                     search.focus();
                 }, 100);
             }
+
+            console.log('[TableManager] Dropdown opened:', filterKey, 'fullscreen:', this.isInFullscreenMode());
+        }
+    }
+
+    /**
+     * NOWA METODA - Zarządzanie dropdown'ami w fullscreen
+     */
+    manageFullscreenDropdowns() {
+        const filterKeys = ['customer_name', 'delivery_state', 'wood_species', 'current_status'];
+
+        filterKeys.forEach(filterKey => {
+            const camelCase = this.snakeToCamel(filterKey);
+            const dropdown = this.filterElements[`${camelCase}Dropdown`];
+            const menu = this.filterElements[`${camelCase}Menu`];
+
+            if (dropdown && menu) {
+                if (this.isInFullscreenMode()) {
+                    // Dodaj klasy fullscreen
+                    dropdown.classList.add('fullscreen-mode');
+                    menu.classList.add('fullscreen-mode');
+
+                    // Ustaw z-index
+                    dropdown.style.zIndex = '1001';
+                    menu.style.zIndex = '1002';
+                } else {
+                    // Usuń klasy fullscreen
+                    dropdown.classList.remove('fullscreen-mode');
+                    menu.classList.remove('fullscreen-mode');
+
+                    // Reset z-index
+                    dropdown.style.zIndex = '';
+                    menu.style.zIndex = '';
+                }
+            }
+        });
+    }
+
+    /**
+     * NOWA METODA - Zamknij wszystkie dropdown'y w fullscreen
+     */
+    closeAllDropdownsInFullscreen() {
+        if (this.isInFullscreenMode()) {
+            this.closeAllDropdowns();
         }
     }
 
@@ -312,16 +354,33 @@ class TableManager {
     adjustDropdownPosition(menu) {
         if (!menu) return;
 
-        const rect = menu.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-
-        // Jeśli menu wykracza poza ekran, dostosuj pozycję
-        if (rect.bottom > viewportHeight) {
+        if (this.isInFullscreenMode()) {
+            // POPRAWKA: W fullscreen zawsze nad przyciskiem
             menu.style.top = 'auto';
             menu.style.bottom = '100%';
+            menu.style.marginBottom = '2px';
+
+            // Dodaj wyższy z-index
+            menu.style.zIndex = '1002';
+
+            console.log('[TableManager] Dropdown positioned above in fullscreen');
         } else {
-            menu.style.top = '100%';
-            menu.style.bottom = 'auto';
+            // W normalnym trybie sprawdź czy zmieści się pod przyciskiem
+            const rect = menu.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+
+            if (rect.bottom > viewportHeight) {
+                menu.style.top = 'auto';
+                menu.style.bottom = '100%';
+                menu.style.marginBottom = '2px';
+            } else {
+                menu.style.top = '100%';
+                menu.style.bottom = 'auto';
+                menu.style.marginBottom = '0';
+            }
+
+            // Normalny z-index
+            menu.style.zIndex = '1000';
         }
     }
 
@@ -1292,8 +1351,14 @@ class TableManager {
     onFullscreenChange(isFullscreen) {
         console.log('[TableManager] Fullscreen mode changed:', isFullscreen);
 
+        // Zamknij wszystkie dropdown'y przy zmianie trybu
+        this.closeAllDropdowns();
+
         // Dostosuj filtry do trybu fullscreen
         this.adaptFiltersToFullscreen(isFullscreen);
+
+        // NOWA: Zarządzaj dropdown'ami w fullscreen
+        this.manageFullscreenDropdowns();
 
         // Odśwież dropdown'y po zmianie trybu
         setTimeout(() => {

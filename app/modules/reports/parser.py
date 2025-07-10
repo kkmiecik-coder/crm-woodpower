@@ -58,7 +58,7 @@ class ProductNameParser:
         'bezbarwny': 'lakierowany'  # "lakierowany bezbarwny"
     }
     
-    # Mapowanie typów produktów
+    # POPRAWKA: Zaktualizowane mapowanie typów produktów
     PRODUCT_TYPE_MAP = {
         'klejonka': 'klejonka',
         'deska': 'deska',
@@ -150,11 +150,16 @@ class ProductNameParser:
         return result
     
     def _extract_product_type(self, name_lower: str) -> Optional[str]:
-        """Wyciąga typ produktu (klejonka/deska)"""
+        """
+        POPRAWKA: Wyciąga typ produktu - domyślnie klejonka, chyba że znajdzie słowo wskazujące na deskę
+        """
+        # Sprawdź czy nazwa zawiera słowa wskazujące na deskę
         for key, value in self.PRODUCT_TYPE_MAP.items():
             if key in name_lower:
                 return value
-        return None
+        
+        # POPRAWKA: Jeśli nie znaleziono żadnego słowa kluczowego, domyślnie zwróć 'klejonka'
+        return 'klejonka'
     
     def _extract_wood_species(self, name_lower: str) -> Optional[str]:
         """Wyciąga gatunek drewna"""
@@ -222,9 +227,9 @@ class ProductNameParser:
         return has_dimensions and has_basic_info
     
     def _empty_result(self) -> Dict[str, any]:
-        """Zwraca pusty wynik"""
+        """Zwraca pusty wynik - POPRAWKA: domyślnie klejonka"""
         return {
-            'product_type': None,
+            'product_type': 'klejonka',  # POPRAWKA: domyślnie klejonka
             'wood_species': None,
             'technology': None,
             'wood_class': None,
@@ -269,10 +274,12 @@ def test_parser():
         "Blat dębowy 120x70x3 cm mikrowczep A/B lakierowany bezbarwny",
         "Spocznik dąb lity A/B 190x88x3 cm lakierowany",
         "Dąb lity A/B olejowany 80x30x7 cm olejowany",
-        "Schody trep stopień drewniany dębowy mikrowczep B/B 120x35x4 cm surowy"
+        "Schody trep stopień drewniany dębowy mikrowczep B/B 120x35x4 cm surowy",
+        "Bukowa mikrowczep A/B 120x30x2 cm surowy",  # TEST: bez słowa "klejonka" - powinno być klejonka
+        "Produkty dębowe 100x50x3 cm"  # TEST: bez słowa kluczowego - powinno być klejonka
     ]
     
-    print("🔍 TEST PARSERA NAZW PRODUKTÓW")
+    print("🔍 TEST PARSERA NAZW PRODUKTÓW - POPRAWKA")
     print("=" * 80)
     
     for name in test_names:

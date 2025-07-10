@@ -457,7 +457,7 @@ class ReportsSyncLog(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     sync_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    sync_type = db.Column(db.Enum('manual', 'auto', name='sync_type_enum'), nullable=False)
+    sync_type = db.Column(db.Enum('manual', 'auto', 'status_sync', name='sync_type_enum'), nullable=False)
     orders_processed = db.Column(db.Integer, default=0)
     orders_added = db.Column(db.Integer, default=0)
     orders_updated = db.Column(db.Integer, default=0)

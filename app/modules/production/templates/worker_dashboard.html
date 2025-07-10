@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stanowisko Pracy - Wood Power CRM</title>
+    
+    <!-- Style globalne -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Style modułu production -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
+    
+    <!-- Font Awesome dla ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        {% include 'sidebar/sidebar.html' %}
+        
+        <!-- Główna zawartość -->
+        <div class="main-content">
+            <!-- Header stanowiska -->
+            <div class="worker-header">
+                <div class="header-content">
+                    <div class="header-left">
+                        <h1 class="page-title">
+                            <i class="fas fa-hard-hat"></i>
+                            {% if workstation %}
+                                Stanowisko: {{ workstation.name }}
+                            {% else %}
+                                Stanowisko Pracy
+                            {% endif %}
+                        </h1>
+                        <p class="page-subtitle">
+                            {% if user.is_worker() %}
+                                Witaj {{ user.first_name or user.email }}
+                            {% else %}
+                                Tryb podglądu administratora
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="header-right">
+                        <!-- Wybór stanowiska dla adminów -->
+                        {% if user.can_access_production_admin() and workstations|length > 1 %}
+                        <div class="workstation-selector">
+                            <label for="workstationSelect">Wybierz stanowisko:</label>
+                            <select id="workstationSelect" class="form-select" onchange="changeWorkstation()">
+                                {% for ws in workstations %}
+                                <option value="{{ ws.id }}" {% if ws.id == workstation.id %}selected{% endif %}>
+                                    {{ ws.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endif %}
+                        
+                        <button class="btn btn-secondary" onclick="refreshTasks()">
+                            <i class="fas fa-sync"></i>
+                            Odśwież
+                        </button>
+                        
+                        {% if user.can_access_production_admin() %}
+                        <a href="{{ url_for('production.production_dashboard') }}" class="btn btn-outline">
+                            <i class="fas fa-arrow-left"></i>
+                            Powrót do zarządzania
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            {% if not workstation %}
+            <!-- Brak przypisanego stanowiska -->
+            <div class="error-state">
+                <div class="error-content">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h2>Brak przypisanego stanowiska</h2>
+                    <p>Skontaktuj się z administratorem w celu przypisania stanowiska pracy.</p>
+                    {% if user.can_access_production_admin() %}
+                    <a href="{{ url_for('production.production_dashboard') }}" class="btn btn-primary">
+                        Przejdź do zarządzania
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+
+            <!-- Status stanowiska -->
+            <div class="workstation-status-bar">
+                <div class="status-item">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Stanowisko {{ workstation.sequence_order }}</span>
+                </div>
+                <div class="status-item">
+                    <i class="fas fa-tasks"></i>
+                    <span id="tasksCount">{{ tasks|length }} zadań w kolejce</span>
+                </div>
+                <div class="status-item">
+                    <i class="fas fa-clock"></i>
+                    <span id="currentTime">{{ moment().format('HH:mm:ss') }}</span>
+                </div>
+            </div>
+
+            <!-- Lista zadań -->
+            <div class="tasks-container">
+                <div class="section-header">
+                    <h2>
+                        <i class="fas fa-clipboard-list"></i>
+                        Zadania do wykonania
+                    </h2>
+                    <div class="header-actions">
+                        <span class="priority-info">
+                            <i class="fas fa-sort-amount-down"></i>
+                            Posortowane według priorytetu
+                        </span>
+                    </div>
+                </div>
+
+                {% if tasks %}
+                <div class="tasks-list" id="tasksList">
+                    {% for task in tasks %}
+                    <div class="task-card" data-task-id="{{ task.id }}">
+                        <div class="task-header">
+                            <div class="task-priority">
+                                <span class="priority-badge priority-{{ 'high' if loop.index <= 3 else 'normal' }}">
+                                    #{{ loop.index }}
+                                </span>
+                            </div>
+                            <div class="task-info">
+                                <h3>{{ task.product_name[:50] }}{% if task.product_name|length > 50 %}...{% endif %}</h3>
+                                <div class="task-details">
+                                    <span class="detail-item">
+                                        <i class="fas fa-ruler"></i>
+                                        {{ task.dimensions }}
+                                    </span>
+                                    <span class="detail-item">
+                                        <i class="fas fa-tree"></i>
+                                        {{ task.wood_species|title }} {{ task.technology }}
+                                    </span>
+                                    <span class="detail-item">
+                                        <i class="fas fa-hashtag"></i>
+                                        {{ task.quantity }} szt.
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="task-status">
+                                {% set progress = task.get_completion_percentage() %}
+                                <div class="progress-circle" data-progress="{{ progress }}">
+                                    <span>{{ progress }}%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="task-body">
+                            <!-- Informacje o wykończeniu -->
+                            {% if task.needs_coating %}
+                            <div class="coating-info">
+                                <i class="fas fa-paint-brush"></i>
+                                <span>
+                                    Wykończenie: {{ task.coating_type|title }}
+                                    {% if task.coating_color %} - {{ task.coating_color }}{% endif %}
+                                </span>
+                            </div>
+                            {% endif %}
+
+                            <!-- Termin realizacji -->
+                            {% if task.estimated_completion_date %}
+                            <div class="deadline-info">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>Termin: {{ task.estimated_completion_date.strftime('%d.%m.%Y') }}</span>
+                                {% set days_left = (task.estimated_completion_date - moment().date()).days %}
+                                {% if days_left < 0 %}
+                                    <span class="deadline-status overdue">Przekroczony o {{ -days_left }} dni</span>
+                                {% elif days_left == 0 %}
+                                    <span class="deadline-status today">Dzisiaj!</span>
+                                {% elif days_left <= 2 %}
+                                    <span class="deadline-status urgent">{{ days_left }} dni</span>
+                                {% else %}
+                                    <span class="deadline-status normal">{{ days_left }} dni</span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            <!-- Aktualne stanowisko w workflow -->
+                            {% set current_progress = None %}
+                            {% for progress in task.progress_records %}
+                                {% if progress.workstation_id == workstation.id %}
+                                    {% set current_progress = progress %}
+                                    {% break %}
+                                {% endif %}
+                            {% endfor %}
+
+                            {% if current_progress %}
+                            <div class="task-workflow">
+                                <div class="workflow-status">
+                                    {% if current_progress.status == 'pending' %}
+                                        <span class="status-badge status-pending">
+                                            <i class="fas fa-clock"></i>
+                                            Oczekuje
+                                        </span>
+                                    {% elif current_progress.status == 'in_progress' %}
+                                        <span class="status-badge status-progress">
+                                            <i class="fas fa-play"></i>
+                                            W trakcie
+                                            {% if current_progress.started_at %}
+                                                <small>({{ current_progress.started_at.strftime('%H:%M') }})</small>
+                                            {% endif %}
+                                        </span>
+                                    {% elif current_progress.status == 'completed' %}
+                                        <span class="status-badge status-completed">
+                                            <i class="fas fa-check"></i>
+                                            Ukończone
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Akcje zadania -->
+                        <div class="task-actions">
+                            {% if current_progress and current_progress.status == 'pending' %}
+                                <button class="btn btn-primary btn-large" onclick="startTask({{ task.id }})">
+                                    <i class="fas fa-play"></i>
+                                    Rozpocznij
+                                </button>
+                            {% elif current_progress and current_progress.status == 'in_progress' %}
+                                <button class="btn btn-success btn-large" onclick="completeTask({{ task.id }})">
+                                    <i class="fas fa-check"></i>
+                                    Zakończ
+                                </button>
+                                <button class="btn btn-warning" onclick="pauseTask({{ task.id }})">
+                                    <i class="fas fa-pause"></i>
+                                    Wstrzymaj
+                                </button>
+                            {% else %}
+                                <button class="btn btn-outline" disabled>
+                                    <i class="fas fa-info"></i>
+                                    Czeka na poprzedni etap
+                                </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <!-- Brak zadań -->
+                <div class="empty-state">
+                    <div class="empty-content">
+                        <i class="fas fa-inbox"></i>
+                        <h3>Brak zadań</h3>
+                        <p>Wszystkie zadania na tym stanowisku zostały ukończone.</p>
+                        <button class="btn btn-secondary" onclick="refreshTasks()">
+                            <i class="fas fa-sync"></i>
+                            Sprawdź ponownie
+                        </button>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal do notatek przy kończeniu zadania -->
+    <div id="completeTaskModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Zakończ zadanie</h3>
+                <button class="modal-close" onclick="closeCompleteModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Czy na pewno chcesz zakończyć to zadanie?</p>
+                <div class="form-group">
+                    <label for="taskNotes">Uwagi (opcjonalne):</label>
+                    <textarea id="taskNotes" class="form-control" rows="3" 
+                              placeholder="Dodaj uwagi o wykonanej pracy..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCompleteModal()">Anuluj</button>
+                <button class="btn btn-success" onclick="confirmCompleteTask()">
+                    <i class="fas fa-check"></i>
+                    Zakończ zadanie
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal do wstrzymania zadania -->
+    <div id="pauseTaskModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Wstrzymaj zadanie</h3>
+                <button class="modal-close" onclick="closePauseModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Podaj powód wstrzymania zadania:</p>
+                <div class="form-group">
+                    <label for="pauseReason">Powód:</label>
+                    <select id="pauseReason" class="form-control">
+                        <option value="">Wybierz powód...</option>
+                        <option value="Brak materiału">Brak materiału</option>
+                        <option value="Awaria maszyny">Awaria maszyny</option>
+                        <option value="Przerwa pracownika">Przerwa pracownika</option>
+                        <option value="Problem z jakością">Problem z jakością</option>
+                        <option value="Inne">Inne</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="pauseNotes">Dodatkowe uwagi:</label>
+                    <textarea id="pauseNotes" class="form-control" rows="2" 
+                              placeholder="Opisz szczegóły..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePauseModal()">Anuluj</button>
+                <button class="btn btn-warning" onclick="confirmPauseTask()">
+                    <i class="fas fa-pause"></i>
+                    Wstrzymaj
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Przetwarzanie...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/production_dashboard.js') }}"></script>
+    
+    <script>
+        // Globalne zmienne
+        let currentTaskId = null;
+        let workstationId = {{ workstation.id if workstation else 'null' }};
+        
+        // Inicjalizacja
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeWorkerDashboard();
+            updateCurrentTime();
+            
+            // Auto-refresh co 15 sekund
+            setInterval(function() {
+                refreshTasks();
+                updateCurrentTime();
+            }, 15000);
+        });
+
+        function initializeWorkerDashboard() {
+            // Inicjalizuj koła postępu
+            document.querySelectorAll('.progress-circle').forEach(function(circle) {
+                const progress = parseInt(circle.dataset.progress);
+                // TODO: Dodaj animację koła postępu
+            });
+        }
+
+        function updateCurrentTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('pl-PL');
+            const timeElement = document.getElementById('currentTime');
+            if (timeElement) {
+                timeElement.textContent = timeStr;
+            }
+        }
+
+        function changeWorkstation() {
+            const select = document.getElementById('workstationSelect');
+            const newWorkstationId = select.value;
+            
+            if (newWorkstationId) {
+                window.location.href = `{{ url_for('production.worker_dashboard') }}?workstation_id=${newWorkstationId}`;
+            }
+        }
+
+        function refreshTasks() {
+            if (!workstationId) return;
+            
+            fetch(`/production/api/workstation/${workstationId}/tasks`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // TODO: Aktualizuj listę zadań dynamicznie
+                        window.location.reload();
+                    }
+                })
+                .catch(error => {
+                    console.error('Błąd odświeżania zadań:', error);
+                });
+        }
+
+        function startTask(taskId) {
+            showLoading();
+            
+            fetch(`/production/api/task/${taskId}/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    worker_id: {{ user.id if user else 'null' }},
+                    tablet_identifier: 'WORKER_DASHBOARD'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showToast('Zadanie rozpoczęte pomyślnie', 'success');
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showToast(data.error || 'Błąd rozpoczęcia zadania', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showToast('Błąd połączenia z serwerem', 'error');
+                console.error('Błąd:', error);
+            });
+        }
+
+        function completeTask(taskId) {
+            currentTaskId = taskId;
+            document.getElementById('completeTaskModal').style.display = 'flex';
+        }
+
+        function confirmCompleteTask() {
+            if (!currentTaskId) return;
+            
+            const notes = document.getElementById('taskNotes').value;
+            showLoading();
+            
+            fetch(`/production/api/task/${currentTaskId}/complete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    tablet_identifier: 'WORKER_DASHBOARD',
+                    notes: notes
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                closeCompleteModal();
+                if (data.success) {
+                    showToast(`Zadanie ukończone! Następny etap: ${data.next_station}`, 'success');
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showToast(data.error || 'Błąd kończenia zadania', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                closeCompleteModal();
+                showToast('Błąd połączenia z serwerem', 'error');
+                console.error('Błąd:', error);
+            });
+        }
+
+        function pauseTask(taskId) {
+            currentTaskId = taskId;
+            document.getElementById('pauseTaskModal').style.display = 'flex';
+        }
+
+        function confirmPauseTask() {
+            if (!currentTaskId) return;
+            
+            const reason = document.getElementById('pauseReason').value;
+            const notes = document.getElementById('pauseNotes').value;
+            
+            if (!reason) {
+                showToast('Wybierz powód wstrzymania', 'warning');
+                return;
+            }
+            
+            showLoading();
+            
+            const fullReason = notes ? `${reason}: ${notes}` : reason;
+            
+            fetch(`/production/api/task/${currentTaskId}/pause`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    tablet_identifier: 'WORKER_DASHBOARD',
+                    reason: fullReason
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                closePauseModal();
+                if (data.success) {
+                    showToast('Zadanie wstrzymane', 'info');
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showToast(data.error || 'Błąd wstrzymania zadania', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                closePauseModal();
+                showToast('Błąd połączenia z serwerem', 'error');
+                console.error('Błąd:', error);
+            });
+        }
+
+        function closeCompleteModal() {
+            document.getElementById('completeTaskModal').style.display = 'none';
+            document.getElementById('taskNotes').value = '';
+            currentTaskId = null;
+        }
+
+        function closePauseModal() {
+            document.getElementById('pauseTaskModal').style.display = 'none';
+            document.getElementById('pauseReason').value = '';
+            document.getElementById('pauseNotes').value = '';
+            currentTaskId = null;
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        // Toast notifications (wykorzystaj istniejący system z main.js)
+        function showToast(message, type = 'info') {
+            // TODO: Implementacja toast notifications
+            console.log(`Toast [${type}]: ${message}`);
+        }
+    </script>
+</body>
+</html>

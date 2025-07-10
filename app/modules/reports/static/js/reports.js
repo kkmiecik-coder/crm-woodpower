@@ -43,6 +43,7 @@ class ReportsManager {
             dateFrom: document.getElementById('filterDateFrom'),
             dateTo: document.getElementById('filterDateTo'),
             syncBtn: document.getElementById('syncBtn'),
+            syncStatusesBtn: document.getElementById('syncStatusesBtn'),
             addManualRowBtn: document.getElementById('addManualRowBtn'),
             exportExcelBtn: document.getElementById('exportExcelBtn'),
             clearFiltersBtn: document.getElementById('clearFiltersBtn'),
@@ -113,6 +114,13 @@ class ReportsManager {
         if (this.elements.syncBtn) {
             this.elements.syncBtn.addEventListener('click', () => {
                 this.handleSyncClick();
+            });
+        }
+
+        // Synchronizacja statusów
+        if (this.elements.syncStatusesBtn) {
+            this.elements.syncStatusesBtn.addEventListener('click', () => {
+                this.handleSyncStatusesClick();
             });
         }
 
@@ -1238,10 +1246,31 @@ class ReportsManager {
     refreshTableLayout() {
         if (!this.elements.reportsTable) return;
 
-        // Wymuś recalculation layoutu
-        this.elements.reportsTable.style.display = 'none';
-        this.elements.reportsTable.offsetHeight; // Trigger reflow
-        this.elements.reportsTable.style.display = '';
+        // POPRAWKA: Nie używamy display: none, który resetuje scroll
+        if (this.isInFullscreenMode()) {
+            // W fullscreen używamy delikatnego odświeżenia
+            const tableWrapper = document.querySelector('.fullscreen-table-container .table-wrapper');
+            if (tableWrapper) {
+                // Zapisz pozycję scroll
+                const scrollTop = tableWrapper.scrollTop;
+                const scrollLeft = tableWrapper.scrollLeft;
+
+                // Wymusz repaint
+                tableWrapper.style.transform = 'translateZ(0)';
+
+                requestAnimationFrame(() => {
+                    tableWrapper.style.transform = '';
+                    // Przywróć pozycję scroll
+                    tableWrapper.scrollTop = scrollTop;
+                    tableWrapper.scrollLeft = scrollLeft;
+                });
+            }
+        } else {
+            // W normalnym trybie można użyć standardowego odświeżenia
+            this.elements.reportsTable.style.display = 'none';
+            this.elements.reportsTable.offsetHeight; // Trigger reflow
+            this.elements.reportsTable.style.display = '';
+        }
 
         // Odśwież hover effects dla grupowanych zamówień
         this.setupOrderHoverEffects();
@@ -1307,13 +1336,11 @@ class ReportsManager {
      */
     handleFullscreenResize() {
         if (this.isInFullscreenMode()) {
-            // Odśwież layout po resize
+            // POPRAWKA: Delikatne odświeżenie bez resetowania scroll
             setTimeout(() => {
-                this.refreshTableLayout();
-
-                // Powiadom FullscreenManager
-                if (window.fullscreenManager && typeof window.fullscreenManager.handleWindowResize === 'function') {
-                    window.fullscreenManager.handleWindowResize();
+                // Powiadom FullscreenManager o resize
+                if (window.fullscreenManager && typeof window.fullscreenManager.handleFullscreenResize === 'function') {
+                    window.fullscreenManager.handleFullscreenResize();
                 }
             }, 150);
         }
@@ -1347,6 +1374,74 @@ class ReportsManager {
             }
         };
     }
+
+    /**
+     * Obsługa synchronizacji statusów
+     */
+    async handleSyncStatusesClick() {
+        console.log('[ReportsManager] Sync statuses button clicked');
+
+        if (this.isLoading) {
+            this.showError('Trwa już ładowanie danych. Proszę czekać...');
+            return;
+        }
+
+        // Potwierdź akcję
+        if (!confirm('Czy na pewno chcesz zsynchronizować statusy zamówień z Baselinker?\n\nTo może potrwać kilka minut.')) {
+            return;
+        }
+
+        this.showLoading('Synchronizowanie statusów...');
+
+        try {
+            const response = await fetch('/reports/api/sync-statuses', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            if (result.success) {
+                console.log('[ReportsManager] Statuses sync completed successfully:', result);
+
+                // Pokaż komunikat sukcesu z detalami
+                let message = `Synchronizacja statusów i płatności zakończona pomyślnie!\n\n`;
+                message += `Przetworzono: ${result.orders_processed} zamówień\n`;
+                message += `Zaktualizowano łącznie: ${result.orders_updated} rekordów\n`;
+
+                if (result.status_updated > 0) {
+                    message += `Zaktualizowano statusy: ${result.status_updated} rekordów\n`;
+                }
+
+                if (result.payment_updated > 0) {
+                    message += `Zaktualizowano płatności: ${result.payment_updated} rekordów\n`;
+                }
+
+                message += `Unikalne zamówienia: ${result.unique_orders}`;
+
+                alert(message);
+
+                // Odśwież dane
+                this.refreshData();
+
+            } else {
+                throw new Error(result.error || 'Błąd synchronizacji statusów');
+            }
+
+        } catch (error) {
+            console.error('[ReportsManager] Sync statuses error:', error);
+            this.showError('Błąd synchronizacji statusów: ' + error.message);
+        } finally {
+            this.hideLoading();
+        }
+    }
+
 }
 
 // Export dla global scope

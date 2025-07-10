@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zarządzanie Partiami - Wood Power CRM</title>
+    
+    <!-- Style globalne -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Style modułu production -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
+    
+    <!-- Font Awesome dla ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        {% include 'sidebar/sidebar.html' %}
+        
+        <!-- Główna zawartość -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="production-header">
+                <div class="header-content">
+                    <div class="header-left">
+                        <h1 class="page-title">
+                            <i class="fas fa-layer-group"></i>
+                            Zarządzanie Partiami
+                        </h1>
+                        <p class="page-subtitle">Organizacja i kontrola partii produkcyjnych</p>
+                    </div>
+                    <div class="header-right">
+                        <button class="btn btn-primary" onclick="createNewBatch()">
+                            <i class="fas fa-plus"></i>
+                            Nowa partia
+                        </button>
+                        <a href="{{ url_for('production.production_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i>
+                            Powrót
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statystyki partii -->
+            <div class="batch-stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-layer-group"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>{{ batch_stats.total_batches or 0 }}</h3>
+                        <p>Wszystkich partii</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-play-circle"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>{{ batch_stats.active_batches or 0 }}</h3>
+                        <p>Aktywnych partii</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>{{ batch_stats.completed_this_week or 0 }}</h3>
+                        <p>Ukończonych w tym tygodniu</p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>{{ moment().format('DD.MM') }}</h3>
+                        <p>Dzisiejsza data</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filtry -->
+            <div class="filters-section">
+                <div class="filters-content">
+                    <div class="filter-group">
+                        <label for="statusFilter">Status:</label>
+                        <select id="statusFilter" class="form-select" onchange="applyFilters()">
+                            <option value="">Wszystkie</option>
+                            <option value="planned">Zaplanowane</option>
+                            <option value="in_progress">W trakcie</option>
+                            <option value="completed">Ukończone</option>
+                            <option value="cancelled">Anulowane</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="speciesFilter">Gatunek drewna:</label>
+                        <select id="speciesFilter" class="form-select" onchange="applyFilters()">
+                            <option value="">Wszystkie</option>
+                            <option value="dąb">Dąb</option>
+                            <option value="jesion">Jesion</option>
+                            <option value="buk">Buk</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="technologyFilter">Technologia:</label>
+                        <select id="technologyFilter" class="form-select" onchange="applyFilters()">
+                            <option value="">Wszystkie</option>
+                            <option value="lity">Lity</option>
+                            <option value="mikrowczep">Mikrowczep</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="dateFilter">Data:</label>
+                        <input type="date" id="dateFilter" class="form-control" onchange="applyFilters()">
+                    </div>
+                    
+                    <button class="btn btn-outline" onclick="clearFilters()">
+                        <i class="fas fa-times"></i>
+                        Wyczyść filtry
+                    </button>
+                </div>
+            </div>
+
+            <!-- Lista partii -->
+            <div class="batches-section">
+                <div class="section-header">
+                    <h2>
+                        <i class="fas fa-list"></i>
+                        Lista partii ({{ batches|length }})
+                    </h2>
+                    <div class="view-options">
+                        <button class="view-btn view-btn-active" data-view="grid" onclick="switchView('grid')">
+                            <i class="fas fa-th"></i>
+                        </button>
+                        <button class="view-btn" data-view="list" onclick="switchView('list')">
+                            <i class="fas fa-list"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Widok siatki (domyślny) -->
+                <div id="batchesGrid" class="batches-grid">
+                    {% for batch in batches %}
+                    <div class="batch-card" data-batch-id="{{ batch.id }}" 
+                         data-status="{{ batch.status }}" 
+                         data-species="{{ batch.wood_species }}" 
+                         data-technology="{{ batch.technology }}"
+                         data-date="{{ batch.batch_date.isoformat() }}">
+                        
+                        <div class="batch-header">
+                            <div class="batch-name">
+                                <h3>{{ batch.name }}</h3>
+                                <span class="batch-date">{{ batch.batch_date.strftime('%d.%m.%Y') }}</span>
+                            </div>
+                            <div class="batch-status">
+                                <span class="status-badge status-{{ batch.status }}">
+                                    {% if batch.status == 'planned' %}
+                                        <i class="fas fa-calendar"></i> Zaplanowana
+                                    {% elif batch.status == 'in_progress' %}
+                                        <i class="fas fa-play"></i> W trakcie
+                                    {% elif batch.status == 'completed' %}
+                                        <i class="fas fa-check"></i> Ukończona
+                                    {% elif batch.status == 'cancelled' %}
+                                        <i class="fas fa-times"></i> Anulowana
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="batch-details">
+                            <div class="batch-specs">
+                                <div class="spec-item">
+                                    <i class="fas fa-tree"></i>
+                                    <span>{{ batch.wood_species|title }}</span>
+                                </div>
+                                <div class="spec-item">
+                                    <i class="fas fa-cogs"></i>
+                                    <span>{{ batch.technology|title }}</span>
+                                </div>
+                                <div class="spec-item">
+                                    <i class="fas fa-tasks"></i>
+                                    <span>{{ batch.task_count }} zadań</span>
+                                </div>
+                            </div>
+
+                            <!-- Postęp partii -->
+                            <div class="batch-progress">
+                                <div class="progress-info">
+                                    <span>Postęp: {{ batch.completed_task_count }}/{{ batch.task_count }}</span>
+                                    <span>{{ batch.get_completion_percentage() }}%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: {{ batch.get_completion_percentage() }}%"></div>
+                                </div>
+                            </div>
+
+                            <!-- Daty -->
+                            <div class="batch-dates">
+                                {% if batch.planned_start_date %}
+                                <div class="date-item">
+                                    <i class="fas fa-calendar-plus"></i>
+                                    <span>Plan: {{ batch.planned_start_date.strftime('%d.%m') }}</span>
+                                </div>
+                                {% endif %}
+                                {% if batch.actual_start_date %}
+                                <div class="date-item">
+                                    <i class="fas fa-play"></i>
+                                    <span>Start: {{ batch.actual_start_date.strftime('%d.%m') }}</span>
+                                </div>
+                                {% endif %}
+                                {% if batch.actual_completion_date %}
+                                <div class="date-item">
+                                    <i class="fas fa-check"></i>
+                                    <span>Koniec: {{ batch.actual_completion_date.strftime('%d.%m') }}</span>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="batch-actions">
+                            <button class="btn btn-small btn-outline" onclick="viewBatchDetails({{ batch.id }})">
+                                <i class="fas fa-eye"></i>
+                                Szczegóły
+                            </button>
+                            {% if batch.status in ['planned', 'in_progress'] %}
+                            <button class="btn btn-small btn-primary" onclick="editBatch({{ batch.id }})">
+                                <i class="fas fa-edit"></i>
+                                Edytuj
+                            </button>
+                            {% endif %}
+                            <div class="batch-menu">
+                                <button class="btn btn-small btn-ghost" onclick="toggleBatchMenu({{ batch.id }})">
+                                    <i class="fas fa-ellipsis-v"></i>
+                                </button>
+                                <div class="batch-menu-dropdown" id="menu-{{ batch.id }}" style="display: none;">
+                                    {% if batch.status == 'planned' %}
+                                    <button onclick="startBatch({{ batch.id }})">
+                                        <i class="fas fa-play"></i> Rozpocznij
+                                    </button>
+                                    {% endif %}
+                                    {% if batch.status == 'in_progress' %}
+                                    <button onclick="pauseBatch({{ batch.id }})">
+                                        <i class="fas fa-pause"></i> Wstrzymaj
+                                    </button>
+                                    {% endif %}
+                                    <button onclick="duplicateBatch({{ batch.id }})">
+                                        <i class="fas fa-copy"></i> Duplikuj
+                                    </button>
+                                    {% if batch.status not in ['completed'] %}
+                                    <button onclick="cancelBatch({{ batch.id }})" class="danger">
+                                        <i class="fas fa-times"></i> Anuluj
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="empty-state">
+                        <i class="fas fa-layer-group"></i>
+                        <h3>Brak partii</h3>
+                        <p>Nie znaleziono partii spełniających kryteria.</p>
+                        <button class="btn btn-primary" onclick="createNewBatch()">
+                            <i class="fas fa-plus"></i>
+                            Utwórz pierwszą partię
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Widok listy (ukryty domyślnie) -->
+                <div id="batchesList" class="batches-list" style="display: none;">
+                    <div class="list-header">
+                        <div class="list-col">Nazwa</div>
+                        <div class="list-col">Gatunek/Tech</div>
+                        <div class="list-col">Status</div>
+                        <div class="list-col">Postęp</div>
+                        <div class="list-col">Data</div>
+                        <div class="list-col">Akcje</div>
+                    </div>
+                    {% for batch in batches %}
+                    <div class="list-row" data-batch-id="{{ batch.id }}">
+                        <div class="list-col">
+                            <strong>{{ batch.name }}</strong>
+                        </div>
+                        <div class="list-col">
+                            {{ batch.wood_species|title }} / {{ batch.technology }}
+                        </div>
+                        <div class="list-col">
+                            <span class="status-badge status-{{ batch.status }}">{{ batch.status }}</span>
+                        </div>
+                        <div class="list-col">
+                            <div class="mini-progress">
+                                <div class="mini-progress-bar" style="width: {{ batch.get_completion_percentage() }}%"></div>
+                            </div>
+                            <span>{{ batch.get_completion_percentage() }}%</span>
+                        </div>
+                        <div class="list-col">
+                            {{ batch.batch_date.strftime('%d.%m.%Y') }}
+                        </div>
+                        <div class="list-col">
+                            <button class="btn btn-small btn-outline" onclick="viewBatchDetails({{ batch.id }})">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="btn btn-small btn-primary" onclick="editBatch({{ batch.id }})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal szczegółów partii -->
+    <div id="batchDetailsModal" class="modal" style="display: none;">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>Szczegóły partii</h3>
+                <button class="modal-close" onclick="closeBatchDetails()">&times;</button>
+            </div>
+            <div class="modal-body" id="batchDetailsContent">
+                <!-- Treść będzie ładowana dynamicznie -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal tworzenia nowej partii -->
+    <div id="createBatchModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Utwórz nową partię</h3>
+                <button class="modal-close" onclick="closeCreateBatch()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="createBatchForm">
+                    <div class="form-group">
+                        <label for="batchName">Nazwa partii:</label>
+                        <input type="text" id="batchName" class="form-control" 
+                               placeholder="np. DĄB-MIK-001" required>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="batchSpecies">Gatunek drewna:</label>
+                            <select id="batchSpecies" class="form-select" required>
+                                <option value="">Wybierz gatunek</option>
+                                <option value="dąb">Dąb</option>
+                                <option value="jesion">Jesion</option>
+                                <option value="buk">Buk</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="batchTechnology">Technologia:</label>
+                            <select id="batchTechnology" class="form-select" required>
+                                <option value="">Wybierz technologię</option>
+                                <option value="lity">Lity</option>
+                                <option value="mikrowczep">Mikrowczep</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="batchStartDate">Planowana data rozpoczęcia:</label>
+                        <input type="date" id="batchStartDate" class="form-control" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="batchTasks">Zadania do dodania:</label>
+                        <div id="availableTasks" class="tasks-selector">
+                            <!-- Lista będzie ładowana dynamicznie -->
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCreateBatch()">Anuluj</button>
+                <button class="btn btn-primary" onclick="saveBatch()">
+                    <i class="fas fa-save"></i>
+                    Utwórz partię
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Przetwarzanie...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/production_dashboard.js') }}"></script>
+    
+    <script>
+        let currentView = 'grid';
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // Ustaw dzisiejszą datę jako domyślną dla filtru
+            document.getElementById('dateFilter').value = new Date().toISOString().split('T')[0];
+            
+            // Zamknij menu po kliknięciu poza nim
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.batch-menu')) {
+                    document.querySelectorAll('.batch-menu-dropdown').forEach(menu => {
+                        menu.style.display = 'none';
+                    });
+                }
+            });
+        });
+
+        function applyFilters() {
+            const statusFilter = document.getElementById('statusFilter').value;
+            const speciesFilter = document.getElementById('speciesFilter').value;
+            const technologyFilter = document.getElementById('technologyFilter').value;
+            const dateFilter = document.getElementById('dateFilter').value;
+            
+            const cards = document.querySelectorAll('.batch-card');
+            let visibleCount = 0;
+            
+            cards.forEach(card => {
+                const status = card.dataset.status;
+                const species = card.dataset.species;
+                const technology = card.dataset.technology;
+                const date = card.dataset.date;
+                
+                let show = true;
+                
+                if (statusFilter && status !== statusFilter) show = false;
+                if (speciesFilter && species !== speciesFilter) show = false;
+                if (technologyFilter && technology !== technologyFilter) show = false;
+                if (dateFilter && !date.startsWith(dateFilter)) show = false;
+                
+                card.style.display = show ? 'block' : 'none';
+                if (show) visibleCount++;
+            });
+            
+            // Aktualizuj licznik
+            document.querySelector('.section-header h2').innerHTML = 
+                `<i class="fas fa-list"></i> Lista partii (${visibleCount})`;
+        }
+
+        function clearFilters() {
+            document.getElementById('statusFilter').value = '';
+            document.getElementById('speciesFilter').value = '';
+            document.getElementById('technologyFilter').value = '';
+            document.getElementById('dateFilter').value = '';
+            applyFilters();
+        }
+
+        function switchView(view) {
+            currentView = view;
+            
+            // Aktualizuj przyciski
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.remove('view-btn-active');
+            });
+            document.querySelector(`[data-view="${view}"]`).classList.add('view-btn-active');
+            
+            // Przełącz widoki
+            if (view === 'grid') {
+                document.getElementById('batchesGrid').style.display = 'grid';
+                document.getElementById('batchesList').style.display = 'none';
+            } else {
+                document.getElementById('batchesGrid').style.display = 'none';
+                document.getElementById('batchesList').style.display = 'block';
+            }
+        }
+
+        function toggleBatchMenu(batchId) {
+            const menu = document.getElementById(`menu-${batchId}`);
+            const isVisible = menu.style.display === 'block';
+            
+            // Zamknij wszystkie inne menu
+            document.querySelectorAll('.batch-menu-dropdown').forEach(m => {
+                m.style.display = 'none';
+            });
+            
+            // Przełącz bieżące menu
+            menu.style.display = isVisible ? 'none' : 'block';
+        }
+
+        function viewBatchDetails(batchId) {
+            showLoading();
+            
+            fetch(`/production/api/batch/${batchId}/details`)
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        displayBatchDetails(data.batch);
+                    } else {
+                        showToast('Błąd pobierania szczegółów partii', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                });
+        }
+
+        function displayBatchDetails(batch) {
+            const content = document.getElementById('batchDetailsContent');
+            content.innerHTML = `
+                <div class="batch-details-content">
+                    <div class="batch-info-grid">
+                        <div class="info-section">
+                            <h4>Informacje podstawowe</h4>
+                            <div class="info-item">
+                                <label>Nazwa:</label>
+                                <span>${batch.name}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Status:</label>
+                                <span class="status-badge status-${batch.status}">${batch.status}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Gatunek:</label>
+                                <span>${batch.wood_species}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Technologia:</label>
+                                <span>${batch.technology}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="info-section">
+                            <h4>Postęp</h4>
+                            <div class="progress-display">
+                                <div class="progress-bar large">
+                                    <div class="progress-fill" style="width: ${batch.completion_percentage}%"></div>
+                                </div>
+                                <span>${batch.completed_tasks}/${batch.total_tasks} zadań (${batch.completion_percentage}%)</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="batch-tasks-list">
+                        <h4>Zadania w partii</h4>
+                        <!-- Lista zadań będzie tutaj -->
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('batchDetailsModal').style.display = 'flex';
+        }
+
+        function createNewBatch() {
+            // Wygeneruj domyślną nazwę partii
+            const today = new Date();
+            const dateStr = today.toISOString().split('T')[0];
+            document.getElementById('batchStartDate').value = dateStr;
+            
+            // Załaduj dostępne zadania
+            loadAvailableTasks();
+            
+            document.getElementById('createBatchModal').style.display = 'flex';
+        }
+
+        function loadAvailableTasks() {
+            fetch('/production/api/tasks?status=pending')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayAvailableTasks(data.tasks);
+                    }
+                })
+                .catch(error => {
+                    console.error('Błąd ładowania zadań:', error);
+                });
+        }
+
+        function displayAvailableTasks(tasks) {
+            const container = document.getElementById('availableTasks');
+            container.innerHTML = tasks.map(task => `
+                <div class="task-option">
+                    <label>
+                        <input type="checkbox" value="${task.id}">
+                        <span>${task.product_name} - ${task.dimensions}</span>
+                    </label>
+                </div>
+            `).join('');
+        }
+
+        function editBatch(batchId) {
+            // TODO: Implementacja edycji partii
+            showToast('Funkcja edycji w przygotowaniu', 'info');
+        }
+
+        function startBatch(batchId) {
+            if (confirm('Czy na pewno chcesz rozpocząć tę partię?')) {
+                updateBatchStatus(batchId, 'in_progress');
+            }
+        }
+
+        function pauseBatch(batchId) {
+            if (confirm('Czy na pewno chcesz wstrzymać tę partię?')) {
+                updateBatchStatus(batchId, 'planned');
+            }
+        }
+
+        function cancelBatch(batchId) {
+            if (confirm('Czy na pewno chcesz anulować tę partię? Tej operacji nie można cofnąć.')) {
+                updateBatchStatus(batchId, 'cancelled');
+            }
+        }
+
+        function updateBatchStatus(batchId, newStatus) {
+            showLoading();
+            
+            fetch(`/production/api/batch/${batchId}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showToast('Status partii zaktualizowany', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(data.error || 'Błąd aktualizacji statusu', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showToast('Błąd połączenia z serwerem', 'error');
+            });
+        }
+
+        function duplicateBatch(batchId) {
+            // TODO: Implementacja duplikowania partii
+            showToast('Funkcja duplikowania w przygotowaniu', 'info');
+        }
+
+        function saveBatch() {
+            const form = document.getElementById('createBatchForm');
+            const formData = new FormData(form);
+            
+            // Pobierz zaznaczone zadania
+            const selectedTasks = Array.from(
+                document.querySelectorAll('#availableTasks input:checked')
+            ).map(input => input.value);
+            
+            if (selectedTasks.length === 0) {
+                showToast('Wybierz przynajmniej jedno zadanie', 'warning');
+                return;
+            }
+            
+            const batchData = {
+                name: document.getElementById('batchName').value,
+                wood_species: document.getElementById('batchSpecies').value,
+                technology: document.getElementById('batchTechnology').value,
+                planned_start_date: document.getElementById('batchStartDate').value,
+                task_ids: selectedTasks
+            };
+            
+            showLoading();
+            
+            fetch('/production/api/batch/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(batchData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showToast('Partia utworzona pomyślnie', 'success');
+                    closeCreateBatch();
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast(data.error || 'Błąd tworzenia partii', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showToast('Błąd połączenia z serwerem', 'error');
+            });
+        }
+
+        function closeBatchDetails() {
+            document.getElementById('batchDetailsModal').style.display = 'none';
+        }
+
+        function closeCreateBatch() {
+            document.getElementById('createBatchModal').style.display = 'none';
+            document.getElementById('createBatchForm').reset();
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function showToast(message, type = 'info') {
+            // TODO: Implementacja toast notifications
+            console.log(`Toast [${type}]: ${message}`);
+        }
+    </script>
+</body>
+</html>

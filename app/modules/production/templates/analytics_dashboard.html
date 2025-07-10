@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analityka Produkcji - Wood Power CRM</title>
+    
+    <!-- Style globalne -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Style modułu production -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/analytics.css') }}">
+    
+    <!-- Font Awesome dla ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js dla wykresów -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        {% include 'sidebar/sidebar.html' %}
+        
+        <!-- Główna zawartość -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="production-header">
+                <div class="header-content">
+                    <div class="header-left">
+                        <h1 class="page-title">
+                            <i class="fas fa-chart-bar"></i>
+                            Analityka Produkcji
+                        </h1>
+                        <p class="page-subtitle">Raporty wydajności i analiza czasów wykonania</p>
+                    </div>
+                    <div class="header-right">
+                        <div class="date-range-selector">
+                            <label for="dateRange">Okres:</label>
+                            <select id="dateRange" class="form-select" onchange="updateDateRange()">
+                                <option value="7">Ostatnie 7 dni</option>
+                                <option value="30" selected>Ostatnie 30 dni</option>
+                                <option value="90">Ostatnie 3 miesiące</option>
+                                <option value="365">Ostatni rok</option>
+                                <option value="custom">Niestandardowy</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="exportReport()">
+                            <i class="fas fa-download"></i>
+                            Eksportuj raport
+                        </button>
+                        <a href="{{ url_for('production.production_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i>
+                            Powrót
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Niestandardowy selektor dat -->
+            <div id="customDateRange" class="custom-date-range" style="display: none;">
+                <div class="date-inputs">
+                    <div class="date-input-group">
+                        <label for="startDate">Od:</label>
+                        <input type="date" id="startDate" class="form-control">
+                    </div>
+                    <div class="date-input-group">
+                        <label for="endDate">Do:</label>
+                        <input type="date" id="endDate" class="form-control">
+                    </div>
+                    <button class="btn btn-primary" onclick="applyCustomRange()">
+                        <i class="fas fa-check"></i>
+                        Zastosuj
+                    </button>
+                </div>
+            </div>
+
+            <!-- Szybkie metryki -->
+            <div class="analytics-metrics">
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="metric-content">
+                        <h3 id="avgCompletionTime">{{ time_analytics.avg_completion_time or 480 }}</h3>
+                        <p>Średni czas realizacji (min)</p>
+                        <span class="metric-change positive">+5% vs poprzedni okres</span>
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-tachometer-alt"></i>
+                    </div>
+                    <div class="metric-content">
+                        <h3 id="dailyThroughput">12</h3>
+                        <p>Zadania dziennie (średnia)</p>
+                        <span class="metric-change positive">+8% vs poprzedni okres</span>
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-percentage"></i>
+                    </div>
+                    <div class="metric-content">
+                        <h3 id="onTimeDelivery">94%</h3>
+                        <p>Terminowość realizacji</p>
+                        <span class="metric-change negative">-2% vs poprzedni okres</span>
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-industry"></i>
+                    </div>
+                    <div class="metric-content">
+                        <h3 id="stationEfficiency">87%</h3>
+                        <p>Wydajność stanowisk</p>
+                        <span class="metric-change positive">+3% vs poprzedni okres</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Główne wykresy -->
+            <div class="analytics-grid">
+                <!-- Wykres czasów wykonania -->
+                <div class="analytics-card">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-clock"></i>
+                            Czasy wykonania według stanowisk
+                        </h3>
+                        <div class="card-controls">
+                            <button class="btn btn-small btn-outline" onclick="refreshChart('completion-times')">
+                                <i class="fas fa-sync"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <canvas id="completionTimesChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+
+                <!-- Wykres wydajności stanowisk -->
+                <div class="analytics-card">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-chart-pie"></i>
+                            Wydajność stanowisk
+                        </h3>
+                        <div class="card-controls">
+                            <select class="form-select small" onchange="updateEfficiencyChart()">
+                                <option value="utilization">Wykorzystanie</option>
+                                <option value="throughput">Przepustowość</option>
+                                <option value="quality">Jakość</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <canvas id="efficiencyChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+
+                <!-- Trend produkcji -->
+                <div class="analytics-card card-full-width">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-chart-line"></i>
+                            Trend produkcji w czasie
+                        </h3>
+                        <div class="card-controls">
+                            <div class="chart-legend">
+                                <span class="legend-item">
+                                    <span class="legend-color" style="background: #ED6B24;"></span>
+                                    Zadania ukończone
+                                </span>
+                                <span class="legend-item">
+                                    <span class="legend-color" style="background: #FFE6D9;"></span>
+                                    Zadania rozpoczęte
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <canvas id="productionTrendChart" width="800" height="300"></canvas>
+                    </div>
+                </div>
+
+                <!-- Analiza gatunków drewna -->
+                <div class="analytics-card">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-tree"></i>
+                            Rozkład według gatunków
+                        </h3>
+                    </div>
+                    <div class="card-content">
+                        <canvas id="woodSpeciesChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+
+                <!-- Top wykonawcy -->
+                <div class="analytics-card">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-trophy"></i>
+                            Najlepsi wykonawcy
+                        </h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="performers-list" id="topPerformers">
+                            <div class="performer-item">
+                                <div class="performer-rank">#1</div>
+                                <div class="performer-info">
+                                    <span class="performer-name">Jan Kowalski</span>
+                                    <span class="performer-station">Cięcie drewna</span>
+                                </div>
+                                <div class="performer-score">98%</div>
+                            </div>
+                            <div class="performer-item">
+                                <div class="performer-rank">#2</div>
+                                <div class="performer-info">
+                                    <span class="performer-name">Anna Nowak</span>
+                                    <span class="performer-station">Sklejanie</span>
+                                </div>
+                                <div class="performer-score">95%</div>
+                            </div>
+                            <div class="performer-item">
+                                <div class="performer-rank">#3</div>
+                                <div class="performer-info">
+                                    <span class="performer-name">Piotr Wiśniewski</span>
+                                    <span class="performer-station">Wykończenie</span>
+                                </div>
+                                <div class="performer-score">92%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Szczegółowe tabele -->
+            <div class="analytics-tables">
+                <!-- Analiza wąskich gardeł -->
+                <div class="analytics-card">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Analiza wąskich gardeł
+                        </h3>
+                        <button class="btn btn-small btn-primary" onclick="refreshBottlenecks()">
+                            <i class="fas fa-sync"></i>
+                            Odśwież
+                        </button>
+                    </div>
+                    <div class="card-content">
+                        <div class="table-responsive">
+                            <table class="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Stanowisko</th>
+                                        <th>Zadania w kolejce</th>
+                                        <th>Średni czas oczekiwania</th>
+                                        <th>Wykorzystanie</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bottlenecksTable">
+                                    <tr>
+                                        <td>Lakierowanie</td>
+                                        <td><span class="high-value">8</span></td>
+                                        <td>2.5h</td>
+                                        <td>
+                                            <div class="utilization-bar">
+                                                <div class="utilization-fill" style="width: 95%"></div>
+                                                <span>95%</span>
+                                            </div>
+                                        </td>
+                                        <td><span class="status-warning">Wąskie gardło</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Cięcie drewna</td>
+                                        <td>3</td>
+                                        <td>0.8h</td>
+                                        <td>
+                                            <div class="utilization-bar">
+                                                <div class="utilization-fill" style="width: 78%"></div>
+                                                <span>78%</span>
+                                            </div>
+                                        </td>
+                                        <td><span class="status-good">Normalne</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Sklejanie</td>
+                                        <td>5</td>
+                                        <td>1.2h</td>
+                                        <td>
+                                            <div class="utilization-bar">
+                                                <div class="utilization-fill" style="width: 85%"></div>
+                                                <span>85%</span>
+                                            </div>
+                                        </td>
+                                        <td><span class="status-good">Normalne</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Raport jakości -->
+                <div class="analytics-card">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-check-circle"></i>
+                            Wskaźniki jakości
+                        </h3>
+                        <div class="quality-period">
+                            <select class="form-select small">
+                                <option>Ostatnie 30 dni</option>
+                                <option>Ostatnie 7 dni</option>
+                                <option>Bieżący miesiąc</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <div class="quality-metrics">
+                            <div class="quality-item">
+                                <div class="quality-label">Zadania ukończone na czas</div>
+                                <div class="quality-value">
+                                    <span class="value-number">94%</span>
+                                    <span class="value-trend positive">+2%</span>
+                                </div>
+                            </div>
+                            <div class="quality-item">
+                                <div class="quality-label">Zadania bez błędów</div>
+                                <div class="quality-value">
+                                    <span class="value-number">97%</span>
+                                    <span class="value-trend positive">+1%</span>
+                                </div>
+                            </div>
+                            <div class="quality-item">
+                                <div class="quality-label">Średni czas realizacji</div>
+                                <div class="quality-value">
+                                    <span class="value-number">8.2h</span>
+                                    <span class="value-trend negative">+0.3h</span>
+                                </div>
+                            </div>
+                            <div class="quality-item">
+                                <div class="quality-label">Poziom satysfakcji</div>
+                                <div class="quality-value">
+                                    <span class="value-number">4.8/5</span>
+                                    <span class="value-trend positive">+0.2</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rekomendacje -->
+            <div class="recommendations-section">
+                <div class="analytics-card">
+                    <div class="card-header">
+                        <h3>
+                            <i class="fas fa-lightbulb"></i>
+                            Rekomendacje optymalizacji
+                        </h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="recommendations-list">
+                            <div class="recommendation-item priority-high">
+                                <div class="recommendation-icon">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div class="recommendation-content">
+                                    <h4>Rozwiąż wąskie gardło w lakierowaniu</h4>
+                                    <p>Stanowisko lakierowania ma 95% wykorzystanie i 8 zadań w kolejce. Rozważ dodanie drugiej linii lub optymalizację procesu.</p>
+                                    <div class="recommendation-impact">
+                                        <span>Potencjalna poprawa: <strong>+15% przepustowości</strong></span>
+                                    </div>
+                                </div>
+                                <div class="recommendation-actions">
+                                    <button class="btn btn-small btn-primary">Szczegóły</button>
+                                </div>
+                            </div>
+                            
+                            <div class="recommendation-item priority-medium">
+                                <div class="recommendation-icon">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="recommendation-content">
+                                    <h4>Optymalizuj czasy przezbrojeń</h4>
+                                    <p>Analiza pokazuje, że 18% czasu pracy to przestoje między zadaniami. Grupowanie podobnych produktów może zredukować ten czas.</p>
+                                    <div class="recommendation-impact">
+                                        <span>Potencjalna oszczędność: <strong>1.2h dziennie</strong></span>
+                                    </div>
+                                </div>
+                                <div class="recommendation-actions">
+                                    <button class="btn btn-small btn-outline">Wdrożyć</button>
+                                </div>
+                            </div>
+                            
+                            <div class="recommendation-item priority-low">
+                                <div class="recommendation-icon">
+                                    <i class="fas fa-users"></i>
+                                </div>
+                                <div class="recommendation-content">
+                                    <h4>Rozważ szkolenie wielostanowiskowe</h4>
+                                    <p>Zwiększenie elastyczności pracowników może pomóc w równoważeniu obciążenia między stanowiskami.</p>
+                                    <div class="recommendation-impact">
+                                        <span>Potencjalna poprawa: <strong>+8% elastyczności</strong></span>
+                                    </div>
+                                </div>
+                                <div class="recommendation-actions">
+                                    <button class="btn btn-small btn-outline">Planuj</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Ładowanie danych analitycznych...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/analytics_charts.js') }}"></script>
+    
+    <script>
+        let charts = {};
+        let currentDateRange = 30;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeAnalytics();
+            createCharts();
+            loadAnalyticsData();
+        });
+
+        function initializeAnalytics() {
+            // Ustaw domyślne daty
+            const today = new Date();
+            const monthAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
+            
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = monthAgo.toISOString().split('T')[0];
+        }
+
+        function updateDateRange() {
+            const range = document.getElementById('dateRange').value;
+            const customRange = document.getElementById('customDateRange');
+            
+            if (range === 'custom') {
+                customRange.style.display = 'flex';
+            } else {
+                customRange.style.display = 'none';
+                currentDateRange = parseInt(range);
+                loadAnalyticsData();
+            }
+        }
+
+        function applyCustomRange() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+                const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+                
+                currentDateRange = daysDiff;
+                loadAnalyticsData(startDate, endDate);
+            }
+        }
+
+        function createCharts() {
+            // Wykres czasów wykonania
+            const completionCtx = document.getElementById('completionTimesChart').getContext('2d');
+            charts.completionTimes = new Chart(completionCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Cięcie', 'Sklejanie', 'Docinanie', 'Wykończenie', 'Lakierowanie', 'Pakowanie'],
+                    datasets: [{
+                        label: 'Średni czas (min)',
+                        data: [45, 90, 30, 60, 120, 15],
+                        backgroundColor: '#ED6B24',
+                        borderColor: '#ED6B24',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Czas (minuty)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Wykres wydajności stanowisk
+            const efficiencyCtx = document.getElementById('efficiencyChart').getContext('2d');
+            charts.efficiency = new Chart(efficiencyCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Cięcie', 'Sklejanie', 'Docinanie', 'Wykończenie', 'Lakierowanie', 'Pakowanie'],
+                    datasets: [{
+                        data: [78, 85, 92, 88, 95, 90],
+                        backgroundColor: [
+                            '#ED6B24',
+                            '#FFE6D9',
+                            '#FFA366',
+                            '#FF8533',
+                            '#E55A00',
+                            '#CC5200'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // Wykres trendu produkcji
+            const trendCtx = document.getElementById('productionTrendChart').getContext('2d');
+            charts.productionTrend = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: generateDateLabels(30),
+                    datasets: [{
+                        label: 'Zadania ukończone',
+                        data: generateRandomData(30, 8, 15),
+                        borderColor: '#ED6B24',
+                        backgroundColor: 'rgba(237, 107, 36, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Zadania rozpoczęte',
+                        data: generateRandomData(30, 10, 18),
+                        borderColor: '#FFE6D9',
+                        backgroundColor: 'rgba(255, 230, 217, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Wykres gatunków drewna
+            const speciesCtx = document.getElementById('woodSpeciesChart').getContext('2d');
+            charts.woodSpecies = new Chart(speciesCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Dąb', 'Jesion', 'Buk'],
+                    datasets: [{
+                        data: [65, 25, 10],
+                        backgroundColor: ['#ED6B24', '#FFA366', '#FFE6D9']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function generateDateLabels(days) {
+            const labels = [];
+            const today = new Date();
+            
+            for (let i = days - 1; i >= 0; i--) {
+                const date = new Date(today.getTime() - (i * 24 * 60 * 60 * 1000));
+                labels.push(date.toLocaleDateString('pl-PL', { month: 'short', day: 'numeric' }));
+            }
+            
+            return labels;
+        }
+
+        function generateRandomData(length, min, max) {
+            return Array.from({ length }, () => 
+                Math.floor(Math.random() * (max - min + 1)) + min
+            );
+        }
+
+        function loadAnalyticsData(startDate = null, endDate = null) {
+            showLoading();
+            
+            const params = new URLSearchParams();
+            if (startDate && endDate) {
+                params.append('start_date', startDate);
+                params.append('end_date', endDate);
+            } else {
+                params.append('days', currentDateRange);
+            }
+            
+            fetch(`/production/api/analytics/data?${params}`)
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        updateAnalyticsDisplay(data);
+                    } else {
+                        showToast('Błąd ładowania danych analitycznych', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                    console.error('Analytics error:', error);
+                });
+        }
+
+        function updateAnalyticsDisplay(data) {
+            // Aktualizuj metryki
+            if (data.metrics) {
+                document.getElementById('avgCompletionTime').textContent = 
+                    Math.round(data.metrics.avg_completion_time || 480);
+                document.getElementById('dailyThroughput').textContent = 
+                    Math.round(data.metrics.daily_throughput || 12);
+                document.getElementById('onTimeDelivery').textContent = 
+                    Math.round(data.metrics.on_time_delivery || 94) + '%';
+                document.getElementById('stationEfficiency').textContent = 
+                    Math.round(data.metrics.station_efficiency || 87) + '%';
+            }
+            
+            // Aktualizuj wykresy
+            if (data.charts) {
+                updateChartData(charts.completionTimes, data.charts.completion_times);
+                updateChartData(charts.efficiency, data.charts.efficiency);
+                updateChartData(charts.productionTrend, data.charts.production_trend);
+                updateChartData(charts.woodSpecies, data.charts.wood_species);
+            }
+        }
+
+        function updateChartData(chart, newData) {
+            if (newData && chart) {
+                if (newData.labels) chart.data.labels = newData.labels;
+                if (newData.datasets) chart.data.datasets = newData.datasets;
+                chart.update();
+            }
+        }
+
+        function refreshChart(chartType) {
+            showLoading();
+            
+            fetch(`/production/api/analytics/chart/${chartType}?days=${currentDateRange}`)
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        const chart = charts[chartType.replace('-', '')];
+                        if (chart) {
+                            updateChartData(chart, data.chart_data);
+                            showToast('Wykres odświeżony', 'success');
+                        }
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd odświeżania wykresu', 'error');
+                });
+        }
+
+        function updateEfficiencyChart() {
+            const metric = document.querySelector('.card-controls select').value;
+            refreshChart(`efficiency-${metric}`);
+        }
+
+        function refreshBottlenecks() {
+            showLoading();
+            
+            fetch('/production/api/analytics/bottlenecks')
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        updateBottlenecksTable(data.bottlenecks);
+                        showToast('Analiza wąskich gardeł odświeżona', 'success');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd odświeżania analizy', 'error');
+                });
+        }
+
+        function updateBottlenecksTable(bottlenecks) {
+            const tbody = document.getElementById('bottlenecksTable');
+            
+            tbody.innerHTML = bottlenecks.map(bottleneck => `
+                <tr>
+                    <td>${bottleneck.workstation}</td>
+                    <td><span class="${bottleneck.queue_size > 5 ? 'high-value' : ''}">${bottleneck.queue_size}</span></td>
+                    <td>${bottleneck.avg_wait_time}h</td>
+                    <td>
+                        <div class="utilization-bar">
+                            <div class="utilization-fill" style="width: ${bottleneck.utilization}%"></div>
+                            <span>${bottleneck.utilization}%</span>
+                        </div>
+                    </td>
+                    <td><span class="status-${bottleneck.status}">${bottleneck.status_text}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function exportReport() {
+            showLoading();
+            
+            const params = new URLSearchParams();
+            params.append('days', currentDateRange);
+            params.append('format', 'pdf');
+            
+            fetch(`/production/api/analytics/export?${params}`)
+                .then(response => {
+                    hideLoading();
+                    if (response.ok) {
+                        return response.blob();
+                    }
+                    throw new Error('Błąd eksportu');
+                })
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `analityka_produkcji_${new Date().toISOString().split('T')[0]}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    showToast('Raport został pobrany', 'success');
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd eksportu raportu', 'error');
+                });
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function showToast(message, type = 'info') {
+            // TODO: Implementacja toast notifications
+            console.log(`Toast [${type}]: ${message}`);
+        }
+
+        // Auto-refresh co 5 minut
+        setInterval(() => {
+            loadAnalyticsData();
+        }, 5 * 60 * 1000);
+    </script>
+</body>
+</html>

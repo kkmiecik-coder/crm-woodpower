@@ -19,6 +19,8 @@ from modules.baselinker import baselinker_bp
 from modules.preview3d_ar import preview3d_ar_bp
 from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
 from sqlalchemy.exc import ResourceClosedError, OperationalError
+from modules.reports import reports_bp
+from modules.production import production_bp
 
 def create_admin():
     """Tworzy użytkownika admina, jeśli nie istnieje."""
@@ -98,6 +100,9 @@ def create_app():
     app.register_blueprint(baselinker_bp, url_prefix='/baselinker')
     app.register_blueprint(logging_bp, url_prefix='/logging')
     app.register_blueprint(preview3d_ar_bp)
+    app.register_blueprint(production_bp, url_prefix='/production')
+    app.register_blueprint(reports_bp, url_prefix='/reports')
+
 
     @app.before_request
     def extend_session():

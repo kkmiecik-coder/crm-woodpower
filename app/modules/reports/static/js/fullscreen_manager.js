@@ -150,8 +150,8 @@ class FullscreenManager {
     }
 
     /**
-     * Wejście w tryb pełnego ekranu
-     */
+    * Wejście w tryb pełnego ekranu
+    */
     enterFullscreen() {
         console.log('[FullscreenManager] Entering fullscreen mode...');
 
@@ -176,11 +176,11 @@ class FullscreenManager {
         // Dodaj klasę do body
         document.body.classList.add('fullscreen-mode');
 
+        // Ustaw flagę PRZED aktualizacją przycisku
+        this.isFullscreen = true;
+
         // Zaktualizuj przycisk toggle
         this.updateToggleButton();
-
-        // Ustaw flagę
-        this.isFullscreen = true;
 
         // Powiadom inne managery
         this.notifyManagersAboutFullscreen(true);
@@ -191,9 +191,10 @@ class FullscreenManager {
         console.log('[FullscreenManager] Fullscreen mode activated');
     }
 
+
     /**
-     * Wyjście z trybu pełnego ekranu
-     */
+    * Wyjście z trybu pełnego ekranu
+    */
     exitFullscreen() {
         console.log('[FullscreenManager] Exiting fullscreen mode...');
 
@@ -215,11 +216,11 @@ class FullscreenManager {
         // Usuń klasę z body
         document.body.classList.remove('fullscreen-mode');
 
+        // Ustaw flagę PRZED aktualizacją przycisku
+        this.isFullscreen = false;
+
         // Zaktualizuj przycisk toggle
         this.updateToggleButton();
-
-        // Ustaw flagę
-        this.isFullscreen = false;
 
         // Powiadom inne managery
         this.notifyManagersAboutFullscreen(false);
@@ -374,6 +375,8 @@ class FullscreenManager {
             }
             this.fullscreenToggle.classList.remove('active');
         }
+
+        console.log('[FullscreenManager] Toggle button updated, isFullscreen:', this.isFullscreen);
     }
 
     /**
@@ -445,9 +448,54 @@ class FullscreenManager {
      */
     refreshLayout() {
         if (this.isFullscreen) {
-            // Odśwież tabele i inne elementy w fullscreen
+            // POPRAWKA: Odśwież layout bez resetowania scroll
             setTimeout(() => {
+                // Nie używamy display: none, który resetuje scroll
+                const tableWrapper = document.querySelector('.fullscreen-table-container .table-wrapper');
+                if (tableWrapper) {
+                    // Wymusz repaint bez resetowania pozycji scroll
+                    tableWrapper.style.transform = 'translateZ(0)';
+                    requestAnimationFrame(() => {
+                        tableWrapper.style.transform = '';
+                    });
+                }
+
+                // Soft resize event
                 window.dispatchEvent(new Event('resize'));
+            }, 50);
+        }
+    }
+
+    /**
+     * NOWA METODA - Zapobieganie resetowaniu scroll w fullscreen
+     */
+    preserveScrollPosition() {
+        if (!this.isFullscreen) return;
+
+        const tableWrapper = document.querySelector('.fullscreen-table-container .table-wrapper');
+        if (tableWrapper) {
+            // Zapisz pozycję scroll
+            const scrollTop = tableWrapper.scrollTop;
+            const scrollLeft = tableWrapper.scrollLeft;
+
+            // Przywróć pozycję po micro-delay
+            requestAnimationFrame(() => {
+                tableWrapper.scrollTop = scrollTop;
+                tableWrapper.scrollLeft = scrollLeft;
+            });
+        }
+    }
+
+    /**
+     * NOWA METODA - Obsługa resize z zachowaniem scroll
+     */
+    handleFullscreenResize() {
+        if (this.isFullscreen) {
+            this.preserveScrollPosition();
+
+            // Delikatne odświeżenie bez resetowania
+            setTimeout(() => {
+                this.refreshLayout();
             }, 100);
         }
     }

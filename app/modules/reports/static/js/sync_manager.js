@@ -240,7 +240,7 @@ class SyncManager {
             <div class="no-new-orders">
                 <i class="fas fa-check-circle"></i>
                 <h4>Brak nowych zamówień</h4>
-                <p>Wszystkie zamówienia z wybranego zakresu dat są już zsynchronizowane.</p>
+                <p>Wszystkie zamówienia z wybranego zakresu dat są już zsynchronizowane. Jeśli nie widzisz danego zamówienia, upewnij się, że jest ono opłacone oraz zatwierdzone.</p>
             </div>
         `;
     }

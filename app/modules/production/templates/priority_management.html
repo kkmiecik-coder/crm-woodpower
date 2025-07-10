@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zarządzanie Priorytetami - Wood Power CRM</title>
+    
+    <!-- Style globalne -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Style modułu production -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
+    
+    <!-- Font Awesome dla ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- SortableJS dla drag & drop -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        {% include 'sidebar/sidebar.html' %}
+        
+        <!-- Główna zawartość -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="production-header">
+                <div class="header-content">
+                    <div class="header-left">
+                        <h1 class="page-title">
+                            <i class="fas fa-sort-amount-down"></i>
+                            Zarządzanie Priorytetami
+                        </h1>
+                        <p class="page-subtitle">Przeciągnij i upuść zadania aby zmienić kolejność produkcji</p>
+                    </div>
+                    <div class="header-right">
+                        <button class="btn btn-success" onclick="saveChanges()" id="saveBtn" disabled>
+                            <i class="fas fa-save"></i>
+                            Zapisz zmiany
+                        </button>
+                        <button class="btn btn-outline" onclick="resetChanges()" id="resetBtn" disabled>
+                            <i class="fas fa-undo"></i>
+                            Cofnij zmiany
+                        </button>
+                        <a href="{{ url_for('production.production_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i>
+                            Powrót
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Instrukcje -->
+            <div class="instructions-bar">
+                <div class="instruction-item">
+                    <i class="fas fa-hand-pointer"></i>
+                    <span>Przeciągnij zadania aby zmienić kolejność</span>
+                </div>
+                <div class="instruction-item">
+                    <i class="fas fa-layer-group"></i>
+                    <span>Zadania są pogrupowane według gatunku drewna</span>
+                </div>
+                <div class="instruction-item">
+                    <i class="fas fa-clock"></i>
+                    <span>Czerwone ramki = pilne terminy</span>
+                </div>
+            </div>
+
+            <!-- Informacje o zmianach -->
+            <div id="changesInfo" class="changes-info" style="display: none;">
+                <div class="changes-content">
+                    <i class="fas fa-info-circle"></i>
+                    <span id="changesText">Wprowadzono zmiany w kolejności</span>
+                    <button class="btn btn-small btn-primary" onclick="saveChanges()">
+                        Zapisz teraz
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filtry i opcje -->
+            <div class="priority-controls">
+                <div class="controls-left">
+                    <div class="filter-group">
+                        <label for="speciesFilter">Pokaż gatunek:</label>
+                        <select id="speciesFilter" class="form-select" onchange="filterBySpecies()">
+                            <option value="">Wszystkie gatunki</option>
+                            {% for species in tasks_by_species.keys() %}
+                            <option value="{{ species }}">{{ species|title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="urgencyFilter">Pilność:</label>
+                        <select id="urgencyFilter" class="form-select" onchange="filterByUrgency()">
+                            <option value="">Wszystkie</option>
+                            <option value="urgent">Tylko pilne</option>
+                            <option value="normal">Tylko normalne</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="controls-right">
+                    <button class="btn btn-outline" onclick="autoOptimize()">
+                        <i class="fas fa-magic"></i>
+                        Auto-optymalizacja
+                    </button>
+                    <button class="btn btn-outline" onclick="expandAllGroups()">
+                        <i class="fas fa-expand-arrows-alt"></i>
+                        Rozwiń wszystkie
+                    </button>
+                    <button class="btn btn-outline" onclick="collapseAllGroups()">
+                        <i class="fas fa-compress-arrows-alt"></i>
+                        Zwiń wszystkie
+                    </button>
+                </div>
+            </div>
+
+            <!-- Grupy zadań według gatunku -->
+            <div class="priority-groups">
+                {% for species, species_tasks in tasks_by_species.items() %}
+                <div class="species-group" data-species="{{ species }}">
+                    <div class="group-header" onclick="toggleGroup('{{ species }}')">
+                        <div class="group-info">
+                            <i class="fas fa-tree group-icon"></i>
+                            <h2>{{ species|title }}</h2>
+                            <span class="group-count">{{ species_tasks|length }} zadań</span>
+                        </div>
+                        <div class="group-stats">
+                            {% set urgent_count = species_tasks | selectattr('estimated_completion_date') | select('estimated_completion_date', '<', moment().date() + timedelta(days=2)) | list | length %}
+                            {% if urgent_count > 0 %}
+                            <span class="urgent-badge">{{ urgent_count }} pilnych</span>
+                            {% endif %}
+                            <span class="group-progress">
+                                {% set in_progress = species_tasks | selectattr('status', 'equalto', 'in_progress') | list | length %}
+                                {{ in_progress }} w trakcie
+                            </span>
+                        </div>
+                        <i class="fas fa-chevron-down group-toggle"></i>
+                    </div>
+                    
+                    <div class="group-content" id="group-{{ species }}">
+                        <div class="tasks-container sortable-container" id="tasks-{{ species }}" data-species="{{ species }}">
+                            {% for task in species_tasks %}
+                            <div class="priority-task-card" 
+                                 data-task-id="{{ task.id }}" 
+                                 data-priority="{{ task.priority_order }}"
+                                 data-species="{{ task.wood_species }}"
+                                 data-urgent="{{ 'true' if task.estimated_completion_date and (task.estimated_completion_date - moment().date()).days <= 1 else 'false' }}">
+                                
+                                <!-- Uchwyt do przeciągania -->
+                                <div class="drag-handle">
+                                    <i class="fas fa-grip-vertical"></i>
+                                </div>
+                                
+                                <!-- Numer priorytetu -->
+                                <div class="priority-number">
+                                    <span class="priority-badge">{{ loop.index }}</span>
+                                </div>
+                                
+                                <!-- Informacje o zadaniu -->
+                                <div class="task-info">
+                                    <div class="task-header">
+                                        <h3>{{ task.product_name[:60] }}{% if task.product_name|length > 60 %}...{% endif %}</h3>
+                                        {% if task.estimated_completion_date %}
+                                            {% set days_left = (task.estimated_completion_date - moment().date()).days %}
+                                            {% if days_left < 0 %}
+                                                <span class="deadline-status overdue">Przekroczony o {{ -days_left }} dni</span>
+                                            {% elif days_left == 0 %}
+                                                <span class="deadline-status today">Dzisiaj!</span>
+                                            {% elif days_left == 1 %}
+                                                <span class="deadline-status urgent">Jutro</span>
+                                            {% elif days_left <= 3 %}
+                                                <span class="deadline-status soon">{{ days_left }} dni</span>
+                                            {% else %}
+                                                <span class="deadline-status normal">{{ days_left }} dni</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </div>
+                                    
+                                    <div class="task-details">
+                                        <div class="detail-row">
+                                            <span class="detail-item">
+                                                <i class="fas fa-ruler"></i>
+                                                {{ task.dimensions }}
+                                            </span>
+                                            <span class="detail-item">
+                                                <i class="fas fa-cogs"></i>
+                                                {{ task.technology }}
+                                            </span>
+                                            <span class="detail-item">
+                                                <i class="fas fa-hashtag"></i>
+                                                {{ task.quantity }} szt.
+                                            </span>
+                                            {% if task.wood_class %}
+                                            <span class="detail-item">
+                                                <i class="fas fa-star"></i>
+                                                {{ task.wood_class }}
+                                            </span>
+                                            {% endif %}
+                                        </div>
+                                        
+                                        {% if task.needs_coating %}
+                                        <div class="coating-info">
+                                            <i class="fas fa-paint-brush"></i>
+                                            <span>{{ task.coating_type|title }}{% if task.coating_color %} - {{ task.coating_color }}{% endif %}</span>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                
+                                <!-- Status i postęp -->
+                                <div class="task-status">
+                                    <div class="status-info">
+                                        <span class="status-badge status-{{ task.status }}">
+                                            {% if task.status == 'pending' %}
+                                                <i class="fas fa-clock"></i> Oczekuje
+                                            {% elif task.status == 'in_progress' %}
+                                                <i class="fas fa-play"></i> W trakcie
+                                            {% elif task.status == 'completed' %}
+                                                <i class="fas fa-check"></i> Ukończone
+                                            {% elif task.status == 'on_hold' %}
+                                                <i class="fas fa-pause"></i> Wstrzymane
+                                            {% endif %}
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="progress-info">
+                                        {% set progress = task.get_completion_percentage() %}
+                                        <div class="mini-progress">
+                                            <div class="mini-progress-bar" style="width: {{ progress }}%"></div>
+                                        </div>
+                                        <span class="progress-text">{{ progress }}%</span>
+                                    </div>
+                                    
+                                    {% set current_station = task.get_current_workstation() %}
+                                    {% if current_station %}
+                                    <div class="current-station">
+                                        <i class="fas fa-map-marker-alt"></i>
+                                        <span>{{ current_station.name }}</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                
+                                <!-- Akcje -->
+                                <div class="task-actions">
+                                    <button class="btn btn-small btn-outline" onclick="viewTaskDetails({{ task.id }})" title="Szczegóły">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button class="btn btn-small btn-outline" onclick="moveToTop({{ task.id }})" title="Przenieś na górę">
+                                        <i class="fas fa-arrow-up"></i>
+                                    </button>
+                                    <button class="btn btn-small btn-outline" onclick="moveToBottom({{ task.id }})" title="Przenieś na dół">
+                                        <i class="fas fa-arrow-down"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        {% if not species_tasks %}
+                        <div class="empty-group">
+                            <i class="fas fa-inbox"></i>
+                            <p>Brak zadań dla tego gatunku</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-tasks"></i>
+                    <h3>Brak zadań do zarządzania</h3>
+                    <p>Wszystkie zadania zostały ukończone lub nie ma zadań oczekujących.</p>
+                    <a href="{{ url_for('production.production_dashboard') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left"></i>
+                        Powrót do dashboardu
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal szczegółów zadania -->
+    <div id="taskDetailsModal" class="modal" style="display: none;">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>Szczegóły zadania</h3>
+                <button class="modal-close" onclick="closeTaskDetails()">&times;</button>
+            </div>
+            <div class="modal-body" id="taskDetailsContent">
+                <!-- Treść będzie ładowana dynamicznie -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Zapisywanie zmian...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/priority_drag_drop.js') }}"></script>
+    
+    <script>
+        let originalOrder = {};
+        let hasChanges = false;
+        let sortableInstances = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePriorityManagement();
+            saveOriginalOrder();
+        });
+
+        function initializePriorityManagement() {
+            // Inicjalizuj sortable dla każdej grupy
+            document.querySelectorAll('.sortable-container').forEach(container => {
+                const sortable = Sortable.create(container, {
+                    group: 'shared', // Pozwala na przeciąganie między grupami
+                    animation: 150,
+                    handle: '.drag-handle',
+                    ghostClass: 'sortable-ghost',
+                    chosenClass: 'sortable-chosen',
+                    dragClass: 'sortable-drag',
+                    onStart: function(evt) {
+                        document.body.classList.add('dragging');
+                    },
+                    onEnd: function(evt) {
+                        document.body.classList.remove('dragging');
+                        onTaskMoved(evt);
+                    }
+                });
+                
+                sortableInstances.push(sortable);
+            });
+        }
+
+        function saveOriginalOrder() {
+            document.querySelectorAll('.priority-task-card').forEach(card => {
+                const taskId = card.dataset.taskId;
+                const priority = card.dataset.priority;
+                const species = card.dataset.species;
+                originalOrder[taskId] = { priority, species };
+            });
+        }
+
+        function onTaskMoved(evt) {
+            updatePriorityNumbers();
+            detectChanges();
+        }
+
+        function updatePriorityNumbers() {
+            document.querySelectorAll('.sortable-container').forEach(container => {
+                const cards = container.querySelectorAll('.priority-task-card');
+                cards.forEach((card, index) => {
+                    const badge = card.querySelector('.priority-badge');
+                    badge.textContent = index + 1;
+                });
+            });
+        }
+
+        function detectChanges() {
+            hasChanges = false;
+            let changeCount = 0;
+
+            document.querySelectorAll('.priority-task-card').forEach((card, globalIndex) => {
+                const taskId = card.dataset.taskId;
+                const currentPriority = globalIndex + 1;
+                const currentSpecies = card.closest('.sortable-container').dataset.species;
+                
+                const original = originalOrder[taskId];
+                if (original && (original.priority != currentPriority || original.species !== currentSpecies)) {
+                    hasChanges = true;
+                    changeCount++;
+                }
+            });
+
+            // Aktualizuj UI
+            document.getElementById('saveBtn').disabled = !hasChanges;
+            document.getElementById('resetBtn').disabled = !hasChanges;
+            
+            const changesInfo = document.getElementById('changesInfo');
+            if (hasChanges) {
+                document.getElementById('changesText').textContent = 
+                    `Zmieniono kolejność ${changeCount} zadań`;
+                changesInfo.style.display = 'flex';
+            } else {
+                changesInfo.style.display = 'none';
+            }
+        }
+
+        function saveChanges() {
+            if (!hasChanges) return;
+
+            showLoading();
+            
+            const taskPriorities = [];
+            let globalPriority = 1;
+
+            // Zbierz nową kolejność ze wszystkich grup
+            document.querySelectorAll('.sortable-container').forEach(container => {
+                const cards = container.querySelectorAll('.priority-task-card');
+                cards.forEach(card => {
+                    taskPriorities.push({
+                        task_id: parseInt(card.dataset.taskId),
+                        priority: globalPriority * 10 // Odstępy co 10 dla łatwego wstawiania
+                    });
+                    globalPriority++;
+                });
+            });
+
+            fetch('/production/api/priorities/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    task_priorities: taskPriorities
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    showToast('Kolejność zadań została zaktualizowana', 'success');
+                    hasChanges = false;
+                    saveOriginalOrder(); // Zapisz nową kolejność jako oryginalną
+                    detectChanges(); // Odśwież UI
+                } else {
+                    showToast('Błąd zapisywania zmian', 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showToast('Błąd połączenia z serwerem', 'error');
+                console.error('Error:', error);
+            });
+        }
+
+        function resetChanges() {
+            if (!hasChanges) return;
+            
+            if (confirm('Czy na pewno chcesz cofnąć wszystkie zmiany?')) {
+                location.reload();
+            }
+        }
+
+        function autoOptimize() {
+            if (confirm('Czy na pewno chcesz automatycznie zoptymalizować kolejność? Bieżące zmiany zostaną utracone.')) {
+                showLoading();
+                
+                fetch('/production/api/reorganize-queue', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        showToast('Kolejność została zoptymalizowana', 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        showToast('Błąd optymalizacji', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                });
+            }
+        }
+
+        function toggleGroup(species) {
+            const content = document.getElementById(`group-${species}`);
+            const toggle = document.querySelector(`[onclick="toggleGroup('${species}')"] .group-toggle`);
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.style.transform = 'rotate(0deg)';
+            } else {
+                content.style.display = 'none';
+                toggle.style.transform = 'rotate(-90deg)';
+            }
+        }
+
+        function expandAllGroups() {
+            document.querySelectorAll('.group-content').forEach(content => {
+                content.style.display = 'block';
+            });
+            document.querySelectorAll('.group-toggle').forEach(toggle => {
+                toggle.style.transform = 'rotate(0deg)';
+            });
+        }
+
+        function collapseAllGroups() {
+            document.querySelectorAll('.group-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.querySelectorAll('.group-toggle').forEach(toggle => {
+                toggle.style.transform = 'rotate(-90deg)';
+            });
+        }
+
+        function filterBySpecies() {
+            const selectedSpecies = document.getElementById('speciesFilter').value;
+            
+            document.querySelectorAll('.species-group').forEach(group => {
+                const species = group.dataset.species;
+                if (!selectedSpecies || species === selectedSpecies) {
+                    group.style.display = 'block';
+                } else {
+                    group.style.display = 'none';
+                }
+            });
+        }
+
+        function filterByUrgency() {
+            const urgencyFilter = document.getElementById('urgencyFilter').value;
+            
+            document.querySelectorAll('.priority-task-card').forEach(card => {
+                const isUrgent = card.dataset.urgent === 'true';
+                
+                let show = true;
+                if (urgencyFilter === 'urgent' && !isUrgent) show = false;
+                if (urgencyFilter === 'normal' && isUrgent) show = false;
+                
+                card.style.display = show ? 'flex' : 'none';
+            });
+        }
+
+        function moveToTop(taskId) {
+            const card = document.querySelector(`[data-task-id="${taskId}"]`);
+            const container = card.closest('.sortable-container');
+            
+            // Przenieś na górę kontenera
+            container.insertBefore(card, container.firstChild);
+            
+            onTaskMoved();
+        }
+
+        function moveToBottom(taskId) {
+            const card = document.querySelector(`[data-task-id="${taskId}"]`);
+            const container = card.closest('.sortable-container');
+            
+            // Przenieś na dół kontenera
+            container.appendChild(card);
+            
+            onTaskMoved();
+        }
+
+        function viewTaskDetails(taskId) {
+            showLoading();
+            
+            fetch(`/production/api/task/${taskId}/details`)
+                .then(response => response.json())
+                .then(data => {
+                    hideLoading();
+                    if (data.success) {
+                        displayTaskDetails(data.task);
+                    } else {
+                        showToast('Błąd pobierania szczegółów zadania', 'error');
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    showToast('Błąd połączenia z serwerem', 'error');
+                });
+        }
+
+        function displayTaskDetails(task) {
+            const content = document.getElementById('taskDetailsContent');
+            content.innerHTML = `
+                <div class="task-details-content">
+                    <div class="task-info-grid">
+                        <div class="info-section">
+                            <h4>Informacje o produkcie</h4>
+                            <div class="info-item">
+                                <label>Nazwa:</label>
+                                <span>${task.product_name}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Wymiary:</label>
+                                <span>${task.dimensions}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Gatunek:</label>
+                                <span>${task.wood_species}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Technologia:</label>
+                                <span>${task.technology}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="info-section">
+                            <h4>Status i postęp</h4>
+                            <div class="info-item">
+                                <label>Status:</label>
+                                <span class="status-badge status-${task.status}">${task.status}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Priorytet:</label>
+                                <span>#${task.priority_order}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Postęp:</label>
+                                <span>${task.completion_percentage}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('taskDetailsModal').style.display = 'flex';
+        }
+
+        function closeTaskDetails() {
+            document.getElementById('taskDetailsModal').style.display = 'none';
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function showToast(message, type = 'info') {
+            // TODO: Implementacja toast notifications
+            console.log(`Toast [${type}]: ${message}`);
+        }
+
+        // Zapobieganie przypadkowemu opuszczeniu strony z niezapisanymi zmianami
+        window.addEventListener('beforeunload', function(e) {
+            if (hasChanges) {
+                e.preventDefault();
+                e.returnValue = 'Masz niezapisane zmiany. Czy na pewno chcesz opuścić stronę?';
+            }
+        });
+    </script>
+</body>
+</html>

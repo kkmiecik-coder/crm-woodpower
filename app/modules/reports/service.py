@@ -360,6 +360,10 @@ class BaselinkerReportsService:
         # Oblicz koszt dostawy netto
         delivery_price_gross = order.get('delivery_price', 0)
         delivery_cost_net = float(delivery_price_gross) / 1.23 if delivery_price_gross else 0
+
+        # Pobieramy custom fields i wyciągamy opiekuna
+        custom_fields = order.get('custom_extra_fields') or {}
+        caretaker_name = custom_fields.get('105623') or "Brak danych"
         
         return {
             'date_created': date_created,
@@ -371,7 +375,7 @@ class BaselinkerReportsService:
             'delivery_address': order.get('delivery_address'),
             'delivery_state': order.get('delivery_state'),
             'phone': order.get('phone'),
-            'caretaker': order.get('user_login'),
+            'caretaker': caretaker_name,
             'delivery_method': order.get('delivery_method'),
             'order_source': order.get('order_source'),
             'current_status': current_status,

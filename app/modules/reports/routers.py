@@ -796,3 +796,194 @@ def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int
             'success': False,
             'error': str(e)
         }
+
+# Synchronizacja statusów
+@reports_bp.route('/api/sync-statuses', methods=['POST'])
+@login_required
+def api_sync_statuses():
+    """
+    API endpoint do synchronizacji statusów zamówień z Baselinker
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        reports_logger.info("Rozpoczęcie synchronizacji statusów",
+                          user_email=user_email)
+        
+        # Pobierz serwis
+        service = get_reports_service()
+        
+        # Pobierz zamówienia które mogą być synchronizowane (bez finalnych statusów)
+        excluded_statuses = [
+            'Dostarczona - kurier',
+            'Dostarczona - trans. WoodPower', 
+            'Dostarczona - transport WoodPower',
+            'Odebrane',
+            'Odebrana',
+            'Zamówienie anulowane',
+            'Anulowane'
+        ]
+        
+        # Pobierz zamówienia z bazy które nie mają finalnego statusu
+        orders_to_sync = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.isnot(None),
+            ~BaselinkerReportOrder.current_status.in_(excluded_statuses)
+        ).all()
+        
+        if not orders_to_sync:
+            return jsonify({
+                'success': True,
+                'message': 'Brak zamówień do synchronizacji statusów',
+                'orders_processed': 0,
+                'orders_updated': 0
+            })
+        
+        # Grupuj zamówienia według baselinker_order_id
+        unique_order_ids = list(set(order.baselinker_order_id for order in orders_to_sync))
+        
+        reports_logger.info("Synchronizacja statusów zamówień",
+                          unique_orders=len(unique_order_ids),
+                          total_records=len(orders_to_sync))
+        
+        # Synchronizuj statusy
+        updated_count = 0
+        processed_count = 0
+        payment_updated_count = 0
+        status_updated_count = 0
+        sync_start = datetime.utcnow()
+        
+        for order_id in unique_order_ids:
+            try:
+                # Pobierz aktualny status z Baselinker
+                order_details = service.get_order_details(order_id)
+                
+                if order_details:
+                    # Pobierz nowy status
+                    new_status_id = order_details.get('order_status_id')
+                    new_status = service.status_map.get(new_status_id, f'Status {new_status_id}')
+                    
+                    # Pobierz kwotę zapłaconą (brutto -> netto)
+                    payment_done_gross = order_details.get('payment_done', 0)
+                    new_paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
+                    
+                    # Pobierz sposób płatności
+                    payment_method = order_details.get('payment_method', '')
+                    
+                    # Sprawdź czy status lub płatność się zmieniły
+                    order_records = BaselinkerReportOrder.query.filter_by(
+                        baselinker_order_id=order_id
+                    ).all()
+                    
+                    for record in order_records:
+                        record_updated = False
+                        
+                        # Sprawdź zmianę statusu
+                        if record.current_status != new_status:
+                            record.current_status = new_status
+                            record.baselinker_status_id = new_status_id
+                            record.updated_at = datetime.utcnow()
+                            
+                            # Przelicz pola produkcji na podstawie nowego statusu
+                            record.update_production_fields()
+                            
+                            record_updated = True
+                            status_updated_count += 1
+                            
+                            reports_logger.info(f"Zaktualizowano status zamówienia {order_id}: {record.current_status} -> {new_status}")
+                        
+                        # Sprawdź zmianę płatności (tolerance 0.01 zł)
+                        current_paid = float(record.paid_amount_net or 0)
+                        if abs(current_paid - new_paid_amount_net) > 0.01:
+                            old_paid = record.paid_amount_net
+                            record.paid_amount_net = new_paid_amount_net
+                            record.updated_at = datetime.utcnow()
+                            
+                            # Przelicz saldo (kwota zamówienia netto - zapłacono netto)
+                            if record.order_amount_net is not None:
+                                record.balance_due = float(record.order_amount_net) - new_paid_amount_net
+                            
+                            record_updated = True
+                            payment_updated_count += 1
+                            
+                            reports_logger.info(f"Zaktualizowano płatność zamówienia {order_id}: {old_paid} -> {new_paid_amount_net} zł netto")
+                        
+                        # Sprawdź zmianę metody płatności
+                        if record.payment_method != payment_method and payment_method:
+                            record.payment_method = payment_method
+                            record.updated_at = datetime.utcnow()
+                            record_updated = True
+                            
+                            reports_logger.info(f"Zaktualizowano metodę płatności zamówienia {order_id}: {payment_method}")
+                        
+                        if record_updated:
+                            updated_count += 1
+                    
+                    processed_count += 1
+                    
+                    # Commit co 10 zamówień dla lepszej wydajności
+                    if processed_count % 10 == 0:
+                        db.session.commit()
+                        reports_logger.info(f"Przetworzono {processed_count}/{len(unique_order_ids)} zamówień...")
+                        
+                else:
+                    reports_logger.warning("Nie udało się pobrać szczegółów zamówienia",
+                                         order_id=order_id)
+                    
+            except Exception as e:
+                reports_logger.error("Błąd synchronizacji zamówienia",
+                                   order_id=order_id,
+                                   error=str(e))
+                continue
+        
+        # Finalny commit
+        db.session.commit()
+        
+        # Zapisz log synchronizacji z dodatkowymi informacjami
+        duration = int((datetime.utcnow() - sync_start).total_seconds())
+        sync_log = ReportsSyncLog(
+            sync_type='status_sync',
+            orders_processed=processed_count,
+            orders_added=0,
+            orders_updated=updated_count,
+            status='success',
+            duration_seconds=duration
+        )
+        db.session.add(sync_log)
+        db.session.commit()
+        
+        reports_logger.info("Synchronizacja statusów i płatności zakończona",
+                          user_email=user_email,
+                          orders_processed=processed_count,
+                          orders_updated=updated_count,
+                          status_updated=status_updated_count,
+                          payment_updated=payment_updated_count)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Synchronizacja zakończona pomyślnie',
+            'orders_processed': processed_count,
+            'orders_updated': updated_count,
+            'status_updated': status_updated_count,
+            'payment_updated': payment_updated_count,
+            'unique_orders': len(unique_order_ids)
+        })
+        
+    except Exception as e:
+        # Zapisz błąd do logów
+        duration = int((datetime.utcnow() - sync_start).total_seconds()) if 'sync_start' in locals() else 0
+        sync_log = ReportsSyncLog(
+            sync_type='status_sync',
+            status='error',
+            error_message=str(e),
+            duration_seconds=duration
+        )
+        db.session.add(sync_log)
+        db.session.commit()
+        
+        reports_logger.error("Błąd synchronizacji statusów",
+                           user_email=user_email,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

@@ -30,6 +30,7 @@ class ExportManager {
      */
     cacheElements() {
         this.exportButton = document.getElementById('exportExcelBtn');
+        this.fullscreenExportButton = document.getElementById('fullscreenExportBtn');
 
         console.log('[ExportManager] Elements cached');
     }
@@ -38,9 +39,14 @@ class ExportManager {
      * Ustawienie event listenerów
      */
     setupEventListeners() {
-        // POPRAWKA: Dodano bezpośredni event listener dla przycisku eksportu
         if (this.exportButton) {
             this.exportButton.addEventListener('click', () => {
+                this.exportToExcel();
+            });
+        }
+
+        if (this.fullscreenExportButton) {
+            this.fullscreenExportButton.addEventListener('click', () => {
                 this.exportToExcel();
             });
         }
@@ -351,23 +357,20 @@ class ExportManager {
             }
         }
 
-        // Floating przycisk w fullscreen
-        const fullscreenBtn = document.getElementById('fullscreenExportBtn');
-        if (fullscreenBtn) {
-            fullscreenBtn.disabled = isExporting;
+        // Przycisk eksportu w fullscreen
+        if (this.fullscreenExportButton) {
+            this.fullscreenExportButton.disabled = isExporting;
 
             if (isExporting) {
-                fullscreenBtn.innerHTML = `
+                this.fullscreenExportButton.innerHTML = `
                     <i class="fas fa-spinner fa-spin"></i>
-                    <span class="tooltip">Eksportowanie...</span>
+                    Eksportowanie...
                 `;
-                fullscreenBtn.style.background = '#6c757d';
             } else {
-                fullscreenBtn.innerHTML = `
+                this.fullscreenExportButton.innerHTML = `
                     <i class="fas fa-download"></i>
-                    <span class="tooltip">Eksport Excel</span>
+                    Eksport Excel
                 `;
-                fullscreenBtn.style.background = '#17a2b8';
             }
         }
 
@@ -869,73 +872,19 @@ Czy chcesz kontynuować eksport?
      * NOWA METODA - Utworzenie floating przycisku eksportu w fullscreen
      */
     createFullscreenExportButton() {
-        // Sprawdź czy przycisk już istnieje
-        if (document.getElementById('fullscreenExportBtn')) return;
-
-        const fullscreenContainer = document.getElementById('fullscreenContainer');
-        if (!fullscreenContainer) return;
-
-        // Utwórz floating action button
-        const floatingBtn = document.createElement('button');
-        floatingBtn.id = 'fullscreenExportBtn';
-        floatingBtn.className = 'fullscreen-export-btn';
-        floatingBtn.innerHTML = `
-            <i class="fas fa-download"></i>
-            <span class="tooltip">Eksport Excel</span>
-        `;
-        floatingBtn.title = 'Eksport do Excel';
-
-        // Dodaj style
-        floatingBtn.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            background: #17a2b8;
-            color: white;
-            border: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            cursor: pointer;
-            z-index: 10002;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.2rem;
-        `;
-
-        // Hover effect
-        floatingBtn.addEventListener('mouseenter', () => {
-            floatingBtn.style.transform = 'scale(1.1)';
-            floatingBtn.style.boxShadow = '0 6px 16px rgba(0,0,0,0.4)';
-        });
-
-        floatingBtn.addEventListener('mouseleave', () => {
-            floatingBtn.style.transform = 'scale(1)';
-            floatingBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-        });
-
-        // Event listener
-        floatingBtn.addEventListener('click', () => {
-            this.exportToExcel();
-        });
-
-        // Dodaj do fullscreen container
-        fullscreenContainer.appendChild(floatingBtn);
-
-        console.log('[ExportManager] Fullscreen export button created');
+        // POPRAWKA: Przycisk eksportu jest zarządzany przez HTML/CSS, nie tworzymy go dynamicznie
+        console.log('[FullscreenManager] Export button managed by static HTML');
     }
 
     /**
      * NOWA METODA - Usunięcie floating przycisku eksportu
      */
     removeFullscreenExportButton() {
-        const floatingBtn = document.getElementById('fullscreenExportBtn');
+        // POPRAWKA: Usuń stary floating button jeśli istnieje (dla kompatybilności)
+        const floatingBtn = document.getElementById('fullscreenFloatingExportBtn');
         if (floatingBtn) {
             floatingBtn.remove();
-            console.log('[ExportManager] Fullscreen export button removed');
+            console.log('[FullscreenManager] Old floating export button removed');
         }
     }
 
