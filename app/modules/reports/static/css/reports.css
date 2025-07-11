@@ -620,6 +620,11 @@
     color: #155724;
 }
 
+.status-paczka-zgloszona-do-wysylki {
+    background: #CCB4F6;
+    color: #5B33A3;
+}
+
 .status-wysłane-kurier {
     background: #cce5ff;
     color: #004085;

@@ -601,6 +601,7 @@ class ReportsManager {
             'W produkcji - olejowanie': 'status-w-produkcji-olejowanie',
             'Produkcja zakończona': 'status-produkcja-zakończona',
             'Zamówienie spakowane': 'status-zamówienie-spakowane',
+            'Paczka zgłoszona do wysyłki': 'status-paczka-zgloszona-do-wysylki',
             'Wysłane - kurier': 'status-wysłane-kurier',
             'Wysłane - transport WoodPower': 'status-wysłane-transport-woodpower',
             'Dostarczona - kurier': 'status-dostarczona-kurier',
