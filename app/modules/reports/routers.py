@@ -895,7 +895,6 @@ def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int
         
         orders = []
         failed_orders = []
-        missing_orders = []  # NOWE: Zamówienia które nie istnieją w Baselinker
         
         # Pobierz pełne dane każdego zamówienia
         for order_id in order_ids:
@@ -907,77 +906,53 @@ def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int
                                        order_id=order_id,
                                        products_count=len(order.get('products', [])))
                 else:
-                    missing_orders.append(order_id)
-                    reports_logger.info("Zamówienie nie istnieje w Baselinker lub ma wykluczony status",
-                                      order_id=order_id)
+                    failed_orders.append(order_id)
+                    reports_logger.warning("Nie udało się pobrać zamówienia",
+                                         order_id=order_id)
             except Exception as e:
                 failed_orders.append(order_id)
                 reports_logger.error("Błąd pobierania zamówienia",
                                    order_id=order_id,
                                    error=str(e))
         
-        # ZMIANA: Nie traktuj missing_orders jako błędu krytycznego
-        if not orders and not missing_orders:
-            error_msg = f'Błąd połączenia - nie udało się pobrać żadnego zamówienia. Nieudane: {failed_orders}'
-            reports_logger.error("Błąd połączenia z API", 
+        if not orders:
+            error_msg = f'Nie udało się pobrać żadnego z wybranych zamówień. Nieudane: {failed_orders}'
+            reports_logger.error("Brak pobranych zamówień", 
                                failed_orders=failed_orders,
                                total_requested=len(order_ids))
             return {
                 'success': False,
                 'error': error_msg
             }
-        elif not orders:
-            # NOWE: Jeśli wszystkie zamówienia nie istnieją, to nie jest błąd
-            success_msg = f'Synchronizacja zakończona - wszystkie zamówienia zostały już usunięte z Baselinker lub mają wykluczony status'
-            reports_logger.warning("Wszystkie zamówienia nieistniejące lub wykluczony status",
-                                 missing_orders=missing_orders,
-                                 failed_orders=failed_orders,
-                                 total_requested=len(order_ids))
-            return {
-                'success': True,
-                'message': success_msg,
-                'orders_processed': 0,
-                'orders_added': 0,
-                'orders_updated': 0,
-                'missing_orders': missing_orders,
-                'failed_orders': failed_orders
-            }
         
         # ZMIANA: Używamy pełnej synchronizacji zamiast tylko dodawania
         # To oznacza że aktualizowane są wszystkie informacje w istniejących rekordach
         reports_logger.info("Rozpoczęcie pełnej synchronizacji zamówień",
                           orders_to_sync=len(orders),
-                          missing_orders_count=len(missing_orders),
                           failed_orders_count=len(failed_orders))
         
         # Użyj metody sync_orders która obsługuje aktualizacje
         result = service.sync_orders(orders_list=orders, sync_type='selected')
         
-        # Dodaj informacje o nieudanych i brakujących zamówieniach do wyniku
+        # Dodaj informacje o nieudanych zamówieniach do wyniku
         result['failed_orders'] = failed_orders
         result['failed_orders_count'] = len(failed_orders)
-        result['missing_orders'] = missing_orders
-        result['missing_orders_count'] = len(missing_orders)
         
-        # ZMIANA: Lepsze komunikaty
-        success_count = result.get('orders_processed', 0)
-        total_requested = len(order_ids)
-        
-        if missing_orders and not failed_orders:
-            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. {len(missing_orders)} zamówień już nie istnieje w Baselinker.'
-        elif failed_orders and not missing_orders:
-            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. Błąd pobierania: {len(failed_orders)} zamówień.'
-        elif missing_orders and failed_orders:
-            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. Brakujące: {len(missing_orders)}, błędy: {len(failed_orders)}.'
-        else:
-            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień pomyślnie.'
+        if failed_orders:
+            success_count = result.get('orders_processed', 0)
+            total_requested = len(order_ids)
+            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. Nieudane: {len(failed_orders)}'
             
-        reports_logger.info("Synchronizacja wybranych zamówień zakończona",
-                          orders_processed=result.get('orders_processed', 0),
-                          orders_added=result.get('orders_added', 0),
-                          orders_updated=result.get('orders_updated', 0),
-                          missing_orders_count=len(missing_orders),
-                          failed_orders_count=len(failed_orders))
+            reports_logger.warning("Synchronizacja częściowo nieudana",
+                                 success_count=success_count,
+                                 total_requested=total_requested,
+                                 failed_count=len(failed_orders),
+                                 failed_orders=failed_orders)
+        else:
+            reports_logger.info("Synchronizacja wybranych zamówień zakończona pomyślnie",
+                              orders_processed=result.get('orders_processed', 0),
+                              orders_added=result.get('orders_added', 0),
+                              orders_updated=result.get('orders_updated', 0))
         
         return result
             
