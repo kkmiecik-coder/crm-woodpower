@@ -92,27 +92,33 @@ class BaselinkerReportOrder(db.Model):
     def get_filtered_orders(cls, filters=None, date_from=None, date_to=None):
         """
         Pobiera zamówienia z filtrami
-    
+
         Args:
             filters (dict): Słownik filtrów {kolumna: lista_wartości}
             date_from (date): Data od
             date_to (date): Data do
-        
+    
         Returns:
             Query: SQLAlchemy Query object
         """
         query = cls.query
-    
+
         # Filtr daty
         if date_from:
             query = query.filter(cls.date_created >= date_from)
         if date_to:
             query = query.filter(cls.date_created <= date_to)
-        
-        # Filtruj statusy - wyłącz anulowane i nieopłacone
-        excluded_statuses = ['Zamówienie anulowane', 'Nowe - nieopłacone']
-        query = query.filter(~cls.current_status.in_(excluded_statuses))
-        
+    
+        # ZMIENIONE FILTRY STATUSÓW: wykluczamy tylko statusy 105112 i 138625
+        # 105112 = "Nowe - nieopłacone"
+        # 138625 = "Zamówienie anulowane"
+        excluded_status_ids = [105112, 138625]
+        query = query.filter(~cls.baselinker_status_id.in_(excluded_status_ids))
+    
+        # Dodatkowo wykluczamy na podstawie nazw statusów (fallback)
+        excluded_status_names = ['Nowe - nieopłacone', 'Zamówienie anulowane']
+        query = query.filter(~cls.current_status.in_(excluded_status_names))
+    
         # Dodatkowe filtry (obsługa multiple values)
         if filters:
             for column, values in filters.items():
@@ -124,10 +130,10 @@ class BaselinkerReportOrder(db.Model):
                     elif isinstance(values, str) and values.strip():
                         # Single value - użyj LIKE
                         query = query.filter(column_attr.like(f'%{values.strip()}%'))
-    
+
         # POPRAWIONE SORTOWANIE: najpierw po baselinker_order_id (malejąco), potem po dacie
         from sqlalchemy import case, desc, asc
-    
+
         return query.order_by(
             # Najpierw ręczne wpisy (is_manual = True) na końcu
             cls.is_manual.asc(),
@@ -143,18 +149,31 @@ class BaselinkerReportOrder(db.Model):
         )
     
     @classmethod
-    def get_orders_by_date_range(cls, days_back=30):
+    def get_orders_by_date_range(cls, days_back=None):
         """
-        Pobiera zamówienia z ostatnich X dni
-        
+        Pobiera zamówienia z ostatnich X dni lub wszystkie jeśli days_back=None
+    
         Args:
-            days_back (int): Ile dni wstecz
-            
+            days_back (int): Ile dni wstecz (None = wszystkie zamówienia)
+        
         Returns:
             List[BaselinkerReportOrder]: Lista zamówień
         """
-        date_from = datetime.now().date() - timedelta(days=days_back)
-        return cls.query.filter(cls.date_created >= date_from).order_by(cls.date_created.desc()).all()
+        query = cls.query
+    
+        # ZMIANA: Tylko jeśli podano days_back, dodaj filtr daty
+        if days_back is not None:
+            date_from = datetime.now().date() - timedelta(days=days_back)
+            query = query.filter(cls.date_created >= date_from)
+    
+        # Zastosuj te same filtry statusów co w get_filtered_orders
+        excluded_status_ids = [105112, 138625]  # Nowe - nieopłacone, Zamówienie anulowane
+        query = query.filter(~cls.baselinker_status_id.in_(excluded_status_ids))
+    
+        excluded_status_names = ['Nowe - nieopłacone', 'Zamówienie anulowane']
+        query = query.filter(~cls.current_status.in_(excluded_status_names))
+    
+        return query.order_by(cls.date_created.desc()).all()
     
     @classmethod
     def get_statistics(cls, filtered_query=None):

@@ -444,60 +444,65 @@ class ReportsManager {
         const orderCount = orders.length;
         const baselinkerOrderId = orders[0].baselinker_order_id;
 
+        // NOWA LOGIKA: Oblicz łączną objętość TTL M3 dla całego zamówienia
+        const totalOrderM3 = orders.reduce((sum, order) => {
+            return sum + (parseFloat(order.total_volume) || 0);
+        }, 0);
+
         orders.forEach((order, index) => {
             const isFirst = index === 0;
             const isLast = index === orderCount - 1;
 
             html += `
-                <tr data-record-id="${order.id}" 
-                    data-baselinker-id="${baselinkerOrderId || `manual_${order.id}`}"
-                    data-order-group="${baselinkerOrderId || `manual_${order.id}`}"
-                    ${order.is_manual ? 'data-manual="true"' : ''}
-                    ${isFirst ? 'class="order-group-start"' : ''}
-                    ${isLast ? 'class="order-group-end"' : ''}>
-                    ${this.renderMergedCell(order.date_created, orderCount, isFirst, 'cell-date')}
-                    <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
-                    ${this.renderMergedCell(this.formatCurrency(order.order_amount_net), orderCount, isFirst, 'cell-currency')}
-                    ${this.renderMergedCell(order.baselinker_order_id || '', orderCount, isFirst, 'cell-number')}
-                    ${this.renderMergedCell(order.internal_order_number || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.customer_name || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.delivery_address || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.delivery_state || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.phone || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.caretaker || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.delivery_method || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(order.order_source || '', orderCount, isFirst, 'cell-text')}
-                    <td class="cell-text">${order.group_type || ''}</td>
-                    <td class="cell-text">${order.product_type || ''}</td>
-                    <td class="cell-text">${order.finish_state || ''}</td>
-                    <td class="cell-text">${order.wood_species || ''}</td>
-                    <td class="cell-text">${order.technology || ''}</td>
-                    <td class="cell-text">${order.wood_class || ''}</td>
-                    <td class="cell-number">${this.formatNumber(order.length_cm, 2)}</td>
-                    <td class="cell-number">${this.formatNumber(order.width_cm, 2)}</td>
-                    <td class="cell-number">${this.formatNumber(order.thickness_cm, 2)}</td>
-                    <td class="cell-number">${order.quantity || 0}</td>
-                    <td class="cell-currency">${this.formatCurrency(order.price_gross)}</td>
-                    <td class="cell-currency">${this.formatCurrency(order.price_net)}</td>
-                    <td class="cell-currency">${this.formatCurrency(order.value_gross)}</td>
-                    <td class="cell-currency">${this.formatCurrency(order.value_net)}</td>
-                    <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
-                    <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
-                    <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
-                    <td class="cell-date">${order.realization_date || ''}</td>
-                    <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
-                    ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
-                    ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
-                    ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
-                    ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
-                    <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
-                    <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
-                    <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
-                    ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
-                </tr>
-            `;
+            <tr data-record-id="${order.id}" 
+                data-baselinker-id="${baselinkerOrderId || `manual_${order.id}`}"
+                data-order-group="${baselinkerOrderId || `manual_${order.id}`}"
+                ${order.is_manual ? 'data-manual="true"' : ''}
+                ${isFirst ? 'class="order-group-start"' : ''}
+                ${isLast ? 'class="order-group-end"' : ''}>
+                ${this.renderMergedCell(order.date_created, orderCount, isFirst, 'cell-date')}
+                ${this.renderMergedCell(this.formatNumber(totalOrderM3, 4), orderCount, isFirst, 'cell-number')}
+                ${this.renderMergedCell(this.formatCurrency(order.order_amount_net), orderCount, isFirst, 'cell-currency')}
+                ${this.renderMergedCell(order.baselinker_order_id || '', orderCount, isFirst, 'cell-number')}
+                ${this.renderMergedCell(order.internal_order_number || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.customer_name || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.delivery_address || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.delivery_state || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.phone || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.caretaker || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.delivery_method || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(order.order_source || '', orderCount, isFirst, 'cell-text')}
+                <td class="cell-text">${order.group_type || ''}</td>
+                <td class="cell-text">${order.product_type || ''}</td>
+                <td class="cell-text">${order.finish_state || ''}</td>
+                <td class="cell-text">${order.wood_species || ''}</td>
+                <td class="cell-text">${order.technology || ''}</td>
+                <td class="cell-text">${order.wood_class || ''}</td>
+                <td class="cell-number">${this.formatNumber(order.length_cm, 2)}</td>
+                <td class="cell-number">${this.formatNumber(order.width_cm, 2)}</td>
+                <td class="cell-number">${this.formatNumber(order.thickness_cm, 2)}</td>
+                <td class="cell-number">${order.quantity || 0}</td>
+                <td class="cell-currency">${this.formatCurrency(order.price_gross)}</td>
+                <td class="cell-currency">${this.formatCurrency(order.price_net)}</td>
+                <td class="cell-currency">${this.formatCurrency(order.value_gross)}</td>
+                <td class="cell-currency">${this.formatCurrency(order.value_net)}</td>
+                <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
+                <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
+                <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
+                <td class="cell-date">${order.realization_date || ''}</td>
+                <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
+                ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
+                ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
+                ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
+                ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
+                <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
+                <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
+                <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
+                ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
+            </tr>
+        `;
         });
 
         return html;

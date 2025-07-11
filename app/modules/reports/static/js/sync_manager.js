@@ -156,18 +156,14 @@ class SyncManager {
         console.log('[SyncManager] Checking for new orders...');
 
         try {
-            // Pobierz aktualny zakres dat z ReportsManager
-            const dateRange = this.getCurrentDateRange();
+            // ZMIANA: Nie używaj żadnych filtrów dat - sprawdź wszystkie zamówienia
+            console.log('[SyncManager] Sprawdzanie wszystkich nowych zamówień (bez filtrów dat)');
 
-            const params = new URLSearchParams();
-            if (dateRange.date_from) {
-                params.append('date_from', dateRange.date_from);
-            }
-            if (dateRange.date_to) {
-                params.append('date_to', dateRange.date_to);
-            }
+            // Wywołaj API bez żadnych parametrów dat
+            const url = '/reports/api/check-new-orders';
+            console.log('[SyncManager] Checking new orders URL:', url);
 
-            const response = await fetch(`/reports/api/check-new-orders?${params}`);
+            const response = await fetch(url);
 
             // POPRAWKA: Sprawdź status HTTP
             if (!response.ok) {
@@ -184,6 +180,7 @@ class SyncManager {
             this.selectedOrders = this.newOrders.map(order => order.order_id); // Domyślnie wszystkie zaznaczone
 
             console.log('[SyncManager] Found new orders:', this.newOrders.length);
+            console.log('[SyncManager] Sprawdzono wszystkie zamówienia w Baselinker (bez ograniczeń dat)');
 
             // Aktualizuj zawartość modala
             this.updateModalContent(result);
@@ -200,17 +197,13 @@ class SyncManager {
      * Pobieranie bieżącego zakresu dat
      */
     getCurrentDateRange() {
-        if (window.reportsManager && typeof window.reportsManager.getCurrentDateRange === 'function') {
-            return window.reportsManager.getCurrentDateRange();
-        }
-
-        // Fallback - ostatni miesiąc
-        const today = new Date();
-        const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+        // ZMIANA: SyncManager zawsze sprawdza wszystkie zamówienia
+        // Ignoruje filtry dat ustawione przez użytkownika w interfejsie
+        console.log('[SyncManager] SyncManager ignoruje filtry dat - sprawdza wszystkie zamówienia');
 
         return {
-            date_from: lastMonth.toISOString().split('T')[0],
-            date_to: today.toISOString().split('T')[0]
+            date_from: null,
+            date_to: null
         };
     }
 
@@ -224,6 +217,9 @@ class SyncManager {
             // Brak nowych zamówień
             this.syncModalContent.innerHTML = this.renderNoNewOrders();
             this.updateModalButtons(false);
+
+            // NOWE: Dodaj obsługę przycisku "Odśwież wszystkie zamówienia"
+            this.setupRefreshAllButton();
         } else {
             // Mamy nowe zamówienia
             this.syncModalContent.innerHTML = this.renderNewOrdersList(result);
@@ -233,16 +229,114 @@ class SyncManager {
     }
 
     /**
+     * NOWA METODA: Konfiguracja przycisku odświeżania wszystkich zamówień
+     */
+    setupRefreshAllButton() {
+        const refreshBtn = document.getElementById('syncAllOrdersBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                this.performRefreshAllOrders();
+            });
+            console.log('[SyncManager] Setup refresh all orders button');
+        }
+    }
+
+    /**
+     * NOWA METODA: Wykonanie odświeżenia wszystkich zamówień
+     */
+    async performRefreshAllOrders() {
+        console.log('[SyncManager] Performing refresh all orders...');
+
+        // POPRAWKA: Sprawdź czy już trwa synchronizacja
+        if (this.isSync) {
+            console.log('[SyncManager] Sync already in progress');
+            this.showError('Synchronizacja już trwa');
+            return;
+        }
+
+        // Ustaw flagę synchronizacji
+        this.isSync = true;
+
+        // Ukryj modal
+        this.hideSyncModal();
+
+        // Pokaż loading overlay
+        this.showSyncLoading('Odświeżanie wszystkich zamówień...');
+
+        try {
+            // Wyślij zapytanie bez selected_orders (synchronizuj wszystkie)
+            const requestData = {
+                selected_orders: [] // Puste - oznacza wszystkie zamówienia
+            };
+
+            console.log('[SyncManager] Sending refresh all request');
+
+            const response = await fetch('/reports/api/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            console.log('[SyncManager] Refresh response status:', response.status);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            if (result.success) {
+                this.showSyncLoading(`
+                <div style="text-align: center;">
+                    <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
+                    <h4>Odświeżenie zakończone!</h4>
+                    <p>Wszystkie zamówienia zostały zsynchronizowane</p>
+                    <p>Przetworzono: ${result.orders_processed || 0} zamówień</p>
+                    <p>Dodano: ${result.orders_added || 0} nowych rekordów</p>
+                    <p>Zaktualizowano: ${result.orders_updated || 0} zamówień</p>
+                </div>
+            `);
+
+                setTimeout(() => {
+                    this.hideSyncLoading();
+                    if (window.reportsManager) {
+                        window.reportsManager.refreshData();
+                    }
+                }, 3000);
+
+            } else {
+                throw new Error(result.error || 'Błąd odświeżania');
+            }
+
+        } catch (error) {
+            console.error('[SyncManager] Refresh all error:', error);
+            this.hideSyncLoading();
+            this.showError('Błąd odświeżania zamówień: ' + error.message);
+        } finally {
+            // POPRAWKA: Zawsze resetuj flagę synchronizacji
+            this.isSync = false;
+        }
+    }
+
+    /**
      * Renderowanie komunikatu o braku nowych zamówień
      */
     renderNoNewOrders() {
         return `
-            <div class="no-new-orders">
-                <i class="fas fa-check-circle"></i>
-                <h4>Brak nowych zamówień</h4>
-                <p>Wszystkie zamówienia z wybranego zakresu dat są już zsynchronizowane. Jeśli nie widzisz danego zamówienia, upewnij się, że jest ono opłacone oraz zatwierdzone.</p>
+        <div class="no-new-orders">
+            <i class="fas fa-check-circle"></i>
+            <h4>Brak nowych zamówień</h4>
+            <p>Wszystkie zamówienia są już zsynchronizowane lub nie ma nowych zamówień w Baselinker.</p>
+            <div class="sync-options" style="margin-top: 1rem;">
+                <button id="syncAllOrdersBtn" class="btn btn-primary">
+                    <i class="fas fa-sync-alt"></i>
+                    Odśwież wszystkie zamówienia
+                </button>
             </div>
-        `;
+        </div>
+    `;
     }
 
     /**
@@ -451,7 +545,7 @@ class SyncManager {
     }
 
     /**
-     * Wykonanie synchronizacji - POPRAWKA: Lepsza obsługa błędów
+     * Wykonanie synchronizacji - POPRAWKA: Ignoruje filtry dat przy synchronizacji
      */
     async performSync() {
         // Skopiuj selectedOrders na początku - zabezpieczenie przed wyczyszczeniem
@@ -459,9 +553,9 @@ class SyncManager {
 
         console.log('[SyncManager] Performing sync with orders:', ordersToSync);
 
+        // ZMIANA: Jeśli nie ma wybranych zamówień, synchronizuj wszystkie
         if (ordersToSync.length === 0) {
-            this.showError('Nie wybrano żadnych zamówień do synchronizacji');
-            return;
+            console.log('[SyncManager] No selected orders - syncing all orders');
         }
 
         // POPRAWKA: Sprawdź czy już trwa synchronizacja
@@ -477,19 +571,19 @@ class SyncManager {
         this.hideSyncModal();
 
         // Pokaż loading overlay
-        this.showSyncLoading('Synchronizowanie zamówień...');
+        const loadingMessage = ordersToSync.length > 0 ?
+            `Synchronizowanie ${ordersToSync.length} zamówień...` :
+            'Synchronizowanie wszystkich zamówień...';
+        this.showSyncLoading(loadingMessage);
 
         try {
-            // Pobierz zakres dat
-            const dateRange = this.getCurrentDateRange();
-
+            // ZMIANA: Nie wysyłaj żadnych filtrów dat - synchronizuj wszystkie
             const requestData = {
-                date_from: dateRange.date_from,
-                date_to: dateRange.date_to,
                 selected_orders: ordersToSync
+                // USUNIĘTO: date_from i date_to - SyncManager ignoruje filtry dat
             };
 
-            console.log('[SyncManager] Sending request data:', requestData);
+            console.log('[SyncManager] Sending request data (bez filtrów dat):', requestData);
 
             const response = await fetch('/reports/api/sync', {
                 method: 'POST',
@@ -507,26 +601,66 @@ class SyncManager {
             }
 
             const result = await response.json();
-            console.log('[SyncManager] Response data:', result);
 
             if (result.success) {
-                console.log('[SyncManager] Sync completed successfully:', result);
+                // ZMIANA: Lepsze komunikaty w zależności od wyniku synchronizacji
+                let message;
+                let detailsHtml = '';
 
-                // Pokaż komunikat sukcesu
+                const ordersProcessed = result.orders_processed || 0;
+                const ordersAdded = result.orders_added || 0;
+                const ordersUpdated = result.orders_updated || 0;
+                const missingOrders = result.missing_orders_count || 0;
+                const failedOrders = result.failed_orders_count || 0;
+
+                if (ordersToSync.length > 0) {
+                    // Synchronizacja wybranych zamówień
+                    if (ordersProcessed > 0) {
+                        message = `Zsynchronizowano ${ordersProcessed} z ${ordersToSync.length} wybranych zamówień`;
+                    } else if (missingOrders > 0) {
+                        message = `Zamówienia już nie istnieją w Baselinker`;
+                        detailsHtml = `<p style="color: #856404;">Wszystkie ${missingOrders} zamówień zostało usuniętych z Baselinker lub ma wykluczony status</p>`;
+                    } else {
+                        message = `Sprawdzono ${ordersToSync.length} wybranych zamówień`;
+                    }
+                } else {
+                    // Synchronizacja wszystkich zamówień
+                    if (ordersProcessed > 0) {
+                        message = `Zsynchronizowano wszystkie zamówienia`;
+                    } else {
+                        message = `Sprawdzono wszystkie zamówienia`;
+                    }
+                }
+
+                // ZMIANA: Lepsze szczegóły z informacją o nieistniejących zamówieniach
+                if (ordersProcessed > 0) {
+                    detailsHtml = `
+                    <p>Dodano: ${ordersAdded} nowych rekordów</p>
+                    <p>Zaktualizowano: ${ordersUpdated} zamówień</p>
+                `;
+
+                    if (missingOrders > 0) {
+                        detailsHtml += `<p style="color: #856404;">Nieistniejące w Baselinker: ${missingOrders}</p>`;
+                    }
+                    if (failedOrders > 0) {
+                        detailsHtml += `<p style="color: #dc3545;">Błędy pobierania: ${failedOrders}</p>`;
+                    }
+                } else if (missingOrders > 0 && failedOrders === 0) {
+                    // Wszystkie zamówienia nieistniejące
+                    detailsHtml = `<p style="color: #856404;">Te zamówienia zostały usunięte z Baselinker lub mają wykluczony status (anulowane/nieopłacone)</p>`;
+                }
+
                 this.showSyncLoading(`
-                    <div style="text-align: center;">
-                        <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
-                        <h4>Synchronizacja zakończona pomyślnie!</h4>
-                        <p>Dodano: ${result.orders_added || 0} zamówień</p>
-                        <p>Zaktualizowano: ${result.orders_updated || 0} zamówień</p>
-                    </div>
-                `);
+                <div style="text-align: center;">
+                    <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
+                    <h4>Synchronizacja zakończona!</h4>
+                    <p><strong>${message}</strong></p>
+                    ${detailsHtml}
+                </div>
+            `);
 
-                // Ukryj loading po 3 sekundach
                 setTimeout(() => {
                     this.hideSyncLoading();
-
-                    // Odśwież dane
                     if (window.reportsManager) {
                         window.reportsManager.refreshData();
                     }

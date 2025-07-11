@@ -46,13 +46,84 @@ def reports_home():
     reports_logger.info("Dostęp do modułu Reports", user_email=user_email)
     
     try:
-        # Sprawdź czy są nowe zamówienia w Baselinker
+        # ZMIANA: Sprawdź wszystkie nowe zamówienia, nie tylko z ostatnich 48h
         service = get_reports_service()
-        has_new_orders, new_orders_count = service.check_for_new_orders(hours_back=48)
         
-        # Pobierz podstawowe statystyki (ostatnie 30 dni) - DOMYŚLNIE AKTYWNE
-        date_from = datetime.now().date() - timedelta(days=30)
-        date_to = datetime.now().date()
+        # Sprawdź nowe zamówienia bez ograniczenia czasowego
+        try:
+            # Pobierz wszystkie zamówienia z Baselinker
+            orders = service.fetch_orders_from_baselinker(date_from=None)
+            
+            if orders:
+                # Sprawdź które są nowe
+                order_ids = [order['order_id'] for order in orders]
+                existing_ids = service._get_existing_order_ids(order_ids)
+                new_orders_count = len(order_ids) - len(existing_ids)
+                has_new_orders = new_orders_count > 0
+                
+                reports_logger.info("Sprawdzenie nowych zamówień na stronie głównej",
+                                  user_email=user_email,
+                                  total_orders_from_baselinker=len(orders),
+                                  existing_in_database=len(existing_ids),
+                                  new_orders_count=new_orders_count,
+                                  has_new_orders=has_new_orders,
+                                  api_limit_reached=len(orders) >= 100)
+                
+                # UWAGA: Jeśli API zwrócił 100 zamówień, może być więcej
+                if len(orders) >= 100:
+                    reports_logger.warning("Limit API Baselinker osiągnięty na stronie głównej",
+                                         user_email=user_email,
+                                         orders_returned=len(orders),
+                                         api_limit=100,
+                                         info="Może być więcej nowych zamówień niż pokazane")
+            else:
+                has_new_orders = False
+                new_orders_count = 0
+                reports_logger.info("Brak zamówień w Baselinker", user_email=user_email)
+                
+        except Exception as e:
+            # POPRAWKA: Nie resetuj has_new_orders w przypadku błędu logowania
+            reports_logger.error("Błąd sprawdzania nowych zamówień na stronie głównej",
+                               user_email=user_email,
+                               error=str(e),
+                               error_type=type(e).__name__)
+            
+            # ZMIANA: W przypadku błędu, spróbuj prostszą metodę
+            try:
+                # Pobierz ostatnie 24h jako fallback
+                date_from_fallback = datetime.now() - timedelta(hours=24)
+                orders_fallback = service.fetch_orders_from_baselinker(date_from=date_from_fallback)
+                
+                if orders_fallback:
+                    order_ids = [order['order_id'] for order in orders_fallback]
+                    existing_ids = service._get_existing_order_ids(order_ids)
+                    new_orders_count = len(order_ids) - len(existing_ids)
+                    has_new_orders = new_orders_count > 0
+                    
+                    reports_logger.info("Fallback: Sprawdzenie zamówień z ostatnich 24h",
+                                      user_email=user_email,
+                                      fallback_orders=len(orders_fallback),
+                                      new_orders_count=new_orders_count,
+                                      has_new_orders=has_new_orders)
+                else:
+                    has_new_orders = False
+                    new_orders_count = 0
+                    
+            except Exception as fallback_error:
+                reports_logger.error("Błąd fallback sprawdzania zamówień",
+                                   user_email=user_email,
+                                   error=str(fallback_error))
+                has_new_orders = False
+                new_orders_count = 0
+        
+        # Pobierz podstawowe statystyki - ZMIANA: Domyślnie wszystkie dane
+        date_from = None  # datetime.now().date() - timedelta(days=30)
+        date_to = None    # datetime.now().date()
+        
+        reports_logger.info("Ładowanie statystyk Reports",
+                          user_email=user_email,
+                          date_from=date_from.isoformat() if date_from else "wszystkie",
+                          date_to=date_to.isoformat() if date_to else "wszystkie")
         
         # POPRAWKA: Sprawdź czy są jakiekolwiek dane w bazie
         total_records = BaselinkerReportOrder.query.count()
@@ -73,8 +144,10 @@ def reports_home():
                 'ready_pickup_volume': 0.0
             }
             comparison = {}
+            reports_logger.info("Brak danych w bazie - wyświetlanie pustych statystyk",
+                              user_email=user_email)
         else:
-            # Pobierz dane dla domyślnego zakresu dat
+            # Pobierz dane dla całej bazy lub wybranego zakresu dat
             query = BaselinkerReportOrder.get_filtered_orders(
                 date_from=date_from,
                 date_to=date_to
@@ -84,7 +157,7 @@ def reports_home():
             query_results = query.all()
             
             if not query_results:
-                # Brak danych dla domyślnego zakresu - ustaw puste statystyki
+                # Brak danych dla wybranego zakresu - ustaw puste statystyki
                 stats = {
                     'total_m3': 0.0,
                     'order_amount_net': 0.0,
@@ -99,6 +172,9 @@ def reports_home():
                     'ready_pickup_volume': 0.0
                 }
                 comparison = {}
+                reports_logger.info("Brak danych dla wybranego zakresu",
+                                  user_email=user_email,
+                                  total_records_in_db=total_records)
             else:
                 # Oblicz statystyki dla istniejących danych
                 stats = BaselinkerReportOrder.get_statistics(query)
@@ -111,22 +187,35 @@ def reports_home():
                             {}, date_from, date_to
                         )
                     except Exception as comp_error:
-                        reports_logger.warning("Błąd obliczania porównań", error=str(comp_error))
+                        reports_logger.warning("Błąd obliczania porównań", 
+                                             user_email=user_email,
+                                             error=str(comp_error))
                         comparison = {}
+                
+                reports_logger.info("Obliczono statystyki",
+                                  user_email=user_email,
+                                  records_count=len(query_results),
+                                  total_m3=stats.get('total_m3', 0),
+                                  order_amount_net=stats.get('order_amount_net', 0))
         
         # Pobierz ostatni log synchronizacji
         last_sync = ReportsSyncLog.query.order_by(ReportsSyncLog.sync_date.desc()).first()
+        
+        # ZMIANA: Domyślne daty do wyświetlenia w interfejsie - ostatnie 30 dni dla wygody
+        default_date_from = datetime.now().date() - timedelta(days=30)
+        default_date_to = datetime.now().date()
         
         context = {
             'user_email': user_email,
             'has_new_orders': has_new_orders,
             'new_orders_count': new_orders_count,
+            'api_limit_reached': len(orders) >= 100 if 'orders' in locals() else False,  # NOWE
             'stats': stats,
             'comparison': comparison,
             'last_sync': last_sync,
-            'default_date_from': date_from.isoformat(),
-            'default_date_to': date_to.isoformat(),
-            'total_records': total_records  # Dodaj informację o liczbie rekordów
+            'default_date_from': default_date_from.isoformat(),
+            'default_date_to': default_date_to.isoformat(),
+            'total_records': total_records
         }
         
         return render_template('reports.html', **context)
@@ -134,29 +223,10 @@ def reports_home():
     except Exception as e:
         reports_logger.error("Błąd ładowania strony Reports", 
                            user_email=user_email, 
-                           error=str(e))
-        flash("Wystąpił błąd podczas ładowania danych.", "error")
-        
-        # W przypadku błędu zwróć puste statystyki
-        return render_template('reports.html', 
-                             user_email=user_email,
-                             stats={
-                                 'total_m3': 0.0,
-                                 'order_amount_net': 0.0,
-                                 'value_net': 0.0,
-                                 'value_gross': 0.0,
-                                 'avg_price_per_m3': 0.0,
-                                 'delivery_cost': 0.0,
-                                 'paid_amount_net': 0.0,
-                                 'balance_due': 0.0,
-                                 'production_volume': 0.0,
-                                 'production_value_net': 0.0,
-                                 'ready_pickup_volume': 0.0
-                             },
-                             comparison={},
-                             default_date_from=date_from.isoformat(),
-                             default_date_to=date_to.isoformat(),
-                             total_records=0)
+                           error=str(e),
+                           error_type=type(e).__name__)
+        flash("Wystąpił błąd podczas ładowania danych.")
+        return redirect(url_for('home'))
 
 @reports_bp.route('/api/data')
 @login_required
@@ -292,21 +362,24 @@ def api_sync_with_baselinker():
         date_to_str = data.get('date_to')
         selected_orders = data.get('selected_orders', [])  # Lista ID zamówień do synchronizacji
         
-        # Parsuj daty jeśli podane
+        # ZMIANA: Parsuj daty tylko jeśli podane, nie używaj domyślnie 30 dni
         date_from = None
         if date_from_str:
             try:
                 date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
-            except ValueError:
-                date_from = datetime.now() - timedelta(days=30)
-        else:
-            date_from = datetime.now() - timedelta(days=30)
+                reports_logger.info("Użyto podanej daty rozpoczęcia", 
+                                  date_from=date_from.isoformat())
+            except ValueError as e:
+                reports_logger.warning("Błędny format daty, pominięto filtr daty",
+                                     date_from_str=date_from_str,
+                                     error=str(e))
+                date_from = None
         
         reports_logger.info("Rozpoczęcie synchronizacji z Baselinker",
                           user_email=user_email,
-                          date_from=date_from.isoformat() if date_from else None,
+                          date_from=date_from.isoformat() if date_from else "wszystkie zamówienia",
                           selected_orders_count=len(selected_orders),
-                          selected_orders=selected_orders)
+                          selected_orders=selected_orders[:10])  # Loguj tylko pierwsze 10 ID
         
         # Pobierz serwis
         service = get_reports_service()
@@ -314,34 +387,32 @@ def api_sync_with_baselinker():
         if selected_orders and len(selected_orders) > 0:
             # Synchronizuj wybrane zamówienia
             reports_logger.info("Synchronizowanie wybranych zamówień", 
-                              selected_orders=selected_orders)
+                              selected_orders_count=len(selected_orders))
             result = _sync_selected_orders(service, selected_orders)
         else:
-            # Brak wybranych zamówień
-            reports_logger.warning("Brak wybranych zamówień", 
-                                 selected_orders=selected_orders,
-                                 data=data)
-            result = {
-                'success': False,
-                'error': f'Nie wybrano żadnych zamówień do synchronizacji. Otrzymano: {selected_orders}'
-            }
+            # ZMIANA: Synchronizuj wszystkie zamówienia (bez ograniczenia 30 dni)
+            reports_logger.info("Synchronizowanie wszystkich zamówień",
+                              has_date_filter=date_from is not None)
+            result = service.sync_orders(date_from=date_from, sync_type='manual')
         
         reports_logger.info("Synchronizacja zakończona",
                           user_email=user_email,
                           success=result.get('success'),
-                          orders_added=result.get('orders_added', 0))
+                          orders_processed=result.get('orders_processed', 0),
+                          orders_added=result.get('orders_added', 0),
+                          orders_updated=result.get('orders_updated', 0))
         
         return jsonify(result)
         
     except Exception as e:
         reports_logger.error("Błąd synchronizacji",
                            user_email=user_email,
-                           error=str(e))
+                           error=str(e),
+                           error_type=type(e).__name__)
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
-
 
 @reports_bp.route('/api/check-new-orders')
 @login_required
@@ -349,34 +420,63 @@ def api_check_new_orders():
     """
     API endpoint do sprawdzania nowych zamówień przed synchronizacją
     """
+    user_email = session.get('user_email')
+    
     try:
         date_from_str = request.args.get('date_from')
         date_to_str = request.args.get('date_to')
         
-        # Parsuj daty
+        # ZMIANA: Nie używaj domyślnych 30 dni - sprawdź wszystkie zamówienia
+        date_from = None
         if date_from_str:
             try:
                 date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
-            except ValueError:
-                date_from = datetime.now() - timedelta(days=30)
-        else:
-            date_from = datetime.now() - timedelta(days=30)
+                reports_logger.info("Sprawdzanie nowych zamówień od daty", 
+                                  user_email=user_email,
+                                  date_from=date_from.isoformat())
+            except ValueError as e:
+                reports_logger.warning("Błędny format daty w sprawdzaniu nowych zamówień",
+                                     user_email=user_email,
+                                     date_from_str=date_from_str,
+                                     error=str(e))
+                date_from = None
+        
+        if date_from is None:
+            reports_logger.info("Sprawdzanie wszystkich nowych zamówień (bez ograniczenia daty)",
+                              user_email=user_email)
         
         service = get_reports_service()
         
-        # Pobierz zamówienia z Baselinker
+        # ZMIANA: Pobierz zamówienia bez domyślnego ograniczenia dat
         orders = service.fetch_orders_from_baselinker(date_from=date_from)
         
         if not orders:
+            reports_logger.info("Brak zamówień w Baselinker",
+                              user_email=user_email,
+                              has_date_filter=date_from is not None)
             return jsonify({
                 'success': True,
                 'has_new_orders': False,
-                'message': 'Brak nowych zamówień'
+                'message': 'Brak zamówień w Baselinker'
             })
+        
+        # UWAGA: Jeśli API zwrócił 100 zamówień, może być więcej
+        if len(orders) >= 100:
+            reports_logger.warning("Limit API Baselinker osiągnięty na stronie głównej",
+                                 user_email=user_email,
+                                 orders_returned=len(orders),
+                                 api_limit=100,
+                                 info="Może być więcej nowych zamówień niż pokazane")
         
         # Sprawdź które zamówienia są nowe
         order_ids = [order['order_id'] for order in orders]
         existing_ids = service._get_existing_order_ids(order_ids)
+        
+        reports_logger.info("Analiza nowych zamówień",
+                          user_email=user_email,
+                          total_orders_in_baselinker=len(orders),
+                          existing_in_database=len(existing_ids),
+                          potentially_new=len(order_ids) - len(existing_ids))
         
         new_orders = []
         for order in orders:
@@ -406,25 +506,37 @@ def api_check_new_orders():
                 }
                 new_orders.append(order_info)
         
-        reports_logger.info("Sprawdzenie nowych zamówień",
+        reports_logger.info("Sprawdzenie nowych zamówień zakończone",
+                          user_email=user_email,
                           total_orders=len(orders),
-                          new_orders=len(new_orders))
+                          new_orders=len(new_orders),
+                          has_date_filter=date_from is not None,
+                          api_limit_reached=len(orders) >= 100)
         
-        return jsonify({
+        # Dodaj ostrzeżenie jeśli osiągnięto limit API
+        response_data = {
             'success': True,
             'has_new_orders': len(new_orders) > 0,
             'new_orders': new_orders,
             'total_orders': len(orders),
             'existing_orders': len(existing_ids)
-        })
+        }
+        
+        if len(orders) >= 100:
+            response_data['api_limit_warning'] = True
+            response_data['message'] = f'Sprawdzono {len(orders)} zamówień (limit API). Może być więcej zamówień w Baselinker.'
+        
+        return jsonify(response_data)
         
     except Exception as e:
-        reports_logger.error("Błąd sprawdzania nowych zamówień", error=str(e))
+        reports_logger.error("Błąd sprawdzania nowych zamówień", 
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
-
 
 @reports_bp.route('/api/add-manual-row', methods=['POST'])
 @login_required
@@ -767,31 +879,113 @@ def api_get_dropdown_values(field_name):
 
 def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int]) -> Dict:
     """
-    Synchronizuje wybrane zamówienia
+    Synchronizuje wybrane zamówienia - pobiera pełne informacje i aktualizuje wszystkie dane
+    
+    Args:
+        service: Serwis Baselinker
+        order_ids: Lista ID zamówień do synchronizacji
+        
+    Returns:
+        Dict: Wynik synchronizacji
     """
     try:
-        orders = []
-        for order_id in order_ids:
-            order = service.get_order_details(order_id)
-            if order:
-                orders.append(order)
+        reports_logger.info("Rozpoczęcie synchronizacji wybranych zamówień",
+                          order_ids_count=len(order_ids),
+                          order_ids=order_ids[:10])  # Loguj pierwsze 10
         
-        if orders:
-            added_count = service.add_orders_to_database(orders)
-            return {
-                'success': True,
-                'message': f'Zsynchronizowano {len(orders)} zamówień',
-                'orders_processed': len(orders),
-                'orders_added': added_count,
-                'orders_updated': 0
-            }
-        else:
+        orders = []
+        failed_orders = []
+        missing_orders = []  # NOWE: Zamówienia które nie istnieją w Baselinker
+        
+        # Pobierz pełne dane każdego zamówienia
+        for order_id in order_ids:
+            try:
+                order = service.get_order_details(order_id)
+                if order:
+                    orders.append(order)
+                    reports_logger.debug("Pobrano szczegóły zamówienia",
+                                       order_id=order_id,
+                                       products_count=len(order.get('products', [])))
+                else:
+                    missing_orders.append(order_id)
+                    reports_logger.info("Zamówienie nie istnieje w Baselinker lub ma wykluczony status",
+                                      order_id=order_id)
+            except Exception as e:
+                failed_orders.append(order_id)
+                reports_logger.error("Błąd pobierania zamówienia",
+                                   order_id=order_id,
+                                   error=str(e))
+        
+        # ZMIANA: Nie traktuj missing_orders jako błędu krytycznego
+        if not orders and not missing_orders:
+            error_msg = f'Błąd połączenia - nie udało się pobrać żadnego zamówienia. Nieudane: {failed_orders}'
+            reports_logger.error("Błąd połączenia z API", 
+                               failed_orders=failed_orders,
+                               total_requested=len(order_ids))
             return {
                 'success': False,
-                'error': 'Nie udało się pobrać wybranych zamówień'
+                'error': error_msg
             }
+        elif not orders:
+            # NOWE: Jeśli wszystkie zamówienia nie istnieją, to nie jest błąd
+            success_msg = f'Synchronizacja zakończona - wszystkie zamówienia zostały już usunięte z Baselinker lub mają wykluczony status'
+            reports_logger.warning("Wszystkie zamówienia nieistniejące lub wykluczony status",
+                                 missing_orders=missing_orders,
+                                 failed_orders=failed_orders,
+                                 total_requested=len(order_ids))
+            return {
+                'success': True,
+                'message': success_msg,
+                'orders_processed': 0,
+                'orders_added': 0,
+                'orders_updated': 0,
+                'missing_orders': missing_orders,
+                'failed_orders': failed_orders
+            }
+        
+        # ZMIANA: Używamy pełnej synchronizacji zamiast tylko dodawania
+        # To oznacza że aktualizowane są wszystkie informacje w istniejących rekordach
+        reports_logger.info("Rozpoczęcie pełnej synchronizacji zamówień",
+                          orders_to_sync=len(orders),
+                          missing_orders_count=len(missing_orders),
+                          failed_orders_count=len(failed_orders))
+        
+        # Użyj metody sync_orders która obsługuje aktualizacje
+        result = service.sync_orders(orders_list=orders, sync_type='selected')
+        
+        # Dodaj informacje o nieudanych i brakujących zamówieniach do wyniku
+        result['failed_orders'] = failed_orders
+        result['failed_orders_count'] = len(failed_orders)
+        result['missing_orders'] = missing_orders
+        result['missing_orders_count'] = len(missing_orders)
+        
+        # ZMIANA: Lepsze komunikaty
+        success_count = result.get('orders_processed', 0)
+        total_requested = len(order_ids)
+        
+        if missing_orders and not failed_orders:
+            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. {len(missing_orders)} zamówień już nie istnieje w Baselinker.'
+        elif failed_orders and not missing_orders:
+            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. Błąd pobierania: {len(failed_orders)} zamówień.'
+        elif missing_orders and failed_orders:
+            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. Brakujące: {len(missing_orders)}, błędy: {len(failed_orders)}.'
+        else:
+            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień pomyślnie.'
+            
+        reports_logger.info("Synchronizacja wybranych zamówień zakończona",
+                          orders_processed=result.get('orders_processed', 0),
+                          orders_added=result.get('orders_added', 0),
+                          orders_updated=result.get('orders_updated', 0),
+                          missing_orders_count=len(missing_orders),
+                          failed_orders_count=len(failed_orders))
+        
+        return result
             
     except Exception as e:
+        reports_logger.error("Błąd synchronizacji wybranych zamówień",
+                           error=str(e),
+                           error_type=type(e).__name__,
+                           order_ids_count=len(order_ids))
         return {
             'success': False,
             'error': str(e)
@@ -813,24 +1007,27 @@ def api_sync_statuses():
         # Pobierz serwis
         service = get_reports_service()
         
-        # Pobierz zamówienia które mogą być synchronizowane (bez finalnych statusów)
-        excluded_statuses = [
-            'Dostarczona - kurier',
-            'Dostarczona - trans. WoodPower', 
-            'Dostarczona - transport WoodPower',
-            'Odebrane',
-            'Odebrana',
-            'Zamówienie anulowane',
-            'Anulowane'
+        # ZMIANA: Pobierz zamówienia które mogą być synchronizowane (wykluczamy tylko 105112 i 138625)
+        # 105112 = "Nowe - nieopłacone"
+        # 138625 = "Zamówienie anulowane"
+        excluded_status_ids = [105112, 138625]
+        excluded_status_names = [
+            'Nowe - nieopłacone',
+            'Zamówienie anulowane'
         ]
         
-        # Pobierz zamówienia z bazy które nie mają finalnego statusu
+        # Pobierz zamówienia z bazy które nie mają wykluczonych statusów
         orders_to_sync = BaselinkerReportOrder.query.filter(
             BaselinkerReportOrder.baselinker_order_id.isnot(None),
-            ~BaselinkerReportOrder.current_status.in_(excluded_statuses)
+            ~BaselinkerReportOrder.baselinker_status_id.in_(excluded_status_ids),
+            ~BaselinkerReportOrder.current_status.in_(excluded_status_names)
         ).all()
         
         if not orders_to_sync:
+            reports_logger.info("Brak zamówień do synchronizacji statusów",
+                              user_email=user_email,
+                              excluded_status_ids=excluded_status_ids,
+                              excluded_status_names=excluded_status_names)
             return jsonify({
                 'success': True,
                 'message': 'Brak zamówień do synchronizacji statusów',
@@ -842,8 +1039,10 @@ def api_sync_statuses():
         unique_order_ids = list(set(order.baselinker_order_id for order in orders_to_sync))
         
         reports_logger.info("Synchronizacja statusów zamówień",
+                          user_email=user_email,
                           unique_orders=len(unique_order_ids),
-                          total_records=len(orders_to_sync))
+                          total_records=len(orders_to_sync),
+                          excluded_status_ids=excluded_status_ids)
         
         # Synchronizuj statusy
         updated_count = 0
@@ -864,125 +1063,70 @@ def api_sync_statuses():
                     
                     # Pobierz kwotę zapłaconą (brutto -> netto)
                     payment_done_gross = order_details.get('payment_done', 0)
-                    new_paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
+                    new_paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0.0
                     
-                    # Pobierz sposób płatności
-                    payment_method = order_details.get('payment_method', '')
-                    
-                    # Sprawdź czy status lub płatność się zmieniły
-                    order_records = BaselinkerReportOrder.query.filter_by(
+                    # Aktualizuj wszystkie rekordy tego zamówienia
+                    records_updated = BaselinkerReportOrder.query.filter_by(
                         baselinker_order_id=order_id
-                    ).all()
+                    ).update({
+                        'current_status': new_status,
+                        'baselinker_status_id': new_status_id,
+                        'paid_amount_net': new_paid_amount_net,
+                        'updated_at': datetime.utcnow()
+                    })
                     
-                    for record in order_records:
-                        record_updated = False
-                        
-                        # Sprawdź zmianę statusu
-                        if record.current_status != new_status:
-                            record.current_status = new_status
-                            record.baselinker_status_id = new_status_id
-                            record.updated_at = datetime.utcnow()
-                            
-                            # Przelicz pola produkcji na podstawie nowego statusu
-                            record.update_production_fields()
-                            
-                            record_updated = True
-                            status_updated_count += 1
-                            
-                            reports_logger.info(f"Zaktualizowano status zamówienia {order_id}: {record.current_status} -> {new_status}")
-                        
-                        # Sprawdź zmianę płatności (tolerance 0.01 zł)
-                        current_paid = float(record.paid_amount_net or 0)
-                        if abs(current_paid - new_paid_amount_net) > 0.01:
-                            old_paid = record.paid_amount_net
-                            record.paid_amount_net = new_paid_amount_net
-                            record.updated_at = datetime.utcnow()
-                            
-                            # Przelicz saldo (kwota zamówienia netto - zapłacono netto)
-                            if record.order_amount_net is not None:
-                                record.balance_due = float(record.order_amount_net) - new_paid_amount_net
-                            
-                            record_updated = True
+                    if records_updated > 0:
+                        updated_count += records_updated
+                        status_updated_count += 1
+                        if new_paid_amount_net > 0:
                             payment_updated_count += 1
                             
-                            reports_logger.info(f"Zaktualizowano płatność zamówienia {order_id}: {old_paid} -> {new_paid_amount_net} zł netto")
-                        
-                        # Sprawdź zmianę metody płatności
-                        if record.payment_method != payment_method and payment_method:
-                            record.payment_method = payment_method
-                            record.updated_at = datetime.utcnow()
-                            record_updated = True
-                            
-                            reports_logger.info(f"Zaktualizowano metodę płatności zamówienia {order_id}: {payment_method}")
-                        
-                        if record_updated:
-                            updated_count += 1
+                        reports_logger.debug("Zaktualizowano status zamówienia",
+                                           order_id=order_id,
+                                           new_status=new_status,
+                                           new_status_id=new_status_id,
+                                           paid_amount_net=new_paid_amount_net,
+                                           records_updated=records_updated)
                     
                     processed_count += 1
-                    
-                    # Commit co 10 zamówień dla lepszej wydajności
-                    if processed_count % 10 == 0:
-                        db.session.commit()
-                        reports_logger.info(f"Przetworzono {processed_count}/{len(unique_order_ids)} zamówień...")
-                        
                 else:
                     reports_logger.warning("Nie udało się pobrać szczegółów zamówienia",
                                          order_id=order_id)
                     
             except Exception as e:
-                reports_logger.error("Błąd synchronizacji zamówienia",
+                reports_logger.error("Błąd synchronizacji statusu zamówienia",
                                    order_id=order_id,
                                    error=str(e))
                 continue
         
-        # Finalny commit
+        # Zapisz zmiany
         db.session.commit()
         
-        # Zapisz log synchronizacji z dodatkowymi informacjami
-        duration = int((datetime.utcnow() - sync_start).total_seconds())
-        sync_log = ReportsSyncLog(
-            sync_type='status_sync',
-            orders_processed=processed_count,
-            orders_added=0,
-            orders_updated=updated_count,
-            status='success',
-            duration_seconds=duration
-        )
-        db.session.add(sync_log)
-        db.session.commit()
+        duration = (datetime.utcnow() - sync_start).total_seconds()
         
-        reports_logger.info("Synchronizacja statusów i płatności zakończona",
+        reports_logger.info("Synchronizacja statusów zakończona",
                           user_email=user_email,
-                          orders_processed=processed_count,
-                          orders_updated=updated_count,
-                          status_updated=status_updated_count,
-                          payment_updated=payment_updated_count)
+                          processed_orders=processed_count,
+                          updated_records=updated_count,
+                          status_updated_count=status_updated_count,
+                          payment_updated_count=payment_updated_count,
+                          duration_seconds=duration)
         
         return jsonify({
             'success': True,
-            'message': f'Synchronizacja zakończona pomyślnie',
+            'message': f'Zsynchronizowano statusy {processed_count} zamówień',
             'orders_processed': processed_count,
-            'orders_updated': updated_count,
-            'status_updated': status_updated_count,
-            'payment_updated': payment_updated_count,
-            'unique_orders': len(unique_order_ids)
+            'orders_updated': status_updated_count,
+            'records_updated': updated_count,
+            'payment_updated_count': payment_updated_count
         })
         
     except Exception as e:
-        # Zapisz błąd do logów
-        duration = int((datetime.utcnow() - sync_start).total_seconds()) if 'sync_start' in locals() else 0
-        sync_log = ReportsSyncLog(
-            sync_type='status_sync',
-            status='error',
-            error_message=str(e),
-            duration_seconds=duration
-        )
-        db.session.add(sync_log)
-        db.session.commit()
-        
+        db.session.rollback()
         reports_logger.error("Błąd synchronizacji statusów",
                            user_email=user_email,
-                           error=str(e))
+                           error=str(e),
+                           error_type=type(e).__name__)
         return jsonify({
             'success': False,
             'error': str(e)

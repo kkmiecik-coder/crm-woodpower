@@ -25,14 +25,6 @@
 
                 <!-- Kontrolki -->
                 <div class="reports-controls">
-                    <!-- Filtr zakresów dat -->
-                    <div class="date-range-filter">
-                        <label for="dateFrom">Data od:</label>
-                        <input type="date" id="dateFrom" class="form-select date-input">
-
-                        <label for="dateTo">Data do:</label>
-                        <input type="date" id="dateTo" class="form-select date-input">
-                    </div>
 
                     <!-- Przycisk synchronizacji -->
                     <div class="sync-section">
@@ -42,14 +34,18 @@
                         </button>
                         {% if has_new_orders %}
                         <div class="new-orders-badge">
+                            {% if api_limit_reached %}
+                            {{ new_orders_count }} lub więcej nowych zamówień
+                            {% else %}
                             {{ new_orders_count }} nowych zamówień
+                            {% endif %}
                         </div>
                         {% endif %}
                     </div>
 
                     <!-- Synchronizacja statusów -->
                     <button id="syncStatusesBtn" class="btn btn-warning"
-                            title="Synchronizuje statusy i kwoty zapłacone dla istniejących zamówień z Baselinker">
+                            title="Synchronizuje wszystkie informacje z zamówień (statusy, kwoty zapłacone, dane produktów) dla wszystkich zamówień z Baselinker - wykluczając tylko anulowane i nieopłacone">
                         <i class="fas fa-refresh"></i>
                         Synchronizuj zamówienia
                     </button>
