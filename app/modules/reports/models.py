@@ -179,18 +179,18 @@ class BaselinkerReportOrder(db.Model):
     def get_statistics(cls, filtered_query=None):
         """
         Oblicza statystyki dla widocznych (przefiltrowanych) zamówień
-        
+    
         Args:
             filtered_query: Query object z filtrami
-            
+        
         Returns:
             dict: Słownik ze statystykami
         """
         if filtered_query is None:
             filtered_query = cls.query
-            
-        orders = filtered_query.all()
         
+        orders = filtered_query.all()
+    
         stats = {
             'total_m3': 0.0,
             'order_amount_net': 0.0,
@@ -204,40 +204,41 @@ class BaselinkerReportOrder(db.Model):
             'production_value_net': 0.0,
             'ready_pickup_volume': 0.0
         }
-        
+    
         if not orders:
             return stats
-            
-        # Grupuj zamówienia by uniknąć duplikowania order_amount_net
+        
+        # Grupuj zamówienia by uniknąć duplikowania wartości na poziomie zamówienia
         orders_by_baselinker_id = {}
         for order in orders:
             bl_id = order.baselinker_order_id or f"manual_{order.id}"
             if bl_id not in orders_by_baselinker_id:
                 orders_by_baselinker_id[bl_id] = []
             orders_by_baselinker_id[bl_id].append(order)
-        
-        # Sumuj wartości
+    
+        # Sumuj wartości NA POZIOMIE PRODUKTU (te które dotyczą konkretnych produktów)
         for order in orders:
             stats['total_m3'] += float(order.total_volume or 0)
             stats['value_net'] += float(order.value_net or 0)
             stats['value_gross'] += float(order.value_gross or 0)
-            stats['delivery_cost'] += float(order.delivery_cost or 0)
-            stats['paid_amount_net'] += float(order.paid_amount_net or 0)
-            stats['balance_due'] += float(order.balance_due or 0)
             stats['production_volume'] += float(order.production_volume or 0)
             stats['production_value_net'] += float(order.production_value_net or 0)
             stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
-        
-        # Oblicz order_amount_net bez duplikowania na poziomie zamówienia
+    
+        # POPRAWKA: Sumuj wartości NA POZIOMIE ZAMÓWIENIA (raz na zamówienie)
         for bl_id, order_products in orders_by_baselinker_id.items():
-            # Weź order_amount_net z pierwszego produktu (wszystkie mają tę samą wartość)
             if order_products:
-                stats['order_amount_net'] += float(order_products[0].order_amount_net or 0)
-        
+                # Weź wartości z pierwszego produktu (wszystkie mają te same wartości na poziomie zamówienia)
+                first_product = order_products[0]
+                stats['order_amount_net'] += float(first_product.order_amount_net or 0)
+                stats['delivery_cost'] += float(first_product.delivery_cost or 0)
+                stats['paid_amount_net'] += float(first_product.paid_amount_net or 0)  # POPRAWKA: Teraz raz na zamówienie
+                stats['balance_due'] += float(first_product.balance_due or 0)          # POPRAWKA: Teraz raz na zamówienie
+    
         # Oblicz średnią cenę za m3
         if stats['total_m3'] > 0:
             stats['avg_price_per_m3'] = stats['value_net'] / stats['total_m3']
-            
+        
         return stats
     
     @classmethod

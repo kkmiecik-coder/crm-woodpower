@@ -715,13 +715,22 @@ class SyncManager {
     }
 
     /**
-     * Formatowanie waluty
-     */
+ * Formatowanie waluty z separatorami tysięcy
+ */
     formatCurrency(value) {
-        if (value === null || value === undefined) return '0.00 zł';
+        if (value === null || value === undefined) return '0.00 PLN';
+
         const num = parseFloat(value);
-        if (isNaN(num)) return '0.00 zł';
-        return num.toFixed(2) + ' zł';
+        if (isNaN(num)) return '0.00 PLN';
+
+        // Formatuj z 2 miejscami po przecinku
+        const formatted = num.toFixed(2);
+        const parts = formatted.split('.');
+
+        // Dodaj spacje co 3 cyfry od prawej strony
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+        return parts.join('.') + ' PLN';
     }
 
     /**

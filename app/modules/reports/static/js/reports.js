@@ -623,16 +623,16 @@ class ReportsManager {
         console.log('[ReportsManager] Updating statistics:', stats);
 
         // Aktualizuj wszystkie statystyki
-        this.updateStat('statTotalM3', stats.total_m3, 2, ' m³');
-        this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' zł');
-        this.updateStat('statValueNet', stats.value_net, 2, ' zł');
-        this.updateStat('statValueGross', stats.value_gross, 2, ' zł');
-        this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' zł');
-        this.updateStat('statDeliveryCost', stats.delivery_cost, 2, ' zł');
-        this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' zł');
-        this.updateStat('statBalanceDue', stats.balance_due, 2, ' zł');
+        this.updateStat('statTotalM3', stats.total_m3, 2, ' M³');
+        this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
+        this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
+        this.updateStat('statValueGross', stats.value_gross, 2, ' PLN');
+        this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
+        this.updateStat('statDeliveryCost', stats.delivery_cost, 2, ' PLN');
+        this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' PLN');
+        this.updateStat('statBalanceDue', stats.balance_due, 2, ' PLN');
         this.updateStat('statProductionVolume', stats.production_volume, 2, '');
-        this.updateStat('statProductionValueNet', stats.production_value_net, 2, ' zł');
+        this.updateStat('statProductionValueNet', stats.production_value_net, 2, ' PLN');
         this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 2, '');
     }
 
@@ -728,11 +728,12 @@ class ReportsManager {
      * Aktualizacja pojedynczej statystyki
      */
     updateStat(elementId, value, decimals = 2, suffix = '') {
-        const element = this.elements[elementId];
-        if (element) {
-            const formattedValue = this.formatNumber(value || 0, decimals);
-            element.textContent = formattedValue + suffix;
-        }
+        const element = document.getElementById(elementId);
+        if (!element) return;
+
+        // Użyj nowego formatowania z separatorami tysięcy
+        const formatted = this.formatStatNumber(value, decimals, suffix);
+        element.textContent = formatted;
     }
 
     /**
@@ -1043,7 +1044,7 @@ class ReportsManager {
     }
 
     /**
-     * Formatowanie liczby
+     * Formatowanie liczb z separatorami tysięcy
      */
     formatNumber(value, decimals = 2) {
         if (value === null || value === undefined || value === '') {
@@ -1055,31 +1056,46 @@ class ReportsManager {
             return '0' + (decimals > 0 ? '.' + '0'.repeat(decimals) : '');
         }
 
-        return num.toFixed(decimals);
+        // NOWE: Dodaj separatory tysięcy (spacje)
+        const formatted = num.toFixed(decimals);
+        const parts = formatted.split('.');
+
+        // Dodaj spacje co 3 cyfry od prawej strony
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+        return parts.join('.');
     }
 
     /**
-     * Formatowanie waluty
+     * Formatowanie waluty z separatorami tysięcy
      */
     formatCurrency(value) {
         const formatted = this.formatNumber(value, 2);
-        return formatted;
+        return formatted + ' PLN';
     }
 
     /**
-     * Formatowanie waluty ze znakiem (dla sald)
+     * Formatowanie waluty ze znakiem (dla sald) z separatorami tysięcy
      */
     formatCurrencyWithSign(value) {
         const num = parseFloat(value || 0);
         const formatted = this.formatNumber(Math.abs(num), 2);
 
         if (num > 0) {
-            return `+${formatted}`;
+            return `+${formatted} PLN`;
         } else if (num < 0) {
-            return `-${formatted}`;
+            return `-${formatted} PLN`;
         } else {
-            return formatted;
+            return formatted + ' PLN';
         }
+    }
+
+    /**
+     * NOWA: Formatowanie liczb dla statystyk (bez waluty)
+     */
+    formatStatNumber(value, decimals = 2, suffix = '') {
+        const formatted = this.formatNumber(value, decimals);
+        return formatted + suffix;
     }
 
     /**

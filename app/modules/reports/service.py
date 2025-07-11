@@ -7,7 +7,7 @@ import requests
 import json
 import sys
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from flask import current_app
 from extensions import db
 from .models import BaselinkerReportOrder, ReportsSyncLog
@@ -166,6 +166,10 @@ class BaselinkerReportsService:
         
             # KLUCZOWA ZMIANA: Używaj date_confirmed_from zamiast date_add_from/to
             if current_date_from:
+                # Upewnij się, że to datetime, nie date
+                if isinstance(current_date_from, date) and not isinstance(current_date_from, datetime):
+                    current_date_from = datetime.combine(current_date_from, datetime.min.time())
+    
                 timestamp_from = int(current_date_from.timestamp())
                 parameters["date_confirmed_from"] = timestamp_from
             

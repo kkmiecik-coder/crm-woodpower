@@ -61,13 +61,22 @@ class ProductNameParser:
     # POPRAWKA: Zaktualizowane mapowanie typów produktów
     PRODUCT_TYPE_MAP = {
         'klejonka': 'klejonka',
+        'klejonki': 'klejonka',
         'deska': 'deska',
-        'blat': 'deska',      # blat to rodzaj deski
-        'parapet': 'deska',   # parapet to rodzaj deski  
-        'spocznik': 'deska',  # spocznik to rodzaj deski
-        'schody': 'deska',    # schody/stopień to rodzaj deski
-        'trep': 'deska',
-        'stopień': 'deska'
+        'deski': 'deska',
+        'blat': 'klejonka',
+        'blaty': 'klejonka',
+        'parapet': 'klejonka',
+        'parapety': 'klejonka',
+        'spocznik': 'klejonka',
+        'spoczniki': 'klejonka',
+        'schody': 'klejonka',
+        'trep': 'klejonka',
+        'trepy': 'klejonka',
+        'podstopień': 'klejonka',
+        'podstopnie': 'klejonka',
+        'stopień': 'klejonka',
+        'stopnie': 'klejonka'
     }
     
     def __init__(self):
@@ -293,7 +302,6 @@ def test_parser():
         print(f"   🎨 Wykończenie: {result['finish_state']}")
         print(f"   📏 Wymiary: {result['length_cm']}×{result['width_cm']}×{result['thickness_cm']} cm")
         print(f"   📦 Objętość: {result['volume_per_piece']} m³")
-
 
 if __name__ == "__main__":
     # Uruchom test parsera
