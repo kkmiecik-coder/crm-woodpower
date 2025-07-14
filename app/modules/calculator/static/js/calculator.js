@@ -417,7 +417,7 @@ function updatePrices() {
                 effectiveMultiplier = 1.5;
                 multiplierAdjusted = true;
                 unitNetto = singleVolume * basePrice * effectiveMultiplier;
-                variant.style.backgroundColor = "#FFECEC";
+                variant.style.backgroundColor = "#FFF8F0";
             } else {
                 variant.style.backgroundColor = "";
             }
@@ -1112,16 +1112,21 @@ function prepareNewProductForm(form, index) {
     
     // KROK 8: Resetuj wyświetlanie cen w wariantach
     form.querySelectorAll('.variants span').forEach(span => {
-        // Nie resetuj nagłówków i tagów braku towaru
+        // ✅ POPRAWKA: Dodaj nową klasę header-availability i sprawdź czy span jest w nagłówku
         const isHeader = span.classList.contains('header-title') ||
-                        span.classList.contains('header-unit-brutto') ||
-                        span.classList.contains('header-unit-netto') ||
-                        span.classList.contains('header-total-brutto') ||
-                        span.classList.contains('header-total-netto');
-        
+            span.classList.contains('header-unit-brutto') ||
+            span.classList.contains('header-unit-netto') ||
+            span.classList.contains('header-total-brutto') ||
+            span.classList.contains('header-total-netto') ||
+            span.classList.contains('header-availability'); // ← NOWA KLASA
+
+        // ✅ POPRAWKA: Sprawdź czy span jest dzieckiem nagłówka
+        const isInHeader = span.closest('.variants-header') !== null;
+
         const isOutOfStock = span.classList.contains('out-of-stock-tag');
-        
-        if (!isHeader && !isOutOfStock) {
+
+        // Tylko resetuj spany, które NIE są w nagłówku i NIE są tagami braku towaru
+        if (!isHeader && !isInHeader && !isOutOfStock) {
             span.textContent = 'Brak danych';
         }
     });
@@ -3663,6 +3668,372 @@ function calculateTotalVolumeAndWeight() {
 
     return { totalVolume, totalWeight };
 }
+
+// JavaScript dla obsługi dostępności wariantów
+
+// Mapowanie domyślnych stanów dostępności
+const defaultVariantAvailability = {
+    'dab-lity-ab': true,
+    'dab-lity-bb': true,
+    'dab-micro-ab': true,
+    'dab-micro-bb': true,
+    'jes-lity-ab': true,
+    'jes-micro-ab': false,  // Domyślnie niedostępny (był "BRAK")
+    'buk-lity-ab': true,
+    'buk-micro-ab': false   // Domyślnie niedostępny (był "BRAK")
+};
+
+/**
+ * Inicjalizuje dostępność wariantów dla wszystkich formularzy
+ */
+function initializeVariantAvailability() {
+    console.log("[initializeVariantAvailability] Inicjalizuję dostępność wariantów...");
+
+    const allForms = document.querySelectorAll('.quote-form');
+    allForms.forEach((form, formIndex) => {
+        console.log(`[initializeVariantAvailability] Inicjalizuję formularz ${formIndex + 1}`);
+
+        // Ustaw domyślne stany checkbox
+        Object.entries(defaultVariantAvailability).forEach(([variantCode, isAvailable]) => {
+            const checkbox = form.querySelector(`[data-variant="${variantCode}"]`);
+            if (checkbox) {
+                checkbox.checked = isAvailable;
+                updateVariantAvailability(form, variantCode, isAvailable);
+            }
+        });
+
+        // Dodaj event listenery dla checkbox
+        attachVariantAvailabilityListeners(form);
+    });
+
+    console.log("[initializeVariantAvailability] ✅ Zakończono inicjalizację");
+}
+
+/**
+ * Dodaje event listenery dla checkbox dostępności w danym formularzu
+ */
+function attachVariantAvailabilityListeners(form) {
+    const checkboxes = form.querySelectorAll('.variant-availability-checkbox');
+
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            const variantCode = e.target.dataset.variant;
+            const isAvailable = e.target.checked;
+
+            console.log(`[availabilityChange] Wariant ${variantCode}: ${isAvailable ? 'dostępny' : 'niedostępny'}`);
+
+            // Walidacja - zawsze musi być przynajmniej jeden dostępny wariant
+            if (!isAvailable && !checkAtLeastOneAvailable(form, variantCode)) {
+                e.preventDefault();
+                e.target.checked = true;
+                alert('Przynajmniej jeden wariant musi być dostępny!');
+                return;
+            }
+
+            updateVariantAvailability(form, variantCode, isAvailable);
+
+            // Jeśli wariant został wyłączony a był zaznaczony, odznacz go
+            if (!isAvailable) {
+                const radio = form.querySelector(`input[type="radio"][value="${variantCode}"]`);
+                if (radio && radio.checked) {
+                    radio.checked = false;
+                    // Wyczyść dane o cenie produktu
+                    form.dataset.orderBrutto = "";
+                    form.dataset.orderNetto = "";
+                    updateGlobalSummary();
+                    generateProductsSummary();
+                }
+            }
+        });
+    });
+}
+
+/**
+ * Aktualizuje wizualny stan dostępności wariantu
+ */
+function updateVariantAvailability(form, variantCode, isAvailable) {
+    const variantElement = form.querySelector(`[data-variant="${variantCode}"]`).closest('.variant-option');
+    const radio = form.querySelector(`input[type="radio"][value="${variantCode}"]`);
+
+    if (isAvailable) {
+        // Wariant dostępny
+        variantElement.classList.remove('unavailable');
+        radio.disabled = false;
+        radio.style.pointerEvents = 'auto';
+    } else {
+        // Wariant niedostępny
+        variantElement.classList.add('unavailable');
+        radio.disabled = true;
+        radio.style.pointerEvents = 'none';
+
+        // Odznacz jeśli był zaznaczony
+        if (radio.checked) {
+            radio.checked = false;
+        }
+    }
+}
+
+/**
+ * Sprawdza czy przynajmniej jeden wariant będzie dostępny (poza wykluczanym)
+ */
+function checkAtLeastOneAvailable(form, excludeVariant = null) {
+    const checkboxes = form.querySelectorAll('.variant-availability-checkbox');
+    let availableCount = 0;
+
+    checkboxes.forEach(checkbox => {
+        if (checkbox.dataset.variant !== excludeVariant && checkbox.checked) {
+            availableCount++;
+        }
+    });
+
+    return availableCount > 0;
+}
+
+/**
+ * Pobiera dostępne warianty z formularza
+ */
+function getAvailableVariants(form) {
+    const availableVariants = [];
+    const checkboxes = form.querySelectorAll('.variant-availability-checkbox:checked');
+
+    checkboxes.forEach(checkbox => {
+        availableVariants.push(checkbox.dataset.variant);
+    });
+
+    return availableVariants;
+}
+
+/**
+ * Ustala dostępność wariantów przy tworzeniu nowego produktu
+ */
+function setDefaultVariantAvailability(form) {
+    console.log("[setDefaultVariantAvailability] Ustawiam domyślną dostępność...");
+
+    Object.entries(defaultVariantAvailability).forEach(([variantCode, isAvailable]) => {
+        const checkbox = form.querySelector(`[data-variant="${variantCode}"]`);
+        if (checkbox) {
+            checkbox.checked = isAvailable;
+            updateVariantAvailability(form, variantCode, isAvailable);
+        }
+    });
+
+    // Dodaj event listenery
+    attachVariantAvailabilityListeners(form);
+}
+
+/**
+ * Kopiuje stany dostępności z jednego formularza do drugiego
+ */
+function copyVariantAvailability(sourceForm, targetForm) {
+    console.log("[copyVariantAvailability] Kopiuję stany dostępności...");
+
+    const sourceCheckboxes = sourceForm.querySelectorAll('.variant-availability-checkbox');
+
+    sourceCheckboxes.forEach(sourceCheckbox => {
+        const variantCode = sourceCheckbox.dataset.variant;
+        const isAvailable = sourceCheckbox.checked;
+
+        const targetCheckbox = targetForm.querySelector(`[data-variant="${variantCode}"]`);
+        if (targetCheckbox) {
+            targetCheckbox.checked = isAvailable;
+            updateVariantAvailability(targetForm, variantCode, isAvailable);
+        }
+    });
+
+    // Dodaj event listenery do nowego formularza
+    attachVariantAvailabilityListeners(targetForm);
+}
+
+/**
+ * Aktualizacja funkcji attachFormListeners - dodaj obsługę dostępności
+ */
+function attachFormListenersWithAvailability(form) {
+    // Wywołaj istniejącą funkcję
+    attachFormListeners(form);
+
+    // Dodaj obsługę dostępności jeśli jeszcze nie została dodana
+    if (!form.dataset.availabilityAttached) {
+        attachVariantAvailabilityListeners(form);
+        form.dataset.availabilityAttached = 'true';
+    }
+}
+
+// Aktualizacja funkcji prepareNewProductForm
+function prepareNewProductFormWithAvailability(form, index) {
+    console.log(`[prepareNewProductFormWithAvailability] Przygotowuję formularz ${index + 1}`);
+
+    // Wywołaj istniejącą funkcję
+    prepareNewProductForm(form, index);
+
+    // Ustaw domyślną dostępność wariantów
+    setDefaultVariantAvailability(form);
+}
+
+// Aktualizacja funkcji duplicateProduct - skopiuj stany dostępności
+function duplicateProductWithAvailability(sourceIndex) {
+    console.log(`[duplicateProductWithAvailability] Duplikuję produkt ${sourceIndex + 1} z dostępnością...`);
+
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    const sourceForm = forms[sourceIndex];
+
+    if (!sourceForm) {
+        console.error(`Nie znaleziono formularza o indeksie ${sourceIndex}`);
+        return;
+    }
+
+    // Zapisz stany dostępności z formularza źródłowego
+    const availabilityStates = {};
+    const sourceCheckboxes = sourceForm.querySelectorAll('.variant-availability-checkbox');
+    sourceCheckboxes.forEach(checkbox => {
+        availabilityStates[checkbox.dataset.variant] = checkbox.checked;
+    });
+
+    // Wywołaj oryginalną funkcję duplikowania
+    duplicateProduct(sourceIndex);
+
+    // Po utworzeniu nowego produktu, skopiuj stany dostępności
+    setTimeout(() => {
+        const newForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+        const newForm = newForms[newForms.length - 1]; // Ostatni dodany formularz
+
+        if (newForm) {
+            // Skopiuj stany dostępności
+            Object.entries(availabilityStates).forEach(([variantCode, isAvailable]) => {
+                const checkbox = newForm.querySelector(`[data-variant="${variantCode}"]`);
+                if (checkbox) {
+                    checkbox.checked = isAvailable;
+                    updateVariantAvailability(newForm, variantCode, isAvailable);
+                }
+            });
+
+            console.log(`[duplicateProductWithAvailability] ✅ Skopiowano stany dostępności do nowego produktu`);
+        }
+    }, 150);
+}
+
+// ============ AKTUALIZACJA ISTNIEJĄCYCH FUNKCJI ============
+
+/**
+ * Aktualizacja funkcji init() - dodaj inicjalizację dostępności
+ */
+function initWithAvailability() {
+    // Wywołaj istniejącą funkcję init
+    // (tu będzie wywołanie oryginalnej funkcji init)
+
+    // Dodaj inicjalizację dostępności wariantów
+    setTimeout(() => {
+        initializeVariantAvailability();
+    }, 100);
+}
+
+/**
+ * Aktualizacja addNewProduct - ustaw domyślną dostępność
+ */
+function addNewProductWithAvailability() {
+    console.log("[addNewProductWithAvailability] Dodaję nowy produkt z dostępnością...");
+
+    // Wywołaj oryginalną funkcję
+    addNewProduct();
+
+    // Po dodaniu produktu ustaw domyślną dostępność
+    setTimeout(() => {
+        const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+        const newForm = forms[forms.length - 1];
+
+        if (newForm) {
+            setDefaultVariantAvailability(newForm);
+            console.log("[addNewProductWithAvailability] ✅ Ustawiono domyślną dostępność dla nowego produktu");
+        }
+    }, 100);
+}
+
+/**
+ * Walidacja przed zapisem wyceny - sprawdź czy są dostępne warianty
+ */
+function validateAvailableVariants() {
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+
+    for (let i = 0; i < forms.length; i++) {
+        const form = forms[i];
+        const availableVariants = getAvailableVariants(form);
+
+        if (availableVariants.length === 0) {
+            alert(`Produkt ${i + 1} nie ma żadnych dostępnych wariantów. Dodaj przynajmniej jeden dostępny wariant.`);
+            return false;
+        }
+
+        // Sprawdź czy zaznaczony wariant jest dostępny
+        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        if (selectedRadio) {
+            const selectedVariant = selectedRadio.value;
+            if (!availableVariants.includes(selectedVariant)) {
+                alert(`Produkt ${i + 1} ma zaznaczony niedostępny wariant. Wybierz dostępny wariant.`);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Filtruje warianty tylko do dostępnych przed wysłaniem do backend
+ */
+function filterAvailableVariantsForSave(form, variants) {
+    const availableVariants = getAvailableVariants(form);
+
+    return variants.filter(variant => {
+        return availableVariants.includes(variant.variant_code);
+    });
+}
+
+// ============ EVENT LISTENERS ============
+
+/**
+ * Dodaj obsługę dostępności do event listenerów formularza
+ */
+function attachVariantSelectionListeners(form) {
+    const radioButtons = form.querySelectorAll('input[type="radio"]');
+
+    radioButtons.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            // Aktualizuj klasy CSS dla zaznaczonego wariantu
+            form.querySelectorAll('.variant-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+
+            const selectedOption = e.target.closest('.variant-option');
+            if (selectedOption) {
+                selectedOption.classList.add('selected');
+            }
+        });
+    });
+}
+
+/**
+ * Inicjalizacja po załadowaniu DOM
+ */
+document.addEventListener('DOMContentLoaded', function () {
+    // Poczekaj na załadowanie kalkulatora
+    setTimeout(() => {
+        if (typeof quoteFormsContainer !== 'undefined' && quoteFormsContainer) {
+            initializeVariantAvailability();
+            console.log("[DOMContentLoaded] ✅ Zainicjalizowano dostępność wariantów");
+        }
+    }, 500);
+});
+
+// ============ EXPORT FUNCTIONS ============
+
+// Eksportuj funkcje do użycia w innych plikach
+window.variantAvailability = {
+    initialize: initializeVariantAvailability,
+    setDefault: setDefaultVariantAvailability,
+    copy: copyVariantAvailability,
+    validate: validateAvailableVariants,
+    filter: filterAvailableVariantsForSave,
+    getAvailable: getAvailableVariants
+};
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log("🔧 Inicjalizuję poprawki resetowania wariantów...");

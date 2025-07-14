@@ -1661,21 +1661,242 @@ select.select-small option {
 }
 
 .variants-header {
-    font-size: 11px;
-    color: #555;
-    display: inline-flex;
-    padding: 0 6px;
+    display: flex;
+    padding: 8px 6px;
+    align-items: center;
     gap: 8px;
-    margin-top: 16px;
+    align-self: stretch;
+    background: #F8F9FA;
+    border-bottom: 2px solid #E0E0E0;
+    font-weight: 600;
+    font-size: 11px;
+    color: #666666;
 }
 
     .variants-header span {
         display: inline-block;
     }
 
+.header-availability {
+    width: 60px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.variant-option {
+    display: flex;
+    padding: 8px 6px;
+    align-items: center;
+    gap: 8px;
+    align-self: stretch;
+    border-bottom: 1px solid #EAEAEA;
+    transition: all 0.2s ease;
+}
+
+    /* Radio button */
+    .variant-option input[type="radio"] {
+        width: 20px;
+        height: 20px;
+        margin-right: 8px;
+        cursor: pointer;
+        flex-shrink: 0;
+        accent-color: #ED6B24;
+    }
+
+    /* Label wariantu */
+    .variant-option .option-title {
+        width: 180px; /* Zmniejszone z 220px */
+        color: #1F2020;
+        font-family: Poppins, sans-serif;
+        font-size: 14px;
+        font-style: normal;
+        font-weight: 600;
+        line-height: normal;
+        flex-shrink: 0;
+        cursor: pointer;
+    }
+
+    /* Ceny - zachowaj istniejące wymiary */
+    .variant-option .unit-brutto,
+    .variant-option .unit-netto,
+    .variant-option .total-brutto,
+    .variant-option .total-netto {
+        font-size: 12px;
+        color: #1F2020;
+        font-family: Poppins, sans-serif;
+        text-align: right;
+        min-width: 80px;
+    }
+
+/* Checkbox dostępności */
+.variant-availability-checkbox {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: #ED6B24; /* Kolor pomarańczowy dla zaznaczonego checkbox */
+}
+
 .header-title {
-    width: 220px;
-    font-weight: 600;
+    width: 180px; /* Zmniejszone z 220px żeby zrobić miejsce dla checkbox */
+    flex-shrink: 0;
+}
+
+/* STANY NIEDOSTĘPNOŚCI */
+
+/* Wyszarzenie całego wariantu gdy niedostępny */
+.variant-option.unavailable {
+    background: #FAFAFA;
+    opacity: 0.7;
+}
+
+    /* Wyłączenie radio button gdy niedostępny */
+    .variant-option.unavailable input[type="radio"] {
+        pointer-events: none;
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Wyszarzenie tekstu wariantu */
+    .variant-option.unavailable .option-title {
+        color: #000000;
+        cursor: default;
+    }
+
+    /* Wyszarzenie cen */
+    .variant-option.unavailable .unit-brutto,
+    .variant-option.unavailable .unit-netto,
+    .variant-option.unavailable .total-brutto,
+    .variant-option.unavailable .total-netto {
+        color: #1F2020;
+    }
+
+/* Hover effect dla dostępnych wariantów */
+.variant-option:not(.unavailable):hover {
+    background: #FFF8F5;
+    border-color: #ED6B24;
+}
+
+.multiplier-warning {
+    margin-top: 8px;
+}
+
+/* Aktywny (zaznaczony) wariant */
+.variant-option.selected {
+    background: #FFF8F5;
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 1px rgba(237, 107, 36, 0.2);
+}
+
+/* Checkbox w niedostępnym wariancie */
+.variant-option.unavailable .variant-availability-checkbox {
+    opacity: 0.8;
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+    .variant-option {
+        padding: 6px 4px;
+        gap: 6px;
+        font-size: 11px;
+    }
+
+    .variant-availability-checkbox {
+        width: 14px;
+        height: 14px;
+    }
+
+    .variant-option input[type="radio"] {
+        width: 18px;
+        height: 18px;
+    }
+
+    .variant-option .option-title {
+        width: 160px;
+        font-size: 12px;
+    }
+
+    .header-availability {
+        width: 50px;
+        font-size: 10px;
+    }
+
+    .header-title {
+        width: 160px;
+    }
+}
+
+@media (max-width: 768px) {
+    .variant-option {
+        padding: 4px 2px;
+        gap: 4px;
+        font-size: 10px;
+    }
+
+    .variant-availability-checkbox {
+        width: 12px;
+        height: 12px;
+    }
+
+    .variant-option input[type="radio"] {
+        width: 16px;
+        height: 16px;
+    }
+
+    .variant-option .option-title {
+        width: 140px;
+        font-size: 11px;
+    }
+
+    .variant-option .unit-brutto,
+    .variant-option .unit-netto,
+    .variant-option .total-brutto,
+    .variant-option .total-netto {
+        font-size: 10px;
+        min-width: 60px;
+    }
+
+    .header-availability {
+        width: 40px;
+        font-size: 9px;
+    }
+
+    .header-title {
+        width: 140px;
+    }
+}
+
+/* Dodatkowe style dla lepszego UX */
+.variant-availability-checkbox:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+}
+
+.variant-option input[type="radio"]:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+}
+
+/* Animacja dla zmian dostępności */
+.variant-option {
+    transition: all 0.3s ease;
+}
+
+    .variant-option.unavailable {
+        animation: fadeToUnavailable 0.3s ease;
+    }
+
+@keyframes fadeToUnavailable {
+    from {
+        opacity: 1;
+        background: #FFFFFF;
+    }
+
+    to {
+        opacity: 0.7;
+        background: #FAFAFA;
+    }
 }
 
 .header-unit-netto,

@@ -193,7 +193,33 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             console.log('[validateSaveQuoteForm] ✅ Walidacja email/telefon przeszła');
         }
-        
+
+        // NOWA WALIDACJA: Sprawdź dostępność wariantów
+        if (window.variantAvailability && !window.variantAvailability.validate()) {
+            console.log('[validateSaveQuoteForm] Walidacja dostępności wariantów nie powiodła się');
+            return false;
+        }
+
+        // Sprawdź czy wszystkie produkty mają przynajmniej jeden dostępny wariant
+        const forms = Array.from(document.querySelectorAll('.quote-form'));
+        for (let i = 0; i < forms.length; i++) {
+            const form = forms[i];
+            const availableVariants = window.variantAvailability ?
+                window.variantAvailability.getAvailable(form) : [];
+
+            if (availableVariants.length === 0) {
+                alert(`Produkt ${i + 1} nie ma żadnych dostępnych wariantów.`);
+                return false;
+            }
+
+            // Sprawdź czy zaznaczony wariant jest dostępny
+            const selectedRadio = form.querySelector('input[type="radio"]:checked');
+            if (selectedRadio && !availableVariants.includes(selectedRadio.value)) {
+                alert(`Produkt ${i + 1} ma zaznaczony niedostępny wariant.`);
+                return false;
+            }
+        }
+
         console.log(`[validateSaveQuoteForm] Wynik końcowy: ${isValid ? 'PRZESZŁA' : 'NIE PRZESZŁA'}`);
         return isValid;
     }
@@ -600,6 +626,12 @@ document.addEventListener('DOMContentLoaded', function () {
 function collectQuoteData() {
     console.log("[collectQuoteData] Start zbierania danych z formularzy");
 
+    // NOWA WALIDACJA: Sprawdź dostępność wariantów
+    if (window.variantAvailability && !window.variantAvailability.validate()) {
+        console.error("[collectQuoteData] Walidacja dostępności wariantów nie powiodła się");
+        return null;
+    }
+
     const forms = document.querySelectorAll('.quote-form');
     const products = [];
 
@@ -614,13 +646,23 @@ function collectQuoteData() {
         const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value || 0);
         const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value || 1);
 
+        // === DANE WYKOŃCZENIA ===
         const finishingType = form.querySelector('[data-finishing-type].active')?.dataset.finishingType || null;
         const finishingVariant = form.querySelector('[data-finishing-variant].active')?.dataset.finishingVariant || null;
         const finishingColor = form.querySelector('[data-finishing-color].active')?.dataset.finishingColor || null;
         const finishingGloss = form.querySelector('[data-finishing-gloss].active')?.dataset.finishingGloss || null;
 
-        // Zbierz WSZYSTKIE warianty do zapisu
-        const variants = Array.from(form.querySelectorAll('.variants input[type="radio"]')).map(radio => {
+        // ✅ POPRAWKA: Pobierz koszty wykończenia z datasetu formularza
+        const finishingBrutto = parseFloat(form.dataset.finishingBrutto || 0);
+        const finishingNetto = parseFloat(form.dataset.finishingNetto || 0);
+
+        console.log(`[collectQuoteData] Produkt ${index + 1} - wykończenie:`, {
+            finishingType, finishingVariant, finishingColor, finishingGloss,
+            finishingBrutto, finishingNetto
+        });
+
+        // Zbierz TYLKO DOSTĘPNE warianty do zapisu
+        const allVariants = Array.from(form.querySelectorAll('.variants input[type="radio"]')).map(radio => {
             const brutto = parseFloat(radio.dataset.totalBrutto || 0);
             const netto = parseFloat(radio.dataset.totalNetto || 0);
             const volume = (length / 100) * (width / 100) * (thickness / 100);
@@ -644,14 +686,30 @@ function collectQuoteData() {
                 finishing_variant: finishingVariant,
                 finishing_color: finishingColor,
                 finishing_gloss_level: finishingGloss,
-                finishing_brutto: parseFloat(form.dataset.finishingBrutto || 0),
-                finishing_netto: parseFloat(form.dataset.finishingNetto || 0)
+                finishing_netto: finishingNetto,  // ✅ Teraz jest zdefiniowane
+                finishing_brutto: finishingBrutto // ✅ Teraz jest zdefiniowane
             };
         });
 
-        // Dodaj koszty wykończenia do sumy
-        if (form.dataset.finishingBrutto) sumFinishingBrutto += parseFloat(form.dataset.finishingBrutto);
-        if (form.dataset.finishingNetto) sumFinishingNetto += parseFloat(form.dataset.finishingNetto);
+        // NOWE: Filtruj tylko dostępne warianty
+        const variants = allVariants.filter(variant => {
+            const checkbox = form.querySelector(`[data-variant="${variant.variant_code}"]`);
+            const isAvailable = checkbox && checkbox.checked;
+
+            if (!isAvailable) {
+                console.log(`[collectQuoteData] Pomijam niedostępny wariant: ${variant.variant_code}`);
+            }
+
+            return isAvailable;
+        });
+
+        console.log(`[collectQuoteData] Produkt ${index + 1}: ${allVariants.length} wariantów → ${variants.length} dostępnych`);
+
+        // ✅ POPRAWKA: Dodaj koszty wykończenia do sumy (tylko raz na produkt)
+        if (finishingBrutto > 0) {
+            sumFinishingBrutto += finishingBrutto;
+            sumFinishingNetto += finishingNetto;
+        }
 
         products.push({
             index,
@@ -659,8 +717,15 @@ function collectQuoteData() {
             width,
             thickness,
             quantity,
-            variants: variants // Wszystkie warianty
+            variants: variants // Tylko dostępne warianty
         });
+    });
+
+    console.log(`[collectQuoteData] Zebrano ${products.length} produktów:`);
+    products.forEach((product, index) => {
+        const availableCount = product.variants.length;
+        const selectedCount = product.variants.filter(v => v.is_selected).length;
+        console.log(`  Produkt ${index + 1}: ${availableCount} dostępnych wariantów, ${selectedCount} zaznaczonych`);
     });
 
     // Pobierz dane wysyłki z DOM
@@ -672,7 +737,7 @@ function collectQuoteData() {
     const firstForm = forms[0];
     const clientTypeSelect = firstForm?.querySelector('select[data-field="clientType"]');
     const selectedClientType = clientTypeSelect?.value || null;
-    
+
     // Pobierz multiplier z globalnej zmiennej multiplierMapping
     let selectedMultiplier = 1.0;
     if (selectedClientType && window.multiplierMapping && window.multiplierMapping[selectedClientType]) {
@@ -713,3 +778,25 @@ function collectQuoteData() {
     console.log("[collectQuoteData] Zwracam podsumowanie:", result);
     return result;
 }
+
+function logVariantAvailability() {
+    console.log("[logVariantAvailability] Stan dostępności wariantów:");
+
+    const forms = Array.from(document.querySelectorAll('.quote-form'));
+    forms.forEach((form, index) => {
+        console.log(`  Produkt ${index + 1}:`);
+
+        const checkboxes = form.querySelectorAll('.variant-availability-checkbox');
+        checkboxes.forEach(checkbox => {
+            const variantCode = checkbox.dataset.variant;
+            const isAvailable = checkbox.checked;
+            const radio = form.querySelector(`input[type="radio"][value="${variantCode}"]`);
+            const isSelected = radio && radio.checked;
+
+            console.log(`    ${variantCode}: ${isAvailable ? 'dostępny' : 'niedostępny'}${isSelected ? ' (zaznaczony)' : ''}`);
+        });
+    });
+}
+
+// Eksportuj funkcję do debugowania
+window.logVariantAvailability = logVariantAvailability;

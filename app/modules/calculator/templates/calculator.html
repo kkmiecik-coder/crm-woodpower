@@ -73,17 +73,22 @@
                             <section class="calculations-main">
                                 <div class="calculations">
                                     <h2 class="title-with-underline-h2">Kalkulacja</h2>
-                                    <p class="input-txt">Wybierz wariant wybrany przez klienta:</p>
+                                    <p class="input-txt" style="margin-bottom: 6px;">Wybierz wariant wybrany przez klienta:</p>
                                     <!-- Lista wariantów (8 sztuk) z placeholderami brutto/netto -->
+                                    <!-- Zaktualizowana sekcja wariantów w calculator.html -->
                                     <div class="variants">
                                         <div class="variants-header">
+                                            <span class="header-availability">Dostępny</span>
                                             <span class="header-title">Wariant</span>
                                             <span class="header-unit-brutto">Cena brutto</span>
                                             <span class="header-unit-netto">Cena netto</span>
                                             <span class="header-total-brutto">Wartość brutto</span>
                                             <span class="header-total-netto">Wartość netto</span>
                                         </div>
-                                        <div class="dab-lity-ab-option">
+
+                                        <div class="dab-lity-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-lity-ab" checked>
                                             <input type="radio" name="variantOption-0" id="dab-lity-ab" value="dab-lity-ab">
                                             <label for="dab-lity-ab" class="option-title">Dąb lity A/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
@@ -91,7 +96,10 @@
                                             <span class="total-brutto">---.-- PLN</span>
                                             <span class="total-netto">---.-- PLN</span>
                                         </div>
-                                        <div class="dab-lity-bb-option">
+
+                                        <div class="dab-lity-bb-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-lity-bb" checked>
                                             <input type="radio" name="variantOption-0" id="dab-lity-bb" value="dab-lity-bb">
                                             <label for="dab-lity-bb" class="option-title">Dąb lity B/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
@@ -99,7 +107,10 @@
                                             <span class="total-brutto">---.-- PLN</span>
                                             <span class="total-netto">---.-- PLN</span>
                                         </div>
-                                        <div class="dab-micro-ab-option">
+
+                                        <div class="dab-micro-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-micro-ab" checked>
                                             <input type="radio" name="variantOption-0" id="dab-micro-ab" value="dab-micro-ab">
                                             <label for="dab-micro-ab" class="option-title">Dąb mikrowczep A/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
@@ -107,7 +118,10 @@
                                             <span class="total-brutto">---.-- PLN</span>
                                             <span class="total-netto">---.-- PLN</span>
                                         </div>
-                                        <div class="dab-micro-bb-option">
+
+                                        <div class="dab-micro-bb-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="dab-micro-bb" checked>
                                             <input type="radio" name="variantOption-0" id="dab-micro-bb" value="dab-micro-bb">
                                             <label for="dab-micro-bb" class="option-title">Dąb mikrowczep B/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
@@ -115,7 +129,10 @@
                                             <span class="total-brutto">---.-- PLN</span>
                                             <span class="total-netto">---.-- PLN</span>
                                         </div>
-                                        <div class="jes-lity-ab-option">
+
+                                        <div class="jes-lity-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="jes-lity-ab" checked>
                                             <input type="radio" name="variantOption-0" id="jes-lity-ab" value="jes-lity-ab">
                                             <label for="jes-lity-ab" class="option-title">Jesion lity A/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
@@ -123,15 +140,22 @@
                                             <span class="total-brutto">---.-- PLN</span>
                                             <span class="total-netto">---.-- PLN</span>
                                         </div>
-                                        <div class="jes-micro-ab-option">
-                                            <input type="radio" name="variantOption-0" id="jes-micro-ab" value="jes-micro-ab" disabled>
-                                            <label for="jes-micro-ab" class="option-title">Jesion mikrowczep A/B<span class="out-of-stock-tag">BRAK</span></label>
+
+                                        <!-- Jesion mikrowczep A/B - domyślnie niedostępny -->
+                                        <div class="jes-micro-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="jes-micro-ab">
+                                            <input type="radio" name="variantOption-0" id="jes-micro-ab" value="jes-micro-ab">
+                                            <label for="jes-micro-ab" class="option-title">Jesion mikrowczep A/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
                                             <span class="unit-netto">---.-- PLN</span>
                                             <span class="total-brutto">---.-- PLN</span>
                                             <span class="total-netto">---.-- PLN</span>
                                         </div>
-                                        <div class="buk-lity-ab-option">
+
+                                        <div class="buk-lity-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="buk-lity-ab" checked>
                                             <input type="radio" name="variantOption-0" id="buk-lity-ab" value="buk-lity-ab">
                                             <label for="buk-lity-ab" class="option-title">Buk lity A/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
@@ -139,9 +163,13 @@
                                             <span class="total-brutto">---.-- PLN</span>
                                             <span class="total-netto">---.-- PLN</span>
                                         </div>
-                                        <div class="buk-micro-ab-option">
-                                            <input type="radio" name="variantOption-0" id="buk-micro-ab" value="buk-micro-ab" disabled>
-                                            <label for="buk-micro-ab" class="option-title">Buk mikrowczep A/B<span class="out-of-stock-tag">BRAK</span></label>
+
+                                        <!-- Buk mikrowczep A/B - domyślnie niedostępny -->
+                                        <div class="buk-micro-ab-option variant-option">
+                                            <input type="checkbox" class="variant-availability-checkbox"
+                                                   data-variant="buk-micro-ab">
+                                            <input type="radio" name="variantOption-0" id="buk-micro-ab" value="buk-micro-ab">
+                                            <label for="buk-micro-ab" class="option-title">Buk mikrowczep A/B</label>
                                             <span class="unit-brutto">---.-- PLN</span>
                                             <span class="unit-netto">---.-- PLN</span>
                                             <span class="total-brutto">---.-- PLN</span>
