@@ -827,6 +827,7 @@ function calculateFinishingCost(form) {
     if (finishingNettoEl) finishingNettoEl.textContent = finishingPriceNetto.toFixed(2) + ' PLN';
 
     updateGlobalSummary();
+    generateProductsSummary();
     dbg("🧪 calculateFinishingCost end:", { finishingPriceNetto, finishingPriceBrutto });
     return { netto: finishingPriceNetto, brutto: finishingPriceBrutto };
 }
@@ -3009,33 +3010,216 @@ function getFinishingDescriptionWithGloss(form) {
  * Generuje opis produktu
  */
 function generateProductDescription(form, index) {
-    if (!form) return `Błąd formularza`;
-    
+    if (!form) return { main: `Błąd formularza`, sub: "" };
+
     const isComplete = checkProductCompleteness(form);
-    
+
     if (!isComplete) {
-        return `Dokończ wycenę produktu`;
+        return { main: `Dokończ wycenę produktu`, sub: "" };
     }
-    
+
     const length = form.querySelector('[data-field="length"]')?.value;
     const width = form.querySelector('[data-field="width"]')?.value;
     const thickness = form.querySelector('[data-field="thickness"]')?.value;
     const quantity = form.querySelector('[data-field="quantity"]')?.value;
-    
+
     const variantRadio = form.querySelector('input[type="radio"]:checked');
     const variantLabel = variantRadio ? form.querySelector(`label[for="${variantRadio.id}"]`) : null;
     const variantName = variantLabel ? variantLabel.textContent.replace(/BRAK/g, '').trim() : 'Nieznany wariant';
-    
-    // POPRAWKA: Dodaj wykończenie z stopniem połysku
+
+    // Dodaj wykończenie z stopniem połysku
     const finishingDescription = getFinishingDescriptionWithGloss(form);
-    
-    let description = `${variantName} ${length}×${width}×${thickness} cm | ${quantity} szt.`;
-    
+
+    let mainDescription = `${variantName} ${length}×${width}×${thickness} cm | ${quantity} szt.`;
+
     if (finishingDescription) {
-        description += ` | ${finishingDescription}`;
+        mainDescription += ` | ${finishingDescription}`;
     }
-    
-    return description;
+
+    // NOWE: Oblicz objętość i wagę dla informacji dodatkowych
+    const volume = calculateProductVolume(form);
+    const weight = calculateProductWeight(form);
+    const subDescription = volume > 0 ? `${formatVolume(volume)} | ${formatWeight(weight)}` : "";
+
+    return { main: mainDescription, sub: subDescription };
+}
+
+/**
+ * Duplikuje produkt na podstawie indeksu źródłowego
+ */
+
+function duplicateProduct(sourceIndex) {
+    console.log(`[duplicateProduct] Rozpoczynam duplikowanie produktu ${sourceIndex + 1}...`);
+
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    const sourceForm = forms[sourceIndex];
+
+    if (!sourceForm) {
+        console.error(`[duplicateProduct] Nie znaleziono formularza o indeksie ${sourceIndex}`);
+        return;
+    }
+
+    // KROK 1: Zapisz stan wszystkich formularzy
+    const selectedStates = forms.map((form, index) => {
+        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        return {
+            formIndex: index,
+            selectedVariant: selectedRadio ? {
+                id: selectedRadio.id,
+                value: selectedRadio.value,
+                checked: true,
+                orderBrutto: form.dataset.orderBrutto,
+                orderNetto: form.dataset.orderNetto
+            } : null
+        };
+    });
+
+    // KROK 2: Pobierz wszystkie dane z formularza źródłowego
+    const sourceData = {
+        // Wymiary
+        length: sourceForm.querySelector('[data-field="length"]')?.value || '',
+        width: sourceForm.querySelector('[data-field="width"]')?.value || '',
+        thickness: sourceForm.querySelector('[data-field="thickness"]')?.value || '',
+        quantity: sourceForm.querySelector('[data-field="quantity"]')?.value || '',
+        clientType: sourceForm.querySelector('[data-field="clientType"]')?.value || '',
+
+        // Zaznaczony wariant
+        selectedVariant: null,
+
+        // Wykończenia
+        finishingType: null,
+        finishingColor: null,
+        finishingGloss: null
+    };
+
+    // Pobierz zaznaczony wariant z formularza źródłowego
+    const sourceSelectedRadio = sourceForm.querySelector('input[type="radio"]:checked');
+    if (sourceSelectedRadio) {
+        sourceData.selectedVariant = {
+            value: sourceSelectedRadio.value,
+            orderBrutto: sourceForm.dataset.orderBrutto,
+            orderNetto: sourceForm.dataset.orderNetto
+        };
+    }
+
+    // Pobierz dane wykończeń
+    const finishingTypeBtn = sourceForm.querySelector('.finishing-btn[data-finishing-type].active');
+    if (finishingTypeBtn) {
+        sourceData.finishingType = finishingTypeBtn.dataset.finishingType;
+    }
+
+    const finishingColorBtn = sourceForm.querySelector('.color-btn.active');
+    if (finishingColorBtn) {
+        sourceData.finishingColor = finishingColorBtn.dataset.finishingColor;
+    }
+
+    const finishingGlossBtn = sourceForm.querySelector('.finishing-btn[data-finishing-gloss].active');
+    if (finishingGlossBtn) {
+        sourceData.finishingGloss = finishingGlossBtn.dataset.finishingGloss;
+    }
+
+    console.log(`[duplicateProduct] Dane do skopiowania:`, sourceData);
+
+    // KROK 3: Utwórz nowy formularz używając addNewProduct
+    const newIndex = forms.length;
+    addNewProduct();
+
+    // KROK 4: Poczekaj na utworzenie nowego formularza i wypełnij go danymi
+    setTimeout(() => {
+        const newForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+        const newForm = newForms[newIndex];
+
+        if (!newForm) {
+            console.error(`[duplicateProduct] Nie znaleziono nowego formularza`);
+            return;
+        }
+
+        console.log(`[duplicateProduct] Wypełniam nowy formularz danymi...`);
+
+        // Wypełnij wymiary
+        if (sourceData.length) {
+            const lengthInput = newForm.querySelector('[data-field="length"]');
+            if (lengthInput) lengthInput.value = sourceData.length;
+        }
+
+        if (sourceData.width) {
+            const widthInput = newForm.querySelector('[data-field="width"]');
+            if (widthInput) widthInput.value = sourceData.width;
+        }
+
+        if (sourceData.thickness) {
+            const thicknessInput = newForm.querySelector('[data-field="thickness"]');
+            if (thicknessInput) thicknessInput.value = sourceData.thickness;
+        }
+
+        if (sourceData.quantity) {
+            const quantityInput = newForm.querySelector('[data-field="quantity"]');
+            if (quantityInput) quantityInput.value = sourceData.quantity;
+        }
+
+        if (sourceData.clientType) {
+            const clientTypeSelect = newForm.querySelector('[data-field="clientType"]');
+            if (clientTypeSelect) clientTypeSelect.value = sourceData.clientType;
+        }
+
+        // Aktywuj wykończenia jeśli były wybrane
+        if (sourceData.finishingType) {
+            const finishingBtn = newForm.querySelector(`[data-finishing-type="${sourceData.finishingType}"]`);
+            if (finishingBtn) {
+                finishingBtn.click();
+
+                // Po aktywacji wykończenia, ustaw kolor i połysk
+                setTimeout(() => {
+                    if (sourceData.finishingColor) {
+                        const colorBtn = newForm.querySelector(`[data-finishing-color="${sourceData.finishingColor}"]`);
+                        if (colorBtn) colorBtn.click();
+                    }
+
+                    if (sourceData.finishingGloss) {
+                        const glossBtn = newForm.querySelector(`[data-finishing-gloss="${sourceData.finishingGloss}"]`);
+                        if (glossBtn) glossBtn.click();
+                    }
+                }, 100);
+            }
+        }
+
+        // Przeliczy ceny jeśli mamy wszystkie wymiary
+        if (sourceData.length && sourceData.width && sourceData.thickness && sourceData.clientType) {
+            setTimeout(() => {
+                updatePrices();
+
+                // Zaznacz ten sam wariant co w źródle
+                if (sourceData.selectedVariant) {
+                    const radioToSelect = newForm.querySelector(`input[type="radio"][value="${sourceData.selectedVariant.value}"]`);
+                    if (radioToSelect) {
+                        radioToSelect.click();
+                        console.log(`[duplicateProduct] Zaznaczono wariant: ${sourceData.selectedVariant.value}`);
+                    }
+                }
+
+                // Przywróć zaznaczenia w starych formularzach
+                selectedStates.forEach(state => {
+                    if (state.selectedVariant && state.formIndex < newIndex) {
+                        const form = newForms[state.formIndex];
+                        if (form) {
+                            const radio = form.querySelector(`input[type="radio"][value="${state.selectedVariant.value}"]`);
+                            if (radio && !radio.checked) {
+                                radio.checked = true;
+                                form.dataset.orderBrutto = state.selectedVariant.orderBrutto || '';
+                                form.dataset.orderNetto = state.selectedVariant.orderNetto || '';
+                            }
+                        }
+                    }
+                });
+
+                updateGlobalSummary();
+                generateProductsSummary();
+            }, 200);
+        }
+
+        console.log(`[duplicateProduct] ✅ Pomyślnie zduplikowano produkt ${sourceIndex + 1} jako produkt ${newIndex + 1}`);
+
+    }, 100);
 }
 
 /**
@@ -3047,13 +3231,22 @@ function generateProductsSummary() {
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
     productSummaryContainer.innerHTML = '';
 
+    // Znajdź główny kontener (rodzic productSummaryContainer)
+    const mainContainer = productSummaryContainer.parentElement; // to powinno być .products-summary-main
+
+    // Usuń istniejące podsumowanie jeśli istnieje
+    const existingSummary = mainContainer.querySelector('.products-total-summary');
+    if (existingSummary) {
+        existingSummary.remove();
+    }
+
     if (forms.length === 0) {
         productSummaryContainer.innerHTML = '<div class="no-products">Brak produktów</div>';
         return;
     }
 
     forms.forEach((form, index) => {
-        const description = generateProductDescription(form, index);
+        const descriptionData = generateProductDescription(form, index);
         const isComplete = checkProductCompleteness(form);
         const isActive = form === activeQuoteForm;
 
@@ -3073,17 +3266,26 @@ function generateProductsSummary() {
 
         productCard.innerHTML = `
             <div class="product-card-content">
-                <div class="product-card-title">Produkt ${index + 1}</div>
-                <div class="product-card-description">${description}</div>
+                <div class="product-card-number">${index + 1}</div>
+                <div class="product-card-details">
+                     <div class="product-card-main-info">${descriptionData.main}</div>
+                    ${descriptionData.sub ? `<div class="product-card-sub-info">${descriptionData.sub}</div>` : ''}
+                </div>
+                <button class="duplicate-product-btn" data-index="${index}" title="Duplikuj produkt">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
             </div>
             ${removeButton}
         `;
 
         // Dodaj listener dla przełączania produktów
         productCard.addEventListener('click', (e) => {
-            // ✅ POPRAWKA: Nie przełączaj jeśli kliknięto przycisk usuwania
-            if (e.target.closest('.remove-product-btn')) return;
-            
+            // ✅ POPRAWKA: Nie przełączaj jeśli kliknięto przycisk usuwania lub duplikowania
+            if (e.target.closest('.remove-product-btn') || e.target.closest('.duplicate-product-btn')) return;
+
             activateProductCard(index);
         });
 
@@ -3097,9 +3299,26 @@ function generateProductsSummary() {
         <span class="add-product-card-icon">+</span>
         <span class="add-product-card-text">Dodaj kolejny produkt</span>
     `;
-    
+
     addCard.addEventListener('click', addNewProduct);
     productSummaryContainer.appendChild(addCard);
+
+    // NOWE: Dodaj podsumowanie objętości i wagi NA DOLE GŁÓWNEGO KONTENERA
+    const { totalVolume, totalWeight } = calculateTotalVolumeAndWeight();
+
+    if (forms.length > 0 && (totalVolume > 0 || totalWeight > 0)) {
+        const summaryCard = document.createElement('div');
+        summaryCard.className = 'products-total-summary';
+        summaryCard.innerHTML = `
+            <div class="products-total-title">Łączne podsumowanie:</div>
+            <div class="products-total-details">
+                <span class="products-total-volume">${formatVolume(totalVolume)}</span>
+                <span class="products-total-weight">${formatWeight(totalWeight)}</span>
+            </div>
+        `;
+        // Dodaj do głównego kontenera, nie do productSummaryContainer
+        mainContainer.appendChild(summaryCard);
+    }
 
     // ✅ POPRAWKA: Dodaj listenery dla przycisków usuwania
     productSummaryContainer.querySelectorAll('.remove-product-btn').forEach(btn => {
@@ -3107,6 +3326,15 @@ function generateProductsSummary() {
             e.stopPropagation(); // Zapobiegnij przełączeniu produktu
             const index = parseInt(btn.dataset.index);
             removeProduct(index);
+        });
+    });
+
+    // ✅ POPRAWKA: Dodaj listenery dla przycisków duplikowania
+    productSummaryContainer.querySelectorAll('.duplicate-product-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Zapobiegnij przełączeniu produktu
+            const index = parseInt(btn.dataset.index);
+            duplicateProduct(index);
         });
     });
 
@@ -3387,6 +3615,53 @@ function fixAllRadioButtonNames() {
     });
     
     console.log('✅ Naprawiono nazwy radio buttonów we wszystkich formularzach BEZ resetowania selekcji');
+}
+
+function calculateProductVolume(form) {
+    const length = parseFloat(form.querySelector('[data-field="length"]')?.value) || 0;
+    const width = parseFloat(form.querySelector('[data-field="width"]')?.value) || 0;
+    const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 0;
+    const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value) || 1;
+
+    if (length <= 0 || width <= 0 || thickness <= 0) return 0;
+
+    const singleVolume = calculateSingleVolume(length, width, thickness);
+    return singleVolume * quantity;
+}
+
+function calculateProductWeight(form) {
+    const volume = calculateProductVolume(form);
+    // Gęstość drewna: 800 kg/m³
+    return volume * 800;
+}
+
+function formatVolume(volume) {
+    if (volume === 0) return "0.000 m³";
+    return volume.toFixed(3) + " m³";
+}
+
+function formatWeight(weight) {
+    if (weight === 0) return "0.0 kg";
+    if (weight >= 1000) {
+        return (weight / 1000).toFixed(2) + " t";
+    }
+    return weight.toFixed(1) + " kg";
+}
+
+function calculateTotalVolumeAndWeight() {
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    let totalVolume = 0;
+    let totalWeight = 0;
+
+    forms.forEach(form => {
+        const isComplete = checkProductCompleteness(form);
+        if (isComplete) {
+            totalVolume += calculateProductVolume(form);
+            totalWeight += calculateProductWeight(form);
+        }
+    });
+
+    return { totalVolume, totalWeight };
 }
 
 document.addEventListener('DOMContentLoaded', function() {

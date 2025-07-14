@@ -2042,7 +2042,7 @@ select.select-small option {
 .delivery-modal-container {
     background: white;
     border-radius: 16px;
-    padding: 32px;
+    padding: 16px;
     max-width: 800px;
     width: 90%;
     max-height: 90vh;
@@ -2120,7 +2120,7 @@ select.select-small option {
     display: grid;
     grid-template-columns: 60px 1fr 120px 120px;
     gap: 16px;
-    padding: 16px 20px;
+    padding: 8px 10px;
     background: #f8f9fa;
     border-radius: 8px;
     margin-bottom: 16px;
@@ -2147,7 +2147,7 @@ select.select-small option {
     display: grid;
     grid-template-columns: 60px 1fr 120px 120px;
     gap: 16px;
-    padding: 16px 20px;
+    padding: 8px 10px;
     border: 2px solid transparent;
     border-radius: 12px;
     cursor: pointer;
@@ -2222,8 +2222,8 @@ select.select-small option {
     justify-content: center;
     align-items: center;
     gap: 8px;
-    margin: 24px 0;
-    padding: 16px 0;
+    margin: 12px 0 0;
+    padding: 12px 0;
     border-top: 1px solid #f0f0f0;
 }
 
@@ -2286,7 +2286,7 @@ select.select-small option {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin-bottom: 24px;
+    margin-bottom: 12px;
 }
 
 .delivery-modal-add-custom:hover {
@@ -2442,7 +2442,7 @@ select.select-small option {
     display: flex;
     justify-content: flex-end;
     gap: 12px;
-    padding-top: 24px;
+    padding-top: 12px;
     border-top: 1px solid #f0f0f0;
 }
 
@@ -2582,7 +2582,7 @@ select.select-small option {
 
 /* Główny kontener sekcji produktów */
 .products-summary-main {
-    flex: 1; /* Zajmuje dostępną przestrzeń */
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -2591,6 +2591,7 @@ select.select-small option {
     border: 1px solid #E0E0E0;
     border-radius: 8px;
     min-width: 0;
+    height: 100%; /* Dodaj wysokość 100% */
 }
 
 /* Nagłówek sekcji */
@@ -2607,11 +2608,12 @@ select.select-small option {
     flex-direction: column;
     gap: 8px;
     align-self: stretch;
+    flex: 1; /* Zajmuj dostępne miejsce */
     max-height: 300px;
-    overflow-y: auto;
+    overflow-y: visible;
     background: #FFFFFF;
     border-radius: 6px;
-    min-height: 120px; /* Minimalna wysokość */
+    min-height: 120px;
 }
 
 /* Karta pojedynczego produktu */
@@ -2635,7 +2637,7 @@ select.select-small option {
 .product-card:hover {
     border-color: #ED6B24;
     background: #FFF8F5;
-    transform: translateY(-1px);
+    transform: translateY(-3px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -3030,7 +3032,6 @@ select.select-small option {
 
 .remove-product-btn {
     position: absolute;
-    top: 7px;
     right: 8px;
     width: 20px;
     height: 20px;
@@ -3121,3 +3122,198 @@ select.select-small option {
     display: grid;
 }
 
+/* Style dla przycisku duplikowania produktu */
+.duplicate-product-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: #4CAF50;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    z-index: 5;
+    margin-right: 20px; /* Odstęp od prawej krawędzi */
+    flex-shrink: 0;
+}
+
+    .duplicate-product-btn:hover {
+        background: #45a049;
+        transform: scale(1.05);
+    }
+
+    .duplicate-product-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+
+/* Aktualizacja struktury product-card-content */
+.product-card-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0; /* Zapobiega overflow */
+}
+
+.product-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0; /* Zapobiega overflow */
+}
+
+/* Responsive design dla przycisków */
+@media (max-width: 1200px) {
+    .duplicate-product-btn {
+        width: 22px;
+        height: 22px;
+    }
+
+        .duplicate-product-btn svg {
+            width: 12px;
+            height: 12px;
+        }
+}
+
+@media (max-width: 768px) {
+    .duplicate-product-btn {
+        width: 20px;
+        height: 20px;
+    }
+
+        .duplicate-product-btn svg {
+            width: 10px;
+            height: 10px;
+        }
+
+    .product-card-content {
+        gap: 8px;
+    }
+}
+
+/* Style dla informacji o objętości i wadze */
+
+/* Dodatkowe informacje o produkcie (objętość i waga) - szary kolor */
+.product-card-sub-info {
+    font-size: 10px;
+    color: #888888; /* Szary kolor, różny od nazwy produktu */
+    font-family: Poppins, sans-serif;
+    font-weight: 400;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+/* Style dla łącznego podsumowania objętości i wagi */
+.products-total-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    margin-top: auto; /* Wypchnij na sam dół */
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #F8F9FA;
+    font-size: 12px;
+    font-family: Poppins, sans-serif;
+    animation: slideInProduct 0.3s ease-out;
+    transition: all 0.2s ease;
+    flex-shrink: 0; /* Nie pozwól na zmniejszanie */
+    align-self: stretch; /* Rozciągnij na pełną szerokość */
+}
+
+    .products-total-summary:hover {
+        background: #F0F1F2;
+        border-color: #ED6B24;
+    }
+
+.products-total-title {
+    font-weight: 600;
+    color: #1F2020;
+    flex-shrink: 0;
+}
+
+/* Dodatkowy wrapper dla podsumowania jeśli potrzebny */
+.products-summary-footer {
+    margin-top: auto;
+    padding-top: 8px;
+    align-self: stretch;
+}
+
+.products-total-details {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-weight: 500;
+    color: #ED6B24;
+}
+
+.products-total-volume,
+.products-total-weight {
+    font-size: 11px;
+    padding: 2px 6px;
+    background: rgba(237, 107, 36, 0.1);
+    border-radius: 4px;
+    border: 1px solid rgba(237, 107, 36, 0.2);
+}
+
+/* Dodatkowy styling dla stanów error */
+.product-card.error .product-card-sub-info {
+    color: #999999; /* Nieco jaśniejszy szary dla kart z błędem */
+}
+
+/* Responsive design dla podsumowania */
+@media (max-width: 1200px) {
+    .products-total-summary {
+        padding: 8px 10px;
+        font-size: 11px;
+    }
+
+    .products-total-details {
+        gap: 8px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 10px;
+        padding: 1px 4px;
+    }
+
+    .product-card-sub-info {
+        font-size: 9px;
+    }
+}
+
+@media (max-width: 768px) {
+    .products-total-summary {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 6px 8px;
+        font-size: 10px;
+    }
+
+    .products-total-details {
+        align-self: stretch;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 9px;
+        padding: 1px 3px;
+    }
+
+    .product-card-sub-info {
+        font-size: 8px;
+    }
+}
