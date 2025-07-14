@@ -624,127 +624,145 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 function collectQuoteData() {
-    console.log("[collectQuoteData] Start zbierania danych z formularzy");
+    console.log("[collectQuoteData] Rozpoczynam zbieranie danych wyceny...");
 
-    // NOWA WALIDACJA: Sprawdź dostępność wariantów
-    if (window.variantAvailability && !window.variantAvailability.validate()) {
-        console.error("[collectQuoteData] Walidacja dostępności wariantów nie powiodła się");
-        return null;
-    }
-
-    const forms = document.querySelectorAll('.quote-form');
+    const forms = Array.from(document.querySelectorAll('.quote-form'));
     const products = [];
-
     let sumProductBrutto = 0;
     let sumProductNetto = 0;
     let sumFinishingBrutto = 0;
     let sumFinishingNetto = 0;
 
     forms.forEach((form, index) => {
-        const length = parseFloat(form.querySelector('[data-field="length"]')?.value || 0);
-        const width = parseFloat(form.querySelector('[data-field="width"]')?.value || 0);
-        const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value || 0);
-        const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value || 1);
+        console.log(`[collectQuoteData] Przetwarzam produkt ${index + 1}:`);
 
-        // === DANE WYKOŃCZENIA ===
-        const finishingType = form.querySelector('[data-finishing-type].active')?.dataset.finishingType || null;
-        const finishingVariant = form.querySelector('[data-finishing-variant].active')?.dataset.finishingVariant || null;
-        const finishingColor = form.querySelector('[data-finishing-color].active')?.dataset.finishingColor || null;
-        const finishingGloss = form.querySelector('[data-finishing-gloss].active')?.dataset.finishingGloss || null;
+        const checkboxes = form.querySelectorAll('.variant-availability-checkbox');
+        const variants = [];
 
-        // ✅ POPRAWKA: Pobierz koszty wykończenia z datasetu formularza
-        const finishingBrutto = parseFloat(form.dataset.finishingBrutto || 0);
-        const finishingNetto = parseFloat(form.dataset.finishingNetto || 0);
+        checkboxes.forEach(checkbox => {
+            const variantCode = checkbox.dataset.variant;
+            const isAvailable = checkbox.checked; // Stan checkboxa = widoczność na stronie klienta
+            const radio = form.querySelector(`input[type="radio"][value="${variantCode}"]`);
+            const isSelected = radio && radio.checked;
 
-        console.log(`[collectQuoteData] Produkt ${index + 1} - wykończenie:`, {
-            finishingType, finishingVariant, finishingColor, finishingGloss,
-            finishingBrutto, finishingNetto
-        });
+            console.log(`  - Wariant ${variantCode}: show_on_client_page=${isAvailable}, is_selected=${isSelected}`);
 
-        // Zbierz TYLKO DOSTĘPNE warianty do zapisu
-        const allVariants = Array.from(form.querySelectorAll('.variants input[type="radio"]')).map(radio => {
-            const brutto = parseFloat(radio.dataset.totalBrutto || 0);
-            const netto = parseFloat(radio.dataset.totalNetto || 0);
-            const volume = (length / 100) * (width / 100) * (thickness / 100);
+            // ZMIANA: Dodajemy WSZYSTKIE warianty do payloadu, niezależnie od stanu checkboxa
+            // ZMIANA: Pobierz ceny z obliczonych wartości wariantów
+            let finalPriceNetto = 0;
+            let finalPriceBrutto = 0;
 
-            // Jeśli to wybrany wariant, dodaj do sumy
-            if (radio.checked) {
-                sumProductBrutto += brutto;
-                sumProductNetto += netto;
+            if (isSelected) {
+                // Znajdź odpowiedni element z ceną dla zaznaczonego wariantu
+                const selectedRadio = form.querySelector(`input[type="radio"][value="${variantCode}"]:checked`);
+                if (selectedRadio) {
+                    const variantRow = selectedRadio.closest('.variant-option');
+                    if (variantRow) {
+                        // Pobierz ceny z wyświetlanych elementów
+                        const totalBruttoElement = variantRow.querySelector('.total-brutto');
+                        const totalNettoElement = variantRow.querySelector('.total-netto');
+
+                        if (totalBruttoElement) {
+                            const bruttoText = totalBruttoElement.textContent.replace(/[^0-9.,]/g, '');
+                            finalPriceBrutto = parseFloat(bruttoText.replace(',', '.')) || 0;
+                        }
+
+                        if (totalNettoElement) {
+                            const nettoText = totalNettoElement.textContent.replace(/[^0-9.,]/g, '');
+                            finalPriceNetto = parseFloat(nettoText.replace(',', '.')) || 0;
+                        }
+                    }
+                }
             }
 
-            return {
-                variant_code: radio.value,
-                is_selected: radio.checked,
-                price_per_m3: parseFloat(radio.dataset.pricePerM3 || 0),
-                volume_m3: volume,
-                multiplier: parseFloat(radio.dataset.multiplier || 1),
-                final_price: parseFloat(radio.dataset.finalPrice || 0),
-                final_price_netto: netto,
-                final_price_brutto: brutto,
-                finishing_type: finishingType,
-                finishing_variant: finishingVariant,
-                finishing_color: finishingColor,
-                finishing_gloss_level: finishingGloss,
-                finishing_netto: finishingNetto,  // ✅ Teraz jest zdefiniowane
-                finishing_brutto: finishingBrutto // ✅ Teraz jest zdefiniowane
+            const variantData = {
+                variant_code: variantCode,
+                is_selected: isSelected,
+                show_on_client_page: isAvailable, // NOWE POLE: checkbox określa widoczność na stronie klienta
+                // Wymiary pobieramy z formularza, a nie z wariantów
+                length_cm: parseInt(form.querySelector('[data-field="length"]')?.value) || 0,
+                width_cm: parseInt(form.querySelector('[data-field="width"]')?.value) || 0,
+                thickness_cm: parseInt(form.querySelector('[data-field="thickness"]')?.value) || 0,
+                volume_m3: parseFloat(form.dataset.volumeM3) || 0,
+                price_per_m3: parseFloat(form.dataset.pricePerM3) || 0,
+                multiplier: parseFloat(form.dataset.multiplier) || 1,
+                final_price_netto: finalPriceNetto,
+                final_price_brutto: finalPriceBrutto
             };
-        });
 
-        // NOWE: Filtruj tylko dostępne warianty
-        const variants = allVariants.filter(variant => {
-            const checkbox = form.querySelector(`[data-variant="${variant.variant_code}"]`);
-            const isAvailable = checkbox && checkbox.checked;
+            variants.push(variantData);
 
-            if (!isAvailable) {
-                console.log(`[collectQuoteData] Pomijam niedostępny wariant: ${variant.variant_code}`);
+            // Dodaj do sum tylko zaznaczone warianty (niezależnie od widoczności)
+            if (isSelected) {
+                sumProductBrutto += variantData.final_price_brutto;
+                sumProductNetto += variantData.final_price_netto;
             }
-
-            return isAvailable;
         });
 
-        console.log(`[collectQuoteData] Produkt ${index + 1}: ${allVariants.length} wariantów → ${variants.length} dostępnych`);
+        // Pobierz dane wykończenia
+        const finishingData = {
+            finishing_type: form.querySelector('.finishing-type-select')?.value || '',
+            finishing_variant: form.querySelector('.finishing-variant-select')?.value || '',
+            finishing_color: form.querySelector('.finishing-color-select')?.value || '',
+            finishing_gloss_level: form.querySelector('.finishing-gloss-select')?.value || '',
+            finishing_price_netto: parseFloat(form.dataset.finishingPriceNetto) || 0,
+            finishing_price_brutto: parseFloat(form.dataset.finishingPriceBrutto) || 0
+        };
 
-        // ✅ POPRAWKA: Dodaj koszty wykończenia do sumy (tylko raz na produkt)
-        if (finishingBrutto > 0) {
-            sumFinishingBrutto += finishingBrutto;
-            sumFinishingNetto += finishingNetto;
-        }
+        // Dodaj wykończenie do sum
+        sumFinishingBrutto += finishingData.finishing_price_brutto;
+        sumFinishingNetto += finishingData.finishing_price_netto;
 
         products.push({
-            index,
-            length,
-            width,
-            thickness,
-            quantity,
-            variants: variants // Tylko dostępne warianty
+            product_index: index,
+            variants: variants,
+            finishing: finishingData
         });
     });
 
-    console.log(`[collectQuoteData] Zebrano ${products.length} produktów:`);
-    products.forEach((product, index) => {
-        const availableCount = product.variants.length;
-        const selectedCount = product.variants.filter(v => v.is_selected).length;
-        console.log(`  Produkt ${index + 1}: ${availableCount} dostępnych wariantów, ${selectedCount} zaznaczonych`);
-    });
+    // Pobierz dane kuriera z DOM
+    let courierName = '';
+    let shippingBrutto = 0;
+    let shippingNetto = 0;
 
-    // Pobierz dane wysyłki z DOM
-    const shippingBrutto = parseFloat(document.getElementById('delivery-brutto')?.textContent.replace(" PLN", "")) || 0;
-    const shippingNetto = parseFloat(document.getElementById('delivery-netto')?.textContent.replace(" PLN", "")) || 0;
-    const courierName = document.getElementById('courier-name')?.textContent.trim() || null;
+    // Spróbuj pobrać dane kuriera z elementów DOM
+    const courierNameElement = document.getElementById('courier-name');
+    const shippingBruttoElement = document.getElementById('delivery-brutto');
+    const shippingNettoElement = document.getElementById('delivery-netto');
 
-    // Pobierz dane grupy cenowej z pierwszego formularza
-    const firstForm = forms[0];
-    const clientTypeSelect = firstForm?.querySelector('select[data-field="clientType"]');
-    const selectedClientType = clientTypeSelect?.value || null;
+    if (courierNameElement) {
+        courierName = courierNameElement.textContent.trim();
+    }
 
-    // Pobierz multiplier z globalnej zmiennej multiplierMapping
-    let selectedMultiplier = 1.0;
-    if (selectedClientType && window.multiplierMapping && window.multiplierMapping[selectedClientType]) {
-        selectedMultiplier = window.multiplierMapping[selectedClientType];
-    } else if (window.isPartner && window.userMultiplier) {
-        selectedMultiplier = window.userMultiplier;
-        // Dla partnerów nie ustawiamy selectedClientType na "Partner" 
+    if (shippingBruttoElement) {
+        const bruttoText = shippingBruttoElement.textContent.replace(/[^0-9.,]/g, '');
+        shippingBrutto = parseFloat(bruttoText.replace(',', '.')) || 0;
+    }
+
+    if (shippingNettoElement) {
+        const nettoText = shippingNettoElement.textContent.replace(/[^0-9.,]/g, '');
+        shippingNetto = parseFloat(nettoText.replace(',', '.')) || 0;
+    }
+
+    // Fallback - jeśli courierModal jest dostępny, użyj go
+    if (typeof courierModal !== 'undefined' && courierModal.getSelectedCourier) {
+        const selectedCourier = courierModal.getSelectedCourier();
+        if (selectedCourier) {
+            courierName = selectedCourier.name || courierName;
+            shippingBrutto = selectedCourier.grossPrice || shippingBrutto;
+            shippingNetto = selectedCourier.netPrice || shippingNetto;
+        }
+    }
+
+    // Pobierz dane grupy cenowej
+    const clientTypeSelect = document.getElementById('client-type-select');
+    let selectedClientType = clientTypeSelect?.value || '';
+    const selectedOption = clientTypeSelect?.options[clientTypeSelect.selectedIndex];
+    const selectedMultiplier = selectedOption ? parseFloat(selectedOption.dataset.multiplier) : 1.0;
+
+    // Fallback dla przypadku gdy grupa cenowa nie została wybrana
+    if (!selectedClientType) {
+        selectedClientType = "Partner"; // Domyślnie ustawiamy na "Partner" 
         // bo to może nie być w tabeli multipliers
     }
 

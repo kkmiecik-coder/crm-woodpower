@@ -288,7 +288,8 @@ def save_quote():
                 current_app.logger.warning(f"[save_quote_backend] Produkt #{i + 1} nie zawiera wariantów – pomijam.")
                 continue
 
-            first_variant = variants[0]
+            # Pobierz dane wykończenia z struktury produktu
+            finishing_data = product.get('finishing', {})
             
             # DODANE: Pobranie quantity z danych produktu
             product_quantity = int(product.get('quantity', 1))
@@ -298,17 +299,18 @@ def save_quote():
             item_details = QuoteItemDetails(
                 quote_id=quote.id,
                 product_index=i + 1,
-                finishing_type=first_variant.get("finishing_type"),
-                finishing_variant=first_variant.get("finishing_variant"),
-                finishing_color=first_variant.get("finishing_color"),
-                finishing_gloss_level=first_variant.get("finishing_gloss_level"),
-                finishing_price_netto=first_variant.get("finishing_netto", 0.0),
-                finishing_price_brutto=first_variant.get("finishing_brutto", 0.0),
+                finishing_type=finishing_data.get("finishing_type"),
+                finishing_variant=finishing_data.get("finishing_variant"),
+                finishing_color=finishing_data.get("finishing_color"),
+                finishing_gloss_level=finishing_data.get("finishing_gloss_level"),
+                finishing_price_netto=finishing_data.get("finishing_price_netto", 0.0),
+                finishing_price_brutto=finishing_data.get("finishing_price_brutto", 0.0),
                 # NOWE POLE: dodanie quantity do QuoteItemDetails
                 quantity=product_quantity
             )
             db.session.add(item_details)
 
+            # ZMIANA: Zapisz WSZYSTKIE warianty, niezależnie od stanu checkboxa dostępności
             for j, variant in enumerate(variants):
                 # POPRAWKA: Oblicz ceny jednostkowe dzieląc przez quantity
                 final_price_netto = variant.get('final_price_netto', 0.0)
@@ -318,7 +320,7 @@ def save_quote():
                 unit_price_netto = final_price_netto / product_quantity if product_quantity > 0 else 0.0
                 unit_price_brutto = final_price_brutto / product_quantity if product_quantity > 0 else 0.0
                 
-                current_app.logger.info(f"[save_quote_backend] Variant #{j + 1}: final_total={final_price_brutto}, quantity={product_quantity}, unit_price={unit_price_brutto}")
+                current_app.logger.info(f"[save_quote_backend] Variant #{j + 1}: final_total={final_price_brutto}, quantity={product_quantity}, unit_price={unit_price_brutto}, is_selected={variant.get('is_selected')}, show_on_client_page={variant.get('show_on_client_page')}")
                 
                 quote_item = QuoteItem(
                     quote_id=quote.id,
@@ -332,10 +334,11 @@ def save_quote():
                     price_netto=unit_price_netto,      # CENA JEDNOSTKOWA
                     price_brutto=unit_price_brutto,    # CENA JEDNOSTKOWA
                     is_selected=variant.get('is_selected', False),
-                    variant_code=variant.get('variant_code')
+                    variant_code=variant.get('variant_code'),
+                    show_on_client_page=variant.get('show_on_client_page', True)  # NOWE POLE: widoczność na stronie klienta
                 )
                 db.session.add(quote_item)
-                current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} unit_price_brutto={quote_item.price_brutto}")
+                current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} unit_price_brutto={quote_item.price_brutto}, widoczny={quote_item.show_on_client_page}")
 
         current_app.logger.info("[save_quote_backend] Wszystkie produkty zapisane w QuoteItem.")
 
