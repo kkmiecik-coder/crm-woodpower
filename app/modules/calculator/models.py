@@ -446,6 +446,17 @@ class Invitation(db.Model):
     def __repr__(self):
         return f'<Invitation {self.email} - {"active" if self.active else "inactive"}>'
 
+class FinishingTypePrice(db.Model):
+    __tablename__ = 'finishing_type_prices'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)  # np. "Surowe", "Lakierowane bezbarwne", "Lakierowane barwne", "Olejowanie"
+    price_netto = db.Column(db.Numeric(10, 2), nullable=False, default=0)  # Cena netto za m²
+    is_active = db.Column(db.Boolean, default=True, nullable=False)  # Czy aktywne
+
+    def __repr__(self):
+        return f'<FinishingTypePrice {self.name}: {self.price_netto} PLN/m²>'
+
 class FinishingColor(db.Model):
     __tablename__ = 'finishing_colors'
     id = db.Column(db.Integer, primary_key=True)

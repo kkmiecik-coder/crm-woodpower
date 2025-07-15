@@ -179,6 +179,24 @@ def shipping_quote():
 
 logger = logging.getLogger(__name__)
 
+@calculator_bp.route('/api/finishing-prices', methods=['GET'])
+def get_finishing_prices():
+    """Pobieranie cen wykończeń z bazy danych"""
+    try:
+        from .models import FinishingTypePrice
+        prices = FinishingTypePrice.query.filter_by(is_active=True).all()
+        prices_data = []
+        for price in prices:
+            prices_data.append({
+                'id': price.id,
+                'name': price.name,
+                'price_netto': float(price.price_netto)
+            })
+        return jsonify(prices_data)
+    except Exception as e:
+        current_app.logger.error(f"Błąd pobierania cen wykończeń: {str(e)}")
+        return jsonify({'error': 'Błąd pobierania cen wykończeń'}), 500
+
 @calculator_bp.route('/save_quote', methods=['POST'])
 def save_quote():
     user_email = session.get('user_email')

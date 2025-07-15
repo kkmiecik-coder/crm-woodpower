@@ -45,6 +45,7 @@
                                             <option value="Florek" disabled>Hurt</option>
                                             <option value="Warszawa/Hurt" disabled>Warszawa/Hurt</option>
                                             <option value="Detal" disabled>Detal</option>
+                                            <option value="Detal" disabled>Detal+</option>
                                         </select>
                                     </div>
                                     <!-- Długość -->
@@ -187,7 +188,7 @@
                                 <div class="finishing-block">
                                     <p class="input-txt">Rodzaj wykończenia:</p>
                                     <div class="button-group" id="finishing-type-group">
-                                        <button type="button" class="finishing-btn active" data-finishing-type="Brak">Brak</button>
+                                        <button type="button" class="finishing-btn active" data-finishing-type="Surowe">Surowe</button>
                                         <button type="button" class="finishing-btn" data-finishing-type="Lakierowanie">Lakierowanie</button>
                                         <button type="button" class="finishing-btn" data-finishing-type="Olejowanie">Olejowanie</button>
                                     </div>
@@ -242,16 +243,6 @@
                                             <img src="{{ url_for('calculator.static', filename='images/finishing_colors/orzech-22-66.jpg') }}" alt="ORZECH 22-66">
                                             <span>ORZECH 22-66</span>
                                         </button>
-                                    </div>
-                                </div>
-
-                                <!-- Blok wyboru połysku (jeśli barwne) -->
-                                <div class="finishing-block" id="finishing-gloss-wrapper" style="display: none;">
-                                    <p class="input-txt">Stopień połysku:</p>
-                                    <div class="button-group">
-                                        <button type="button" class="finishing-btn" data-finishing-gloss="Błyszczące">Błyszczące</button>
-                                        <button type="button" class="finishing-btn" data-finishing-gloss="Półmatowe">Półmatowe</button>
-                                        <button type="button" class="finishing-btn" data-finishing-gloss="Matowe">Matowe</button>
                                     </div>
                                 </div>
 

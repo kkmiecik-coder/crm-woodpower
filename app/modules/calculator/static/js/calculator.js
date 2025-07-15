@@ -23,6 +23,39 @@ let messageTimeouts = [];
 let currentClientType = '';
 let currentMultiplier = 1.0;
 
+// Pobieranie cen wykończeń z bazy danych
+async function loadFinishingPrices() {
+    try {
+        const response = await fetch('/calculator/api/finishing-prices');
+        if (response.ok) {
+            const prices = await response.json();
+            window.finishingPrices = {};
+            prices.forEach(price => {
+                window.finishingPrices[price.name] = parseFloat(price.price_netto);
+            });
+            console.log('Załadowano ceny wykończeń:', window.finishingPrices);
+        } else {
+            console.error('Błąd pobierania cen wykończeń');
+            // Ustawienie domyślnych cen jako fallback
+            window.finishingPrices = {
+                'Surowe': 0,
+                'Lakierowane bezbarwne': 200,
+                'Lakierowane barwne': 250,
+                'Olejowanie': 250
+            };
+        }
+    } catch (error) {
+        console.error('Błąd pobierania cen wykończeń:', error);
+        // Ustawienie domyślnych cen jako fallback
+        window.finishingPrices = {
+            'Surowe': 0,
+            'Lakierowane bezbarwne': 200,
+            'Lakierowane barwne': 250,
+            'Olejowanie': 250
+        };
+    }
+}
+
 // Funkcja do pokazywania rotujących komunikatów
 function showRotatingMessages(overlay) {
     // Wyczyść poprzednie timeouty
@@ -366,7 +399,6 @@ function updatePrices() {
 
     const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
     let multiplier = isPartner ? userMultiplier : (multiplierMapping[clientType] || 1.0);
-    let multiplierAdjusted = false;
 
     dbg("updatePrices: dimensions and multiplier", {
         length, width, thickness, quantity, singleVolume, multiplier, clientType
@@ -412,15 +444,7 @@ function updatePrices() {
             let effectiveMultiplier = multiplier;
             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
 
-            // ✅ ZACHOWAJ: Logika dla detalicznego mnożnika
-            if (!isPartner && clientType === "Detal" && unitNetto < 1000) {
-                effectiveMultiplier = 1.5;
-                multiplierAdjusted = true;
-                unitNetto = singleVolume * basePrice * effectiveMultiplier;
-                variant.style.backgroundColor = "#FFF8F0";
-            } else {
-                variant.style.backgroundColor = "";
-            }
+            variant.style.backgroundColor = "";
 
             const unitBrutto = unitNetto * 1.23;
             const totalNetto = unitNetto * quantity;
@@ -465,18 +489,6 @@ function updatePrices() {
         activeQuoteForm.dataset.orderBrutto = "";
         activeQuoteForm.dataset.orderNetto = "";
         console.log(`[updatePrices] Brak zaznaczonego wariantu w produkcie ${tabIndex + 1}`);
-    }
-
-    // ✅ ZACHOWAJ: Komunikat o zmianie mnożnika
-    const msgEl = activeQuoteForm.querySelector('.multiplier-message');
-    if (msgEl) {
-        if (multiplierAdjusted) {
-            msgEl.textContent = "Zmieniono mnożnik dla niektórych wariantów.";
-            msgEl.classList.add('multiplier-warning');
-        } else {
-            msgEl.textContent = "";
-            msgEl.classList.remove('multiplier-warning');
-        }
     }
 
     // Aktualizuj wykończenie i podsumowania
@@ -666,39 +678,39 @@ function attachFinishingUIListeners(form) {
                         form.querySelector('#finishing-color-wrapper');
 
     // ❌ PROBLEM: Te zmienne są ustawiane tylko raz na początku
-    // let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
-    // let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
+    // let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Surowe';
+    // let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Surowe';
 
     const resetButtons = buttons => buttons.forEach(btn => btn.classList.remove('active'));
     const show = el => { if (el) el.style.display = 'flex'; };
     const hide = el => { if (el) el.style.display = 'none'; };
 
     function updateVisibility() {
-        // ✅ POPRAWKA: Pobierz aktualne wartości za każdym razem
-        const currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
-        const currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
-        
+        const currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Surowe';
+        const currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Surowe';
+
         console.log('[updateVisibility] currentType:', currentType, 'currentVariant:', currentVariant);
-        
-        if (currentType === 'Brak') {
+
+        if (currentType === 'Surowe') {
             hide(variantWrapper);
-            hide(glossWrapper);
             hide(colorWrapper);
             return;
         }
-        
-        show(variantWrapper);
 
-        if (currentVariant === 'Barwne') {
-            show(colorWrapper);
-        } else {
+        if (currentType === 'Olejowanie') {
+            hide(variantWrapper);
             hide(colorWrapper);
+            return;
         }
 
         if (currentType === 'Lakierowanie') {
-            show(glossWrapper);
-        } else {
-            hide(glossWrapper);
+            show(variantWrapper);
+
+            if (currentVariant === 'Barwne') {
+                show(colorWrapper);
+            } else {
+                hide(colorWrapper);
+            }
         }
     }
 
@@ -772,8 +784,8 @@ function calculateFinishingCost(form) {
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
     const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
 
-    const finishingType = finishingTypeBtn ? finishingTypeBtn.dataset.finishingType : 'Brak';
-    const finishingVariant = finishingVariantBtn ? finishingVariantBtn.dataset.finishingVariant : 'Brak';
+    const finishingType = finishingTypeBtn ? finishingTypeBtn.dataset.finishingType : 'Surowe';
+    const finishingVariant = finishingVariantBtn ? finishingVariantBtn.dataset.finishingVariant : 'Surowe';
 
     const lengthInput = form.querySelector('input[data-field="length"]');
     const widthInput = form.querySelector('input[data-field="width"]');
@@ -785,7 +797,7 @@ function calculateFinishingCost(form) {
     let finishingBruttoEl = form.querySelector('.finishing-brutto') || document.getElementById('finishing-brutto');
     let finishingNettoEl = form.querySelector('.finishing-netto') || document.getElementById('finishing-netto');
 
-    if (finishingType === 'Brak') {
+    if (finishingType === 'Surowe') {
         form.dataset.finishingBrutto = 0;
         form.dataset.finishingNetto = 0;
         if (finishingBruttoEl) finishingBruttoEl.textContent = '0.00 PLN';
@@ -814,11 +826,18 @@ function calculateFinishingCost(form) {
     const total_area = area_m2 * quantityVal;
 
     let pricePerM2 = 0;
-    if (finishingVariant === 'Bezbarwne') pricePerM2 = 200;
-    else if (finishingVariant === 'Barwne') pricePerM2 = 250;
+    if (finishingType === 'Surowe') {
+        pricePerM2 = 0;
+    } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Bezbarwne') {
+        pricePerM2 = window.finishingPrices?.['Lakierowane bezbarwne'] || 200;
+    } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Barwne') {
+        pricePerM2 = window.finishingPrices?.['Lakierowane barwne'] || 250;
+    } else if (finishingType === 'Olejowanie') {
+        pricePerM2 = window.finishingPrices?.['Olejowanie'] || 250;
+    }
 
-    const finishingPriceBrutto = +(total_area * pricePerM2).toFixed(2);
-    const finishingPriceNetto = +(finishingPriceBrutto / 1.23).toFixed(2);
+    const finishingPriceNetto = +(total_area * pricePerM2).toFixed(2);
+    const finishingPriceBrutto = +(finishingPriceNetto * 1.23).toFixed(2);
 
     form.dataset.finishingBrutto = finishingPriceBrutto;
     form.dataset.finishingNetto = finishingPriceNetto;
@@ -1082,8 +1101,8 @@ function prepareNewProductForm(form, index) {
         btn.classList.remove('active');
     });
     
-    // Ustaw domyślne wykończenie "Brak"
-    const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Brak"]');
+    // Ustaw domyślne wykończenie "Surowe"
+    const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Surowe"]');
     if (defaultFinishing) {
         defaultFinishing.classList.add('active');
         console.log(`[prepareNewProductForm] Ustawiono domyślne wykończenie: Brak`);
@@ -1106,7 +1125,7 @@ function prepareNewProductForm(form, index) {
     // KROK 7: Wyczyść dataset formularza
     form.dataset.orderBrutto = '';
     form.dataset.orderNetto = '';
-    form.dataset.finishingType = 'Brak';
+    form.dataset.finishingType = 'Surowe';
     form.dataset.finishingBrutto = '';
     form.dataset.finishingNetto = '';
     
@@ -1676,6 +1695,9 @@ function attachGlobalValidationListeners() {
 function init() {
     console.log("DOMContentLoaded – inicjalizacja calculator.js");
 
+    // Załaduj ceny wykończeń z bazy danych
+    loadFinishingPrices();
+
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.style.display = 'none';
 
@@ -1823,7 +1845,7 @@ function init() {
                 // Fallback - aktywuj pierwszy dostępny
                 activateProductCard(0);
             }
-            
+
             // Odśwież panel produktów
             generateProductsSummary();
         }
@@ -2946,7 +2968,7 @@ function getFinishingDescription(form) {
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
     const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
     
-    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Brak') {
+    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Surowe') {
         return null;
     }
     
@@ -2976,7 +2998,7 @@ function getFinishingDescriptionWithGloss(form) {
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
     const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
     
-    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Brak') {
+    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Surowe') {
         return null;
     }
     
