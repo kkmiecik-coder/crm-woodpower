@@ -23,6 +23,39 @@ let messageTimeouts = [];
 let currentClientType = '';
 let currentMultiplier = 1.0;
 
+// Pobieranie cen wykończeń z bazy danych
+async function loadFinishingPrices() {
+    try {
+        const response = await fetch('/calculator/api/finishing-prices');
+        if (response.ok) {
+            const prices = await response.json();
+            window.finishingPrices = {};
+            prices.forEach(price => {
+                window.finishingPrices[price.name] = parseFloat(price.price_netto);
+            });
+            console.log('Załadowano ceny wykończeń:', window.finishingPrices);
+        } else {
+            console.error('Błąd pobierania cen wykończeń');
+            // Ustawienie domyślnych cen jako fallback
+            window.finishingPrices = {
+                'Surowe': 0,
+                'Lakierowane bezbarwne': 200,
+                'Lakierowane barwne': 250,
+                'Olejowanie': 250
+            };
+        }
+    } catch (error) {
+        console.error('Błąd pobierania cen wykończeń:', error);
+        // Ustawienie domyślnych cen jako fallback
+        window.finishingPrices = {
+            'Surowe': 0,
+            'Lakierowane bezbarwne': 200,
+            'Lakierowane barwne': 250,
+            'Olejowanie': 250
+        };
+    }
+}
+
 // Funkcja do pokazywania rotujących komunikatów
 function showRotatingMessages(overlay) {
     // Wyczyść poprzednie timeouty
@@ -366,7 +399,6 @@ function updatePrices() {
 
     const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
     let multiplier = isPartner ? userMultiplier : (multiplierMapping[clientType] || 1.0);
-    let multiplierAdjusted = false;
 
     dbg("updatePrices: dimensions and multiplier", {
         length, width, thickness, quantity, singleVolume, multiplier, clientType
@@ -412,15 +444,7 @@ function updatePrices() {
             let effectiveMultiplier = multiplier;
             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
 
-            // ✅ ZACHOWAJ: Logika dla detalicznego mnożnika
-            if (!isPartner && clientType === "Detal" && unitNetto < 1000) {
-                effectiveMultiplier = 1.5;
-                multiplierAdjusted = true;
-                unitNetto = singleVolume * basePrice * effectiveMultiplier;
-                variant.style.backgroundColor = "#FFECEC";
-            } else {
-                variant.style.backgroundColor = "";
-            }
+            variant.style.backgroundColor = "";
 
             const unitBrutto = unitNetto * 1.23;
             const totalNetto = unitNetto * quantity;
@@ -465,18 +489,6 @@ function updatePrices() {
         activeQuoteForm.dataset.orderBrutto = "";
         activeQuoteForm.dataset.orderNetto = "";
         console.log(`[updatePrices] Brak zaznaczonego wariantu w produkcie ${tabIndex + 1}`);
-    }
-
-    // ✅ ZACHOWAJ: Komunikat o zmianie mnożnika
-    const msgEl = activeQuoteForm.querySelector('.multiplier-message');
-    if (msgEl) {
-        if (multiplierAdjusted) {
-            msgEl.textContent = "Zmieniono mnożnik dla niektórych wariantów.";
-            msgEl.classList.add('multiplier-warning');
-        } else {
-            msgEl.textContent = "";
-            msgEl.classList.remove('multiplier-warning');
-        }
     }
 
     // Aktualizuj wykończenie i podsumowania
@@ -666,39 +678,39 @@ function attachFinishingUIListeners(form) {
                         form.querySelector('#finishing-color-wrapper');
 
     // ❌ PROBLEM: Te zmienne są ustawiane tylko raz na początku
-    // let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
-    // let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
+    // let currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Surowe';
+    // let currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Surowe';
 
     const resetButtons = buttons => buttons.forEach(btn => btn.classList.remove('active'));
     const show = el => { if (el) el.style.display = 'flex'; };
     const hide = el => { if (el) el.style.display = 'none'; };
 
     function updateVisibility() {
-        // ✅ POPRAWKA: Pobierz aktualne wartości za każdym razem
-        const currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Brak';
-        const currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Brak';
-        
+        const currentType = form.querySelector('.finishing-btn[data-finishing-type].active')?.dataset.finishingType || 'Surowe';
+        const currentVariant = form.querySelector('.finishing-btn[data-finishing-variant].active')?.dataset.finishingVariant || 'Surowe';
+
         console.log('[updateVisibility] currentType:', currentType, 'currentVariant:', currentVariant);
-        
-        if (currentType === 'Brak') {
+
+        if (currentType === 'Surowe') {
             hide(variantWrapper);
-            hide(glossWrapper);
             hide(colorWrapper);
             return;
         }
-        
-        show(variantWrapper);
 
-        if (currentVariant === 'Barwne') {
-            show(colorWrapper);
-        } else {
+        if (currentType === 'Olejowanie') {
+            hide(variantWrapper);
             hide(colorWrapper);
+            return;
         }
 
         if (currentType === 'Lakierowanie') {
-            show(glossWrapper);
-        } else {
-            hide(glossWrapper);
+            show(variantWrapper);
+
+            if (currentVariant === 'Barwne') {
+                show(colorWrapper);
+            } else {
+                hide(colorWrapper);
+            }
         }
     }
 
@@ -772,8 +784,8 @@ function calculateFinishingCost(form) {
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
     const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
 
-    const finishingType = finishingTypeBtn ? finishingTypeBtn.dataset.finishingType : 'Brak';
-    const finishingVariant = finishingVariantBtn ? finishingVariantBtn.dataset.finishingVariant : 'Brak';
+    const finishingType = finishingTypeBtn ? finishingTypeBtn.dataset.finishingType : 'Surowe';
+    const finishingVariant = finishingVariantBtn ? finishingVariantBtn.dataset.finishingVariant : 'Surowe';
 
     const lengthInput = form.querySelector('input[data-field="length"]');
     const widthInput = form.querySelector('input[data-field="width"]');
@@ -785,7 +797,7 @@ function calculateFinishingCost(form) {
     let finishingBruttoEl = form.querySelector('.finishing-brutto') || document.getElementById('finishing-brutto');
     let finishingNettoEl = form.querySelector('.finishing-netto') || document.getElementById('finishing-netto');
 
-    if (finishingType === 'Brak') {
+    if (finishingType === 'Surowe') {
         form.dataset.finishingBrutto = 0;
         form.dataset.finishingNetto = 0;
         if (finishingBruttoEl) finishingBruttoEl.textContent = '0.00 PLN';
@@ -814,11 +826,18 @@ function calculateFinishingCost(form) {
     const total_area = area_m2 * quantityVal;
 
     let pricePerM2 = 0;
-    if (finishingVariant === 'Bezbarwne') pricePerM2 = 200;
-    else if (finishingVariant === 'Barwne') pricePerM2 = 250;
+    if (finishingType === 'Surowe') {
+        pricePerM2 = 0;
+    } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Bezbarwne') {
+        pricePerM2 = window.finishingPrices?.['Lakierowane bezbarwne'] || 200;
+    } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Barwne') {
+        pricePerM2 = window.finishingPrices?.['Lakierowane barwne'] || 250;
+    } else if (finishingType === 'Olejowanie') {
+        pricePerM2 = window.finishingPrices?.['Olejowanie'] || 250;
+    }
 
-    const finishingPriceBrutto = +(total_area * pricePerM2).toFixed(2);
-    const finishingPriceNetto = +(finishingPriceBrutto / 1.23).toFixed(2);
+    const finishingPriceNetto = +(total_area * pricePerM2).toFixed(2);
+    const finishingPriceBrutto = +(finishingPriceNetto * 1.23).toFixed(2);
 
     form.dataset.finishingBrutto = finishingPriceBrutto;
     form.dataset.finishingNetto = finishingPriceNetto;
@@ -827,6 +846,7 @@ function calculateFinishingCost(form) {
     if (finishingNettoEl) finishingNettoEl.textContent = finishingPriceNetto.toFixed(2) + ' PLN';
 
     updateGlobalSummary();
+    generateProductsSummary();
     dbg("🧪 calculateFinishingCost end:", { finishingPriceNetto, finishingPriceBrutto });
     return { netto: finishingPriceNetto, brutto: finishingPriceBrutto };
 }
@@ -1081,8 +1101,8 @@ function prepareNewProductForm(form, index) {
         btn.classList.remove('active');
     });
     
-    // Ustaw domyślne wykończenie "Brak"
-    const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Brak"]');
+    // Ustaw domyślne wykończenie "Surowe"
+    const defaultFinishing = form.querySelector('.finishing-btn[data-finishing-type="Surowe"]');
     if (defaultFinishing) {
         defaultFinishing.classList.add('active');
         console.log(`[prepareNewProductForm] Ustawiono domyślne wykończenie: Brak`);
@@ -1105,22 +1125,27 @@ function prepareNewProductForm(form, index) {
     // KROK 7: Wyczyść dataset formularza
     form.dataset.orderBrutto = '';
     form.dataset.orderNetto = '';
-    form.dataset.finishingType = 'Brak';
+    form.dataset.finishingType = 'Surowe';
     form.dataset.finishingBrutto = '';
     form.dataset.finishingNetto = '';
     
     // KROK 8: Resetuj wyświetlanie cen w wariantach
     form.querySelectorAll('.variants span').forEach(span => {
-        // Nie resetuj nagłówków i tagów braku towaru
+        // ✅ POPRAWKA: Dodaj nową klasę header-availability i sprawdź czy span jest w nagłówku
         const isHeader = span.classList.contains('header-title') ||
-                        span.classList.contains('header-unit-brutto') ||
-                        span.classList.contains('header-unit-netto') ||
-                        span.classList.contains('header-total-brutto') ||
-                        span.classList.contains('header-total-netto');
-        
+            span.classList.contains('header-unit-brutto') ||
+            span.classList.contains('header-unit-netto') ||
+            span.classList.contains('header-total-brutto') ||
+            span.classList.contains('header-total-netto') ||
+            span.classList.contains('header-availability'); // ← NOWA KLASA
+
+        // ✅ POPRAWKA: Sprawdź czy span jest dzieckiem nagłówka
+        const isInHeader = span.closest('.variants-header') !== null;
+
         const isOutOfStock = span.classList.contains('out-of-stock-tag');
-        
-        if (!isHeader && !isOutOfStock) {
+
+        // Tylko resetuj spany, które NIE są w nagłówku i NIE są tagami braku towaru
+        if (!isHeader && !isInHeader && !isOutOfStock) {
             span.textContent = 'Brak danych';
         }
     });
@@ -1670,6 +1695,9 @@ function attachGlobalValidationListeners() {
 function init() {
     console.log("DOMContentLoaded – inicjalizacja calculator.js");
 
+    // Załaduj ceny wykończeń z bazy danych
+    loadFinishingPrices();
+
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) overlay.style.display = 'none';
 
@@ -1817,7 +1845,7 @@ function init() {
                 // Fallback - aktywuj pierwszy dostępny
                 activateProductCard(0);
             }
-            
+
             // Odśwież panel produktów
             generateProductsSummary();
         }
@@ -2940,7 +2968,7 @@ function getFinishingDescription(form) {
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
     const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
     
-    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Brak') {
+    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Surowe') {
         return null;
     }
     
@@ -2970,7 +2998,7 @@ function getFinishingDescriptionWithGloss(form) {
     const finishingTypeBtn = form.querySelector('.finishing-btn[data-finishing-type].active');
     const finishingVariantBtn = form.querySelector('.finishing-btn[data-finishing-variant].active');
     
-    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Brak') {
+    if (!finishingTypeBtn || finishingTypeBtn.dataset.finishingType === 'Surowe') {
         return null;
     }
     
@@ -3009,33 +3037,216 @@ function getFinishingDescriptionWithGloss(form) {
  * Generuje opis produktu
  */
 function generateProductDescription(form, index) {
-    if (!form) return `Błąd formularza`;
-    
+    if (!form) return { main: `Błąd formularza`, sub: "" };
+
     const isComplete = checkProductCompleteness(form);
-    
+
     if (!isComplete) {
-        return `Dokończ wycenę produktu`;
+        return { main: `Dokończ wycenę produktu`, sub: "" };
     }
-    
+
     const length = form.querySelector('[data-field="length"]')?.value;
     const width = form.querySelector('[data-field="width"]')?.value;
     const thickness = form.querySelector('[data-field="thickness"]')?.value;
     const quantity = form.querySelector('[data-field="quantity"]')?.value;
-    
+
     const variantRadio = form.querySelector('input[type="radio"]:checked');
     const variantLabel = variantRadio ? form.querySelector(`label[for="${variantRadio.id}"]`) : null;
     const variantName = variantLabel ? variantLabel.textContent.replace(/BRAK/g, '').trim() : 'Nieznany wariant';
-    
-    // POPRAWKA: Dodaj wykończenie z stopniem połysku
+
+    // Dodaj wykończenie z stopniem połysku
     const finishingDescription = getFinishingDescriptionWithGloss(form);
-    
-    let description = `${variantName} ${length}×${width}×${thickness} cm | ${quantity} szt.`;
-    
+
+    let mainDescription = `${variantName} ${length}×${width}×${thickness} cm | ${quantity} szt.`;
+
     if (finishingDescription) {
-        description += ` | ${finishingDescription}`;
+        mainDescription += ` | ${finishingDescription}`;
     }
-    
-    return description;
+
+    // NOWE: Oblicz objętość i wagę dla informacji dodatkowych
+    const volume = calculateProductVolume(form);
+    const weight = calculateProductWeight(form);
+    const subDescription = volume > 0 ? `${formatVolume(volume)} | ${formatWeight(weight)}` : "";
+
+    return { main: mainDescription, sub: subDescription };
+}
+
+/**
+ * Duplikuje produkt na podstawie indeksu źródłowego
+ */
+
+function duplicateProduct(sourceIndex) {
+    console.log(`[duplicateProduct] Rozpoczynam duplikowanie produktu ${sourceIndex + 1}...`);
+
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    const sourceForm = forms[sourceIndex];
+
+    if (!sourceForm) {
+        console.error(`[duplicateProduct] Nie znaleziono formularza o indeksie ${sourceIndex}`);
+        return;
+    }
+
+    // KROK 1: Zapisz stan wszystkich formularzy
+    const selectedStates = forms.map((form, index) => {
+        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        return {
+            formIndex: index,
+            selectedVariant: selectedRadio ? {
+                id: selectedRadio.id,
+                value: selectedRadio.value,
+                checked: true,
+                orderBrutto: form.dataset.orderBrutto,
+                orderNetto: form.dataset.orderNetto
+            } : null
+        };
+    });
+
+    // KROK 2: Pobierz wszystkie dane z formularza źródłowego
+    const sourceData = {
+        // Wymiary
+        length: sourceForm.querySelector('[data-field="length"]')?.value || '',
+        width: sourceForm.querySelector('[data-field="width"]')?.value || '',
+        thickness: sourceForm.querySelector('[data-field="thickness"]')?.value || '',
+        quantity: sourceForm.querySelector('[data-field="quantity"]')?.value || '',
+        clientType: sourceForm.querySelector('[data-field="clientType"]')?.value || '',
+
+        // Zaznaczony wariant
+        selectedVariant: null,
+
+        // Wykończenia
+        finishingType: null,
+        finishingColor: null,
+        finishingGloss: null
+    };
+
+    // Pobierz zaznaczony wariant z formularza źródłowego
+    const sourceSelectedRadio = sourceForm.querySelector('input[type="radio"]:checked');
+    if (sourceSelectedRadio) {
+        sourceData.selectedVariant = {
+            value: sourceSelectedRadio.value,
+            orderBrutto: sourceForm.dataset.orderBrutto,
+            orderNetto: sourceForm.dataset.orderNetto
+        };
+    }
+
+    // Pobierz dane wykończeń
+    const finishingTypeBtn = sourceForm.querySelector('.finishing-btn[data-finishing-type].active');
+    if (finishingTypeBtn) {
+        sourceData.finishingType = finishingTypeBtn.dataset.finishingType;
+    }
+
+    const finishingColorBtn = sourceForm.querySelector('.color-btn.active');
+    if (finishingColorBtn) {
+        sourceData.finishingColor = finishingColorBtn.dataset.finishingColor;
+    }
+
+    const finishingGlossBtn = sourceForm.querySelector('.finishing-btn[data-finishing-gloss].active');
+    if (finishingGlossBtn) {
+        sourceData.finishingGloss = finishingGlossBtn.dataset.finishingGloss;
+    }
+
+    console.log(`[duplicateProduct] Dane do skopiowania:`, sourceData);
+
+    // KROK 3: Utwórz nowy formularz używając addNewProduct
+    const newIndex = forms.length;
+    addNewProduct();
+
+    // KROK 4: Poczekaj na utworzenie nowego formularza i wypełnij go danymi
+    setTimeout(() => {
+        const newForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+        const newForm = newForms[newIndex];
+
+        if (!newForm) {
+            console.error(`[duplicateProduct] Nie znaleziono nowego formularza`);
+            return;
+        }
+
+        console.log(`[duplicateProduct] Wypełniam nowy formularz danymi...`);
+
+        // Wypełnij wymiary
+        if (sourceData.length) {
+            const lengthInput = newForm.querySelector('[data-field="length"]');
+            if (lengthInput) lengthInput.value = sourceData.length;
+        }
+
+        if (sourceData.width) {
+            const widthInput = newForm.querySelector('[data-field="width"]');
+            if (widthInput) widthInput.value = sourceData.width;
+        }
+
+        if (sourceData.thickness) {
+            const thicknessInput = newForm.querySelector('[data-field="thickness"]');
+            if (thicknessInput) thicknessInput.value = sourceData.thickness;
+        }
+
+        if (sourceData.quantity) {
+            const quantityInput = newForm.querySelector('[data-field="quantity"]');
+            if (quantityInput) quantityInput.value = sourceData.quantity;
+        }
+
+        if (sourceData.clientType) {
+            const clientTypeSelect = newForm.querySelector('[data-field="clientType"]');
+            if (clientTypeSelect) clientTypeSelect.value = sourceData.clientType;
+        }
+
+        // Aktywuj wykończenia jeśli były wybrane
+        if (sourceData.finishingType) {
+            const finishingBtn = newForm.querySelector(`[data-finishing-type="${sourceData.finishingType}"]`);
+            if (finishingBtn) {
+                finishingBtn.click();
+
+                // Po aktywacji wykończenia, ustaw kolor i połysk
+                setTimeout(() => {
+                    if (sourceData.finishingColor) {
+                        const colorBtn = newForm.querySelector(`[data-finishing-color="${sourceData.finishingColor}"]`);
+                        if (colorBtn) colorBtn.click();
+                    }
+
+                    if (sourceData.finishingGloss) {
+                        const glossBtn = newForm.querySelector(`[data-finishing-gloss="${sourceData.finishingGloss}"]`);
+                        if (glossBtn) glossBtn.click();
+                    }
+                }, 100);
+            }
+        }
+
+        // Przeliczy ceny jeśli mamy wszystkie wymiary
+        if (sourceData.length && sourceData.width && sourceData.thickness && sourceData.clientType) {
+            setTimeout(() => {
+                updatePrices();
+
+                // Zaznacz ten sam wariant co w źródle
+                if (sourceData.selectedVariant) {
+                    const radioToSelect = newForm.querySelector(`input[type="radio"][value="${sourceData.selectedVariant.value}"]`);
+                    if (radioToSelect) {
+                        radioToSelect.click();
+                        console.log(`[duplicateProduct] Zaznaczono wariant: ${sourceData.selectedVariant.value}`);
+                    }
+                }
+
+                // Przywróć zaznaczenia w starych formularzach
+                selectedStates.forEach(state => {
+                    if (state.selectedVariant && state.formIndex < newIndex) {
+                        const form = newForms[state.formIndex];
+                        if (form) {
+                            const radio = form.querySelector(`input[type="radio"][value="${state.selectedVariant.value}"]`);
+                            if (radio && !radio.checked) {
+                                radio.checked = true;
+                                form.dataset.orderBrutto = state.selectedVariant.orderBrutto || '';
+                                form.dataset.orderNetto = state.selectedVariant.orderNetto || '';
+                            }
+                        }
+                    }
+                });
+
+                updateGlobalSummary();
+                generateProductsSummary();
+            }, 200);
+        }
+
+        console.log(`[duplicateProduct] ✅ Pomyślnie zduplikowano produkt ${sourceIndex + 1} jako produkt ${newIndex + 1}`);
+
+    }, 100);
 }
 
 /**
@@ -3047,13 +3258,22 @@ function generateProductsSummary() {
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
     productSummaryContainer.innerHTML = '';
 
+    // Znajdź główny kontener (rodzic productSummaryContainer)
+    const mainContainer = productSummaryContainer.parentElement; // to powinno być .products-summary-main
+
+    // Usuń istniejące podsumowanie jeśli istnieje
+    const existingSummary = mainContainer.querySelector('.products-total-summary');
+    if (existingSummary) {
+        existingSummary.remove();
+    }
+
     if (forms.length === 0) {
         productSummaryContainer.innerHTML = '<div class="no-products">Brak produktów</div>';
         return;
     }
 
     forms.forEach((form, index) => {
-        const description = generateProductDescription(form, index);
+        const descriptionData = generateProductDescription(form, index);
         const isComplete = checkProductCompleteness(form);
         const isActive = form === activeQuoteForm;
 
@@ -3073,17 +3293,26 @@ function generateProductsSummary() {
 
         productCard.innerHTML = `
             <div class="product-card-content">
-                <div class="product-card-title">Produkt ${index + 1}</div>
-                <div class="product-card-description">${description}</div>
+                <div class="product-card-number">${index + 1}</div>
+                <div class="product-card-details">
+                     <div class="product-card-main-info">${descriptionData.main}</div>
+                    ${descriptionData.sub ? `<div class="product-card-sub-info">${descriptionData.sub}</div>` : ''}
+                </div>
+                <button class="duplicate-product-btn" data-index="${index}" title="Duplikuj produkt">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
             </div>
             ${removeButton}
         `;
 
         // Dodaj listener dla przełączania produktów
         productCard.addEventListener('click', (e) => {
-            // ✅ POPRAWKA: Nie przełączaj jeśli kliknięto przycisk usuwania
-            if (e.target.closest('.remove-product-btn')) return;
-            
+            // ✅ POPRAWKA: Nie przełączaj jeśli kliknięto przycisk usuwania lub duplikowania
+            if (e.target.closest('.remove-product-btn') || e.target.closest('.duplicate-product-btn')) return;
+
             activateProductCard(index);
         });
 
@@ -3097,9 +3326,26 @@ function generateProductsSummary() {
         <span class="add-product-card-icon">+</span>
         <span class="add-product-card-text">Dodaj kolejny produkt</span>
     `;
-    
+
     addCard.addEventListener('click', addNewProduct);
     productSummaryContainer.appendChild(addCard);
+
+    // NOWE: Dodaj podsumowanie objętości i wagi NA DOLE GŁÓWNEGO KONTENERA
+    const { totalVolume, totalWeight } = calculateTotalVolumeAndWeight();
+
+    if (forms.length > 0 && (totalVolume > 0 || totalWeight > 0)) {
+        const summaryCard = document.createElement('div');
+        summaryCard.className = 'products-total-summary';
+        summaryCard.innerHTML = `
+            <div class="products-total-title">Łączne podsumowanie:</div>
+            <div class="products-total-details">
+                <span class="products-total-volume">${formatVolume(totalVolume)}</span>
+                <span class="products-total-weight">${formatWeight(totalWeight)}</span>
+            </div>
+        `;
+        // Dodaj do głównego kontenera, nie do productSummaryContainer
+        mainContainer.appendChild(summaryCard);
+    }
 
     // ✅ POPRAWKA: Dodaj listenery dla przycisków usuwania
     productSummaryContainer.querySelectorAll('.remove-product-btn').forEach(btn => {
@@ -3107,6 +3353,15 @@ function generateProductsSummary() {
             e.stopPropagation(); // Zapobiegnij przełączeniu produktu
             const index = parseInt(btn.dataset.index);
             removeProduct(index);
+        });
+    });
+
+    // ✅ POPRAWKA: Dodaj listenery dla przycisków duplikowania
+    productSummaryContainer.querySelectorAll('.duplicate-product-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Zapobiegnij przełączeniu produktu
+            const index = parseInt(btn.dataset.index);
+            duplicateProduct(index);
         });
     });
 
@@ -3388,6 +3643,419 @@ function fixAllRadioButtonNames() {
     
     console.log('✅ Naprawiono nazwy radio buttonów we wszystkich formularzach BEZ resetowania selekcji');
 }
+
+function calculateProductVolume(form) {
+    const length = parseFloat(form.querySelector('[data-field="length"]')?.value) || 0;
+    const width = parseFloat(form.querySelector('[data-field="width"]')?.value) || 0;
+    const thickness = parseFloat(form.querySelector('[data-field="thickness"]')?.value) || 0;
+    const quantity = parseInt(form.querySelector('[data-field="quantity"]')?.value) || 1;
+
+    if (length <= 0 || width <= 0 || thickness <= 0) return 0;
+
+    const singleVolume = calculateSingleVolume(length, width, thickness);
+    return singleVolume * quantity;
+}
+
+function calculateProductWeight(form) {
+    const volume = calculateProductVolume(form);
+    // Gęstość drewna: 800 kg/m³
+    return volume * 800;
+}
+
+function formatVolume(volume) {
+    if (volume === 0) return "0.000 m³";
+    return volume.toFixed(3) + " m³";
+}
+
+function formatWeight(weight) {
+    if (weight === 0) return "0.0 kg";
+    if (weight >= 1000) {
+        return (weight / 1000).toFixed(2) + " t";
+    }
+    return weight.toFixed(1) + " kg";
+}
+
+function calculateTotalVolumeAndWeight() {
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    let totalVolume = 0;
+    let totalWeight = 0;
+
+    forms.forEach(form => {
+        const isComplete = checkProductCompleteness(form);
+        if (isComplete) {
+            totalVolume += calculateProductVolume(form);
+            totalWeight += calculateProductWeight(form);
+        }
+    });
+
+    return { totalVolume, totalWeight };
+}
+
+// JavaScript dla obsługi dostępności wariantów
+
+// Mapowanie domyślnych stanów dostępności
+const defaultVariantAvailability = {
+    'dab-lity-ab': true,
+    'dab-lity-bb': true,
+    'dab-micro-ab': true,
+    'dab-micro-bb': true,
+    'jes-lity-ab': true,
+    'jes-micro-ab': false,  // Domyślnie niedostępny (był "BRAK")
+    'buk-lity-ab': true,
+    'buk-micro-ab': false   // Domyślnie niedostępny (był "BRAK")
+};
+
+/**
+ * Inicjalizuje dostępność wariantów dla wszystkich formularzy
+ */
+function initializeVariantAvailability() {
+    console.log("[initializeVariantAvailability] Inicjalizuję dostępność wariantów...");
+
+    const allForms = document.querySelectorAll('.quote-form');
+    allForms.forEach((form, formIndex) => {
+        console.log(`[initializeVariantAvailability] Inicjalizuję formularz ${formIndex + 1}`);
+
+        // Ustaw domyślne stany checkbox
+        Object.entries(defaultVariantAvailability).forEach(([variantCode, isAvailable]) => {
+            const checkbox = form.querySelector(`[data-variant="${variantCode}"]`);
+            if (checkbox) {
+                checkbox.checked = isAvailable;
+                updateVariantAvailability(form, variantCode, isAvailable);
+            }
+        });
+
+        // Dodaj event listenery dla checkbox
+        attachVariantAvailabilityListeners(form);
+    });
+
+    console.log("[initializeVariantAvailability] ✅ Zakończono inicjalizację");
+}
+
+/**
+ * Dodaje event listenery dla checkbox dostępności w danym formularzu
+ */
+function attachVariantAvailabilityListeners(form) {
+    const checkboxes = form.querySelectorAll('.variant-availability-checkbox');
+
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            const variantCode = e.target.dataset.variant;
+            const isAvailable = e.target.checked;
+
+            console.log(`[availabilityChange] Wariant ${variantCode}: ${isAvailable ? 'dostępny' : 'niedostępny'}`);
+
+            // Walidacja - zawsze musi być przynajmniej jeden dostępny wariant
+            if (!isAvailable && !checkAtLeastOneAvailable(form, variantCode)) {
+                e.preventDefault();
+                e.target.checked = true;
+                alert('Przynajmniej jeden wariant musi być dostępny!');
+                return;
+            }
+
+            updateVariantAvailability(form, variantCode, isAvailable);
+
+            // Jeśli wariant został wyłączony a był zaznaczony, odznacz go
+            if (!isAvailable) {
+                const radio = form.querySelector(`input[type="radio"][value="${variantCode}"]`);
+                if (radio && radio.checked) {
+                    radio.checked = false;
+                    // Wyczyść dane o cenie produktu
+                    form.dataset.orderBrutto = "";
+                    form.dataset.orderNetto = "";
+                    updateGlobalSummary();
+                    generateProductsSummary();
+                }
+            }
+        });
+    });
+}
+
+/**
+ * Aktualizuje wizualny stan dostępności wariantu
+ */
+function updateVariantAvailability(form, variantCode, isAvailable) {
+    const variantElement = form.querySelector(`[data-variant="${variantCode}"]`).closest('.variant-option');
+    const radio = form.querySelector(`input[type="radio"][value="${variantCode}"]`);
+
+    if (isAvailable) {
+        // Wariant dostępny
+        variantElement.classList.remove('unavailable');
+        radio.disabled = false;
+        radio.style.pointerEvents = 'auto';
+    } else {
+        // Wariant niedostępny
+        variantElement.classList.add('unavailable');
+        radio.disabled = true;
+        radio.style.pointerEvents = 'none';
+
+        // Odznacz jeśli był zaznaczony
+        if (radio.checked) {
+            radio.checked = false;
+        }
+    }
+}
+
+/**
+ * Sprawdza czy przynajmniej jeden wariant będzie dostępny (poza wykluczanym)
+ */
+function checkAtLeastOneAvailable(form, excludeVariant = null) {
+    const checkboxes = form.querySelectorAll('.variant-availability-checkbox');
+    let availableCount = 0;
+
+    checkboxes.forEach(checkbox => {
+        if (checkbox.dataset.variant !== excludeVariant && checkbox.checked) {
+            availableCount++;
+        }
+    });
+
+    return availableCount > 0;
+}
+
+/**
+ * Pobiera dostępne warianty z formularza
+ */
+function getAvailableVariants(form) {
+    const availableVariants = [];
+    const checkboxes = form.querySelectorAll('.variant-availability-checkbox:checked');
+
+    checkboxes.forEach(checkbox => {
+        availableVariants.push(checkbox.dataset.variant);
+    });
+
+    return availableVariants;
+}
+
+/**
+ * Ustala dostępność wariantów przy tworzeniu nowego produktu
+ */
+function setDefaultVariantAvailability(form) {
+    console.log("[setDefaultVariantAvailability] Ustawiam domyślną dostępność...");
+
+    Object.entries(defaultVariantAvailability).forEach(([variantCode, isAvailable]) => {
+        const checkbox = form.querySelector(`[data-variant="${variantCode}"]`);
+        if (checkbox) {
+            checkbox.checked = isAvailable;
+            updateVariantAvailability(form, variantCode, isAvailable);
+        }
+    });
+
+    // Dodaj event listenery
+    attachVariantAvailabilityListeners(form);
+}
+
+/**
+ * Kopiuje stany dostępności z jednego formularza do drugiego
+ */
+function copyVariantAvailability(sourceForm, targetForm) {
+    console.log("[copyVariantAvailability] Kopiuję stany dostępności...");
+
+    const sourceCheckboxes = sourceForm.querySelectorAll('.variant-availability-checkbox');
+
+    sourceCheckboxes.forEach(sourceCheckbox => {
+        const variantCode = sourceCheckbox.dataset.variant;
+        const isAvailable = sourceCheckbox.checked;
+
+        const targetCheckbox = targetForm.querySelector(`[data-variant="${variantCode}"]`);
+        if (targetCheckbox) {
+            targetCheckbox.checked = isAvailable;
+            updateVariantAvailability(targetForm, variantCode, isAvailable);
+        }
+    });
+
+    // Dodaj event listenery do nowego formularza
+    attachVariantAvailabilityListeners(targetForm);
+}
+
+/**
+ * Aktualizacja funkcji attachFormListeners - dodaj obsługę dostępności
+ */
+function attachFormListenersWithAvailability(form) {
+    // Wywołaj istniejącą funkcję
+    attachFormListeners(form);
+
+    // Dodaj obsługę dostępności jeśli jeszcze nie została dodana
+    if (!form.dataset.availabilityAttached) {
+        attachVariantAvailabilityListeners(form);
+        form.dataset.availabilityAttached = 'true';
+    }
+}
+
+// Aktualizacja funkcji prepareNewProductForm
+function prepareNewProductFormWithAvailability(form, index) {
+    console.log(`[prepareNewProductFormWithAvailability] Przygotowuję formularz ${index + 1}`);
+
+    // Wywołaj istniejącą funkcję
+    prepareNewProductForm(form, index);
+
+    // Ustaw domyślną dostępność wariantów
+    setDefaultVariantAvailability(form);
+}
+
+// Aktualizacja funkcji duplicateProduct - skopiuj stany dostępności
+function duplicateProductWithAvailability(sourceIndex) {
+    console.log(`[duplicateProductWithAvailability] Duplikuję produkt ${sourceIndex + 1} z dostępnością...`);
+
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+    const sourceForm = forms[sourceIndex];
+
+    if (!sourceForm) {
+        console.error(`Nie znaleziono formularza o indeksie ${sourceIndex}`);
+        return;
+    }
+
+    // Zapisz stany dostępności z formularza źródłowego
+    const availabilityStates = {};
+    const sourceCheckboxes = sourceForm.querySelectorAll('.variant-availability-checkbox');
+    sourceCheckboxes.forEach(checkbox => {
+        availabilityStates[checkbox.dataset.variant] = checkbox.checked;
+    });
+
+    // Wywołaj oryginalną funkcję duplikowania
+    duplicateProduct(sourceIndex);
+
+    // Po utworzeniu nowego produktu, skopiuj stany dostępności
+    setTimeout(() => {
+        const newForms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+        const newForm = newForms[newForms.length - 1]; // Ostatni dodany formularz
+
+        if (newForm) {
+            // Skopiuj stany dostępności
+            Object.entries(availabilityStates).forEach(([variantCode, isAvailable]) => {
+                const checkbox = newForm.querySelector(`[data-variant="${variantCode}"]`);
+                if (checkbox) {
+                    checkbox.checked = isAvailable;
+                    updateVariantAvailability(newForm, variantCode, isAvailable);
+                }
+            });
+
+            console.log(`[duplicateProductWithAvailability] ✅ Skopiowano stany dostępności do nowego produktu`);
+        }
+    }, 150);
+}
+
+// ============ AKTUALIZACJA ISTNIEJĄCYCH FUNKCJI ============
+
+/**
+ * Aktualizacja funkcji init() - dodaj inicjalizację dostępności
+ */
+function initWithAvailability() {
+    // Wywołaj istniejącą funkcję init
+    // (tu będzie wywołanie oryginalnej funkcji init)
+
+    // Dodaj inicjalizację dostępności wariantów
+    setTimeout(() => {
+        initializeVariantAvailability();
+    }, 100);
+}
+
+/**
+ * Aktualizacja addNewProduct - ustaw domyślną dostępność
+ */
+function addNewProductWithAvailability() {
+    console.log("[addNewProductWithAvailability] Dodaję nowy produkt z dostępnością...");
+
+    // Wywołaj oryginalną funkcję
+    addNewProduct();
+
+    // Po dodaniu produktu ustaw domyślną dostępność
+    setTimeout(() => {
+        const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+        const newForm = forms[forms.length - 1];
+
+        if (newForm) {
+            setDefaultVariantAvailability(newForm);
+            console.log("[addNewProductWithAvailability] ✅ Ustawiono domyślną dostępność dla nowego produktu");
+        }
+    }, 100);
+}
+
+/**
+ * Walidacja przed zapisem wyceny - sprawdź czy są dostępne warianty
+ */
+function validateAvailableVariants() {
+    const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
+
+    for (let i = 0; i < forms.length; i++) {
+        const form = forms[i];
+        const availableVariants = getAvailableVariants(form);
+
+        if (availableVariants.length === 0) {
+            alert(`Produkt ${i + 1} nie ma żadnych dostępnych wariantów. Dodaj przynajmniej jeden dostępny wariant.`);
+            return false;
+        }
+
+        // Sprawdź czy zaznaczony wariant jest dostępny
+        const selectedRadio = form.querySelector('input[type="radio"]:checked');
+        if (selectedRadio) {
+            const selectedVariant = selectedRadio.value;
+            if (!availableVariants.includes(selectedVariant)) {
+                alert(`Produkt ${i + 1} ma zaznaczony niedostępny wariant. Wybierz dostępny wariant.`);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Filtruje warianty tylko do dostępnych przed wysłaniem do backend
+ */
+function filterAvailableVariantsForSave(form, variants) {
+    const availableVariants = getAvailableVariants(form);
+
+    return variants.filter(variant => {
+        return availableVariants.includes(variant.variant_code);
+    });
+}
+
+// ============ EVENT LISTENERS ============
+
+/**
+ * Dodaj obsługę dostępności do event listenerów formularza
+ */
+function attachVariantSelectionListeners(form) {
+    const radioButtons = form.querySelectorAll('input[type="radio"]');
+
+    radioButtons.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            // Aktualizuj klasy CSS dla zaznaczonego wariantu
+            form.querySelectorAll('.variant-option').forEach(option => {
+                option.classList.remove('selected');
+            });
+
+            const selectedOption = e.target.closest('.variant-option');
+            if (selectedOption) {
+                selectedOption.classList.add('selected');
+            }
+        });
+    });
+}
+
+/**
+ * Inicjalizacja po załadowaniu DOM
+ */
+document.addEventListener('DOMContentLoaded', function () {
+    // Poczekaj na załadowanie kalkulatora
+    setTimeout(() => {
+        if (typeof quoteFormsContainer !== 'undefined' && quoteFormsContainer) {
+            initializeVariantAvailability();
+            console.log("[DOMContentLoaded] ✅ Zainicjalizowano dostępność wariantów");
+        }
+    }, 500);
+});
+
+// ============ EXPORT FUNCTIONS ============
+
+// Eksportuj funkcje do użycia w innych plikach
+window.variantAvailability = {
+    initialize: initializeVariantAvailability,
+    setDefault: setDefaultVariantAvailability,
+    copy: copyVariantAvailability,
+    validate: validateAvailableVariants,
+    filter: filterAvailableVariantsForSave,
+    getAvailable: getAvailableVariants
+};
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log("🔧 Inicjalizuję poprawki resetowania wariantów...");

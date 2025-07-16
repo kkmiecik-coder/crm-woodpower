@@ -887,6 +887,14 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
                 li.appendChild(editedBadge);
             }
 
+            // Dodaj etykietę "Niewidoczny" jeśli wariant nie jest widoczny na stronie klienta
+            if (item.show_on_client_page === false) {
+                const hiddenBadge = document.createElement('div');
+                hiddenBadge.className = 'hidden-badge';
+                hiddenBadge.textContent = 'Niewidoczny';
+                li.appendChild(hiddenBadge);
+            }
+
             // Dodaj informacje o rabacie jeśli istnieje
             if (item.discount_percentage !== 0) {
                 const discountInfo = document.createElement('div');

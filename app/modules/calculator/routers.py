@@ -179,6 +179,24 @@ def shipping_quote():
 
 logger = logging.getLogger(__name__)
 
+@calculator_bp.route('/api/finishing-prices', methods=['GET'])
+def get_finishing_prices():
+    """Pobieranie cen wykończeń z bazy danych"""
+    try:
+        from .models import FinishingTypePrice
+        prices = FinishingTypePrice.query.filter_by(is_active=True).all()
+        prices_data = []
+        for price in prices:
+            prices_data.append({
+                'id': price.id,
+                'name': price.name,
+                'price_netto': float(price.price_netto)
+            })
+        return jsonify(prices_data)
+    except Exception as e:
+        current_app.logger.error(f"Błąd pobierania cen wykończeń: {str(e)}")
+        return jsonify({'error': 'Błąd pobierania cen wykończeń'}), 500
+
 @calculator_bp.route('/save_quote', methods=['POST'])
 def save_quote():
     user_email = session.get('user_email')
@@ -288,23 +306,30 @@ def save_quote():
                 current_app.logger.warning(f"[save_quote_backend] Produkt #{i + 1} nie zawiera wariantów – pomijam.")
                 continue
 
-            first_variant = variants[0]
-            
-            # DODANE: Pobranie quantity z danych produktu
+            # ✅ POPRAWKA: Pobierz dane wykończenia z poziomu produktu, nie z pierwszego wariantu
             product_quantity = int(product.get('quantity', 1))
             
-            current_app.logger.info(f"[save_quote_backend] Produkt #{i + 1}: quantity={product_quantity}")
+            # NOWE: Pobierz wykończenie z poziomu produktu
+            finishing_type = product.get("finishing_type")
+            finishing_variant = product.get("finishing_variant")
+            finishing_color = product.get("finishing_color")
+            finishing_gloss_level = product.get("finishing_gloss_level")
+            finishing_price_netto = product.get("finishing_netto", 0.0)
+            finishing_price_brutto = product.get("finishing_brutto", 0.0)
             
+            current_app.logger.info(f"[save_quote_backend] Produkt #{i + 1}: quantity={product_quantity}")
+            current_app.logger.info(f"[save_quote_backend] Wykończenie produktu #{i + 1}: type={finishing_type}, variant={finishing_variant}, color={finishing_color}, gloss={finishing_gloss_level}")
+            
+            # Zapisz szczegóły wykończenia dla produktu
             item_details = QuoteItemDetails(
                 quote_id=quote.id,
                 product_index=i + 1,
-                finishing_type=first_variant.get("finishing_type"),
-                finishing_variant=first_variant.get("finishing_variant"),
-                finishing_color=first_variant.get("finishing_color"),
-                finishing_gloss_level=first_variant.get("finishing_gloss_level"),
-                finishing_price_netto=first_variant.get("finishing_netto", 0.0),
-                finishing_price_brutto=first_variant.get("finishing_brutto", 0.0),
-                # NOWE POLE: dodanie quantity do QuoteItemDetails
+                finishing_type=finishing_type,
+                finishing_variant=finishing_variant,
+                finishing_color=finishing_color,
+                finishing_gloss_level=finishing_gloss_level,
+                finishing_price_netto=finishing_price_netto,
+                finishing_price_brutto=finishing_price_brutto,
                 quantity=product_quantity
             )
             db.session.add(item_details)
@@ -318,7 +343,10 @@ def save_quote():
                 unit_price_netto = final_price_netto / product_quantity if product_quantity > 0 else 0.0
                 unit_price_brutto = final_price_brutto / product_quantity if product_quantity > 0 else 0.0
                 
-                current_app.logger.info(f"[save_quote_backend] Variant #{j + 1}: final_total={final_price_brutto}, quantity={product_quantity}, unit_price={unit_price_brutto}")
+                # ✅ NOWE: Pobierz informację o dostępności wariantu
+                is_available = variant.get('is_available', True)
+                
+                current_app.logger.info(f"[save_quote_backend] Variant #{j + 1}: final_total={final_price_brutto}, quantity={product_quantity}, unit_price={unit_price_brutto}, available={is_available}")
                 
                 quote_item = QuoteItem(
                     quote_id=quote.id,
@@ -332,10 +360,12 @@ def save_quote():
                     price_netto=unit_price_netto,      # CENA JEDNOSTKOWA
                     price_brutto=unit_price_brutto,    # CENA JEDNOSTKOWA
                     is_selected=variant.get('is_selected', False),
-                    variant_code=variant.get('variant_code')
+                    variant_code=variant.get('variant_code'),
+                    # ✅ NOWE: Ustawienie widoczności na stronie klienta na podstawie dostępności
+                    show_on_client_page=is_available   # Tylko dostępne warianty widoczne dla klienta
                 )
                 db.session.add(quote_item)
-                current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} unit_price_brutto={quote_item.price_brutto}")
+                current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} unit_price_brutto={quote_item.price_brutto} available={is_available}")
 
         current_app.logger.info("[save_quote_backend] Wszystkie produkty zapisane w QuoteItem.")
 

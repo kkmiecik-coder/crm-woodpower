@@ -2632,3 +2632,24 @@
             font-weight: 600;
         }
 }
+
+/* Etykieta "Niewidoczny" */
+.hidden-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background-color: #6f42c1;
+    color: white;
+    font-size: 10px;
+    font-weight: 400;
+    padding: 4px 8px;
+    border-radius: 0 8px 0 6px;
+    line-height: 1;
+    z-index: 1;
+}
+
+/* Gdy oba labele są obecne, przesuń "Niewidoczny" w dół */
+.variant-list li:has(.edited-badge) .hidden-badge {
+    top: 22px;
+    border-radius: 8px 0 0 8px;
+}

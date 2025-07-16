@@ -9,6 +9,8 @@ from sqlalchemy.orm import joinedload
 import sys
 import os
 import mimetypes
+import zipfile
+import re
 
 # Globalna instancja generatora Reality
 reality_generator = None
@@ -99,6 +101,156 @@ def generate_product_3d():
     except Exception as e:
         print(f"[Preview3D] Error generating 3D config: {str(e)}", file=sys.stderr)
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+# Dodaj to na końcu pliku routers.py (przed ostatnim def get_reality_generator())
+
+@preview3d_ar_bp.route('/api/debug-usdz/<filename>')
+def debug_usdz_file(filename):
+    """NOWY: Szczegółowe debugowanie pliku USDZ"""
+    try:
+        cache_dir = os.path.join(
+            current_app.root_path,
+            'modules', 'preview3d_ar', 'static', 'ar-models', 'cache'
+        )
+        file_path = os.path.join(cache_dir, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'Plik nie istnieje'}), 404
+        
+        debug_info = {}
+        
+        # Podstawowe informacje o pliku
+        stat = os.stat(file_path)
+        debug_info['file_info'] = {
+            'size_bytes': stat.st_size,
+            'size_mb': round(stat.st_size / (1024*1024), 3),
+            'created': stat.st_mtime,
+            'permissions': oct(stat.st_mode)[-3:]
+        }
+        
+        # Analiza zawartości USDZ (ZIP)
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zf:
+                files = zf.namelist()
+                debug_info['archive_info'] = {
+                    'files_count': len(files),
+                    'files_list': files,
+                    'first_file': files[0] if files else None,
+                    'first_file_is_usd': files[0].endswith(('.usd', '.usda')) if files else False
+                }
+                
+                # Szczegóły każdego pliku w archiwum
+                file_details = []
+                for file_name in files:
+                    file_info = zf.getinfo(file_name)
+                    file_details.append({
+                        'name': file_name,
+                        'compressed_size': file_info.compress_size,
+                        'uncompressed_size': file_info.file_size,
+                        'compression_ratio': round(file_info.compress_size / max(file_info.file_size, 1), 3),
+                        'is_texture': file_name.lower().endswith(('.jpg', '.jpeg', '.png')),
+                        'is_usd': file_name.endswith(('.usd', '.usda'))
+                    })
+                debug_info['file_details'] = file_details
+                
+                # Analiza zawartości USD
+                usd_files = [f for f in files if f.endswith(('.usd', '.usda'))]
+                if usd_files:
+                    try:
+                        with zf.open(usd_files[0]) as usd_file:
+                            usd_content = usd_file.read().decode('utf-8')
+                            
+                            debug_info['usd_analysis'] = {
+                                'file_name': usd_files[0],
+                                'content_length': len(usd_content),
+                                'has_textures': 'DiffuseTexture' in usd_content,
+                                'has_material_binding': 'material:binding' in usd_content,
+                                'has_uv_coordinates': 'primvars:st' in usd_content,
+                                'has_normals': 'normal3f' in usd_content,
+                                'material_count': usd_content.count('def Material'),
+                                'mesh_count': usd_content.count('def Mesh'),
+                                'shader_count': usd_content.count('def Shader'),
+                                'texture_references': []
+                            }
+                            
+                            # Znajdź referencje do tekstur
+                            import re
+                            texture_refs = re.findall(r'asset inputs:file = @\./(.*?)@', usd_content)
+                            debug_info['usd_analysis']['texture_references'] = texture_refs
+                            
+                            # Sprawdź czy referencje do tekstur istnieją w archiwum
+                            missing_textures = []
+                            for tex_ref in texture_refs:
+                                if tex_ref not in files:
+                                    missing_textures.append(tex_ref)
+                            debug_info['usd_analysis']['missing_textures'] = missing_textures
+                            
+                            # Fragment USD dla debugowania (pierwsze 1000 znaków)
+                            debug_info['usd_preview'] = usd_content[:1000] + "..." if len(usd_content) > 1000 else usd_content
+                            
+                    except Exception as e:
+                        debug_info['usd_analysis'] = {'error': str(e)}
+        
+        except zipfile.BadZipFile:
+            debug_info['archive_info'] = {'error': 'Plik nie jest prawidłowym archiwum ZIP'}
+        
+        # Walidacja dla iOS QuickLook
+        ios_compatibility = {
+            'file_size_ok': stat.st_size < 50 * 1024 * 1024,  # < 50MB
+            'has_usd_file': any(f.endswith(('.usd', '.usda')) for f in debug_info.get('archive_info', {}).get('files_list', [])),
+            'usd_is_first': debug_info.get('archive_info', {}).get('first_file_is_usd', False),
+            'texture_sizes_ok': True,  # Sprawdzimy to poniżej
+            'no_missing_textures': len(debug_info.get('usd_analysis', {}).get('missing_textures', [])) == 0
+        }
+        
+        # Sprawdź rozmiary tekstur w archiwum
+        large_textures = []
+        if 'file_details' in debug_info:
+            for file_detail in debug_info['file_details']:
+                if file_detail['is_texture'] and file_detail['uncompressed_size'] > 2 * 1024 * 1024:  # > 2MB
+                    large_textures.append(file_detail['name'])
+        
+        ios_compatibility['texture_sizes_ok'] = len(large_textures) == 0
+        ios_compatibility['large_textures'] = large_textures
+        
+        # Ogólna ocena kompatybilności
+        compatibility_score = sum(ios_compatibility[key] for key in ios_compatibility if isinstance(ios_compatibility[key], bool))
+        total_checks = len([key for key in ios_compatibility if isinstance(ios_compatibility[key], bool)])
+        ios_compatibility['score'] = f"{compatibility_score}/{total_checks}"
+        ios_compatibility['is_compatible'] = compatibility_score == total_checks
+        
+        debug_info['ios_compatibility'] = ios_compatibility
+        
+        # Rekomendacje
+        recommendations = []
+        if not ios_compatibility['file_size_ok']:
+            recommendations.append("Plik jest za duży (>50MB) - zmniejsz tekstury lub geometrię")
+        if not ios_compatibility['has_usd_file']:
+            recommendations.append("Brak pliku USD w archiwum")
+        if not ios_compatibility['usd_is_first']:
+            recommendations.append("Plik USD powinien być pierwszym plikiem w archiwum")
+        if not ios_compatibility['texture_sizes_ok']:
+            recommendations.append(f"Tekstury za duże: {large_textures}")
+        if not ios_compatibility['no_missing_textures']:
+            missing = debug_info.get('usd_analysis', {}).get('missing_textures', [])
+            recommendations.append(f"Brakuje tekstur: {missing}")
+        
+        if not recommendations:
+            recommendations.append("✅ Plik wygląda na kompatybilny z iOS QuickLook")
+        
+        debug_info['recommendations'] = recommendations
+        
+        return jsonify({
+            'filename': filename,
+            'debug_info': debug_info,
+            'status': 'compatible' if ios_compatibility['is_compatible'] else 'issues_found'
+        })
+        
+    except Exception as e:
+        print(f"[debug_usdz_file] Błąd: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': f'Błąd debugowania: {str(e)}'}), 500
 
 @preview3d_ar_bp.route('/api/generate-reality', methods=['POST'])
 def generate_reality():
@@ -587,186 +739,3 @@ def get_reality_generator():
         reality_generator = RealityGenerator()
     return reality_generator
 
-# Dodaj do modules/preview3d_ar/routers.py
-
-
-@preview3d_ar_bp.route('/api/debug-textures/<variant>')
-def debug_textures(variant):
-    """POPRAWIONY Debug endpoint - sprawdza dostępność tekstur"""
-    try:
-        print(f"[Debug] Sprawdzanie tekstur dla: {variant}", file=sys.stderr)
-        
-        # Sprawdź parsing wariantu
-        try:
-            species, technology, wood_class = TextureConfig.parse_variant(variant)
-            print(f"[Debug] Parsed: {species}, {technology}, {wood_class}", file=sys.stderr)
-        except Exception as e:
-            return jsonify({'error': f'Parse error: {str(e)}'}), 400
-        
-        # Sprawdź ścieżki
-        base_dir = os.path.join(
-            current_app.root_path,
-            'modules', 'preview3d_ar', 'static', 'textures',
-            species, f"{wood_class}_{technology}"
-        )
-        
-        print(f"[Debug] Base dir: {base_dir}", file=sys.stderr)
-        print(f"[Debug] Dir exists: {os.path.exists(base_dir)}", file=sys.stderr)
-        
-        if os.path.exists(base_dir):
-            files = os.listdir(base_dir)
-            print(f"[Debug] Files in dir: {files}", file=sys.stderr)
-        
-        # Sprawdź tekstury przez TextureConfig
-        textures = TextureConfig.get_all_textures_for_variant(variant)
-        
-        # POPRAWIONE: Sprawdź lokalne ścieżki na podstawie URLs
-        local_paths = {}
-        total_existing_files = 0
-        
-        for surf_type, surf_data in textures.items():
-            local_paths[surf_type] = []
-            
-            for url in surf_data.get('variants', []):
-                # Konwertuj URL z powrotem na lokalną ścieżkę
-                if '/static/preview3d_ar/' in url:
-                    # Usuń domenę jeśli jest
-                    if url.startswith('http'):
-                        url_path = url.split('/static/preview3d_ar/')[-1]
-                    else:
-                        url_path = url.split('/static/preview3d_ar/')[-1]
-                    
-                    # Zbuduj pełną ścieżkę lokalną
-                    full_path = os.path.join(
-                        current_app.root_path, 
-                        'modules', 'preview3d_ar', 'static', 
-                        url_path
-                    )
-                    
-                    # Sprawdź czy plik istnieje
-                    exists = os.path.exists(full_path)
-                    size = os.path.getsize(full_path) if exists else 0
-                    
-                    local_paths[surf_type].append({
-                        'url': url,
-                        'rel_path': url_path,
-                        'full_path': full_path,
-                        'exists': exists,
-                        'size': size
-                    })
-                    
-                    if exists:
-                        total_existing_files += 1
-                        
-                    print(f"[Debug] {surf_type}: {url} -> exists: {exists}", file=sys.stderr)
-        
-        # Poprawne summary
-        summary = {
-            'total_variants': sum(len(surf['variants']) for surf in textures.values()),
-            'existing_files': total_existing_files,
-            'has_face_texture': len([p for p in local_paths.get('face', []) if p['exists']]) > 0,
-            'has_edge_texture': len([p for p in local_paths.get('edge', []) if p['exists']]) > 0,
-            'has_side_texture': len([p for p in local_paths.get('side', []) if p['exists']]) > 0
-        }
-        
-        print(f"[Debug] CORRECTED Summary: {summary}", file=sys.stderr)
-        
-        return jsonify({
-            'variant_code': variant,
-            'parsed': {
-                'species': species,
-                'technology': technology,
-                'wood_class': wood_class
-            },
-            'base_directory': {
-                'path': base_dir,
-                'exists': os.path.exists(base_dir),
-                'files': os.listdir(base_dir) if os.path.exists(base_dir) else []
-            },
-            'textures': textures,
-            'local_paths': local_paths,
-            'summary': summary  # POPRAWIONY SUMMARY!
-        })
-        
-    except Exception as e:
-        print(f"[Debug] Error: {str(e)}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        return jsonify({'error': f'Debug error: {str(e)}'}), 500
-
-@preview3d_ar_bp.route('/api/debug-usdz-content/<filename>')
-def debug_usdz_content(filename):
-    """Debug endpoint - sprawdza zawartość pliku USDZ/Reality"""
-    try:
-        cache_dir = os.path.join(
-            current_app.root_path,
-            'modules', 'preview3d_ar', 'static', 'ar-models', 'cache'
-        )
-        file_path = os.path.join(cache_dir, filename)
-        
-        if not os.path.exists(file_path):
-            return jsonify({'error': 'File not found'}), 404
-        
-        import zipfile
-        
-        # Sprawdź zawartość ZIP
-        file_info = {
-            'filename': filename,
-            'size': os.path.getsize(file_path),
-            'files': [],
-            'has_textures': False,
-            'has_usd': False,
-            'has_obj': False
-        }
-        
-        with zipfile.ZipFile(file_path, 'r') as zf:
-            for info in zf.infolist():
-                file_entry = {
-                    'name': info.filename,
-                    'size': info.file_size,
-                    'compressed_size': info.compress_size,
-                    'type': 'unknown'
-                }
-                
-                # Określ typ pliku
-                name_lower = info.filename.lower()
-                if name_lower.endswith('.usd'):
-                    file_entry['type'] = 'USD Scene'
-                    file_info['has_usd'] = True
-                elif name_lower.endswith('.obj'):
-                    file_entry['type'] = 'OBJ Geometry'
-                    file_info['has_obj'] = True
-                elif name_lower.endswith(('.jpg', '.jpeg', '.png')):
-                    file_entry['type'] = 'Texture'
-                    file_info['has_textures'] = True
-                elif name_lower.endswith('.mtl'):
-                    file_entry['type'] = 'Material'
-                
-                file_info['files'].append(file_entry)
-        
-        # Sprawdź USD content jeśli istnieje
-        usd_content = None
-        for file_entry in file_info['files']:
-            if file_entry['type'] == 'USD Scene':
-                try:
-                    with zipfile.ZipFile(file_path, 'r') as zf:
-                        with zf.open(file_entry['name']) as f:
-                            usd_content = f.read().decode('utf-8')
-                            break
-                except:
-                    pass
-        
-        return jsonify({
-            'file_info': file_info,
-            'usd_content_preview': usd_content[:1000] + '...' if usd_content and len(usd_content) > 1000 else usd_content,
-            'diagnosis': {
-                'is_valid_usdz': file_info['has_usd'] and file_info['has_obj'],
-                'has_textures': file_info['has_textures'],
-                'texture_count': len([f for f in file_info['files'] if f['type'] == 'Texture']),
-                'total_files': len(file_info['files'])
-            }
-        })
-        
-    except Exception as e:
-        print(f"[Debug USDZ] Error: {str(e)}", file=sys.stderr)
-        return jsonify({'error': f'Debug error: {str(e)}'}), 500

@@ -1,0 +1,1852 @@
+# modules/reports/routers.py
+"""
+Endpointy Flask dla modułu Reports
+"""
+
+from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response
+from datetime import datetime, timedelta, date
+from functools import wraps
+from typing import List, Dict
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+import pandas as pd
+import io
+import sys
+from extensions import db
+from . import reports_bp
+from .models import BaselinkerReportOrder, ReportsSyncLog
+from .service import BaselinkerReportsService, get_reports_service
+from modules.logging import get_structured_logger
+
+# Inicjalizacja loggera
+reports_logger = get_structured_logger('reports.routers')
+
+def login_required(func):
+    """Dekorator wymagający zalogowania"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        user_email = session.get('user_email')
+        if not user_email:
+            reports_logger.warning("Próba dostępu bez autoryzacji",
+                                 endpoint=request.endpoint,
+                                 ip=request.remote_addr)
+            flash("Twoja sesja wygasła. Zaloguj się ponownie.", "error")
+            return redirect(url_for('login'))
+        return func(*args, **kwargs)
+    return wrapper
+
+
+@reports_bp.route('/')
+@login_required
+def reports_home():
+    """
+    Główna strona modułu Reports
+    """
+    user_email = session.get('user_email')
+    reports_logger.info("Dostęp do modułu Reports", user_email=user_email)
+    
+    try:
+        # ZMIANA: Sprawdź wszystkie nowe zamówienia, nie tylko z ostatnich 48h
+        service = get_reports_service()
+        
+        # Sprawdź nowe zamówienia bez ograniczenia czasowego
+        try:
+            # Pobierz wszystkie zamówienia z Baselinker
+            orders = service.fetch_orders_from_baselinker(date_from=None)
+            
+            if orders:
+                # Sprawdź które są nowe
+                order_ids = [order['order_id'] for order in orders]
+                existing_ids = service._get_existing_order_ids(order_ids)
+                new_orders_count = len(order_ids) - len(existing_ids)
+                has_new_orders = new_orders_count > 0
+                
+                reports_logger.info("Sprawdzenie nowych zamówień na stronie głównej",
+                                  user_email=user_email,
+                                  total_orders_from_baselinker=len(orders),
+                                  existing_in_database=len(existing_ids),
+                                  new_orders_count=new_orders_count,
+                                  has_new_orders=has_new_orders,
+                                  api_limit_reached=len(orders) >= 100)
+                
+                # UWAGA: Jeśli API zwrócił 100 zamówień, może być więcej
+                if len(orders) >= 100:
+                    reports_logger.warning("Limit API Baselinker osiągnięty na stronie głównej",
+                                         user_email=user_email,
+                                         orders_returned=len(orders),
+                                         api_limit=100,
+                                         info="Może być więcej nowych zamówień niż pokazane")
+            else:
+                has_new_orders = False
+                new_orders_count = 0
+                reports_logger.info("Brak zamówień w Baselinker", user_email=user_email)
+                
+        except Exception as e:
+            # POPRAWKA: Nie resetuj has_new_orders w przypadku błędu logowania
+            reports_logger.error("Błąd sprawdzania nowych zamówień na stronie głównej",
+                               user_email=user_email,
+                               error=str(e),
+                               error_type=type(e).__name__)
+            
+            # ZMIANA: W przypadku błędu, spróbuj prostszą metodę
+            try:
+                # Pobierz ostatnie 24h jako fallback
+                date_from_fallback = datetime.now() - timedelta(hours=24)
+                orders_fallback = service.fetch_orders_from_baselinker(date_from=date_from_fallback)
+                
+                if orders_fallback:
+                    order_ids = [order['order_id'] for order in orders_fallback]
+                    existing_ids = service._get_existing_order_ids(order_ids)
+                    new_orders_count = len(order_ids) - len(existing_ids)
+                    has_new_orders = new_orders_count > 0
+                    
+                    reports_logger.info("Fallback: Sprawdzenie zamówień z ostatnich 24h",
+                                      user_email=user_email,
+                                      fallback_orders=len(orders_fallback),
+                                      new_orders_count=new_orders_count,
+                                      has_new_orders=has_new_orders)
+                else:
+                    has_new_orders = False
+                    new_orders_count = 0
+                    
+            except Exception as fallback_error:
+                reports_logger.error("Błąd fallback sprawdzania zamówień",
+                                   user_email=user_email,
+                                   error=str(fallback_error))
+                has_new_orders = False
+                new_orders_count = 0
+        
+        # Pobierz podstawowe statystyki - ZMIANA: Domyślnie wszystkie dane
+        date_from = None  # datetime.now().date() - timedelta(days=30)
+        date_to = None    # datetime.now().date()
+        
+        reports_logger.info("Ładowanie statystyk Reports",
+                          user_email=user_email,
+                          date_from=date_from.isoformat() if date_from else "wszystkie",
+                          date_to=date_to.isoformat() if date_to else "wszystkie")
+        
+        # POPRAWKA: Sprawdź czy są jakiekolwiek dane w bazie
+        total_records = BaselinkerReportOrder.query.count()
+        
+        if total_records == 0:
+            # Brak danych w bazie - ustaw puste statystyki
+            stats = {
+                'total_m3': 0.0,
+                'order_amount_net': 0.0,
+                'value_net': 0.0,
+                'value_gross': 0.0,
+                'avg_price_per_m3': 0.0,
+                'delivery_cost': 0.0,
+                'paid_amount_net': 0.0,
+                'balance_due': 0.0,
+                'production_volume': 0.0,
+                'production_value_net': 0.0,
+                'ready_pickup_volume': 0.0
+            }
+            comparison = {}
+            reports_logger.info("Brak danych w bazie - wyświetlanie pustych statystyk",
+                              user_email=user_email)
+        else:
+            # Pobierz dane dla całej bazy lub wybranego zakresu dat
+            query = BaselinkerReportOrder.get_filtered_orders(
+                date_from=date_from,
+                date_to=date_to
+            )
+            
+            # Sprawdź czy query zwraca jakieś dane
+            query_results = query.all()
+            
+            if not query_results:
+                # Brak danych dla wybranego zakresu - ustaw puste statystyki
+                stats = {
+                    'total_m3': 0.0,
+                    'order_amount_net': 0.0,
+                    'value_net': 0.0,
+                    'value_gross': 0.0,
+                    'avg_price_per_m3': 0.0,
+                    'delivery_cost': 0.0,
+                    'paid_amount_net': 0.0,
+                    'balance_due': 0.0,
+                    'production_volume': 0.0,
+                    'production_value_net': 0.0,
+                    'ready_pickup_volume': 0.0
+                }
+                comparison = {}
+                reports_logger.info("Brak danych dla wybranego zakresu",
+                                  user_email=user_email,
+                                  total_records_in_db=total_records)
+            else:
+                # Oblicz statystyki dla istniejących danych
+                stats = BaselinkerReportOrder.get_statistics(query)
+                
+                # Oblicz porównania tylko jeśli mamy dane i sensowne wartości
+                comparison = {}
+                if stats.get('total_m3', 0) > 0 or stats.get('order_amount_net', 0) > 0:
+                    try:
+                        comparison = BaselinkerReportOrder.get_comparison_statistics(
+                            {}, date_from, date_to
+                        )
+                    except Exception as comp_error:
+                        reports_logger.warning("Błąd obliczania porównań", 
+                                             user_email=user_email,
+                                             error=str(comp_error))
+                        comparison = {}
+                
+                reports_logger.info("Obliczono statystyki",
+                                  user_email=user_email,
+                                  records_count=len(query_results),
+                                  total_m3=stats.get('total_m3', 0),
+                                  order_amount_net=stats.get('order_amount_net', 0))
+        
+        # Pobierz ostatni log synchronizacji
+        last_sync = ReportsSyncLog.query.order_by(ReportsSyncLog.sync_date.desc()).first()
+        
+        # ZMIANA: Domyślne daty do wyświetlenia w interfejsie - ostatnie 30 dni dla wygody
+        default_date_from = datetime.now().date() - timedelta(days=30)
+        default_date_to = datetime.now().date()
+        
+        context = {
+            'user_email': user_email,
+            'has_new_orders': has_new_orders,
+            'new_orders_count': new_orders_count,
+            'api_limit_reached': len(orders) >= 100 if 'orders' in locals() else False,  # NOWE
+            'stats': stats,
+            'comparison': comparison,
+            'last_sync': last_sync,
+            'default_date_from': default_date_from.isoformat(),
+            'default_date_to': default_date_to.isoformat(),
+            'total_records': total_records
+        }
+        
+        return render_template('reports.html', **context)
+        
+    except Exception as e:
+        reports_logger.error("Błąd ładowania strony Reports", 
+                           user_email=user_email, 
+                           error=str(e),
+                           error_type=type(e).__name__)
+        flash("Wystąpił błąd podczas ładowania danych.")
+        return redirect(url_for('home'))
+
+@reports_bp.route('/api/data')
+@login_required
+def api_get_data():
+    """
+    API endpoint do pobierania danych tabeli z filtrami
+    """
+    try:
+        # Pobierz parametry filtrów
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # Parsuj daty
+        date_from = None
+        date_to = None
+        
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Nieprawidłowy format daty początkowej'}), 400
+                
+        if date_to_str:
+            try:
+                date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Nieprawidłowy format daty końcowej'}), 400
+        
+        # Pobierz filtry kolumn (obsługa multiple values)
+        column_filters = {}
+        for key, values in request.args.items(multi=True):
+            if key.startswith('filter_') and values:
+                column_name = key.replace('filter_', '')
+                if hasattr(BaselinkerReportOrder, column_name):
+                    # Grupuj wartości dla tego samego filtra
+                    if column_name not in column_filters:
+                        column_filters[column_name] = []
+                    column_filters[column_name].extend(values if isinstance(values, list) else [values])
+        
+        # Wyczyść puste wartości
+        for column_name in list(column_filters.keys()):
+            column_filters[column_name] = [v for v in column_filters[column_name] if v and v.strip()]
+            if not column_filters[column_name]:
+                del column_filters[column_name]
+        
+        reports_logger.debug("Pobieranie danych z filtrami",
+                           date_from=date_from.isoformat() if date_from else None,
+                           date_to=date_to.isoformat() if date_to else None,
+                           filters=column_filters)
+        
+        try:
+            # Pobierz dane z bazy
+            query = BaselinkerReportOrder.get_filtered_orders(
+                filters=column_filters,
+                date_from=date_from,
+                date_to=date_to
+            )
+            
+            orders = query.all()
+            
+        except Exception as db_error:
+            # Jeśli błąd bazy danych, spróbuj ponownie
+            reports_logger.warning("Błąd bazy danych, ponowna próba", error=str(db_error))
+            try:
+                # Zamknij połączenie i spróbuj ponownie
+                db.session.close()
+                db.engine.dispose()
+                
+                query = BaselinkerReportOrder.get_filtered_orders(
+                    filters=column_filters,
+                    date_from=date_from,
+                    date_to=date_to
+                )
+                orders = query.all()
+                
+            except Exception as retry_error:
+                reports_logger.error("Błąd bazy danych przy ponownej próbie", error=str(retry_error))
+                return jsonify({
+                    'success': False,
+                    'error': f'Błąd bazy danych: {str(retry_error)}'
+                }), 500
+        
+        # Konwertuj na JSON
+        data = [order.to_dict() for order in orders]
+        
+        # Oblicz statystyki dla przefiltrowanych danych
+        stats = BaselinkerReportOrder.get_statistics(query)
+        
+        # Oblicz statystyki porównawcze jeśli mamy daty
+        comparison = {}
+        if date_from and date_to:
+            try:
+                comparison = BaselinkerReportOrder.get_comparison_statistics(
+                    column_filters, date_from, date_to
+                )
+            except Exception as comp_error:
+                reports_logger.warning("Błąd obliczania porównań", error=str(comp_error))
+                comparison = {}
+        
+        reports_logger.info("Pobrano dane tabeli",
+                          orders_count=len(data),
+                          date_from=date_from.isoformat() if date_from else None,
+                          date_to=date_to.isoformat() if date_to else None)
+        
+        return jsonify({
+            'success': True,
+            'data': data,
+            'stats': stats,
+            'comparison': comparison,
+            'total_count': len(data)
+        })
+        
+    except Exception as e:
+        reports_logger.error("Błąd pobierania danych API", error=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@reports_bp.route('/api/sync', methods=['POST'])
+@login_required
+def api_sync_with_baselinker():
+    """
+    API endpoint do synchronizacji z Baselinker
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        # Pobierz parametry
+        data = request.get_json() or {}
+        date_from_str = data.get('date_from')
+        date_to_str = data.get('date_to')
+        selected_orders = data.get('selected_orders', [])  # Lista ID zamówień do synchronizacji
+        
+        # ZMIANA: Parsuj daty tylko jeśli podane, nie używaj domyślnie 30 dni
+        date_from = None
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
+                reports_logger.info("Użyto podanej daty rozpoczęcia", 
+                                  date_from=date_from.isoformat())
+            except ValueError as e:
+                reports_logger.warning("Błędny format daty, pominięto filtr daty",
+                                     date_from_str=date_from_str,
+                                     error=str(e))
+                date_from = None
+        
+        reports_logger.info("Rozpoczęcie synchronizacji z Baselinker",
+                          user_email=user_email,
+                          date_from=date_from.isoformat() if date_from else "wszystkie zamówienia",
+                          selected_orders_count=len(selected_orders),
+                          selected_orders=selected_orders[:10])  # Loguj tylko pierwsze 10 ID
+        
+        # Pobierz serwis
+        service = get_reports_service()
+        
+        if selected_orders and len(selected_orders) > 0:
+            # Synchronizuj wybrane zamówienia
+            reports_logger.info("Synchronizowanie wybranych zamówień", 
+                              selected_orders_count=len(selected_orders))
+            result = _sync_selected_orders(service, selected_orders)
+        else:
+            # ZMIANA: Synchronizuj wszystkie zamówienia (bez ograniczenia 30 dni)
+            reports_logger.info("Synchronizowanie wszystkich zamówień",
+                              has_date_filter=date_from is not None)
+            result = service.sync_orders(date_from=date_from, sync_type='manual')
+        
+        reports_logger.info("Synchronizacja zakończona",
+                          user_email=user_email,
+                          success=result.get('success'),
+                          orders_processed=result.get('orders_processed', 0),
+                          orders_added=result.get('orders_added', 0),
+                          orders_updated=result.get('orders_updated', 0))
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        reports_logger.error("Błąd synchronizacji",
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@reports_bp.route('/api/check-new-orders')
+@login_required
+def api_check_new_orders():
+    """
+    API endpoint do sprawdzania nowych zamówień przed synchronizacją
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # ZMIANA: Nie używaj domyślnych 30 dni - sprawdź wszystkie zamówienia
+        date_from = None
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
+                reports_logger.info("Sprawdzanie nowych zamówień od daty", 
+                                  user_email=user_email,
+                                  date_from=date_from.isoformat())
+            except ValueError as e:
+                reports_logger.warning("Błędny format daty w sprawdzaniu nowych zamówień",
+                                     user_email=user_email,
+                                     date_from_str=date_from_str,
+                                     error=str(e))
+                date_from = None
+        
+        if date_from is None:
+            reports_logger.info("Sprawdzanie wszystkich nowych zamówień (bez ograniczenia daty)",
+                              user_email=user_email)
+        
+        service = get_reports_service()
+        
+        # ZMIANA: Pobierz zamówienia bez domyślnego ograniczenia dat
+        orders = service.fetch_orders_from_baselinker(date_from=date_from)
+        
+        if not orders:
+            reports_logger.info("Brak zamówień w Baselinker",
+                              user_email=user_email,
+                              has_date_filter=date_from is not None)
+            return jsonify({
+                'success': True,
+                'has_new_orders': False,
+                'message': 'Brak zamówień w Baselinker'
+            })
+        
+        # UWAGA: Jeśli API zwrócił 100 zamówień, może być więcej
+        if len(orders) >= 100:
+            reports_logger.warning("Limit API Baselinker osiągnięty na stronie głównej",
+                                 user_email=user_email,
+                                 orders_returned=len(orders),
+                                 api_limit=100,
+                                 info="Może być więcej nowych zamówień niż pokazane")
+        
+        # Sprawdź które zamówienia są nowe
+        order_ids = [order['order_id'] for order in orders]
+        existing_ids = service._get_existing_order_ids(order_ids)
+        
+        reports_logger.info("Analiza nowych zamówień",
+                          user_email=user_email,
+                          total_orders_in_baselinker=len(orders),
+                          existing_in_database=len(existing_ids),
+                          potentially_new=len(order_ids) - len(existing_ids))
+        
+        new_orders = []
+        for order in orders:
+            if order['order_id'] not in existing_ids:
+                # Przygotuj podstawowe informacje do wyświetlenia
+                customer_name = (
+                    order.get('delivery_fullname') or 
+                    order.get('delivery_company') or 
+                    order.get('user_login') or 
+                    'Nieznany klient'
+                )
+                
+                # Oblicz wartości brutto i netto
+                total_gross = sum(p.get('price_brutto', 0) * p.get('quantity', 1) for p in order.get('products', [])) + order.get('delivery_price', 0)
+                total_net = total_gross / 1.23
+                
+                order_info = {
+                    'order_id': order['order_id'],
+                    'date_add': datetime.fromtimestamp(order['date_add']).strftime('%d-%m-%Y %H:%M') if order.get('date_add') else '',
+                    'customer_name': customer_name,
+                    'products_count': len(order.get('products', [])),
+                    'total_gross': total_gross,
+                    'total_net': total_net,
+                    'delivery_price': order.get('delivery_price', 0),
+                    'internal_number': order.get('extra_field_1', ''),
+                    'products': [p.get('name') for p in order.get('products', [])]
+                }
+                new_orders.append(order_info)
+        
+        reports_logger.info("Sprawdzenie nowych zamówień zakończone",
+                          user_email=user_email,
+                          total_orders=len(orders),
+                          new_orders=len(new_orders),
+                          has_date_filter=date_from is not None,
+                          api_limit_reached=len(orders) >= 100)
+        
+        # Dodaj ostrzeżenie jeśli osiągnięto limit API
+        response_data = {
+            'success': True,
+            'has_new_orders': len(new_orders) > 0,
+            'new_orders': new_orders,
+            'total_orders': len(orders),
+            'existing_orders': len(existing_ids)
+        }
+        
+        if len(orders) >= 100:
+            response_data['api_limit_warning'] = True
+            response_data['message'] = f'Sprawdzono {len(orders)} zamówień (limit API). Może być więcej zamówień w Baselinker.'
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        reports_logger.error("Błąd sprawdzania nowych zamówień", 
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@reports_bp.route('/api/add-manual-row', methods=['POST'])
+@login_required
+def api_add_manual_row():
+    """
+    API endpoint do dodawania ręcznego wiersza
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        
+        reports_logger.info("Dodawanie ręcznego wiersza",
+                          user_email=user_email)
+        
+        # Utwórz nowy rekord
+        record = BaselinkerReportOrder(
+            is_manual=True,
+            date_created=datetime.strptime(data.get('date_created'), '%Y-%m-%d').date() if data.get('date_created') else date.today(),
+            internal_order_number=data.get('internal_order_number'),
+            customer_name=data.get('customer_name'),
+            delivery_postcode=data.get('delivery_postcode'),
+            delivery_city=data.get('delivery_city'),
+            delivery_address=data.get('delivery_address'),
+            delivery_state=data.get('delivery_state'),
+            phone=data.get('phone'),
+            caretaker=user_email,  # Automatycznie wpisz użytkownika dodającego
+            delivery_method=data.get('delivery_method'),
+            order_source=data.get('order_source'),
+            group_type=data.get('group_type'),
+            product_type=data.get('product_type', 'klejonka'),  # Domyślnie klejonka
+            finish_state=data.get('finish_state', 'surowy'),
+            wood_species=data.get('wood_species'),
+            technology=data.get('technology'),
+            wood_class=data.get('wood_class'),
+            length_cm=float(data.get('length_cm', 0)) if data.get('length_cm') else None,
+            width_cm=float(data.get('width_cm', 0)) if data.get('width_cm') else None,
+            thickness_cm=float(data.get('thickness_cm', 0)) if data.get('thickness_cm') else None,
+            quantity=int(data.get('quantity', 1)) if data.get('quantity') else 1,
+            price_gross=float(data.get('price_gross', 0)) if data.get('price_gross') else None,
+            delivery_cost=float(data.get('delivery_cost', 0)) if data.get('delivery_cost') else None,
+            payment_method=data.get('payment_method'),
+            paid_amount_net=float(data.get('paid_amount_net', 0)) if data.get('paid_amount_net') else 0,
+            current_status=data.get('current_status', 'Nowe - opłacone'),  # Domyślnie opłacone dla ręcznych
+            order_amount_net=float(data.get('price_gross', 0)) / 1.23 if data.get('price_gross') else 0  # Oblicz order_amount_net
+        )
+        
+        # Oblicz pola pochodne
+        record.calculate_fields()
+        
+        # Zapisz do bazy
+        db.session.add(record)
+        db.session.commit()
+        
+        reports_logger.info("Dodano ręczny wiersz",
+                          user_email=user_email,
+                          record_id=record.id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Wiersz został dodany',
+            'record_id': record.id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        reports_logger.error("Błąd dodawania ręcznego wiersza",
+                           user_email=user_email,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@reports_bp.route('/api/update-manual-row', methods=['POST'])
+@login_required
+def api_update_manual_row():
+    """
+    API endpoint do edycji ręcznego wiersza
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        record_id = data.get('record_id')
+        
+        if not record_id:
+            return jsonify({'success': False, 'error': 'Brak ID rekordu'}), 400
+        
+        # Pobierz rekord
+        record = BaselinkerReportOrder.query.get_or_404(record_id)
+        
+        # Sprawdź czy to rekord ręczny
+        if not record.is_manual:
+            return jsonify({
+                'success': False, 
+                'error': 'Można edytować tylko rekordy dodane ręcznie'
+            }), 403
+        
+        reports_logger.info("Edycja ręcznego wiersza",
+                          user_email=user_email,
+                          record_id=record_id)
+        
+        # Aktualizuj pola
+        for field, value in data.items():
+            if field == 'record_id':
+                continue
+            if hasattr(record, field):
+                if field.endswith('_cm') and value:
+                    setattr(record, field, float(value))
+                elif field in ['quantity'] and value:
+                    setattr(record, field, int(value))
+                elif field in ['price_gross', 'delivery_cost', 'paid_amount_net'] and value:
+                    setattr(record, field, float(value))
+                elif field == 'date_created' and value:
+                    setattr(record, field, datetime.strptime(value, '%Y-%m-%d').date())
+                else:
+                    setattr(record, field, value)
+        
+        # Przelicz order_amount_net dla ręcznych rekordów
+        if record.price_gross:
+            record.order_amount_net = float(record.price_gross) / 1.23
+        
+        # Przelicz pola pochodne
+        record.calculate_fields()
+        record.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        reports_logger.info("Zaktualizowano ręczny wiersz",
+                          user_email=user_email,
+                          record_id=record_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Wiersz został zaktualizowany'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        reports_logger.error("Błąd edycji ręcznego wiersza",
+                           user_email=user_email,
+                           record_id=record_id if 'record_id' in locals() else None,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@reports_bp.route('/api/export-excel')
+@login_required
+def api_export_excel():
+    """
+    API endpoint do eksportu danych do Excel z zaawansowanym formatowaniem
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        # Pobierz parametry filtrów
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # Parsuj daty
+        date_from = None
+        date_to = None
+        
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+                
+        if date_to_str:
+            try:
+                date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+        
+        # Pobierz filtry kolumn
+        column_filters = {}
+        for key, values in request.args.items(multi=True):
+            if key.startswith('filter_') and values:
+                column_name = key.replace('filter_', '')
+                if hasattr(BaselinkerReportOrder, column_name):
+                    if column_name not in column_filters:
+                        column_filters[column_name] = []
+                    column_filters[column_name].extend(values if isinstance(values, list) else [values])
+        
+        # Wyczyść puste wartości
+        for column_name in list(column_filters.keys()):
+            column_filters[column_name] = [v for v in column_filters[column_name] if v and v.strip()]
+            if not column_filters[column_name]:
+                del column_filters[column_name]
+        
+        reports_logger.info("Eksport do Excel",
+                          user_email=user_email,
+                          date_from=date_from.isoformat() if date_from else None,
+                          date_to=date_to.isoformat() if date_to else None,
+                          filters_count=len(column_filters))
+        
+        # Pobierz dane
+        query = BaselinkerReportOrder.get_filtered_orders(
+            filters=column_filters,
+            date_from=date_from,
+            date_to=date_to
+        )
+        orders = query.all()
+        
+        if not orders:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych do eksportu'
+            }), 400
+        
+        # Utwórz plik Excel w pamięci
+        output = io.BytesIO()
+        
+        # Import dla stylow Excel
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.table import Table, TableStyleInfo
+        
+        # Utwórz workbook
+        workbook = Workbook()
+        
+        # ===== ARKUSZ 1: DANE SZCZEGÓŁOWE =====
+        ws_details = workbook.active
+        ws_details.title = "Dane szczegółowe"
+        
+        # Przygotuj dane do DataFrame
+        excel_data = []
+        for order in orders:
+            excel_data.append({
+                'Data': order.date_created.strftime('%d-%m-%Y') if order.date_created else '',
+                'TTL m³': float(order.total_volume or 0),
+                'Kwota zamówień netto': float(order.order_amount_net or 0),
+                'Nr Baselinker': order.baselinker_order_id or '',
+                'Nr wew.': order.internal_order_number or '',
+                'Imię i nazwisko': order.customer_name or '',
+                'Kod pocztowy': order.delivery_postcode or '',
+                'Miejscowość': order.delivery_city or '',
+                'Ulica': order.delivery_address or '',
+                'Województwo': order.delivery_state or '',
+                'Telefon': order.phone or '',
+                'Opiekun': order.caretaker or '',
+                'Dostawa': order.delivery_method or '',
+                'Źródło': order.order_source or '',
+                'Grupa': order.group_type or '',
+                'Rodzaj': order.product_type or '',
+                'Wykończenie': order.finish_state or '',
+                'Gatunek': order.wood_species or '',
+                'Technologia': order.technology or '',
+                'Klasa': order.wood_class or '',
+                'Długość': float(order.length_cm or 0),
+                'Szerokość': float(order.width_cm or 0),
+                'Grubość': float(order.thickness_cm or 0),
+                'Ilość': order.quantity or 0,
+                'Cena brutto': float(order.price_gross or 0),
+                'Cena netto': float(order.price_net or 0),
+                'Wartość brutto': float(order.value_gross or 0),
+                'Wartość netto': float(order.value_net or 0),
+                'Objętość 1 szt.': float(order.volume_per_piece or 0),
+                'Objętość TTL': float(order.total_volume or 0),
+                'Cena za m³': float(order.price_per_m3 or 0),
+                'Data realizacji': order.realization_date.strftime('%d-%m-%Y') if order.realization_date else '',
+                'Status': order.current_status or '',
+                'Koszt kuriera': float(order.delivery_cost or 0),
+                'Sposób płatności': order.payment_method or '',
+                'Zapłacono netto': float(order.paid_amount_net or 0),
+                'Saldo': float(order.balance_due or 0),
+                'Ilość w produkcji': float(order.production_volume or 0),
+                'Wartość w produkcji': float(order.production_value_net or 0),
+                'Gotowe do odbioru': float(order.ready_pickup_volume or 0)
+            })
+        
+        # Utwórz DataFrame
+        df = pd.DataFrame(excel_data)
+        
+        # ===== DEFINICJA KOLORÓW (PASTELOWE) =====
+        COLORS = {
+            'order_data': 'E3F2FD',      # Jasny niebieski
+            'customer_data': 'E8F5E8',   # Jasny zielony  
+            'logistics_data': 'FFF9C4',  # Jasny żółty
+            'product_data': 'FFE0B2',    # Jasny pomarańczowy
+            'financial_data': 'F3E5F5',  # Jasny fioletowy
+            'production_data': 'F5F5F5'  # Jasny szary
+        }
+        
+        # Mapowanie kolumn do kolorów
+        COLUMN_COLORS = {
+            'Data': 'order_data',
+            'TTL m³': 'order_data',
+            'Kwota zamówień netto': 'order_data',
+            'Nr Baselinker': 'order_data',
+            'Nr wew.': 'order_data',
+            'Imię i nazwisko': 'customer_data',
+            'Kod pocztowy': 'customer_data',
+            'Miejscowość': 'customer_data',
+            'Ulica': 'customer_data',
+            'Województwo': 'customer_data',
+            'Telefon': 'customer_data',
+            'Opiekun': 'customer_data',
+            'Dostawa': 'logistics_data',
+            'Źródło': 'logistics_data',
+            'Status': 'logistics_data',
+            'Sposób płatności': 'logistics_data',
+            'Grupa': 'product_data',
+            'Rodzaj': 'product_data',
+            'Wykończenie': 'product_data',
+            'Gatunek': 'product_data',
+            'Technologia': 'product_data',
+            'Klasa': 'product_data',
+            'Długość': 'product_data',
+            'Szerokość': 'product_data',
+            'Grubość': 'product_data',
+            'Ilość': 'product_data',
+            'Cena brutto': 'financial_data',
+            'Cena netto': 'financial_data',
+            'Wartość brutto': 'financial_data',
+            'Wartość netto': 'financial_data',
+            'Cena za m³': 'financial_data',
+            'Koszt kuriera': 'financial_data',
+            'Zapłacono netto': 'financial_data',
+            'Saldo': 'financial_data',
+            'Objętość 1 szt.': 'production_data',
+            'Objętość TTL': 'production_data',
+            'Data realizacji': 'production_data',
+            'Ilość w produkcji': 'production_data',
+            'Wartość w produkcji': 'production_data',
+            'Gotowe do odbioru': 'production_data'
+        }
+        
+        # Kolumny liczbowe dla formuł podsumowania
+        NUMERIC_COLUMNS = {
+            'TTL m³': 'SUM',
+            'Kwota zamówień netto': 'SUM',
+            'Długość': 'AVERAGE',
+            'Szerokość': 'AVERAGE', 
+            'Grubość': 'AVERAGE',
+            'Ilość': 'SUM',
+            'Cena brutto': 'SUM',
+            'Cena netto': 'SUM',
+            'Wartość brutto': 'SUM',
+            'Wartość netto': 'SUM',
+            'Objętość 1 szt.': 'AVERAGE',
+            'Objętość TTL': 'SUM',
+            'Cena za m³': 'AVERAGE',
+            'Koszt kuriera': 'SUM',
+            'Zapłacono netto': 'SUM',
+            'Saldo': 'SUM',
+            'Ilość w produkcji': 'SUM',
+            'Wartość w produkcji': 'SUM',
+            'Gotowe do odbioru': 'SUM'
+        }
+        
+        # Stylizacja
+        header_font = Font(bold=True, color='FFFFFF')
+        summary_font = Font(bold=True, color='333333')
+        header_alignment = Alignment(horizontal='center', vertical='center')
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # ===== FORMATOWANIE ARKUSZA GŁÓWNEGO =====
+        def format_details_sheet(worksheet, dataframe):
+            # Wyczyść arkusz
+            worksheet.delete_rows(1, worksheet.max_row)
+            
+            expected_columns = [
+            'Data', 'TTL m³', 'Kwota zamówień netto', 'Nr Baselinker', 'Nr wew.',
+            'Imię i nazwisko', 'Kod pocztowy', 'Miejscowość', 'Ulica', 'Województwo',
+            'Telefon', 'Opiekun', 'Dostawa', 'Źródło', 'Grupa', 'Rodzaj',
+            'Wykończenie', 'Gatunek', 'Technologia', 'Klasa', 'Długość', 'Szerokość',
+            'Grubość', 'Ilość', 'Cena brutto', 'Cena netto', 'Wartość brutto', 'Wartość netto',
+            'Objętość 1 szt.', 'Objętość TTL', 'Cena za m³', 'Data realizacji', 'Status',
+            'Koszt kuriera', 'Sposób płatności', 'Zapłacono netto', 'Saldo',
+            'Ilość w produkcji', 'Wartość w produkcji', 'Gotowe do odbioru'
+            ]
+        
+            # Sprawdź czy kolumny się zgadzają
+            actual_columns = list(dataframe.columns)
+            if actual_columns != expected_columns:
+                print(f"UWAGA: Kolejność kolumn nie zgadza się!")
+                print(f"Oczekiwane: {expected_columns}")
+                print(f"Aktualne: {actual_columns}")
+
+            # WIERSZ 1: NAGŁÓWKI
+            headers = list(dataframe.columns)
+            for col_idx, header in enumerate(headers, 1):
+                cell = worksheet.cell(row=1, column=col_idx, value=header)
+                cell.font = header_font
+                cell.alignment = header_alignment
+                cell.border = border
+                
+                # Kolor tła nagłówka
+                color_key = COLUMN_COLORS.get(header, 'order_data')
+                # Ciemniejszy odcień dla nagłówka
+                header_colors = {
+                    'order_data': '1976D2',
+                    'customer_data': '388E3C',
+                    'logistics_data': 'F57C00',
+                    'product_data': 'F57C00',
+                    'financial_data': '7B1FA2',
+                    'production_data': '616161'
+                }
+                cell.fill = PatternFill(start_color=header_colors[color_key], end_color=header_colors[color_key], fill_type='solid')
+            
+            # WIERSZ 2: PODSUMOWANIA (FORMUŁY)
+            data_start_row = 4  # Dane zaczynają się od wiersza 4
+            data_end_row = data_start_row + len(dataframe) - 1
+            
+            for col_idx, header in enumerate(headers, 1):
+                cell = worksheet.cell(row=2, column=col_idx)
+                cell.font = summary_font
+                cell.border = border
+                
+                # Kolor tła podsumowania (jaśniejszy niż nagłówek)
+                color_key = COLUMN_COLORS.get(header, 'order_data')
+                cell.fill = PatternFill(start_color=COLORS[color_key], end_color=COLORS[color_key], fill_type='solid')
+                
+                # Dodaj formułę dla kolumn liczbowych
+                if header in NUMERIC_COLUMNS:
+                    formula_type = NUMERIC_COLUMNS[header]
+                    col_letter = get_column_letter(col_idx)
+                    
+                    # POPRAWKA: Specjalne formuły dla pól które mogą być duplikowane per zamówienie
+                    scalable_fields = ['Kwota zamówień netto', 'Koszt kuriera', 'Zapłacono netto', 'Saldo']
+                    
+                    if header in scalable_fields and formula_type == 'SUM':
+                        # Użyj SUMPRODUCT z COUNTIFS żeby sumować tylko raz na zamówienie
+                        # Zakładamy że kolumna D (4) to Nr Baselinker
+                        cell.value = f'=SUMPRODUCT((COUNTIFS($D${data_start_row}:$D${data_end_row},$D${data_start_row}:$D${data_end_row})=1)*({col_letter}{data_start_row}:{col_letter}{data_end_row}))'
+                    elif formula_type == 'SUM':
+                        cell.value = f'=SUM({col_letter}{data_start_row}:{col_letter}{data_end_row})'
+                    elif formula_type == 'AVERAGE':
+                        cell.value = f'=AVERAGE({col_letter}{data_start_row}:{col_letter}{data_end_row})'
+                    
+                    # Format liczbowy
+                    if 'zł' in header or 'Kwota' in header or 'Wartość' in header or 'Cena' in header or 'Koszt' in header or 'Zapłacono' in header or 'Saldo' in header:
+                        cell.number_format = '#,##0.00" zł"'
+                    elif 'm³' in header or 'Objętość' in header:
+                        cell.number_format = '#,##0.0000'
+                    else:
+                        cell.number_format = '#,##0.00'
+                else:
+                    # Dla kolumn tekstowych - informacje opisowe
+                    if header == 'Data':
+                        period_text = f"Okres: {date_from.strftime('%d-%m-%Y') if date_from else 'wszystkie'} - {date_to.strftime('%d-%m-%Y') if date_to else 'wszystkie'}"
+                        cell.value = period_text
+                    elif header == 'Imię i nazwisko':
+                        # Formuła do liczenia unikalnych klientów
+                        cell.value = f'=SUMPRODUCT(1/COUNTIF({get_column_letter(col_idx)}{data_start_row}:{get_column_letter(col_idx)}{data_end_row},{get_column_letter(col_idx)}{data_start_row}:{get_column_letter(col_idx)}{data_end_row}))'
+                    elif header == 'Status':
+                        # Liczba unikalnych zamówień na podstawie Nr Baselinker (kolumna D)
+                        cell.value = f'=SUMPRODUCT(1/COUNTIF($D${data_start_row}:$D${data_end_row},$D${data_start_row}:$D${data_end_row}))'
+            
+            # WIERSZ 3: PUSTY SEPARATOR
+            
+            # WIERSZE 4+: DANE
+            for row_idx, row_data in enumerate(dataframe.itertuples(index=False), 4):
+                for col_idx, value in enumerate(row_data, 1):
+                    cell = worksheet.cell(row=row_idx, column=col_idx, value=value)
+                    cell.border = border
+                    
+                    # Kolor tła danych (bardzo jasny)
+                    header = headers[col_idx - 1]
+                    color_key = COLUMN_COLORS.get(header, 'order_data')
+                    light_colors = {
+                        'order_data': 'F3F8FF',
+                        'customer_data': 'F1F8F1',
+                        'logistics_data': 'FFFEF7',
+                        'product_data': 'FFF8F0',
+                        'financial_data': 'FAF4FB',
+                        'production_data': 'FAFAFA'
+                    }
+                    cell.fill = PatternFill(start_color=light_colors[color_key], end_color=light_colors[color_key], fill_type='solid')
+                    
+                    # Format liczbowy dla danych
+                    if isinstance(value, (int, float)) and value != 0:
+                        if 'zł' in header or 'Kwota' in header or 'Wartość' in header or 'Cena' in header or 'Koszt' in header or 'Zapłacono' in header or 'Saldo' in header:
+                            cell.number_format = '#,##0.00" zł"'
+                        elif 'm³' in header or 'Objętość' in header:
+                            cell.number_format = '#,##0.0000'
+                        elif header in ['Długość', 'Szerokość', 'Grubość']:
+                            cell.number_format = '#,##0.00'
+            
+            # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN
+            for col_idx, header in enumerate(headers, 1):
+                col_letter = get_column_letter(col_idx)
+                
+                # Oblicz maksymalną szerokość na podstawie zawartości
+                max_length = len(header)
+                for row in worksheet.iter_rows(min_col=col_idx, max_col=col_idx, min_row=1, max_row=worksheet.max_row):
+                    for cell in row:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                
+                # Ustaw szerokość (minimum 10, maksimum 30)
+                width = min(max(max_length + 2, 10), 30)
+                worksheet.column_dimensions[col_letter].width = width
+            
+            # ZAMROŻENIE PANELI (pierwsze 3 wiersze i pierwsze 5 kolumn)
+            worksheet.freeze_panes = 'F4'
+            
+            # FILTRY AUTOMATYCZNE
+            worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{worksheet.max_row}"
+        
+        # Zastosuj formatowanie do arkusza głównego
+        format_details_sheet(ws_details, df)
+
+        def add_cell_merging():
+            """Scala komórki dla pól zamówienia - tylko do kolumny L z wyrównaniem do lewej i góry"""
+    
+            # Grupuj dane po zamówieniach
+            orders_grouped = {}
+            for idx, order in enumerate(orders):
+                order_id = order.baselinker_order_id or f"manual_{order.id}"
+                if order_id not in orders_grouped:
+                    orders_grouped[order_id] = []
+                orders_grouped[order_id].append(idx + 4)  # +4 bo dane zaczynają się od wiersza 4
+    
+            # Definicja kolumn do scalenia - TYLKO DO KOLUMNY L (12)
+            merge_columns = {
+                'A': 'Data',                    # Data (kolumna 1)
+                'B': 'TTL m³',                  # TTL m³ (kolumna 2)
+                'C': 'Kwota zamówień netto',    # Kwota zamówień netto (kolumna 3)
+                'D': 'Nr Baselinker',           # Nr Baselinker (kolumna 4)
+                'E': 'Nr wew.',                 # Nr wew. (kolumna 5)
+                'F': 'Imię i nazwisko',         # Imię i nazwisko (kolumna 6)
+                'G': 'Kod pocztowy',            # Kod pocztowy (kolumna 7)
+                'H': 'Miejscowość',             # Miejscowość (kolumna 8)
+                'I': 'Ulica',                   # Ulica (kolumna 9)
+                'J': 'Województwo',             # Województwo (kolumna 10)
+                'K': 'Telefon',                 # Telefon (kolumna 11)
+                'L': 'Opiekun',                 # Opiekun (kolumna 12)
+                'AH': 'Koszt kuriera',          # Kolumna 34
+                'AJ': 'Zapłacono netto',        # Kolumna 36  
+                'AK': 'Saldo'                   # Kolumna 37
+            }
+    
+            # KROK 1: Ustaw wyrównanie dla WSZYSTKICH komórek PRZED scalaniem
+            for row_idx in range(4, ws_details.max_row + 1):  # Od wiersza 4 do końca
+                for col_letter in merge_columns.keys():
+                    try:
+                        cell = ws_details[f'{col_letter}{row_idx}']
+                        cell.alignment = Alignment(horizontal='left', vertical='top')
+                    except Exception:
+                        continue
+    
+            # KROK 2: Scalaj komórki dla każdego zamówienia
+            for order_id, row_indices in orders_grouped.items():
+                if len(row_indices) > 1:  # Scalaj tylko jeśli zamówienie ma więcej niż 1 produkt
+                    start_row = min(row_indices)
+                    end_row = max(row_indices)
+            
+                    for col_letter in merge_columns.keys():
+                        try:
+                            merge_range = f'{col_letter}{start_row}:{col_letter}{end_row}'
+                            ws_details.merge_cells(merge_range)
+                    
+                            # KROK 3: Ponownie ustaw wyrównanie dla scalonej komórki
+                            merged_cell = ws_details[f'{col_letter}{start_row}']
+                            merged_cell.alignment = Alignment(horizontal='left', vertical='top')
+                            
+                        except Exception as e:
+                            # Ignoruj błędy scalania
+                            continue
+        
+        # Wywołaj funkcję scalania
+        add_cell_merging()
+        
+        # ===== WSPÓLNE FUNKCJE POMOCNICZE DLA WSZYSTKICH ARKUSZY =====
+        # Stylizacja dla arkuszy podsumowań
+        title_font = Font(size=16, bold=True, color='1976D2')
+        section_font = Font(size=12, bold=True, color='333333')
+        label_font = Font(size=10, bold=True)
+        value_font = Font(size=10)
+        
+        title_fill = PatternFill(start_color='E3F2FD', end_color='E3F2FD', fill_type='solid')
+        section_fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
+        
+        def add_title(worksheet, row, title):
+            cell = worksheet.cell(row=row, column=1, value=title)
+            cell.font = title_font
+            cell.fill = title_fill
+            worksheet.merge_cells(f'A{row}:D{row}')
+            return row + 2
+        
+        def add_section(worksheet, row, title):
+            cell = worksheet.cell(row=row, column=1, value=title)
+            cell.font = section_font
+            cell.fill = section_fill
+            worksheet.merge_cells(f'A{row}:D{row}')
+            return row + 1
+        
+        def add_stat_row(worksheet, row, label, value, format_type='number'):
+            # Etykieta
+            label_cell = worksheet.cell(row=row, column=1, value=label)
+            label_cell.font = label_font
+            label_cell.border = border
+            
+            # Wartość
+            value_cell = worksheet.cell(row=row, column=2, value=value)
+            value_cell.font = value_font
+            value_cell.border = border
+            
+            # Formatowanie wartości
+            if format_type == 'currency':
+                value_cell.number_format = '#,##0.00" zł"'
+            elif format_type == 'volume':
+                value_cell.number_format = '#,##0.0000" m³"'
+            elif format_type == 'percent':
+                value_cell.number_format = '0.0%'
+            elif format_type == 'days':
+                value_cell.number_format = '#,##0" dni"'
+            else:
+                value_cell.number_format = '#,##0.00'
+            
+            return row + 1
+        
+        # ===== ARKUSZ 2: PODSUMOWANIE I STATYSTYKI =====
+        ws_summary = workbook.create_sheet(title="Podsumowanie")
+        
+        # Oblicz statystyki
+        stats = BaselinkerReportOrder.get_statistics(query)
+        
+        # Dodatkowe statystyki
+        unique_customers = len(set(order.customer_name for order in orders if order.customer_name))
+        orders_grouped = {}
+        for order in orders:
+            order_id = order.baselinker_order_id or f"manual_{order.id}"
+            if order_id not in orders_grouped:
+                orders_grouped[order_id] = []
+            orders_grouped[order_id].append(order)
+        unique_orders = len(orders_grouped)
+        total_products = len(orders)
+        avg_order_value = stats['order_amount_net'] / unique_orders if unique_orders > 0 else 0
+        avg_products_per_order = total_products / unique_orders if unique_orders > 0 else 0
+        
+        # Statystyki po statusach
+        status_stats = {}
+        for order in orders:
+            status = order.current_status or 'Brak statusu'
+            if status not in status_stats:
+                status_stats[status] = {'count': 0, 'value': 0}
+            status_stats[status]['count'] += 1
+            status_stats[status]['value'] += float(order.value_net or 0)
+        
+        # Statystyki po województwach
+        state_stats = {}
+        for order in orders:
+            state = order.delivery_state or 'Brak danych'
+            if state not in state_stats:
+                state_stats[state] = {'count': 0, 'value': 0}
+            state_stats[state]['count'] += 1
+            state_stats[state]['value'] += float(order.value_net or 0)
+        
+        current_row = 1
+        
+        # TYTUŁ GŁÓWNY
+        current_row = add_title(ws_summary, current_row, "📊 RAPORT SPRZEDAŻY - PODSUMOWANIE")
+        
+        # Informacje o okresie
+        period_text = f"Okres: {date_from.strftime('%d-%m-%Y') if date_from else 'wszystkie dane'} - {date_to.strftime('%d-%m-%Y') if date_to else 'wszystkie dane'}"
+        ws_summary.cell(row=current_row, column=1, value=period_text).font = Font(size=10, italic=True)
+        ws_summary.cell(row=current_row + 1, column=1, value=f"Wygenerowano: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}").font = Font(size=10, italic=True)
+        current_row += 3
+        
+        # ===== STATYSTYKI GŁÓWNE =====
+        current_row = add_section(ws_summary, current_row, "📈 STATYSTYKI GŁÓWNE")
+        current_row = add_stat_row(ws_summary, current_row, "Liczba zamówień:", unique_orders)
+        current_row = add_stat_row(ws_summary, current_row, "Liczba produktów:", total_products)
+        current_row = add_stat_row(ws_summary, current_row, "Liczba klientów:", unique_customers)
+        current_row = add_stat_row(ws_summary, current_row, "Średnia produktów na zamówienie:", avg_products_per_order)
+        current_row += 1
+        
+        # ===== STATYSTYKI FINANSOWE =====
+        current_row = add_section(ws_summary, current_row, "💰 STATYSTYKI FINANSOWE")
+        current_row = add_stat_row(ws_summary, current_row, "Kwota zamówień netto:", stats['order_amount_net'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Wartość netto produktów:", stats['value_net'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Wartość brutto produktów:", stats['value_gross'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Średnia wartość zamówienia:", avg_order_value, 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Koszt kuriera łącznie:", stats['delivery_cost'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Zapłacono łącznie:", stats['paid_amount_net'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Saldo łączne:", stats['balance_due'], 'currency')
+        current_row += 1
+        
+        # ===== STATYSTYKI PRODUKCJI =====
+        current_row = add_section(ws_summary, current_row, "🏭 STATYSTYKI PRODUKCJI")
+        current_row = add_stat_row(ws_summary, current_row, "Łączna objętość:", stats['total_m3'], 'volume')
+        current_row = add_stat_row(ws_summary, current_row, "Średnia cena za m³:", stats['avg_price_per_m3'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Objętość w produkcji:", stats['production_volume'], 'volume')
+        current_row = add_stat_row(ws_summary, current_row, "Wartość w produkcji:", stats['production_value_net'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Gotowe do odbioru:", stats['ready_pickup_volume'], 'volume')
+        current_row += 1
+        
+        # ===== TABELA STATUSÓW =====
+        current_row = add_section(ws_summary, current_row, "📋 ROZKŁAD WEDŁUG STATUSÓW")
+        
+        # Nagłówki tabeli
+        headers = ['Status', 'Liczba produktów', 'Wartość netto', 'Udział %']
+        for col, header in enumerate(headers, 1):
+            cell = ws_summary.cell(row=current_row, column=col, value=header)
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='1976D2', end_color='1976D2', fill_type='solid')
+            cell.border = border
+            cell.alignment = Alignment(horizontal='center')
+        current_row += 1
+        
+        # Dane statusów (posortowane po wartości)
+        sorted_statuses = sorted(status_stats.items(), key=lambda x: x[1]['value'], reverse=True)
+        total_value = stats['value_net']
+        
+        for status, data in sorted_statuses:
+            percentage = (data['value'] / total_value * 100) if total_value > 0 else 0
+            
+            ws_summary.cell(row=current_row, column=1, value=status).border = border
+            ws_summary.cell(row=current_row, column=2, value=data['count']).border = border
+            
+            value_cell = ws_summary.cell(row=current_row, column=3, value=data['value'])
+            value_cell.number_format = '#,##0.00" zł"'
+            value_cell.border = border
+            
+            percent_cell = ws_summary.cell(row=current_row, column=4, value=percentage/100)
+            percent_cell.number_format = '0.0%'
+            percent_cell.border = border
+            
+            current_row += 1
+        
+        current_row += 1
+        
+        # ===== TABELA WOJEWÓDZTW (TOP 10) =====
+        current_row = add_section(ws_summary, current_row, "🗺️ TOP 10 WOJEWÓDZTW")
+        
+        # Nagłówki tabeli
+        for col, header in enumerate(headers, 1):
+            cell = ws_summary.cell(row=current_row, column=col, value=header.replace('Status', 'Województwo'))
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='388E3C', end_color='388E3C', fill_type='solid')
+            cell.border = border
+            cell.alignment = Alignment(horizontal='center')
+        current_row += 1
+        
+        # Dane województw (top 10 po wartości)
+        sorted_states = sorted(state_stats.items(), key=lambda x: x[1]['value'], reverse=True)[:10]
+        
+        for state, data in sorted_states:
+            percentage = (data['value'] / total_value * 100) if total_value > 0 else 0
+            
+            ws_summary.cell(row=current_row, column=1, value=state).border = border
+            ws_summary.cell(row=current_row, column=2, value=data['count']).border = border
+            
+            value_cell = ws_summary.cell(row=current_row, column=3, value=data['value'])
+            value_cell.number_format = '#,##0.00" zł"'
+            value_cell.border = border
+            
+            percent_cell = ws_summary.cell(row=current_row, column=4, value=percentage/100)
+            percent_cell.number_format = '0.0%'
+            percent_cell.border = border
+            
+            current_row += 1
+        
+        # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN dla arkusza podsumowań
+        for col in range(1, 5):
+            col_letter = get_column_letter(col)
+            max_length = 0
+            for row in ws_summary.iter_rows(min_col=col, max_col=col):
+                for cell in row:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+            
+            # Minimalna szerokość 15, maksymalna 40
+            width = min(max(max_length + 2, 15), 40)
+            ws_summary.column_dimensions[col_letter].width = width
+
+        # ===== ARKUSZ 3: ANALIZA KLIENTÓW =====
+        ws_customers = workbook.create_sheet(title="Analiza klientów")
+        
+        # Przygotowanie danych klientów
+        customer_data = {}
+        
+        for order in orders:
+            customer_name = order.customer_name or 'Nieznany klient'
+            
+            if customer_name not in customer_data:
+                customer_data[customer_name] = {
+                    'orders_count': set(),  # Używamy set do unikalnych zamówień
+                    'products_count': 0,
+                    'total_value_net': 0,
+                    'total_value_gross': 0,
+                    'total_volume': 0,
+                    'total_paid': 0,
+                    'total_balance': 0,
+                    'delivery_cost': 0,
+                    'first_order_date': None,
+                    'last_order_date': None,
+                    'delivery_state': order.delivery_state or 'Brak danych',
+                    'delivery_city': order.delivery_city or 'Brak danych',
+                    'phone': order.phone or 'Brak danych',
+                    'caretaker': order.caretaker or 'Brak danych',
+                    'order_sources': set(),
+                    'statuses': set(),
+                    'product_types': set()
+                }
+            
+            # Aktualizuj dane klienta
+            client = customer_data[customer_name]
+            
+            # Dodaj zamówienie do setu (unikalne ID)
+            if order.baselinker_order_id:
+                client['orders_count'].add(order.baselinker_order_id)
+            else:
+                client['orders_count'].add(f"manual_{order.id}")
+            
+            # Liczba produktów
+            client['products_count'] += 1
+            
+            # Wartości finansowe
+            client['total_value_net'] += float(order.value_net or 0)
+            client['total_value_gross'] += float(order.value_gross or 0)
+            client['total_volume'] += float(order.total_volume or 0)
+            
+            # Płatności (tylko unikalne zamówienia - podobnie jak w statystykach głównych)
+            # Sprawdź czy to pierwsze wystąpienie tego zamówienia
+            order_id = order.baselinker_order_id or f"manual_{order.id}"
+            orders_for_customer = [o for o in orders if (o.customer_name == customer_name)]
+            first_occurrence = next((o for o in orders_for_customer if (o.baselinker_order_id or f"manual_{o.id}") == order_id), None)
+            
+            if order == first_occurrence:  # Tylko przy pierwszym wystąpieniu zamówienia
+                client['total_paid'] += float(order.paid_amount_net or 0)
+                client['total_balance'] += float(order.balance_due or 0)
+                client['delivery_cost'] += float(order.delivery_cost or 0)
+            
+            # Daty
+            order_date = order.date_created
+            if order_date:
+                if client['first_order_date'] is None or order_date < client['first_order_date']:
+                    client['first_order_date'] = order_date
+                if client['last_order_date'] is None or order_date > client['last_order_date']:
+                    client['last_order_date'] = order_date
+            
+            # Kolekcje
+            if order.order_source:
+                client['order_sources'].add(order.order_source)
+            if order.current_status:
+                client['statuses'].add(order.current_status)
+            if order.product_type:
+                client['product_types'].add(order.product_type)
+        
+        # Konwertuj sety na liczby i stringi
+        for client_name, data in customer_data.items():
+            data['orders_count'] = len(data['orders_count'])
+            data['order_sources'] = ', '.join(sorted(data['order_sources']))
+            data['statuses'] = ', '.join(sorted(data['statuses']))
+            data['product_types'] = ', '.join(sorted(data['product_types']))
+            
+            # Oblicz dodatkowe metryki
+            data['avg_order_value'] = data['total_value_net'] / data['orders_count'] if data['orders_count'] > 0 else 0
+            data['avg_products_per_order'] = data['products_count'] / data['orders_count'] if data['orders_count'] > 0 else 0
+            
+            # Dni między pierwszym a ostatnim zamówieniem
+            if data['first_order_date'] and data['last_order_date']:
+                data['customer_lifespan'] = (data['last_order_date'] - data['first_order_date']).days
+            else:
+                data['customer_lifespan'] = 0
+        
+        # Posortuj klientów po wartości (najważniejsi pierwsi)
+        sorted_customers = sorted(customer_data.items(), key=lambda x: x[1]['total_value_net'], reverse=True)
+        
+        current_row = 1
+        
+        # ===== TYTUŁ I PODSUMOWANIE =====
+        current_row = add_title(ws_customers, current_row, "👥 ANALIZA KLIENTÓW")
+        
+        # Statystyki ogólne klientów
+        top_customer_value = sorted_customers[0][1]['total_value_net'] if sorted_customers else 0
+        top_10_value = sum(data['total_value_net'] for _, data in sorted_customers[:10])
+        total_customer_value = sum(data['total_value_net'] for _, data in sorted_customers)
+        top_10_percentage = (top_10_value / total_customer_value * 100) if total_customer_value > 0 else 0
+        
+        ws_customers.cell(row=current_row, column=1, value=f"Łączna liczba klientów: {len(customer_data)}").font = Font(size=10, italic=True)
+        ws_customers.cell(row=current_row + 1, column=1, value=f"TOP 10 klientów stanowi {top_10_percentage:.1f}% wartości").font = Font(size=10, italic=True)
+        current_row += 3
+        
+        # ===== TABELA GŁÓWNA KLIENTÓW =====
+        current_row = add_section(ws_customers, current_row, "📊 RANKING KLIENTÓW (TOP 50)")
+        
+        # Nagłówki tabeli
+        customer_headers = [
+            'Lp.', 'Klient', 'Zamówienia', 'Produkty', 'Wartość netto', 'Śr. wartość zamówienia',
+            'Zapłacono', 'Saldo', 'Koszt kuriera', 'Pierwsze zamówienie', 'Ostatnie zamówienie',
+            'Okres [dni]', 'Województwo', 'Miasto', 'Telefon', 'Opiekun', 'Źródła', 'Rodzaje produktów'
+        ]
+        
+        for col, header in enumerate(customer_headers, 1):
+            cell = ws_customers.cell(row=current_row, column=col, value=header)
+            cell.font = Font(bold=True, color='FFFFFF', size=9)
+            cell.fill = PatternFill(start_color='7B1FA2', end_color='7B1FA2', fill_type='solid')
+            cell.border = border
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        current_row += 1
+        
+        # Dane klientów (TOP 50)
+        for rank, (client_name, data) in enumerate(sorted_customers[:50], 1):
+            row_data = [
+                rank,
+                client_name,
+                data['orders_count'],
+                data['products_count'],
+                data['total_value_net'],
+                data['avg_order_value'],
+                data['total_paid'],
+                data['total_balance'],
+                data['delivery_cost'],
+                data['first_order_date'].strftime('%d-%m-%Y') if data['first_order_date'] else '',
+                data['last_order_date'].strftime('%d-%m-%Y') if data['last_order_date'] else '',
+                data['customer_lifespan'],
+                data['delivery_state'],
+                data['delivery_city'],
+                data['phone'],
+                data['caretaker'],
+                data['order_sources'][:50] + '...' if len(data['order_sources']) > 50 else data['order_sources'],
+                data['product_types'][:50] + '...' if len(data['product_types']) > 50 else data['product_types']
+            ]
+            
+            for col, value in enumerate(row_data, 1):
+                cell = ws_customers.cell(row=current_row, column=col, value=value)
+                cell.border = border
+                cell.font = Font(size=9)
+                
+                # Formatowanie specjalne
+                if col == 5 or col == 6 or col == 7 or col == 8 or col == 9:  # Kwoty
+                    cell.number_format = '#,##0.00" zł"'
+                elif col == 3 or col == 4 or col == 12:  # Liczby całkowite
+                    cell.number_format = '#,##0'
+                
+                # Kolorowanie na podstawie pozycji w rankingu
+                if rank <= 5:  # TOP 5 - złoty
+                    cell.fill = PatternFill(start_color='FFF8E1', end_color='FFF8E1', fill_type='solid')
+                elif rank <= 10:  # TOP 10 - srebrny
+                    cell.fill = PatternFill(start_color='F3E5F5', end_color='F3E5F5', fill_type='solid')
+                elif rank <= 20:  # TOP 20 - brązowy
+                    cell.fill = PatternFill(start_color='F1F8E9', end_color='F1F8E9', fill_type='solid')
+                else:  # Pozostali - białe tło
+                    cell.fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+            
+            current_row += 1
+        
+        current_row += 2
+        
+        # ===== STATYSTYKI DODATKOWE =====
+        current_row = add_section(ws_customers, current_row, "📈 STATYSTYKI KLIENTÓW")
+        
+        # Oblicz dodatkowe statystyki
+        if sorted_customers:
+            avg_orders_per_customer = sum(data['orders_count'] for _, data in sorted_customers) / len(sorted_customers)
+            avg_value_per_customer = sum(data['total_value_net'] for _, data in sorted_customers) / len(sorted_customers)
+            
+            # Klienci jednorazowi vs stali
+            one_time_customers = sum(1 for _, data in sorted_customers if data['orders_count'] == 1)
+            returning_customers = len(sorted_customers) - one_time_customers
+            
+            # Średni okres współpracy
+            active_customers = [data for _, data in sorted_customers if data['customer_lifespan'] > 0]
+            avg_lifespan = sum(data['customer_lifespan'] for data in active_customers) / len(active_customers) if active_customers else 0
+            
+            current_row = add_stat_row(ws_customers, current_row, "Średnia zamówień na klienta:", avg_orders_per_customer)
+            current_row = add_stat_row(ws_customers, current_row, "Średnia wartość na klienta:", avg_value_per_customer, 'currency')
+            current_row = add_stat_row(ws_customers, current_row, "Klienci jednorazowi:", one_time_customers)
+            current_row = add_stat_row(ws_customers, current_row, "Klienci stali (2+ zamówienia):", returning_customers)
+            current_row = add_stat_row(ws_customers, current_row, "Średni okres współpracy:", avg_lifespan, 'days')
+            
+            # Procent stałych klientów
+            returning_percentage = (returning_customers / len(sorted_customers) * 100) if sorted_customers else 0
+            current_row = add_stat_row(ws_customers, current_row, "% klientów stałych:", returning_percentage/100, 'percent')
+        
+        # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN dla arkusza klientów
+        for col in range(1, len(customer_headers) + 1):
+            col_letter = get_column_letter(col)
+            
+            # Specjalne szerokości dla niektórych kolumn
+            if col == 2:  # Nazwa klienta
+                width = 25
+            elif col in [17, 18]:  # Źródła, Rodzaje produktów
+                width = 20
+            elif col in [13, 14, 15, 16]:  # Województwo, Miasto, Telefon, Opiekun
+                width = 15
+            else:
+                # Standardowe dopasowanie
+                max_length = len(customer_headers[col-1])
+                for row in ws_customers.iter_rows(min_col=col, max_col=col, min_row=current_row-20, max_row=current_row):
+                    for cell in row:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                width = min(max(max_length + 1, 8), 18)
+            
+            ws_customers.column_dimensions[col_letter].width = width
+        
+        # Zamrożenie paneli dla arkusza klientów (nagłówek i pierwsze 2 kolumny)
+        ws_customers.freeze_panes = 'C8'
+        
+        # Zapisz do pamięci
+        workbook.save(output)
+        output.seek(0)
+        
+        # Nazwa pliku
+        date_suffix = ""
+        if date_from and date_to:
+            if date_from == date_to:
+                date_suffix = f"_{date_from.strftime('%d-%m-%Y')}"
+            else:
+                date_suffix = f"_{date_from.strftime('%d-%m-%Y')}_{date_to.strftime('%d-%m-%Y')}"
+        
+        filename = f"raporty_sprzedazy{date_suffix}_{datetime.now().strftime('%d-%m-%Y_%H%M%S')}.xlsx"
+        
+        reports_logger.info("Wygenerowano ulepszony eksport Excel",
+                          user_email=user_email,
+                          records_count=len(excel_data),
+                          filename=filename)
+        
+        return Response(
+            output.getvalue(),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+        )
+        
+    except Exception as e:
+        reports_logger.error("Błąd eksportu Excel",
+                           user_email=user_email,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Błąd eksportu: {str(e)}'
+        }), 500
+
+@reports_bp.route('/api/dropdown-values/<field_name>')
+@login_required
+def api_get_dropdown_values(field_name):
+    """
+    API endpoint do pobierania unikalnych wartości dla dropdown'ów
+    """
+    try:
+        if not hasattr(BaselinkerReportOrder, field_name):
+            return jsonify({'success': False, 'error': 'Nieprawidłowe pole'}), 400
+        
+        # Pobierz unikalne wartości z bazy (wykluczając anulowane i nieopłacone)
+        excluded_statuses = ['Zamówienie anulowane', 'Nowe - nieopłacone']
+        column = getattr(BaselinkerReportOrder, field_name)
+        
+        query = db.session.query(column)\
+            .filter(column.isnot(None))\
+            .filter(~BaselinkerReportOrder.current_status.in_(excluded_statuses))\
+            .distinct()
+        
+        values = query.all()
+        
+        # Wyciągnij wartości z tupli
+        unique_values = sorted([value[0] for value in values if value[0]])
+        
+        return jsonify({
+            'success': True,
+            'values': unique_values
+        })
+        
+    except Exception as e:
+        reports_logger.error("Błąd pobierania dropdown values",
+                           field_name=field_name,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ===== FUNKCJE POMOCNICZE =====
+
+def _sync_selected_orders(service: BaselinkerReportsService, order_ids: List[int]) -> Dict:
+    """
+    Synchronizuje wybrane zamówienia - pobiera pełne informacje i aktualizuje wszystkie dane
+    
+    Args:
+        service: Serwis Baselinker
+        order_ids: Lista ID zamówień do synchronizacji
+        
+    Returns:
+        Dict: Wynik synchronizacji
+    """
+    try:
+        reports_logger.info("Rozpoczęcie synchronizacji wybranych zamówień",
+                          order_ids_count=len(order_ids),
+                          order_ids=order_ids[:10])  # Loguj pierwsze 10
+        
+        orders = []
+        failed_orders = []
+        
+        # Pobierz pełne dane każdego zamówienia
+        for order_id in order_ids:
+            try:
+                order = service.get_order_details(order_id)
+                if order:
+                    orders.append(order)
+                    reports_logger.debug("Pobrano szczegóły zamówienia",
+                                       order_id=order_id,
+                                       products_count=len(order.get('products', [])))
+                else:
+                    failed_orders.append(order_id)
+                    reports_logger.warning("Nie udało się pobrać zamówienia",
+                                         order_id=order_id)
+            except Exception as e:
+                failed_orders.append(order_id)
+                reports_logger.error("Błąd pobierania zamówienia",
+                                   order_id=order_id,
+                                   error=str(e))
+        
+        if not orders:
+            error_msg = f'Nie udało się pobrać żadnego z wybranych zamówień. Nieudane: {failed_orders}'
+            reports_logger.error("Brak pobranych zamówień", 
+                               failed_orders=failed_orders,
+                               total_requested=len(order_ids))
+            return {
+                'success': False,
+                'error': error_msg
+            }
+        
+        # ZMIANA: Używamy pełnej synchronizacji zamiast tylko dodawania
+        # To oznacza że aktualizowane są wszystkie informacje w istniejących rekordach
+        reports_logger.info("Rozpoczęcie pełnej synchronizacji zamówień",
+                          orders_to_sync=len(orders),
+                          failed_orders_count=len(failed_orders))
+        
+        # Użyj metody sync_orders która obsługuje aktualizacje
+        result = service.sync_orders(orders_list=orders, sync_type='selected')
+        
+        # Dodaj informacje o nieudanych zamówieniach do wyniku
+        result['failed_orders'] = failed_orders
+        result['failed_orders_count'] = len(failed_orders)
+        
+        if failed_orders:
+            success_count = result.get('orders_processed', 0)
+            total_requested = len(order_ids)
+            result['message'] = f'Zsynchronizowano {success_count} z {total_requested} zamówień. Nieudane: {len(failed_orders)}'
+            
+            reports_logger.warning("Synchronizacja częściowo nieudana",
+                                 success_count=success_count,
+                                 total_requested=total_requested,
+                                 failed_count=len(failed_orders),
+                                 failed_orders=failed_orders)
+        else:
+            reports_logger.info("Synchronizacja wybranych zamówień zakończona pomyślnie",
+                              orders_processed=result.get('orders_processed', 0),
+                              orders_added=result.get('orders_added', 0),
+                              orders_updated=result.get('orders_updated', 0))
+        
+        return result
+            
+    except Exception as e:
+        reports_logger.error("Błąd synchronizacji wybranych zamówień",
+                           error=str(e),
+                           error_type=type(e).__name__,
+                           order_ids_count=len(order_ids))
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+# Synchronizacja statusów
+@reports_bp.route('/api/sync-statuses', methods=['POST'])
+@login_required
+def api_sync_statuses():
+    """
+    API endpoint do synchronizacji statusów zamówień z Baselinker
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        reports_logger.info("Rozpoczęcie synchronizacji statusów",
+                          user_email=user_email)
+        
+        # Pobierz serwis
+        service = get_reports_service()
+        
+        # ZMIANA: Pobierz zamówienia które mogą być synchronizowane (wykluczamy tylko 105112 i 138625)
+        # 105112 = "Nowe - nieopłacone"
+        # 138625 = "Zamówienie anulowane"
+        excluded_status_ids = [105112, 138625]
+        excluded_status_names = [
+            'Nowe - nieopłacone',
+            'Zamówienie anulowane'
+        ]
+        
+        # Pobierz zamówienia z bazy które nie mają wykluczonych statusów
+        orders_to_sync = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.isnot(None),
+            ~BaselinkerReportOrder.baselinker_status_id.in_(excluded_status_ids),
+            ~BaselinkerReportOrder.current_status.in_(excluded_status_names)
+        ).all()
+        
+        if not orders_to_sync:
+            reports_logger.info("Brak zamówień do synchronizacji statusów",
+                              user_email=user_email,
+                              excluded_status_ids=excluded_status_ids,
+                              excluded_status_names=excluded_status_names)
+            return jsonify({
+                'success': True,
+                'message': 'Brak zamówień do synchronizacji statusów',
+                'orders_processed': 0,
+                'orders_updated': 0
+            })
+        
+        # Grupuj zamówienia według baselinker_order_id
+        unique_order_ids = list(set(order.baselinker_order_id for order in orders_to_sync))
+        
+        reports_logger.info("Synchronizacja statusów zamówień",
+                          user_email=user_email,
+                          unique_orders=len(unique_order_ids),
+                          total_records=len(orders_to_sync),
+                          excluded_status_ids=excluded_status_ids)
+        
+        # Synchronizuj statusy
+        updated_count = 0
+        processed_count = 0
+        payment_updated_count = 0
+        status_updated_count = 0
+        sync_start = datetime.utcnow()
+        
+        for order_id in unique_order_ids:
+            try:
+                # Pobierz aktualny status z Baselinker
+                order_details = service.get_order_details(order_id)
+                
+                if order_details:
+                    # Pobierz nowy status
+                    new_status_id = order_details.get('order_status_id')
+                    new_status = service.status_map.get(new_status_id, f'Status {new_status_id}')
+                    
+                    # Pobierz kwotę zapłaconą (brutto -> netto)
+                    payment_done_gross = order_details.get('payment_done', 0)
+                    new_paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0.0
+                    
+                    # Aktualizuj wszystkie rekordy tego zamówienia
+                    records_updated = BaselinkerReportOrder.query.filter_by(
+                        baselinker_order_id=order_id
+                    ).update({
+                        'current_status': new_status,
+                        'baselinker_status_id': new_status_id,
+                        'paid_amount_net': new_paid_amount_net,
+                        'updated_at': datetime.utcnow()
+                    })
+                    
+                    if records_updated > 0:
+                        updated_count += records_updated
+                        status_updated_count += 1
+                        if new_paid_amount_net > 0:
+                            payment_updated_count += 1
+                            
+                        reports_logger.debug("Zaktualizowano status zamówienia",
+                                           order_id=order_id,
+                                           new_status=new_status,
+                                           new_status_id=new_status_id,
+                                           paid_amount_net=new_paid_amount_net,
+                                           records_updated=records_updated)
+                    
+                    processed_count += 1
+                else:
+                    reports_logger.warning("Nie udało się pobrać szczegółów zamówienia",
+                                         order_id=order_id)
+                    
+            except Exception as e:
+                reports_logger.error("Błąd synchronizacji statusu zamówienia",
+                                   order_id=order_id,
+                                   error=str(e))
+                continue
+        
+        # Zapisz zmiany
+        db.session.commit()
+        
+        duration = (datetime.utcnow() - sync_start).total_seconds()
+        
+        reports_logger.info("Synchronizacja statusów zakończona",
+                          user_email=user_email,
+                          processed_orders=processed_count,
+                          updated_records=updated_count,
+                          status_updated_count=status_updated_count,
+                          payment_updated_count=payment_updated_count,
+                          duration_seconds=duration)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Zsynchronizowano statusy {processed_count} zamówień',
+            'orders_processed': processed_count,
+            'orders_updated': status_updated_count,
+            'records_updated': updated_count,
+            'payment_updated_count': payment_updated_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        reports_logger.error("Błąd synchronizacji statusów",
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
