@@ -16,8 +16,10 @@ from modules.public_calculator import public_calculator_bp
 from modules.analytics.routers import analytics_bp
 from modules.quotes.routers import quotes_bp
 from modules.baselinker import baselinker_bp
-from modules.logging import AppLogger, get_logger, logging_bp
+from modules.preview3d_ar import preview3d_ar_bp
+from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
 from sqlalchemy.exc import ResourceClosedError, OperationalError
+from modules.reports import reports_bp
 
 def create_admin():
     """Tworzy użytkownika admina, jeśli nie istnieje."""
@@ -96,6 +98,8 @@ def create_app():
     app.register_blueprint(quotes_bp, url_prefix="/quotes")
     app.register_blueprint(baselinker_bp, url_prefix='/baselinker')
     app.register_blueprint(logging_bp, url_prefix='/logging')
+    app.register_blueprint(preview3d_ar_bp)
+    app.register_blueprint(reports_bp, url_prefix='/reports')
 
     @app.before_request
     def extend_session():
@@ -884,23 +888,25 @@ def create_app():
     def handle_resource_closed_error(e):
         db.session.rollback()
         
-        error_logger = get_logger('app.errors')
+        # NOWE strukturalne logowanie:
+        error_logger = get_structured_logger('app.errors')
         error_logger.error("ResourceClosedError occurred", 
-                        error=str(e), 
-                        error_type='ResourceClosedError')
+                          error=str(e), 
+                          error_type='ResourceClosedError')
         
+        # ZOSTAW STARE:
         current_app.logger.error("ResourceClosedError – rollback wykonany")
-        return render_template("error.html", message="Błąd połączenia z bazą. Spróbuj ponownie."), 500
+        return render_template("error.html", message="Problem z bazą danych. Spróbuj ponownie."), 500
 
     @app.errorhandler(OperationalError)
     def handle_operational_error(e):
         db.session.rollback()
         
-        # DODAJ TO:
-        error_logger = get_logger('app.errors')
+        # NOWE strukturalne logowanie:
+        error_logger = get_structured_logger('app.errors')
         error_logger.error("OperationalError occurred", 
-                        error=str(e), 
-                        error_type='OperationalError')
+                          error=str(e), 
+                          error_type='OperationalError')
         
         # ZOSTAW STARE:
         current_app.logger.error("OperationalError – rollback wykonany")
@@ -909,11 +915,11 @@ def create_app():
     @app.teardown_appcontext
     def shutdown_session(exception=None):
         if exception:
-            # DODAJ TO:
-            error_logger = get_logger('app.teardown')
+            # NOWE strukturalne logowanie:
+            error_logger = get_structured_logger('app.teardown')
             error_logger.error("Teardown exception occurred", 
-                            error=str(exception), 
-                            error_type=type(exception).__name__)
+                              error=str(exception), 
+                              error_type=type(exception).__name__)
             
             # ZOSTAW STARE:
             current_app.logger.error(f"Teardown exception: {exception}")
@@ -922,15 +928,15 @@ def create_app():
 
     # Konfiguracja nowego systemu logowania
     AppLogger.setup()
-    app_logger = get_logger('main')
+    app_logger = get_structured_logger('main')
     app_logger.info("Aplikacja Flask została uruchomiona")
 
     # Logi debug aplikacji
-    app_logger.info(f"Flask app created: {str(app)}")
+    app_logger.info("Flask app created", app_info=str(app))
 
     # Sprawdź zarejestrowane blueprinty
     blueprints = list(app.blueprints.keys())
-    app_logger.debug(f"Registered blueprints: {blueprints}")
+    app_logger.debug("Registered blueprints", blueprints_count=len(blueprints), blueprints=blueprints)
 
     # Sprawdź routy związane z wycenami
     wycena_routes = []
@@ -943,7 +949,7 @@ def create_app():
             })
 
     if wycena_routes:
-        app_logger.debug(f"Wycena routes registered: {len(wycena_routes)} routes")
+        app_logger.debug("Wycena routes registered", routes_count=len(wycena_routes))
 
     return app
 
