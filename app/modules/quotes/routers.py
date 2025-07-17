@@ -1,8 +1,7 @@
 # modules/quotes/routers.py
-from flask import render_template, jsonify, request, make_response, current_app, send_file, Blueprint, session, redirect, url_for, flash
+from flask import render_template, jsonify, request, make_response, current_app, send_file, Blueprint, session, redirect, url_for, flash, abort
 from . import quotes_bp
 from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog
-from modules.quotes.models import QuoteStatus, DiscountReason
 from modules.clients.models import Client
 from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
@@ -19,8 +18,24 @@ import re
 from datetime import datetime
 import base64
 import os
+from flask_login import login_required, current_user
 
-def render_client_error(error_type, error_code=None, error_message=None, error_details=None, quote_number=None):
+# Importuj wszystkie modele z quotes/models.py
+# To automatycznie zaimportuje też modele z calculator
+from modules.quotes.models import (
+    Quote,
+    QuoteItem,
+    QuoteItemDetails,
+    QuoteStatus,
+    QuoteLog,
+    FinishingColor,
+    Client,
+    User,
+    DiscountReason
+)
+
+def render_client_error(error_type, error_code, error_message, error_details=None, quote_number=None):
+    """Renderuje stronę błędu dla klienta"""
     return render_template(
         'quotes/templates/client_error.html',
         error_type=error_type,
@@ -28,39 +43,49 @@ def render_client_error(error_type, error_code=None, error_message=None, error_d
         error_message=error_message,
         error_details=error_details,
         quote_number=quote_number
-    ), error_code or 400
+    ), error_code
 
-def calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto):
-    VAT_RATE = 0.23
+# Funkcje pomocnicze
+def calculate_costs_with_vat(products_netto, finishing_netto, shipping_brutto):
+    """Oblicza koszty z VAT"""
+    vat_rate = 0.23
     
-    # Produkty surowe
-    products_brutto = cost_products_netto * (1 + VAT_RATE)
+    # Produkty
+    products_vat = products_netto * vat_rate
+    products_brutto = products_netto + products_vat
     
     # Wykończenie
-    finishing_brutto = cost_finishing_netto * (1 + VAT_RATE)
+    finishing_vat = finishing_netto * vat_rate
+    finishing_brutto = finishing_netto + finishing_vat
     
-    # Wysyłka - konwersja z brutto na netto
-    shipping_netto = cost_shipping_brutto / (1 + VAT_RATE)
+    # Shipping - zakładamy że mamy już brutto
+    shipping_netto = shipping_brutto / (1 + vat_rate)
+    shipping_vat = shipping_brutto - shipping_netto
     
-    # Suma
-    total_netto = cost_products_netto + cost_finishing_netto + shipping_netto
-    total_brutto = products_brutto + finishing_brutto + cost_shipping_brutto
+    # Totale
+    total_netto = products_netto + finishing_netto + shipping_netto
+    total_vat = products_vat + finishing_vat + shipping_vat
+    total_brutto = total_netto + total_vat
     
     return {
         'products': {
-            'netto': round(cost_products_netto, 2),
+            'netto': round(products_netto, 2),
+            'vat': round(products_vat, 2),
             'brutto': round(products_brutto, 2)
         },
         'finishing': {
-            'netto': round(cost_finishing_netto, 2),
+            'netto': round(finishing_netto, 2),
+            'vat': round(finishing_vat, 2),
             'brutto': round(finishing_brutto, 2)
         },
         'shipping': {
             'netto': round(shipping_netto, 2),
-            'brutto': round(cost_shipping_brutto, 2)
+            'vat': round(shipping_vat, 2),
+            'brutto': round(shipping_brutto, 2)
         },
         'total': {
             'netto': round(total_netto, 2),
+            'vat': round(total_vat, 2),
             'brutto': round(total_brutto, 2)
         }
     }
@@ -674,37 +699,40 @@ def apply_total_discount(quote_id):
 
 
 
-@quotes_bp.route("/wycena/<path:quote_number>/<token>", methods=['GET'])
-def client_quote_view(quote_number, token):
-    """Publiczna strona wyceny dla klienta - z poprawioną obsługą stanów"""
-    
+@quotes_bp.route("/c/<token>")
+def client_quote_view(token):
+    """Widok strony klienta z redesignem"""
     try:
-        quote = Quote.query.filter_by(quote_number=quote_number, public_token=token).first()
+        print(f"[client_quote_view] Token: {token}", file=sys.stderr)
+        
+        # Znajdź wycenę po tokenie
+        quote = Quote.query.filter_by(public_token=token).first()
         
         if not quote:
-            print(f"[client_quote_view] ❌ NIE ZNALEZIONO wyceny dla numeru '{quote_number}' i tokenu '{token}'", file=sys.stderr)
+            print(f"[client_quote_view] Nie znaleziono wyceny dla tokenu: {token}", file=sys.stderr)
             return render_client_error(
                 error_type='not_found',
                 error_code=404,
-                quote_number=quote_number
+                error_message="Nie znaleziono wyceny",
+                error_details="Sprawdź czy link jest poprawny.",
+                quote_number=None
             )
         
-        print(f"[client_quote_view] ✅ ZNALEZIONO wycenę ID={quote.id}, is_client_editable={quote.is_client_editable}", file=sys.stderr)
+        quote_number = quote.quote_number
+        print(f"[client_quote_view] Znaleziono wycenę ID={quote.id}, is_client_editable={quote.is_client_editable}", file=sys.stderr)
         
-        # POPRAWKA: Zawsze pokazujemy stronę wyceny, ale z odpowiednim stanem
-        # Nie blokujemy dostępu dla zaakceptowanych wycen
+        # Przekazujemy dodatkowe dane potrzebne w nowym designie
+        current_year = datetime.now().year
         
-        print(f"[client_quote_view] Renderuję szablon client_quote.html", file=sys.stderr)
-        
-        # Przekierowanie na szablon strony klienta z pełnymi danymi
         return render_template("quotes/templates/client_quote.html", 
                              quote=quote,
                              quote_number=quote_number,
                              token=token,
-                             is_accepted=not quote.is_client_editable)  # NOWE: przekazujemy stan
+                             is_accepted=not quote.is_client_editable,
+                             current_year=current_year)
         
     except Exception as e:
-        print(f"[client_quote_view] ❌ BŁĄD: {e}", file=sys.stderr)
+        print(f"[client_quote_view] BŁĄD: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
         
@@ -713,12 +741,12 @@ def client_quote_view(quote_number, token):
             error_code=500,
             error_message="Wystąpił nieoczekiwany błąd podczas ładowania wyceny.",
             error_details=str(e),
-            quote_number=quote_number
+            quote_number=quote_number if 'quote_number' in locals() else None
         )
 
 @quotes_bp.route("/api/client/quote/<token>")
 def get_client_quote_data(token):
-    """API dla strony klienta - poprawiona obsługa zaakceptowanych wycen"""
+    """API dla strony klienta - rozszerzone dane dla redesignu"""
     try:
         quote = Quote.query.filter_by(public_token=token).first()
         
@@ -732,54 +760,83 @@ def get_client_quote_data(token):
         cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+        cost_shipping_netto = quote.shipping_cost_netto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
         
-        # Zawsze pokazujemy wszystkie pozycje, nie tylko show_on_client_page
-        # Bo po akceptacji klient powinien widzieć co wybrał
-        visible_items = quote.items if not quote.is_client_editable else [item for item in quote.items if item.show_on_client_page]
+        # Pobierz wszystkie pozycje jeśli wycena jest zaakceptowana, 
+        # w przeciwnym razie tylko te oznaczone jako widoczne
+        if not quote.is_client_editable:
+            visible_items = quote.items
+        else:
+            visible_items = [item for item in quote.items if item.show_on_client_page]
+        
+        # Pobierz szczegóły wykończenia
+        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+        
+        # Przygotuj dane o wykończeniach z obrazkami
+        finishing_data = []
+        for detail in finishing_details:
+            finishing_info = {
+                "product_index": detail.product_index,
+                "finishing_type": detail.finishing_type,
+                "finishing_variant": detail.finishing_variant,
+                "finishing_color": detail.finishing_color,
+                "finishing_gloss_level": detail.finishing_gloss_level,
+                "finishing_price_netto": float(detail.finishing_price_netto or 0),
+                "finishing_price_brutto": float(detail.finishing_price_brutto or 0),
+                "quantity": detail.quantity or 1
+            }
+            
+            # Dodaj ścieżkę do obrazka jeśli istnieje kolor
+            if detail.finishing_color and detail.finishing_color != 'Brak':
+                # Sprawdź czy istnieje obrazek w bazie
+                color_image = FinishingColor.query.filter_by(name=detail.finishing_color).first()
+                if color_image and color_image.image_path:
+                    finishing_info["image_path"] = color_image.image_path
+            
+            finishing_data.append(finishing_info)
+        
+        # Przygotuj dane pozycji z cenami jednostkowymi
+        items_data = []
+        for item in visible_items:
+            item_dict = item.to_dict()
+            
+            # Upewnij się, że ceny są jednostkowe (nie całkowite)
+            finishing = next((f for f in finishing_details if f.product_index == item.product_index), None)
+            quantity = finishing.quantity if finishing else 1
+            
+            # Popraw ceny jeśli są już pomnożone przez ilość
+            if quantity > 1:
+                # Sprawdź czy cena jest już pomnożona
+                if item_dict.get('final_price_netto'):
+                    # Jeśli cena końcowa istnieje, użyj jej jako jednostkowej
+                    item_dict['price_netto'] = item_dict['final_price_netto'] / quantity
+                    item_dict['price_brutto'] = item_dict['final_price_brutto'] / quantity
+            
+            items_data.append(item_dict)
         
         return jsonify({
             "id": quote.id,
             "quote_number": quote.quote_number,
             "created_at": quote.created_at.isoformat() if quote.created_at else None,
             "is_client_editable": quote.is_client_editable,
+            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
             "costs": costs,
+            "shipping_cost_netto": cost_shipping_netto,
+            "shipping_cost_brutto": cost_shipping_brutto,
             "courier_name": quote.courier_name or "-",
             "status_name": quote.quote_status.name if quote.quote_status else "-",
-            "client_comments": getattr(quote, 'client_comments', None),
-            "acceptance_date": getattr(quote, 'acceptance_date', None),
-            # DODANE: public_token do pobierania PDF po stronie klienta
-            "public_token": quote.public_token,
-            "client": {
-                "client_name": quote.client.client_name if quote.client else "-",
-                "email": quote.client.email if quote.client else "-",
-                "phone": quote.client.phone if quote.client else "-"
-            },
-            "user": {
-                "first_name": quote.user.first_name if quote.user else "",
-                "last_name": quote.user.last_name if quote.user else ""
-            },
-            "finishing": [
-                {
-                    "product_index": detail.product_index,
-                    "type": detail.finishing_type,
-                    "variant": detail.finishing_variant,
-                    "color": detail.finishing_color,
-                    "gloss": detail.finishing_gloss_level,
-                    "netto": detail.finishing_price_netto,
-                    "brutto": detail.finishing_price_brutto
-                } for detail in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
-            ],
-            "items": [item.to_dict() for item in visible_items]
+            "client_comment": quote.client_comments,
+            "items": items_data,
+            "finishing": finishing_data,
+            "public_token": token
         })
         
     except Exception as e:
         print(f"[get_client_quote_data] Błąd: {e}", file=sys.stderr)
-        return jsonify({
-            "error": "general",
-            "message": "Wystąpił błąd podczas pobierania danych wyceny",
-            "details": str(e)
-        }), 500
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "server_error", "message": str(e)}), 500
 
 @quotes_bp.route("/api/client/quote/<token>/update-variant", methods=["PATCH"])
 def client_update_variant(token):
@@ -816,103 +873,88 @@ def client_update_variant(token):
         print(f"[client_update_variant] Błąd: {e}", file=sys.stderr)
         return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
 
-
-# POPRAWKA 1: W routers.py w funkcji client_accept_quote
-# Zmień tę część kodu:
-
-# GŁÓWNA POPRAWKA W app/modules/quotes/routers.py
-# Zastąp funkcję client_accept_quote:
-
 @quotes_bp.route("/api/client/quote/<token>/accept", methods=["POST"])
 def client_accept_quote(token):
-    """Akceptacja wyceny przez klienta - z poprawną zmianą statusu"""
+    """Akceptacja wyceny przez klienta z rozszerzonymi danymi"""
     try:
-        data = request.get_json()
-        email_or_phone = data.get("email_or_phone")
-        comments = data.get("comments", "")
+        quote = Quote.query.filter_by(public_token=token).first()
         
-        if not email_or_phone:
-            return jsonify({"error": "Wymagany email lub numer telefonu"}), 400
-        
-        quote = Quote.query.filter_by(public_token=token).first_or_404()
+        if not quote:
+            return jsonify({"error": "not_found", "message": "Wycena nie została znaleziona"}), 404
         
         if not quote.is_client_editable:
-            return jsonify({"error": "Wycena została już zaakceptowana"}), 403
+            return jsonify({
+                "error": "quote_not_editable", 
+                "message": "Wycena została już zaakceptowana"
+            }), 403
         
-        # Walidacja email/telefon
-        if not validate_email_or_phone(email_or_phone, quote):
-            return jsonify({"error": "Nieprawidłowy email lub numer telefonu"}), 400
+        data = request.get_json()
+        email_or_phone = data.get("email_or_phone", "").strip()
+        phone = data.get("phone", "").strip()  # Dodatkowe pole telefonu
+        comments = data.get("comments", "").strip()
         
-        print(f"[client_accept_quote] PRZED zmianą - wycena {quote.id}, status_id: {quote.status_id}", file=sys.stderr)
+        if not email_or_phone:
+            return jsonify({"error": "validation_error", "message": "Email jest wymagany"}), 400
         
-        # KLUCZOWA POPRAWKA: Znajdź status "Zaakceptowane" (ID 3)
-        accepted_status = QuoteStatus.query.filter_by(id=3).first()
-        if not accepted_status:
-            # Fallback - spróbuj różne nazwy
-            accepted_status = QuoteStatus.query.filter(
-                QuoteStatus.name.in_(["Zaakceptowane", "Zaakceptowana", "Accepted", "Zatwierdzone"])
-            ).first()
+        # Weryfikacja klienta
+        client = quote.client
+        if not client:
+            return jsonify({"error": "client_error", "message": "Brak danych klienta"}), 400
         
-        if accepted_status:
-            old_status_id = quote.status_id
-            quote.status_id = accepted_status.id
-            print(f"[client_accept_quote] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
-        else:
-            print(f"[client_accept_quote] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
-            # Wypisz wszystkie dostępne statusy dla debugowania
-            all_statuses = QuoteStatus.query.all()
-            print(f"[client_accept_quote] Dostępne statusy:", file=sys.stderr)
-            for status in all_statuses:
-                print(f"  ID: {status.id}, Nazwa: '{status.name}'", file=sys.stderr)
+        # Sprawdź email lub telefon
+        client_email = (client.email or "").lower().strip()
+        client_phone = (client.phone or "").replace(" ", "").replace("-", "")
+        input_value = email_or_phone.lower().strip()
+        input_phone = phone.replace(" ", "").replace("-", "") if phone else ""
         
-        # Zapisz pozostałe dane akceptacji
-        quote.client_comments = comments
-        quote.acceptance_date = datetime.now()
+        email_matches = input_value == client_email or input_value.endswith(client_email)
+        phone_matches = input_phone and (input_phone in client_phone or client_phone in input_phone)
+        
+        if not (email_matches or phone_matches):
+            return jsonify({
+                "error": "verification_failed", 
+                "message": "Podane dane nie pasują do danych klienta"
+            }), 403
+        
+        # Zapisz komentarz jeśli podany
+        if comments:
+            quote.client_comment = comments
+        
+        # Ustaw datę akceptacji i status
+        quote.acceptance_date = datetime.utcnow()
+        quote.is_client_editable = False
         quote.accepted_by_email = email_or_phone
-        quote.disable_client_editing()
         
-        # WAŻNE: Flush przed commit żeby zobaczyć błędy
-        try:
-            db.session.flush()
-            print(f"[client_accept_quote] Flush wykonany pomyślnie", file=sys.stderr)
-        except Exception as e:
-            print(f"[client_accept_quote] BŁĄD podczas flush: {e}", file=sys.stderr)
-            db.session.rollback()
-            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        # Zmień status na "Zaakceptowana przez klienta" (ID=7)
+        quote.status_id = 7
         
-        # Commit zmian
-        try:
-            db.session.commit()
-            print(f"[client_accept_quote] Commit wykonany pomyślnie", file=sys.stderr)
-        except Exception as e:
-            print(f"[client_accept_quote] BŁĄD podczas commit: {e}", file=sys.stderr)
-            db.session.rollback()
-            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        # Dodaj log
+        log_entry = QuoteLog(
+            quote_id=quote.id,
+            user_id=None,  # Brak użytkownika - akcja klienta
+            change_time=datetime.utcnow(),
+            description=f"Wycena zaakceptowana przez klienta (email: {email_or_phone})"
+        )
+        db.session.add(log_entry)
         
-        # Sprawdź po zapisie
-        quote_after = Quote.query.get(quote.id)
-        print(f"[client_accept_quote] PO zapisie - wycena {quote_after.id}, status_id: {quote_after.status_id}", file=sys.stderr)
+        db.session.commit()
         
-        # Wyślij emaile
-        try:
-            send_acceptance_emails(quote)
-            print(f"[client_accept_quote] Emaile wysłane pomyślnie", file=sys.stderr)
-        except Exception as e:
-            print(f"[client_accept_quote] Błąd wysyłki maili: {e}", file=sys.stderr)
+        print(f"[client_accept_quote] Wycena {quote.id} zaakceptowana przez klienta", file=sys.stderr)
+        
+        # TODO: Wysłanie emaila z potwierdzeniem
         
         return jsonify({
+            "success": True,
             "message": "Wycena została zaakceptowana",
-            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
-            "new_status": accepted_status.name if accepted_status else "Brak statusu",
-            "new_status_id": accepted_status.id if accepted_status else None
+            "quote_number": quote.quote_number
         })
         
     except Exception as e:
-        print(f"[client_accept_quote] WYJĄTEK: {e}", file=sys.stderr)
+        db.session.rollback()
+        print(f"[client_accept_quote] Błąd: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        db.session.rollback()
-        return jsonify({"error": "Błąd podczas akceptacji wyceny"}), 500
+        return jsonify({"error": "server_error", "message": "Błąd podczas akceptacji wyceny"}), 500
 
 def send_acceptance_email_to_salesperson(quote):
     """

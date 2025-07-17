@@ -2257,7 +2257,7 @@ function initializeClientPageButtons(quoteData) {
 }
 function generateClientUrl(quoteNumber, token) {
     const baseUrl = window.location.origin;
-    return `${baseUrl}/wycena/${quoteNumber}/${token}`;
+    return `${baseUrl}/c/${token}`;
 }
 function openClientPage(quoteNumber, token) {
     if (!quoteNumber || !token) {
