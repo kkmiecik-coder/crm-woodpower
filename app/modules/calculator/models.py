@@ -80,9 +80,8 @@ class Quote(db.Model):
             self.public_token = self.generate_public_token()
             # Zapisz token do bazy danych
             db.session.commit()
-
-        # POPRAWKA: Zmiana formatu URL na /c/{token}
-        return f"/quotes/c/{self.public_token}"
+    
+        return f"/quotes/wycena/{self.quote_number}/{self.public_token}"
 
     def disable_client_editing(self):
         """Wyłącza możliwość edycji przez klienta (np. po akceptacji)"""

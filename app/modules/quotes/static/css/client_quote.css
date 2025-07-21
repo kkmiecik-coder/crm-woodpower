@@ -239,6 +239,7 @@ body {
 .product-button {
     flex: 1;
     max-width: 200px;
+    min-width: 160px;
     padding: var(--spacing-sm) var(--spacing-base);
     background: var(--bg-white);
     border: 2px solid var(--border-light);
@@ -1740,4 +1741,39 @@ body {
     font-size: var(--font-size-lg);
     color: var(--primary-color);
     font-weight: 700;
+}
+
+.modal-content,
+.modal-body,
+.qr-content,
+.qr-code-container {
+    overflow: visible !important;
+}
+
+/* Tymczasowa naprawka QR */
+.qr-code,
+.qr-code *,
+.qr-code canvas,
+.qr-code img {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: static !important;
+}
+
+.qr-code-container {
+    text-align: center !important;
+    padding: 20px !important;
+}
+
+/* Zapewnia, że tylko IMG jest widoczny, canvas jest ukryty */
+.qr-code canvas {
+    display: none !important;
+}
+
+.qr-code img {
+    display: block !important;
+    margin: 0 auto !important;
+    max-width: 200px !important;
+    max-height: 200px !important;
 }
