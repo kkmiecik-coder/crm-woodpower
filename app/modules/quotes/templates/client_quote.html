@@ -19,7 +19,7 @@
         <!-- Header -->
         <header class="client-header">
             <div class="client-header-content">
-                <a class="client-logo">Wood Power</a>
+                <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Logo Woodpower" style="max-width: 250px;">
                 <div class="client-header-info">
                     <span>Wycena: #{{ quote.quote_number }}</span>
                     <span>{{ quote.created_at.strftime('%d.%m.%Y') if quote.created_at else '' }}</span>
@@ -72,7 +72,7 @@
 
                     <!-- PRZENIESIONE: Comparison Table - pod wyborem wariantów -->
                     <div class="comparison-section desktop-only">
-                        <h3 class="comparison-header">Porównanie wariantów</h3>
+                        <h3 class="comparison-header">Porównanie wariantów produktu</h3>
                         <div class="comparison-container" id="desktopComparisonContainer">
                             <table class="comparison-table">
                                 <thead>
@@ -92,7 +92,7 @@
 
                     <!-- Summary Comparison - Mobile only -->
                     <div class="summary-section mobile-only">
-                        <h3 class="summary-header">Porównanie wariantów</h3>
+                        <h3 class="summary-header">Porównanie wariantów produktu</h3>
                         <div class="comparison-container" id="comparisonContainer">
                             <table class="comparison-table">
                                 <thead>

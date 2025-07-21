@@ -1215,7 +1215,7 @@ body {
 .summary-total-row {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     margin-bottom: var(--spacing-xs);
 }
 
@@ -1367,7 +1367,7 @@ body {
 .variant-image {
     height: 90px;
     background-size: cover;
-    background-position: center;
+    background-position: top;
     background-color: var(--bg-grey);
     border-bottom: 1px solid var(--border-light);
     flex-shrink: 0;
@@ -1677,4 +1677,67 @@ body {
     .mobile-only {
         display: none;
     }
+}
+
+/* Style dla cen netto - cieńsze i szare/czarne nad brutto */
+.price-netto {
+    font-size: 12px;
+    color: #333;
+    font-weight: 400;
+    margin-bottom: 2px;
+}
+
+.summary-total-value .price-netto {
+    font-size: 11px;
+    color: #666;
+    font-weight: 300;
+}
+
+.total-netto {
+    font-size: 13px;
+    color: #333;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.mobile-total-netto {
+    font-size: 14px;
+    color: #666;
+    font-weight: 400;
+    margin-bottom: 2px;
+}
+
+.mobile-price-stack {
+    text-align: right;
+}
+
+    .mobile-price-stack .price-netto {
+        font-size: 11px;
+        color: #666;
+        font-weight: 300;
+    }
+
+    .mobile-price-stack .price-brutto {
+        font-size: 13px;
+        color: #333;
+        font-weight: 500;
+    }
+
+/* Dostosowanie istniejących stylów */
+.summary-item-value {
+    text-align: right;
+}
+
+.summary-total-value {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+/* Style dla głównej sumy - brutto pozostaje w tym samym stylu */
+.summary-total-main {
+    font-size: var(--font-size-lg);
+    color: var(--primary-color);
+    font-weight: 700;
 }

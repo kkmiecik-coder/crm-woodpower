@@ -311,10 +311,10 @@ const render = {
     },
 
     /**
-     * Renderuje karty wariantów
-     * @param {Object} product - Dane produktu
-     * @returns {string} HTML wariantów
-     */
+ * Renderuje karty wariantów
+ * @param {Object} product - Dane produktu
+ * @returns {string} HTML wariantów
+ */
     renderVariants(product) {
         return product.variants
             .filter(v => v.show_on_client_page !== false)
@@ -335,36 +335,36 @@ const render = {
                 const unitPriceNetto = totalNetto / quantity;
 
                 return `
-                <div class="variant-card ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" 
-                     onclick="${!isDisabled ? `handlers.selectVariant(${product.index}, ${variant.id})` : ''}">
-                    <div class="variant-content">
-                        <div class="variant-image" 
-                             style="background-image: url('${variantImagePath}')" 
-                             onerror="console.error('Failed to load image: ${variantImagePath}')">
-                            <div class="variant-badge-overlay ${isSelected ? 'selected' : 'available'}">
-                                ${isSelected ? 'Wybrany' : 'Wybierz'}
-                            </div>
+            <div class="variant-card ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" 
+                 ${globalState.isQuoteAccepted ? '' : `onclick="handlers.selectVariant(${product.index}, ${variant.id})"`}>
+                <div class="variant-content">
+                    <div class="variant-image" 
+                         style="background-image: url('${variantImagePath}')" 
+                         onerror="console.error('Failed to load image: ${variantImagePath}')">
+                        <div class="variant-badge-overlay ${isSelected ? 'selected' : 'available'}">
+                            ${globalState.isQuoteAccepted ? (isSelected ? 'Wybrany' : '') : (isSelected ? 'Wybrany' : 'Wybierz')}
                         </div>
-                        <div class="variant-info">
-                            <div class="variant-header">
-                                <div class="variant-name">${utils.translateVariantCode(variant.variant_code)}</div>
+                    </div>
+                    <div class="variant-info">
+                        <div class="variant-header">
+                            <div class="variant-name">${utils.translateVariantCode(variant.variant_code)}</div>
+                        </div>
+                        <div class="variant-pricing-flex">
+                            <div class="price-left">
+                                <div class="price-label">Cena:</div>
+                                <div class="price-brutto">${utils.formatCurrency(unitPriceBrutto)}</div>
+                                <div class="price-netto">${utils.formatCurrency(unitPriceNetto)} netto</div>
                             </div>
-                            <div class="variant-pricing-flex">
-                                <div class="price-left">
-                                    <div class="price-label">Cena:</div>
-                                    <div class="price-brutto">${utils.formatCurrency(unitPriceBrutto)}</div>
-                                    <div class="price-netto">${utils.formatCurrency(unitPriceNetto)} netto</div>
-                                </div>
-                                <div class="price-right">
-                                    <div class="price-label">Wartość:</div>
-                                    <div class="price-brutto total">${utils.formatCurrency(totalBrutto)}</div>
-                                    <div class="price-netto">${utils.formatCurrency(totalNetto)} netto</div>
-                                </div>
+                            <div class="price-right">
+                                <div class="price-label">Wartość:</div>
+                                <div class="price-brutto total">${utils.formatCurrency(totalBrutto)}</div>
+                                <div class="price-netto">${utils.formatCurrency(totalNetto)} netto</div>
                             </div>
                         </div>
                     </div>
                 </div>
-            `;
+            </div>
+        `;
             }).join('');
     },
 
@@ -413,7 +413,7 @@ const render = {
     },
 
     /**
-    * Renderuje podsumowanie na desktop
+    * Renderuje podsumowanie na desktop z cenami brutto i netto
     */
     desktopSummary() {
         const summaryContainer = document.getElementById('desktopSummaryContent');
@@ -424,52 +424,63 @@ const render = {
         const selectedItems = this.getSelectedItems();
         const costs = globalState.quoteData.costs || {};
 
-        // Renderuj zawartość podsumowania
+        // Renderuj zawartość podsumowania z pełnymi nazwami produktów i ilościami
         summaryContainer.innerHTML = selectedItems.map(item => {
             const product = this.getProductByIndex(item.product_index);
             const variantName = utils.translateVariantCode(item.variant_code);
+            const quantity = item.quantity || 1;
+            const productName = product ? product.full_name || `Produkt ${item.product_index}` : `Produkt ${item.product_index}`;
 
             return `
-            <div class="summary-item">
-                <div class="summary-item-label">
-                    ${variantName}
-                    <br><small>Produkt ${item.product_index}</small>
-                </div>
-                <div class="summary-item-value">
-                    ${utils.formatCurrency(item.final_price_brutto)}
-                </div>
+        <div class="summary-item">
+            <div class="summary-item-label">
+                ${productName} ${variantName}
+                <br><small>${quantity} szt.</small>
             </div>
-        `;
+            <div class="summary-item-value">
+                <div class="price-brutto">${utils.formatCurrency(item.final_price_brutto)}</div>
+                <div class="price-netto">${utils.formatCurrency(item.final_price_netto)} netto</div>
+            </div>
+        </div>
+    `;
         }).join('');
 
-        // Renderuj podsumowanie całkowite
+        // Renderuj podsumowanie całkowite z cenami brutto i netto
         totalContainer.innerHTML = `
-        <div class="summary-total-row">
-            <span class="summary-total-label">Produkty netto:</span>
-            <span class="summary-total-value">${utils.formatCurrency(costs.products?.netto || 0)}</span>
+    <div class="summary-total-row">
+        <span class="summary-total-label">Produkty:</span>
+        <div class="summary-total-value">
+            <div class="price-brutto">${utils.formatCurrency(costs.products?.brutto || 0)}</div>
+            <div class="price-netto">${utils.formatCurrency(costs.products?.netto || 0)} netto</div>
         </div>
-        <div class="summary-total-row">
-            <span class="summary-total-label">Wykończenie netto:</span>
-            <span class="summary-total-value">${utils.formatCurrency(costs.finishing?.netto || 0)}</span>
+    </div>
+    <div class="summary-total-row">
+        <span class="summary-total-label">Wykończenie:</span>
+        <div class="summary-total-value">
+            <div class="price-brutto">${utils.formatCurrency(costs.finishing?.brutto || 0)}</div>
+            <div class="price-netto">${utils.formatCurrency(costs.finishing?.netto || 0)} netto</div>
         </div>
-        <div class="summary-total-row">
-            <span class="summary-total-label">Transport:</span>
-            <span class="summary-total-value">${utils.formatCurrency(costs.shipping?.brutto || 0)}</span>
+    </div>
+    <div class="summary-total-row">
+        <span class="summary-total-label">Transport:</span>
+        <div class="summary-total-value">
+            <div class="price-brutto">${utils.formatCurrency(costs.shipping?.brutto || 0)}</div>
+            <div class="price-netto">${utils.formatCurrency(costs.shipping?.netto || 0)} netto</div>
         </div>
-        <div class="summary-total-row">
-            <span class="summary-total-label">VAT:</span>
-            <span class="summary-total-value">${utils.formatCurrency(costs.total?.vat || 0)}</span>
+    </div>
+    <div class="summary-total-row total-row">
+        <span class="summary-total-label summary-total-main">RAZEM:</span>
+        <div class="summary-total-value">
+            <div class="price-brutto summary-total-main">${utils.formatCurrency(costs.total?.brutto || 0)}</div>
+            <div class="price-netto total-netto">${utils.formatCurrency(costs.total?.netto || 0)} netto</div>
         </div>
-        <div class="summary-total-row">
-            <span class="summary-total-label summary-total-main">RAZEM BRUTTO:</span>
-            <span class="summary-total-value summary-total-main">${utils.formatCurrency(costs.total?.brutto || 0)}</span>
-        </div>
-        `;
+    </div>
+    `;
     },
 
     /**
-     * Aktualizuje mobilne podsumowanie
-     */
+ * Aktualizuje mobilne podsumowanie z cenami brutto i netto
+ */
     mobileSummary() {
         const detailsContent = document.getElementById('mobileDetailsContent');
         const totalPrice = document.getElementById('mobileTotalPrice');
@@ -480,37 +491,56 @@ const render = {
         const costs = globalState.quoteData.costs || {};
 
         // Aktualizuj całkowitą cenę
-        totalPrice.textContent = utils.formatCurrency(costs.total?.brutto || 0);
+        totalPrice.innerHTML = `
+        <div class="price-netto mobile-total-netto">${utils.formatCurrency(costs.total?.netto || 0)} netto</div>
+        <div class="price-brutto">${utils.formatCurrency(costs.total?.brutto || 0)}</div>
+    `;
 
-        // Renderuj szczegóły
+        // Renderuj szczegóły z pełnymi nazwami produktów i ilościami
         detailsContent.innerHTML = `
-            <div class="mobile-summary-details">
-                ${selectedItems.map(item => {
-                    const variantName = utils.translateVariantCode(item.variant_code);
-                    return `
-                        <div class="mobile-summary-item">
-                            <span>${variantName}</span>
-                            <span>${utils.formatCurrency(item.final_price_brutto)}</span>
+        <div class="mobile-summary-details">
+            ${selectedItems.map(item => {
+            const product = this.getProductByIndex(item.product_index);
+            const variantName = utils.translateVariantCode(item.variant_code);
+            const quantity = item.quantity || 1;
+            const productName = product ? product.full_name || `Produkt ${item.product_index}` : `Produkt ${item.product_index}`;
+
+            return `
+                    <div class="mobile-summary-item">
+                        <span>${productName} ${variantName} (${quantity} szt.)</span>
+                        <div class="mobile-price-stack">
+                            <div class="price-netto">${utils.formatCurrency(item.final_price_netto)} netto</div>
+                            <div class="price-brutto">${utils.formatCurrency(item.final_price_brutto)}</div>
                         </div>
-                    `;
-                }).join('')}
-            
-            <div class="mobile-summary-section">
-                <div class="mobile-summary-item">
-                    <span>Wykończenie:</span>
-                    <span>${utils.formatCurrency(costs.finishing?.brutto || 0)}</span>
+                    </div>
+                `;
+        }).join('')}
+        
+        <div class="mobile-summary-section">
+            <div class="mobile-summary-item">
+                <span>Wykończenie:</span>
+                <div class="mobile-price-stack">
+                    <div class="price-netto">${utils.formatCurrency(costs.finishing?.netto || 0)} netto</div>
+                    <div class="price-brutto">${utils.formatCurrency(costs.finishing?.brutto || 0)}</div>
                 </div>
-                <div class="mobile-summary-item">
-                    <span>Transport:</span>
-                    <span>${utils.formatCurrency(costs.shipping?.brutto || 0)}</span>
+            </div>
+            <div class="mobile-summary-item">
+                <span>Transport:</span>
+                <div class="mobile-price-stack">
+                    <div class="price-netto">${utils.formatCurrency(costs.shipping?.netto || 0)} netto</div>
+                    <div class="price-brutto">${utils.formatCurrency(costs.shipping?.brutto || 0)}</div>
                 </div>
-                <div class="mobile-summary-item total">
-                    <span>RAZEM:</span>
-                    <span>${utils.formatCurrency(costs.total?.brutto || 0)}</span>
+            </div>
+            <div class="mobile-summary-item total">
+                <span>RAZEM:</span>
+                <div class="mobile-price-stack">
+                    <div class="price-netto">${utils.formatCurrency(costs.total?.netto || 0)} netto</div>
+                    <div class="price-brutto">${utils.formatCurrency(costs.total?.brutto || 0)}</div>
                 </div>
             </div>
         </div>
-        `;
+    </div>
+    `;
     },
 
     /**
