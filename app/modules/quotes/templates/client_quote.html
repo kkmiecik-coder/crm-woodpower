@@ -19,7 +19,7 @@
         <!-- Header -->
         <header class="client-header">
             <div class="client-header-content">
-                <a href="/" class="client-logo">Wood Power</a>
+                <a class="client-logo">Wood Power</a>
                 <div class="client-header-info">
                     <span>Wycena: #{{ quote.quote_number }}</span>
                     <span>{{ quote.created_at.strftime('%d.%m.%Y') if quote.created_at else '' }}</span>
@@ -61,29 +61,80 @@
                 </select>
             </div>
 
-            <!-- Product Sections -->
-            <div id="productSections">
-                <!-- Generowane przez JS -->
-            </div>
+            <!-- Desktop Layout: Content + Sidebar -->
+            <div class="desktop-layout">
+                <!-- Left Content Area -->
+                <div class="content-area">
+                    <!-- Product Sections -->
+                    <div id="productSections">
+                        <!-- Generowane przez JS -->
+                    </div>
 
-            <!-- Summary Comparison -->
-            <div class="summary-section">
-                <h3 class="summary-header">Porównanie wariantów</h3>
-                <div class="comparison-container" id="comparisonContainer">
-                    <table class="comparison-table">
-                        <thead>
-                            <tr>
-                                <th>Wariant</th>
-                                <th>Cena netto</th>
-                                <th>Cena brutto</th>
-                                <th>Różnica</th>
-                            </tr>
-                        </thead>
-                        <tbody id="comparisonBody">
-                            <!-- Generowane przez JS -->
-                        </tbody>
-                    </table>
+                    <!-- PRZENIESIONE: Comparison Table - pod wyborem wariantów -->
+                    <div class="comparison-section desktop-only">
+                        <h3 class="comparison-header">Porównanie wariantów</h3>
+                        <div class="comparison-container" id="desktopComparisonContainer">
+                            <table class="comparison-table">
+                                <thead>
+                                    <tr>
+                                        <th>Wariant</th>
+                                        <th>Cena netto</th>
+                                        <th>Cena brutto</th>
+                                        <th>Różnica</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="desktopComparisonBody">
+                                    <!-- Generowane przez JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Summary Comparison - Mobile only -->
+                    <div class="summary-section mobile-only">
+                        <h3 class="summary-header">Porównanie wariantów</h3>
+                        <div class="comparison-container" id="comparisonContainer">
+                            <table class="comparison-table">
+                                <thead>
+                                    <tr>
+                                        <th>Wariant</th>
+                                        <th>Cena netto</th>
+                                        <th>Cena brutto</th>
+                                        <th>Różnica</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="comparisonBody">
+                                    <!-- Generowane przez JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Right Sidebar Desktop -->
+                <aside class="desktop-sidebar">
+                    <!-- Quote Summary -->
+                    <div class="quote-summary-card">
+                        <div class="summary-header">
+                            <h3>Podsumowanie wyceny</h3>
+                        </div>
+                        <div class="summary-content" id="desktopSummaryContent">
+                            <!-- Generowane przez JS -->
+                        </div>
+                        <div class="summary-total" id="desktopTotalSummary">
+                            <!-- Generowane przez JS -->
+                        </div>
+                        {% if not is_accepted %}
+                        <button class="btn-accept desktop" onclick="showAcceptModal()">
+                            Akceptuj wycenę
+                        </button>
+                        {% else %}
+                        <button class="btn-accept desktop" disabled>
+                            Wycena zaakceptowana
+                        </button>
+                        {% endif %}
+                    </div>
+                </aside>
             </div>
         </main>
 

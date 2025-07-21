@@ -11,7 +11,8 @@ const globalState = {
     selectedVariants: new Map(),
     currentProductIndex: 1,
     isQuoteAccepted: window.IS_ACCEPTED || false,
-    isLoading: false
+    isLoading: false,
+    hasUnsavedChanges: false
 };
 
 // ===================================
@@ -111,15 +112,21 @@ const utils = {
      */
     translateVariantCode(code) {
         const translations = {
-            'oak_solid_ab': 'Dąb lity A/B',
-            'oak_solid_bb': 'Dąb lity B/B',
-            'oak_micro_ab': 'Dąb mikrowczep A/B',
-            'oak_micro_bb': 'Dąb mikrowczep B/B',
-            'ash_solid_ab': 'Jesion lity A/B',
-            'ash_micro_ab': 'Jesion mikrowczep A/B',
-            'beech_solid_ab': 'Buk lity A/B',
-            'beech_micro_ab': 'Buk mikrowczep A/B'
+            // Dąb
+            'dab-lity-ab': 'Dąb lity A/B',
+            'dab-lity-bb': 'Dąb lity B/B',
+            'dab-micro-ab': 'Dąb mikrowczep A/B',
+            'dab-micro-bb': 'Dąb mikrowczep B/B',
+
+            // Jesion
+            'jes-lity-ab': 'Jesion lity A/B',
+            'jes-micro-ab': 'Jesion mikrowczep A/B',
+
+            // Buk
+            'buk-lity-ab': 'Buk lity A/B',
+            'buk-micro-ab': 'Buk mikrowczep A/B',
         };
+
         return translations[code] || code;
     },
 
@@ -154,25 +161,38 @@ const utils = {
     },
 
     /**
-     * Generuje kod QR
-     * @param {string} text - Tekst do zakodowania
-     * @param {string} elementId - ID elementu canvas
-     */
+    * Generuje kod QR
+    * @param {string} text - Tekst do zakodowania
+    * @param {string} elementId - ID elementu canvas
+    */
     generateQRCode(text, elementId = 'qrCode') {
         const canvas = document.getElementById(elementId);
-        if (!canvas || !window.QRCode) return;
+        if (!canvas) {
+            console.error('QR Canvas element not found:', elementId);
+            return;
+        }
+
+        if (!window.QRCode) {
+            console.error('QRCode library not loaded');
+            return;
+        }
 
         // Wyczyść poprzedni kod
         canvas.innerHTML = '';
 
-        new QRCode(canvas, {
-            text: text,
-            width: 200,
-            height: 200,
-            colorDark: '#000000',
-            colorLight: '#ffffff',
-            correctLevel: QRCode.CorrectLevel.H
-        });
+        try {
+            new QRCode(canvas, {
+                text: text,
+                width: 200,
+                height: 200,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.H
+            });
+            console.log('QR code generated successfully for:', text);
+        } catch (error) {
+            console.error('Error generating QR code:', error);
+        }
     }
 };
 
@@ -238,15 +258,9 @@ const render = {
                         <div class="product-details">
                             <div class="product-detail">
                                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16m-7 5h7"></path>
-                                </svg>
-                                <span>${product.dimensions}</span>
-                            </div>
-                            <div class="product-detail">
-                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
                                 </svg>
-                                <span>${product.volume}</span>
+                                <span>${product.dimensions}</span>
                             </div>
                             <div class="product-detail">
                                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -281,6 +295,15 @@ const render = {
                 <div class="variants-grid">
                     ${this.renderVariants(product)}
                 </div>
+
+                <div class="save-changes-section ${globalState.hasUnsavedChanges ? 'visible' : 'hidden'}" id="saveChangesSection-${product.index}">
+                    <div class="save-changes-content">
+                        <span class="save-changes-text">Masz niezapisane zmiany</span>
+                        <button class="btn-save-changes" onclick="handlers.saveChanges()">
+                            Zapisz zmiany
+                        </button>
+                    </div>
+                </div>
             `;
 
             sectionsContainer.appendChild(section);
@@ -299,42 +322,49 @@ const render = {
                 const isSelected = globalState.selectedVariants.get(product.index) === variant.id;
                 const isDisabled = globalState.isQuoteAccepted && !isSelected;
 
-                // Pobierz dane o wykończeniu
-                const finishing = globalState.quoteData.finishing?.find(
-                    f => f.product_index === product.index
-                );
+                // Użyj ścieżki z podwójnym quotes
+                const variantImagePath = `/quotes/quotes/static/img/${variant.variant_code}.jpg`;
 
-                // Ścieżka do obrazka tekstury
-                const texturePath = finishing?.finishing_color
-                    ? `/static/img/finishing_colors/${finishing.finishing_color}.jpg`
-                    : '/static/img/finishing_colors/placeholder.jpg';
+                // Te ceny już są przemnożone przez ilość w API
+                const totalBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
+                const totalNetto = variant.final_price_netto || variant.unit_price_netto || 0;
+
+                // Oblicz cenę jednostkową (podziel przez ilość)
+                const quantity = variant.quantity || 1;
+                const unitPriceBrutto = totalBrutto / quantity;
+                const unitPriceNetto = totalNetto / quantity;
 
                 return `
-                    <div class="variant-card ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" 
-                         onclick="${!isDisabled ? `handlers.selectVariant(${product.index}, ${variant.id})` : ''}">
-                        <div class="variant-content">
-                            <div class="variant-image" style="background-image: url('${texturePath}')"></div>
-                            <div class="variant-info">
-                                <div class="variant-header">
-                                    <div class="variant-name">${utils.translateVariantCode(variant.variant_code)}</div>
-                                    <div class="variant-badge ${isSelected ? 'selected' : 'available'}">
-                                        ${isSelected ? 'Wybrany' : 'Wybierz'}
-                                    </div>
+                <div class="variant-card ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" 
+                     onclick="${!isDisabled ? `handlers.selectVariant(${product.index}, ${variant.id})` : ''}">
+                    <div class="variant-content">
+                        <div class="variant-image" 
+                             style="background-image: url('${variantImagePath}')" 
+                             onerror="console.error('Failed to load image: ${variantImagePath}')">
+                            <div class="variant-badge-overlay ${isSelected ? 'selected' : 'available'}">
+                                ${isSelected ? 'Wybrany' : 'Wybierz'}
+                            </div>
+                        </div>
+                        <div class="variant-info">
+                            <div class="variant-header">
+                                <div class="variant-name">${utils.translateVariantCode(variant.variant_code)}</div>
+                            </div>
+                            <div class="variant-pricing-flex">
+                                <div class="price-left">
+                                    <div class="price-label">Cena:</div>
+                                    <div class="price-brutto">${utils.formatCurrency(unitPriceBrutto)}</div>
+                                    <div class="price-netto">${utils.formatCurrency(unitPriceNetto)} netto</div>
                                 </div>
-                                <div class="variant-details">
-                                    Kod: ${variant.variant_code}
-                                </div>
-                                <div class="variant-pricing">
-                                    <div class="price-label">Cena jednostkowa:</div>
-                                    <div class="price-value">
-                                        <div class="price-brutto">${utils.formatCurrency(variant.price_brutto)}</div>
-                                        <div class="price-netto">${utils.formatCurrency(variant.price_netto)} netto</div>
-                                    </div>
+                                <div class="price-right">
+                                    <div class="price-label">Wartość:</div>
+                                    <div class="price-brutto total">${utils.formatCurrency(totalBrutto)}</div>
+                                    <div class="price-netto">${utils.formatCurrency(totalNetto)} netto</div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                `;
+                </div>
+            `;
             }).join('');
     },
 
@@ -347,76 +377,203 @@ const render = {
 
         const variants = this.getUniqueVariants();
 
+        // POPRAWKA: Pobierz pierwszy produkt jako bazę do porównania
+        const firstProduct = this.groupProductsByIndex()[0];
+        if (!firstProduct) return;
+
         tbody.innerHTML = variants.map(variant => {
-            const total = this.calculateVariantTotal(variant.code);
-            const currentTotal = this.calculateCurrentTotal();
-            const difference = total.brutto - currentTotal.brutto;
-            const isSelected = this.isVariantSelected(variant.code);
+            // POPRAWKA: Znajdź wariant dla pierwszego produktu
+            const variantForProduct = firstProduct.variants.find(v => v.variant_code === variant.code);
+            if (!variantForProduct) return '';
+
+            // Oblicz ceny dla tego konkretnego wariantu
+            const totalBrutto = variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0;
+            const totalNetto = variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0;
+
+            // Sprawdź czy jest wybrany
+            const isSelected = globalState.selectedVariants.get(firstProduct.index) === variantForProduct.id;
+
+            // Oblicz różnicę względem aktualnie wybranego
+            const selectedVariantId = globalState.selectedVariants.get(firstProduct.index);
+            const selectedVariant = firstProduct.variants.find(v => v.id === selectedVariantId);
+            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) : 0;
+            const difference = totalBrutto - selectedTotal;
 
             return `
-                <tr class="${isSelected ? 'selected-row' : ''}">
-                    <td>${variant.name}</td>
-                    <td class="price-cell">${utils.formatCurrency(total.netto)}</td>
-                    <td class="price-cell">${utils.formatCurrency(total.brutto)}</td>
-                    <td class="price-cell">
-                        ${difference !== 0 ? (difference > 0 ? '+' : '') + utils.formatCurrency(difference) : '-'}
-                    </td>
-                </tr>
-            `;
+            <tr class="${isSelected ? 'selected-row' : ''}">
+                <td>${variant.name}</td>
+                <td class="price-cell">${utils.formatCurrency(totalNetto)}</td>
+                <td class="price-cell">${utils.formatCurrency(totalBrutto)}</td>
+                <td class="price-cell">
+                    ${difference !== 0 ? (difference > 0 ? '+' : '') + utils.formatCurrency(difference) : '-'}
+                </td>
+            </tr>
+        `;
+        }).filter(row => row !== '').join('');
+    },
+
+    /**
+    * Renderuje podsumowanie na desktop
+    */
+    desktopSummary() {
+        const summaryContainer = document.getElementById('desktopSummaryContent');
+        const totalContainer = document.getElementById('desktopTotalSummary');
+
+        if (!summaryContainer || !totalContainer || !globalState.quoteData) return;
+
+        const selectedItems = this.getSelectedItems();
+        const costs = globalState.quoteData.costs || {};
+
+        // Renderuj zawartość podsumowania
+        summaryContainer.innerHTML = selectedItems.map(item => {
+            const product = this.getProductByIndex(item.product_index);
+            const variantName = utils.translateVariantCode(item.variant_code);
+
+            return `
+            <div class="summary-item">
+                <div class="summary-item-label">
+                    ${variantName}
+                    <br><small>Produkt ${item.product_index}</small>
+                </div>
+                <div class="summary-item-value">
+                    ${utils.formatCurrency(item.final_price_brutto)}
+                </div>
+            </div>
+        `;
         }).join('');
+
+        // Renderuj podsumowanie całkowite
+        totalContainer.innerHTML = `
+        <div class="summary-total-row">
+            <span class="summary-total-label">Produkty netto:</span>
+            <span class="summary-total-value">${utils.formatCurrency(costs.products?.netto || 0)}</span>
+        </div>
+        <div class="summary-total-row">
+            <span class="summary-total-label">Wykończenie netto:</span>
+            <span class="summary-total-value">${utils.formatCurrency(costs.finishing?.netto || 0)}</span>
+        </div>
+        <div class="summary-total-row">
+            <span class="summary-total-label">Transport:</span>
+            <span class="summary-total-value">${utils.formatCurrency(costs.shipping?.brutto || 0)}</span>
+        </div>
+        <div class="summary-total-row">
+            <span class="summary-total-label">VAT:</span>
+            <span class="summary-total-value">${utils.formatCurrency(costs.total?.vat || 0)}</span>
+        </div>
+        <div class="summary-total-row">
+            <span class="summary-total-label summary-total-main">RAZEM BRUTTO:</span>
+            <span class="summary-total-value summary-total-main">${utils.formatCurrency(costs.total?.brutto || 0)}</span>
+        </div>
+        `;
     },
 
     /**
      * Aktualizuje mobilne podsumowanie
      */
     mobileSummary() {
-        const total = this.calculateCurrentTotal();
-        const mobileTotalEl = document.getElementById('mobileTotalPrice');
-        if (mobileTotalEl) {
-            mobileTotalEl.textContent = utils.formatCurrency(total.brutto);
-        }
-
-        // Update details
         const detailsContent = document.getElementById('mobileDetailsContent');
-        if (!detailsContent || !globalState.quoteData) return;
+        const totalPrice = document.getElementById('mobileTotalPrice');
 
-        const products = this.groupProductsByIndex();
+        if (!detailsContent || !totalPrice || !globalState.quoteData) return;
 
+        const selectedItems = this.getSelectedItems();
+        const costs = globalState.quoteData.costs || {};
+
+        // Aktualizuj całkowitą cenę
+        totalPrice.textContent = utils.formatCurrency(costs.total?.brutto || 0);
+
+        // Renderuj szczegóły
         detailsContent.innerHTML = `
-            <div class="mb-3">
-                <strong>Produkty:</strong>
-                ${products.map(product => {
-            const selectedId = globalState.selectedVariants.get(product.index);
-            const variant = product.variants.find(v => v.id === selectedId);
-            const subtotal = variant ? variant.price_brutto * product.quantity : 0;
-
-            return `
-                        <div style="display: flex; justify-content: space-between; margin-top: 8px;">
-                            <span>Produkt ${product.index} (${product.quantity} szt.)</span>
-                            <span>${utils.formatCurrency(subtotal)}</span>
+            <div class="mobile-summary-details">
+                ${selectedItems.map(item => {
+                    const variantName = utils.translateVariantCode(item.variant_code);
+                    return `
+                        <div class="mobile-summary-item">
+                            <span>${variantName}</span>
+                            <span>${utils.formatCurrency(item.final_price_brutto)}</span>
                         </div>
                     `;
-        }).join('')}
-            </div>
-            ${globalState.quoteData.shipping_cost_brutto ? `
-                <div style="border-top: 1px solid var(--border-light); padding-top: 16px;">
-                    <div style="display: flex; justify-content: space-between;">
-                        <span>Dostawa (${globalState.quoteData.courier_name || 'Kurier'}):</span>
-                        <span>${utils.formatCurrency(globalState.quoteData.shipping_cost_brutto)}</span>
-                    </div>
+                }).join('')}
+            
+            <div class="mobile-summary-section">
+                <div class="mobile-summary-item">
+                    <span>Wykończenie:</span>
+                    <span>${utils.formatCurrency(costs.finishing?.brutto || 0)}</span>
                 </div>
-            ` : ''}
-            <div style="border-top: 2px solid var(--border-medium); margin-top: 16px; padding-top: 16px;">
-                <div style="display: flex; justify-content: space-between; font-weight: 700;">
-                    <span>Razem brutto:</span>
-                    <span>${utils.formatCurrency(total.brutto)}</span>
+                <div class="mobile-summary-item">
+                    <span>Transport:</span>
+                    <span>${utils.formatCurrency(costs.shipping?.brutto || 0)}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 14px; color: var(--text-secondary);">
-                    <span>Razem netto:</span>
-                    <span>${utils.formatCurrency(total.netto)}</span>
+                <div class="mobile-summary-item total">
+                    <span>RAZEM:</span>
+                    <span>${utils.formatCurrency(costs.total?.brutto || 0)}</span>
                 </div>
             </div>
+        </div>
         `;
+    },
+
+    /**
+    * Renderuje porównanie wariantów na desktop
+    */
+    desktopComparison() {
+        const tbody = document.getElementById('desktopComparisonBody');
+        if (!tbody || !globalState.quoteData) return;
+
+        const variants = this.getUniqueVariants();
+
+        // POPRAWKA: Pobierz pierwszy produkt jako bazę do porównania
+        const firstProduct = this.groupProductsByIndex()[0];
+        if (!firstProduct) return;
+
+        tbody.innerHTML = variants.map(variant => {
+            // POPRAWKA: Znajdź wariant dla pierwszego produktu
+            const variantForProduct = firstProduct.variants.find(v => v.variant_code === variant.code);
+            if (!variantForProduct) return '';
+
+            // Oblicz ceny dla tego konkretnego wariantu
+            const totalBrutto = variantForProduct.final_price_brutto || variantForProduct.unit_price_brutto || 0;
+            const totalNetto = variantForProduct.final_price_netto || variantForProduct.unit_price_netto || 0;
+
+            // Sprawdź czy jest wybrany
+            const isSelected = globalState.selectedVariants.get(firstProduct.index) === variantForProduct.id;
+
+            // Oblicz różnicę względem aktualnie wybranego
+            const selectedVariantId = globalState.selectedVariants.get(firstProduct.index);
+            const selectedVariant = firstProduct.variants.find(v => v.id === selectedVariantId);
+            const selectedTotal = selectedVariant ? (selectedVariant.final_price_brutto || selectedVariant.unit_price_brutto || 0) : 0;
+            const difference = totalBrutto - selectedTotal;
+
+            return `
+            <tr class="${isSelected ? 'selected-row' : ''}">
+                <td>${variant.name}</td>
+                <td class="price-cell">${utils.formatCurrency(totalNetto)}</td>
+                <td class="price-cell">${utils.formatCurrency(totalBrutto)}</td>
+                <td class="price-cell">
+                    ${difference !== 0 ? (difference > 0 ?
+                    `+${utils.formatCurrency(difference)}` :
+                    `${utils.formatCurrency(difference)}`
+                ) : '-'}
+                </td>
+            </tr>
+        `;
+        }).filter(row => row !== '').join('');
+    },
+
+    /**
+     * Pobiera wybrane pozycje wyceny
+     */
+    getSelectedItems() {
+        if (!globalState.quoteData?.items) return [];
+        return globalState.quoteData.items.filter(item => item.is_selected);
+    },
+
+    /**
+     * Pobiera produkt według indeksu
+     */
+    getProductByIndex(index) {
+        const products = this.groupProductsByIndex();
+        return products.find(p => p.index === index);
     },
 
     // Helper functions
@@ -491,8 +648,12 @@ const render = {
         products.forEach(product => {
             const variant = product.variants.find(v => v.variant_code === variantCode);
             if (variant) {
-                totalNetto += variant.price_netto * product.quantity;
-                totalBrutto += variant.price_brutto * product.quantity;
+                // POPRAWKA: Użyj final_price zamiast price
+                const priceBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
+                const priceNetto = variant.final_price_netto || variant.unit_price_netto || 0;
+
+                totalNetto += priceNetto * product.quantity;
+                totalBrutto += priceBrutto * product.quantity;
             }
         });
 
@@ -516,8 +677,12 @@ const render = {
             const selectedId = globalState.selectedVariants.get(product.index);
             const variant = product.variants.find(v => v.id === selectedId);
             if (variant) {
-                totalNetto += variant.price_netto * product.quantity;
-                totalBrutto += variant.price_brutto * product.quantity;
+                // POPRAWKA: Użyj final_price zamiast price
+                const priceBrutto = variant.final_price_brutto || variant.unit_price_brutto || 0;
+                const priceNetto = variant.final_price_netto || variant.unit_price_netto || 0;
+
+                totalNetto += priceNetto * product.quantity;
+                totalBrutto += priceBrutto * product.quantity;
             }
         });
 
@@ -540,7 +705,20 @@ const render = {
             const variant = product.variants.find(v => v.id === selectedId);
             return variant && variant.variant_code === variantCode;
         });
+    },
+
+    /**
+     * Odświeża wszystkie elementy UI
+     */
+    refreshUI() {
+        this.productTabs();
+        this.productSections();
+        this.comparison();
+        this.mobileSummary();
+        this.desktopSummary();
+        this.desktopComparison();
     }
+
 };
 
 // ===================================
@@ -584,28 +762,100 @@ const handlers = {
     async selectVariant(productIndex, variantId) {
         if (globalState.isQuoteAccepted || globalState.isLoading) return;
 
+        // POPRAWKA: Sprawdź czy już wybrany wariant
+        const currentlySelected = globalState.selectedVariants.get(productIndex);
+        if (currentlySelected === variantId) {
+            console.log('Wariant już wybrany, nie pokazuj przycisku');
+            return; // Nie rób nic jeśli kliknięto już wybrany wariant
+        }
+
+        // Zaktualizuj stan lokalny BEZ wywoływania API
+        globalState.selectedVariants.set(productIndex, variantId);
+        globalState.hasUnsavedChanges = true;
+
+        // Odśwież UI żeby pokazać nowy wybór i przycisk Zapisz
+        render.productSections();
+        render.comparison();
+        render.mobileSummary();
+        render.desktopSummary();
+        render.desktopComparison();
+
+        // Pokaż przycisk zapisz
+        this.showSaveButton();
+
+        utils.showAlert('Wariant został wybrany. Kliknij "Zapisz" aby potwierdzić.', 'info');
+    },
+
+    // NOWA funkcja zapisywania zmian:
+    async saveChanges() {
+        if (!globalState.hasUnsavedChanges || globalState.isLoading) return;
+
+        const saveButton = document.querySelector('.btn-save-changes');
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.textContent = 'Zapisywanie...';
+        }
+
         try {
             utils.setLoading(true);
 
-            // Wywołaj API
-            await api.updateVariant(window.QUOTE_TOKEN, variantId);
+            // Znajdź ostatnio zmieniony wariant
+            const changes = [];
+            globalState.selectedVariants.forEach((variantId, productIndex) => {
+                changes.push({ productIndex, variantId });
+            });
 
-            // Zaktualizuj stan lokalny
-            globalState.selectedVariants.set(productIndex, variantId);
+            // Zapisz każdą zmianę przez API
+            for (const change of changes) {
+                await api.updateVariant(window.QUOTE_TOKEN, change.variantId);
+            }
 
-            // Odśwież UI
-            render.productSections();
-            render.comparison();
-            render.mobileSummary();
+            // Oznacz zmiany jako zapisane
+            globalState.hasUnsavedChanges = false;
 
-            utils.showAlert('Wariant został zmieniony', 'success');
+            // Ukryj przycisk
+            this.hideSaveButton();
+
+            // Odśwież dane z serwera
+            await init.loadQuoteData();
+
+            utils.showAlert('Zmiany zostały zapisane!', 'success');
 
         } catch (error) {
-            console.error('Błąd przy zmianie wariantu:', error);
-            utils.showAlert('Błąd przy zmianie wariantu', 'error');
+            console.error('Błąd przy zapisywaniu zmian:', error);
+            utils.showAlert('Błąd przy zapisywaniu zmian', 'error');
+
+            // Przywróć przycisk w przypadku błędu
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.textContent = 'Zapisz zmiany';
+            }
         } finally {
             utils.setLoading(false);
         }
+    },
+
+    // NOWE funkcje pomocnicze:
+    showSaveButton() {
+        document.querySelectorAll('.save-changes-section').forEach(section => {
+            section.classList.remove('hidden');
+
+            // Opóźnienie żeby animacja zadziałała
+            requestAnimationFrame(() => {
+                section.classList.add('visible');
+            });
+        });
+    },
+
+    hideSaveButton() {
+        document.querySelectorAll('.save-changes-section').forEach(section => {
+            section.classList.remove('visible');
+
+            // Opóźnienie przed ukryciem
+            setTimeout(() => {
+                section.classList.add('hidden');
+            }, 400);
+        });
     },
 
     /**
@@ -666,19 +916,49 @@ const handlers = {
         } else {
             // Na desktop - pokazanie QR code
             const modal = document.getElementById('qrModal');
-            if (!modal) return;
+            if (!modal) {
+                console.error('QR Modal not found');
+                return;
+            }
 
             modal.classList.add('active');
 
-            // Generuj QR code z linkiem do tej strony
-            const currentUrl = window.location.href;
-            utils.generateQRCode(currentUrl);
+            // POPRAWKA: Poczekaj aż modal się pokaże, potem generuj QR
+            setTimeout(() => {
+                const currentUrl = window.location.href;
+                console.log('Generating QR code for URL:', currentUrl);
 
-            // Pokaż URL
-            const urlEl = document.getElementById('qrUrl');
-            if (urlEl) {
-                urlEl.textContent = currentUrl;
-            }
+                // Wyczyść poprzedni QR kod
+                const qrContainer = document.getElementById('qrCode');
+                if (qrContainer) {
+                    qrContainer.innerHTML = '';
+
+                    // Sprawdź czy biblioteka QRCode jest załadowana
+                    if (typeof QRCode !== 'undefined') {
+                        try {
+                            new QRCode(qrContainer, {
+                                text: currentUrl,
+                                width: 200,
+                                height: 200,
+                                colorDark: '#000000',
+                                colorLight: '#ffffff',
+                                correctLevel: QRCode.CorrectLevel.H
+                            });
+                            console.log('QR code generated successfully');
+                        } catch (error) {
+                            console.error('Error generating QR code:', error);
+                        }
+                    } else {
+                        console.error('QRCode library not loaded');
+                    }
+                }
+
+                // Pokaż URL
+                const urlEl = document.getElementById('qrUrl');
+                if (urlEl) {
+                    urlEl.textContent = currentUrl;
+                }
+            }, 300); // Opóźnienie 300ms
         }
     },
 
@@ -836,6 +1116,8 @@ const init = {
         render.productSections();
         render.comparison();
         render.mobileSummary();
+        render.desktopSummary();
+        render.desktopComparison();
 
         // Pokaż/ukryj elementy w zależności od stanu
         if (globalState.isQuoteAccepted) {
@@ -888,6 +1170,26 @@ const init = {
                 }
             });
         }
+
+        // DODANE: Close QR modal on click outside
+        const qrModal = document.getElementById('qrModal');
+        if (qrModal) {
+            qrModal.addEventListener('click', (e) => {
+                if (e.target === qrModal) {
+                    handlers.closeModal('qrModal');
+                }
+            });
+        }
+
+        // DODANE: Close QR modal on ESC key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const activeModal = document.querySelector('.modal-overlay.active');
+                if (activeModal) {
+                    handlers.closeModal(activeModal.id);
+                }
+            }
+        });
 
         // Expose handlers to global scope for onclick attributes
         window.handlers = handlers;

@@ -1539,3 +1539,34 @@ def get_client_data_for_modal(token):
         import traceback
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Błąd podczas pobierania danych klienta"}), 500
+
+@quotes_bp.route('/debug-static')
+def debug_static_files():
+    """Debug endpoint do sprawdzenia routingu plików statycznych"""
+    import os
+    from flask import current_app
+    
+    # Sprawdź ścieżki
+    static_folder = quotes_bp.static_folder
+    static_url_path = quotes_bp.static_url_path
+    
+    # Sprawdź czy folder img istnieje
+    img_folder = os.path.join(static_folder, 'img')
+    img_exists = os.path.exists(img_folder)
+    
+    # Lista plików w folderze img
+    img_files = []
+    if img_exists:
+        img_files = os.listdir(img_folder)
+    
+    debug_info = {
+        'blueprint_name': quotes_bp.name,
+        'static_folder': static_folder,
+        'static_url_path': static_url_path,
+        'img_folder_exists': img_exists,
+        'img_folder_path': img_folder,
+        'img_files': img_files,
+        'registered_rules': [str(rule) for rule in current_app.url_map.iter_rules() if 'static' in str(rule)]
+    }
+    
+    return f"<pre>{debug_info}</pre>"
