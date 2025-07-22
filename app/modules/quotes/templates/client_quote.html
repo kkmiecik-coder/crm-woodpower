@@ -182,9 +182,11 @@
         {% endif %}
     </div>
 
-    <!-- Accept Modal -->
-    <div class="modal-overlay" id="acceptModal">
-        <div class="modal-content">
+    <!-- Modal z ustaloną wysokością i wewnętrznym scrollem -->
+    <div class="modal-overlay" id="acceptModal" style="display: none;">
+        <div class="modal-content accept-modal-content">
+
+            <!-- STICKY HEADER -->
             <div class="modal-header">
                 <h3 class="modal-title">Akceptacja wyceny</h3>
                 <button class="modal-close" onclick="closeModal('acceptModal')">
@@ -193,43 +195,331 @@
                     </svg>
                 </button>
             </div>
-            <div class="modal-body">
-                <form id="acceptForm" onsubmit="handleAcceptSubmit(event)">
-                    <div class="form-group">
-                        <label class="form-label" for="acceptEmail">Email *</label>
-                        <input type="email" class="form-input" id="acceptEmail" required
-                               placeholder="jan.kowalski@example.com">
-                        <div class="form-error hidden" id="emailError"></div>
+
+            <!-- STICKY PROGRESS BAR -->
+            <div class="accept-modal-progress">
+                <div class="progress-bar">
+                    <div class="progress-step active" data-step="1">
+                        <div class="progress-circle">1</div>
+                        <span class="progress-label">Kontakt</span>
+                    </div>
+                    <div class="progress-step" data-step="2">
+                        <div class="progress-circle">2</div>
+                        <span class="progress-label">Dane</span>
+                    </div>
+                    <div class="progress-step" data-step="3">
+                        <div class="progress-circle">3</div>
+                        <span class="progress-label">Podsumowanie</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCROLLOWALNA ZAWARTOŚĆ -->
+            <div class="modal-scrollable-content">
+
+                <!-- Step 1: Kontakt -->
+                <div class="accept-step" id="accept-step-1">
+                    <div class="step-header">
+                        <h4>Dane kontaktowe</h4>
+                        <p>Podaj swój email i telefon, abyśmy mogli się z Tobą skontaktować</p>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label" for="acceptPhone">Telefon *</label>
-                        <input type="tel" class="form-input" id="acceptPhone" required
-                               placeholder="+48 123 456 789">
-                        <div class="form-error hidden" id="phoneError"></div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label" for="acceptComments">Komentarze (opcjonalne)</label>
-                        <textarea class="form-textarea" id="acceptComments"
-                                  placeholder="Dodatkowe uwagi do zamówienia..."></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <div class="form-checkbox">
-                            <input type="checkbox" id="acceptTerms" required>
-                            <label for="acceptTerms">
-                                Akceptuję warunki wyceny i wyrażam zgodę na przetwarzanie danych osobowych *
-                            </label>
+                    <div class="step-content">
+                        <div class="form-group">
+                            <label class="form-label" for="acceptEmail">Email *</label>
+                            <input type="email" class="form-input" id="acceptEmail" required
+                                   placeholder="jan.kowalski@example.com">
+                            <div class="form-error hidden" id="emailError"></div>
                         </div>
-                        <div class="form-error hidden" id="termsError"></div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="acceptPhone">Telefon *</label>
+                            <input type="tel" class="form-input" id="acceptPhone" required
+                                   placeholder="+48 123 456 789">
+                            <div class="form-error hidden" id="phoneError"></div>
+                        </div>
+
+                        <!-- Info o automatycznym uzupełnieniu -->
+                        <div class="auto-fill-info" id="autoFillInfo" style="display: none;">
+                            <div class="info-icon">ℹ️</div>
+                            <div>
+                                <strong>Znaleźliśmy Twoje dane!</strong><br>
+                                Automatycznie wypełnimy formularz na podstawie poprzednich zamówień.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Dane dostawy i faktury -->
+                <div class="accept-step" id="accept-step-2" style="display: none;">
+                    <div class="step-header">
+                        <h4>Dane dostawy i faktury</h4>
+                        <p>Uzupełnij informacje potrzebne do realizacji zamówienia</p>
                     </div>
 
-                    <div class="form-actions">
-                        <button type="submit" class="btn-submit">Akceptuj wycenę</button>
-                        <button type="button" class="btn-cancel" onclick="closeModal('acceptModal')">Anuluj</button>
+                    <div class="step-content">
+                        <!-- Opcje dostawy -->
+                        <div class="delivery-options">
+                            <div class="form-group">
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="selfPickup">
+                                    <label for="selfPickup">
+                                        <strong>Odbiór osobisty</strong> - odbiorę zamówienie we własnym zakresie
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Adres dostawy -->
+                        <div class="delivery-section" id="deliverySection">
+                            <h5 class="section-title">Adres dostawy</h5>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label" for="deliveryName">Imię i nazwisko *</label>
+                                    <input type="text" class="form-input" id="deliveryName" required>
+                                    <div class="form-error hidden" id="deliveryNameError"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="deliveryCompany">Firma</label>
+                                    <input type="text" class="form-input" id="deliveryCompany">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label" for="deliveryAddress">Ulica i numer domu *</label>
+                                <input type="text" class="form-input" id="deliveryAddress" required
+                                       placeholder="ul. Przykładowa 123">
+                                <div class="form-error hidden" id="deliveryAddressError"></div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label" for="deliveryZip">Kod pocztowy *</label>
+                                    <input type="text" class="form-input" id="deliveryZip" required
+                                           placeholder="12-345">
+                                    <div class="form-error hidden" id="deliveryZipError"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="deliveryCity">Miasto *</label>
+                                    <input type="text" class="form-input" id="deliveryCity" required>
+                                    <div class="form-error hidden" id="deliveryCityError"></div>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label" for="deliveryRegion">Województwo</label>
+                                <select class="form-input" id="deliveryRegion">
+                                    <option value="">Wybierz województwo</option>
+                                    <option value="dolnośląskie">Dolnośląskie</option>
+                                    <option value="kujawsko-pomorskie">Kujawsko-pomorskie</option>
+                                    <option value="lubelskie">Lubelskie</option>
+                                    <option value="lubuskie">Lubuskie</option>
+                                    <option value="łódzkie">Łódzkie</option>
+                                    <option value="małopolskie">Małopolskie</option>
+                                    <option value="mazowieckie">Mazowieckie</option>
+                                    <option value="opolskie">Opolskie</option>
+                                    <option value="podkarpackie">Podkarpackie</option>
+                                    <option value="podlaskie">Podlaskie</option>
+                                    <option value="pomorskie">Pomorskie</option>
+                                    <option value="śląskie">Śląskie</option>
+                                    <option value="świętokrzyskie">Świętokrzyskie</option>
+                                    <option value="warmińsko-mazurskie">Warmińsko-mazurskie</option>
+                                    <option value="wielkopolskie">Wielkopolskie</option>
+                                    <option value="zachodniopomorskie">Zachodniopomorskie</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Faktura -->
+                        <div class="invoice-section">
+                            <div class="form-group">
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="wantInvoice">
+                                    <label for="wantInvoice">
+                                        <strong>Potrzebuję faktury</strong>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="invoice-fields" id="invoiceFields" style="display: none;">
+                                <h5 class="section-title">Dane do faktury</h5>
+
+                                <div class="copy-delivery-info">
+                                    <button type="button" class="btn-copy" onclick="copyDeliveryToInvoice()">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+                                        </svg>
+                                        Kopiuj z adresu dostawy
+                                    </button>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label" for="invoiceName">Imię i nazwisko</label>
+                                        <input type="text" class="form-input" id="invoiceName">
+                                        <div class="form-error hidden" id="invoiceNameError"></div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="invoiceCompany">Firma</label>
+                                        <input type="text" class="form-input" id="invoiceCompany">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label" for="invoiceAddress">Adres</label>
+                                    <input type="text" class="form-input" id="invoiceAddress">
+                                    <div class="form-error hidden" id="invoiceAddressError"></div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label" for="invoiceZip">Kod pocztowy</label>
+                                        <input type="text" class="form-input" id="invoiceZip" placeholder="12-345">
+                                        <div class="form-error hidden" id="invoiceZipError"></div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="invoiceCity">Miasto</label>
+                                        <input type="text" class="form-input" id="invoiceCity">
+                                        <div class="form-error hidden" id="invoiceCityError"></div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group nip-group">
+                                    <label class="form-label" for="invoiceNip">NIP</label>
+                                    <div class="nip-input-wrapper">
+                                        <input type="text" class="form-input" id="invoiceNip"
+                                               placeholder="1234567890">
+                                        <button type="button" class="btn-gus" id="gusLookupBtn">
+                                            Pobierz z GUS
+                                        </button>
+                                    </div>
+                                    <div class="form-error hidden" id="invoiceNipError"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Uwagi -->
+                        <div class="comments-section">
+                            <div class="form-group">
+                                <label class="form-label" for="acceptComments">Uwagi do zamówienia</label>
+                                <textarea class="form-textarea" id="acceptComments"
+                                          placeholder="Dodatkowe informacje lub uwagi..."></textarea>
+                            </div>
+                        </div>
                     </div>
-                </form>
+                </div>
+
+                <!-- Step 3: Podsumowanie -->
+                <div class="accept-step" id="accept-step-3" style="display: none;">
+                    <div class="step-header">
+                        <h4>Podsumowanie</h4>
+                        <p>Sprawdź wszystkie dane przed finalną akceptacją</p>
+                    </div>
+
+                    <div class="step-content">
+                        <!-- Podsumowanie danych -->
+                        <div class="summary-section">
+                            <h5 class="section-title">Dane kontaktowe</h5>
+                            <div class="summary-item">
+                                <span class="label">Email:</span>
+                                <span class="value" id="summaryEmail"></span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="label">Telefon:</span>
+                                <span class="value" id="summaryPhone"></span>
+                            </div>
+                        </div>
+
+                        <div class="summary-section" id="summaryDelivery">
+                            <h5 class="section-title">Dostawa</h5>
+                            <div class="summary-item">
+                                <span class="label">Sposób dostawy:</span>
+                                <span class="value" id="summaryDeliveryMethod"></span>
+                            </div>
+                            <div class="delivery-address-summary" id="deliveryAddressSummary">
+                                <div class="summary-item">
+                                    <span class="label">Adres:</span>
+                                    <span class="value" id="summaryDeliveryAddress"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="summary-section" id="summaryInvoice" style="display: none;">
+                            <h5 class="section-title">Faktura</h5>
+                            <div class="summary-item">
+                                <span class="label">Dane do faktury:</span>
+                                <span class="value" id="summaryInvoiceData"></span>
+                            </div>
+                        </div>
+
+                        <div class="summary-section" id="summaryComments" style="display: none;">
+                            <h5 class="section-title">Uwagi</h5>
+                            <div class="summary-item">
+                                <span class="value" id="summaryCommentsText"></span>
+                            </div>
+                        </div>
+
+                        <!-- Podsumowanie wyceny -->
+                        <div class="quote-summary-section">
+                            <h5 class="section-title">Podsumowanie wyceny</h5>
+                            <div class="quote-summary-content" id="quoteSummaryContent">
+                                <!-- Wypełniane dynamicznie -->
+                            </div>
+                        </div>
+
+                        <!-- Zgody -->
+                        <div class="terms-section">
+                            <div class="form-group">
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="acceptTerms" required>
+                                    <label for="acceptTerms">
+                                        Akceptuję warunki wyceny i wyrażam zgodę na przetwarzanie danych osobowych *
+                                    </label>
+                                </div>
+                                <div class="form-error hidden" id="termsError"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            <!-- KONIEC SCROLLOWALNEJ ZAWARTOŚCI -->
+            <!-- STICKY FOOTER Z AKCJAMI -->
+            <div class="step-actions">
+                <!-- Przyciski będą dodawane dynamicznie przez JavaScript -->
+                <div id="step-1-actions">
+                    <button type="button" class="btn btn-primary btn-next" onclick="goToStep(2)">
+                        Dalej
+                    </button>
+                </div>
+
+                <div id="step-2-actions" style="display: none;">
+                    <button type="button" class="btn btn-secondary btn-prev" onclick="goToStep(1)">
+                        Wstecz
+                    </button>
+                    <button type="button" class="btn btn-primary btn-next" onclick="goToStep(3)">
+                        Podsumowanie
+                    </button>
+                </div>
+
+                <div id="step-3-actions" style="display: none;">
+                    <button type="button" class="btn btn-secondary btn-prev" onclick="goToStep(2)">
+                        Wstecz
+                    </button>
+                    <button type="button" class="btn btn-success btn-submit" id="finalSubmitBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+                        </svg>
+                        Akceptuj wycenę
+                    </button>
+                </div>
+            </div>
+
+            <!-- Loading overlay -->
+            <div class="loading-overlay" id="acceptLoadingOverlay" style="display: none;">
+                <div class="loading-spinner"></div>
+                <p>Przetwarzanie zamówienia...</p>
             </div>
         </div>
     </div>
@@ -253,8 +543,7 @@
             <div class="modal-body">
                 <div class="qr-content">
                     <p class="qr-description">
-                        Aby wyświetlić produkt w rzeczywistości rozszerzonej (AR),
-                        zeskanuj poniższy kod QR swoim telefonem:
+                        Funkcja AR jest dostępna tylko na urządzeniach mobilnych. Aby wyświetlić produkt w rzeczywistości rozszerzonej (AR), zeskanuj poniższy kod QR swoim telefonem:
                     </p>
                     <div class="qr-code-container">
                         <div class="qr-code" id="qrCode"></div>
@@ -284,5 +573,46 @@
 
     <!-- Main Script -->
     <script src="{{ url_for('quotes.static', filename='js/client_quote.js') }}"></script>
+    <script src="{{ url_for('quotes.static', filename='js/client_accept_modal.js') }}"></script>
+
+    <script>
+    // Zmienne globalne dla nowego modala
+    window.currentQuoteToken = "{{ quote.public_token }}";
+    window.currentQuoteData = {
+        quote_number: "{{ quote.quote_number }}",
+        total_netto: "{{ costs.total_netto if costs else '0.00' }}",
+        total_vat: "{{ costs.total_vat if costs else '0.00' }}",
+        total_brutto: "{{ costs.total_brutto if costs else '0.00' }}"
+    };
+
+    // Inicjalizacja po załadowaniu strony
+        document.addEventListener('DOMContentLoaded', function () {
+            // Znajdź wszystkie przyciski akceptacji
+            const acceptButtons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
+
+            acceptButtons.forEach(btn => {
+                const text = btn.textContent.trim().toLowerCase();
+                if (text.includes('akceptuj') || btn.className.includes('submit') || btn.id.includes('accept')) {
+                    // Pomijamy przyciski wewnątrz modala
+                    if (btn.closest('.accept-modal-content')) return;
+
+                    console.log('🔗 Podpinam event do przycisku:', btn.textContent.trim());
+
+                    // Usuń stary onclick
+                    btn.removeAttribute('onclick');
+
+                    // Dodaj nowy event
+                    btn.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        if (typeof window.openAcceptModal === 'function') {
+                            window.openAcceptModal(window.currentQuoteData);
+                        }
+                    });
+                }
+            });
+        });
+    </script>
 </body>
 </html>
