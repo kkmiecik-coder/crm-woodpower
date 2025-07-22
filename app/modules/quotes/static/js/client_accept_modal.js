@@ -14,14 +14,10 @@ function initAcceptModal() {
     document.getElementById('selfPickup').addEventListener('change', handleSelfPickupChange);
     document.getElementById('wantInvoice').addEventListener('change', handleInvoiceToggle);
 
-    // Event listenery dla pól kontaktowych
-    document.getElementById('acceptEmail').addEventListener('blur', handleContactDataChange);
-    document.getElementById('acceptPhone').addEventListener('blur', handleContactDataChange);
-
     // Event listener dla GUS
     document.getElementById('gusLookupBtn').addEventListener('click', handleGusLookup);
 
-    // POPRAWKA: Event listener dla przycisku zamknij
+    // Event listener dla przycisku zamknij
     const closeBtn = document.querySelector('#acceptModal .modal-close');
     if (closeBtn) {
         closeBtn.addEventListener('click', function (e) {
@@ -31,22 +27,25 @@ function initAcceptModal() {
         });
     }
 
-    // POPRAWKA: Event listener dla finalnego submitowania z walidacją checkbox
+    // Event listener dla finalnego submitowania z walidacją checkbox
     document.getElementById('finalSubmitBtn').addEventListener('click', handleFinalSubmit);
 
     console.log('[AcceptModal] Modal zainicjalizowany');
 }
 
 // Przejście do konkretnego kroku
-function goToStep(stepNumber) {
+async function goToStep(stepNumber) {
     console.log(`[AcceptModal] Przejście do kroku ${stepNumber}`);
 
     // POPRAWKA: Walidacja TYLKO przy przechodzeniu do przodu
     const isGoingForward = stepNumber > currentStep;
 
-    if (isGoingForward && !validateCurrentStep()) {
-        console.log(`[AcceptModal] Walidacja kroku ${currentStep} niepomyślna`);
-        return;
+    if (isGoingForward) {
+        const isValid = await validateCurrentStep();
+        if (!isValid) {
+            console.log(`[AcceptModal] Walidacja kroku ${currentStep} niepomyślna`);
+            return;
+        }
     }
 
     // Ukryj obecny krok
@@ -99,16 +98,54 @@ function updateProgressBar(stepNumber) {
 }
 
 // Walidacja obecnego kroku
-function validateCurrentStep() {
+async function validateCurrentStep() {
     switch (currentStep) {
         case 1:
-            return validateContactStep();
+            return await validateContactStep(); // Teraz async!
         case 2:
-            return validateDataStep();
+            return validateDataStep(); // Synchroniczne
         case 3:
             return true; // POPRAWKA: Krok 3 zawsze przechodzi
         default:
             return true;
+    }
+}
+
+// Event listenery dla przycisków - muszą być async
+function attachStepButtons() {
+    // Przycisk "Dalej" w kroku 1
+    const nextStep1Btn = document.querySelector('#step-1-actions .btn-primary');
+    if (nextStep1Btn) {
+        nextStep1Btn.addEventListener('click', async function (e) {
+            e.preventDefault();
+            await goToStep(2);
+        });
+    }
+
+    // Przycisk "Dalej" w kroku 2  
+    const nextStep2Btn = document.querySelector('#step-2-actions .btn-primary');
+    if (nextStep2Btn) {
+        nextStep2Btn.addEventListener('click', async function (e) {
+            e.preventDefault();
+            await goToStep(3);
+        });
+    }
+
+    // Przyciski "Wstecz"
+    const backStep2Btn = document.querySelector('#step-2-actions .btn-secondary');
+    if (backStep2Btn) {
+        backStep2Btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            goToStep(1); // Wstecz nie wymaga walidacji
+        });
+    }
+
+    const backStep3Btn = document.querySelector('#step-3-actions .btn-secondary');
+    if (backStep3Btn) {
+        backStep3Btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            goToStep(2); // Wstecz nie wymaga walidacji
+        });
     }
 }
 
@@ -1444,6 +1481,10 @@ function resetAcceptModal() {
     clearAllFields();
     clearAllFieldErrors();
 
+    // WYCZYŚĆ KOMUNIKATY WERYFIKACJI
+    const existingSuccess = document.querySelector('.validation-success');
+    if (existingSuccess) existingSuccess.remove();
+
     // Ukryj auto-fill info
     const autoFillInfo = document.getElementById('autoFillInfo');
     if (autoFillInfo) autoFillInfo.style.display = 'none';
@@ -1470,7 +1511,309 @@ function resetAcceptModal() {
         scrollableContent.scrollTop = 0;
     }
 
-    console.log('[AcceptModal] Modal zresetowany');
+    console.log('[AcceptModal] Modal zresetowany - komunikaty weryfikacji usunięte');
+}
+
+async function loadAndFillClientData(email, phone) {
+    try {
+        console.log('[AcceptModal] Pobieranie danych klienta do auto-uzupełnienia...');
+
+        const token = getCurrentQuoteToken();
+        const response = await fetch(`/quotes/api/client/quote/${token}/client-data`);
+
+        if (response.ok) {
+            const clientData = await response.json();
+            console.log('[AcceptModal] Otrzymano dane klienta:', clientData);
+
+            // Sprawdź czy email lub telefon pasuje do danych z bazy
+            const emailMatch = clientData.email && email && clientData.email.toLowerCase() === email.toLowerCase();
+            const phoneMatch = clientData.phone && phone && normalizePhone(clientData.phone) === normalizePhone(phone);
+
+            if (emailMatch || phoneMatch) {
+                console.log('[AcceptModal] Dane pasują - wypełniam formularz');
+                fillFormWithClientData(clientData);
+                showAutoFillNotification();
+            }
+        }
+    } catch (error) {
+        console.error('[AcceptModal] Błąd pobierania danych klienta:', error);
+    }
+}
+
+// Wypełnij formularz danymi klienta
+function fillFormWithClientData(clientData) {
+    // Dane dostawy
+    if (clientData.delivery) {
+        const deliveryName = document.getElementById('deliveryName');
+        const deliveryCompany = document.getElementById('deliveryCompany');
+        const deliveryAddress = document.getElementById('deliveryAddress');
+        const deliveryZip = document.getElementById('deliveryZip');
+        const deliveryCity = document.getElementById('deliveryCity');
+        const deliveryRegion = document.getElementById('deliveryRegion');
+
+        if (deliveryName && clientData.delivery.name) deliveryName.value = clientData.delivery.name;
+        if (deliveryCompany && clientData.delivery.company) deliveryCompany.value = clientData.delivery.company;
+        if (deliveryAddress && clientData.delivery.address) deliveryAddress.value = clientData.delivery.address;
+        if (deliveryZip && clientData.delivery.zip) deliveryZip.value = clientData.delivery.zip;
+        if (deliveryCity && clientData.delivery.city) deliveryCity.value = clientData.delivery.city;
+        if (deliveryRegion && clientData.delivery.region) deliveryRegion.value = clientData.delivery.region;
+    }
+
+    // Dane do faktury (jeśli istnieją)
+    if (clientData.invoice && clientData.invoice.nip) {
+        document.getElementById('wantInvoice').checked = true;
+        handleInvoiceToggle(); // Pokaż pola faktury
+
+        const invoiceName = document.getElementById('invoiceName');
+        const invoiceCompany = document.getElementById('invoiceCompany');
+        const invoiceAddress = document.getElementById('invoiceAddress');
+        const invoiceZip = document.getElementById('invoiceZip');
+        const invoiceCity = document.getElementById('invoiceCity');
+        const invoiceNip = document.getElementById('invoiceNip');
+
+        if (invoiceName && clientData.invoice.name) invoiceName.value = clientData.invoice.name;
+        if (invoiceCompany && clientData.invoice.company) invoiceCompany.value = clientData.invoice.company;
+        if (invoiceAddress && clientData.invoice.address) invoiceAddress.value = clientData.invoice.address;
+        if (invoiceZip && clientData.invoice.zip) invoiceZip.value = clientData.invoice.zip;
+        if (invoiceCity && clientData.invoice.city) invoiceCity.value = clientData.invoice.city;
+        if (invoiceNip && clientData.invoice.nip) invoiceNip.value = clientData.invoice.nip;
+    }
+
+    console.log('[AcceptModal] Formularz wypełniony danymi klienta');
+}
+
+// Pokaż powiadomienie o auto-uzupełnieniu
+function showAutoFillNotification() {
+    const autoFillInfo = document.getElementById('autoFillInfo');
+    if (autoFillInfo) {
+        autoFillInfo.style.display = 'flex';
+    } else {
+        console.log('[AcceptModal] Auto-fill notification: Wypełniono danymi z bazy');
+    }
+}
+
+// Funkcja pomocnicza do pobierania tokenu wyceny
+function getCurrentQuoteToken() {
+    return window.QUOTE_TOKEN ||
+        window.currentQuoteToken ||
+        document.querySelector('[data-quote-token]')?.getAttribute('data-quote-token') ||
+        '';
+}
+
+// Dodaj CSS styles bezpiecznie
+function addContactValidationStyles() {
+    // Sprawdź czy style już istnieją
+    if (document.querySelector('#contact-validation-styles')) {
+        return;
+    }
+
+    const spinnerStyles = `
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.validation-success {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+    `;
+
+    const styleSheet = document.createElement('style');
+    styleSheet.id = 'contact-validation-styles';
+    styleSheet.innerHTML = spinnerStyles;
+    document.head.appendChild(styleSheet);
+
+    console.log('[AcceptModal] Style CSS dodane');
+}
+
+addContactValidationStyles();
+
+async function validateContactStep() {
+    let isValid = true;
+
+    const email = document.getElementById('acceptEmail').value.trim();
+    const phone = document.getElementById('acceptPhone').value.trim();
+
+    clearFieldError('emailError');
+    clearFieldError('phoneError');
+
+    // TYLKO podstawowa walidacja formatu - BEZ API
+    if (!email && !phone) {
+        showFieldError('emailError', 'Podaj email lub telefon');
+        showFieldError('phoneError', 'Podaj email lub telefon');
+        return false;
+    }
+
+    if (email && !isValidEmail(email)) {
+        showFieldError('emailError', 'Podaj prawidłowy adres email');
+        isValid = false;
+    }
+
+    if (phone && !isValidPhone(phone)) {
+        showFieldError('phoneError', 'Podaj prawidłowy numer telefonu');
+        isValid = false;
+    }
+
+    // Jeśli podstawowa walidacja przeszła, sprawdź w bazie
+    if (isValid) {
+        return await validateContactInDatabase(email, phone);
+    }
+
+    return false;
+}
+
+function showValidationSuccess(message) {
+    // Usuń poprzednie komunikaty sukcesu
+    const existingSuccess = document.querySelector('.validation-success');
+    if (existingSuccess) existingSuccess.remove();
+
+    // Stwórz nowy komunikat
+    const successDiv = document.createElement('div');
+    successDiv.className = 'validation-success';
+    successDiv.innerHTML = `
+        <div style="background: #e8f5e8; border: 1px solid #4caf50; color: #2e7d2e; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 14px;">
+            <strong>✓ ${message}</strong>
+        </div>
+    `;
+
+    // Wstaw po polach kontaktowych
+    const phoneField = document.getElementById('acceptPhone');
+    phoneField.parentNode.insertBefore(successDiv, phoneField.nextSibling);
+
+    // KOMUNIKAT ZOSTAJE - usuń setTimeout
+    console.log('[AcceptModal] Komunikat weryfikacji wyświetlony na stałe');
+}
+
+function initContactValidation() {
+    // PUSTA FUNKCJA - brak auto-walidacji
+    console.log('[AcceptModal] Walidacja kontaktowa - tylko po kliknięciu Dalej');
+}
+
+// Funkcja pomocnicza do pokazywania sukcesu
+function showSuccessMessage(message) {
+    // Usuń poprzednie komunikaty sukcesu
+    const existingSuccess = document.querySelector('.validation-success');
+    if (existingSuccess) existingSuccess.remove();
+
+    // Stwórz nowy komunikat
+    const successDiv = document.createElement('div');
+    successDiv.className = 'validation-success';
+    successDiv.innerHTML = `
+        <div style="background: #e8f5e8; border: 1px solid #4caf50; color: #2e7d2e; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 14px;">
+            <strong>✓ ${message}</strong>
+        </div>
+    `;
+
+    // Wstaw po polach kontaktowych
+    const phoneField = document.getElementById('acceptPhone');
+    phoneField.parentNode.insertBefore(successDiv, phoneField.nextSibling);
+
+    // Ukryj po 3 sekundach
+    setTimeout(() => {
+        if (successDiv.parentNode) {
+            successDiv.remove();
+        }
+    }, 3000);
+}
+
+// Nowa funkcja do walidacji w bazie - wywoływana osobno
+async function validateContactInDatabase(email, phone) {
+    try {
+        console.log('[AcceptModal] Sprawdzam dane w bazie...');
+
+        // Pokaż loading
+        const emailField = document.getElementById('acceptEmail');
+        const phoneField = document.getElementById('acceptPhone');
+
+        emailField.disabled = true;
+        phoneField.disabled = true;
+
+        // Dodaj spinner do przycisku "Dalej"
+        const nextBtn = document.querySelector('#step-1-actions .btn-primary');
+        const originalText = nextBtn.textContent;
+        nextBtn.innerHTML = '<span class="spinner"></span> Sprawdzam...';
+        nextBtn.disabled = true;
+
+        const response = await fetch(`/quotes/api/client/quote/${getCurrentQuoteToken()}/validate-contact`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                email: email,
+                phone: phone
+            })
+        });
+
+        const result = await response.json();
+
+        // Przywróć pola
+        emailField.disabled = false;
+        phoneField.disabled = false;
+        nextBtn.textContent = originalText;
+        nextBtn.disabled = false;
+
+        if (response.ok && result.success) {
+            console.log('[AcceptModal] Walidacja przeszła pomyślnie');
+
+            // Pokaż komunikat o sukcesie
+            if (result.client_has_data) {
+                let successMsg = 'Dane zostały zweryfikowane';
+                if (result.matched_email && result.matched_phone) {
+                    successMsg += ' (email i telefon)';
+                } else if (result.matched_email) {
+                    successMsg += ' (email)';
+                } else if (result.matched_phone) {
+                    successMsg += ' (telefon)';
+                }
+                showValidationSuccess(successMsg);
+
+                // AUTO-UZUPEŁNIENIE: Załaduj i wypełnij dane klienta
+                await loadAndFillClientData(email, phone);
+
+            } else {
+                showValidationSuccess('Kontynuujesz jako nowy klient');
+            }
+
+            return true;
+        } else {
+            // Pokaż błąd z serwera
+            const errorMsg = result.error || 'Błąd podczas weryfikacji danych';
+            showFieldError('emailError', errorMsg);
+            showFieldError('phoneError', errorMsg);
+            return false;
+        }
+
+    } catch (error) {
+        console.error('[AcceptModal] Błąd walidacji:', error);
+
+        // Przywróć pola w przypadku błędu
+        const emailField = document.getElementById('acceptEmail');
+        const phoneField = document.getElementById('acceptPhone');
+        const nextBtn = document.querySelector('#step-1-actions .btn-primary');
+
+        emailField.disabled = false;
+        phoneField.disabled = false;
+        nextBtn.textContent = 'Dalej';
+        nextBtn.disabled = false;
+
+        showFieldError('emailError', 'Błąd połączenia. Spróbuj ponownie.');
+        return false;
+    }
 }
 
 // Wyczyść wszystkie pola formularza
@@ -1562,7 +1905,20 @@ document.getElementById('acceptModal')?.addEventListener('click', function (even
     }
 });
 
+document.addEventListener('DOMContentLoaded', function () {
+    if (document.getElementById('acceptModal')) {
+        attachStepButtons();
+    }
+});
+
 console.log('[AcceptModal] Moduł załadowany pomyślnie');
+
+if (!document.querySelector('#contact-validation-styles')) {
+    const styleSheet = document.createElement('style');
+    styleSheet.id = 'contact-validation-styles';
+    styleSheet.innerHTML = spinnerStyles;
+    document.head.appendChild(styleSheet);
+}
 
 // === DODAJ TEN KOD NA SAMYM KOŃCU PLIKU ===
 

@@ -1322,74 +1322,87 @@ def client_accept_quote_with_data(token):
             return jsonify({"error": "Wycena została już zaakceptowana"}), 400
         
         # === WALIDACJA DANYCH ===
-        
+
         # Wymagane dane kontaktowe
         email = data.get('email', '').strip()
         phone = data.get('phone', '').strip()
-        
+
         if not email:
             return jsonify({"error": "Email jest wymagany"}), 400
-        
+
         if not phone:
             return jsonify({"error": "Numer telefonu jest wymagany"}), 400
-        
+
         # Walidacja formatu email
         import re
         email_regex = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
         if not re.match(email_regex, email):
-            return jsonify({"error": "Nieprawidłowy format email"}), 400
-        
-        # Sprawdź opcje
-        is_self_pickup = data.get('self_pickup', False)
-        wants_invoice = data.get('wants_invoice', False)
-        
-        # Walidacja danych dostawy (jeśli nie odbiór osobisty)
-        if not is_self_pickup:
-            required_delivery_fields = ['delivery_name', 'delivery_address', 'delivery_city']
-            missing_delivery = []
-            
-            for field in required_delivery_fields:
-                if not data.get(field, '').strip():
-                    missing_delivery.append(field)
-            
-            if missing_delivery:
-                return jsonify({
-                    "error": f"Brakujące pola dostawy: {', '.join(missing_delivery)}"
-                }), 400
-            
-            # Walidacja kodu pocztowego
-            delivery_postcode = data.get('delivery_postcode', '').strip()
-            if delivery_postcode:
-                postcode_regex = r'^\d{2}-\d{3}$'
-                if not re.match(postcode_regex, delivery_postcode):
-                    return jsonify({"error": "Nieprawidłowy format kodu pocztowego (wymagany: 12-345)"}), 400
-        
-        # Walidacja danych faktury (jeśli wybrano)
-        if wants_invoice:
-            invoice_nip = data.get('invoice_nip', '').strip().replace(' ', '').replace('-', '')
-            if not invoice_nip:
-                return jsonify({"error": "NIP jest wymagany dla faktury"}), 400
-            
-            # Walidacja NIP (10 cyfr)
-            if not re.match(r'^\d{10}$', invoice_nip):
-                return jsonify({"error": "NIP musi mieć 10 cyfr"}), 400
-        
-        # === AKTUALIZACJA DANYCH KLIENTA ===
-        
+            return jsonify({"error": "Nieprawidłowy format adresu email"}), 400
+
+        # Walidacja telefonu (tylko długość)
+        phone_digits = re.sub(r'[^\d]', '', phone)
+        if len(phone_digits) < 9 or len(phone_digits) > 15:
+            return jsonify({"error": "Nieprawidłowy numer telefonu"}), 400
+
+        # === KRYTYCZNA WALIDACJA BEZPIECZEŃSTWA ===
+        # Sprawdź czy podany email LUB telefon pasuje do danych w bazie
+
         client = quote.client
         if not client:
             return jsonify({"error": "Brak przypisanego klienta do wyceny"}), 400
-        
-        # Aktualizuj podstawowe dane kontaktowe
-        client.email = email
-        client.phone = phone
-        
-        # Normalizacja telefonu - usuń spacje i myślniki
-        normalized_phone = re.sub(r'[\s\-\(\)]', '', phone)
-        if normalized_phone.startswith('+48'):
-            normalized_phone = normalized_phone[3:]
-        client.phone = normalized_phone
-        
+
+        # Normalizacja danych do porównania
+        client_email = (client.email or "").lower().strip()
+        client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
+        input_email = email.lower().strip()
+        input_phone_digits = re.sub(r'[^\d]', '', phone)
+
+        # Usuń +48 z początku jeśli istnieje
+        if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
+            input_phone_digits = input_phone_digits[2:]
+        if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
+            client_phone_digits = client_phone_digits[2:]
+
+        # Sprawdź zgodność email LUB telefonu
+        email_matches = client_email and input_email == client_email
+        phone_matches = (client_phone_digits and input_phone_digits and 
+                        len(input_phone_digits) >= 9 and
+                        (input_phone_digits == client_phone_digits or 
+                         input_phone_digits in client_phone_digits or 
+                         client_phone_digits in input_phone_digits))
+
+        print(f"[client_accept_quote_with_data] Walidacja danych:", file=sys.stderr)
+        print(f"  - Input email: '{input_email}'", file=sys.stderr)
+        print(f"  - Client email: '{client_email}'", file=sys.stderr)
+        print(f"  - Email matches: {email_matches}", file=sys.stderr)
+        print(f"  - Input phone: '{input_phone_digits}'", file=sys.stderr)
+        print(f"  - Client phone: '{client_phone_digits}'", file=sys.stderr)
+        print(f"  - Phone matches: {phone_matches}", file=sys.stderr)
+
+        if not (email_matches or phone_matches):
+            return jsonify({
+                "error": "Podane dane nie pasują do danych przypisanych do tej wyceny. Sprawdź email lub numer telefonu."
+            }), 403
+
+        print(f"[client_accept_quote_with_data] Walidacja przeszła pomyślnie - dane są zgodne", file=sys.stderr)
+
+        # === UZUPEŁNIENIE/AKTUALIZACJA DANYCH ===
+        # Aktualizuj dane klienta - uzupełnij brakujące lub zaktualizuj istniejące
+
+        # Jeśli email się zgadza lub jest pusty w bazie, użyj nowego
+        if email_matches or not client.email:
+            client.email = email
+            print(f"[client_accept_quote_with_data] Zaktualizowano email klienta", file=sys.stderr)
+
+        # Jeśli telefon się zgadza lub jest pusty w bazie, użyj nowego
+        if phone_matches or not client.phone:
+            # Normalizacja telefonu - usuń spacje i myślniki
+            normalized_phone = re.sub(r'[\s\-\(\)]', '', phone)
+            if normalized_phone.startswith('+48'):
+                normalized_phone = normalized_phone[3:]
+            client.phone = normalized_phone
+            print(f"[client_accept_quote_with_data] Zaktualizowano telefon klienta", file=sys.stderr)
+
         print(f"[client_accept_quote_with_data] Zaktualizowano podstawowe dane klienta ID: {client.id}", file=sys.stderr)
         
         # === DANE DOSTAWY ===
@@ -1492,7 +1505,7 @@ def client_accept_quote_with_data(token):
             "new_status_id": accepted_status.id,
             "delivery_method": "Odbiór osobisty" if is_self_pickup else "Dostawa kurierska",
             "invoice_requested": wants_invoice,
-            "redirect_url": f"/quotes/wycena/{quote.quote_number}/{quote.public_token}/potwierdzenie"
+            "redirect_url": f"/quotes/c/{quote.public_token}?accepted=true"
         }
         
         print(f"[client_accept_quote_with_data] Akceptacja zakończona pomyślnie", file=sys.stderr)
@@ -1503,7 +1516,83 @@ def client_accept_quote_with_data(token):
         import traceback
         traceback.print_exc(file=sys.stderr)
         db.session.rollback()
-        return jsonify({"error": "Wystąpił błąd podczas przetwarzania żądania"}), 500    
+        return jsonify({"error": "Wystąpił błąd podczas przetwarzania żądania"}), 500
+
+@quotes_bp.route("/api/client/quote/<token>/validate-contact", methods=["POST"])
+def validate_client_contact(token):
+    """Waliduje dane kontaktowe klienta przed przejściem do następnego kroku"""
+    try:
+        data = request.get_json()
+        
+        quote = Quote.query.filter_by(public_token=token).first()
+        if not quote:
+            return jsonify({"error": "Nie znaleziono wyceny"}), 404
+        
+        if not quote.is_client_editable:
+            return jsonify({"error": "Wycena została już zaakceptowana"}), 400
+        
+        email = data.get('email', '').strip().lower()
+        phone = data.get('phone', '').strip()
+        
+        if not email and not phone:
+            return jsonify({"error": "Podaj email lub telefon"}), 400
+        
+        client = quote.client
+        if not client:
+            return jsonify({"error": "Brak danych klienta"}), 400
+        
+        # SPECJALNY PRZYPADEK: Jeśli klient nie ma ani email ani telefonu w bazie
+        # to przepuścić bez walidacji (nowi klienci)
+        client_email = (client.email or "").lower().strip()
+        client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
+        
+        if not client_email and not client_phone_digits:
+            print(f"[validate_client_contact] Klient bez danych kontaktowych - przepuszczam", file=sys.stderr)
+            return jsonify({
+                "success": True, 
+                "message": "Walidacja przeszła - nowy klient",
+                "client_has_data": False
+            })
+        
+        # Normalizacja danych wejściowych
+        input_phone_digits = re.sub(r'[^\d]', '', phone)
+        
+        # Usuń +48 z początku jeśli istnieje
+        if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
+            input_phone_digits = input_phone_digits[2:]
+        if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
+            client_phone_digits = client_phone_digits[2:]
+        
+        # Sprawdź zgodność
+        email_matches = client_email and email == client_email
+        phone_matches = (client_phone_digits and input_phone_digits and 
+                        len(input_phone_digits) >= 9 and
+                        (input_phone_digits == client_phone_digits or 
+                         input_phone_digits in client_phone_digits or 
+                         client_phone_digits in input_phone_digits))
+        
+        print(f"[validate_client_contact] Walidacja:", file=sys.stderr)
+        print(f"  - Input email: '{email}', Client email: '{client_email}', Match: {email_matches}", file=sys.stderr)
+        print(f"  - Input phone: '{input_phone_digits}', Client phone: '{client_phone_digits}', Match: {phone_matches}", file=sys.stderr)
+        
+        if email_matches or phone_matches:
+            return jsonify({
+                "success": True,
+                "message": "Dane zostały zweryfikowane",
+                "client_has_data": True,
+                "matched_email": email_matches,
+                "matched_phone": phone_matches
+            })
+        else:
+            return jsonify({
+                "error": "Podane dane nie pasują do danych przypisanych do tej wyceny. Sprawdź email lub numer telefonu."
+            }), 403
+            
+    except Exception as e:
+        print(f"[validate_client_contact] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Błąd podczas walidacji danych"}), 500
 
 @quotes_bp.route("/api/client/quote/<token>/client-data", methods=["GET"])
 def get_client_data_for_modal(token):

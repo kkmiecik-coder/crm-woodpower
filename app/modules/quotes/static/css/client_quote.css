@@ -438,10 +438,7 @@ body {
     }
 }
 
-/* W pliku app/modules/quotes/static/css/client_quote.css
-   Zastąp sekcję VARIANT CARD tym kodem: */
-
-/* VARIANT CARD - SKOMPRESOWANY LAYOUT */
+/* VARIANT CARD - SKOMPRESOWANY LAYOUT Z STAŁĄ SZEROKOŚCIĄ */
 .variant-card {
     border: 2px solid var(--border-light);
     border-radius: var(--radius-lg);
@@ -451,6 +448,8 @@ body {
     background: var(--bg-white);
     display: flex;
     flex-direction: column;
+    width: 100%; /* Stała szerokość */
+    max-width: 100%; /* Zapobiega rozszerzaniu */
 }
 
     .variant-card:hover {
@@ -626,15 +625,26 @@ body {
     }
 }
 
-/* ===================================
-   SUMMARY COMPARISON
-   =================================== */
+/* POPRAWKA: Stałe szerokości dla sekcji podsumowania */
 .summary-section {
     background: var(--bg-white);
     border-radius: var(--radius-lg);
     padding: var(--spacing-lg);
     margin-bottom: var(--spacing-lg);
     box-shadow: var(--shadow-light);
+    width: 100%;
+    max-width: 100%;
+    min-height: 200px; /* Minimalna wysokość dla stabilności */
+}
+
+.comparison-section {
+    background: var(--bg-white);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-top: var(--spacing-xl);
+    box-shadow: var(--shadow-light);
+    width: 100%;
+    max-width: 100%;
 }
 
 .summary-header {
@@ -800,9 +810,7 @@ body {
         cursor: not-allowed;
     }
 
-/* ===================================
-   MODALS
-   =================================== */
+/* Modal overlay i pozycjonowanie - POWRÓT DO ORYGINALNEGO */
 .modal-overlay {
     display: none;
     position: fixed;
@@ -821,6 +829,7 @@ body {
         display: flex;
     }
 
+/* DODATKOWA animacja tylko dla contentu */
 .modal-content {
     background: var(--bg-white);
     border-radius: var(--radius-xl);
@@ -829,6 +838,28 @@ body {
     width: 100%;
     max-height: 90vh;
     overflow-y: auto;
+    transform: scale(0.9) translateY(20px);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-overlay.active .modal-content,
+.modal-overlay.active .accept-modal-content {
+    transform: scale(1) translateY(0);
+}
+
+/* Modal overlay i pozycjonowanie - ZGODNY Z ORYGINAŁEM */
+#acceptModal.modal-overlay {
+    display: flex;
+    align-items: center; /* ZMIENIONE: wyśrodkowanie pionowe */
+    justify-content: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    padding: 20px; /* Dodane dla marginesów */
 }
 
 .modal-header {
@@ -938,24 +969,314 @@ body {
 }
 
 /* ===================================
-   FOOTER
+   FOOTER - PRZEPROJEKTOWANA STOPKA WOOD POWER
    =================================== */
 .client-footer {
-    background: var(--text-primary);
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
     color: var(--text-white);
-    padding: var(--spacing-xl) var(--spacing-base);
+    padding: var(--spacing-2xl) 0 var(--spacing-xl) 0;
     margin-top: auto;
+    position: relative;
 }
+
+    .client-footer::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-light) 100%);
+    }
 
 .client-footer-content {
     max-width: var(--container-max-width);
     margin: 0 auto;
-    text-align: center;
+    padding: 0 var(--spacing-base);
 }
 
-.client-footer-text {
+.footer-main {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: var(--spacing-2xl);
+    margin-bottom: var(--spacing-xl);
+}
+
+@media (max-width: 768px) {
+    .footer-main {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-xl);
+        text-align: center;
+    }
+}
+
+/* Logo i opis firmy */
+.footer-brand {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.footer-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-2xl);
+    font-weight: 700;
+    color: var(--text-white);
+    text-decoration: none;
+    margin-bottom: var(--spacing-base);
+}
+
+.footer-logo-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--primary-color);
+    border-radius: var(--radius-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.footer-tagline {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-bottom: var(--spacing-sm);
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: var(--spacing-xs);
+    display: inline-block;
+}
+
+.footer-description {
+    color: #cccccc;
+    line-height: 1.6;
+    font-size: var(--font-size-base);
+}
+
+/* Kontakt */
+.footer-contact h4 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin-bottom: var(--spacing-base);
+    color: var(--text-white);
+    position: relative;
+    padding-bottom: var(--spacing-xs);
+}
+
+    .footer-contact h4::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 30px;
+        height: 2px;
+        background: var(--primary-color);
+    }
+
+.contact-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-base);
+    color: #cccccc;
     font-size: var(--font-size-sm);
-    color: var(--text-muted);
+}
+
+.contact-icon {
+    width: 20px;
+    height: 20px;
+    color: var(--primary-color);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.contact-info {
+    flex: 1;
+}
+
+    .contact-info strong {
+        color: var(--text-white);
+        display: block;
+        margin-bottom: var(--spacing-xxs);
+    }
+
+/* Social media */
+.footer-social h4 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin-bottom: var(--spacing-base);
+    color: var(--text-white);
+    position: relative;
+    padding-bottom: var(--spacing-xs);
+}
+
+    .footer-social h4::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 30px;
+        height: 2px;
+        background: var(--primary-color);
+    }
+
+.social-links {
+    display: flex;
+    gap: var(--spacing-base);
+    margin-bottom: var(--spacing-base);
+}
+
+.social-link {
+    width: 44px;
+    height: 44px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-white);
+    text-decoration: none;
+    transition: var(--transition-base);
+    border: 2px solid transparent;
+}
+
+    .social-link:hover {
+        background: var(--primary-color);
+        border-color: var(--primary-light);
+        transform: translateY(-2px);
+    }
+
+.social-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.footer-hours {
+    margin-top: var(--spacing-base);
+    padding: var(--spacing-base);
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-base);
+    border-left: 3px solid var(--primary-color);
+}
+
+.hours-title {
+    font-weight: 600;
+    color: var(--text-white);
+    margin-bottom: var(--spacing-xs);
+    font-size: var(--font-size-sm);
+}
+
+.hours-text {
+    color: #cccccc;
+    font-size: var(--font-size-sm);
+}
+
+/* Footer bottom */
+.footer-bottom {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: var(--spacing-lg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--font-size-sm);
+    color: #999999;
+}
+
+@media (max-width: 768px) {
+    .footer-bottom {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+        text-align: center;
+    }
+}
+
+.footer-copyright {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.footer-links {
+    display: flex;
+    gap: var(--spacing-lg);
+}
+
+.footer-link {
+    color: #cccccc;
+    text-decoration: none;
+    transition: var(--transition-base);
+}
+
+    .footer-link:hover {
+        color: var(--primary-color);
+    }
+
+/* Floating back to top button */
+.back-to-top {
+    position: fixed;
+    bottom: var(--spacing-xl);
+    right: var(--spacing-xl);
+    width: 50px;
+    height: 50px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: all var(--transition-base);
+    z-index: 100;
+    box-shadow: var(--shadow-medium);
+}
+
+    .back-to-top.visible {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    .back-to-top:hover {
+        background: var(--primary-dark);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-heavy);
+    }
+
+@media (max-width: 768px) {
+    .back-to-top {
+        bottom: calc(var(--mobile-bottom-bar) + var(--spacing-base));
+        width: 44px;
+        height: 44px;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .client-footer {
+        padding: var(--spacing-xl) 0 var(--spacing-lg) 0;
+    }
+
+    .footer-brand {
+        align-items: center;
+        text-align: center;
+    }
+
+    .footer-tagline {
+        text-align: center;
+    }
+
+    .footer-contact h4::after,
+    .footer-social h4::after {
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .social-links {
+        justify-content: center;
+    }
 }
 
 /* ===================================
@@ -1116,15 +1437,17 @@ body {
         background: var(--bg-grey);
     }
 
-
 /* ===================================
-   DESKTOP LAYOUT WITH SIDEBAR
+   DESKTOP LAYOUT WITH SIDEBAR - STAŁA SZEROKOŚĆ
    =================================== */
 .desktop-layout {
     display: grid;
     grid-template-columns: 1fr 350px;
     gap: var(--spacing-xl);
     align-items: start;
+    max-width: var(--container-max-width);
+    margin: 0 auto;
+    width: 100%;
 }
 
 @media (max-width: 1024px) {
@@ -1134,9 +1457,78 @@ body {
     }
 }
 
+/* POPRAWKA: Stała szerokość dla main content */
+.content-area {
+    min-width: 0; /* Zapobiega overflow */
+    width: 100%;
+}
+
+.desktop-sidebar {
+    width: 350px; /* Stała szerokość sidebar */
+    min-width: 350px;
+}
+
+@media (max-width: 1024px) {
+    .desktop-sidebar {
+        width: 100%;
+        min-width: auto;
+    }
+}
+
 /* Content Area */
 .content-area {
     flex: 1;
+    min-width: 0; /* Zapobiega overflow */
+    width: 100%;
+}
+
+/* POPRAWKA: Stała szerokość dla sekcji produktów */
+.product-section {
+    background: var(--bg-white);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+    box-shadow: var(--shadow-light);
+    display: none;
+    width: 100%;
+    max-width: 100%;
+    min-height: 400px; /* Minimalna wysokość dla stabilności */
+}
+
+    .product-section.active {
+        display: block;
+    }
+
+/* POPRAWKA: Stała struktura dla variants grid */
+.variants-grid {
+    display: grid;
+    gap: var(--spacing-base);
+    margin-top: var(--spacing-lg);
+    width: 100%;
+}
+
+/* Desktop - 3 kolumny - STAŁA SZEROKOŚĆ */
+@media (min-width: 1024px) {
+    .variants-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--spacing-lg);
+    }
+}
+
+/* Tablet - 2 kolumny - STAŁA SZEROKOŚĆ */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .variants-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--spacing-base);
+    }
+}
+
+/* Mobile - 1 kolumna */
+@media (max-width: 767px) {
+    .variants-grid {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-base);
+    }
 }
 
 /* Zamiast tego zaktualizuj desktop-sidebar gap: */
@@ -1314,7 +1706,6 @@ body {
     }
 }
 
-
 /* ===================================
    MOBILE SUMMARY DETAILS
    =================================== */
@@ -1419,9 +1810,6 @@ body {
 .variant-image:not([style*="background-image"])::after {
     display: block;
 }
-
-/* W pliku app/modules/quotes/static/css/client_quote.css
-   Zastąp sekcję SAVE CHANGES SECTION tym prostym kodem: */
 
 /* ===================================
    SAVE CHANGES SECTION - PROSTA ANIMACJA
@@ -1598,7 +1986,6 @@ body {
         max-height: 100px;
     }
 }
-
 
 /* ===================================
    COMPARISON SECTION - POD WARIANTAMI
@@ -1778,9 +2165,7 @@ body {
     max-height: 200px !important;
 }
 
-
 /* ========== MODAL Z WYSOKOŚCIĄ DOPASOWANĄ DO ZAWARTOŚCI ========== */
-
 .accept-modal-content {
     max-width: 650px;
     width: 85%;
@@ -1794,6 +2179,12 @@ body {
     padding: 0;
     /* Dodane dla lepszego wyświetlania */
     margin: auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    /* ANIMACJA - działa z ogólną regułą modal-overlay.active */
+    transform: scale(0.9) translateY(20px);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* Header modala - kompaktowy */
@@ -1823,17 +2214,27 @@ body {
     max-height: calc(85vh - 200px); /* Odejmuje miejsce na header, progress, footer */
 }
 
-/* Footer akcji - kompaktowy */
+/* Footer akcji - POPRAWIONY UKŁAD PRZYCISKÓW */
 .step-actions {
     flex-shrink: 0;
     display: flex;
-    justify-content: space-between;
     align-items: center;
     padding: 12px 20px 16px 20px;
     border-top: 1px solid #e5e5e5;
     background: white;
     gap: 12px;
-    border-radius: 0 0 8px 8px; /* Zaokrąglenie tylko dolnych rogów */
+    border-radius: 0 0 8px 8px;
+    min-height: 60px; /* Zapewnia stałą wysokość */
+}
+
+/* POPRAWIONE: Konkretne style dla każdego kroku */
+#step-1-actions {
+    justify-content: flex-end; /* Tylko przycisk "Dalej" po prawej */
+}
+
+#step-2-actions,
+#step-3-actions {
+    justify-content: space-between; /* "Wstecz" po lewej, "Dalej"/"Akceptuj" po prawej */
 }
 
 /* Progress bar - bardzo kompaktowy */
@@ -1907,7 +2308,6 @@ body {
 /* Kroki - bez sztywnych wysokości */
 .accept-step {
     display: none;
-    /* USUNIĘTE: min-height, height */
 }
 
     .accept-step:first-child {
@@ -2092,7 +2492,6 @@ body {
 .nip-group .nip-input-wrapper {
     display: flex;
     gap: 8px;
-    align-items: flex-start;
 }
 
 .btn-gus {
@@ -2207,21 +2606,22 @@ body {
         font-size: 12px;
     }
 
-/* Kompaktowe przyciski */
+/* POPRAWIONE: Style przycisków w akcjach modala */
 .btn {
     padding: 8px 16px;
     border-radius: 4px;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    transition: background-color 0.2s ease, transform 0.2s ease;
     border: none;
     display: flex;
     align-items: center;
     gap: 4px;
     text-decoration: none;
-    min-height: 32px; /* Zmniejszone z 36px */
+    min-height: 32px;
     box-sizing: border-box;
+    justify-content: center;
 }
 
 .btn-primary {
@@ -2229,8 +2629,9 @@ body {
     color: white;
 }
 
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
         background: #d85d20;
+        transform: translateY(-1px);
     }
 
 .btn-secondary {
@@ -2238,8 +2639,9 @@ body {
     color: white;
 }
 
-    .btn-secondary:hover {
+    .btn-secondary:hover:not(:disabled) {
         background: #5a6268;
+        transform: translateY(-1px);
     }
 
 .btn-success {
@@ -2249,9 +2651,41 @@ body {
     font-size: 13px;
 }
 
-    .btn-success:hover {
+    .btn-success:hover:not(:disabled) {
         background: #218838;
+        transform: translateY(-1px);
     }
+
+/* POPRAWIONE: Style przycisków w step-actions */
+.step-actions .btn {
+    min-width: 80px; /* Zapewnia minimalną szerokość */
+}
+
+.step-actions .btn-primary {
+    margin-left: auto; /* Przesuwa na prawo gdy jest sam w kroku 1 */
+}
+
+.step-actions .btn-secondary {
+    margin-right: auto; /* Przesuwa na lewo w krokach 2 i 3 */
+}
+
+.step-actions .btn-success {
+    min-width: 120px; /* Większa minimalna szerokość dla przycisku akceptacji */
+}
+
+/* Disabled state */
+.step-actions .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none;
+}
+
+/* Focus states dla accessibility */
+.step-actions .btn:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+}
 
 /* Loading overlay */
 .loading-overlay {
@@ -2364,15 +2798,26 @@ body {
         min-width: auto;
     }
 
+    /* POPRAWIONE: Responsive dla step-actions */
     .step-actions {
         flex-direction: column;
         gap: 8px;
+        min-height: auto;
     }
 
+        /* Na mobile wszystkie przyciski pełnej szerokości */
         .step-actions .btn {
             width: 100%;
             justify-content: center;
+            margin: 0 !important; /* Resetuj marginesy na mobile */
+            min-width: auto;
         }
+
+    /* Zachowaj kolejność - Wstecz na górze, Dalej na dole */
+    #step-2-actions,
+    #step-3-actions {
+        flex-direction: column-reverse; /* Odwróć kolejność */
+    }
 
     .summary-item {
         flex-direction: column;
@@ -2425,4 +2870,70 @@ body {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* Spinner w przycisku */
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s ease-in-out infinite;
+}
+
+.step-actions .btn .spinner {
+    margin-right: 4px;
+}
+
+/* Validation success messages */
+.validation-success {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ===================================
+   UTILITIES & HELPERS
+   =================================== */
+.hidden {
+    display: none !important;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Focus-visible support */
+.btn:focus-visible,
+.form-input:focus-visible,
+.form-textarea:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* Remove focus outline for mouse users */
+.btn:focus:not(:focus-visible),
+.form-input:focus:not(:focus-visible),
+.form-textarea:focus:not(:focus-visible) {
+    outline: none;
 }
