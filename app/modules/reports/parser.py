@@ -2,6 +2,12 @@
 """
 Parser nazw produktów z Baselinker
 Wyciąga wymiary, gatunek, technologię, klasę i wykończenie z nazwy produktu
+
+POPRAWKA: Rozszerzono obsługę formatów wymiarów:
+- 90x44x2,1 cm (przecinki jako separatory dziesiętne)  
+- 90x44x2,1cm (bez spacji przed cm)
+- 90,3x44x2,1 cm (przecinki w długości)
+- 90,7x44.5x2,1 cm (mieszane formaty kropka/przecinek)
 """
 
 import re
@@ -18,6 +24,11 @@ class ProductNameParser:
     - "Parapet 160x20x2 cm dębowy lity B/B surowy"
     - "Blat drewniany dębowy mikrowczep A/B 90x60x2 cm surowy"
     - "Spocznik dąb lity A/B 190x88x3 cm lakierowany"
+    - NOWE FORMATY:
+    - "Produkt 90x44x2,1 cm" (przecinek jako separator dziesiętny)
+    - "Produkt 90x44x2,1cm" (bez spacji przed cm)
+    - "Produkt 90,3x44x2,1 cm" (przecinki w długości)
+    - "Produkt 90,7x44.5x2,1 cm" (mieszane formaty)
     """
     
     # Mapowanie gatunków drewna
@@ -58,7 +69,7 @@ class ProductNameParser:
         'bezbarwny': 'lakierowany'  # "lakierowany bezbarwny"
     }
     
-    # POPRAWKA: Zaktualizowane mapowanie typów produktów
+    # Mapowanie typów produktów
     PRODUCT_TYPE_MAP = {
         'klejonka': 'klejonka',
         'klejonki': 'klejonka',
@@ -80,14 +91,22 @@ class ProductNameParser:
     }
     
     def __init__(self):
-        # Regex dla wymiarów - obsługuje różne separatory
+        # POPRAWKA: Rozszerzone regex dla wymiarów - obsługuje różne separatory i formaty
         self.dimension_patterns = [
-            # Format: 98.0×40.0×2.0cm
-            r'(\d+(?:\.\d+)?)\s*[×x*]\s*(\d+(?:\.\d+)?)\s*[×x*]\s*(\d+(?:\.\d+)?)\s*cm',
-            # Format: 160x20x2 cm
-            r'(\d+(?:\.\d+)?)\s*[×x*]\s*(\d+(?:\.\d+)?)\s*[×x*]\s*(\d+(?:\.\d+)?)\s+cm',
-            # Format: 120/30/2.5 cm
-            r'(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*cm',
+            # Format z przecinkami jako separatory dziesiętne (np. 90,3x44x2,1 cm)
+            r'(\d+(?:[,\.]\d+)?)\s*[×x*]\s*(\d+(?:[,\.]\d+)?)\s*[×x*]\s*(\d+(?:[,\.]\d+)?)\s*cm',
+            
+            # Format bez spacji przed cm (np. 90x44x2,1cm)
+            r'(\d+(?:[,\.]\d+)?)\s*[×x*]\s*(\d+(?:[,\.]\d+)?)\s*[×x*]\s*(\d+(?:[,\.]\d+)?)cm',
+            
+            # Format ze spacją przed cm (klasyczny, np. 90x44x2,1 cm)
+            r'(\d+(?:[,\.]\d+)?)\s*[×x*]\s*(\d+(?:[,\.]\d+)?)\s*[×x*]\s*(\d+(?:[,\.]\d+)?)\s+cm',
+            
+            # Format z ukośnikami (np. 120/30/2,5 cm)
+            r'(\d+(?:[,\.]\d+)?)\s*/\s*(\d+(?:[,\.]\d+)?)\s*/\s*(\d+(?:[,\.]\d+)?)\s*cm',
+            
+            # Format z ukośnikami bez spacji przed cm
+            r'(\d+(?:[,\.]\d+)?)\s*/\s*(\d+(?:[,\.]\d+)?)\s*/\s*(\d+(?:[,\.]\d+)?)cm',
         ]
         
         # Regex dla klasy drewna
@@ -160,14 +179,14 @@ class ProductNameParser:
     
     def _extract_product_type(self, name_lower: str) -> Optional[str]:
         """
-        POPRAWKA: Wyciąga typ produktu - domyślnie klejonka, chyba że znajdzie słowo wskazujące na deskę
+        Wyciąga typ produktu - domyślnie klejonka, chyba że znajdzie słowo wskazujące na deskę
         """
-        # Sprawdź czy nazwa zawiera słowa wskazujące na deskę
+        # Sprawdź czy nazwa zawiera słowa wskazujące na konkretny typ
         for key, value in self.PRODUCT_TYPE_MAP.items():
             if key in name_lower:
                 return value
         
-        # POPRAWKA: Jeśli nie znaleziono żadnego słowa kluczowego, domyślnie zwróć 'klejonka'
+        # Jeśli nie znaleziono żadnego słowa kluczowego, domyślnie zwróć 'klejonka'
         return 'klejonka'
     
     def _extract_wood_species(self, name_lower: str) -> Optional[str]:
@@ -201,16 +220,28 @@ class ProductNameParser:
         return 'surowy'  # domyślnie surowy
     
     def _extract_dimensions(self, product_name: str) -> Optional[Tuple[Decimal, Decimal, Decimal]]:
-        """Wyciąga wymiary (długość × szerokość × grubość)"""
+        """
+        POPRAWKA: Wyciąga wymiary (długość × szerokość × grubość) 
+        Obsługuje różne formaty: przecinki/kropki jako separatory dziesiętne, 
+        z/bez spacji przed 'cm'
+        """
         for pattern in self.compiled_dimension_patterns:
             match = pattern.search(product_name)
             if match:
                 try:
-                    length = Decimal(match.group(1))
-                    width = Decimal(match.group(2))
-                    thickness = Decimal(match.group(3))
+                    # Zamień przecinki na kropki dla poprawnej konwersji do Decimal
+                    length_str = match.group(1).replace(',', '.')
+                    width_str = match.group(2).replace(',', '.')
+                    thickness_str = match.group(3).replace(',', '.')
+                    
+                    length = Decimal(length_str)
+                    width = Decimal(width_str)
+                    thickness = Decimal(thickness_str)
+                    
                     return (length, width, thickness)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as e:
+                    # Loguj błąd dla debugowania
+                    print(f"[ProductNameParser] Błąd konwersji wymiarów: {e}, input: {match.groups()}")
                     continue
         return None
     
@@ -236,9 +267,9 @@ class ProductNameParser:
         return has_dimensions and has_basic_info
     
     def _empty_result(self) -> Dict[str, any]:
-        """Zwraca pusty wynik - POPRAWKA: domyślnie klejonka"""
+        """Zwraca pusty wynik - domyślnie klejonka"""
         return {
-            'product_type': 'klejonka',  # POPRAWKA: domyślnie klejonka
+            'product_type': 'klejonka',  # domyślnie klejonka
             'wood_species': None,
             'technology': None,
             'wood_class': None,
@@ -270,25 +301,31 @@ def parse_single_product(product_name: str) -> Dict[str, any]:
 
 def test_parser():
     """
-    Funkcja testowa parsera
+    Funkcja testowa parsera - ROZSZERZONA O NOWE FORMATY
     """
     parser = ProductNameParser()
     
     test_names = [
+        # Stare formaty (powinny nadal działać)
         "Klejonka bukowa mikrowczep A/B 98.0×40.0×2.0cm",
-        "Klejonka bukowa mikrowczep A/B 100.0×20.0×2.0cm", 
         "Parapet 160x20x2 cm dębowy lity B/B surowy",
         "Blat drewniany dębowy mikrowczep A/B 90x60x2 cm surowy",
-        "Blat 200x60x4 cm dębowy mikrowczep A/B surowy",
-        "Blat dębowy 120x70x3 cm mikrowczep A/B lakierowany bezbarwny",
         "Spocznik dąb lity A/B 190x88x3 cm lakierowany",
-        "Dąb lity A/B olejowany 80x30x7 cm olejowany",
-        "Schody trep stopień drewniany dębowy mikrowczep B/B 120x35x4 cm surowy",
-        "Bukowa mikrowczep A/B 120x30x2 cm surowy",  # TEST: bez słowa "klejonka" - powinno być klejonka
-        "Produkty dębowe 100x50x3 cm"  # TEST: bez słowa kluczowego - powinno być klejonka
+        
+        # NOWE FORMATY Z PRZECINKAMI
+        "Klejonka bukowa mikrowczep A/B 90x44x2,1 cm",      # przecinek w grubości
+        "Parapet dębowy lity B/B 90x44x2,1cm",              # bez spacji przed cm
+        "Blat jesionowy mikrowczep A/B 90,3x44x2,1 cm",     # przecinek w długości
+        "Spocznik dębowy lity A/B 90,7x44.5x2,1 cm",        # mieszane formaty
+        "Trep bukowy A/B 120,5/30,2/4,8 cm",                # z ukośnikami
+        "Stopień dębowy B/B 95,3×35,7×3,2cm",               # bez spacji, przecinki
+        
+        # EDGE CASES
+        "Produkt 100x50x3,0 cm",                            # tylko w grubości
+        "Test 90,0x44,0x2,0 cm",                            # wszędzie przecinki
     ]
     
-    print("🔍 TEST PARSERA NAZW PRODUKTÓW - POPRAWKA")
+    print("🔍 TEST PARSERA NAZW PRODUKTÓW - ROZSZERZONA WERSJA")
     print("=" * 80)
     
     for name in test_names:

@@ -2640,3 +2640,38 @@ body.fullscreen-mode {
         max-height: 100px;
     }
 }
+
+/* Style dla powiadomień auto-uzupełnienia */
+.auto-fill-notification {
+    position: absolute;
+    top: -35px;
+    left: 0;
+    background: #4CAF50;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 1000;
+    white-space: nowrap;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+    .auto-fill-notification i {
+        margin-right: 5px;
+    }
+
+/* Delikatne podświetlenie pola które zostało auto-uzupełnione */
+.form-group input.auto-filled {
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+    transition: all 0.3s ease;
+}
+
+/* Responsive styling dla powiadomień */
+@media (max-width: 768px) {
+    .auto-fill-notification {
+        font-size: 11px;
+        padding: 3px 8px;
+        top: -30px;
+    }
+}
