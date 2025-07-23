@@ -356,8 +356,90 @@ function showDetailsModal(quoteData) {
     console.log('[MODAL] Konfiguracja przycisku akceptacji przez użytkownika...');
     setupUserAcceptButton(quoteData);
 
-    console.log('[MODAL] Konfiguracja przycisku 3D...');
-    initializePreview3DButton(quoteData);
+    // === NOWA OBSŁUGA PRZYCISKU 3D/AR ===
+    console.log('[MODAL] Konfiguracja przycisku 3D/AR...');
+    const preview3dBtn = document.getElementById("quote-preview3d-btn");
+    if (preview3dBtn) {
+        console.log('[MODAL] Konfiguracja przycisku 3D/AR:', {
+            id: quoteData.id,
+            quote_number: quoteData.quote_number,
+            public_token: quoteData.public_token
+        });
+
+        let token = quoteData.public_token;
+
+        // FALLBACK 1: Jeśli brak tokenu, znajdź go z listy wycen (allQuotes)
+        if (!token && allQuotes && allQuotes.length > 0) {
+            const quoteInList = allQuotes.find(q => q.id === quoteData.id);
+            if (quoteInList && quoteInList.public_token) {
+                token = quoteInList.public_token;
+                console.log('[MODAL] ✅ Token 3D skopiowany z listy wycen:', token);
+            }
+        }
+
+        // FALLBACK 2: Jeśli nadal brak, wyodrębnij z public_url
+        if (!token && quoteData.public_url) {
+            const urlMatch = quoteData.public_url.match(/\/wycena\/[^\/]+\/([A-F0-9]+)$/);
+            if (urlMatch) {
+                token = urlMatch[1];
+                console.log('[MODAL] ✅ Token 3D wyodrębniony z public_url:', token);
+            }
+        }
+
+        if (!token) {
+            console.error('[MODAL] ❌ BRAK tokenu dla 3D - wyłączam przycisk');
+            preview3dBtn.disabled = true;
+            preview3dBtn.title = 'Brak tokenu zabezpieczającego';
+            preview3dBtn.style.opacity = '0.5';
+        } else {
+            console.log('[MODAL] ✅ Token 3D do użycia:', token);
+            preview3dBtn.disabled = false;
+            preview3dBtn.style.opacity = '1';
+            preview3dBtn.title = 'Podgląd wybranego wariantu w 3D/AR';
+
+            // Usuń poprzednie event listenery i dodaj nowy
+            const newPreview3dBtn = preview3dBtn.cloneNode(true);
+            preview3dBtn.parentNode.replaceChild(newPreview3dBtn, preview3dBtn);
+
+            newPreview3dBtn.addEventListener('click', () => {
+                console.log('[3D Button] Klik - otwieranie z tokenem:', token);
+
+                // Sprawdź czy są produkty w wycenie
+                if (!quoteData.items || quoteData.items.length === 0) {
+                    alert('Błąd: Wycena nie zawiera żadnych produktów.');
+                    return;
+                }
+
+                // URL nowego viewer'a z tokenem
+                const viewerUrl = `/preview3d-ar/${token}`;
+
+                // Parametry okna
+                const windowFeatures = [
+                    'width=1600',
+                    'height=1000',
+                    'scrollbars=yes',
+                    'resizable=yes',
+                    'menubar=no',
+                    'toolbar=no',
+                    'location=no',
+                    'status=no',
+                    'left=' + Math.max(0, (screen.width - 1600) / 2),
+                    'top=' + Math.max(0, (screen.height - 1000) / 2)
+                ].join(',');
+
+                // Otwórz viewer
+                const preview3DWindow = window.open(viewerUrl, 'QuoteViewer3D_' + token, windowFeatures);
+
+                if (!preview3DWindow) {
+                    // Fallback - spróbuj otworzyć w nowej karcie
+                    window.open(viewerUrl, '_blank');
+                    alert('Quote Viewer 3D/AR został otwarty w nowej karcie (sprawdź ustawienia blokady popup).');
+                } else {
+                    console.log('[3D Button] Okno Preview3D otwarte pomyślnie');
+                }
+            });
+        }
+    }
 
     modal.classList.add('active');
     console.log('[MODAL] Modal powinien być teraz widoczny! Data:', quoteData);
@@ -2674,145 +2756,6 @@ function isQuoteAcceptedByUser(quoteData) {
     return quoteData.accepted_by_email &&
         quoteData.accepted_by_email.startsWith('internal_user_') &&
         !quoteData.is_client_editable;
-}
-
-/**
- * Inicjalizuje przycisk Preview3D w modalu szczegółów wyceny
- * @param {Object} quoteData - Dane wyceny
- */
-function initializePreview3DButton(quoteData) {
-    console.log('[Preview3D] Inicjalizacja przycisku Preview3D dla wyceny:', quoteData.id);
-
-    const preview3DBtn = document.getElementById('quote-preview3d-btn');
-    if (!preview3DBtn) {
-        console.warn('[Preview3D] Nie znaleziono przycisku quote-preview3d-btn w DOM');
-        return;
-    }
-
-    // Znajdź wybrany wariant
-    const selectedVariant = findSelectedVariantFromQuote(quoteData);
-
-    if (selectedVariant) {
-        // Aktywuj przycisk
-        preview3DBtn.disabled = false;
-        preview3DBtn.style.opacity = '1';
-        preview3DBtn.title = `Podgląd 3D/AR: ${selectedVariant.variant_code} (${selectedVariant.length_cm}×${selectedVariant.width_cm}×${selectedVariant.thickness_cm} cm)`;
-
-        // Usuń stary event listener i dodaj nowy
-        const newBtn = preview3DBtn.cloneNode(true);
-        preview3DBtn.parentNode.replaceChild(newBtn, preview3DBtn);
-
-        // Dodaj event listener
-        newBtn.addEventListener('click', function () {
-            handlePreview3DClick(quoteData, selectedVariant);
-        });
-
-        console.log('[Preview3D] Przycisk aktywny dla wariantu:', selectedVariant.variant_code);
-    } else {
-        // Dezaktywuj przycisk
-        preview3DBtn.disabled = true;
-        preview3DBtn.style.opacity = '0.6';
-        preview3DBtn.title = 'Wybierz wariant produktu aby zobaczyć podgląd 3D/AR';
-
-        console.log('[Preview3D] Przycisk nieaktywny - brak wybranego wariantu');
-    }
-}
-
-/**
- * Znajduje wybrany wariant z danych wyceny
- * @param {Object} quoteData - Dane wyceny
- * @returns {Object|null} - Wybrany wariant lub null
- */
-function findSelectedVariantFromQuote(quoteData) {
-    if (!quoteData || !quoteData.items || !Array.isArray(quoteData.items)) {
-        console.warn('[Preview3D] Nieprawidłowe dane wyceny');
-        return null;
-    }
-
-    // Znajdź wybrany wariant (is_selected: true)
-    const selectedItem = quoteData.items.find(item => item.is_selected === true);
-
-    if (selectedItem) {
-        console.log('[Preview3D] Znaleziono wybrany wariant:', selectedItem);
-        return {
-            variant_code: selectedItem.variant_code,
-            length_cm: selectedItem.length_cm,
-            width_cm: selectedItem.width_cm,
-            thickness_cm: selectedItem.thickness_cm,
-            quantity: selectedItem.quantity || 1,
-            volume_m3: selectedItem.volume_m3,
-            price: selectedItem.final_price_brutto
-        };
-    }
-
-    console.warn('[Preview3D] Nie znaleziono wybranego wariantu w wycenie');
-    return null;
-}
-
-/**
- * Obsługuje kliknięcie przycisku Preview3D - NOWA WERSJA z Quote Viewer i AR
- * @param {Object} quoteData - Dane wyceny
- * @param {Object} selectedVariant - Wybrany wariant (opcjonalne)
- */
-function handlePreview3DClick(quoteData, selectedVariant = null) {
-    try {
-        console.log('[Preview3D] Uruchamianie Quote Viewer 3D/AR dla wyceny:', quoteData.quote_number);
-
-        // Walidacja danych wyceny
-        if (!quoteData || !quoteData.id) {
-            alert('Błąd: Brak danych wyceny.');
-            return;
-        }
-
-        // Sprawdź czy są produkty w wycenie
-        if (!quoteData.items || quoteData.items.length === 0) {
-            alert('Błąd: Wycena nie zawiera żadnych produktów.');
-            return;
-        }
-
-        // URL nowego viewer'a z listą produktów i AR
-        const viewerUrl = `/preview3d-ar/quote/${quoteData.id}`;
-
-        // Parametry okna - większe dla nowego viewer'a
-        const windowFeatures = [
-            'width=1600',
-            'height=1000',
-            'scrollbars=yes',
-            'resizable=yes',
-            'menubar=no',
-            'toolbar=no',
-            'location=no',
-            'status=no',
-            'left=' + Math.max(0, (screen.width - 1600) / 2),
-            'top=' + Math.max(0, (screen.height - 1000) / 2)
-        ].join(',');
-
-        // Otwórz nowy viewer
-        const preview3DWindow = window.open(viewerUrl, 'QuoteViewer3D_' + quoteData.id, windowFeatures);
-
-        if (!preview3DWindow) {
-            // Fallback - spróbuj otworzyć w nowej karcie
-            window.open(viewerUrl, '_blank');
-            alert('Quote Viewer 3D/AR został otwarty w nowej karcie (sprawdź ustawienia blokady popup).');
-        } else {
-            console.log('[Preview3D] Quote Viewer 3D/AR otwarty pomyślnie');
-
-            // Spróbuj ustawić tytuł okna
-            try {
-                preview3DWindow.addEventListener('load', function () {
-                    if (preview3DWindow.document) {
-                        preview3DWindow.document.title = `${quoteData.quote_number} - Podgląd 3D/AR`;
-                    }
-                });
-            } catch (e) {
-                // Ignore cross-origin errors
-            }
-        }
-
-    } catch (error) {
-        console.error('[Preview3D] Błąd uruchamiania Quote Viewer:', error);
-        alert('Błąd uruchamiania Quote Viewer 3D/AR. Sprawdź konsolę przeglądarki.');
-    }
 }
 
 /**

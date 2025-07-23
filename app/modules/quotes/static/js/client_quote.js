@@ -889,211 +889,375 @@ const handlers = {
     },
 
     /**
- * Otwiera podgląd 3D
+    * Otwiera AR - inteligentnie wybiera między bezpośrednim AR a QR code
+    * @param {number} productIndex - Indeks produktu
+    */
+    openARModal(productIndex) {
+        console.log('[ClientAR] Otwieranie AR dla produktu:', productIndex);
+
+        // Sprawdź czy ARHandler jest dostępny
+        if (typeof window.ARHandler === 'undefined') {
+            console.error('[ClientAR] ARHandler nie jest załadowany');
+            utils.showAlert('Błąd: Moduł AR nie jest dostępny. Odśwież stronę.', 'error');
+            return;
+        }
+
+        // Sprawdź czy są dane wyceny
+        if (!globalState.quoteData || !globalState.quoteData.items) {
+            console.error('[ClientAR] Brak danych wyceny');
+            utils.showAlert('Błąd: Brak danych wyceny', 'error');
+            return;
+        }
+
+        // Znajdź produkty dla danego indeksu
+        const productItems = globalState.quoteData.items.filter(item =>
+            item.product_index === productIndex
+        );
+
+        if (productItems.length === 0) {
+            console.error('[ClientAR] Brak produktów dla indeksu:', productIndex);
+            utils.showAlert('Błąd: Nie znaleziono produktów', 'error');
+            return;
+        }
+
+        // Znajdź aktualnie wybrany wariant
+        const currentVariantId = globalState.selectedVariants.get(productIndex);
+        let selectedItem = null;
+
+        if (currentVariantId) {
+            selectedItem = productItems.find(item => item.id === currentVariantId);
+        }
+
+        // Fallback: użyj pierwszego dostępnego lub zaznaczonego
+        if (!selectedItem) {
+            selectedItem = productItems.find(item => item.is_selected) || productItems[0];
+        }
+
+        if (!selectedItem) {
+            console.error('[ClientAR] Nie znaleziono wybranego wariantu');
+            utils.showAlert('Błąd: Nie można określić wariantu produktu', 'error');
+            return;
+        }
+
+        // Przygotuj dane produktu w formacie oczekiwanym przez ARHandler
+        const productData = {
+            variant_code: selectedItem.variant_code,
+            product_index: selectedItem.product_index,
+            dimensions: {
+                length: parseFloat(selectedItem.length_cm),
+                width: parseFloat(selectedItem.width_cm),
+                thickness: parseFloat(selectedItem.thickness_cm)
+            },
+            quantity: selectedItem.quantity || 1
+        };
+
+        console.log('[ClientAR] Dane produktu dla AR:', productData);
+
+        // INTELIGENTNY WYBÓR: Mobile vs Desktop
+        if (utils.isMobile()) {
+            // Na mobile - BEZPOŚREDNIO uruchom AR bez modala
+            try {
+                console.log('[ClientAR] Mobile detected - launching AR directly');
+                this.launchDirectAR(productData);
+            } catch (error) {
+                console.error('[ClientAR] Błąd bezpośredniego AR:', error);
+                utils.showAlert(`Błąd AR: ${error.message}`, 'error');
+            }
+        } else {
+            // Na desktop - pokaż nowy modal z QR code
+            console.log('[ClientAR] Desktop detected - showing AR modal with QR code');
+            this.showDesktopARModal(productData);
+        }
+    },
+
+    /**
+     * Uruchamia AR bezpośrednio na mobile (bez modala)
+     */
+    async launchDirectAR(productData) {
+        console.log('[ClientAR] Bezpośrednie uruchomienie AR dla mobile');
+
+        // Sprawdź czy jesteśmy na iOS Safari
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+
+        if (!isIOS) {
+            // Android - pokaż komunikat
+            utils.showAlert('AR jest dostępne tylko na iPhone i iPad', 'info');
+            return;
+        }
+
+        if (!isSafari) {
+            // iOS ale nie Safari - pokaż komunikat
+            utils.showAlert('AR wymaga przeglądarki Safari', 'warning');
+            return;
+        }
+
+        try {
+            // Pokaż krótki loading
+            utils.setLoading(true, 'Przygotowywanie AR...');
+
+            console.log('[ClientAR] Wywołanie ARHandler.initiateIOSAR...');
+
+            // Użyj bezpośrednio metody z ARHandler
+            await window.ARHandler.initiateIOSAR(productData);
+
+            utils.setLoading(false);
+            console.log('[ClientAR] AR uruchomiony pomyślnie');
+
+        } catch (error) {
+            utils.setLoading(false);
+            console.error('[ClientAR] Błąd bezpośredniego AR:', error);
+            utils.showAlert(`Nie udało się uruchomić AR: ${error.message}`, 'error');
+        }
+    },
+
+    /**
+     * NOWA METODA: Pokazuje przycisk do ręcznego uruchomienia AR (fallback)
+     */
+    showManualARButton(usdzUrl, productData, errorMessage) {
+        console.log('[ClientAR] Pokazuję ręczny przycisk AR jako fallback');
+
+        // Utwórz modal z przyciskiem AR
+        const modal = this.createARModalElement('Uruchom AR ręcznie', {
+            icon: '📱',
+            title: 'Kliknij przycisk poniżej aby uruchomić AR',
+            message: `Wystąpił problem z automatycznym uruchomieniem AR.\n\nBłąd: ${errorMessage}\n\nModel: ${productData.variant_code}`,
+            buttons: [
+                {
+                    text: 'Uruchom AR',
+                    action: () => {
+                        window.location.href = usdzUrl;
+                        this.closeARModal();
+                    },
+                    primary: true
+                },
+                {
+                    text: 'Anuluj',
+                    action: () => this.closeARModal(),
+                    primary: false
+                }
+            ]
+        });
+
+        this.showARModal(modal);
+    },
+
+    /**
+     * Pokazuje nowy modal AR dla desktop z QR code
+     */
+    showDesktopARModal(productData) {
+        const variant = productData.variant_code || 'Produkt';
+        const dims = productData.dimensions || {};
+        const dimensions = `${dims.length || 0}×${dims.width || 0}×${dims.thickness || 0} cm`;
+        const currentUrl = window.location.href;
+
+        // Utwórz modal w stylu preview3d_ar
+        const modal = this.createARModalElement('Rzeczywistość rozszerzona', {
+            icon: '🖥️',
+            title: 'Zeskanuj kod QR swoim telefonem',
+            message: `Model: ${variant}\nWymiary: ${dimensions}\n\nFunkcja AR działa na iPhone i iPad z iOS 12+ oraz Safari.`,
+            qrUrl: currentUrl,
+            buttons: [
+                {
+                    text: 'Zamknij',
+                    action: () => this.closeARModal(),
+                    primary: false
+                }
+            ]
+        });
+
+        this.showARModal(modal);
+
+        // Wygeneruj QR code po pokazaniu modala
+        setTimeout(() => {
+            this.generateQRCodeInModal(currentUrl);
+        }, 100);
+    },
+
+    /**
+    * Tworzy element AR modal (w stylu preview3d_ar)
+    */
+    createARModalElement(title, options) {
+        const modal = document.createElement('div');
+        modal.className = 'ar-modal-overlay';
+
+        const qrHtml = options.qrUrl ? '<div class="ar-qr-container"><div class="ar-qr-code" id="arQrCode"></div><div class="ar-qr-url" id="arQrUrl"></div></div>' : '';
+
+        const buttonsHtml = options.buttons ? options.buttons.map(btn =>
+            `<button class="ar-modal-btn ${btn.primary ? 'primary' : ''}" data-action="${btn.text}">${btn.text}</button>`
+        ).join('') : '';
+
+        modal.innerHTML = `
+        <div class="ar-modal-content">
+            <div class="ar-modal-header">
+                <div class="ar-modal-icon">${options.icon}</div>
+                <h2 class="ar-modal-title">${title}</h2>
+            </div>
+            <div class="ar-modal-body">
+                <div class="ar-modal-message" style="white-space: pre-line;">${options.message}</div>
+                ${qrHtml}
+            </div>
+            <div class="ar-modal-footer">
+                ${buttonsHtml}
+            </div>
+        </div>
+    `;
+
+        // Event listenery dla przycisków
+        if (options.buttons) {
+            options.buttons.forEach(btn => {
+                const btnElement = modal.querySelector(`[data-action="${btn.text}"]`);
+                if (btnElement) {
+                    btnElement.addEventListener('click', btn.action);
+                }
+            });
+        }
+
+        return modal;
+    },
+
+    /**
+     * Pokazuje AR modal
+     */
+    showARModal(modal) {
+        this.closeARModal(); // Zamknij poprzedni jeśli istnieje
+        modal.id = 'ar-modal';
+        document.body.appendChild(modal);
+
+        // ESC key handler
+        this._escHandler = (e) => {
+            if (e.key === 'Escape') {
+                this.closeARModal();
+            }
+        };
+        document.addEventListener('keydown', this._escHandler);
+
+        // Click outside handler
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                this.closeARModal();
+            }
+        });
+    },
+
+    /**
+ * Otwiera nową kartę z Quote Viewer 3D/AR (zamiast modal iframe)
  * @param {number} productIndex - Indeks produktu
  */
     open3DViewer(productIndex) {
-        const modal = document.getElementById('viewerModal');
-        const iframe = document.getElementById('viewerFrame');
+        console.log('[Client3D] Otwieranie Quote Viewer 3D/AR dla produktu:', productIndex);
 
-        if (!modal || !iframe) {
-            console.error('Modal lub iframe nie zostały znalezione');
+        // Walidacja
+        if (!window.QUOTE_TOKEN) {
+            console.error('[Client3D] Brak tokenu wyceny');
+            utils.showAlert('Błąd: Brak tokenu zabezpieczającego', 'error');
             return;
         }
 
-        // Przygotuj dane wszystkich wariantów dla produktu
-        const products = render.groupProductsByIndex();
-        const product = products.find(p => p.index === productIndex);
-        if (!product) {
-            console.error('Nie znaleziono produktu:', productIndex);
+        if (!globalState.quoteData || !globalState.quoteData.items) {
+            console.error('[Client3D] Brak danych wyceny');
+            utils.showAlert('Błąd: Brak danych wyceny', 'error');
             return;
         }
 
-        // Pobierz wszystkie warianty dla tego produktu z globalState
-        const allVariants = globalState.quoteData.items
-            .filter(item => item.product_index === productIndex)
-            .map(item => ({
-                id: item.id,
-                variant_code: item.variant_code,
-                length_cm: item.length_cm,
-                width_cm: item.width_cm,
-                thickness_cm: item.thickness_cm,
-                dimensions: `${item.length_cm} × ${item.width_cm} × ${item.thickness_cm} cm`,
-                is_selected: item.is_selected,
-                price: item.final_price_brutto
-            }));
+        // Sprawdź czy są produkty w wycenie
+        const productItems = globalState.quoteData.items.filter(item =>
+            item.product_index === productIndex
+        );
 
-        console.log('Warianty dla produktu', productIndex, ':', allVariants);
-
-        // Znajdź aktualnie wybrany wariant
-        const currentVariantId = globalState.selectedVariants.get(productIndex) ||
-            allVariants.find(v => v.is_selected)?.id ||
-            allVariants[0]?.id;
-
-        // Ustaw URL iframe z wszystkimi wariantami
-        const params = new URLSearchParams({
-            quote: window.QUOTE_NUMBER,
-            product: productIndex,
-            token: window.QUOTE_TOKEN,
-            variants: JSON.stringify(allVariants),
-            current_variant: currentVariantId
-        });
-
-        const viewerUrl = `/preview3d-ar/quote/${window.QUOTE_NUMBER}?${params}`;
-        console.log('Otwieranie 3D viewer:', viewerUrl);
-
-        iframe.src = viewerUrl;
-        modal.classList.add('active');
-
-        // Dodaj komunikację z iframe
-        this.setupIframeCommunication(iframe, productIndex);
-
-        // Obsługa zamykania na Escape
-        const escapeHandler = (e) => {
-            if (e.key === 'Escape') {
-                this.close3DViewer();
-                document.removeEventListener('keydown', escapeHandler);
-            }
-        };
-        document.addEventListener('keydown', escapeHandler);
-    },
-
-    /**
-     * Konfiguruje komunikację z iframe 3D viewer
-     */
-    setupIframeCommunication(iframe, productIndex) {
-        const messageHandler = (event) => {
-            // Sprawdź pochodzenie i typ wiadomości
-            if (!event.data || event.data.type !== '3d_viewer_message') return;
-
-            const { action, variantId } = event.data;
-
-            if (action === 'variant_changed') {
-                console.log('Wariant zmieniony z 3D viewer na:', variantId);
-
-                // Aktualizuj wybrany wariant w głównej aplikacji
-                handlers.switchVariant(productIndex, variantId);
-
-                // Opcjonalnie: pokaż alert o zmianie
-                utils.showAlert('Wariant został zmieniony', 'info');
-            }
-
-            if (action === 'viewer_ready') {
-                console.log('3D viewer gotowy do pracy');
-            }
-
-            if (action === 'viewer_error') {
-                console.error('Błąd w 3D viewer:', event.data.error);
-                utils.showAlert('Błąd ładowania modelu 3D', 'error');
-            }
-        };
-
-        // Dodaj listener dla wiadomości z iframe
-        window.addEventListener('message', messageHandler);
-
-        // Zapisz referencję do message handler dla późniejszego usunięcia
-        iframe._messageHandler = messageHandler;
-    },
-
-    /**
-     * Zamyka podgląd 3D i czyści event listenery
-     */
-    close3DViewer() {
-        const modal = document.getElementById('viewerModal');
-        const iframe = document.getElementById('viewerFrame');
-
-        if (modal) modal.classList.remove('active');
-
-        if (iframe) {
-            // Usuń message handler
-            if (iframe._messageHandler) {
-                window.removeEventListener('message', iframe._messageHandler);
-                delete iframe._messageHandler;
-            }
-
-            // Wyczyść src po krótkiej chwili (dla animacji)
-            setTimeout(() => {
-                iframe.src = '';
-            }, 300);
+        if (productItems.length === 0) {
+            console.error('[Client3D] Brak produktów dla indeksu:', productIndex);
+            utils.showAlert('Błąd: Nie znaleziono produktów w wycenie', 'error');
+            return;
         }
-    },
 
-    /**
-* Otwiera modal AR
-* @param {number} productIndex - Indeks produktu
-*/
-    openARModal(productIndex) {
-        if (utils.isMobile()) {
-            // Na mobile - bezpośrednie uruchomienie AR
-            console.log('Opening AR on mobile for product:', productIndex);
-            // TODO: Implementacja AR dla mobile
-        } else {
-            // Na desktop - pokazanie QR code
-            const modal = document.getElementById('qrModal');
-            if (!modal) {
-                console.error('QR Modal not found');
-                return;
-            }
-            modal.classList.add('active');
+        try {
+            // URL nowego viewer'a z tokenem (tak samo jak w modalu quotes)
+            const viewerUrl = `/preview3d-ar/${window.QUOTE_TOKEN}`;
 
-            setTimeout(() => {
-                const currentUrl = window.location.href;
-                console.log('Generating QR code for URL:', currentUrl);
+            // Parametry okna - takie same jak w modalu quotes
+            const windowFeatures = [
+                'width=1600',
+                'height=1000',
+                'scrollbars=yes',
+                'resizable=yes',
+                'menubar=no',
+                'toolbar=no',
+                'location=no',
+                'status=no',
+                'left=' + Math.max(0, (screen.width - 1600) / 2),
+                'top=' + Math.max(0, (screen.height - 1000) / 2)
+            ].join(',');
 
-                const qrContainer = document.getElementById('qrCode');
-                if (qrContainer) {
-                    // BARDZIEJ AGRESYWNE CZYSZCZENIE
-                    qrContainer.innerHTML = '';
-                    qrContainer.textContent = '';
+            console.log('[Client3D] Otwieranie URL:', viewerUrl);
 
-                    // Usuń wszystkie dzieci
-                    while (qrContainer.firstChild) {
-                        qrContainer.removeChild(qrContainer.firstChild);
-                    }
+            // Otwórz nową kartę/okno
+            const viewer3DWindow = window.open(viewerUrl, 'QuoteViewer3D_' + window.QUOTE_TOKEN, windowFeatures);
 
-                    // Sprawdź czy biblioteka QRCode jest załadowana
-                    if (typeof QRCode !== 'undefined') {
-                        try {
-                            // Generuj bezpośrednio w qrContainer
-                            new QRCode(qrContainer, {
-                                text: currentUrl,
-                                width: 200,
-                                height: 200,
-                                colorDark: '#000000',
-                                colorLight: '#ffffff',
-                                correctLevel: QRCode.CorrectLevel.H
-                            });
-                            console.log('QR code generated successfully');
+            if (!viewer3DWindow) {
+                // Fallback - spróbuj otworzyć w nowej karcie
+                window.open(viewerUrl, '_blank');
+                utils.showAlert('Quote Viewer 3D/AR został otwarty w nowej karcie (sprawdź ustawienia blokady popup)', 'info');
+            } else {
+                console.log('[Client3D] Quote Viewer 3D/AR otwarty pomyślnie');
 
-                            // NAPRAWKA - usuń dublowane elementy
-                            setTimeout(() => {
-                                const canvases = qrContainer.querySelectorAll('canvas');
-                                canvases.forEach(canvas => canvas.remove());
-
-                                // Upewnij się, że IMG jest wyśrodkowany
-                                const img = qrContainer.querySelector('img');
-                                if (img) {
-                                    img.style.display = 'block';
-                                    img.style.margin = '0 auto';
-                                }
-
-                                console.log('Cleaned up duplicate elements');
-                            }, 100);
-
-                        } catch (error) {
-                            console.error('Error generating QR code:', error);
+                // Spróbuj ustawić tytuł okna
+                try {
+                    viewer3DWindow.addEventListener('load', function () {
+                        if (viewer3DWindow.document) {
+                            viewer3DWindow.document.title = `${window.QUOTE_NUMBER} - Podgląd 3D/AR`;
                         }
-                    } else {
-                        console.error('QRCode library not loaded');
-                    }
+                    });
+                } catch (e) {
+                    // Ignore cross-origin errors
                 }
+            }
 
-                // Pokaż URL
-                const urlEl = document.getElementById('qrUrl');
-                if (urlEl) {
-                    urlEl.textContent = currentUrl;
-                }
-            }, 300);
+        } catch (error) {
+            console.error('[Client3D] Błąd uruchamiania Quote Viewer:', error);
+            utils.showAlert('Błąd uruchamiania Quote Viewer 3D/AR', 'error');
+        }
+    },
+
+    /**
+     * Zamyka AR modal
+     */
+    closeARModal() {
+        const modal = document.getElementById('ar-modal');
+        if (modal) {
+            modal.remove();
+            if (this._escHandler) {
+                document.removeEventListener('keydown', this._escHandler);
+                this._escHandler = null;
+            }
+        }
+    },
+
+    /**
+     * Generuje QR code w modal
+     */
+    generateQRCodeInModal(url) {
+        const qrContainer = document.getElementById('arQrCode');
+        const urlDisplay = document.getElementById('arQrUrl');
+
+        if (qrContainer && urlDisplay) {
+            // Wyczyść poprzedni QR code
+            qrContainer.innerHTML = '';
+
+            // Wygeneruj nowy QR code
+            new QRCode(qrContainer, {
+                text: url,
+                width: 200,
+                height: 200,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+
+            // Pokaż URL
+            urlDisplay.textContent = url;
+
+            console.log('QR code generated in AR modal');
         }
     },
 

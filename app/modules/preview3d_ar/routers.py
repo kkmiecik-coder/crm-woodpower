@@ -499,21 +499,21 @@ def check_textures(variant):
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-@preview3d_ar_bp.route('/quote/<int:quote_id>')
-def show_quote_3d_viewer(quote_id):
-    """Endpoint dla wycen - wyświetla viewer 3D"""
+@preview3d_ar_bp.route('/<token>')
+def show_quote_3d_viewer(token):
+    """Endpoint dla wycen - wyświetla viewer 3D używając public_token"""
     try:
-        print(f"[show_quote_3d_viewer] Starting for quote_id: {quote_id}", file=sys.stderr)
+        print(f"[show_quote_3d_viewer] Starting for token: {token}", file=sys.stderr)
         
         quote = db.session.query(Quote)\
             .options(joinedload(Quote.client))\
-            .filter_by(id=quote_id).first()
+            .filter_by(public_token=token).first()
         
         if not quote:
             return jsonify({'error': 'Quote not found'}), 404
         
         quote_items = db.session.query(QuoteItem)\
-            .filter_by(quote_id=quote_id)\
+            .filter_by(quote_id=quote.id)\
             .order_by(QuoteItem.product_index, QuoteItem.variant_code)\
             .all()
         
@@ -521,10 +521,10 @@ def show_quote_3d_viewer(quote_id):
             return jsonify({'error': 'No products found in quote'}), 404
         
         # Grupuj produkty po product_index
-        products = {}
+        products_dict = {}
         for item in quote_items:
-            if item.product_index not in products:
-                products[item.product_index] = {
+            if item.product_index not in products_dict:
+                products_dict[item.product_index] = {
                     'product_index': item.product_index,
                     'dimensions': {
                         'length': float(item.length_cm),
@@ -534,69 +534,61 @@ def show_quote_3d_viewer(quote_id):
                     'variants': []
                 }
             
-            # Sprawdź dostępność tekstur
+            # Sprawdź dostępność tekstur dla wariantu
             try:
+                from .models import TextureConfig
                 textures = TextureConfig.get_all_textures_for_variant(item.variant_code)
                 has_textures = any(len(tex.get('variants', [])) > 0 for tex in textures.values())
             except Exception:
                 has_textures = False
             
-            try:
-                quantity = item.get_quantity()
-            except:
-                quantity = 1
-                
-            products[item.product_index]['variants'].append({
+            # Dodaj wszystkie warianty z dodatkowymi danymi
+            products_dict[item.product_index]['variants'].append({
                 'id': item.id,
                 'variant_code': item.variant_code,
+                'quantity': item.get_quantity(),
                 'is_selected': item.is_selected,
-                'quantity': quantity,
                 'price_brutto': float(item.get_total_price_brutto()),
                 'has_textures': has_textures
             })
         
-        # Sortuj produkty
-        sorted_products = sorted(products.values(), key=lambda x: x['product_index'])
+        # Konwertuj słownik na listę posortowaną po product_index (jak oczekuje szablon)
+        products = sorted(products_dict.values(), key=lambda x: x['product_index'])
         
-        # Znajdź domyślnie wybrany produkt
+        # Znajdź pierwszy wybrany wariant jako domyślny
         default_product = None
-        for product in sorted_products:
+        for product in products:
             selected_variant = next((v for v in product['variants'] if v['is_selected']), None)
-            if selected_variant and selected_variant['has_textures']:
+            if selected_variant:
                 default_product = {
                     'product_index': product['product_index'],
+                    'dimensions': product['dimensions'],
                     'variant_code': selected_variant['variant_code'],
-                    'dimensions': product['dimensions']
+                    'quantity': selected_variant['quantity']
                 }
                 break
         
-        if not default_product:
-            # Fallback - pierwszy produkt z dostępnymi teksturami
-            for product in sorted_products:
-                for variant in product['variants']:
-                    if variant['has_textures']:
-                        default_product = {
-                            'product_index': product['product_index'],
-                            'variant_code': variant['variant_code'],
-                            'dimensions': product['dimensions']
-                        }
-                        break
-                if default_product:
-                    break
+        # Fallback: jeśli nie ma wybranych, użyj pierwszego dostępnego
+        if not default_product and products:
+            first_product = products[0]
+            first_variant = first_product['variants'][0] if first_product['variants'] else None
+            if first_variant:
+                default_product = {
+                    'product_index': first_product['product_index'],
+                    'dimensions': first_product['dimensions'],
+                    'variant_code': first_variant['variant_code'],
+                    'quantity': first_variant['quantity']
+                }
         
         if not default_product:
-            return render_template(
-                'preview3d_ar/templates/quote_3d_viewer.html',
-                quote={'quote_number': quote.quote_number, 'id': quote_id, 'client': quote.client},
-                products=[],
-                default_product=None,
-                error_message="Brak produktów z dostępnymi teksturami w tej wycenie"
-            )
+            return jsonify({'error': 'No valid products found'}), 404
         
-        return render_template(
-            'preview3d_ar/templates/quote_3d_viewer.html',
+        print(f"[show_quote_3d_viewer] Found {len(products)} products", file=sys.stderr)
+        print(f"[show_quote_3d_viewer] Default product: {default_product}", file=sys.stderr)
+        
+        return render_template('preview3d_ar/templates/quote_3d_viewer.html',
             quote=quote,
-            products=sorted_products,
+            products=products,  # Lista zamiast słownika
             default_product=default_product
         )
         
@@ -621,7 +613,7 @@ def test_endpoint():
             '/api/generate-reality [POST] - Returns USDZ or Reality',
             '/api/generate-usdz [POST] - Backward compatibility',
             '/api/check-textures/<variant> [GET]',
-            '/quote/<quote_id> [GET]',
+            '/<token> [GET]',  # ZMIENIONE z '/quote/<quote_id> [GET]'
             '/modal [GET]',
             '/test [GET]'
         ]
@@ -739,3 +731,72 @@ def get_reality_generator():
         reality_generator = RealityGenerator()
     return reality_generator
 
+@preview3d_ar_bp.route('/api/generate-glb', methods=['POST'])
+def generate_glb():
+    """API endpoint do generowania GLB dla Android AR"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Parsowanie danych
+        variant_code = data.get('variant_code')
+        if not variant_code:
+            return jsonify({'error': 'Missing variant_code'}), 400
+            
+        dimensions = data.get('dimensions', {})
+        if not all(k in dimensions for k in ['length', 'width', 'thickness']):
+            return jsonify({'error': 'Missing or invalid dimensions'}), 400
+        
+        quality = data.get('quality', 'medium')
+        
+        print(f"[generate_glb] GLB request: {variant_code}, dims: {dimensions}", file=sys.stderr)
+        
+        # Utwórz dane produktu
+        product_data = {
+            'variant_code': variant_code,
+            'dimensions': {
+                'length': float(dimensions['length']),
+                'width': float(dimensions['width']),
+                'thickness': float(dimensions['thickness'])
+            },
+            'quality': quality,
+            'format': 'glb'
+        }
+        
+        # Użyj tego samego generatora co USDZ, ale z formatem GLB
+        generator = get_reality_generator()
+        
+        try:
+            # Wygeneruj GLB file
+            glb_result = generator.generate_glb_file(product_data)
+            
+            if not glb_result.get('success'):
+                return jsonify({
+                    'success': False,
+                    'error': glb_result.get('error', 'GLB generation failed')
+                }), 500
+            
+            # Zwróć URL do pliku GLB
+            return jsonify({
+                'success': True,
+                'glb_url': glb_result['file_url'],
+                'file_size': glb_result.get('file_size', 0),
+                'cache_key': glb_result.get('cache_key'),
+                'format': 'glb',
+                'platform': 'android'
+            })
+            
+        except Exception as gen_error:
+            print(f"[generate_glb] Generation error: {str(gen_error)}", file=sys.stderr)
+            return jsonify({
+                'success': False,
+                'error': f'GLB generation failed: {str(gen_error)}'
+            }), 500
+            
+    except Exception as e:
+        print(f"[generate_glb] Unexpected error: {str(e)}", file=sys.stderr)
+        return jsonify({
+            'success': False,
+            'error': f'Server error: {str(e)}'
+        }), 500

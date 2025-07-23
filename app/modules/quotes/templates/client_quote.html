@@ -524,11 +524,6 @@
         </div>
     </div>
 
-    <!-- 3D Viewer Modal -->
-    <div class="viewer-modal" id="viewerModal">
-        <iframe class="viewer-iframe" id="viewerFrame"></iframe>
-    </div>
-
     <!-- QR Code Modal -->
     <div class="modal-overlay" id="qrModal">
         <div class="modal-content">
@@ -572,6 +567,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <!-- Main Script -->
+    <script src="{{ url_for('preview3d_ar.static', filename='js/ar-handler.js') }}"></script>
     <script src="{{ url_for('quotes.static', filename='js/client_quote.js') }}"></script>
     <script src="{{ url_for('quotes.static', filename='js/client_accept_modal.js') }}"></script>
 
