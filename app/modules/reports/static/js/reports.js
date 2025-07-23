@@ -530,7 +530,7 @@ class ReportsManager {
 
         // Przycisk Baselinker
         if (order.baselinker_order_id) {
-            const baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${order.baselinker_order_id}`;
+            const baselinkerUrl = `https://panel.baselinker.com/orders.php#order:${order.baselinker_order_id}`;
             buttons.push(`
                 <a href="${baselinkerUrl}" target="_blank" class="action-btn action-btn-baselinker">
                     <i class="fas fa-external-link-alt"></i>
@@ -559,15 +559,13 @@ class ReportsManager {
             }
         }
 
-        // Przycisk edycji dla ręcznych wierszy
-        if (order.is_manual) {
-            buttons.push(`
-                <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}">
-                    <i class="fas fa-edit"></i>
-                    Edytuj
-                </button>
-            `);
-        }
+        // ZMIANA: Przycisk edycji dla WSZYSTKICH rekordów
+        buttons.push(`
+            <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
+                <i class="fas fa-edit"></i>
+                Edytuj
+            </button>
+        `);
 
         return `
             <div class="action-buttons">
@@ -903,10 +901,10 @@ class ReportsManager {
     }
 
     /**
-     * Obsługa edycji ręcznego wiersza
+     * Obsługa edycji rekordu - dla wszystkich typów
      */
     handleEditManualRow(recordId) {
-        console.log('[ReportsManager] Edit manual row:', recordId);
+        console.log('[ReportsManager] Edit record:', recordId);
 
         const record = this.currentData.find(r => r.id == recordId);
         if (!record) {
@@ -914,10 +912,8 @@ class ReportsManager {
             return;
         }
 
-        if (!record.is_manual) {
-            this.showError('Można edytować tylko rekordy dodane ręcznie');
-            return;
-        }
+        // ZMIANA: Usunięto ograniczenie tylko do ręcznych rekordów
+        console.log(`[ReportsManager] Opening edit modal for ${record.is_manual ? 'manual' : 'Baselinker'} record:`, record.id);
 
         if (window.tableManager) {
             window.tableManager.showManualRowModal(record);
