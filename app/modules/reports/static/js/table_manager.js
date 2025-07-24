@@ -611,7 +611,7 @@ class TableManager {
     addProduct() {
         const productData = {
             group_type: 'towar',
-            product_type: 'deska',
+            product_type: 'klejonka',
             wood_species: '',
             technology: '',
             wood_class: '',
@@ -1812,7 +1812,7 @@ class TableManager {
             // Mapuj wszystkie produkty z zamówienia
             this.productsData = allOrderProducts.map(productRecord => ({
                 group_type: productRecord.group_type || 'towar',
-                product_type: productRecord.product_type || 'deska',
+                product_type: productRecord.product_type || 'klejonka',
                 wood_species: productRecord.wood_species || '',
                 technology: productRecord.technology || '',
                 wood_class: productRecord.wood_class || '',
@@ -1834,7 +1834,7 @@ class TableManager {
             // Pojedynczy produkt (ręczny rekord lub przypadek fallback)
             this.productsData = [{
                 group_type: record.group_type || 'towar',
-                product_type: record.product_type || 'deska',
+                product_type: record.product_type || 'klejonka',
                 wood_species: record.wood_species || '',
                 technology: record.technology || '',
                 wood_class: record.wood_class || '',
@@ -1894,7 +1894,7 @@ class TableManager {
         // STARE POLA - zachowane dla kompatybilności
         this.setFieldValue('quantity', '1');
         this.setFieldValue('finishState', 'surowy');
-        this.setFieldValue('productType', 'deska'); // Domyślnie deska
+        this.setFieldValue('productType', 'klejonka'); // Domyślnie klejonka
 
         // Zresetuj produkty
         this.productsData = [];
@@ -2236,7 +2236,7 @@ class TableManager {
 
                 const productData = {
                     group_type: item.querySelector('[name="group_type"]')?.value || 'towar',
-                    product_type: item.querySelector('[name="product_type"]')?.value || 'deska',
+                    product_type: item.querySelector('[name="product_type"]')?.value || 'klejonka',
                     wood_species: item.querySelector('[name="wood_species"]')?.value || '',
                     technology: item.querySelector('[name="technology"]')?.value || '',
                     wood_class: item.querySelector('[name="wood_class"]')?.value || '',
@@ -2257,7 +2257,7 @@ class TableManager {
             // FALLBACK: Zbierz dane ze starych pól formularza (jeśli istnieją)
             const fallbackProduct = {
                 group_type: this.getFieldValue('groupType') || 'towar',
-                product_type: this.getFieldValue('productType') || 'deska',
+                product_type: this.getFieldValue('productType') || 'klejonka',
                 wood_species: this.getFieldValue('woodSpecies') || '',
                 technology: this.getFieldValue('technology') || '',
                 wood_class: this.getFieldValue('woodClass') || '',
@@ -2311,7 +2311,7 @@ class TableManager {
 
                 const processedProduct = {
                     group_type: product.group_type || 'towar',
-                    product_type: product.product_type || 'deska',
+                    product_type: product.product_type || 'klejonka',
                     wood_species: product.wood_species || '',
                     technology: product.technology || '',
                     wood_class: product.wood_class || '',

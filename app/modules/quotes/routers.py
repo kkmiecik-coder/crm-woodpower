@@ -1692,3 +1692,42 @@ def debug_static_files():
     }
     
     return f"<pre>{debug_info}</pre>"
+
+@quotes_bp.route('/api/check-quote-by-order/<order_id>')
+@login_required
+def check_quote_by_order(order_id):
+    """
+    Sprawdza czy zamówienie z Baselinker ma powiązaną wycenę w systemie
+    """
+    print(f"[check_quote_by_order] Sprawdzanie wyceny dla orderID: {order_id}", file=sys.stderr)
+    
+    try:
+        # Sprawdź czy istnieje wycena z tym base_linker_order_id
+        quote = Quote.query.filter_by(base_linker_order_id=str(order_id)).first()
+        
+        if quote:
+            print(f"[check_quote_by_order] ✅ Znaleziono wycenę ID: {quote.id}, numer: {quote.quote_number}", file=sys.stderr)
+            
+            return jsonify({
+                'hasQuote': True,
+                'quoteId': quote.id,
+                'quoteNumber': quote.quote_number,
+                'quoteToken': quote.public_token,
+                'createdAt': quote.created_at.isoformat() if quote.created_at else None,
+                'status': quote.quote_status.name if quote.quote_status else None
+            })
+        else:
+            print(f"[check_quote_by_order] ❌ Nie znaleziono wyceny dla orderID: {order_id}", file=sys.stderr)
+            
+            return jsonify({
+                'hasQuote': False,
+                'quoteId': None,
+                'quoteNumber': None
+            })
+            
+    except Exception as e:
+        print(f"[check_quote_by_order] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({
+            'error': 'Błąd podczas sprawdzania wyceny',
+            'hasQuote': False
+        }), 500

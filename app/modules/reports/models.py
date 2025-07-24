@@ -423,7 +423,7 @@ class BaselinkerReportOrder(db.Model):
         
         # Ustaw domyślny product_type na 'deska' jeśli nie ma
         if not self.product_type:
-            self.product_type = 'deska'
+            self.product_type = 'klejonka'
     
     def normalize_delivery_state(self):
         """

@@ -574,7 +574,6 @@
     text-align: center;
     font-size: 0.75rem;
     min-width: 140px;
-    border-radius: var(--radius-sm);
     font-family: var(--font-family);
     text-align: left;
 }
@@ -2333,7 +2332,7 @@ body.fullscreen-mode {
 
 .fullscreen-mode .table-wrapper::before {
     content: '';
-    position: absolute;
+    position: sticky;
     top: 0;
     right: 0;
     bottom: 0;

@@ -17,6 +17,10 @@ class ReportsManager {
         // Referencias do elementów DOM
         this.elements = {};
 
+        this.quotesCache = new Map();
+
+        this.init();
+
         console.log('[ReportsManager] Initialized');
     }
 
@@ -30,6 +34,8 @@ class ReportsManager {
         this.setupEventListeners();
         this.setDefaultDates();
         this.loadInitialData();
+
+        window.reportsManager = this;
 
         console.log('[ReportsManager] Initialization complete');
     }
@@ -433,6 +439,13 @@ class ReportsManager {
             }, 100);
         }
 
+        // DODANE: Asynchronicznie sprawdź wyceny dla zamówień
+        setTimeout(() => {
+            if (this.checkQuotesForRenderedOrders) {
+                this.checkQuotesForRenderedOrders();
+            }
+        }, 100);
+
         console.log('[ReportsManager] Table updated with corrected grouping order');
     }
 
@@ -491,9 +504,9 @@ class ReportsManager {
             ${this.renderMergedCell(order.baselinker_order_id || '', orderCount, isFirst, 'cell-number')}
             ${this.renderMergedCell(order.internal_order_number || '', orderCount, isFirst, 'cell-text')}
             ${this.renderMergedCell(order.customer_name || '', orderCount, isFirst, 'cell-text')}
-            ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
-            ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
             ${this.renderMergedCell(order.delivery_address || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
             ${this.renderMergedCell(order.delivery_state || '', orderCount, isFirst, 'cell-text')}
             ${this.renderMergedCell(order.phone || '', orderCount, isFirst, 'cell-text')}
             ${this.renderMergedCell(order.caretaker || '', orderCount, isFirst, 'cell-text')}
@@ -564,29 +577,46 @@ class ReportsManager {
         `);
         }
 
-        // Przycisk Wycena
-        const hasQuote = this.checkIfOrderHasQuote(order.baselinker_order_id);
+        // Przycisk Wycena - ZAKTUALIZOWANY
         if (order.baselinker_order_id) {
-            if (hasQuote) {
+            // Sprawdź cache czy mamy info o wycenie
+            const cachedQuote = this.quotesCache.get(order.baselinker_order_id);
+
+            if (cachedQuote?.hasQuote) {
+                // Wycena istnieje - aktywny przycisk z przekierowaniem do modala
                 buttons.push(`
-                <a href="/quotes/?search=${order.baselinker_order_id}" target="_blank" class="action-btn action-btn-quote">
+                <button class="action-btn action-btn-quote" 
+                        onclick="window.reportsManager.redirectToQuoteByOrderId('${order.baselinker_order_id}')"
+                        title="Przejdź do wyceny ${cachedQuote.quoteNumber || ''}">
                     <i class="fas fa-file-invoice"></i>
                     Wycena
-                </a>
+                </button>
             `);
-            } else {
+            } else if (cachedQuote?.hasQuote === false) {
+                // Sprawdzono i nie ma wyceny
                 buttons.push(`
                 <button disabled class="action-btn action-btn-quote" title="Brak wyceny w systemie">
                     <i class="fas fa-file-invoice"></i>
                     Wycena
                 </button>
             `);
+            } else {
+                // Nie sprawdzano jeszcze - przycisk w stanie loading
+                buttons.push(`
+                <button class="action-btn action-btn-quote action-btn-checking" 
+                        data-order-id="${order.baselinker_order_id}"
+                        title="Sprawdzanie dostępności wyceny...">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    Sprawdzam...
+                </button>
+            `);
             }
         }
 
-        // ZMIANA: Przycisk edycji dla WSZYSTKICH rekordów
+        // Przycisk edycji
         buttons.push(`
-        <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
+        <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" 
+                title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
             <i class="fas fa-edit"></i>
             Edytuj
         </button>
@@ -601,12 +631,171 @@ class ReportsManager {
     }
 
     /**
-     * Sprawdzenie czy zamówienie ma wycenę (placeholder - do implementacji)
+     * Asynchroniczne sprawdzenie wycen dla zamówień po renderowaniu tabeli
      */
-    checkIfOrderHasQuote(orderID) {
-        // TODO: Implementacja sprawdzania czy zamówienie ma wycenę w systemie
-        // Można to zrobić przez AJAX call do endpointu quotes lub cache'ować te dane
-        return Math.random() > 0.5; // Tymczasowo losowo
+    async checkQuotesForRenderedOrders() {
+        console.log('[checkQuotesForRenderedOrders] Sprawdzanie wycen dla wyrenderowanych zamówień');
+
+        // Znajdź wszystkie przyciski w stanie "sprawdzania"
+        const checkingButtons = document.querySelectorAll('.action-btn-checking');
+
+        if (checkingButtons.length === 0) {
+            console.log('[checkQuotesForRenderedOrders] Brak przycisków do sprawdzenia');
+            return;
+        }
+
+        console.log(`[checkQuotesForRenderedOrders] Znaleziono ${checkingButtons.length} przycisków do sprawdzenia`);
+
+        // Sprawdź każdy przycisk asynchronicznie
+        const promises = Array.from(checkingButtons).map(async (button) => {
+            const orderID = button.dataset.orderId;
+
+            if (!orderID) {
+                console.warn('[checkQuotesForRenderedOrders] Brak orderID w przycisku');
+                return;
+            }
+
+            try {
+                const hasQuote = await this.checkIfOrderHasQuote(orderID);
+                const cachedData = this.quotesCache.get(orderID);
+
+                // Aktualizuj przycisk na podstawie wyniku
+                if (hasQuote && cachedData?.quoteId) {
+                    button.outerHTML = `
+                    <button class="action-btn action-btn-quote" 
+                            onclick="window.reportsManager.redirectToQuoteByOrderId('${orderID}')"
+                            title="Przejdź do wyceny ${cachedData.quoteNumber || ''}">
+                        <i class="fas fa-file-invoice"></i>
+                        Wycena
+                    </button>
+                `;
+                } else {
+                    button.outerHTML = `
+                    <button disabled class="action-btn action-btn-quote" title="Brak wyceny w systemie">
+                        <i class="fas fa-file-invoice"></i>
+                        Wycena
+                    </button>
+                `;
+                }
+
+            } catch (error) {
+                console.error(`[checkQuotesForRenderedOrders] Błąd dla orderID ${orderID}:`, error);
+
+                // W przypadku błędu pokaż przycisk nieaktywny
+                button.outerHTML = `
+                <button disabled class="action-btn action-btn-quote" title="Błąd sprawdzania wyceny">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Błąd
+                </button>
+            `;
+            }
+        });
+
+        // Poczekaj na wszystkie sprawdzenia
+        await Promise.all(promises);
+        console.log('[checkQuotesForRenderedOrders] Zakończono sprawdzanie wszystkich wycen');
+    }
+
+    /**
+     * Sprawdzenie czy zamówienie ma wycenę w systemie
+     * @param {string|number} orderID - ID zamówienia z Baselinker
+     * @returns {boolean} - true jeśli zamówienie ma wycenę
+     */
+    async checkIfOrderHasQuote(orderID) {
+        if (!orderID) {
+            console.log('[checkIfOrderHasQuote] Brak orderID');
+            return false;
+        }
+
+        // Sprawdź cache
+        if (this.quotesCache.has(orderID)) {
+            const cachedResult = this.quotesCache.get(orderID);
+            console.log(`[checkIfOrderHasQuote] Cache hit dla ${orderID}:`, cachedResult);
+            return cachedResult.hasQuote;
+        }
+
+        try {
+            console.log(`[checkIfOrderHasQuote] Sprawdzanie wyceny dla zamówienia: ${orderID}`);
+
+            // Wywołaj endpoint API do sprawdzenia czy istnieje wycena z tym base_linker_order_id
+            const response = await fetch(`/quotes/api/check-quote-by-order/${orderID}`);
+
+            if (!response.ok) {
+                console.warn(`[checkIfOrderHasQuote] API error: ${response.status}`);
+                return false;
+            }
+
+            const data = await response.json();
+            console.log(`[checkIfOrderHasQuote] Response dla ${orderID}:`, data);
+
+            // Zapisz w cache wynik
+            this.quotesCache.set(orderID, {
+                hasQuote: data.hasQuote,
+                quoteId: data.quoteId,
+                quoteNumber: data.quoteNumber,
+                timestamp: Date.now()
+            });
+
+            return data.hasQuote;
+
+        } catch (error) {
+            console.error(`[checkIfOrderHasQuote] Błąd podczas sprawdzania wyceny dla ${orderID}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Funkcja do przekierowania do modułu quotes z otwarciem modala wyceny
+     * @param {string|number} orderID - ID zamówienia z Baselinker
+     */
+    async redirectToQuoteByOrderId(orderID) {
+        console.log(`[redirectToQuoteByOrderId] Przekierowanie do wyceny dla zamówienia: ${orderID}`);
+
+        if (!orderID) {
+            console.error("[redirectToQuoteByOrderId] Brak orderID");
+            return;
+        }
+
+        try {
+            // Sprawdź cache najpierw
+            let quoteData = this.quotesCache.get(orderID);
+
+            if (!quoteData || !quoteData.quoteId) {
+                // Jeśli nie ma w cache, wywołaj API
+                const response = await fetch(`/quotes/api/check-quote-by-order/${orderID}`);
+
+                if (!response.ok) {
+                    console.error(`[redirectToQuoteByOrderId] API error: ${response.status}`);
+                    alert('Nie udało się znaleźć wyceny dla tego zamówienia');
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (!data.hasQuote) {
+                    alert('To zamówienie nie ma powiązanej wyceny w systemie');
+                    return;
+                }
+
+                quoteData = {
+                    quoteId: data.quoteId,
+                    quoteNumber: data.quoteNumber
+                };
+            }
+
+            console.log(`[redirectToQuoteByOrderId] Przekierowanie do wyceny ID: ${quoteData.quoteId}`);
+
+            // Zapisz ID wyceny w sessionStorage (tak samo jak w calculator)
+            sessionStorage.setItem('openQuoteId', quoteData.quoteId);
+            console.log(`[redirectToQuoteByOrderId] Zapisano do sessionStorage: openQuoteModal=${quoteData.quoteId}`);
+
+            // Przekieruj do modułu quotes
+            window.location.href = '/quotes/';
+
+        } catch (error) {
+            console.error(`[redirectToQuoteByOrderId] Błąd podczas przekierowania:`, error);
+            alert('Wystąpił błąd podczas przekierowania do wyceny');
+        }
     }
 
     /**
