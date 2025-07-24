@@ -818,6 +818,42 @@ class ReportsManager {
         }
     }
 
+    handleEditManualRow(recordId) {
+        console.log('[ReportsManager] Edit record:', recordId, 'type:', typeof recordId);
+
+        try {
+            // POPRAWKA: Konwertuj recordId i porównuj różne typy
+            const numericRecordId = typeof recordId === 'string' ? parseInt(recordId, 10) : recordId;
+
+            const record = this.currentData.find(r => {
+                return r.id === numericRecordId || r.id === recordId || String(r.id) === String(recordId);
+            });
+
+            if (!record) {
+                console.error('[ReportsManager] Record not found. Available records:',
+                    this.currentData.slice(0, 3).map(r => ({ id: r.id, type: typeof r.id })));
+                this.showError('Nie znaleziono rekordu do edycji');
+                return;
+            }
+
+            console.log(`[ReportsManager] Found record ${record.id}. Opening edit modal for ${record.is_manual ? 'manual' : 'Baselinker'} record`);
+
+            if (window.tableManager) {
+                // Przekaż obsługę do TableManager z poprawnym ID
+                window.tableManager.handleEditButtonClick(record.id, {
+                    preventDefault: () => { },
+                    stopPropagation: () => { }
+                });
+            } else {
+                console.error('[ReportsManager] TableManager not available');
+                this.showError('TableManager nie jest dostępny');
+            }
+        } catch (error) {
+            console.error('[ReportsManager] Error in handleEditManualRow:', error);
+            this.showError('Błąd podczas otwierania edycji: ' + error.message);
+        }
+    }
+
     /**
      * Obsługa kliknięć w tabeli
      */
@@ -903,23 +939,51 @@ class ReportsManager {
     /**
      * Obsługa edycji rekordu - dla wszystkich typów
      */
-    handleEditManualRow(recordId) {
-        console.log('[ReportsManager] Edit record:', recordId);
+    handleTableClick(e) {
+        const target = e.target;
 
-        const record = this.currentData.find(r => r.id == recordId);
-        if (!record) {
-            this.showError('Nie znaleziono rekordu do edycji');
+        // Przycisk edycji
+        if (target.matches('.action-btn-edit') || target.closest('.action-btn-edit')) {
+            const button = target.matches('.action-btn-edit') ? target : target.closest('.action-btn-edit');
+            const recordId = button.getAttribute('data-record-id');
+
+            console.log('[ReportsManager] Edit button clicked, raw recordId:', recordId, 'type:', typeof recordId);
+
+            if (recordId) {
+                // POPRAWKA: Konwertuj string na number przed przekazaniem
+                const numericRecordId = parseInt(recordId, 10);
+                console.log('[ReportsManager] Converted to numeric:', numericRecordId);
+
+                if (!isNaN(numericRecordId)) {
+                    this.handleEditManualRow(numericRecordId);
+                } else {
+                    console.error('[ReportsManager] Invalid recordId:', recordId);
+                    this.showError('Nieprawidłowy ID rekordu');
+                }
+            }
             return;
         }
 
-        // ZMIANA: Usunięto ograniczenie tylko do ręcznych rekordów
-        console.log(`[ReportsManager] Opening edit modal for ${record.is_manual ? 'manual' : 'Baselinker'} record:`, record.id);
+        // Przycisk usuwania ręcznego wiersza
+        if (target.matches('.action-btn-delete') || target.closest('.action-btn-delete')) {
+            const button = target.matches('.action-btn-delete') ? target : target.closest('.action-btn-delete');
+            const recordId = parseInt(button.getAttribute('data-record-id'), 10);
 
-        if (window.tableManager) {
-            window.tableManager.showManualRowModal(record);
-        } else {
-            console.error('[ReportsManager] TableManager not available');
-            this.showError('TableManager nie jest dostępny');
+            if (recordId && !isNaN(recordId)) {
+                this.handleDeleteManualRow(recordId);
+            }
+            return;
+        }
+
+        // Links do Baselinker i wycen - pozostają bez zmian
+        if (target.matches('a[href*="baselinker.com"]')) {
+            // Link do Baselinker - pozwól na standardowe działanie
+            return;
+        }
+
+        if (target.matches('a[href*="/quotes/"]')) {
+            // Link do wycen - pozwól na standardowe działanie  
+            return;
         }
     }
 

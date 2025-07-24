@@ -542,7 +542,7 @@ def api_check_new_orders():
 @login_required
 def api_add_manual_row():
     """
-    API endpoint do dodawania ręcznego wiersza
+    ZAKTUALIZOWANY: API endpoint do dodawania ręcznego wiersza z obsługą produktów
     """
     user_email = session.get('user_email')
     
@@ -550,62 +550,156 @@ def api_add_manual_row():
         data = request.get_json()
         
         reports_logger.info("Dodawanie ręcznego wiersza",
-                          user_email=user_email)
-        
-        # Utwórz nowy rekord
-        record = BaselinkerReportOrder(
-            is_manual=True,
-            date_created=datetime.strptime(data.get('date_created'), '%Y-%m-%d').date() if data.get('date_created') else date.today(),
-            internal_order_number=data.get('internal_order_number'),
-            customer_name=data.get('customer_name'),
-            delivery_postcode=data.get('delivery_postcode'),
-            delivery_city=data.get('delivery_city'),
-            delivery_address=data.get('delivery_address'),
-            delivery_state=data.get('delivery_state'),
-            phone=data.get('phone'),
-            caretaker=user_email,  # Automatycznie wpisz użytkownika dodającego
-            delivery_method=data.get('delivery_method'),
-            order_source=data.get('order_source'),
-            group_type=data.get('group_type'),
-            product_type=data.get('product_type', 'klejonka'),  # Domyślnie klejonka
-            finish_state=data.get('finish_state', 'surowy'),
-            wood_species=data.get('wood_species'),
-            technology=data.get('technology'),
-            wood_class=data.get('wood_class'),
-            length_cm=float(data.get('length_cm', 0)) if data.get('length_cm') else None,
-            width_cm=float(data.get('width_cm', 0)) if data.get('width_cm') else None,
-            thickness_cm=float(data.get('thickness_cm', 0)) if data.get('thickness_cm') else None,
-            quantity=int(data.get('quantity', 1)) if data.get('quantity') else 1,
-            price_gross=float(data.get('price_gross', 0)) if data.get('price_gross') else None,
-            delivery_cost=float(data.get('delivery_cost', 0)) if data.get('delivery_cost') else None,
-            payment_method=data.get('payment_method'),
-            paid_amount_net=float(data.get('paid_amount_net', 0)) if data.get('paid_amount_net') else 0,
-            current_status=data.get('current_status', 'Nowe - opłacone'),  # Domyślnie opłacone dla ręcznych
-            order_amount_net=float(data.get('price_gross', 0)) / 1.23 if data.get('price_gross') else 0  # Oblicz order_amount_net
-        )
-        
-        # Oblicz pola pochodne
-        record.calculate_fields()
-        
-        # Zapisz do bazy
-        db.session.add(record)
-        db.session.commit()
-        
-        reports_logger.info("Dodano ręczny wiersz",
                           user_email=user_email,
-                          record_id=record.id)
+                          data_keys=list(data.keys()) if data else None)
         
-        return jsonify({
-            'success': True,
-            'message': 'Wiersz został dodany',
-            'record_id': record.id
-        })
+        # DEBUG: Wyloguj otrzymane dane
+        reports_logger.debug("Otrzymane dane formularza",
+                           user_email=user_email,
+                           data=data)
+        
+        # NOWA LOGIKA: Obsługa produktów z nowej struktury
+        products_data = data.get('products', [])
+        
+        if not products_data:
+            # FALLBACK: Jeśli brak produktów, spróbuj stara struktura
+            reports_logger.warning("Brak produktów w nowej strukturze, używam fallback",
+                                 user_email=user_email)
+            
+            # Utwórz pojedynczy rekord (stara metoda)
+            record = BaselinkerReportOrder(
+                is_manual=True,
+                date_created=datetime.strptime(data.get('date_created'), '%Y-%m-%d').date() if data.get('date_created') else date.today(),
+                internal_order_number=data.get('internal_order_number'),
+                customer_name=data.get('customer_name'),
+                delivery_postcode=data.get('delivery_postcode'),
+                delivery_city=data.get('delivery_city'),
+                delivery_address=data.get('delivery_address'),
+                delivery_state=data.get('delivery_state'),
+                phone=data.get('phone'),
+                caretaker=user_email,
+                delivery_method=data.get('delivery_method'),
+                order_source=data.get('order_source'),
+                group_type=data.get('group_type'),
+                product_type=data.get('product_type', 'deska'),
+                finish_state=data.get('finish_state', 'surowy'),
+                wood_species=data.get('wood_species'),
+                technology=data.get('technology'),
+                wood_class=data.get('wood_class'),
+                length_cm=float(data.get('length_cm', 0)) if data.get('length_cm') else None,
+                width_cm=float(data.get('width_cm', 0)) if data.get('width_cm') else None,
+                thickness_cm=float(data.get('thickness_cm', 0)) if data.get('thickness_cm') else None,
+                quantity=int(data.get('quantity', 1)) if data.get('quantity') else 1,
+                # ZMIANA: Obsługa price_net zamiast price_gross
+                price_net=float(data.get('price_net', 0)) if data.get('price_net') else None,
+                price_gross=float(data.get('price_net', 0)) * 1.23 if data.get('price_net') else None,
+                delivery_cost=float(data.get('delivery_cost', 0)) if data.get('delivery_cost') else None,
+                payment_method=data.get('payment_method'),
+                paid_amount_net=float(data.get('paid_amount_net', 0)) if data.get('paid_amount_net') else 0,
+                current_status=data.get('current_status', 'Nowe - opłacone'),
+                order_amount_net=float(data.get('price_net', 0)) * int(data.get('quantity', 1)) if data.get('price_net') else 0
+            )
+            
+            # Oblicz pola pochodne
+            record.calculate_fields()
+            
+            # Zapisz do bazy
+            db.session.add(record)
+            db.session.commit()
+            
+            reports_logger.info("Dodano ręczny wiersz (fallback)",
+                              user_email=user_email,
+                              record_id=record.id)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Wiersz został dodany',
+                'record_id': record.id
+            })
+            
+        else:
+            # NOWA LOGIKA: Obsługa wielu produktów
+            reports_logger.info("Dodawanie zamówienia z produktami",
+                              user_email=user_email,
+                              products_count=len(products_data))
+            
+            created_records = []
+            
+            for i, product_data in enumerate(products_data):
+                reports_logger.debug(f"Przetwarzanie produktu {i+1}",
+                                   user_email=user_email,
+                                   product_data=product_data)
+                
+                # Utwórz rekord dla każdego produktu
+                record = BaselinkerReportOrder(
+                    is_manual=True,
+                    
+                    # Wspólne dane zamówienia
+                    date_created=datetime.strptime(data.get('date_created'), '%Y-%m-%d').date() if data.get('date_created') else date.today(),
+                    internal_order_number=data.get('internal_order_number'),
+                    customer_name=data.get('customer_name'),
+                    delivery_postcode=data.get('delivery_postcode'),
+                    delivery_city=data.get('delivery_city'),
+                    delivery_address=data.get('delivery_address'),
+                    delivery_state=data.get('delivery_state'),
+                    phone=data.get('phone'),
+                    caretaker=user_email,
+                    delivery_method=data.get('delivery_method'),
+                    order_source=data.get('order_source'),
+                    delivery_cost=float(data.get('delivery_cost', 0)) if data.get('delivery_cost') else None,
+                    payment_method=data.get('payment_method'),
+                    paid_amount_net=float(data.get('paid_amount_net', 0)) if data.get('paid_amount_net') else 0,
+                    current_status=data.get('current_status', 'Nowe - opłacone'),
+                    
+                    # Dane produktu
+                    group_type=product_data.get('group_type'),
+                    product_type=product_data.get('product_type'),
+                    finish_state=product_data.get('finish_state', 'surowy'),
+                    wood_species=product_data.get('wood_species'),
+                    technology=product_data.get('technology'),
+                    wood_class=product_data.get('wood_class'),
+                    length_cm=float(product_data.get('length_cm', 0)) if product_data.get('length_cm') else None,
+                    width_cm=float(product_data.get('width_cm', 0)) if product_data.get('width_cm') else None,
+                    thickness_cm=float(product_data.get('thickness_cm', 0)) if product_data.get('thickness_cm') else None,
+                    quantity=int(product_data.get('quantity', 1)) if product_data.get('quantity') else 1,
+                    
+                    # ZMIANA: Obsługa price_net z produktu
+                    price_net=float(product_data.get('price_net', 0)) if product_data.get('price_net') else None,
+                    price_gross=float(product_data.get('price_net', 0)) * 1.23 if product_data.get('price_net') else None,
+                    order_amount_net=float(product_data.get('price_net', 0)) * int(product_data.get('quantity', 1)) if product_data.get('price_net') else 0
+                )
+                
+                # Oblicz pola pochodne
+                record.calculate_fields()
+                
+                # Dodaj do sesji
+                db.session.add(record)
+                created_records.append(record)
+            
+            # Zapisz wszystkie rekordy
+            db.session.commit()
+            
+            # Pobierz ID wszystkich utworzonych rekordów
+            record_ids = [record.id for record in created_records]
+            
+            reports_logger.info("Dodano zamówienie wieloproduktowe",
+                              user_email=user_email,
+                              products_count=len(created_records),
+                              record_ids=record_ids)
+            
+            return jsonify({
+                'success': True,
+                'message': f'Zamówienie z {len(created_records)} produktami zostało dodane',
+                'record_ids': record_ids,
+                'products_count': len(created_records)
+            })
         
     except Exception as e:
         db.session.rollback()
         reports_logger.error("Błąd dodawania ręcznego wiersza",
                            user_email=user_email,
-                           error=str(e))
+                           error=str(e),
+                           error_type=type(e).__name__)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -616,7 +710,7 @@ def api_add_manual_row():
 @login_required
 def api_update_manual_row():
     """
-    ZAKTUALIZOWANY: API endpoint do edycji rekordów (wszystkich typów)
+    ZAKTUALIZOWANY: API endpoint do edycji rekordów z obsługą wielu produktów
     """
     user_email = session.get('user_email')
     
@@ -627,87 +721,100 @@ def api_update_manual_row():
         if not record_id:
             return jsonify({'success': False, 'error': 'Brak ID rekordu'}), 400
         
-        # Pobierz rekord
-        record = BaselinkerReportOrder.query.get_or_404(record_id)
+        # Pobierz główny rekord
+        main_record = BaselinkerReportOrder.query.get_or_404(record_id)
         
-        # ZMIANA: Usunięto ograniczenie tylko do ręcznych rekordów
-        record_type = "ręczny" if record.is_manual else "z Baselinker"
+        record_type = "ręczny" if main_record.is_manual else "z Baselinker"
         reports_logger.info(f"Edycja rekordu ({record_type})",
                           user_email=user_email,
                           record_id=record_id)
         
-        # NOWE: Obsługa produktów z nowej struktury
+        # NOWA LOGIKA: Obsługa wielu produktów
         products_data = data.get('products', [])
-        
-        if products_data and len(products_data) > 0:
-            # Jeśli mamy nową strukturę z produktami, użyj pierwszego produktu
-            first_product = products_data[0]
+
+        if products_data and len(products_data) > 1:
+            # WIELOPRODUKTOWE ZAMÓWIENIE (głównie z Baselinker)
+            reports_logger.info(f"Aktualizacja zamówienia wieloproduktowego",
+                              user_email=user_email,
+                              record_id=record_id,
+                              products_count=len(products_data))
             
-            # Aktualizuj pola produktu
-            record.group_type = first_product.get('group_type')
-            record.product_type = first_product.get('product_type')
-            record.wood_species = first_product.get('wood_species')
-            record.technology = first_product.get('technology')
-            record.wood_class = first_product.get('wood_class')
-            record.finish_state = first_product.get('finish_state')
-            record.length_cm = float(first_product.get('length_cm', 0)) if first_product.get('length_cm') else None
-            record.width_cm = float(first_product.get('width_cm', 0)) if first_product.get('width_cm') else None
-            record.thickness_cm = float(first_product.get('thickness_cm', 0)) if first_product.get('thickness_cm') else None
-            record.quantity = int(first_product.get('quantity', 1)) if first_product.get('quantity') else 1
+            # Pobierz wszystkie rekordy tego zamówienia
+            if main_record.baselinker_order_id:
+                all_order_records = BaselinkerReportOrder.query.filter_by(
+                    baselinker_order_id=main_record.baselinker_order_id
+                ).all()
+            else:
+                all_order_records = [main_record]
             
-            # ZMIANA: Obsługa price_net z nowej struktury
-            price_net = float(first_product.get('price_net', 0)) if first_product.get('price_net') else 0
-            if price_net > 0:
-                record.price_gross = price_net * 1.23  # Konwersja netto na brutto
-                record.order_amount_net = price_net * record.quantity
+            # Utwórz mapę istniejących rekordów po ID
+            existing_records_map = {record.id: record for record in all_order_records}
             
-        # Aktualizuj pozostałe pola
-        standard_fields = [
-            'date_created', 'internal_order_number', 'customer_name', 
-            'delivery_postcode', 'delivery_city', 'delivery_address', 'delivery_state',
-            'phone', 'caretaker', 'delivery_method', 'order_source',
-            'delivery_cost', 'payment_method', 'paid_amount_net', 'current_status'
-        ]
-        
-        for field in standard_fields:
-            if field in data:
-                value = data[field]
-                if field == 'date_created' and value:
-                    setattr(record, field, datetime.strptime(value, '%Y-%m-%d').date())
-                elif field in ['delivery_cost', 'paid_amount_net'] and value:
-                    setattr(record, field, float(value))
-                elif field == 'baselinker_order_id' and value:
-                    # UWAGA: Pozwalamy edytować baselinker_order_id tylko dla ręcznych rekordów
-                    if record.is_manual:
-                        setattr(record, field, int(value) if value else None)
+            updated_records = []
+            
+            for product_data in products_data:
+                product_record_id = product_data.get('record_id')
+                
+                if product_record_id and product_record_id in existing_records_map:
+                    # Aktualizuj istniejący rekord produktu
+                    record = existing_records_map[product_record_id]
+                    
+                    # Aktualizuj wspólne dane zamówienia (z pierwszego produktu)
+                    if record == main_record:
+                        _update_order_common_fields(record, data)
+                    
+                    # Aktualizuj dane produktu
+                    _update_product_fields(record, product_data)
+                    
+                    updated_records.append(record)
+                    
                 else:
-                    setattr(record, field, value)
-        
-        # SPECJALNE: Obsługa baselinker_order_id dla ręcznych rekordów
-        if record.is_manual and 'baselinker_order_id' in data:
-            baselinker_id = data['baselinker_order_id']
-            record.baselinker_order_id = int(baselinker_id) if baselinker_id else None
-        
-        # Przelicz pola pochodne
-        record.calculate_fields()
-        record.updated_at = datetime.utcnow()
-        
-        db.session.commit()
-        
-        reports_logger.info(f"Zaktualizowano rekord ({record_type})",
-                          user_email=user_email,
-                          record_id=record_id)
-        
-        return jsonify({
-            'success': True,
-            'message': f'Rekord {record_type} został zaktualizowany',
-            'record_id': record.id,
-            'record_type': record_type
-        })
+                    # TO-DO: Obsługa nowych produktów (jeśli będzie potrzebna)
+                    reports_logger.warning("Próba dodania nowego produktu do istniejącego zamówienia",
+                                         user_email=user_email,
+                                         main_record_id=record_id,
+                                         product_data=product_data)
+            
+            # Przelicz pola dla wszystkich zaktualizowanych rekordów
+            for record in updated_records:
+                record.calculate_fields()
+                record.updated_at = datetime.utcnow()
+            
+            db.session.commit()
+            
+            reports_logger.info("Zaktualizowano zamówienie wieloproduktowe",
+                              user_email=user_email,
+                              main_record_id=record_id,
+                              updated_products_count=len(updated_records))
+            
+            return jsonify({
+                'success': True,
+                'message': f'Zamówienie z {len(updated_records)} produktami zostało zaktualizowane',
+                'updated_products': len(updated_records)
+            })
+            
+        else:
+            # JEDNOPRODUKTOWE ZAMÓWIENIE (ręczne lub pojedynczy produkt z Baselinker)
+            _update_order_common_fields(main_record, data)
+            
+            if products_data and len(products_data) > 0:
+                _update_product_fields(main_record, products_data[0])
+            
+            # Przelicz pola
+            main_record.calculate_fields()
+            main_record.updated_at = datetime.utcnow()
+            
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Rekord został zaktualizowany',
+                'record_id': main_record.id
+            })
         
     except Exception as e:
         db.session.rollback()
-        reports_logger.error("Błąd edycji rekordu",
+        reports_logger.error("Błąd aktualizacji rekordu",
                            user_email=user_email,
                            record_id=record_id,
                            error=str(e))
@@ -715,6 +822,63 @@ def api_update_manual_row():
             'success': False,
             'error': str(e)
         }), 500
+
+def _update_order_common_fields(record, data):
+    """
+    Pomocnicza funkcja do aktualizacji wspólnych pól zamówienia
+    """
+    common_fields = [
+        'date_created', 'internal_order_number', 'customer_name', 
+        'delivery_postcode', 'delivery_city', 'delivery_address', 'delivery_state',
+        'phone', 'caretaker', 'delivery_method', 'order_source',
+        'delivery_cost', 'payment_method', 'paid_amount_net', 'current_status'
+    ]
+    
+    for field in common_fields:
+        if field in data and data[field] is not None:
+            value = data[field]
+            if field == 'date_created' and value:
+                setattr(record, field, datetime.strptime(value, '%Y-%m-%d').date())
+            elif field in ['delivery_cost', 'paid_amount_net'] and value:
+                setattr(record, field, float(value))
+            else:
+                setattr(record, field, value)
+
+def _update_product_fields(record, product_data):
+    """
+    Pomocnicza funkcja do aktualizacji pól produktu
+    """
+    product_fields = {
+        'group_type': str,
+        'product_type': str,
+        'wood_species': str,
+        'technology': str,
+        'wood_class': str,
+        'finish_state': str,
+        'length_cm': float,
+        'width_cm': float,
+        'thickness_cm': float,
+        'quantity': int,
+        'price_net': float
+    }
+    
+    for field, field_type in product_fields.items():
+        if field in product_data and product_data[field] is not None:
+            value = product_data[field]
+            
+            if field == 'price_net' and value:
+                # Konwersja price_net na price_gross
+                price_net = float(value)
+                setattr(record, 'price_gross', price_net * 1.23)
+                # Ustaw order_amount_net na podstawie price_net i quantity
+                quantity = int(product_data.get('quantity', record.quantity or 1))
+                setattr(record, 'order_amount_net', price_net * quantity)
+            elif field_type == float and value:
+                setattr(record, field, float(value))
+            elif field_type == int and value:
+                setattr(record, field, int(value))
+            elif field_type == str:
+                setattr(record, field, str(value) if value else None)
 
 @reports_bp.route('/api/export-excel')
 @login_required

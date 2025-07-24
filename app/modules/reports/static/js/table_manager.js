@@ -1707,8 +1707,9 @@ class TableManager {
     /**
      * ZAKTUALIZOWANA: Pokazanie modala dodawania/edycji z obsługą wszystkich typów rekordów
      */
-    showManualRowModal(record = null) {
-        console.log('[TableManager] Showing modal', record ? `for edit (${record.is_manual ? 'manual' : 'Baselinker'})` : 'for add');
+    showManualRowModal(record = null, allOrderProducts = null) {
+        console.log(`[TableManager] ${record ?
+            `Opening modal for edit (${record.is_manual ? 'manual' : 'Baselinker'})` : 'Opening modal for add'}`);
 
         if (!this.modalElements.modal) {
             console.error('[TableManager] Modal element not found');
@@ -1722,7 +1723,8 @@ class TableManager {
         if (this.modalElements.title) {
             if (isEdit) {
                 const recordType = record.is_manual ? 'ręczne' : 'z Baselinker';
-                this.modalElements.title.textContent = `Edytuj zamówienie (${recordType})`;
+                const productCount = allOrderProducts ? allOrderProducts.length : 1;
+                this.modalElements.title.textContent = `Edytuj zamówienie (${recordType}) - ${productCount} produktów`;
             } else {
                 this.modalElements.title.textContent = 'Dodaj nowe zamówienie';
             }
@@ -1730,7 +1732,7 @@ class TableManager {
 
         // Wypełnij formularz
         if (isEdit) {
-            this.populateFormWithRecord(record);
+            this.populateFormWithRecord(record, allOrderProducts);
         } else {
             this.resetForm();
         }
@@ -1775,10 +1777,14 @@ class TableManager {
     /**
      * ZAKTUALIZOWANA: Wypełnienie formularza z obsługą wszystkich typów rekordów
      */
-    populateFormWithRecord(record) {
+    populateFormWithRecord(record, allOrderProducts = null) {
         console.log(`[TableManager] Populating form with ${record.is_manual ? 'manual' : 'Baselinker'} record:`, record.id);
 
-        // Podstawowe dane
+        if (allOrderProducts && allOrderProducts.length > 1) {
+            console.log(`[TableManager] Loading ${allOrderProducts.length} products for order`);
+        }
+
+        // Podstawowe dane (z pierwszego rekordu lub głównego rekordu)
         this.setFieldValue('recordId', record.id);
 
         // Tab Klient
@@ -1801,47 +1807,73 @@ class TableManager {
         this.setFieldValue('paidAmountNet', record.paid_amount_net);
         this.setFieldValue('currentStatus', record.current_status);
 
-        // Produkty - obsługa zarówno ręcznych jak i z Baselinker
-        this.productsData = [{
-            group_type: record.group_type || 'towar',
-            product_type: record.product_type || 'deska',
-            wood_species: record.wood_species || '',
-            technology: record.technology || '',
-            wood_class: record.wood_class || '',
-            finish_state: record.finish_state || 'surowy',
-            length_cm: record.length_cm || '',
-            width_cm: record.width_cm || '',
-            thickness_cm: record.thickness_cm || '',
-            quantity: record.quantity || 1,
-            // KONWERSJA: rekordy z Baselinker mają price_gross, musimy przeliczyć na netto
-            price_net: record.is_manual
-                ? record.price_net || record.price_gross ? (parseFloat(record.price_gross) / 1.23).toFixed(2) : ''
-                : record.price_gross ? (parseFloat(record.price_gross) / 1.23).toFixed(2) : ''
-        }];
+        // KLUCZOWA ZMIANA: Obsługa wielu produktów
+        if (allOrderProducts && allOrderProducts.length > 0) {
+            // Mapuj wszystkie produkty z zamówienia
+            this.productsData = allOrderProducts.map(productRecord => ({
+                group_type: productRecord.group_type || 'towar',
+                product_type: productRecord.product_type || 'deska',
+                wood_species: productRecord.wood_species || '',
+                technology: productRecord.technology || '',
+                wood_class: productRecord.wood_class || '',
+                finish_state: productRecord.finish_state || 'surowy',
+                length_cm: productRecord.length_cm || '',
+                width_cm: productRecord.width_cm || '',
+                thickness_cm: productRecord.thickness_cm || '',
+                quantity: productRecord.quantity || 1,
+                // KONWERSJA: rekordy z Baselinker mają price_gross, przelicz na netto
+                price_net: productRecord.is_manual
+                    ? productRecord.price_net || (productRecord.price_gross ? (parseFloat(productRecord.price_gross) / 1.23).toFixed(2) : '')
+                    : productRecord.price_gross ? (parseFloat(productRecord.price_gross) / 1.23).toFixed(2) : '',
+                // Przechowuj ID rekordu dla późniejszej aktualizacji
+                record_id: productRecord.id
+            }));
 
-        this.activeProductIndex = 0; // Ustaw pierwszy produkt jako aktywny
-        this.renderProducts();
+            console.log(`[TableManager] Loaded ${this.productsData.length} products:`, this.productsData);
+        } else {
+            // Pojedynczy produkt (ręczny rekord lub przypadek fallback)
+            this.productsData = [{
+                group_type: record.group_type || 'towar',
+                product_type: record.product_type || 'deska',
+                wood_species: record.wood_species || '',
+                technology: record.technology || '',
+                wood_class: record.wood_class || '',
+                finish_state: record.finish_state || 'surowy',
+                length_cm: record.length_cm || '',
+                width_cm: record.width_cm || '',
+                thickness_cm: record.thickness_cm || '',
+                quantity: record.quantity || 1,
+                price_net: record.is_manual
+                    ? record.price_net || (record.price_gross ? (parseFloat(record.price_gross) / 1.23).toFixed(2) : '')
+                    : record.price_gross ? (parseFloat(record.price_gross) / 1.23).toFixed(2) : '',
+                record_id: record.id
+            }];
+        }
+
+        // Ustaw aktywny produkt na pierwszy
+        this.activeProductIndex = 0;
+
+        // Odśwież interfejs produktów - POPRAWKA: sprawdź czy elementy istnieją
         this.updateProductCountBadge();
+
+        // Sprawdź czy elementy zakładek produktów istnieją
+        if (this.tabElements.productsTabs) {
+            this.renderProductTabs();
+        } else {
+            console.warn('[TableManager] Product tabs element not found, skipping tab rendering');
+        }
+
+        // Sprawdź czy element listy produktów istnieje
+        if (this.tabElements.productsList) {
+            this.renderProducts();
+            this.showActiveProduct(this.activeProductIndex);
+        } else {
+            console.warn('[TableManager] Products list element not found, skipping products rendering');
+        }
+
         this.calculateTotals();
 
-        // STARE POLA - zachowane dla kompatybilności (w przypadku gdy ktoś używa starych elementów)
-        this.setFieldValue('groupType', record.group_type);
-        this.setFieldValue('productType', record.product_type);
-        this.setFieldValue('woodSpecies', record.wood_species);
-        this.setFieldValue('technology', record.technology);
-        this.setFieldValue('woodClass', record.wood_class);
-        this.setFieldValue('finishState', record.finish_state);
-        this.setFieldValue('lengthCm', record.length_cm);
-        this.setFieldValue('widthCm', record.width_cm);
-        this.setFieldValue('thicknessCm', record.thickness_cm);
-        this.setFieldValue('quantity', record.quantity);
-        this.setFieldValue('priceGross', record.price_gross);
-
-        // Przelicz podglądy (stare pola)
-        this.calculateVolumePreview();
-        this.calculatePricePreview();
-
-        console.log(`[TableManager] Form populated with data from ${record.is_manual ? 'manual' : 'Baselinker'} record`);
+        console.log('[TableManager] Form populated with all products from order');
     }
 
     /**
@@ -2105,9 +2137,10 @@ class TableManager {
      * ZAKTUALIZOWANA: Zapisywanie z obsługą wielu produktów
      */
     async saveManualRow() {
-        console.log('[TableManager] Saving manual row...');
+        console.log('[TableManager] Starting save process...');
 
         if (!this.validateForm()) {
+            console.log('[TableManager] Validation failed, aborting save');
             return;
         }
 
@@ -2116,13 +2149,15 @@ class TableManager {
         try {
             // Przygotuj dane
             const formData = this.prepareFormData();
+            console.log('[TableManager] Form data prepared:', formData);
 
             // Endpoint
             const endpoint = this.currentEditRecord ?
                 '/reports/api/update-manual-row' :
                 '/reports/api/add-manual-row';
 
-            console.log('[TableManager] Sending data to:', endpoint, formData);
+            console.log('[TableManager] Sending to endpoint:', endpoint);
+            console.log('[TableManager] Request payload:', JSON.stringify(formData, null, 2));
 
             // Wyślij zapytanie
             const response = await fetch(endpoint, {
@@ -2133,16 +2168,25 @@ class TableManager {
                 body: JSON.stringify(formData)
             });
 
+            console.log('[TableManager] Response status:', response.status);
+            console.log('[TableManager] Response headers:', response.headers);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const result = await response.json();
+            console.log('[TableManager] Response data:', result);
 
             if (result.success) {
-                console.log('[TableManager] Manual row saved successfully');
+                console.log('[TableManager] Save successful');
 
                 // Zamknij modal
                 this.hideManualRowModal();
 
                 // Odśwież dane
                 if (window.reportsManager) {
+                    console.log('[TableManager] Refreshing data...');
                     window.reportsManager.refreshData();
                 }
 
@@ -2154,7 +2198,11 @@ class TableManager {
             }
 
         } catch (error) {
-            console.error('[TableManager] Error saving manual row:', error);
+            console.error('[TableManager] Save error:', error);
+            console.error('[TableManager] Error details:', {
+                message: error.message,
+                stack: error.stack
+            });
             this.showMessage('Błąd zapisu: ' + error.message, 'error');
         } finally {
             this.setLoadingState(false);
@@ -2165,6 +2213,74 @@ class TableManager {
      * NOWA: Przygotuj dane formularza do wysłania z produktami
      */
     prepareFormData() {
+        console.log('[TableManager] Preparing form data...');
+        console.log('[TableManager] Current products data:', this.productsData);
+        console.log('[TableManager] Current edit record:', this.currentEditRecord);
+
+        // DEBUGOWANIE: Sprawdź wszystkie elementy formularza produktów
+        console.log('[TableManager] Debug form elements:');
+        console.log('- productsList exists:', !!this.tabElements?.productsList);
+        console.log('- productTemplate exists:', !!this.tabElements?.productTemplate);
+
+        // Sprawdź czy są elementy produktów w DOM
+        const productItems = document.querySelectorAll('.product-item');
+        console.log('[TableManager] Product items in DOM:', productItems.length);
+
+        // NOWA LOGIKA: Zbierz dane bezpośrednio z formularza
+        let productsFromForm = [];
+
+        if (productItems.length > 0) {
+            // Zbierz dane z każdego elementu produktu w DOM
+            productItems.forEach((item, index) => {
+                console.log(`[TableManager] Reading product ${index} from DOM...`);
+
+                const productData = {
+                    group_type: item.querySelector('[name="group_type"]')?.value || 'towar',
+                    product_type: item.querySelector('[name="product_type"]')?.value || 'deska',
+                    wood_species: item.querySelector('[name="wood_species"]')?.value || '',
+                    technology: item.querySelector('[name="technology"]')?.value || '',
+                    wood_class: item.querySelector('[name="wood_class"]')?.value || '',
+                    finish_state: item.querySelector('[name="finish_state"]')?.value || 'surowy',
+                    length_cm: item.querySelector('[name="length_cm"]')?.value || '',
+                    width_cm: item.querySelector('[name="width_cm"]')?.value || '',
+                    thickness_cm: item.querySelector('[name="thickness_cm"]')?.value || '',
+                    quantity: item.querySelector('[name="quantity"]')?.value || 1,
+                    price_net: item.querySelector('[name="price_net"]')?.value || ''
+                };
+
+                console.log(`[TableManager] Product ${index} from DOM:`, productData);
+                productsFromForm.push(productData);
+            });
+        } else {
+            console.log('[TableManager] No product items in DOM, using fallback...');
+
+            // FALLBACK: Zbierz dane ze starych pól formularza (jeśli istnieją)
+            const fallbackProduct = {
+                group_type: this.getFieldValue('groupType') || 'towar',
+                product_type: this.getFieldValue('productType') || 'deska',
+                wood_species: this.getFieldValue('woodSpecies') || '',
+                technology: this.getFieldValue('technology') || '',
+                wood_class: this.getFieldValue('woodClass') || '',
+                finish_state: this.getFieldValue('finishState') || 'surowy',
+                length_cm: this.getFieldValue('lengthCm') || '',
+                width_cm: this.getFieldValue('widthCm') || '',
+                thickness_cm: this.getFieldValue('thicknessCm') || '',
+                quantity: this.getFieldValue('quantity') || 1,
+                price_net: this.getFieldValue('priceGross') ? (parseFloat(this.getFieldValue('priceGross')) / 1.23).toFixed(2) : ''
+            };
+
+            console.log('[TableManager] Fallback product data:', fallbackProduct);
+            productsFromForm.push(fallbackProduct);
+        }
+
+        // Sprawdź czy this.productsData jest aktualne
+        if (this.productsData && this.productsData.length > 0) {
+            console.log('[TableManager] Using this.productsData:', this.productsData);
+        } else {
+            console.log('[TableManager] Using productsFromForm:', productsFromForm);
+            this.productsData = productsFromForm;
+        }
+
         const formData = {
             // Dane podstawowe
             record_id: this.getFieldValue('recordId') || null,
@@ -2189,68 +2305,125 @@ class TableManager {
             paid_amount_net: parseFloat(this.getFieldValue('paidAmountNet')) || 0,
             current_status: this.getFieldValue('currentStatus'),
 
-            // Produkty
-            products: this.productsData.map(product => ({
-                ...product,
-                length_cm: parseFloat(product.length_cm) || 0,
-                width_cm: parseFloat(product.width_cm) || 0,
-                thickness_cm: parseFloat(product.thickness_cm) || 0,
-                quantity: parseInt(product.quantity) || 1,
-                price_net: parseFloat(product.price_net) || 0, // ZMIANA: price_net zamiast price_gross
-                price_gross: (parseFloat(product.price_net) || 0) * 1.23 // Dodaj price_gross dla backendu
-            }))
+            // Produkty - sprawdź różne źródła danych
+            products: this.productsData.map((product, index) => {
+                console.log(`[TableManager] Processing product ${index}:`, product);
+
+                const processedProduct = {
+                    group_type: product.group_type || 'towar',
+                    product_type: product.product_type || 'deska',
+                    wood_species: product.wood_species || '',
+                    technology: product.technology || '',
+                    wood_class: product.wood_class || '',
+                    finish_state: product.finish_state || 'surowy',
+                    length_cm: parseFloat(product.length_cm) || 0,
+                    width_cm: parseFloat(product.width_cm) || 0,
+                    thickness_cm: parseFloat(product.thickness_cm) || 0,
+                    quantity: parseInt(product.quantity) || 1,
+                    price_net: parseFloat(product.price_net) || 0,
+                    record_id: product.record_id || null
+                };
+
+                console.log(`[TableManager] Processed product ${index}:`, processedProduct);
+                return processedProduct;
+            })
         };
 
+        console.log('[TableManager] Final form data:', formData);
         return formData;
+    }
+
+    /**
+     * NOWA: Debug obecnego stanu produktów
+     */
+    debugProductsState() {
+        console.log('=== PRODUCTS DEBUG ===');
+        console.log('this.productsData:', this.productsData);
+        console.log('this.activeProductIndex:', this.activeProductIndex);
+        console.log('this.currentTab:', this.currentTab);
+
+        // Sprawdź elementy DOM
+        const productItems = document.querySelectorAll('.product-item');
+        console.log('Product items in DOM:', productItems.length);
+
+        productItems.forEach((item, index) => {
+            console.log(`Product item ${index}:`, {
+                displayed: item.style.display !== 'none',
+                groupType: item.querySelector('[name="group_type"]')?.value,
+                productType: item.querySelector('[name="product_type"]')?.value,
+                length: item.querySelector('[name="length_cm"]')?.value,
+                width: item.querySelector('[name="width_cm"]')?.value,
+                thickness: item.querySelector('[name="thickness_cm"]')?.value,
+                quantity: item.querySelector('[name="quantity"]')?.value,
+                priceNet: item.querySelector('[name="price_net"]')?.value
+            });
+        });
+
+        // Sprawdź zakładki
+        const productTabs = document.querySelectorAll('.product-tab-btn');
+        console.log('Product tabs:', productTabs.length);
+
+        console.log('=== END DEBUG ===');
     }
 
     /**
      * ZAKTUALIZOWANA: Walidacja formularza z produktami
      */
     validateForm() {
+        console.log('[TableManager] Validating form...');
         const errors = [];
 
         // Walidacja danych klienta
-        if (!this.getFieldValue('customerName')) {
+        const customerName = this.getFieldValue('customerName');
+        console.log('[TableManager] Customer name:', customerName);
+        if (!customerName) {
             errors.push('Imię i nazwisko klienta jest wymagane');
         }
 
-        if (!this.getFieldValue('dateCreated')) {
+        const dateCreated = this.getFieldValue('dateCreated');
+        console.log('[TableManager] Date created:', dateCreated);
+        if (!dateCreated) {
             errors.push('Data zamówienia jest wymagana');
         }
 
         // Walidacja produktów
-        if (this.productsData.length === 0) {
+        console.log('[TableManager] Products data for validation:', this.productsData);
+        if (!this.productsData || this.productsData.length === 0) {
             errors.push('Musi być dodany przynajmniej jeden produkt');
+        } else {
+            // Walidacja każdego produktu
+            this.productsData.forEach((product, index) => {
+                console.log(`[TableManager] Validating product ${index}:`, product);
+
+                if (!product.group_type) {
+                    errors.push(`Produkt ${index + 1}: Grupa jest wymagana`);
+                }
+                if (!product.product_type) {
+                    errors.push(`Produkt ${index + 1}: Rodzaj jest wymagany`);
+                }
+                if (!product.length_cm || parseFloat(product.length_cm) <= 0) {
+                    errors.push(`Produkt ${index + 1}: Długość musi być większa od 0`);
+                }
+                if (!product.width_cm || parseFloat(product.width_cm) <= 0) {
+                    errors.push(`Produkt ${index + 1}: Szerokość musi być większa od 0`);
+                }
+                if (!product.thickness_cm || parseFloat(product.thickness_cm) <= 0) {
+                    errors.push(`Produkt ${index + 1}: Grubość musi być większa od 0`);
+                }
+                if (!product.quantity || parseInt(product.quantity) <= 0) {
+                    errors.push(`Produkt ${index + 1}: Ilość musi być większa od 0`);
+                }
+            });
         }
 
-        // Walidacja każdego produktu
-        this.productsData.forEach((product, index) => {
-            if (!product.group_type) {
-                errors.push(`Produkt ${index + 1}: Grupa jest wymagana`);
-            }
-            if (!product.product_type) {
-                errors.push(`Produkt ${index + 1}: Rodzaj jest wymagany`);
-            }
-            if (!product.length_cm || product.length_cm <= 0) {
-                errors.push(`Produkt ${index + 1}: Długość musi być większa od 0`);
-            }
-            if (!product.width_cm || product.width_cm <= 0) {
-                errors.push(`Produkt ${index + 1}: Szerokość musi być większa od 0`);
-            }
-            if (!product.thickness_cm || product.thickness_cm <= 0) {
-                errors.push(`Produkt ${index + 1}: Grubość musi być większa od 0`);
-            }
-            if (!product.quantity || product.quantity <= 0) {
-                errors.push(`Produkt ${index + 1}: Ilość musi być większa od 0`);
-            }
-        });
+        console.log('[TableManager] Validation errors:', errors);
 
         if (errors.length > 0) {
             this.showMessage('Błędy walidacji:\n' + errors.join('\n'), 'error');
             return false;
         }
 
+        console.log('[TableManager] Form validation passed');
         return true;
     }
 
@@ -2321,16 +2494,62 @@ class TableManager {
         event.preventDefault();
         event.stopPropagation();
 
-        console.log('[TableManager] Edit button clicked for record:', recordId);
+        console.log('[TableManager] Edit button clicked for record:', recordId, 'type:', typeof recordId);
 
-        // Znajdź rekord w danych
-        if (window.reportsManager && window.reportsManager.currentData) {
-            const record = window.reportsManager.currentData.find(r => r.id === recordId);
-            if (record) {
-                this.showManualRowModal(record);
+        try {
+            // POPRAWKA: Konwertuj recordId na liczbę jeśli to string
+            const numericRecordId = typeof recordId === 'string' ? parseInt(recordId, 10) : recordId;
+            console.log('[TableManager] Converted recordId:', numericRecordId, 'type:', typeof numericRecordId);
+
+            // Znajdź rekord w danych
+            if (window.reportsManager && window.reportsManager.currentData) {
+                console.log('[TableManager] Searching in', window.reportsManager.currentData.length, 'records');
+
+                // POPRAWKA: Porównuj zarówno jako string jak i jako liczbę
+                const clickedRecord = window.reportsManager.currentData.find(r => {
+                    return r.id === numericRecordId || r.id === recordId || String(r.id) === String(recordId);
+                });
+
+                if (clickedRecord) {
+                    console.log('[TableManager] Found record:', clickedRecord.id, 'baselinker_order_id:', clickedRecord.baselinker_order_id);
+
+                    // NOWA LOGIKA: Jeśli to zamówienie z Baselinker, zbierz wszystkie produkty
+                    let orderProducts = [];
+
+                    if (clickedRecord.baselinker_order_id) {
+                        // Znajdź wszystkie produkty z tym samym baselinker_order_id
+                        orderProducts = window.reportsManager.currentData.filter(r =>
+                            r.baselinker_order_id === clickedRecord.baselinker_order_id
+                        );
+
+                        console.log(`[TableManager] Found ${orderProducts.length} products for Baselinker order ${clickedRecord.baselinker_order_id}`);
+                    } else {
+                        // Dla ręcznych rekordów, tylko jeden produkt
+                        orderProducts = [clickedRecord];
+                        console.log('[TableManager] Manual record - single product');
+                    }
+
+                    // Pokaż modal z wszystkimi produktami
+                    this.showManualRowModal(clickedRecord, orderProducts);
+                } else {
+                    // DEBUG: Pokaż kilka pierwszych rekordów do analizy
+                    const sampleRecords = window.reportsManager.currentData.slice(0, 3).map(r => ({
+                        id: r.id,
+                        id_type: typeof r.id,
+                        customer_name: r.customer_name
+                    }));
+                    console.log('[TableManager] Sample records for debugging:', sampleRecords);
+                    console.log('[TableManager] Looking for recordId:', recordId, 'converted:', numericRecordId);
+
+                    this.showMessage('Nie znaleziono rekordu do edycji', 'error');
+                }
             } else {
-                this.showMessage('Nie znaleziono rekordu do edycji', 'error');
+                console.error('[TableManager] No data available - reportsManager or currentData missing');
+                this.showMessage('Dane nie są dostępne', 'error');
             }
+        } catch (error) {
+            console.error('[TableManager] Error in handleEditButtonClick:', error);
+            this.showMessage('Błąd podczas otwierania edycji: ' + error.message, 'error');
         }
     }
 
@@ -2658,6 +2877,36 @@ class TableManager {
     // Pobierz rekord w trybie edycji
     getCurrentEditRecord() {
         return this.currentEditRecord;
+    }
+
+    /**
+     * NOWA: Aktualizuj zakładki produktów
+     */
+    updateProductTabs() {
+        this.renderProductTabs();
+    }
+
+    /**
+     * NOWA: Wyświetl aktualny produkt
+     */
+    displayCurrentProduct() {
+        if (this.productsData.length === 0) {
+            console.warn('[TableManager] No products data to display');
+            return;
+        }
+
+        // Renderuj wszystkie produkty
+        this.renderProducts();
+
+        // Pokaż aktywny produkt
+        this.showActiveProduct(this.activeProductIndex);
+    }
+
+    /**
+     * NOWA: Aktualizuj podsumowanie produktów
+     */
+    updateProductsSummary() {
+        this.calculateTotals();
     }
 
     /**
