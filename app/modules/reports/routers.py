@@ -284,8 +284,30 @@ def api_get_data():
                 date_from=date_from,
                 date_to=date_to
             )
-            
+
+            # DEBUGOWANIE SORTOWANIA - DODAJ TO:
+            print(f"DEBUG SORTOWANIE: Sprawdzenie SQL query:")
+            print(str(query))
+
             orders = query.all()
+
+            print(f"DEBUG SORTOWANIE: Pierwsze 10 rekordów z bazy:")
+            for i, order in enumerate(orders[:10]):
+                print(f"  {i+1}. ID: {order.id}, is_manual: {order.is_manual}, data: {order.date_created}, baselinker_id: {order.baselinker_order_id}")
+
+            # DEBUG: Dodane rozszerzone logowanie
+            manual_orders = [o for o in orders if o.is_manual]
+            all_manual_in_db = BaselinkerReportOrder.query.filter(BaselinkerReportOrder.is_manual == True).all()
+            print(f"DEBUG: Zapytanie zwróciło {len(orders)} rekordów, z czego {len(manual_orders)} ręcznych")
+            print(f"DEBUG: W całej bazie jest {len(all_manual_in_db)} rekordów ręcznych")
+            print(f"DEBUG: Sortowanie - pierwsze 5 rekordów:")
+            for i, order in enumerate(orders[:5]):
+                print(f"  {i+1}. ID: {order.id}, is_manual: {order.is_manual}, status: {order.current_status}, data: {order.date_created}, klient: {order.customer_name}")
+
+            if all_manual_in_db:
+                print(f"DEBUG: Wszystkie rekordy ręczne w bazie:")
+                for order in all_manual_in_db[-3:]:  # Ostatnie 3
+                    print(f"  - ID: {order.id}, status: {order.current_status}, data: {order.date_created}")
             
         except Exception as db_error:
             # Jeśli błąd bazy danych, spróbuj ponownie
@@ -606,6 +628,18 @@ def api_add_manual_row():
             # Zapisz do bazy
             db.session.add(record)
             db.session.commit()
+
+            # DEBUG: Sprawdź zapisany rekord
+            created_records = [record]
+            print(f"DEBUG: Zapisano {len(created_records)} rekordów ręcznych:")
+            for record in created_records:
+                print(f"  - ID: {record.id}, is_manual: {record.is_manual}, status: {record.current_status}, data: {record.date_created}")
+
+            # Sprawdź czy rekordy są w bazie
+            fresh_records = BaselinkerReportOrder.query.filter(
+                BaselinkerReportOrder.id.in_([r.id for r in created_records])
+            ).all()
+            print(f"DEBUG: Znaleziono {len(fresh_records)} rekordów w bazie po zapisie")
             
             reports_logger.info("Dodano ręczny wiersz (fallback)",
                               user_email=user_email,
@@ -679,6 +713,17 @@ def api_add_manual_row():
             # Zapisz wszystkie rekordy
             db.session.commit()
             
+            # DEBUG: Sprawdź zapisane rekordy
+            print(f"DEBUG: Zapisano {len(created_records)} rekordów ręcznych:")
+            for record in created_records:
+                print(f"  - ID: {record.id}, is_manual: {record.is_manual}, status: {record.current_status}, data: {record.date_created}")
+
+            # Sprawdź czy rekordy są w bazie
+            fresh_records = BaselinkerReportOrder.query.filter(
+                BaselinkerReportOrder.id.in_([r.id for r in created_records])
+            ).all()
+            print(f"DEBUG: Znaleziono {len(fresh_records)} rekordów w bazie po zapisie")
+            
             # Pobierz ID wszystkich utworzonych rekordów
             record_ids = [record.id for record in created_records]
             
@@ -704,7 +749,6 @@ def api_add_manual_row():
             'success': False,
             'error': str(e)
         }), 500
-
 
 @reports_bp.route('/api/update-manual-row', methods=['POST'])
 @login_required
@@ -2043,3 +2087,48 @@ def api_sync_statuses():
             'success': False,
             'error': str(e)
         }), 500
+
+@reports_bp.route('/debug/sorting')
+@login_required  
+def debug_sorting():
+    """TYMCZASOWY endpoint do debugowania sortowania"""
+    
+    print("=== DEBUG SORTOWANIA ===")
+    
+    # 1. Sprawdź ręczne rekordy
+    manual_records = BaselinkerReportOrder.query.filter(
+        BaselinkerReportOrder.is_manual == True
+    ).order_by(BaselinkerReportOrder.id.desc()).all()
+    
+    print(f"Ręczne rekordy w bazie ({len(manual_records)}):")
+    for record in manual_records:
+        print(f"  ID: {record.id}, data: {record.date_created}, status: {record.current_status}")
+    
+    # 2. Sprawdź najnowsze rekordy (wszystkie)
+    recent_records = BaselinkerReportOrder.query.order_by(
+        BaselinkerReportOrder.date_created.desc(),
+        BaselinkerReportOrder.id.desc()
+    ).limit(10).all()
+    
+    print(f"10 najnowszych rekordów (po dacie i ID):")
+    for record in recent_records:
+        print(f"  ID: {record.id}, is_manual: {record.is_manual}, data: {record.date_created}, baselinker: {record.baselinker_order_id}")
+    
+    # 3. Test aktualnego zapytania z filtrami
+    from datetime import date
+    date_from = date(2025, 6, 24)
+    date_to = date(2025, 7, 24)
+    
+    query = BaselinkerReportOrder.get_filtered_orders(
+        date_from=date_from,
+        date_to=date_to
+    )
+    
+    print(f"SQL zapytania: {str(query)}")
+    
+    filtered_records = query.limit(10).all()
+    print(f"10 pierwszych z aktualnego zapytania:")
+    for record in filtered_records:
+        print(f"  ID: {record.id}, is_manual: {record.is_manual}, data: {record.date_created}, baselinker: {record.baselinker_order_id}")
+    
+    return f"Sprawdź logi serwera - debug sortowania zakończony. Rekordy ręczne: {len(manual_records)}"

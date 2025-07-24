@@ -374,8 +374,8 @@ class ReportsManager {
     }
 
     /**
-     * Aktualizacja tabeli
-     */
+    * Aktualizacja tabeli
+    */
     updateTable() {
         if (!this.elements.reportsTableBody) {
             console.error('[ReportsManager] Table body element not found');
@@ -384,25 +384,42 @@ class ReportsManager {
 
         console.log('[ReportsManager] Updating table with', this.currentData.length, 'records');
 
+        // DEBUG: Sprawdź dane przed grupowaniem
+        const manualRecords = this.currentData.filter(r => r.is_manual);
+        console.log(`DEBUG: Frontend otrzymał ${this.currentData.length} rekordów, z czego ${manualRecords.length} ręcznych`);
+        console.log('DEBUG: Dane PRZED grupowaniem - pierwsze 10:');
+        this.currentData.slice(0, 10).forEach((record, i) => {
+            console.log(`  ${i + 1}. ID: ${record.id}, data: ${record.date_created}, klient: ${record.customer_name}`);
+        });
+
         if (this.currentData.length === 0) {
             this.elements.reportsTableBody.innerHTML = `
-                <tr>
-                    <td colspan="41" class="text-center text-muted" style="padding: 2rem;">
-                        <i class="fas fa-inbox fa-2x mb-2"></i><br>
-                        Brak danych do wyświetlenia
-                    </td>
-                </tr>
-            `;
+            <tr>
+                <td colspan="41" class="text-center text-muted" style="padding: 2rem;">
+                    <i class="fas fa-inbox fa-2x mb-2"></i><br>
+                    Brak danych do wyświetlenia
+                </td>
+            </tr>
+        `;
             return;
         }
 
-        // Grupuj dane według zamówienia dla merge cells
-        const groupedData = this.groupDataByOrder(this.currentData);
+        // Grupuj dane - NOWA STRUKTURA
+        const { grouped, ordersOrder } = this.groupDataByOrder(this.currentData);
 
+        console.log('DEBUG: Grupy zamówień w kolejności występowania:');
+        ordersOrder.slice(0, 10).forEach((key, i) => {
+            const orders = grouped.get(key);
+            const firstOrder = orders[0];
+            console.log(`  Grupa ${i + 1}: ${key} - ${firstOrder.date_created} - ID: ${firstOrder.id} - manual: ${firstOrder.is_manual} - klient: ${firstOrder.customer_name}`);
+        });
+
+        // POPRAWKA: Iteruj przez ordersOrder zamiast Object.entries
         let html = '';
-        for (const [orderId, orders] of Object.entries(groupedData)) {
+        ordersOrder.forEach(key => {
+            const orders = grouped.get(key);
             html += this.renderOrderRows(orders);
-        }
+        });
 
         this.elements.reportsTableBody.innerHTML = html;
 
@@ -416,24 +433,32 @@ class ReportsManager {
             }, 100);
         }
 
-        console.log('[ReportsManager] Table updated');
+        console.log('[ReportsManager] Table updated with corrected grouping order');
     }
 
     /**
      * Grupowanie danych według zamówienia
      */
     groupDataByOrder(data) {
-        const grouped = {};
+        const grouped = new Map();
+        const ordersOrder = [];
 
         data.forEach(record => {
-            const key = record.baselinker_order_id || `manual_${record.id}`;
-            if (!grouped[key]) {
-                grouped[key] = [];
+            // POPRAWKA: Używaj ZAWSZE prefiksów tekstowych, żeby uniknąć sortowania numerycznego
+            const key = record.baselinker_order_id
+                ? `bl_${record.baselinker_order_id}`
+                : `manual_${record.id}`;
+
+            if (!grouped.has(key)) {
+                grouped.set(key, []);
+                ordersOrder.push(key); // Zapisz kolejność pierwszego wystąpienia
             }
-            grouped[key].push(record);
+
+            grouped.get(key).push(record);
         });
 
-        return grouped;
+        // WAŻNE: Użyj Map.entries() zamiast konwersji na object
+        return { grouped, ordersOrder };
     }
 
     /**
@@ -454,55 +479,55 @@ class ReportsManager {
             const isLast = index === orderCount - 1;
 
             html += `
-            <tr data-record-id="${order.id}" 
-                data-baselinker-id="${baselinkerOrderId || `manual_${order.id}`}"
-                data-order-group="${baselinkerOrderId || `manual_${order.id}`}"
-                ${order.is_manual ? 'data-manual="true"' : ''}
-                ${isFirst ? 'class="order-group-start"' : ''}
-                ${isLast ? 'class="order-group-end"' : ''}>
-                ${this.renderMergedCell(order.date_created, orderCount, isFirst, 'cell-date')}
-                ${this.renderMergedCell(this.formatNumber(totalOrderM3, 4), orderCount, isFirst, 'cell-number')}
-                ${this.renderMergedCell(this.formatCurrency(order.order_amount_net), orderCount, isFirst, 'cell-currency')}
-                ${this.renderMergedCell(order.baselinker_order_id || '', orderCount, isFirst, 'cell-number')}
-                ${this.renderMergedCell(order.internal_order_number || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.customer_name || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_address || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_state || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.phone || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.caretaker || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_method || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.order_source || '', orderCount, isFirst, 'cell-text')}
-                <td class="cell-text">${order.group_type || ''}</td>
-                <td class="cell-text">${order.product_type || ''}</td>
-                <td class="cell-text">${order.finish_state || ''}</td>
-                <td class="cell-text">${order.wood_species || ''}</td>
-                <td class="cell-text">${order.technology || ''}</td>
-                <td class="cell-text">${order.wood_class || ''}</td>
-                <td class="cell-number">${this.formatNumber(order.length_cm, 2)}</td>
-                <td class="cell-number">${this.formatNumber(order.width_cm, 2)}</td>
-                <td class="cell-number">${this.formatNumber(order.thickness_cm, 2)}</td>
-                <td class="cell-number">${order.quantity || 0}</td>
-                <td class="cell-currency">${this.formatCurrency(order.price_gross)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.price_net)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.value_gross)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.value_net)}</td>
-                <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
-                <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
-                <td class="cell-date">${order.realization_date || ''}</td>
-                <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
-                ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
-                ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
-                ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
-                <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
-                <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
-                ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
-            </tr>
-        `;
+        <tr data-record-id="${order.id}" 
+            data-baselinker-id="${baselinkerOrderId || `manual_${order.id}`}"
+            data-order-group="${baselinkerOrderId || `manual_${order.id}`}"
+            ${order.is_manual ? 'data-manual="true"' : ''}
+            ${isFirst ? 'class="order-group-start"' : ''}
+            ${isLast ? 'class="order-group-end"' : ''}>
+            ${this.renderMergedCell(order.date_created, orderCount, isFirst, 'cell-date')}
+            ${this.renderMergedCell(this.formatNumber(totalOrderM3, 4), orderCount, isFirst, 'cell-number')}
+            ${this.renderMergedCell(this.formatCurrency(order.order_amount_net), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(order.baselinker_order_id || '', orderCount, isFirst, 'cell-number')}
+            ${this.renderMergedCell(order.internal_order_number || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.customer_name || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_address || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_state || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.phone || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.caretaker || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_method || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.order_source || '', orderCount, isFirst, 'cell-text')}
+            <td class="cell-text">${order.group_type || ''}</td>
+            <td class="cell-text">${order.product_type || ''}</td>
+            <td class="cell-text">${order.finish_state || ''}</td>
+            <td class="cell-text">${order.wood_species || ''}</td>
+            <td class="cell-text">${order.technology || ''}</td>
+            <td class="cell-text">${order.wood_class || ''}</td>
+            <td class="cell-number">${this.formatNumber(order.length_cm, 2)}</td>
+            <td class="cell-number">${this.formatNumber(order.width_cm, 2)}</td>
+            <td class="cell-number">${this.formatNumber(order.thickness_cm, 2)}</td>
+            <td class="cell-number">${order.quantity || 0}</td>
+            <td class="cell-currency">${this.formatCurrency(order.price_gross)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.price_net)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.value_gross)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.value_net)}</td>
+            <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
+            <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
+            <td class="cell-date">${order.realization_date || ''}</td>
+            <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
+            ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
+            <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
+            <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
+            ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
+        </tr>
+    `;
         });
 
         return html;
@@ -532,11 +557,11 @@ class ReportsManager {
         if (order.baselinker_order_id) {
             const baselinkerUrl = `https://panel.baselinker.com/orders.php#order:${order.baselinker_order_id}`;
             buttons.push(`
-                <a href="${baselinkerUrl}" target="_blank" class="action-btn action-btn-baselinker">
-                    <i class="fas fa-external-link-alt"></i>
-                    Baselinker
-                </a>
-            `);
+            <a href="${baselinkerUrl}" target="_blank" class="action-btn action-btn-baselinker">
+                <i class="fas fa-external-link-alt"></i>
+                Baselinker
+            </a>
+        `);
         }
 
         // Przycisk Wycena
@@ -544,35 +569,35 @@ class ReportsManager {
         if (order.baselinker_order_id) {
             if (hasQuote) {
                 buttons.push(`
-                    <a href="/quotes/?search=${order.baselinker_order_id}" target="_blank" class="action-btn action-btn-quote">
-                        <i class="fas fa-file-invoice"></i>
-                        Wycena
-                    </a>
-                `);
+                <a href="/quotes/?search=${order.baselinker_order_id}" target="_blank" class="action-btn action-btn-quote">
+                    <i class="fas fa-file-invoice"></i>
+                    Wycena
+                </a>
+            `);
             } else {
                 buttons.push(`
-                    <button disabled class="action-btn action-btn-quote" title="Brak wyceny w systemie">
-                        <i class="fas fa-file-invoice"></i>
-                        Wycena
-                    </button>
-                `);
+                <button disabled class="action-btn action-btn-quote" title="Brak wyceny w systemie">
+                    <i class="fas fa-file-invoice"></i>
+                    Wycena
+                </button>
+            `);
             }
         }
 
         // ZMIANA: Przycisk edycji dla WSZYSTKICH rekordów
         buttons.push(`
-            <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
-                <i class="fas fa-edit"></i>
-                Edytuj
-            </button>
-        `);
+        <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
+            <i class="fas fa-edit"></i>
+            Edytuj
+        </button>
+    `);
 
         return `
-            <div class="action-buttons">
-                ${buttons.join('')}
-                ${order.is_manual ? '<div class="manual-row-indicator">RĘCZNY</div>' : ''}
-            </div>
-        `;
+        <div class="action-buttons">
+            ${buttons.join('')}
+            ${order.is_manual ? '<div class="manual-row-indicator">RĘCZNY</div>' : ''}
+        </div>
+    `;
     }
 
     /**
