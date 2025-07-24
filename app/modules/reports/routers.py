@@ -864,7 +864,7 @@ def _update_order_common_fields(record, data):
     Pomocnicza funkcja do aktualizacji wspólnych pól zamówienia
     """
     common_fields = [
-        'date_created', 'internal_order_number', 'customer_name', 
+        'date_created', 'baselinker_order_id', 'internal_order_number', 'customer_name', 
         'delivery_postcode', 'delivery_city', 'delivery_address', 'delivery_state',
         'phone', 'caretaker', 'delivery_method', 'order_source',
         'delivery_cost', 'payment_method', 'paid_amount_net', 'current_status'

@@ -1779,6 +1779,7 @@ class TableManager {
      */
     populateFormWithRecord(record, allOrderProducts = null) {
         console.log(`[TableManager] Populating form with ${record.is_manual ? 'manual' : 'Baselinker'} record:`, record.id);
+        console.log(`[TableManager] Record date_created value:`, record.date_created, 'type:', typeof record.date_created);
 
         if (allOrderProducts && allOrderProducts.length > 1) {
             console.log(`[TableManager] Loading ${allOrderProducts.length} products for order`);
@@ -1794,10 +1795,19 @@ class TableManager {
         this.setFieldValue('deliveryAddress', record.delivery_address);
         this.setFieldValue('deliveryPostcode', record.delivery_postcode);
         this.setFieldValue('deliveryCity', record.delivery_city);
-        this.setFieldValue('deliveryState', record.delivery_state);
+        if (record.delivery_state) {
+            const stateValue = record.delivery_state.toLowerCase();
+            this.setFieldValue('deliveryState', stateValue);
+        } else {
+            this.setFieldValue('deliveryState', '');
+        }
 
-        // Tab Zamówienie - NOWE: obsługa baselinker_order_id
-        this.setFieldValue('dateCreated', record.date_created.split('T')[0]);
+        // Tab Zamówienie - POPRAWIONA OBSŁUGA DATY
+        console.log(`[TableManager] Processing date_created: "${record.date_created}"`);
+        const formattedDate = convertDateToInputFormat(record.date_created);
+        console.log(`[TableManager] Formatted date for input: "${formattedDate}"`);
+
+        this.setFieldValue('dateCreated', formattedDate);
         this.setFieldValue('baselinkerOrderId', record.baselinker_order_id);
         this.setFieldValue('internalOrderNumber', record.internal_order_number);
         this.setFieldValue('orderSource', record.order_source);
@@ -1884,17 +1894,12 @@ class TableManager {
 
         this.modalElements.form.reset();
 
-        // Ustaw wartości domyślne
+        // Ustaw wartości domyślne - TYLKO ISTNIEJĄCE POLA
         this.setFieldValue('dateCreated', new Date().toISOString().split('T')[0]);
         this.setFieldValue('deliveryCost', '0');
         this.setFieldValue('paidAmountNet', '0');
         this.setFieldValue('currentStatus', 'Nowe - opłacone');
         this.setFieldValue('recordId', '');
-
-        // STARE POLA - zachowane dla kompatybilności
-        this.setFieldValue('quantity', '1');
-        this.setFieldValue('finishState', 'surowy');
-        this.setFieldValue('productType', 'klejonka'); // Domyślnie klejonka
 
         // Zresetuj produkty
         this.productsData = [];
@@ -1910,19 +1915,47 @@ class TableManager {
      */
     setFieldValue(fieldName, value) {
         const element = this.modalElements[fieldName];
-        if (element && value !== null && value !== undefined) {
-            element.value = value;
 
-            // NOWE: Jeśli to select i wartość nie została ustawiona, spróbuj znaleźć podobną opcję
-            if (element.tagName === 'SELECT' && element.value !== value) {
-                // Dla województw - spróbuj dopasować podobną wartość
-                if (fieldName === 'deliveryState') {
-                    this.trySetProvinceValue(element, value);
-                }
+        if (!element) {
+            // Sprawdź czy to stare pole - jeśli tak, po prostu je zignoruj
+            const ignoredOldFields = ['quantity', 'finishState', 'productType', 'priceGross', 'lengthCm', 'widthCm', 'thicknessCm', 'groupType', 'woodSpecies', 'technology', 'woodClass'];
+
+            if (ignoredOldFields.includes(fieldName)) {
+                // Stare pole - zignoruj bez logowania błędu
+                return;
             }
 
-            // Trigger change event dla aktywacji innych mechanizmów
+            console.warn(`[TableManager] Element '${fieldName}' not found in modalElements`);
+            return;
+        }
+
+        // Sprawdź czy value jest null lub undefined
+        if (value === null || value === undefined) {
+            element.value = '';
+            return;
+        }
+
+        // Konwertuj value do string
+        const stringValue = String(value);
+
+        // Ustaw wartość
+        element.value = stringValue;
+
+        // Weryfikuj tylko gdy jest potrzeba (dla select'ów)
+        if (element.tagName === 'SELECT' && element.value !== stringValue) {
+            // Spróbuj znaleźć odpowiednią opcję
+            const options = Array.from(element.options);
+            const exactMatch = options.find(option => option.value === stringValue);
+            if (exactMatch) {
+                element.selectedIndex = exactMatch.index;
+            }
+        }
+
+        // Wywołaj event dla pól, które mogą mieć listenery
+        if (element.tagName === 'SELECT') {
             element.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+            element.dispatchEvent(new Event('input', { bubbles: true }));
         }
     }
 
@@ -3068,3 +3101,45 @@ class TableManager {
 
 // Export dla global scope
 window.TableManager = TableManager;
+
+/**
+* Funkcja konwersji formatu daty
+* @param {string} dateString - Data w formacie "dd-MM-yyyy" lub "yyyy-MM-dd"
+* @returns {string} - Data w formacie "yyyy-MM-dd" dla input[type="date"]
+*/
+function convertDateToInputFormat(dateString) {
+    if (!dateString) {
+        return new Date().toISOString().split('T')[0];
+    }
+
+    try {
+        // Format już prawidłowy yyyy-MM-dd
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+            return dateString;
+        }
+
+        // Format dd-MM-yyyy → yyyy-MM-dd  
+        const ddmmyyyyMatch = dateString.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+        if (ddmmyyyyMatch) {
+            const [, day, month, year] = ddmmyyyyMatch;
+            return `${year}-${month}-${day}`;
+        }
+
+        // Format ISO z czasem
+        if (dateString.includes('T')) {
+            return dateString.split('T')[0];
+        }
+
+        // Spróbuj parsować jako Date
+        const dateObj = new Date(dateString);
+        if (!isNaN(dateObj.getTime())) {
+            return dateObj.toISOString().split('T')[0];
+        }
+
+        // Fallback
+        return new Date().toISOString().split('T')[0];
+
+    } catch (error) {
+        return new Date().toISOString().split('T')[0];
+    }
+}

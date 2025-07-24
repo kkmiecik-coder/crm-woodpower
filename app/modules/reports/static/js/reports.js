@@ -5,6 +5,7 @@
  */
 
 class ReportsManager {
+
     constructor() {
         this.currentData = [];
         this.currentStats = {};
@@ -392,8 +393,6 @@ class ReportsManager {
 
         // DEBUG: Sprawdź dane przed grupowaniem
         const manualRecords = this.currentData.filter(r => r.is_manual);
-        console.log(`DEBUG: Frontend otrzymał ${this.currentData.length} rekordów, z czego ${manualRecords.length} ręcznych`);
-        console.log('DEBUG: Dane PRZED grupowaniem - pierwsze 10:');
         this.currentData.slice(0, 10).forEach((record, i) => {
             console.log(`  ${i + 1}. ID: ${record.id}, data: ${record.date_created}, klient: ${record.customer_name}`);
         });
@@ -412,8 +411,6 @@ class ReportsManager {
 
         // Grupuj dane - NOWA STRUKTURA
         const { grouped, ordersOrder } = this.groupDataByOrder(this.currentData);
-
-        console.log('DEBUG: Grupy zamówień w kolejności występowania:');
         ordersOrder.slice(0, 10).forEach((key, i) => {
             const orders = grouped.get(key);
             const firstOrder = orders[0];
@@ -566,18 +563,39 @@ class ReportsManager {
     renderActionButtons(order) {
         const buttons = [];
 
-        // Przycisk Baselinker
-        if (order.baselinker_order_id) {
+        // ===== PRZYCISK BASELINKER - NOWA LOGIKA =====
+
+        // Sprawdź czy ma numer zamówienia Baselinker (z API lub wpisany ręcznie)
+        const hasBaselinkerNumber = isValidBaselinkerOrderNumber(order.baselinker_order_id);
+
+        if (hasBaselinkerNumber) {
             const baselinkerUrl = `https://panel.baselinker.com/orders.php#order:${order.baselinker_order_id}`;
+
+            // Określ źródło numeru dla celów debugowania
+            const source = order.is_manual ? 'ręczny wpis' : 'z Baselinker API';
+
             buttons.push(`
-            <a href="${baselinkerUrl}" target="_blank" class="action-btn action-btn-baselinker">
+            <a href="${baselinkerUrl}" 
+               target="_blank" 
+               class="action-btn action-btn-baselinker"
+               title="Otwórz zamówienie #${order.baselinker_order_id} w Baselinker (${source})">
                 <i class="fas fa-external-link-alt"></i>
                 Baselinker
             </a>
         `);
+
+            // Debug log dla zamówień ręcznych z numerem Baselinker
+            if (order.is_manual) {
+                console.log(`[renderActionButtons] Dodano przycisk Baselinker dla ręcznego zamówienia:`, {
+                    recordId: order.id,
+                    baselinkerOrderId: order.baselinker_order_id,
+                    customerName: order.customer_name
+                });
+            }
         }
 
-        // Przycisk Wycena - ZAKTUALIZOWANY
+        // ===== PRZYCISK WYCENA - POZOSTAJE BEZ ZMIAN =====
+
         if (order.baselinker_order_id) {
             // Sprawdź cache czy mamy info o wycenie
             const cachedQuote = this.quotesCache.get(order.baselinker_order_id);
@@ -613,7 +631,8 @@ class ReportsManager {
             }
         }
 
-        // Przycisk edycji
+        // ===== PRZYCISK EDYCJI - POZOSTAJE BEZ ZMIAN =====
+
         buttons.push(`
         <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" 
                 title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
@@ -622,10 +641,21 @@ class ReportsManager {
         </button>
     `);
 
+        // ===== PRZYCISK USUWANIA - TYLKO DLA RĘCZNYCH =====
+
+        if (order.is_manual) {
+            buttons.push(`
+            <button class="action-btn action-btn-delete" data-action="delete" data-record-id="${order.id}" 
+                    title="Usuń ręczny rekord">
+                <i class="fas fa-trash"></i>
+                Usuń
+            </button>
+        `);
+        }
+
         return `
         <div class="action-buttons">
             ${buttons.join('')}
-            ${order.is_manual ? '<div class="manual-row-indicator">RĘCZNY</div>' : ''}
         </div>
     `;
     }
@@ -1742,3 +1772,88 @@ class ReportsManager {
 
 // Export dla global scope
 window.ReportsManager = ReportsManager;
+
+
+/**
+ * Sprawdza czy wartość jest prawidłowym numerem zamówienia Baselinker
+ * @param {*} value - Wartość do sprawdzenia
+ * @returns {boolean} - true jeśli to prawidłowy numer
+ */
+function isValidBaselinkerOrderNumber(value) {
+    // Sprawdź czy wartość istnieje i nie jest null/undefined
+    if (!value) {
+        return false;
+    }
+
+    // Konwertuj na string i usuń białe znaki
+    const stringValue = String(value).trim();
+
+    // Sprawdź czy to tylko cyfry (może być z zerem na początku)
+    const isNumeric = /^\d+$/.test(stringValue);
+
+    // Sprawdź czy nie jest pustym stringiem
+    const isNotEmpty = stringValue.length > 0;
+
+    // Sprawdź czy po konwersji na liczbę to nadal sensowna wartość
+    const numericValue = parseInt(stringValue, 10);
+    const isValidNumber = !isNaN(numericValue) && numericValue > 0;
+
+    return isNumeric && isNotEmpty && isValidNumber;
+}
+
+function testBaselinkerValidation() {
+    const testCases = [
+        // Prawidłowe wartości
+        { input: 123456, expected: true, description: "Liczba całkowita" },
+        { input: "123456", expected: true, description: "String z cyframi" },
+        { input: "000123", expected: true, description: "Z zerem na początku" },
+        { input: "  123456  ", expected: true, description: "Z białymi znakami" },
+
+        // Nieprawidłowe wartości
+        { input: null, expected: false, description: "null" },
+        { input: undefined, expected: false, description: "undefined" },
+        { input: "", expected: false, description: "Pusty string" },
+        { input: "   ", expected: false, description: "Same białe znaki" },
+        { input: "abc", expected: false, description: "Tekst" },
+        { input: "123abc", expected: false, description: "Cyfry z tekstem" },
+        { input: "abc123", expected: false, description: "Tekst z cyframi" },
+        { input: "12.34", expected: false, description: "Liczba dziesiętna" },
+        { input: "-123", expected: false, description: "Liczba ujemna" },
+        { input: "0", expected: false, description: "Zero" },
+        { input: 0, expected: false, description: "Liczba zero" },
+        { input: [], expected: false, description: "Pusta tablica" },
+        { input: {}, expected: false, description: "Pusty obiekt" }
+    ];
+
+    console.log("🧪 TESTY WALIDACJI NUMERU BASELINKER:");
+    console.log("=====================================");
+
+    let passed = 0;
+    let failed = 0;
+
+    testCases.forEach((testCase, index) => {
+        const result = isValidBaselinkerOrderNumber(testCase.input);
+        const status = result === testCase.expected ? "✅ PASS" : "❌ FAIL";
+
+        console.log(`${index + 1}. ${status} | ${testCase.description}`);
+        console.log(`   Input: ${JSON.stringify(testCase.input)} → Output: ${result} (Expected: ${testCase.expected})`);
+
+        if (result === testCase.expected) {
+            passed++;
+        } else {
+            failed++;
+            console.error(`   ❌ Test failed for: ${testCase.description}`);
+        }
+    });
+
+    console.log("=====================================");
+    console.log(`📊 WYNIKI: ${passed} przeszło, ${failed} nie przeszło`);
+
+    if (failed === 0) {
+        console.log("🎉 Wszystkie testy przeszły pomyślnie!");
+    } else {
+        console.error(`⚠️ ${failed} testów nie przeszło. Sprawdź implementację.`);
+    }
+
+    return { passed, failed, total: testCases.length };
+}
