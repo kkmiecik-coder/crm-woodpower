@@ -661,6 +661,358 @@ class ReportsManager {
     }
 
     /**
+    * Obsługa usuwania rekordu z potwierdzeniem
+    */
+    handleDeleteManualRow(recordId) {
+        console.log('[ReportsManager] Delete record:', recordId, 'type:', typeof recordId);
+
+        try {
+            // Konwertuj recordId na liczbę jeśli to string
+            const numericRecordId = typeof recordId === 'string' ?
+                parseInt(recordId, 10) : recordId;
+
+            if (isNaN(numericRecordId)) {
+                console.error('[ReportsManager] Invalid recordId:', recordId);
+                this.showError('Nieprawidłowy ID rekordu');
+                return;
+            }
+
+            // Znajdź rekord w aktualnych danych
+            const record = this.currentData.find(r => {
+                return r.id === numericRecordId || r.id === recordId ||
+                    String(r.id) === String(recordId);
+            });
+
+            if (!record) {
+                console.error('[ReportsManager] Record not found:', numericRecordId);
+                this.showError('Nie znaleziono rekordu do usunięcia');
+                return;
+            }
+
+            // Sprawdź czy to zamówienie z Baselinker ma wiele produktów
+            let relatedRecords = [];
+            if (record.baselinker_order_id) {
+                relatedRecords = this.currentData.filter(r =>
+                    r.baselinker_order_id === record.baselinker_order_id
+                );
+            }
+
+            // Przygotuj komunikat potwierdzenia
+            let confirmMessage;
+            if (relatedRecords.length > 1) {
+                confirmMessage = `Czy na pewno chcesz usunąć całe zamówienie "${record.customer_name}" z ${relatedRecords.length} produktami?\n\nTa operacja jest nieodwracalna i zostanie usunięte na zawsze.`;
+            } else {
+                confirmMessage = `Czy na pewno chcesz usunąć rekord dla klienta "${record.customer_name}"?\n\nTa operacja jest nieodwracalna i rekord zostanie usunięty na zawsze.`;
+            }
+
+            // Pokaż dialog potwierdzenia
+            this.showDeleteConfirmation(confirmMessage, () => {
+                // Wywołaj usuwanie po potwierdzeniu
+                this.executeDelete(numericRecordId, relatedRecords);
+            });
+
+        } catch (error) {
+            console.error('[ReportsManager] Error in handleDeleteManualRow:', error);
+            this.showError('Błąd podczas przygotowania usuwania: ' + error.message);
+        }
+    }
+
+    /**
+     * Pokazanie modala potwierdzenia usunięcia
+     */
+    showDeleteConfirmation(message, onConfirm) {
+        // Utwórz modal potwierdzenia jeśli nie istnieje
+        let modal = document.getElementById('deleteConfirmationModal');
+
+        if (!modal) {
+            modal = this.createDeleteConfirmationModal();
+        }
+
+        // Ustaw komunikat
+        const messageElement = modal.querySelector('.delete-confirmation-message');
+        if (messageElement) {
+            messageElement.textContent = message;
+        }
+
+        // Ustaw event listenery
+        const confirmBtn = modal.querySelector('.delete-confirm-btn');
+        const cancelBtn = modal.querySelector('.delete-cancel-btn');
+        const closeBtn = modal.querySelector('.delete-modal-close');
+
+        // Usuń stare event listenery (jeśli istnieją)
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        const newCloseBtn = closeBtn.cloneNode(true);
+
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+
+        // Dodaj nowe event listenery
+        newConfirmBtn.addEventListener('click', () => {
+            this.hideDeleteConfirmation();
+            onConfirm();
+        });
+
+        newCancelBtn.addEventListener('click', () => {
+            this.hideDeleteConfirmation();
+        });
+
+        newCloseBtn.addEventListener('click', () => {
+            this.hideDeleteConfirmation();
+        });
+
+        // Pokaż modal
+        modal.style.display = 'block';
+        modal.classList.add('show');
+
+        // Zablokuj scroll na body
+        document.body.style.overflow = 'hidden';
+
+        // Focus na przycisk anuluj (bezpieczniejszy domyślny wybór)
+        setTimeout(() => {
+            newCancelBtn.focus();
+        }, 100);
+    }
+
+    /**
+     * Ukrycie modala potwierdzenia
+     */
+    hideDeleteConfirmation() {
+        const modal = document.getElementById('deleteConfirmationModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('show');
+        }
+
+        // Przywróć scroll
+        document.body.style.overflow = '';
+    }
+
+    /**
+     * Utworzenie modala potwierdzenia usunięcia
+     */
+    createDeleteConfirmationModal() {
+        const modal = document.createElement('div');
+        modal.id = 'deleteConfirmationModal';
+        modal.className = 'modal fade';
+        modal.setAttribute('tabindex', '-1');
+        modal.setAttribute('role', 'dialog');
+
+        modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Potwierdzenie usunięcia
+                    </h5>
+                    <button type="button" class="close delete-modal-close" aria-label="Zamknij">
+                        <span aria-hidden="true" class="text-white">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center">
+                        <i class="fas fa-trash-alt fa-3x text-danger mb-3"></i>
+                        <p class="delete-confirmation-message fw-bold fs-5"></p>
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Uwaga:</strong> Ta operacja jest nieodwracalna!
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary delete-cancel-btn">
+                        <i class="fas fa-times me-2"></i>Anuluj
+                    </button>
+                    <button type="button" class="btn btn-danger delete-confirm-btn">
+                        <i class="fas fa-trash me-2"></i>Usuń na zawsze
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    /**
+     * Wykonanie usuwania rekordu
+     */
+    async executeDelete(recordId, relatedRecords = []) {
+        console.log('[ReportsManager] Executing delete for record:', recordId);
+
+        try {
+            // Pokaż loading
+            this.setDeleteLoadingState(true);
+
+            // Wyślij zapytanie do API
+            const response = await fetch('/reports/api/delete-manual-row', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    record_id: recordId,
+                    delete_all_products: relatedRecords.length > 1
+                })
+            });
+
+            console.log('[ReportsManager] Delete response status:', response.status);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log('[ReportsManager] Delete response data:', result);
+
+            if (result.success) {
+                console.log('[ReportsManager] Delete successful');
+
+                // Odśwież dane
+                this.refreshData();
+
+                // Pokaż komunikat sukcesu
+                const deletedCount = result.deleted_count || 1;
+                const successMessage = deletedCount > 1 ?
+                    `Usunięto zamówienie z ${deletedCount} produktami` :
+                    'Rekord został usunięty';
+
+                this.showMessage(successMessage, 'success');
+
+            } else {
+                throw new Error(result.error || 'Błąd usuwania rekordu');
+            }
+
+        } catch (error) {
+            console.error('[ReportsManager] Delete error:', error);
+            this.showError('Błąd usuwania: ' + error.message);
+        } finally {
+            this.setDeleteLoadingState(false);
+        }
+    }
+
+    /**
+     * Ustawienie stanu loading dla operacji usuwania
+     */
+    setDeleteLoadingState(loading) {
+        const modal = document.getElementById('deleteConfirmationModal');
+        if (!modal) return;
+
+        const confirmBtn = modal.querySelector('.delete-confirm-btn');
+        const cancelBtn = modal.querySelector('.delete-cancel-btn');
+
+        if (confirmBtn) {
+            confirmBtn.disabled = loading;
+            confirmBtn.innerHTML = loading ?
+                '<i class="fas fa-spinner fa-spin me-2"></i>Usuwanie...' :
+                '<i class="fas fa-trash me-2"></i>Usuń na zawsze';
+        }
+
+        if (cancelBtn) {
+            cancelBtn.disabled = loading;
+        }
+    }
+
+    /**
+     * Pokazywanie komunikatów użytkownikowi
+     */
+    showMessage(message, type = 'info') {
+        console.log(`[ReportsManager] ${type.toUpperCase()}:`, message);
+
+        // Utwórz lub znajdź kontener na komunikaty
+        let messageContainer = document.getElementById('reports-message-container');
+
+        if (!messageContainer) {
+            messageContainer = this.createMessageContainer();
+        }
+
+        // Utwórz element komunikatu
+        const messageElement = document.createElement('div');
+        messageElement.className = `alert alert-${this.getBootstrapClass(type)} alert-dismissible fade show message-item`;
+        messageElement.setAttribute('role', 'alert');
+
+        messageElement.innerHTML = `
+        <i class="fas ${this.getMessageIcon(type)} me-2"></i>
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Zamknij"></button>
+    `;
+
+        // Dodaj komunikat do kontenera
+        messageContainer.appendChild(messageElement);
+
+        // Automatycznie usuń komunikat po 5 sekundach (tylko success i info)
+        if (type === 'success' || type === 'info') {
+            setTimeout(() => {
+                if (messageElement.parentNode) {
+                    messageElement.classList.remove('show');
+                    setTimeout(() => {
+                        if (messageElement.parentNode) {
+                            messageElement.remove();
+                        }
+                    }, 150); // Czas na animację fade
+                }
+            }, 5000);
+        }
+
+        // Przewiń do komunikatu
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    /**
+     * Pokazywanie komunikatu błędu (alias dla showMessage)
+     */
+    showError(message) {
+        this.showMessage(message, 'error');
+    }
+
+    /**
+     * Tworzenie kontenera na komunikaty
+     */
+    createMessageContainer() {
+        const container = document.createElement('div');
+        container.id = 'reports-message-container';
+        container.className = 'message-container position-fixed';
+        container.style.cssText = `
+        top: 80px;
+        right: 20px;
+        z-index: 1055;
+        max-width: 400px;
+    `;
+
+        document.body.appendChild(container);
+        return container;
+    }
+
+    /**
+     * Mapowanie typów komunikatów na klasy Bootstrap
+     */
+    getBootstrapClass(type) {
+        const classMap = {
+            'success': 'success',
+            'error': 'danger',
+            'warning': 'warning',
+            'info': 'info'
+        };
+        return classMap[type] || 'info';
+    }
+
+    /**
+     * Mapowanie typów komunikatów na ikony Font Awesome
+     */
+    getMessageIcon(type) {
+        const iconMap = {
+            'success': 'fa-check-circle',
+            'error': 'fa-exclamation-circle',
+            'warning': 'fa-exclamation-triangle',
+            'info': 'fa-info-circle'
+        };
+        return iconMap[type] || 'fa-info-circle';
+    }
+
+    /**
      * Asynchroniczne sprawdzenie wycen dla zamówień po renderowaniu tabeli
      */
     async checkQuotesForRenderedOrders() {

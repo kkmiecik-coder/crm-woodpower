@@ -2079,3 +2079,102 @@ def api_sync_statuses():
             'success': False,
             'error': str(e)
         }), 500
+
+@reports_bp.route('/api/delete-manual-row', methods=['POST'])
+@login_required
+def api_delete_manual_row():
+    """
+    API endpoint do usuwania rekordów z bazy danych
+    Obsługuje usuwanie pojedynczych rekordów oraz całych zamówień wieloproduktowych
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        record_id = data.get('record_id')
+        delete_all_products = data.get('delete_all_products', False)
+        
+        if not record_id:
+            return jsonify({'success': False, 'error': 'Brak ID rekordu'}), 400
+        
+        reports_logger.info("Rozpoczęcie usuwania rekordu",
+                          user_email=user_email,
+                          record_id=record_id,
+                          delete_all_products=delete_all_products)
+        
+        # Pobierz główny rekord
+        main_record = BaselinkerReportOrder.query.get_or_404(record_id)
+        
+        records_to_delete = []
+        
+        if delete_all_products and main_record.baselinker_order_id:
+            # Usuń wszystkie produkty tego zamówienia z Baselinker
+            all_order_records = BaselinkerReportOrder.query.filter_by(
+                baselinker_order_id=main_record.baselinker_order_id
+            ).all()
+            
+            records_to_delete = all_order_records
+            
+            reports_logger.info("Usuwanie całego zamówienia wieloproduktowego",
+                              user_email=user_email,
+                              baselinker_order_id=main_record.baselinker_order_id,
+                              products_count=len(all_order_records))
+        else:
+            # Usuń tylko pojedynczy rekord
+            records_to_delete = [main_record]
+            
+            reports_logger.info("Usuwanie pojedynczego rekordu",
+                              user_email=user_email,
+                              record_id=record_id,
+                              is_manual=main_record.is_manual)
+        
+        # Zbierz informacje o usuwanych rekordach (dla logowania)
+        deleted_info = []
+        for record in records_to_delete:
+            deleted_info.append({
+                'id': record.id,
+                'customer_name': record.customer_name,
+                'is_manual': record.is_manual,
+                'baselinker_order_id': record.baselinker_order_id,
+                'date_created': record.date_created.isoformat() if record.date_created else None
+            })
+        
+        # Usuń rekordy z bazy danych
+        deleted_count = 0
+        for record in records_to_delete:
+            db.session.delete(record)
+            deleted_count += 1
+        
+        # Zatwierdź transakcję
+        db.session.commit()
+        
+        reports_logger.info("Pomyślnie usunięto rekordy",
+                          user_email=user_email,
+                          deleted_count=deleted_count,
+                          deleted_records=deleted_info)
+        
+        # Przygotuj komunikat zwrotny
+        if deleted_count > 1:
+            message = f'Usunięto zamówienie z {deleted_count} produktami'
+        else:
+            record_type = "ręczny rekord" if main_record.is_manual else "rekord z Baselinker"
+            message = f'Usunięto {record_type}'
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'deleted_count': deleted_count,
+            'deleted_records': [info['id'] for info in deleted_info]
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        reports_logger.error("Błąd usuwania rekordu",
+                           user_email=user_email,
+                           record_id=record_id,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({
+            'success': False,
+            'error': f'Błąd usuwania rekordu: {str(e)}'
+        }), 500

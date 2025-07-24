@@ -781,7 +781,7 @@
     border: none;
     border-radius: var(--radius-lg);
     width: 90%;
-    max-width: 600px;
+    max-width: 800px;
     box-shadow: var(--shadow-lg);
     animation: slideIn 0.3s;
 }
@@ -848,8 +848,8 @@
 
 .modal-footer {
     display: flex;
-    justify-content: flex-end;
-    gap: var(--spacing-sm);
+    justify-content: center;
+    gap: var(--spacing-base);
     padding: var(--spacing-lg);
     border-top: 1px solid var(--border-light);
 }
@@ -3086,5 +3086,169 @@ body.fullscreen-mode {
 
     .products-summary {
         padding: var(--spacing-base);
+    }
+}
+
+/* CSS dla modala potwierdzenia usunięcia - dodaj do pliku reports/static/css/ */
+
+/* Modal potwierdzenia usunięcia */
+#deleteConfirmationModal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1050;
+    opacity: 0;
+    transition: opacity 0.15s linear;
+}
+
+    #deleteConfirmationModal.show {
+        opacity: 1;
+    }
+
+    #deleteConfirmationModal .modal-dialog {
+        position: relative;
+        width: auto;
+        margin: 1.75rem auto;
+        max-width: 800px;
+        transform: translateY(-50px);
+        transition: transform 0.3s ease-out;
+    }
+
+    #deleteConfirmationModal.show .modal-dialog {
+        transform: translateY(0);
+    }
+
+    #deleteConfirmationModal .modal-content {
+        border: none;
+        border-radius: 0.5rem;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+
+    #deleteConfirmationModal .modal-header {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 0.5rem 0.5rem 0 0;
+    }
+
+        #deleteConfirmationModal .modal-header .close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            opacity: 0.8;
+            transition: opacity 0.15s ease;
+        }
+
+            #deleteConfirmationModal .modal-header .close:hover {
+                opacity: 1;
+            }
+
+    #deleteConfirmationModal .modal-body {
+        padding: 2rem;
+    }
+
+    #deleteConfirmationModal .delete-confirmation-message {
+        color: #495057;
+        line-height: 1.5;
+        margin-bottom: 0;
+    }
+
+    #deleteConfirmationModal .modal-footer {
+        border-top: 1px solid #dee2e6;
+        padding: 1rem 2rem;
+        gap: 0.5rem;
+    }
+
+    #deleteConfirmationModal .delete-confirm-btn:disabled,
+    #deleteConfirmationModal .delete-cancel-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+        #deleteConfirmationModal .delete-confirm-btn:disabled:hover {
+            background-color: #dc3545;
+            border-color: #dc3545;
+        }
+
+/* Komunikaty */
+.message-container .message-item {
+    margin-bottom: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border: none;
+    animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.message-container .message-item .btn-close {
+    background-size: 0.75em;
+}
+
+.message-container .alert-success {
+    background-color: #d1f2eb;
+    border-color: #7dcea0;
+    color: #0c5460;
+}
+
+.message-container .alert-danger {
+    background-color: #f8d7da;
+    border-color: #f1aeb5;
+    color: #721c24;
+}
+
+.message-container .alert-warning {
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+    color: #664d03;
+}
+
+.message-container .alert-info {
+    background-color: #d1ecf1;
+    border-color: #7cc7d0;
+    color: #055160;
+}
+
+/* Responsywność */
+@media (max-width: 576px) {
+    #deleteConfirmationModal .modal-dialog {
+        margin: 1rem;
+        max-width: none;
+    }
+
+    #deleteConfirmationModal .modal-body {
+        padding: 1.5rem;
+    }
+
+    #deleteConfirmationModal .modal-footer {
+        padding: 1rem 1.5rem;
+        flex-direction: column;
+    }
+
+        #deleteConfirmationModal .modal-footer .btn {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+
+            #deleteConfirmationModal .modal-footer .btn:last-child {
+                margin-bottom: 0;
+            }
+
+    .message-container {
+        top: 70px !important;
+        right: 10px !important;
+        left: 10px !important;
+        max-width: none !important;
     }
 }
