@@ -10,7 +10,7 @@
     /* Kolory funkcjonalne */
     --success-color: #07B90D;
     --success-bg: #E8F5E8;
-    --warning-color: #FFC107;
+    --warning-color: #FF9500;
     --warning-bg: #FFF8E1;
     --error-color: #E53935;
     --error-bg: #FFEBEE;
@@ -604,19 +604,6 @@
         pointer-events: auto;
     }
 
-.quotes-details-modal-box {
-    background: #fff;
-    padding: 24px;
-    border-radius: 16px;
-    width: 100%;
-    max-width: 1000px;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    font-family: 'Poppins', sans-serif;
-    animation: slideIn 0.25s ease-out;
-}
-
 @keyframes slideIn {
     from {
         transform: scale(0.98) translateY(20px);
@@ -740,17 +727,6 @@
     padding: 40px;
 }
 
-.quotes-details-modal-box {
-    background: white;
-    border-radius: 12px;
-    padding: 24px;
-    max-width: 1200px;
-    margin: auto;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-    position: relative;
-    animation: fadeInUp 0.3s ease;
-}
-
 @keyframes fadeInUp {
     from {
         opacity: 0;
@@ -778,6 +754,7 @@
     display: flex;
     flex-direction: column;
     margin-bottom: 24px;
+    margin-top: 24px;
     font-size: 14px;
     font-weight: 500;
     color: #333;
@@ -861,11 +838,15 @@
     background: white;
     border-radius: 24px;
     padding: 24px;
-    max-width: 1200px;
+    max-width: 170vh;
     margin: auto;
     box-shadow: 0 10px 40px rgba(0,0,0,0.2);
     position: relative;
     animation: fadeInUp 0.3s ease;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    font-family: 'Poppins', sans-serif;
 }
 
 @keyframes fadeInUp {
@@ -1033,7 +1014,7 @@
     padding: 0;
     margin-top: 12px;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: 16px;
 }
 
@@ -2651,4 +2632,432 @@
 .variant-list li:has(.edited-badge) .hidden-badge {
     top: 22px;
     border-radius: 8px 0 0 8px;
+}
+
+/* ===================================
+   QUOTES VARIANTS MODAL DETAILS (qvmd-)
+   Style dla nowych kafelków wariantów w modalu szczegółów
+   Dodaj do app/modules/quotes/static/css/quotes.css
+   =================================== */
+
+.qvmd-section-title {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-base);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 2px solid var(--primary-color);
+}
+
+/* Grid layout - 4 kolumny na desktop */
+.qvmd-variants-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--spacing-base);
+    margin-bottom: var(--spacing-xl);
+}
+
+@media (max-width: 1024px) {
+    .qvmd-variants-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .qvmd-variants-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ===================================
+   KAFELEK WARIANTU - DESIGN Z FIGMY
+   =================================== */
+
+.qvmd-variant-card {
+    background: var(--bg-white);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column; /* ZMIANA: kolumna zamiast wiersza */
+    min-height: 200px;
+}
+
+    /* Wybrany wariant - zielone obramowanie */
+    .qvmd-variant-card.qvmd-selected {
+        border: 2px solid var(--success-color);
+    }
+
+/* Tekstura drewna na górze */
+.qvmd-wood-texture {
+    width: 100%; /* ZMIANA: pełna szerokość */
+    height: 60px; /* ZMIANA: określona wysokość */
+    background: linear-gradient(135deg, #D4A574 0%, #C49660 50%, #B8864D 100%); /* fallback */
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+    background-position: top;
+}
+
+    /* Fallback dla brakujących obrazów */
+    .qvmd-wood-texture:not([style*="background-image"]) {
+        background-image: repeating-linear-gradient( 0deg, rgba(0,0,0,0.1), rgba(0,0,0,0.1) 1px, transparent 1px, transparent 3px ), repeating-linear-gradient( 90deg, rgba(0,0,0,0.05), rgba(0,0,0,0.05) 1px, transparent 1px, transparent 8px );
+    }
+
+/* Główna zawartość */
+.qvmd-variant-content {
+    flex: 1;
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Nagłówek */
+.qvmd-variant-header {
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    justify-content: space-between;
+}
+
+.qvmd-price-per-m2-wrapper {
+    min-width: 130px;
+}
+
+.qvmd-variant-title {
+    font-weight: 500;
+    font-size: 10px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+}
+
+.qvmd-variant-name {
+    display: inline;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--primary-color);
+}
+
+.qvmd-price-per-m2-label {
+    font-weight: 400;
+    font-size: 10px;
+    color: var(--text-primary);
+}
+
+.qvmd-price-per-m2-value {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+/* Sekcja cenowa */
+.qvmd-pricing-section {
+    flex: 1;
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Layout dla wariantu z wykończeniem */
+.qvmd-pricing-with-finishing {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.qvmd-label-spacer {
+    /* Puste miejsce dla etykiet */
+}
+
+/* Wiersz z nagłówkami kolumn */
+.qvmd-headers-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 1fr;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xs);
+}
+
+.qvmd-column-header {
+    font-weight: 600;
+    font-size: 10px;
+    color: var(--text-primary);
+    text-align: center;
+    padding-bottom: var(--spacing-xxs);
+    border-bottom: 1px solid var(--border-light);
+}
+
+    .qvmd-column-header.qvmd-finishing {
+        color: #FF5A00;
+    }
+.qvmd-pricing-column {
+    display: flex;
+    flex-direction: column;
+}
+
+.qvmd-pricing-with-finishing .qvmd-pricing-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 1fr;
+    gap: var(--spacing-sm);
+    align-items: flex-start;
+    margin-bottom: var(--spacing-xs);
+}
+
+.qvmd-pricing-with-finishing .qvmd-pricing-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.qvmd-pricing-with-finishing .qvmd-pricing-values {
+    text-align: center;
+}
+
+.qvmd-pricing-column-header {
+    font-weight: 600;
+    font-size: 10px;
+    color: var(--text-primary);
+    text-align: center;
+    margin-bottom: var(--spacing-xs);
+    padding-bottom: var(--spacing-xxs);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.qvmd-pricing-column.qvmd-finishing .qvmd-pricing-column-header {
+    color: #FF5A00;
+}
+
+.qvmd-pricing-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-xs);
+}
+
+.qvmd-pricing-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.qvmd-pricing-values {
+    text-align: center;
+}
+
+.qvmd-price-brutto {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+    .qvmd-price-brutto.qvmd-finishing {
+        color: #FF5A00;
+    }
+
+.qvmd-price-netto {
+    font-weight: 300;
+    font-size: 10px;
+    color: var(--text-primary);
+    margin-top: 1px;
+}
+
+/* Layout dla wariantu surowego (bez wykończenia) */
+.qvmd-pricing-simple {
+    display: flex;
+    flex-direction: column;
+}
+
+    .qvmd-pricing-simple .qvmd-pricing-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .qvmd-pricing-simple .qvmd-pricing-label {
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--text-primary);
+    }
+
+    .qvmd-pricing-simple .qvmd-pricing-values {
+        text-align: left;
+        min-width: 130px;
+    }
+
+/* Przyciski akcji */
+.qvmd-variant-actions {
+    margin-top: auto;
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
+.qvmd-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--border-medium);
+    background: var(--bg-white);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family);
+    font-weight: 500;
+    font-size: 12px;
+    cursor: pointer;
+    flex: 1;
+    text-align: center;
+    transition: var(--transition-base);
+}
+
+    .qvmd-btn:hover {
+        background: var(--bg-light);
+    }
+
+.qvmd-btn-selected {
+    background: var(--success-color);
+    color: var(--text-white);
+    border-color: var(--success-color);
+}
+
+    .qvmd-btn-selected:hover {
+        background: #06A00C;
+    }
+
+.qvmd-btn-edit {
+    background: var(--primary-color);
+    color: var(--text-white);
+    border-color: var(--primary-color);
+    flex: 0 0 auto;
+    width: 28px;
+    padding: var(--spacing-xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qvmd-edit-icon {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+
+/* Hover effects */
+.qvmd-btn-edit:hover {
+    background: var(--primary-dark);
+}
+
+    .qvmd-btn-edit:hover .qvmd-edit-icon {
+        filter: brightness(0) invert(1) opacity(0.9);
+    }
+
+/* Badge'e */
+.qvmd-variant-badges {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: flex-end;
+}
+
+.qvmd-badge {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-family: var(--font-family);
+    font-size: 10px;
+    line-height: 1.2;
+    z-index: 999;
+}
+
+.qvmd-badge-invisible {
+    background: #8B5CF6;
+    color: var(--text-white);
+    font-weight: 400;
+    border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
+}
+
+.qvmd-badge-discount {
+    background: var(--warning-color);
+    color: var(--text-white);
+    font-weight: 400;
+    border-radius: 0 0 0 var(--radius-sm);
+}
+
+/* Banner rabatu */
+.qvmd-discount-banner {
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-color);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    margin-top: var(--spacing-xs);
+}
+
+.qvmd-discount-banner-title {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--warning-color);
+    margin-bottom: 1px;
+}
+
+.qvmd-discount-banner-reason {
+    font-weight: 500;
+    font-size: 10px;
+    color: var(--text-primary);
+}
+
+/* Responsywność */
+@media (max-width: 480px) {
+    .qvmd-variant-card {
+        min-height: 180px;
+    }
+
+    .qvmd-wood-texture {
+        width: 50px;
+    }
+
+    .qvmd-variant-content {
+        padding: var(--spacing-sm);
+    }
+}
+
+/* ===================================
+   DODAJ DO ISTNIEJĄCEGO CSS - NOWA KLASA DLA WARIANTÓW Z WYKOŃCZENIEM
+   =================================== */
+
+/* Grid layout - warianty z wykończeniem (szersze kafelki) */
+.qvmd-variants-grid.qvmd-with-finishing {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+/* Responsywność dla wariantów z wykończeniem */
+@media (max-width: 1024px) {
+    .qvmd-variants-grid.qvmd-with-finishing {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 680px) {
+    .qvmd-variants-grid.qvmd-with-finishing {
+        grid-template-columns: 1fr;
+    }
+}
+
+.quotes-details-modal-header.sticky-header {
+    position: sticky;
+    top: -24px;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: var(--bg-white);
+    border-bottom: 1px solid var(--border-light);
+    box-shadow: var(--shadow-light);
+    margin: 0 !important; /* Usuń marginesy */
+    padding: var(--spacing-base) var(--spacing-lg); /* Padding wewnętrzny */
+    /* Rozciągnij poza kontener jeśli trzeba */
+    margin-left: calc(-1 * var(--spacing-lg)) !important;
+    margin-right: calc(-1 * var(--spacing-lg)) !important;
+    margin-top: calc(-1 * var(--spacing-lg)) !important;
+    width: calc(100% + 2 * var(--spacing-lg));
+}
+
+/* Upewnij się, że modal box nie ma overflow hidden na sticky header */
+.quotes-details-modal-box {
+    overflow-x: visible;
 }

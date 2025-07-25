@@ -887,41 +887,185 @@ function getEditIconURL() {
     return '/quotes/static/img/edit.svg';
 }
 
-function buildVariantPriceDisplay(variant, quantity) {
-    // NOWE: Używamy cen jednostkowych
+function buildVariantPriceDisplay(variant, quantity, quoteData) {
+    // Znajdź szczegóły wykończenia dla tego produktu
+    const finishing = (quoteData.finishing || []).find(f => f.product_index == variant.product_index);
+    const finishingType = finishing ? finishing.finishing_type : 'Surowe';
+    const hasFinishing = finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
+
+    // Przygotuj nazwę wariantu
+    const variantName = translateVariantCode(variant.variant_code);
+
+    // Przelicz ceny jednostkowe i całkowite
     const unitPriceBrutto = variant.unit_price_brutto || variant.final_price_brutto || 0;
     const unitPriceNetto = variant.unit_price_netto || variant.final_price_netto || 0;
-    
-    // Oblicz wartości całkowite
     const totalBrutto = unitPriceBrutto * quantity;
     const totalNetto = unitPriceNetto * quantity;
-    
-    return `
-        <div class="details-modal-variant-pricing">
-            <div class="details-modal-pricing-row">
-                <div class="details-modal-pricing-label">
-                    <strong>Cena:</strong>
+
+    // Ceny wykończenia (jeśli istnieje)
+    const finishingPriceBrutto = finishing ? (finishing.finishing_price_brutto || 0) : 0;
+    const finishingPriceNetto = finishing ? (finishing.finishing_price_netto || 0) : 0;
+    const finishingTotalBrutto = finishingPriceBrutto * quantity;
+    const finishingTotalNetto = finishingPriceNetto * quantity;
+
+    // Przygotuj HTML kafelka
+    let cardHTML = `
+        <div class="qvmd-variant-card ${variant.is_selected ? 'qvmd-selected' : ''}">
+            ${buildVariantBadges(variant)}
+            <div class="qvmd-wood-texture" style="background-image: url('/quotes/quotes/static/img/${variant.variant_code}.jpg');"></div>
+            <div class="qvmd-variant-content">
+                <div class="qvmd-variant-header">
+                    <div class="qvmd-variant-title">Wariant: <span class="qvmd-variant-name">${variantName}</span></div>
+                    <div class="qvmd-price-per-m2-wrapper">
+                        <div class="qvmd-price-per-m2-label">Cena za m³:</div>
+                        <div class="qvmd-price-per-m2-value">${variant.price_per_m3.toFixed(2)} PLN netto</div>
+                    </div>
                 </div>
-                <div class="details-modal-pricing-values">
-                    <div class="details-modal-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
-                    <div class="details-modal-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+
+                <div class="qvmd-pricing-section">
+    `;
+
+    if (hasFinishing) {
+        // Layout z wykończeniem - etykiety z lewej, kolumny z prawej
+        cardHTML += `
+                <div class="qvmd-pricing-with-finishing">
+                    <!-- Nagłówki kolumn -->
+                    <div class="qvmd-headers-row">
+                        <div class="qvmd-label-spacer"></div>
+                        <div class="qvmd-column-header">SUROWE</div>
+                        <div class="qvmd-column-header qvmd-finishing">Z WYKOŃCZENIEM</div>
+                    </div>
+                    
+                    <!-- Wiersz "Cena" -->
+                    <div class="qvmd-pricing-row">
+                        <span class="qvmd-pricing-label">Cena</span>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                        </div>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto qvmd-finishing">${(unitPriceBrutto + finishingPriceBrutto).toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN netto</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Wiersz "Wartość" -->
+                    <div class="qvmd-pricing-row">
+                        <span class="qvmd-pricing-label">Wartość</span>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+                        </div>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto qvmd-finishing">${(totalBrutto + finishingTotalBrutto).toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN netto</div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="details-modal-pricing-row">
-                <div class="details-modal-pricing-label">
-                    <strong>Wartość:</strong>
+    `;
+    } else {
+        // Layout surowy (prosta kolumna)
+        cardHTML += `
+                    <div class="qvmd-pricing-simple">
+                        <div class="qvmd-pricing-row">
+                            <span class="qvmd-pricing-label">Cena</span>
+                            <div class="qvmd-pricing-values">
+                                <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
+                                <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                            </div>
+                        </div>
+                        <div class="qvmd-pricing-row">
+                            <span class="qvmd-pricing-label">Wartość</span>
+                            <div class="qvmd-pricing-values">
+                                <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
+                                <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+                            </div>
+                        </div>
+                    </div>
+        `;
+    }
+
+    // Dodaj banner rabatu jeśli istnieje
+    if (variant.has_discount && variant.discount_percentage !== 0) {
+        const discountReasonName = getDiscountReasonName(variant.discount_reason_id);
+        cardHTML += `
+                    <div class="qvmd-discount-banner">
+                        <div class="qvmd-discount-banner-title">Rabat ${variant.discount_percentage}%</div>
+                        <div class="qvmd-discount-banner-reason">Powód: ${discountReasonName || 'Nie podano'}</div>
+                    </div>
+        `;
+    }
+
+    cardHTML += `
                 </div>
-                <div class="details-modal-pricing-values">
-                    <div class="details-modal-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
-                    <div class="details-modal-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+
+                <div class="qvmd-variant-actions">
+    `;
+
+    // Przyciski akcji
+    if (variant.is_selected) {
+        cardHTML += `<button class="qvmd-btn qvmd-btn-selected">✓ Wybrany wariant</button>`;
+    } else {
+        cardHTML += `<button class="qvmd-btn" onclick="selectVariant(${variant.id})">Ustaw jako wybrany</button>`;
+    }
+
+    cardHTML += `
+                    <button class="qvmd-btn qvmd-btn-edit" onclick="openVariantEditModal(${JSON.stringify(variant).replace(/"/g, '&quot;')}, currentQuoteData)">
+                        <img src="/quotes/quotes/static/img/edit.svg" alt="Edytuj" class="qvmd-edit-icon">
+                    </button>
                 </div>
             </div>
         </div>
     `;
+
+    return cardHTML;
+}
+
+/**
+ * 2. DODAJ TĘ NOWĄ FUNKCJĘ (wstaw gdziekolwiek po buildVariantPriceDisplay)
+ */
+function buildVariantBadges(variant) {
+    let badgesHTML = '';
+    const badges = [];
+
+    // Badge "Niewidoczny"
+    if (variant.show_on_client_page === false) {
+        badges.push('<div class="qvmd-badge qvmd-badge-invisible">Niewidoczny</div>');
+    }
+
+    // Badge "Rabat"
+    if (variant.has_discount && variant.discount_percentage !== 0) {
+        badges.push(`<div class="qvmd-badge qvmd-badge-discount">Rabat ${variant.discount_percentage}%</div>`);
+    }
+
+    if (badges.length > 0) {
+        badgesHTML = `
+            <div class="qvmd-variant-badges">
+                ${badges.join('')}
+            </div>
+        `;
+    }
+
+    return badgesHTML;
+}
+
+/**
+ * 3. DODAJ TĘ NOWĄ FUNKCJĘ (wstaw gdziekolwiek po buildVariantBadges)
+ */
+function selectVariant(variantId) {
+    if (!confirm('Na pewno zmienić wybór wariantu?')) return;
+
+    fetch(`/quotes/api/quote_items/${variantId}/select`, { method: 'PATCH' })
+        .then(res => res.json())
+        .then(() => fetch(`/quotes/api/quotes/${currentQuoteData.id}`))
+        .then(res => res.json())
+        .then(fullData => showDetailsModal(fullData))
+        .catch(err => console.error('[MODAL] Błąd zmiany wariantu:', err));
 }
 
 /**
  * Główna funkcja budująca zakładki produktów i listę wariantów
+ * ZASTĄP CAŁĄ ISTNIEJĄCĄ FUNKCJĘ setupProductTabs tym kodem
  */
 function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
     const items = quoteData.items || [];
@@ -955,120 +1099,50 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
             tabContent.appendChild(summaryHeader);
         }
 
-        // ——— 3. Lista wariantów ———
-        const list = document.createElement('ul');
-        list.className = 'variant-list';
+        // ——— 3. NOWY LAYOUT: KAFELKI WARIANTÓW ———
 
-        grouped[index].forEach(item => {
-            const li = document.createElement('li');
-
-            // Dodaj klasę jeśli wariant ma rabat
-            if (item.has_discount) {
-                li.classList.add('has-discount');
-            }
-
-            // — Dane wariantu: nazwa i ceny — 
-            const variantName = translateVariantCode(item.variant_code);
-            const pricePerM3 = item.price_per_m3
-                ? `${item.price_per_m3.toFixed(2)} PLN`
-                : 'Brak informacji';
-
-            // Sprawdź czy są oryginalne ceny (czy był rabat)
-            // NOWE: Pobierz quantity z finishing details
+        // Znajdź warianty z wykończeniem
+        const variantsWithFinishing = grouped[index].filter(item => {
             const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
-            const quantity = finishing ? (finishing.quantity || 1) : 1;
-
-            // NOWE: Użyj nowej funkcji do wyświetlania cen
-            const priceDisplay = buildVariantPriceDisplay(item, quantity);
-
-            li.innerHTML = `
-                <p><strong>Wariant:</strong> ${variantName}</p>
-                <p><strong>Cena za m³:</strong> ${pricePerM3}</p>
-                ${priceDisplay}
-            `;
-
-            // Dodaj etykietę "Edytowane" jeśli wariant ma rabat
-            if (item.has_discount && item.discount_percentage !== 0) {
-                const editedBadge = document.createElement('div');
-                editedBadge.className = 'edited-badge';
-                editedBadge.textContent = 'Edytowane';
-                li.appendChild(editedBadge);
-            }
-
-            // Dodaj etykietę "Niewidoczny" jeśli wariant nie jest widoczny na stronie klienta
-            if (item.show_on_client_page === false) {
-                const hiddenBadge = document.createElement('div');
-                hiddenBadge.className = 'hidden-badge';
-                hiddenBadge.textContent = 'Niewidoczny';
-                li.appendChild(hiddenBadge);
-            }
-
-            // Dodaj informacje o rabacie jeśli istnieje
-            if (item.discount_percentage !== 0) {
-                const discountInfo = document.createElement('div');
-                discountInfo.className = 'discount-info';
-                discountInfo.innerHTML = `
-                    <span class="discount-label">Rabat: ${item.discount_percentage}%</span>
-                    ${item.discount_reason_id ? `<br><small>Powód: ${getDiscountReasonName(item.discount_reason_id)}</small>` : ''}
-                `;
-                li.appendChild(discountInfo);
-            }
-
-            // ——— 4. Wrapper na przyciski + oznaczenie ———
-            const actionsDiv = document.createElement('div');
-            actionsDiv.className = 'variant-actions';
-
-            // (a) jeśli wariant nie jest wybrany → dodajemy przycisk "Ustaw jako wybrany"
-            if (!item.is_selected) {
-                const chooseBtn = document.createElement('button');
-                chooseBtn.className = 'choose-btn';
-                chooseBtn.textContent = 'Ustaw jako wybrany';
-                chooseBtn.onclick = () => {
-                    if (!confirm('Na pewno zmienić wybór wariantu?')) return;
-                    fetch(`/quotes/api/quote_items/${item.id}/select`, { method: 'PATCH' })
-                        .then(res => res.json())
-                        .then(() => fetch(`/quotes/api/quotes/${quoteData.id}`))
-                        .then(res => res.json())
-                        .then(fullData => showDetailsModal(fullData))
-                        .catch(err => console.error('[MODAL] Błąd zmiany wariantu:', err));
-                };
-                actionsDiv.appendChild(chooseBtn);
-            }
-
-            // (b) zawsze dodajemy oznaczenie „Wybrany wariant" do środka actionsDiv,
-            //     ale tylko gdy item.is_selected === true
-            if (item.is_selected) {
-                const selectedTag = document.createElement('p');
-                selectedTag.className = 'selected-tag';
-                selectedTag.textContent = '✓ Wybrany wariant';
-                actionsDiv.appendChild(selectedTag);
-            }
-
-            // (c) zawsze dopisujemy przycisk z ikoną SVG edycji
-            const editBtn = document.createElement('button');
-            editBtn.className = 'edit-btn';
-            editBtn.innerHTML = `
-                <img 
-                    src="${editIconURL}" 
-                    alt="Edytuj wariant"
-                    title="Edytuj rabat wariantu"
-                >
-            `;
-
-            // NOWA FUNKCJONALNOŚĆ: Podłączenie do modala edycji
-            editBtn.onclick = () => {
-                console.log('[EDIT] Kliknięto edycję wariantu:', item);
-                openVariantEditModal(item, quoteData);
-            };
-
-            actionsDiv.appendChild(editBtn);
-
-            // ——— 5. Dopinamy wrapper actionsDiv do <li> i <li> do <ul> ———
-            li.appendChild(actionsDiv);
-            list.appendChild(li);
+            const finishingType = finishing ? finishing.finishing_type : 'Surowe';
+            return finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
         });
 
-        tabContent.appendChild(list);
+        // Znajdź warianty surowe
+        const rawVariants = grouped[index].filter(item => {
+            const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+            const finishingType = finishing ? finishing.finishing_type : 'Surowe';
+            return !finishingType || finishingType === 'Surowe' || finishingType === 'Brak';
+        });
+
+        // Grid dla wariantów z wykończeniem
+        if (variantsWithFinishing.length > 0) {
+            const finishingGridDiv = document.createElement('div');
+            finishingGridDiv.className = 'qvmd-variants-grid qvmd-with-finishing';
+            finishingGridDiv.innerHTML = variantsWithFinishing
+                .map(item => {
+                    const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+                    const quantity = finishing ? (finishing.quantity || 1) : 1;
+                    return buildVariantPriceDisplay(item, quantity, quoteData);
+                })
+                .join('');
+            tabContent.appendChild(finishingGridDiv);
+        }
+
+        // Grid dla wariantów surowych
+        if (rawVariants.length > 0) {
+            const rawGridDiv = document.createElement('div');
+            rawGridDiv.className = 'qvmd-variants-grid';
+            rawGridDiv.innerHTML = rawVariants
+                .map(item => {
+                    const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+                    const quantity = finishing ? (finishing.quantity || 1) : 1;
+                    return buildVariantPriceDisplay(item, quantity, quoteData);
+                })
+                .join('');
+            tabContent.appendChild(rawGridDiv);
+        }
+
         itemsContainer.appendChild(tabContent);
     });
 
