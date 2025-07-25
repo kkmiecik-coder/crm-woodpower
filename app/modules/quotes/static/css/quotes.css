@@ -3061,3 +3061,164 @@
 .quotes-details-modal-box {
     overflow-x: visible;
 }
+
+/* Container dla tabs i przycisku masowej zmiany */
+.products-controls-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+/* Tabs - pozwól im się zawijać i zajmować większość przestrzeni */
+.quotes-details-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex: 1;
+    min-width: 0; /* Pozwala na zawijanie */
+}
+
+/* Container dla masowej zmiany wariantów */
+.bulk-variant-change-container {
+    position: relative;
+    flex-shrink: 0; /* Nie kurczy się */
+}
+
+/* Przycisk masowej zmiany */
+.bulk-variant-change-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    color: #495057;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+    .bulk-variant-change-btn:hover {
+        background: #e9ecef;
+        border-color: #adb5bd;
+    }
+
+    .bulk-variant-change-btn:active,
+    .bulk-variant-change-btn.active {
+        background: #ED6B24;
+        border-color: #ED6B24;
+        color: white;
+    }
+
+/* Ikona chevron */
+.bulk-variant-chevron {
+    transition: transform 0.2s ease;
+}
+
+.bulk-variant-change-btn.active .bulk-variant-chevron {
+    transform: rotate(180deg);
+}
+
+/* Dropdown */
+.bulk-variant-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 1000;
+    min-width: 280px;
+    max-width: 400px;
+    margin-top: 4px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: fadeInDown 0.2s ease;
+}
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Header dropdowna */
+.bulk-variant-dropdown-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+    background: #f8f9fa;
+    border-radius: 8px 8px 0 0;
+}
+
+/* Container dla opcji */
+.bulk-variant-options {
+    padding: 8px 0;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Pojedyncza opcja wariantu */
+.bulk-variant-option {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #495057;
+    transition: background-color 0.15s ease;
+}
+
+    .bulk-variant-option:hover {
+        background: #f8f9fa;
+    }
+
+    .bulk-variant-option:active {
+        background: #e9ecef;
+    }
+
+/* Wariant w opcji */
+.bulk-variant-option-text {
+    font-weight: 500;
+}
+
+/* Responsive - na mniejszych ekranach */
+@media (max-width: 768px) {
+    .products-controls-container {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .bulk-variant-change-container {
+        align-self: flex-end;
+    }
+
+    .bulk-variant-dropdown {
+        right: 0;
+        left: auto;
+        min-width: 250px;
+    }
+}
+
+/* Gdy dropdown jest otwarty, dodaj overlay dla zamknięcia */
+.bulk-variant-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 999;
+    background: transparent;
+}

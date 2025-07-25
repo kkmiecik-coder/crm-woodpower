@@ -230,6 +230,9 @@ function showDetailsModal(quoteData) {
     itemsContainer.innerHTML = '';
     currentQuoteData = quoteData;
 
+    window.currentQuoteData = quoteData;
+    console.log('[MODAL] Ustawiono currentQuoteData:', quoteData);
+
     removeAcceptanceBanner(modalBox);
     removeOrderBanner(modalBox);
     removeUserAcceptanceBanner(modalBox); // NOWE
@@ -450,6 +453,12 @@ function showDetailsModal(quoteData) {
             console.log('[MODAL] Zamykam modal przez kliknięcie tła');
         }
     });
+
+    setTimeout(() => {
+        console.log('[MODAL] Inicjalizuję masową zmianę wariantów...');
+        console.log('[MODAL] currentQuoteData przed initBulkVariantChange:', currentQuoteData);
+        initBulkVariantChange();
+    }, 100);
 }
 
 function updateMultiplierDisplay(quoteData) {
@@ -1453,15 +1462,50 @@ function renderSelectedSummary(groupedItems, container) {
 
         const variant = translateVariantCode(selected.variant_code) || "Nieznany wariant";
         const dims = `${selected.length_cm}×${selected.width_cm}×${selected.thickness_cm} cm`;
-        
-        // NOWE: Pobierz quantity i ceny jednostkowe
-        const quantity = selected.quantity || 1;
-        const unitPriceBrutto = selected.unit_price_brutto || selected.final_price_brutto || 0;
-        const unitPriceNetto = selected.unit_price_netto || selected.final_price_netto || 0;
-        
-        // Oblicz wartości całkowite
-        const totalBrutto = unitPriceBrutto * quantity;
-        const totalNetto = unitPriceNetto * quantity;
+
+        // Znajdź szczegóły wykończenia dla tego produktu
+        const finishing = window.currentQuoteData ?
+            (window.currentQuoteData.finishing || []).find(f => f.product_index == index) : null;
+
+        // Pobierz ilość z finishing details lub domyślnie 1
+        const quantity = finishing ? (finishing.quantity || 1) : 1;
+
+        // Oblicz ceny bazowe produktu
+        const baseUnitPriceBrutto = selected.unit_price_brutto || selected.final_price_brutto || 0;
+        const baseUnitPriceNetto = selected.unit_price_netto || selected.final_price_netto || 0;
+
+        // Dodaj cenę wykończenia do ceny jednostkowej (jeśli istnieje)
+        let finalUnitPriceBrutto = baseUnitPriceBrutto;
+        let finalUnitPriceNetto = baseUnitPriceNetto;
+
+        if (finishing && finishing.finishing_price_brutto) {
+            finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0);
+        }
+        if (finishing && finishing.finishing_price_netto) {
+            finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0);
+        }
+
+        // Oblicz wartości całkowite (cena jednostkowa × ilość)
+        const totalBrutto = finalUnitPriceBrutto * quantity;
+        const totalNetto = finalUnitPriceNetto * quantity;
+
+        // Przygotuj opis wykończenia dla wyświetlenia
+        let finishingText = '';
+        if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak' && finishing.finishing_type !== 'Surowe') {
+            const finishingParts = [];
+
+            if (finishing.finishing_type) {
+                finishingParts.push(finishing.finishing_type);
+            }
+            if (finishing.finishing_color && finishing.finishing_color !== 'Brak') {
+                finishingParts.push(finishing.finishing_color);
+            }
+            if (finishing.application_method && finishing.application_method !== 'Brak') {
+                finishingParts.push(finishing.application_method);
+            }
+
+            finishingText = finishingParts.length > 0 ? ` ${finishingParts.join(' ')}` : '';
+        }
 
         const p = document.createElement("p");
         p.className = "selected-summary-item";
@@ -1469,7 +1513,7 @@ function renderSelectedSummary(groupedItems, container) {
             <span class='dot'></span>
             <span style="font-size: 14px; font-weight: 600;">Produkt ${parseInt(index)}:</span>
             <span style="font-size: 12px; font-weight: 400;">
-                ${variant} ${dims} • 
+                ${variant} ${dims}${finishingText} • ${quantity} szt. • 
                 ${formatPriceWithNetto(totalBrutto, totalNetto)}
             </span>
         `;
@@ -2539,7 +2583,7 @@ function formatPriceWithNetto(brutto, netto) {
         html += `${brutto.toFixed(2)} PLN brutto`;
     }
     if (netto && brutto) {
-        html += ` <span style="color: #666; font-size: 12px;">${netto.toFixed(2)} PLN netto</span>`;
+        html += ` <span style="font-size: 12px;">• ${netto.toFixed(2)} PLN netto</span>`;
     } else if (netto && !brutto) {
         html += `${netto.toFixed(2)} PLN netto`;
     }
@@ -2954,3 +2998,498 @@ window.debugQuotePreview3D = function () {
 };
 
 console.log('[Preview3D] Funkcje Preview3D załadowane - używa Quote Viewer 3D/AR');
+
+
+// Inicjalizacja masowej zmiany wariantów
+function initBulkVariantChange() {
+    console.log('[BulkVariant] Inicjalizacja masowej zmiany wariantów');
+
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) {
+        console.warn('[BulkVariant] Brak elementów bulk variant w DOM');
+        return;
+    }
+
+    // NOWE: Usuń stare event listenery poprzez klonowanie elementu
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+
+    // Dodaj event listener do nowego przycisku
+    newBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('[BulkVariant] Kliknięto przycisk masowej zmiany');
+        toggleBulkVariantDropdown();
+    });
+
+    // NOWE: Usuń globalne event listenery i dodaj nowe
+    // Usuń stare listenery dla dokumentu
+    document.removeEventListener('click', globalClickHandler);
+
+    // Dodaj nowy listener
+    document.addEventListener('click', globalClickHandler);
+
+    console.log('[BulkVariant] Event listenery zaktualizowane');
+}
+
+function globalClickHandler(e) {
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+    const btn = document.getElementById('bulk-variant-change-btn');
+
+    if (dropdown && btn && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+        closeBulkVariantDropdown();
+    }
+}
+
+function toggleBulkVariantDropdown() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) return;
+
+    const isOpen = dropdown.style.display !== 'none';
+
+    if (isOpen) {
+        closeBulkVariantDropdown();
+    } else {
+        openBulkVariantDropdown();
+    }
+}
+
+function openBulkVariantDropdown() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) return;
+
+    // Pobierz dostępne warianty
+    populateBulkVariantOptions();
+
+    // Pokaż dropdown
+    dropdown.style.display = 'block';
+    btn.classList.add('active');
+
+    // Dodaj overlay dla łatwiejszego zamykania na mobile
+    addBulkVariantOverlay();
+}
+
+function closeBulkVariantDropdown() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) return;
+
+    dropdown.style.display = 'none';
+    btn.classList.remove('active');
+    removeBulkVariantOverlay();
+}
+
+function addBulkVariantOverlay() {
+    removeBulkVariantOverlay(); // Usuń istniejący overlay
+
+    const overlay = document.createElement('div');
+    overlay.className = 'bulk-variant-overlay';
+    overlay.addEventListener('click', closeBulkVariantDropdown);
+    document.body.appendChild(overlay);
+}
+
+function removeBulkVariantOverlay() {
+    const overlay = document.querySelector('.bulk-variant-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
+
+function populateBulkVariantOptions() {
+    console.log('[BulkVariant DEBUG] Rozpoczynam populateBulkVariantOptions');
+
+    const optionsContainer = document.getElementById('bulk-variant-options');
+    if (!optionsContainer) {
+        console.error('[BulkVariant DEBUG] Brak elementu bulk-variant-options w DOM');
+        return;
+    }
+
+    // POPRAWKA: Użyj currentQuoteData zamiast window.currentQuoteData
+    if (!currentQuoteData) {
+        console.error('[BulkVariant DEBUG] Brak currentQuoteData (global variable)');
+        console.log('[BulkVariant DEBUG] Sprawdzam window.currentQuoteData:', window.currentQuoteData);
+        return;
+    }
+
+    console.log('[BulkVariant DEBUG] currentQuoteData:', currentQuoteData);
+    console.log('[BulkVariant DEBUG] currentQuoteData.items:', currentQuoteData.items);
+
+    // Zbierz wszystkie dostępne warianty z produktów
+    const availableVariants = new Set();
+
+    if (currentQuoteData.items) {
+        console.log('[BulkVariant DEBUG] Przetwarzam items, długość:', currentQuoteData.items.length);
+
+        currentQuoteData.items.forEach((item, index) => {
+            console.log(`[BulkVariant DEBUG] Item ${index}:`, {
+                variant_code: item.variant_code,
+                product_index: item.product_index,
+                is_selected: item.is_selected
+            });
+
+            if (item.variant_code) {
+                availableVariants.add(item.variant_code);
+            }
+        });
+    } else {
+        console.error('[BulkVariant DEBUG] Brak currentQuoteData.items lub jest null/undefined');
+    }
+
+    console.log('[BulkVariant DEBUG] Zebrane warianty:', Array.from(availableVariants));
+
+    // Konwertuj na array i posortuj
+    const variantsList = Array.from(availableVariants).sort();
+    console.log('[BulkVariant DEBUG] Posortowane warianty:', variantsList);
+
+    // Wyczyść i wypełnij opcje
+    optionsContainer.innerHTML = '';
+
+    if (variantsList.length === 0) {
+        console.warn('[BulkVariant DEBUG] Brak dostępnych wariantów - dodaję komunikat');
+        optionsContainer.innerHTML = '<div class="bulk-variant-option" style="color: #6c757d; cursor: default;">Brak dostępnych wariantów</div>';
+        return;
+    }
+
+    console.log('[BulkVariant DEBUG] Tworzę opcje dla wariantów');
+
+    variantsList.forEach((variantCode, index) => {
+        console.log(`[BulkVariant DEBUG] Tworzę opcję ${index} dla wariantu: ${variantCode}`);
+
+        const option = document.createElement('div');
+        option.className = 'bulk-variant-option';
+        option.dataset.variantCode = variantCode;
+
+        const variantName = translateVariantCode(variantCode) || variantCode;
+        console.log(`[BulkVariant DEBUG] Przetłumaczona nazwa: ${variantName}`);
+
+        option.innerHTML = `
+            <span class="bulk-variant-option-text">${variantName}</span>
+        `;
+
+        option.addEventListener('click', () => {
+            console.log(`[BulkVariant DEBUG] Kliknięto wariant: ${variantCode}`);
+            handleBulkVariantChange(variantCode);
+        });
+
+        optionsContainer.appendChild(option);
+        console.log(`[BulkVariant DEBUG] Dodano opcję do DOM`);
+    });
+
+    console.log('[BulkVariant DEBUG] Zakończono populateBulkVariantOptions');
+}
+
+// Dodaj też funkcję debugowania do sprawdzenia stanu
+function debugBulkVariantState() {
+    console.log('=== BULK VARIANT DEBUG STATE ===');
+    console.log('currentQuoteData (global):', currentQuoteData);
+    console.log('window.currentQuoteData:', window.currentQuoteData);
+    console.log('bulk-variant-change-btn:', document.getElementById('bulk-variant-change-btn'));
+    console.log('bulk-variant-dropdown:', document.getElementById('bulk-variant-dropdown'));
+    console.log('bulk-variant-options:', document.getElementById('bulk-variant-options'));
+
+    const quoteData = currentQuoteData || window.currentQuoteData;
+    if (quoteData && quoteData.items) {
+        console.log('Items count:', quoteData.items.length);
+        quoteData.items.forEach((item, i) => {
+            console.log(`Item ${i}:`, item.variant_code, item.product_index);
+        });
+    }
+    console.log('=== END DEBUG ===');
+}
+
+function checkModalStructure() {
+    console.log('=== SPRAWDZENIE STRUKTURY MODALA ===');
+
+    // Sprawdź czy modal istnieje
+    const modal = document.getElementById('quote-details-modal');
+    console.log('Modal details:', modal);
+
+    // Sprawdź sekcję produktów
+    const productsSection = modal?.querySelector('.quotes-details-modal-section');
+    console.log('Products section:', productsSection);
+
+    // Sprawdź czy istnieje kontener dla controls
+    const controlsContainer = document.querySelector('.products-controls-container');
+    console.log('Controls container:', controlsContainer);
+
+    // Sprawdź tabs
+    const tabs = document.getElementById('quotes-details-tabs');
+    console.log('Tabs container:', tabs);
+
+    // Sprawdź elementy masowej zmiany
+    const bulkBtn = document.getElementById('bulk-variant-change-btn');
+    const bulkDropdown = document.getElementById('bulk-variant-dropdown');
+    const bulkOptions = document.getElementById('bulk-variant-options');
+
+    console.log('Bulk change button:', bulkBtn);
+    console.log('Bulk dropdown:', bulkDropdown);
+    console.log('Bulk options container:', bulkOptions);
+
+    if (!controlsContainer) {
+        console.error('❌ BRAK KONTENERA .products-controls-container - musisz zaktualizować HTML!');
+    }
+
+    if (!bulkBtn) {
+        console.error('❌ BRAK PRZYCISKU #bulk-variant-change-btn - musisz zaktualizować HTML!');
+    }
+
+    if (!bulkDropdown) {
+        console.error('❌ BRAK DROPDOWN #bulk-variant-dropdown - musisz zaktualizować HTML!');
+    }
+
+    console.log('=== KONIEC SPRAWDZENIA ===');
+}
+
+async function handleBulkVariantChange(targetVariantCode) {
+    if (!currentQuoteData || !currentQuoteData.items) {
+        console.error('[BulkVariantChange] Brak danych wyceny');
+        return;
+    }
+
+    console.log(`[BulkVariantChange] Zmiana wszystkich produktów na wariant: ${targetVariantCode}`);
+
+    try {
+        // Zamknij dropdown
+        closeBulkVariantDropdown();
+
+        // Pokaż loader/info o przetwarzaniu
+        showBulkChangeProgress();
+
+        // Znajdź wszystkie produkty i ich indeksy
+        const productIndexes = [...new Set(currentQuoteData.items.map(item => item.product_index))];
+        console.log('[BulkVariantChange] Produkty do przetworzenia:', productIndexes);
+
+        let successCount = 0;
+        let errorCount = 0;
+        let notFoundCount = 0;
+
+        // Przetwarzaj każdy produkt
+        for (const productIndex of productIndexes) {
+            try {
+                console.log(`[BulkVariantChange] Przetwarzam produkt ${productIndex}`);
+
+                // Znajdź wariant docelowy dla tego produktu
+                const targetItem = currentQuoteData.items.find(item =>
+                    item.product_index === productIndex &&
+                    item.variant_code === targetVariantCode
+                );
+
+                if (!targetItem) {
+                    console.warn(`[BulkVariantChange] Brak wariantu ${targetVariantCode} dla produktu ${productIndex}`);
+                    notFoundCount++;
+                    continue;
+                }
+
+                // Wyślij request o zmianę wariantu
+                const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}/update-variant`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        product_index: productIndex,
+                        variant_code: targetVariantCode,
+                        quote_item_id: targetItem.id
+                    })
+                });
+
+                const responseData = await response.json();
+
+                if (response.ok) {
+                    console.log(`[BulkVariantChange] ✅ Sukces dla produktu ${productIndex}`);
+                    successCount++;
+                } else {
+                    console.error(`[BulkVariantChange] ❌ Błąd dla produktu ${productIndex}:`, responseData);
+                    errorCount++;
+                }
+
+            } catch (error) {
+                console.error(`[BulkVariantChange] Błąd przetwarzania produktu ${productIndex}:`, error);
+                errorCount++;
+            }
+        }
+
+        // Ukryj loader
+        hideBulkChangeProgress();
+
+        // Pokaż wynik użytkownikowi
+        showBulkChangeResult(successCount, errorCount, notFoundCount, targetVariantCode);
+
+        // Jeśli były sukcesy, odśwież modal
+        if (successCount > 0) {
+            console.log('[BulkVariantChange] Odświeżam modal...');
+
+            setTimeout(async () => {
+                try {
+                    const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}`);
+                    if (response.ok) {
+                        const updatedQuoteData = await response.json();
+                        showDetailsModal(updatedQuoteData);
+
+                        // NOWE: Re-inicjalizuj event listenery po odświeżeniu modala
+                        setTimeout(() => {
+                            console.log('[BulkVariantChange] Re-inicjalizuję event listenery po odświeżeniu');
+                            initBulkVariantChange();
+                        }, 150);
+                    }
+                } catch (error) {
+                    console.error('[BulkVariantChange] Błąd odświeżania:', error);
+                }
+            }, 200); // Zmniejszony timeout
+        }
+
+    } catch (error) {
+        console.error('[BulkVariantChange] Błąd masowej zmiany wariantów:', error);
+        hideBulkChangeProgress();
+        showNotification('Błąd podczas zmiany wariantów. Spróbuj ponownie.', 'error');
+    }
+}
+function showBulkChangeProgress() {
+    // Można pokazać spinner lub progress bar
+    const btn = document.getElementById('bulk-variant-change-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+            <span>Zmieniam warianty...</span>
+            <div style="width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid #ED6B24; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        `;
+    }
+}
+
+function hideBulkChangeProgress() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `
+            <span>Zmień wszystkie warianty</span>
+            <svg class="bulk-variant-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        `;
+    }
+}
+
+function showBulkChangeResult(successCount, errorCount, notFoundCount, variantCode) {
+    const variantName = translateVariantCode(variantCode) || variantCode;
+
+    if (errorCount === 0 && notFoundCount === 0) {
+        showNotification(`✅ Pomyślnie zmieniono wariant na "${variantName}" dla ${successCount} produktów`, 'success');
+    } else if (successCount === 0) {
+        if (notFoundCount > 0) {
+            showNotification(`❌ Wariant "${variantName}" nie jest dostępny dla żadnego produktu`, 'error');
+        } else {
+            showNotification(`❌ Nie udało się zmienić żadnego wariantu na "${variantName}"`, 'error');
+        }
+    } else {
+        let message = `⚠️ Zmieniono ${successCount} produktów na "${variantName}".`;
+        if (notFoundCount > 0) {
+            message += ` ${notFoundCount} produktów nie ma tego wariantu.`;
+        }
+        if (errorCount > 0) {
+            message += ` ${errorCount} produktów nie zostało zmienionych z powodu błędów.`;
+        }
+        showNotification(message, 'warning');
+    }
+}
+
+// Dodaj animację spin do CSS (jeśli nie istnieje)
+if (!document.querySelector('style[data-bulk-variant-styles]')) {
+    const style = document.createElement('style');
+    style.setAttribute('data-bulk-variant-styles', 'true');
+    style.textContent = `
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+
+// Dodaj też funkcję pomocniczą do odświeżania modala po zmianach
+async function refreshQuoteModal(quoteId) {
+    try {
+        console.log(`[refreshQuoteModal] Odświeżanie danych wyceny ${quoteId}`);
+
+        // Pobierz zaktualizowane dane wyceny
+        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const updatedQuoteData = await response.json();
+
+        // Zaktualizuj modal z nowymi danymi
+        populateQuoteDetailsModal(updatedQuoteData);
+
+        console.log('[refreshQuoteModal] Modal został odświeżony');
+
+    } catch (error) {
+        console.error('[refreshQuoteModal] Błąd odświeżania modala:', error);
+        showNotification('Błąd podczas odświeżania danych. Odśwież stronę.', 'error');
+    }
+}
+
+// Funkcja pomocnicza do wyświetlania powiadomień (jeśli nie istnieje)
+function showNotification(message, type = 'info') {
+    console.log(`[showNotification] ${type.toUpperCase()}: ${message}`);
+
+    // Sprawdź czy istnieje funkcja showToast (która już jest w Twoim kodzie)
+    if (typeof showToast === 'function') {
+        showToast(message, type);
+        return;
+    }
+
+    // Fallback - prosty alert lub console.log
+    if (type === 'error') {
+        alert(`Błąd: ${message}`);
+    } else if (type === 'success') {
+        alert(`Sukces: ${message}`);
+    } else if (type === 'warning') {
+        alert(`Ostrzeżenie: ${message}`);
+    } else {
+        // Dla typu 'info' tylko console.log
+        console.info(`[Info] ${message}`);
+    }
+}
+
+async function testBackendRoute() {
+    const testData = {
+        product_index: 1,
+        variant_code: 'jes-lity-ab',
+        quote_item_id: 123
+    };
+
+    try {
+        const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}/update-variant`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(testData)
+        });
+
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+
+        const data = await response.text();
+        console.log('Response body:', data);
+
+        if (response.status === 404) {
+            console.error('❌ Route nie istnieje! Musisz dodać route do backend!');
+        } else if (response.status === 405) {
+            console.error('❌ Metoda nie dozwolona! Sprawdź czy route obsługuje PATCH!');
+        } else {
+            console.log('✅ Route istnieje');
+        }
+
+    } catch (error) {
+        console.error('Błąd testu route:', error);
+    }
+}

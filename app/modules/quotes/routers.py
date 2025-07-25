@@ -1731,3 +1731,100 @@ def check_quote_by_order(order_id):
             'error': 'Błąd podczas sprawdzania wyceny',
             'hasQuote': False
         }), 500
+
+@quotes_bp.route("/api/quotes/<int:quote_id>/update-variant", methods=['PATCH'])
+@login_required
+def update_quote_variant(quote_id):
+    """Aktualizuje wybrany wariant dla produktu w wycenie"""
+    try:
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+        
+        # Pobierz dane z requestu
+        data = request.get_json()
+        product_index = data.get('product_index')
+        variant_code = data.get('variant_code')
+        quote_item_id = data.get('quote_item_id')
+        
+        # Walidacja danych
+        if not product_index or not variant_code:
+            return jsonify({"error": "Brakuje wymaganych danych (product_index, variant_code)"}), 400
+        
+        try:
+            product_index = int(product_index)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Nieprawidłowa wartość product_index"}), 400
+        
+        print(f"[update_quote_variant] Aktualizacja wariantu dla wyceny {quote_id}, produkt {product_index}, wariant: {variant_code}", file=sys.stderr)
+        
+        # Znajdź docelowy item do ustawienia jako wybrany
+        if quote_item_id:
+            # Jeśli podano konkretny ID, użyj go
+            target_item = QuoteItem.query.filter_by(
+                id=quote_item_id,
+                quote_id=quote_id,
+                product_index=product_index
+            ).first()
+        else:
+            # Jeśli nie podano ID, znajdź po product_index i variant_code
+            target_item = QuoteItem.query.filter_by(
+                quote_id=quote_id,
+                product_index=product_index,
+                variant_code=variant_code
+            ).first()
+        
+        if not target_item:
+            return jsonify({"error": f"Nie znaleziono wariantu {variant_code} dla produktu {product_index}"}), 404
+        
+        # Sprawdź czy item już jest wybrany
+        if target_item.is_selected:
+            print(f"[update_quote_variant] Wariant {variant_code} już jest wybrany dla produktu {product_index}", file=sys.stderr)
+            return jsonify({"message": "Wariant już jest wybrany", "already_selected": True})
+        
+        # Zapisz stary wariant dla logowania
+        old_selected = QuoteItem.query.filter_by(
+            quote_id=quote_id,
+            product_index=product_index,
+            is_selected=True
+        ).first()
+        old_variant_code = old_selected.variant_code if old_selected else "Brak"
+        
+        # Odznacz wszystkie warianty w tej grupie produktów
+        QuoteItem.query.filter_by(
+            quote_id=quote_id,
+            product_index=product_index
+        ).update({QuoteItem.is_selected: False})
+        
+        # Ustaw nowy wariant jako wybrany
+        target_item.is_selected = True
+        
+        # Zapisz zmiany
+        db.session.commit()
+        
+        print(f"[update_quote_variant] Zmieniono wariant z '{old_variant_code}' na '{variant_code}' dla produktu {product_index}", file=sys.stderr)
+        
+        # Zaloguj zmianę
+        current_user_id = session.get('user_id')
+        if current_user_id:
+            log_entry = QuoteLog(
+                quote_id=quote_id,
+                user_id=current_user_id,
+                description=f"Zmieniono wariant produktu {product_index} z '{old_variant_code}' na '{variant_code}'"
+            )
+            db.session.add(log_entry)
+            db.session.commit()
+        
+        return jsonify({
+            "message": "Wariant został zmieniony",
+            "product_index": product_index,
+            "old_variant": old_variant_code,
+            "new_variant": variant_code,
+            "item_id": target_item.id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"[update_quote_variant] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
