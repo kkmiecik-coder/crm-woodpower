@@ -75,24 +75,41 @@
 
             <div class="modal-block">
                 <h3 class="quotes-details-modal-subtitle">Koszty</h3>
+
+                <!-- Koszt surowych -->
                 <p>
                     <strong>Koszt surowych:</strong>
                     <span id="quotes-details-modal-cost-products-brutto"></span>
                     <span id="quotes-details-modal-cost-products-netto" class="cost-netto"></span>
                 </p>
-                <p>
+
+                <!-- Koszt wykończenia -->
+                <p style="margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px dotted #808080">
                     <strong>Koszt wykończenia:</strong>
                     <span id="quotes-details-modal-cost-finishing-brutto"></span>
                     <span id="quotes-details-modal-cost-finishing-netto" class="cost-netto"></span>
                 </p>
+
+                <!-- NOWE: Suma produktów bez dostawy -->
+                <p style="margin-bottom: 4px;padding-bottom: 4px; border-bottom: 1px solid #b1b1b1">
+                    <strong>Koszt produktów:</strong>
+                    <span id="quotes-details-modal-cost-products-total-brutto"></span>
+                    <span id="quotes-details-modal-cost-products-total-netto" class="cost-netto"></span>
+                </p>
+
+                <!-- Kurier -->
                 <p><strong>Kurier:</strong> <span id="quotes-details-modal-courier-name"></span></p>
-                <p>
+
+                <!-- Koszt wysyłki -->
+                <p style="margin-bottom: 4px;padding-bottom: 4px; border-bottom: 2px solid #000">
                     <strong>Koszt wysyłki:</strong>
                     <span id="quotes-details-modal-cost-shipping-brutto"></span>
                     <span id="quotes-details-modal-cost-shipping-netto" class="cost-netto"></span>
                 </p>
+
+                <!-- Całkowity koszt -->
                 <p>
-                    <strong>Całkowity:</strong>
+                    <strong>Suma:</strong>
                     <span id="quotes-details-modal-cost-total-brutto"></span>
                     <span id="quotes-details-modal-cost-total-netto" class="cost-netto"></span>
                 </p>

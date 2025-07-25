@@ -1179,10 +1179,9 @@
 
 /* Style dla kwot netto - mniejszy, szary tekst */
 .cost-netto {
-    font-size: 12px;
+    font-size: 11px;
     color: #777;
     font-weight: normal;
-    margin-left: 8px;
     display: inline-block;
 }
 

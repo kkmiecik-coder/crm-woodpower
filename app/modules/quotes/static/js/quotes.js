@@ -626,7 +626,7 @@ function removeOrderBanner(modalBox) {
     }
 }
 
-// POPRAWIONA funkcja wyświetlania kosztów
+// POPRAWIONA funkcja wyświetlania kosztów - wklej do app/modules/quotes/static/js/quotes.js
 function updateCostsDisplay(quoteData) {
     console.log('[updateCostsDisplay] Aktualizuję wyświetlanie kosztów', quoteData);
 
@@ -640,32 +640,66 @@ function updateCostsDisplay(quoteData) {
             // Użyj nowej struktury z backendu
             const costs = quoteData.costs;
 
+            // Koszt surowych
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
 
+            // Koszt wykończenia
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
 
+            // NOWE: Suma produktów bez dostawy (surowe + wykończenie)
+            const productsTotalNetto = costs.products.netto + costs.finishing.netto;
+            const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
+
+            document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
+
+            // Koszt wysyłki
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
 
+            // Koszt całkowity
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+
+            // Kurier - wypełnij nazwę kuriera
+            const courierElement = document.getElementById('quotes-details-modal-courier-name');
+            if (courierElement) {
+                courierElement.textContent = quoteData.courier_name || '-';
+            }
         } else {
             // Oblicz VAT po stronie frontend
             const costs = calculateCostsClientSide(quoteData);
 
+            // Koszt surowych
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
 
+            // Koszt wykończenia
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
 
+            // NOWE: Suma produktów bez dostawy
+            const productsTotalNetto = costs.products.netto + costs.finishing.netto;
+            const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
+
+            document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
+
+            // Koszt wysyłki
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
 
+            // Koszt całkowity
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+
+            // Kurier - wypełnij nazwę kuriera
+            const courierElement = document.getElementById('quotes-details-modal-courier-name');
+            if (courierElement) {
+                courierElement.textContent = quoteData.courier_name || '-';
+            }
         }
     } else {
         // STARA STRUKTURA - fallback do starych elementów
@@ -684,17 +718,9 @@ function updateCostsDisplay(quoteData) {
         if (oldShipping) oldShipping.textContent = `${costs.shipping?.brutto?.toFixed(2) || '0.00'} PLN`;
         if (oldTotal) oldTotal.textContent = `${costs.total?.brutto?.toFixed(2) || '0.00'} PLN`;
     }
-
-    // Kurier
-    const courierElement = document.getElementById('quotes-details-modal-courier-name');
-    if (courierElement) {
-        courierElement.textContent = quoteData.courier_name || '-';
-    }
-    
     // NOWE: Sekcja Baselinker
     updateBaselinkerSection(quoteData);
 }
-
 function updateBaselinkerSection(quoteData) {
     const section = document.getElementById('baselinker-section');
     const orderNumber = document.getElementById('baselinker-order-number');
@@ -1435,12 +1461,21 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const totalBrutto = finalUnitPriceBrutto * quantity;
     const totalNetto = finalUnitPriceNetto * quantity;
 
+    // Oblicz koszt wykończenia dla wyświetlenia
+    let finishingCostDisplay = '0.00 PLN';
+    if (finishing && finishing.finishing_price_brutto && parseFloat(finishing.finishing_price_brutto) > 0) {
+        const finishingCostBrutto = parseFloat(finishing.finishing_price_brutto || 0);
+        const finishingCostNetto = parseFloat(finishing.finishing_price_netto || 0);
+        finishingCostDisplay = `${finishingCostBrutto.toFixed(2)} PLN <span class="cost-netto">${finishingCostNetto.toFixed(2)} PLN</span>`;
+    }
+
     wrap.innerHTML = `
         <div class="product-details">
             <div><strong>Wariant:</strong> ${translateVariantCode(item.variant_code) || 'Nieznany wariant'}</div>
             <div><strong>Wymiary:</strong> ${dims}</div>
             <div><strong>Objętość:</strong> ${volume}</div>
             <div><strong>Wykończenie:</strong> ${finishingDisplay}</div>
+            <div><strong>Koszt wykończenia:</strong> ${finishingCostDisplay}</div>
         </div>
         <div class="product-pricing">
             <div class="pricing-row" style="align-items: center;">
