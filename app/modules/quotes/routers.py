@@ -1828,3 +1828,25 @@ def update_quote_variant(quote_id):
         import traceback
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
+
+@quotes_bp.route('/api/multipliers', methods=['GET'])
+def get_multipliers():
+    """Pobiera listę grup cenowych z bazy danych"""
+    try:
+        from modules.calculator.models import Multiplier
+        
+        multipliers = Multiplier.query.filter_by(is_active=True).order_by(Multiplier.id).all()
+        
+        result = []
+        for multiplier in multipliers:
+            result.append({
+                'id': multiplier.id,
+                'client_type': multiplier.client_type,
+                'multiplier': multiplier.multiplier
+            })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"[get_multipliers] Błąd: {e}")
+        return jsonify({'error': 'Błąd pobierania grup cenowych'}), 500
