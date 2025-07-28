@@ -3251,6 +3251,7 @@ body.fullscreen-mode {
         left: 10px !important;
         max-width: none !important;
     }
+<<<<<<< HEAD
 }
 
 /* ===========================================
@@ -3904,4 +3905,6 @@ body.fullscreen-mode {
     .selection-actions {
         justify-content: center;
     }
+=======
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 }

@@ -618,6 +618,191 @@ def api_add_manual_row():
             'error': str(e)
         }), 500
 
+<<<<<<< HEAD
+=======
+@reports_bp.route('/api/add-manual-row', methods=['POST'])
+@login_required
+def api_add_manual_row():
+    """
+    ZAKTUALIZOWANY: API endpoint do dodawania ręcznego wiersza z obsługą produktów
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        
+        reports_logger.info("Dodawanie ręcznego wiersza",
+                          user_email=user_email,
+                          data_keys=list(data.keys()) if data else None)
+        
+        # DEBUG: Wyloguj otrzymane dane
+        reports_logger.debug("Otrzymane dane formularza",
+                           user_email=user_email,
+                           data=data)
+        
+        # NOWA LOGIKA: Obsługa produktów z nowej struktury
+        products_data = data.get('products', [])
+        
+        if not products_data:
+            # FALLBACK: Jeśli brak produktów, spróbuj stara struktura
+            reports_logger.warning("Brak produktów w nowej strukturze, używam fallback",
+                                 user_email=user_email)
+            
+            # Utwórz pojedynczy rekord (stara metoda)
+            record = BaselinkerReportOrder(
+                is_manual=True,
+                date_created=datetime.strptime(data.get('date_created'), '%Y-%m-%d').date() if data.get('date_created') else date.today(),
+                internal_order_number=data.get('internal_order_number'),
+                customer_name=data.get('customer_name'),
+                delivery_postcode=data.get('delivery_postcode'),
+                delivery_city=data.get('delivery_city'),
+                delivery_address=data.get('delivery_address'),
+                delivery_state=data.get('delivery_state'),
+                phone=data.get('phone'),
+                caretaker=user_email,
+                delivery_method=data.get('delivery_method'),
+                order_source=data.get('order_source'),
+                group_type=data.get('group_type'),
+                product_type=data.get('product_type', 'klejonka'),
+                finish_state=data.get('finish_state', 'surowy'),
+                wood_species=data.get('wood_species'),
+                technology=data.get('technology'),
+                wood_class=data.get('wood_class'),
+                length_cm=float(data.get('length_cm', 0)) if data.get('length_cm') else None,
+                width_cm=float(data.get('width_cm', 0)) if data.get('width_cm') else None,
+                thickness_cm=float(data.get('thickness_cm', 0)) if data.get('thickness_cm') else None,
+                quantity=int(data.get('quantity', 1)) if data.get('quantity') else 1,
+                # ZMIANA: Obsługa price_net zamiast price_gross
+                price_net=float(data.get('price_net', 0)) if data.get('price_net') else None,
+                price_gross=float(data.get('price_net', 0)) * 1.23 if data.get('price_net') else None,
+                delivery_cost=float(data.get('delivery_cost', 0)) if data.get('delivery_cost') else None,
+                payment_method=data.get('payment_method'),
+                paid_amount_net=float(data.get('paid_amount_net', 0)) if data.get('paid_amount_net') else 0,
+                current_status=data.get('current_status', 'Nowe - opłacone'),
+                order_amount_net=float(data.get('price_net', 0)) * int(data.get('quantity', 1)) if data.get('price_net') else 0
+            )
+            
+            # Oblicz pola pochodne
+            record.calculate_fields()
+            
+            # Zapisz do bazy
+            db.session.add(record)
+            db.session.commit()
+
+            # DEBUG: Sprawdź zapisany rekord
+            created_records = [record]
+            for record in created_records:
+                print(f"  - ID: {record.id}, is_manual: {record.is_manual}, status: {record.current_status}, data: {record.date_created}")
+
+            # Sprawdź czy rekordy są w bazie
+            fresh_records = BaselinkerReportOrder.query.filter(
+                BaselinkerReportOrder.id.in_([r.id for r in created_records])
+            ).all()
+            
+            reports_logger.info("Dodano ręczny wiersz (fallback)",
+                              user_email=user_email,
+                              record_id=record.id)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Wiersz został dodany',
+                'record_id': record.id
+            })
+            
+        else:
+            # NOWA LOGIKA: Obsługa wielu produktów
+            reports_logger.info("Dodawanie zamówienia z produktami",
+                              user_email=user_email,
+                              products_count=len(products_data))
+            
+            created_records = []
+            
+            for i, product_data in enumerate(products_data):
+                reports_logger.debug(f"Przetwarzanie produktu {i+1}",
+                                   user_email=user_email,
+                                   product_data=product_data)
+                
+                # Utwórz rekord dla każdego produktu
+                record = BaselinkerReportOrder(
+                    is_manual=True,
+                    
+                    # Wspólne dane zamówienia
+                    date_created=datetime.strptime(data.get('date_created'), '%Y-%m-%d').date() if data.get('date_created') else date.today(),
+                    internal_order_number=data.get('internal_order_number'),
+                    customer_name=data.get('customer_name'),
+                    delivery_postcode=data.get('delivery_postcode'),
+                    delivery_city=data.get('delivery_city'),
+                    delivery_address=data.get('delivery_address'),
+                    delivery_state=data.get('delivery_state'),
+                    phone=data.get('phone'),
+                    caretaker=user_email,
+                    delivery_method=data.get('delivery_method'),
+                    order_source=data.get('order_source'),
+                    delivery_cost=float(data.get('delivery_cost', 0)) if data.get('delivery_cost') else None,
+                    payment_method=data.get('payment_method'),
+                    paid_amount_net=float(data.get('paid_amount_net', 0)) if data.get('paid_amount_net') else 0,
+                    current_status=data.get('current_status', 'Nowe - opłacone'),
+                    
+                    # Dane produktu
+                    group_type=product_data.get('group_type'),
+                    product_type=product_data.get('product_type'),
+                    finish_state=product_data.get('finish_state', 'surowy'),
+                    wood_species=product_data.get('wood_species'),
+                    technology=product_data.get('technology'),
+                    wood_class=product_data.get('wood_class'),
+                    length_cm=float(product_data.get('length_cm', 0)) if product_data.get('length_cm') else None,
+                    width_cm=float(product_data.get('width_cm', 0)) if product_data.get('width_cm') else None,
+                    thickness_cm=float(product_data.get('thickness_cm', 0)) if product_data.get('thickness_cm') else None,
+                    quantity=int(product_data.get('quantity', 1)) if product_data.get('quantity') else 1,
+                    
+                    # ZMIANA: Obsługa price_net z produktu
+                    price_net=float(product_data.get('price_net', 0)) if product_data.get('price_net') else None,
+                    price_gross=float(product_data.get('price_net', 0)) * 1.23 if product_data.get('price_net') else None,
+                    order_amount_net=float(product_data.get('price_net', 0)) * int(product_data.get('quantity', 1)) if product_data.get('price_net') else 0
+                )
+                
+                # Oblicz pola pochodne
+                record.calculate_fields()
+                
+                # Dodaj do sesji
+                db.session.add(record)
+                created_records.append(record)
+            
+            # Zapisz wszystkie rekordy
+            db.session.commit()
+
+            # Sprawdź czy rekordy są w bazie
+            fresh_records = BaselinkerReportOrder.query.filter(
+                BaselinkerReportOrder.id.in_([r.id for r in created_records])
+            ).all()
+            
+            # Pobierz ID wszystkich utworzonych rekordów
+            record_ids = [record.id for record in created_records]
+            
+            reports_logger.info("Dodano zamówienie wieloproduktowe",
+                              user_email=user_email,
+                              products_count=len(created_records),
+                              record_ids=record_ids)
+            
+            return jsonify({
+                'success': True,
+                'message': f'Zamówienie z {len(created_records)} produktami zostało dodane',
+                'record_ids': record_ids,
+                'products_count': len(created_records)
+            })
+        
+    except Exception as e:
+        db.session.rollback()
+        reports_logger.error("Błąd dodawania ręcznego wiersza",
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 @reports_bp.route('/api/update-manual-row', methods=['POST'])
 @login_required
 def api_update_manual_row():
@@ -2053,6 +2238,7 @@ def api_delete_manual_row():
         return jsonify({
             'success': False,
             'error': f'Błąd usuwania rekordu: {str(e)}'
+<<<<<<< HEAD
         }), 500
     
 @reports_bp.route('/api/fetch-orders-for-selection', methods=['POST'])
@@ -2449,4 +2635,6 @@ def api_save_selected_orders():
         return jsonify({
             'success': False,
             'error': f'Błąd serwera: {str(e)}'
+=======
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
         }), 500

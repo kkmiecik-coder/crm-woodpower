@@ -1139,5 +1139,9 @@ def safe_float_convert(value) -> float:
     try:
         return float(value)
     except (ValueError, TypeError):
+<<<<<<< HEAD
         return 0.0
     
+=======
+        return 0.0
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
