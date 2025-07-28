@@ -3458,38 +3458,3 @@ function showNotification(message, type = 'info') {
         console.info(`[Info] ${message}`);
     }
 }
-
-async function testBackendRoute() {
-    const testData = {
-        product_index: 1,
-        variant_code: 'jes-lity-ab',
-        quote_item_id: 123
-    };
-
-    try {
-        const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}/update-variant`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(testData)
-        });
-
-        console.log('Response status:', response.status);
-        console.log('Response headers:', response.headers);
-
-        const data = await response.text();
-        console.log('Response body:', data);
-
-        if (response.status === 404) {
-            console.error('❌ Route nie istnieje! Musisz dodać route do backend!');
-        } else if (response.status === 405) {
-            console.error('❌ Metoda nie dozwolona! Sprawdź czy route obsługuje PATCH!');
-        } else {
-            console.log('✅ Route istnieje');
-        }
-
-    } catch (error) {
-        console.error('Błąd testu route:', error);
-    }
-}

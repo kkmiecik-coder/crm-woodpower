@@ -7,11 +7,17 @@
 let currentEditingQuoteData = null;
 let activeProductIndex = null;
 let clientTypesCache = null;
-
+let finishingDataCache = null;
+let calculatorScriptLoaded = false;
+let calculatorInitialized = false;
 
 /**
  * Otwiera modal edycji wyceny
  * @param {Object} quoteData - Dane wyceny do edycji
+ */
+
+/**
+ * ZMODYFIKOWANA funkcja openQuoteEditor - z dynamicznym ładowaniem
  */
 async function openQuoteEditor(quoteData) {
     console.log('[QUOTE EDITOR] ===== OTWIERANIE EDYTORA WYCENY =====');
@@ -33,7 +39,7 @@ async function openQuoteEditor(quoteData) {
     currentEditingQuoteData = quoteData;
     console.log('[QUOTE EDITOR] ✅ Zapisano dane wyceny do zmiennej globalnej');
 
-    // Otwórz modal
+    // Znajdź modal
     const modal = document.getElementById('quote-editor-modal');
     if (!modal) {
         console.error('[QUOTE EDITOR] ❌ BŁĄD: Nie znaleziono modalu edytora (#quote-editor-modal)');
@@ -57,16 +63,24 @@ async function openQuoteEditor(quoteData) {
         console.log('[QUOTE EDITOR] ✅ Ustawiono nazwę klienta:', clientName);
     }
 
-    // Stwórz strukturę wariantów
-    console.log('[QUOTE EDITOR] Tworzenie struktury wariantów...');
-    createVariantsStructure();
-
-    // Pokaż modal PRZED ładowaniem danych (żeby użytkownik widział że coś się dzieje)
+    // Pokaż modal PRZED ładowaniem danych
     modal.style.display = 'flex';
     console.log('[QUOTE EDITOR] ✅ Modal wyświetlony');
 
     try {
-        // ZAŁADUJ GRUPY CENOWE Z BAZY DANYCH (async)
+        // NOWE: Dynamicznie załaduj calculator.js
+        console.log('[QUOTE EDITOR] Rozpoczynam ładowanie calculator.js...');
+        const calculatorLoaded = await loadCalculatorScript();
+
+        if (calculatorLoaded) {
+            // Zainicjalizuj calculator.js dla edytora
+            initializeCalculatorForEditor();
+            console.log('[QUOTE EDITOR] ✅ Calculator.js gotowy do użycia');
+        } else {
+            console.warn('[QUOTE EDITOR] ⚠️ Calculator.js nie został załadowany - używam fallback');
+        }
+
+        // Załaduj grupy cenowe z bazy danych (async)
         console.log('[QUOTE EDITOR] Rozpoczynam ładowanie grup cenowych...');
         await loadClientTypesFromDatabase();
 
@@ -82,7 +96,6 @@ async function openQuoteEditor(quoteData) {
 
     } catch (error) {
         console.error('[QUOTE EDITOR] ❌ BŁĄD podczas ładowania danych:', error);
-        // Modal pozostaje otwarty, ale użytkownik zobaczy błąd w konsoli
     }
 
     // Dodaj obsługę zamykania
@@ -119,30 +132,29 @@ function setupModalCloseHandlers() {
     const closeBtn = document.getElementById('close-quote-editor');
     const cancelBtn = document.getElementById('cancel-quote-edit');
 
+    function closeModal() {
+        modal.style.display = 'none';
+        currentEditingQuoteData = null;
+        activeProductIndex = null;
+
+        // NOWE: Wyczyść konfigurację calculator.js
+        resetCalculatorAfterEditor();
+    }
+
     // Zamknij przez X
     if (closeBtn) {
-        closeBtn.onclick = () => {
-            modal.style.display = 'none';
-            currentEditingQuoteData = null;
-            activeProductIndex = null;
-        };
+        closeBtn.onclick = closeModal;
     }
 
     // Zamknij przez Anuluj
     if (cancelBtn) {
-        cancelBtn.onclick = () => {
-            modal.style.display = 'none';
-            currentEditingQuoteData = null;
-            activeProductIndex = null;
-        };
+        cancelBtn.onclick = closeModal;
     }
 
     // Zamknij przez kliknięcie w tło
     modal.onclick = (e) => {
         if (e.target === modal) {
-            modal.style.display = 'none';
-            currentEditingQuoteData = null;
-            activeProductIndex = null;
+            closeModal();
         }
     };
 }
@@ -176,57 +188,6 @@ function canEditQuote(quoteData) {
     }
 
     return true;
-}
-
-/**
- * Tworzy podstawową strukturę wariantów w edytorze
- */
-function createVariantsStructure() {
-    const variantsContainer = document.getElementById('edit-variants');
-    if (!variantsContainer) return;
-
-    // Header wariantów
-    const header = document.createElement('div');
-    header.className = 'variants-header';
-    header.innerHTML = `
-        <span class="header-availability">Dostępny</span>
-        <span class="header-title">Wariant</span>
-        <span class="header-unit-brutto">Cena brutto</span>
-        <span class="header-unit-netto">Cena netto</span>
-        <span class="header-total-brutto">Wartość brutto</span>
-        <span class="header-total-netto">Wartość netto</span>
-    `;
-
-    // Podstawowe warianty
-    const variants = [
-        { code: 'dab-lity-ab', name: 'Dąb lity A/B' },
-        { code: 'dab-lity-bb', name: 'Dąb lity B/B' },
-        { code: 'dab-micro-ab', name: 'Dąb mikrowczep A/B' },
-        { code: 'dab-micro-bb', name: 'Dąb mikrowczep B/B' },
-        { code: 'jes-lity-ab', name: 'Jesion lity A/B' },
-        { code: 'jes-micro-ab', name: 'Jesion mikrowczep A/B' },
-        { code: 'buk-lity-ab', name: 'Buk lity A/B' },
-        { code: 'buk-micro-ab', name: 'Buk mikrowczep A/B' }
-    ];
-
-    variantsContainer.innerHTML = '';
-    variantsContainer.appendChild(header);
-
-    variants.forEach((variant, index) => {
-        const variantRow = document.createElement('div');
-        variantRow.className = 'variant-option';
-        variantRow.innerHTML = `
-            <input type="checkbox" class="variant-availability-checkbox" checked>
-            <input type="radio" name="edit-variantOption" id="edit-variant-${index}" value="${variant.code}" data-variant-name="${variant.name}">
-            <label for="edit-variant-${index}" class="option-title">${variant.name}</label>
-            <span class="unit-brutto">---.-- PLN</span>
-            <span class="unit-netto">---.-- PLN</span>
-            <span class="total-brutto">---.-- PLN</span>
-            <span class="total-netto">---.-- PLN</span>
-        `;
-
-        variantsContainer.appendChild(variantRow);
-    });
 }
 
 /**
@@ -579,7 +540,7 @@ function attachEditorFormListeners() {
 
     let listenersCount = 0;
 
-    // Inputy wymiarów
+    // Inputy wymiarów z debouncing i live sync
     const dimensionInputs = [
         'edit-length', 'edit-width', 'edit-thickness', 'edit-quantity'
     ];
@@ -588,73 +549,108 @@ function attachEditorFormListeners() {
     dimensionInputs.forEach(inputId => {
         const input = document.getElementById(inputId);
         if (input) {
+            let timeout;
             input.addEventListener('input', () => {
                 console.log(`[QUOTE EDITOR] 🔄 INPUT CHANGE: ${inputId} = "${input.value}"`);
+
+                // Live sync do mock formularza
+                syncEditorToMockForm();
+
+                // Debounced obliczenia
+                clearTimeout(timeout);
+                timeout = setTimeout(() => {
+                    onFormDataChange();
+                }, 300); // Zmniejszono z 500ms na 300ms dla lepszej responsywności
+            });
+
+            input.addEventListener('change', () => {
+                clearTimeout(timeout);
+                syncEditorToMockForm();
                 onFormDataChange();
             });
-            listenersCount++;
-            console.log(`[QUOTE EDITOR] ✅ Listener dodany dla #${inputId}`);
-        } else {
-            console.error(`[QUOTE EDITOR] ❌ BŁĄD: Nie znaleziono elementu #${inputId}`);
+
+            listenersCount += 2;
+            console.log(`[QUOTE EDITOR] ✅ Listeners dodane dla #${inputId}`);
         }
     });
 
-    // Grupa cenowa - POPRAWIONA obsługa
-    console.log('[QUOTE EDITOR] Dodaję listener dla grupy cenowej...');
+    // Grupa cenowa - natychmiastowa synchronizacja
     const clientTypeSelect = document.getElementById('edit-clientType');
     if (clientTypeSelect) {
         clientTypeSelect.addEventListener('change', () => {
-            const selectedOption = clientTypeSelect.options[clientTypeSelect.selectedIndex];
-            const clientType = selectedOption?.value;
-            const multiplier = selectedOption?.dataset.multiplierValue;
-
-            console.log(`[QUOTE EDITOR] 🔄 CLIENT TYPE CHANGE: "${clientType}" (mnożnik: ${multiplier})`);
-            onClientTypeChange(); // Wywołaj dedykowaną funkcję
+            console.log('[QUOTE EDITOR] 🔄 CLIENT TYPE CHANGE:', clientTypeSelect.value);
+            syncEditorToMockForm();
+            onClientTypeChange();
+            onFormDataChange();
         });
         listenersCount++;
-        console.log('[QUOTE EDITOR] ✅ Listener dodany dla grupy cenowej z obsługą mnożnika');
-    } else {
-        console.error('[QUOTE EDITOR] ❌ BŁĄD: Nie znaleziono elementu #edit-clientType');
+        console.log('[QUOTE EDITOR] ✅ Listener dodany dla #edit-clientType');
     }
 
-    // Radio buttons wariantów
-    console.log('[QUOTE EDITOR] Dodaję listenery dla wariantów...');
-    const variantRadios = document.querySelectorAll('input[name="edit-variantOption"]');
-    console.log(`[QUOTE EDITOR] Znaleziono ${variantRadios.length} radio buttons wariantów`);
+    // Checkbox-y dostępności - z synchronizacją
+    const availabilityCheckboxes = document.querySelectorAll('.variant-availability-checkbox');
+    availabilityCheckboxes.forEach((checkbox, index) => {
+        checkbox.addEventListener('change', (e) => {
+            console.log(`[QUOTE EDITOR] 🔄 CHECKBOX CHANGE: wariant ${index} = ${e.target.checked}`);
+            updateVariantAvailability(e.target);
+            syncEditorToMockForm(); // Synchronizuj do mock formularza
+            onFormDataChange(); // Przelicz
+        });
+        listenersCount++;
+    });
+    console.log(`[QUOTE EDITOR] ✅ Dodano ${availabilityCheckboxes.length} listenerów dla checkbox-ów`);
 
-    variantRadios.forEach((radio, index) => {
-        radio.addEventListener('change', () => {
-            if (radio.checked) {
-                console.log(`[QUOTE EDITOR] 🔄 VARIANT CHANGE: "${radio.value}" (${radio.dataset.variantName})`);
-                onFormDataChange();
+    // Radio button-y wariantów - z synchronizacją
+    const variantRadios = document.querySelectorAll('input[name="edit-variantOption"]');
+    variantRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                console.log(`[QUOTE EDITOR] 🔄 VARIANT CHANGE: ${e.target.value}`);
+                updateSelectedVariant(e.target);
+                syncEditorToMockForm(); // Synchronizuj do mock formularza
+                onFormDataChange(); // Przelicz
             }
         });
         listenersCount++;
-        console.log(`[QUOTE EDITOR] ✅ Listener ${index + 1} dodany dla wariantu: ${radio.value}`);
     });
+    console.log(`[QUOTE EDITOR] ✅ Dodano ${variantRadios.length} listenerów dla radio button-ów`);
 
-    // Przyciski
-    console.log('[QUOTE EDITOR] Dodaję listenery dla przycisków...');
+    // Pozostałe przyciski bez zmian...
     const saveBtn = document.getElementById('save-quote-changes');
     const addProductBtn = document.getElementById('edit-add-product-btn');
 
     if (saveBtn) {
         saveBtn.addEventListener('click', saveQuoteChanges);
         listenersCount++;
-        console.log('[QUOTE EDITOR] ✅ Listener dodany dla przycisku "Zapisz zmiany"');
-    } else {
-        console.error('[QUOTE EDITOR] ❌ BŁĄD: Nie znaleziono przycisku #save-quote-changes');
     }
 
     if (addProductBtn) {
         addProductBtn.addEventListener('click', addNewProductToQuote);
         listenersCount++;
-        console.log('[QUOTE EDITOR] ✅ Listener dodany dla przycisku "Dodaj produkt"');
-    } else {
-        console.error('[QUOTE EDITOR] ❌ BŁĄD: Nie znaleziono przycisku #edit-add-product-btn');
     }
 
     console.log(`[QUOTE EDITOR] ===== DODANO ${listenersCount} EVENT LISTENERS =====`);
+}
+
+// 8. DODAJ funkcję sprawdzającą dostępność calculator.js przy starcie
+function checkCalculatorAvailability() {
+    const availableFunctions = {
+        updatePrices: typeof updatePrices !== 'undefined',
+        calculateFinishingCost: typeof calculateFinishingCost !== 'undefined',
+        getPrice: typeof getPrice !== 'undefined',
+        formatPLN: typeof formatPLN !== 'undefined'
+    };
+
+    console.log('[QUOTE EDITOR] Dostępność funkcji calculator.js:', availableFunctions);
+
+    const availableCount = Object.values(availableFunctions).filter(Boolean).length;
+    if (availableCount > 0) {
+        console.log(`[QUOTE EDITOR] ✅ Calculator.js częściowo dostępny (${availableCount}/4 funkcji)`);
+        return true;
+    } else {
+        console.log('[QUOTE EDITOR] ❌ Calculator.js niedostępny - używam fallback');
+        return false;
+    }
 }
 
 /**
@@ -676,8 +672,281 @@ function attachRemoveProductListeners() {
  */
 function onFormDataChange() {
     console.log('[QUOTE EDITOR] Dane formularza zostały zmienione');
-    // TODO: Tutaj będzie logika przeliczania cen na żywo
-    // Na razie tylko logowanie
+
+    // Pobierz dane formularza
+    const formData = collectFormData();
+    if (!formData) {
+        console.warn('[QUOTE EDITOR] Nie udało się pobrać danych formularza');
+        return;
+    }
+
+    // Sprawdź czy calculator.js jest dostępny i zainicjalizowany
+    if (calculatorScriptLoaded && calculatorInitialized && typeof updatePrices === 'function') {
+        console.log('[QUOTE EDITOR] Używam funkcji updatePrices z calculator.js');
+
+        // Przygotuj środowisko dla calculator.js
+        setupCalculatorForEditor();
+
+        // Wywołaj funkcję obliczeń z calculator.js
+        updatePrices();
+
+        // Skopiuj wyniki z powrotem do edytora
+        copyCalculationResults();
+
+    } else {
+        console.warn('[QUOTE EDITOR] Calculator.js nie jest gotowy - używam fallback');
+        // Fallback - wywołaj własną funkcję obliczeń
+        calculateEditorPrices(formData);
+    }
+}
+
+// Eksportuj funkcję do globalnego scope dla debugowania
+window.checkCalculatorReadiness = checkCalculatorReadiness;
+
+/**
+ * Funkcja do sprawdzania czy calculator.js jest ready
+ */
+function checkCalculatorReadiness() {
+    const isReady = calculatorScriptLoaded &&
+        calculatorInitialized &&
+        typeof updatePrices === 'function' &&
+        typeof window.pricesFromDatabase !== 'undefined' &&
+        typeof window.multiplierMapping !== 'undefined';
+
+    console.log('[QUOTE EDITOR] Stan calculator.js:', {
+        scriptLoaded: calculatorScriptLoaded,
+        initialized: calculatorInitialized,
+        updatePricesAvailable: typeof updatePrices === 'function',
+        pricesDataAvailable: typeof window.pricesFromDatabase !== 'undefined',
+        multipliersAvailable: typeof window.multiplierMapping !== 'undefined',
+        ready: isReady
+    });
+
+    return isReady;
+}
+
+function setupCalculatorForEditor() {
+    console.log('[QUOTE EDITOR] Konfiguracja calculator.js dla edytora...');
+
+    // Znajdź lub stwórz kontener formularzy jak w calculator.js
+    let editorQuoteFormsContainer = document.querySelector('#quote-editor-modal .quote-forms-container');
+    if (!editorQuoteFormsContainer) {
+        // Stwórz kontener formularzy w edytorze
+        editorQuoteFormsContainer = document.createElement('div');
+        editorQuoteFormsContainer.className = 'quote-forms-container';
+        editorQuoteFormsContainer.style.display = 'none'; // Ukryj, to tylko dla obliczeń
+
+        // Dodaj do modalu
+        const modal = document.getElementById('quote-editor-modal');
+        modal.appendChild(editorQuoteFormsContainer);
+    }
+
+    // Stwórz prawdziwy formularz zgodny z calculator.js
+    const mockQuoteForm = document.createElement('div');
+    mockQuoteForm.className = 'quote-form';
+    mockQuoteForm.style.display = 'none'; // Ukryj, to tylko dla obliczeń
+
+    // Dodaj wszystkie wymagane inputy zgodnie ze strukturą calculator.js
+    mockQuoteForm.innerHTML = `
+        <div class="product-inputs">
+            <select data-field="clientType" style="display: none;">
+                <option value="">Wybierz grupę</option>
+                <option value="Florek">Florek</option>
+                <option value="Hurt">Hurt</option>
+                <option value="Detal">Detal</option>
+                <option value="Detal+">Detal+</option>
+            </select>
+            <input type="number" data-field="length" style="display: none;">
+            <input type="number" data-field="width" style="display: none;">
+            <input type="number" data-field="thickness" style="display: none;">
+            <input type="number" data-field="quantity" style="display: none;">
+        </div>
+        <div class="variants">
+            <div class="dab-lity-ab-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-lity-ab" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-dab-lity-ab" value="dab-lity-ab">
+                <label for="mock-dab-lity-ab" class="option-title">Dąb lity A/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+            <div class="dab-lity-bb-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-lity-bb" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-dab-lity-bb" value="dab-lity-bb">
+                <label for="mock-dab-lity-bb" class="option-title">Dąb lity B/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+            <div class="dab-micro-ab-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-micro-ab" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-dab-micro-ab" value="dab-micro-ab">
+                <label for="mock-dab-micro-ab" class="option-title">Dąb mikrowczep A/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+            <div class="dab-micro-bb-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-micro-bb" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-dab-micro-bb" value="dab-micro-bb">
+                <label for="mock-dab-micro-bb" class="option-title">Dąb mikrowczep B/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+            <div class="jes-lity-ab-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="jes-lity-ab" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-jes-lity-ab" value="jes-lity-ab">
+                <label for="mock-jes-lity-ab" class="option-title">Jesion lity A/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+            <div class="jes-micro-ab-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="jes-micro-ab" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-jes-micro-ab" value="jes-micro-ab">
+                <label for="mock-jes-micro-ab" class="option-title">Jesion mikrowczep A/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+            <div class="buk-lity-ab-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="buk-lity-ab" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-buk-lity-ab" value="buk-lity-ab">
+                <label for="mock-buk-lity-ab" class="option-title">Buk lity A/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+            <div class="buk-micro-ab-option variant-option">
+                <input type="checkbox" class="variant-availability-checkbox" data-variant="buk-micro-ab" checked>
+                <input type="radio" name="variant-product-0-selected" id="mock-buk-micro-ab" value="buk-micro-ab">
+                <label for="mock-buk-micro-ab" class="option-title">Buk mikrowczep A/B</label>
+                <span class="unit-brutto">---.-- PLN</span>
+                <span class="unit-netto">---.-- PLN</span>
+                <span class="total-brutto">---.-- PLN</span>
+                <span class="total-netto">---.-- PLN</span>
+            </div>
+        </div>
+    `;
+
+    // Wyczyść poprzednie formularze i dodaj nowy
+    editorQuoteFormsContainer.innerHTML = '';
+    editorQuoteFormsContainer.appendChild(mockQuoteForm);
+
+    // Skopiuj wartości z edytora do mock formularza
+    const editorInputs = {
+        'edit-clientType': 'clientType',
+        'edit-length': 'length',
+        'edit-width': 'width',
+        'edit-thickness': 'thickness',
+        'edit-quantity': 'quantity'
+    };
+
+    Object.entries(editorInputs).forEach(([editorId, calculatorField]) => {
+        const editorInput = document.getElementById(editorId);
+        const mockInput = mockQuoteForm.querySelector(`[data-field="${calculatorField}"]`);
+
+        if (editorInput && mockInput) {
+            mockInput.value = editorInput.value;
+            console.log(`[QUOTE EDITOR] Skopiowano ${calculatorField}: ${editorInput.value}`);
+        }
+    });
+
+    // Synchronizuj wybrany wariant
+    const selectedEditorRadio = document.querySelector('#quote-editor-modal input[name="edit-variantOption"]:checked');
+    if (selectedEditorRadio) {
+        const variantValue = selectedEditorRadio.value;
+        const mockRadio = mockQuoteForm.querySelector(`input[value="${variantValue}"]`);
+
+        if (mockRadio) {
+            mockRadio.checked = true;
+            console.log(`[QUOTE EDITOR] Zsynchronizowano wybrany wariant: ${variantValue}`);
+        }
+    }
+
+    // Ustaw globalne zmienne dla calculator.js
+    window.originalQuoteFormsContainer = window.quoteFormsContainer;
+    window.originalActiveQuoteForm = window.activeQuoteForm;
+
+    window.quoteFormsContainer = editorQuoteFormsContainer;
+    window.activeQuoteForm = mockQuoteForm;
+
+    console.log('[QUOTE EDITOR] ✅ Calculator.js skonfigurowany z prawdziwym formularzem');
+}
+
+function syncSelectedVariant(mockForm) {
+    const selectedEditorRadio = document.querySelector('#quote-editor-modal input[name="edit-variantOption"]:checked');
+
+    if (selectedEditorRadio) {
+        const variantValue = selectedEditorRadio.value;
+        const mockRadio = mockForm.querySelector(`input[value="${variantValue}"]`);
+
+        if (mockRadio && !mockRadio.disabled) {
+            mockRadio.checked = true;
+            console.log(`[QUOTE EDITOR] Zsynchronizowano wybrany wariant: ${variantValue}`);
+        }
+    }
+}
+
+function copyCalculationResults() {
+    if (!window.activeQuoteForm) {
+        console.warn('[QUOTE EDITOR] Brak activeQuoteForm do skopiowania wyników');
+        return;
+    }
+
+    // Skopiuj wyniki z mock formularza do edytora
+    const mockVariants = window.activeQuoteForm.querySelectorAll('.variant-option');
+    const editorVariants = document.querySelectorAll('#quote-editor-modal .variant-option');
+
+    mockVariants.forEach((mockVariant, index) => {
+        const editorVariant = editorVariants[index];
+        if (!editorVariant) return;
+
+        // Skopiuj ceny
+        const priceFields = ['unit-brutto', 'unit-netto', 'total-brutto', 'total-netto'];
+
+        priceFields.forEach(fieldClass => {
+            const mockElement = mockVariant.querySelector(`.${fieldClass}`);
+            const editorElement = editorVariant.querySelector(`.${fieldClass}`);
+
+            if (mockElement && editorElement) {
+                editorElement.textContent = mockElement.textContent;
+            }
+        });
+    });
+
+    console.log('[QUOTE EDITOR] ✅ Skopiowano wyniki obliczeń do edytora');
+}
+
+function syncAvailabilityStates(mockForm) {
+    // Skopiuj stany checkbox-ów z edytora do mock formularza
+    const editorCheckboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+
+    editorCheckboxes.forEach(editorCheckbox => {
+        const variant = editorCheckbox.dataset.variant || editorCheckbox.getAttribute('data-variant');
+        if (variant) {
+            const mockCheckbox = mockForm.querySelector(`[data-variant="${variant}"]`);
+            if (mockCheckbox) {
+                mockCheckbox.checked = editorCheckbox.checked;
+
+                // Ustaw dostępność radio button-a
+                const mockRadio = mockCheckbox.parentElement.querySelector('input[type="radio"]');
+                if (mockRadio) {
+                    mockRadio.disabled = !editorCheckbox.checked;
+                }
+            }
+        }
+    });
+
+    console.log('[QUOTE EDITOR] Zsynchronizowano stany dostępności');
 }
 
 /**
@@ -715,9 +984,13 @@ function saveQuoteChanges() {
         return;
     }
 
+    // Walidacja formularza
+    if (!validateFormBeforeSave()) {
+        return;
+    }
+
     // Zbierz dane z formularza
     const updatedData = collectUpdatedQuoteData();
-
     if (!updatedData) {
         alert('Błąd: Nie udało się zebrać danych z formularza');
         return;
@@ -907,7 +1180,972 @@ function loadDefaultClientTypes() {
     console.log('[QUOTE EDITOR] ===== KONIEC ŁADOWANIA DOMYŚLNYCH GRUP =====');
 }
 
+/**
+ * =====================================================
+ * SEKCJA WYKOŃCZENIE - QUOTE EDITOR
+ * Skopiowane i zaadaptowane z calculator.js
+ * =====================================================
+ */
+
+/**
+ * Inicjalizuje obsługę sekcji wykończenie w edytorze wyceny
+ * Wywołuje się w funkcji attachEditorFormListeners()
+ */
+function initializeFinishingSection() {
+    console.log('[QUOTE EDITOR] Inicjalizuję sekcję wykończenie...');
+
+    // Dodaj event listenery do przycisków rodzaju wykończenia
+    const finishingTypeButtons = document.querySelectorAll('#edit-finishing-type-group .finishing-btn');
+    finishingTypeButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            handleFinishingTypeChange(button.dataset.finishingType);
+        });
+    });
+
+    // Dodaj event listenery do przycisków wariantu wykończenia
+    const finishingVariantButtons = document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn');
+    finishingVariantButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            handleFinishingVariantChange(button);
+        });
+    });
+
+    // Dodaj event listenery do przycisków kolorów
+    const colorButtons = document.querySelectorAll('#edit-finishing-color-wrapper .color-btn');
+    colorButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            handleFinishingColorChange(button);
+        });
+    });
+
+    console.log('[QUOTE EDITOR] ✅ Sekcja wykończenie zainicjalizowana');
+}
+
+/**
+ * Obsługuje zmianę wariantu wykończenia (bezbarwne/barwne)
+ * @param {HTMLElement} clickedButton - Kliknięty przycisk
+ */
+function handleFinishingVariantChange(clickedButton) {
+    const finishingVariant = clickedButton.dataset.finishingVariant;
+    console.log('[QUOTE EDITOR] Zmiana wariantu wykończenia:', finishingVariant);
+
+    // Usuń aktywną klasę z wszystkich przycisków wariantu
+    const variantButtons = document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn');
+    variantButtons.forEach(btn => btn.classList.remove('active'));
+
+    // Dodaj aktywną klasę do klikniętego przycisku
+    clickedButton.classList.add('active');
+
+    const colorWrapper = document.getElementById('edit-finishing-color-wrapper');
+
+    if (finishingVariant === 'Bezbarwne') {
+        // Ukryj sekcję kolorów - bezbarwne nie ma kolorów
+        if (colorWrapper) colorWrapper.style.display = 'none';
+
+        // Wyczyść wybór koloru
+        clearColorSelection();
+    } else if (finishingVariant === 'Barwne') {
+        // Pokaż sekcję kolorów - barwne ma opcje kolorystyczne
+        if (colorWrapper) colorWrapper.style.display = 'flex';
+
+        // Wyczyść wybór koloru (użytkownik musi wybrać nowy)
+        clearColorSelection();
+    }
+
+    // Wywołaj onFormDataChange() jeśli istnieje
+    if (typeof onFormDataChange === 'function') {
+        onFormDataChange();
+    }
+}
+
+/**
+ * Obsługuje zmianę koloru wykończenia
+ * @param {HTMLElement} clickedButton - Kliknięty przycisk
+ */
+function handleFinishingColorChange(clickedButton) {
+    const finishingColor = clickedButton.dataset.finishingColor;
+    console.log('[QUOTE EDITOR] Zmiana koloru wykończenia:', finishingColor);
+
+    // Usuń aktywną klasę z wszystkich przycisków kolorów
+    const colorButtons = document.querySelectorAll('#edit-finishing-color-wrapper .color-btn');
+    colorButtons.forEach(btn => btn.classList.remove('active'));
+
+    // Dodaj aktywną klasę do klikniętego przycisku
+    clickedButton.classList.add('active');
+
+    // Wywołaj onFormDataChange() jeśli istnieje
+    if (typeof onFormDataChange === 'function') {
+        onFormDataChange();
+    }
+}
+
+/**
+ * Czyści wszystkie wybory wykończenia
+ */
+function clearFinishingSelections() {
+    // Wyczyść warianty
+    const variantButtons = document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn');
+    variantButtons.forEach(btn => btn.classList.remove('active'));
+
+    // Wyczyść kolory
+    clearColorSelection();
+}
+
+/**
+ * Czyści wybory wariantów wykończenia
+ */
+function clearFinishingVariantSelections() {
+    const variantButtons = document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn');
+    variantButtons.forEach(btn => btn.classList.remove('active'));
+
+    clearColorSelection();
+}
+
+/**
+ * Czyści wybór koloru
+ */
+function clearColorSelection() {
+    const colorButtons = document.querySelectorAll('#edit-finishing-color-wrapper .color-btn');
+    colorButtons.forEach(btn => btn.classList.remove('active'));
+}
+
+/**
+ * Pobiera aktualnie wybrany typ wykończenia
+ * @returns {string}
+ */
+function getSelectedFinishingType() {
+    const activeButton = document.querySelector('#edit-finishing-type-group .finishing-btn.active');
+    return activeButton ? activeButton.dataset.finishingType : 'Surowe';
+}
+
+/**
+ * Pobiera aktualnie wybrany wariant wykończenia
+ * @returns {string|null}
+ */
+function getSelectedFinishingVariant() {
+    const activeButton = document.querySelector('#edit-finishing-variant-wrapper .finishing-btn.active');
+    return activeButton ? activeButton.dataset.finishingVariant : null;
+}
+
+/**
+ * Pobiera aktualnie wybrany kolor wykończenia
+ * @returns {string|null}
+ */
+function getSelectedFinishingColor() {
+    const activeButton = document.querySelector('#edit-finishing-color-wrapper .color-btn.active');
+    return activeButton ? activeButton.dataset.finishingColor : null;
+}
+
+/**
+ * Ładuje dane wykończenia z wyceny do formularza edytora
+ * @param {Object} itemData - Dane produktu z wyceny
+ */
+function loadFinishingDataToEditor(itemData) {
+    console.log('[QUOTE EDITOR] Ładowanie danych wykończenia:', itemData);
+
+    if (!itemData) return;
+
+    // Ustaw typ wykończenia
+    if (itemData.finishing_type) {
+        const typeButton = document.querySelector(`#edit-finishing-type-group [data-finishing-type="${itemData.finishing_type}"]`);
+        if (typeButton) {
+            // Usuń active z wszystkich przycisków typu
+            document.querySelectorAll('#edit-finishing-type-group .finishing-btn').forEach(btn =>
+                btn.classList.remove('active'));
+
+            // Dodaj active do właściwego przycisku i wywołaj handler
+            typeButton.classList.add('active');
+            handleFinishingTypeChange(typeButton);
+        }
+    }
+
+    // Ustaw wariant wykończenia (jeśli istnieje)
+    if (itemData.finishing_variant) {
+        setTimeout(() => { // Timeout aby sekcja zdążyła się pokazać
+            const variantButton = document.querySelector(`#edit-finishing-variant-wrapper [data-finishing-variant="${itemData.finishing_variant}"]`);
+            if (variantButton) {
+                // Usuń active z wszystkich przycisków wariantu
+                document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn').forEach(btn =>
+                    btn.classList.remove('active'));
+
+                // Dodaj active do właściwego przycisku i wywołaj handler
+                variantButton.classList.add('active');
+                handleFinishingVariantChange(variantButton);
+            }
+        }, 50);
+    }
+
+    // Ustaw kolor wykończenia (jeśli istnieje)
+    if (itemData.finishing_color) {
+        setTimeout(() => {
+            const colorButton = document.querySelector(`#edit-finishing-color-wrapper [data-finishing-color="${itemData.finishing_color}"]`);
+            if (colorButton) {
+                // Usuń active z wszystkich przycisków koloru
+                document.querySelectorAll('#edit-finishing-color-wrapper .color-btn').forEach(btn =>
+                    btn.classList.remove('active'));
+
+                // Dodaj active do właściwego przycisku
+                colorButton.classList.add('active');
+            }
+        }, 100);
+    }
+
+    console.log('[QUOTE EDITOR] ✅ Załadowano dane wykończenia');
+}
+
+/**
+ * Zbiera dane wykończenia z formularza edytora
+ * @returns {Object}
+ */
+function collectFinishingDataFromEditor() {
+    return {
+        finishing_type: getSelectedFinishingType(),
+        finishing_variant: getSelectedFinishingVariant(),
+        finishing_color: getSelectedFinishingColor()
+    };
+}
+
+/**
+ * Ładuje dane wykończenia z bazy danych
+ */
+async function loadFinishingDataFromDatabase() {
+    console.log('[QUOTE EDITOR] ===== ŁADOWANIE DANYCH WYKOŃCZENIA Z BAZY =====');
+
+    try {
+        const response = await fetch('/quotes/api/finishing-data');
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        finishingDataCache = data;
+
+        console.log('[QUOTE EDITOR] ✅ Pobrano dane wykończenia z bazy:', data);
+        console.log(`[QUOTE EDITOR] - Typy wykończenia: ${data.finishing_types.length}`);
+        console.log(`[QUOTE EDITOR] - Kolory: ${data.finishing_colors.length}`);
+
+        // tylko 3 główne typy jako przyciski
+        renderFinishingTypeButtonsFromDb(data.finishing_types);
+
+        // kolory zostają
+        generateFinishingColorOptions(data.finishing_colors);
+
+        return data;
+
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ BŁĄD podczas ładowania danych wykończenia:', error);
+        console.log('[QUOTE EDITOR] ⚠️ Używam domyślnych danych wykończenia jako fallback');
+        loadDefaultFinishingData();
+        return null;
+    }
+}
+
+
+/**
+ * Generuje opcje typów wykończenia na podstawie danych z bazy
+ * @param {Array} finishingTypes - Typy wykończenia z bazy danych
+ */
+function generateFinishingTypeOptions(finishingTypes) {
+    const container = document.getElementById('edit-finishing-type-group');
+    if (!container) {
+        console.error('[QUOTE EDITOR] Nie znaleziono kontenera typów wykończenia');
+        return;
+    }
+
+    container.innerHTML = '';
+
+    finishingTypes.forEach((type, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `finishing-btn ${index === 0 ? 'active' : ''}`; // Pierwszy jako aktywny
+        button.dataset.finishingType = type.name;
+        button.dataset.finishingPrice = type.price_netto;
+        button.textContent = type.name;
+
+        container.appendChild(button);
+
+        console.log(`[QUOTE EDITOR] ✅ Dodano typ wykończenia: ${type.name} (${type.price_netto} PLN/m²)`);
+    });
+
+    console.log(`[QUOTE EDITOR] ✅ Wygenerowano ${finishingTypes.length} opcji typów wykończenia`);
+}
+
+/**
+ * Generuje opcje kolorów na podstawie danych z bazy
+ * @param {Array} finishingColors - Kolory z bazy danych
+ */
+function generateFinishingColorOptions(finishingColors) {
+    const wrapper = document.getElementById('edit-finishing-color-wrapper');
+    const container = wrapper ? wrapper.querySelector('.color-group') : null;
+
+    if (!container) {
+        console.error('[QUOTE EDITOR] Nie znaleziono kontenera kolorów (.color-group)');
+        return;
+    }
+
+    container.innerHTML = '';
+
+    finishingColors.forEach(color => {
+        const button = document.createElement('button');
+        button.className = 'color-btn';
+        button.dataset.finishingColor = color.name;
+
+        if (color.image_url) {
+            const img = document.createElement('img');
+            img.src = color.image_url;
+            img.alt = color.name;
+            img.onerror = () => {
+                console.warn(`[QUOTE EDITOR] Nie można załadować obrazka: ${color.image_url}`);
+                img.style.display = 'none';
+            };
+            button.appendChild(img);
+        }
+
+        const span = document.createElement('span');
+        span.textContent = color.name;
+        button.appendChild(span);
+
+        container.appendChild(button);
+
+        console.log(`[QUOTE EDITOR] ✅ Dodano kolor: ${color.name}`);
+    });
+
+    console.log(`[QUOTE EDITOR] ✅ Wygenerowano ${finishingColors.length} opcji kolorów`);
+}
+
+
+/**
+ * Ładuje domyślne dane wykończenia jako fallback
+ */
+function loadDefaultFinishingData() {
+    console.log('[QUOTE EDITOR] ===== ŁADOWANIE DOMYŚLNYCH DANYCH WYKOŃCZENIA =====');
+
+    const defaultTypes = [
+        { name: 'Surowe', price_netto: 0 },
+        { name: 'Lakierowanie bezbarwne', price_netto: 200 },
+        { name: 'Lakierowanie barwne', price_netto: 250 },
+        { name: 'Olejowanie', price_netto: 250 }
+    ];
+
+    const defaultColors = [
+        { name: 'POPIEL 20-07', image_url: '/calculator/static/images/finishing_colors/popiel-20-07.jpg' },
+        { name: 'BEŻ BN-125/09', image_url: '/calculator/static/images/finishing_colors/bez-bn-125-09.jpg' },
+        { name: 'BRUNAT 22-10', image_url: '/calculator/static/images/finishing_colors/brunat-22-10.jpg' }
+    ];
+
+    finishingDataCache = {
+        finishing_types: defaultTypes,
+        finishing_colors: defaultColors
+    };
+
+    generateFinishingTypeOptions(defaultTypes);
+    generateFinishingColorOptions(defaultColors);
+
+    console.log('[QUOTE EDITOR] ✅ Załadowano domyślne dane wykończenia');
+}
+
+/**
+ * Inicjalizuje obsługę sekcji wykończenia - ZAKTUALIZOWANA WERSJA
+ */
+function initFinishingSection() {
+    console.log('[QUOTE EDITOR] Inicjalizacja sekcji wykończenia...');
+
+    // Event delegation - obsługa dynamicznie dodawanych przycisków
+    const typeContainer = document.getElementById('edit-finishing-type-group');
+    if (typeContainer) {
+        typeContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('finishing-btn')) {
+                setActiveFinishingButton(e.target, '#edit-finishing-type-group');
+                const finishingType = e.target.dataset.finishingType;
+                console.log(`[QUOTE EDITOR] Wybrano rodzaj wykończenia: ${finishingType}`);
+                handleFinishingTypeChange(finishingType);
+                onFormDataChange();
+            }
+        });
+    }
+
+    // Event delegation dla kolorów
+    const colorContainer = document.getElementById('edit-finishing-colors-container');
+    if (colorContainer) {
+        colorContainer.addEventListener('click', (e) => {
+            const colorBtn = e.target.closest('.color-btn');
+            if (colorBtn) {
+                setActiveColorButton(colorBtn);
+                const finishingColor = colorBtn.dataset.finishingColor;
+                console.log(`[QUOTE EDITOR] Wybrano kolor: ${finishingColor}`);
+                onFormDataChange();
+            }
+        });
+    }
+
+    // Event listenery dla wariantu lakierowania (statyczne)
+    const finishingVariantButtons = document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn');
+    finishingVariantButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            setActiveFinishingButton(btn, '#edit-finishing-variant-wrapper');
+            const finishingVariant = btn.dataset.finishingVariant;
+            console.log(`[QUOTE EDITOR] Wybrano wariant lakierowania: ${finishingVariant}`);
+            handleFinishingVariantChange(finishingVariant);
+            onFormDataChange();
+        });
+    });
+
+    // Event listenery dla stopnia połysku (statyczne)
+    const glossButtons = document.querySelectorAll('#edit-finishing-gloss-wrapper .finishing-btn');
+    glossButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            setActiveFinishingButton(btn, '#edit-finishing-gloss-wrapper');
+            const finishingGloss = btn.dataset.finishingGloss;
+            console.log(`[QUOTE EDITOR] Wybrano stopień połysku: ${finishingGloss}`);
+            onFormDataChange();
+        });
+    });
+
+    console.log('[QUOTE EDITOR] ✅ Sekcja wykończenia zainicjalizowana');
+}
+
+/**
+ * Obsługuje zmianę rodzaju wykończenia - ZAKTUALIZOWANA WERSJA
+ * @param {string} finishingType - Rodzaj wykończenia
+ */
+function handleFinishingTypeChange(finishingType) {
+    const variantWrapper = document.getElementById('edit-finishing-variant-wrapper');
+    const colorWrapper = document.getElementById('edit-finishing-color-wrapper');
+
+    console.log(`[QUOTE EDITOR] Obsługa zmiany typu wykończenia: ${finishingType}`);
+
+    // Zawsze resetuj
+    clearFinishingVariantSelections();
+    clearColorSelection();
+
+    // Domyślnie ukryj
+    variantWrapper.style.display = 'none';
+    colorWrapper.style.display = 'none';
+
+    if (finishingType === 'Lakierowanie') {
+        variantWrapper.style.display = 'flex'; // pokaż warianty bezbarwne/barwne
+        // kolory pokaże się dalej w handleFinishingVariantChange
+    }
+
+    // Surowe i Olejowanie nic nie pokazują, ale różnią się backendowo
+
+    // Trigger przeliczenia
+    if (typeof onFormDataChange === 'function') {
+        onFormDataChange();
+    }
+}
+function setActiveFinishingButton(clickedButton, wrapperSelector) {
+    const wrapper = document.querySelector(wrapperSelector);
+    if (!wrapper) {
+        console.warn(`[setActiveFinishingButton] ❌ Nie znaleziono wrappera: ${wrapperSelector}`);
+        return;
+    }
+
+    const buttons = wrapper.querySelectorAll('.finishing-btn');
+    buttons.forEach(btn => btn.classList.remove('active'));
+
+    clickedButton.classList.add('active');
+    console.log(`[setActiveFinishingButton] ✅ Ustawiono aktywny przycisk:`, clickedButton.textContent);
+}
+
+
+// === LISTENERY do przycisków wykończenia ===
+function initFinishingButtons() {
+    const typeButtons = document.querySelectorAll('#edit-finishing-type-group .finishing-btn');
+    const variantButtons = document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn');
+
+    console.log(`[initFinishingButtons] Inicjalizacja ${typeButtons.length} przycisków typu wykończenia`);
+    typeButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            setActiveFinishingButton(btn, '#edit-finishing-type-group');
+            const type = btn.dataset.finishingType;
+            console.log(`[initFinishingButtons] Kliknięto typ: ${type}`);
+            handleFinishingTypeChange(type);
+        });
+    });
+
+    console.log(`[initFinishingButtons] Inicjalizacja ${variantButtons.length} przycisków wariantu`);
+    variantButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            setActiveFinishingButton(btn, '#edit-finishing-variant-wrapper');
+            const variant = btn.dataset.finishingVariant;
+            console.log(`[initFinishingButtons] Kliknięto wariant: ${variant}`);
+
+            if (variant === 'Bezbarwne') {
+                document.getElementById('edit-finishing-variant-wrapper').style.display = 'flex';
+                document.getElementById('edit-finishing-color-wrapper').style.display = 'none';
+                clearColorSelection();
+            } else if (variant === 'Barwne') {
+                document.getElementById('edit-finishing-variant-wrapper').style.display = 'flex';
+                document.getElementById('edit-finishing-color-wrapper').style.display = 'flex';
+            }
+        });
+    });
+}
+
+// === ZAŁADUJ TYLKO GŁÓWNE TYPY DO PRZYCISKÓW ===
+function renderFinishingTypeButtonsFromDb(dataFromDb) {
+    const container = document.getElementById('edit-finishing-type-group');
+    if (!container) {
+        console.warn('[renderFinishingTypeButtonsFromDb] ❌ Brak kontenera edit-finishing-type-group');
+        return;
+    }
+
+    const allowedTypes = ['Surowe', 'Lakierowanie', 'Olejowanie'];
+    container.innerHTML = '';
+
+    allowedTypes.forEach((type, index) => {
+        const btn = document.createElement('button');
+        btn.className = 'finishing-btn' + (index === 0 ? ' active' : '');
+        btn.dataset.finishingType = type;
+        btn.textContent = type;
+        container.appendChild(btn);
+        console.log(`[renderFinishingTypeButtonsFromDb] ✅ Dodano przycisk typu: ${type}`);
+    });
+
+    initFinishingButtons();
+}
+
+
+function extractFinishingBaseType(fullType) {
+    if (!fullType) return '';
+    const lowered = fullType.trim().toLowerCase();
+
+    if (lowered.includes('lakierowanie')) return 'lakierowanie';
+    if (lowered.includes('surowe')) return 'surowe';
+    if (lowered.includes('olejowanie') || lowered.includes('olejowane')) return 'olejowanie';
+
+    return lowered;
+}
+
+function setFinishingStateForProduct(productIndex) {
+    const finishingInfo = currentEditingQuoteData.finishing.find(f => f.product_index === productIndex);
+    if (!finishingInfo) {
+        console.warn(`[setFinishingStateForProduct] ❌ Brak danych wykończenia dla indeksu ${productIndex}`);
+        return;
+    }
+
+    console.log('[setFinishingStateForProduct] 🔍 Dane z backendu:', finishingInfo);
+
+    const infoType = extractFinishingBaseType(finishingInfo.finishing_type);
+    console.log(`[setFinishingStateForProduct] Typ ogólny: ${infoType}`);
+
+    document.querySelectorAll('#edit-finishing-type-group .finishing-btn').forEach(btn => {
+        const btnType = btn.dataset.finishingType?.trim().toLowerCase();
+        const isActive = btnType === infoType;
+        btn.classList.toggle('active', isActive);
+        if (isActive) {
+            console.log(`[setFinishingStateForProduct] ✅ Ustawiono typ: ${btnType}`);
+        }
+    });
+
+    const variantWrapper = document.getElementById('edit-finishing-variant-wrapper');
+    const colorWrapper = document.getElementById('edit-finishing-color-wrapper');
+
+    const isLacquer = infoType === 'lakierowanie';
+    variantWrapper.style.display = isLacquer ? 'flex' : 'none';
+    if (isLacquer) {
+        console.log('[setFinishingStateForProduct] 🎨 Pokazuję warianty lakierowania');
+    }
+
+    const infoVariant = finishingInfo.finishing_variant?.trim().toLowerCase();
+    document.querySelectorAll('#edit-finishing-variant-wrapper .finishing-btn').forEach(btn => {
+        const btnVariant = btn.dataset.finishingVariant?.trim().toLowerCase();
+        const isActive = btnVariant === infoVariant;
+        btn.classList.toggle('active', isActive);
+        if (isActive) {
+            console.log(`[setFinishingStateForProduct] ✅ Ustawiono wariant: ${btnVariant}`);
+        }
+    });
+
+    const isBarwne = infoVariant === 'barwne';
+    colorWrapper.style.display = isBarwne ? 'flex' : 'none';
+    if (isBarwne) {
+        console.log('[setFinishingStateForProduct] 🌈 Pokazuję kolory dla wariantu barwnego');
+    }
+
+    const infoColor = finishingInfo.finishing_color?.trim().toLowerCase();
+    document.querySelectorAll('#edit-finishing-color-wrapper .color-btn').forEach(btn => {
+        const btnColor = btn.dataset.finishingColor?.trim().toLowerCase();
+        const isActive = btnColor === infoColor;
+        btn.classList.toggle('active', isActive);
+        if (isActive) {
+            console.log(`[setFinishingStateForProduct] ✅ Ustawiono kolor: ${btnColor}`);
+        }
+    });
+}
+
+/**
+ * Aktualizuje dostępność wariantu na podstawie checkbox-a
+ * @param {HTMLInputElement} checkbox - Checkbox który został zmieniony
+ */
+function updateVariantAvailability(checkbox) {
+    const variantOption = checkbox.closest('.variant-option');
+    if (!variantOption) return;
+
+    const radioButton = variantOption.querySelector('input[type="radio"]');
+
+    if (checkbox.checked) {
+        // Wariant dostępny
+        variantOption.classList.remove('unavailable');
+        if (radioButton) {
+            radioButton.disabled = false;
+        }
+        console.log('[QUOTE EDITOR] ✅ Wariant udostępniony');
+    } else {
+        // Wariant niedostępny
+        variantOption.classList.add('unavailable');
+        if (radioButton) {
+            radioButton.disabled = true;
+            // Jeśli był zaznaczony, odznacz go
+            if (radioButton.checked) {
+                radioButton.checked = false;
+                // Znajdź pierwszy dostępny wariant i zaznacz go
+                selectFirstAvailableVariant();
+            }
+        }
+        console.log('[QUOTE EDITOR] ❌ Wariant niedostępny');
+    }
+}
+
+/**
+ * Zaznacza pierwszy dostępny wariant
+ */
+function selectFirstAvailableVariant() {
+    const availableRadio = document.querySelector('input[name="edit-variantOption"]:not(:disabled)');
+    if (availableRadio) {
+        availableRadio.checked = true;
+        updateSelectedVariant(availableRadio);
+        onFormDataChange();
+        console.log('[QUOTE EDITOR] ✅ Automatycznie zaznaczono pierwszy dostępny wariant');
+    } else {
+        console.warn('[QUOTE EDITOR] ⚠️ Brak dostępnych wariantów!');
+    }
+}
+
+/**
+ * Aktualizuje wizualny stan zaznaczonego wariantu
+ * @param {HTMLInputElement} selectedRadio - Zaznaczony radio button
+ */
+function updateSelectedVariant(selectedRadio) {
+    // Usuń klasę 'selected' ze wszystkich wariantów
+    document.querySelectorAll('.variant-option').forEach(option => {
+        option.classList.remove('selected');
+    });
+
+    // Dodaj klasę 'selected' do aktualnie zaznaczonego
+    const selectedOption = selectedRadio.closest('.variant-option');
+    if (selectedOption) {
+        selectedOption.classList.add('selected');
+    }
+}
+
+/**
+ * Pobiera dane z formularza edytora
+ * @returns {Object|null} - Dane formularza
+ */
+function collectFormData() {
+    try {
+        const clientType = document.getElementById('edit-clientType')?.value;
+        const length = parseFloat(document.getElementById('edit-length')?.value) || 0;
+        const width = parseFloat(document.getElementById('edit-width')?.value) || 0;
+        const thickness = parseFloat(document.getElementById('edit-thickness')?.value) || 0;
+        const quantity = parseInt(document.getElementById('edit-quantity')?.value) || 1;
+
+        const selectedVariant = document.querySelector('input[name="edit-variantOption"]:checked');
+
+        return {
+            clientType,
+            length,
+            width,
+            thickness,
+            quantity,
+            selectedVariant: selectedVariant?.value || null,
+            selectedVariantName: selectedVariant?.dataset.variantName || null
+        };
+    } catch (error) {
+        console.error('[QUOTE EDITOR] Błąd podczas pobierania danych formularza:', error);
+        return null;
+    }
+}
+
+/**
+ * Fallback funkcja do obliczeń jeśli calculator.js nie jest dostępny
+ * @param {Object} formData - Dane formularza
+ */
+function calculateEditorPrices(formData) {
+    console.log('[QUOTE EDITOR] Wykonuję obliczenia fallback:', formData);
+
+    if (!formData.clientType) {
+        showVariantErrors('Wybierz grupę cenową');
+        return;
+    }
+
+    if (!formData.length || !formData.width || !formData.thickness || !formData.quantity) {
+        showVariantErrors('Podaj wszystkie wymiary');
+        return;
+    }
+
+    // Pokaż komunikat o obliczeniach fallback
+    document.querySelectorAll('.variant-option').forEach(option => {
+        const bruttoSpan = option.querySelector('.unit-brutto');
+        const nettoSpan = option.querySelector('.unit-netto');
+        const totalBruttoSpan = option.querySelector('.total-brutto');
+        const totalNettoSpan = option.querySelector('.total-netto');
+
+        if (bruttoSpan) bruttoSpan.textContent = 'Brak cennika';
+        if (nettoSpan) nettoSpan.textContent = 'Brak cennika';
+        if (totalBruttoSpan) totalBruttoSpan.textContent = 'Brak cennika';
+        if (totalNettoSpan) totalNettoSpan.textContent = 'Brak cennika';
+    });
+}
+
+function syncEditorToMockForm() {
+    if (!window.activeQuoteForm) return;
+
+    // Synchronizuj inputy
+    const editorInputs = {
+        'edit-clientType': 'clientType',
+        'edit-length': 'length',
+        'edit-width': 'width',
+        'edit-thickness': 'thickness',
+        'edit-quantity': 'quantity'
+    };
+
+    Object.entries(editorInputs).forEach(([editorId, calculatorField]) => {
+        const editorInput = document.getElementById(editorId);
+        const mockInput = window.activeQuoteForm.querySelector(`[data-field="${calculatorField}"]`);
+
+        if (editorInput && mockInput && editorInput.value !== mockInput.value) {
+            mockInput.value = editorInput.value;
+        }
+    });
+
+    // Synchronizuj dostępność i wybór wariantów
+    syncAvailabilityStates(window.activeQuoteForm);
+    syncSelectedVariant(window.activeQuoteForm);
+}
+
+/**
+ * ZMODYFIKOWANA funkcja resetCalculatorAfterEditor - z czyszczeniem dynamicznym
+ */
+function resetCalculatorAfterEditor() {
+    console.log('[QUOTE EDITOR] Resetowanie konfiguracji calculator.js...');
+
+    // Przywróć oryginalne zmienne globalne
+    if (window.originalQuoteFormsContainer) {
+        window.quoteFormsContainer = window.originalQuoteFormsContainer;
+        delete window.originalQuoteFormsContainer;
+        console.log('[QUOTE EDITOR] Przywrócono oryginalny quoteFormsContainer');
+    } else {
+        window.quoteFormsContainer = null;
+    }
+
+    if (window.originalActiveQuoteForm) {
+        window.activeQuoteForm = window.originalActiveQuoteForm;
+        delete window.originalActiveQuoteForm;
+        console.log('[QUOTE EDITOR] Przywrócono oryginalny activeQuoteForm');
+    } else {
+        window.activeQuoteForm = null;
+    }
+
+    // Usuń tymczasowy kontener formularzy
+    const editorQuoteFormsContainer = document.querySelector('#quote-editor-modal .quote-forms-container');
+    if (editorQuoteFormsContainer) {
+        editorQuoteFormsContainer.remove();
+        console.log('[QUOTE EDITOR] Usunięto tymczasowy kontener formularzy');
+    }
+
+    console.log('[QUOTE EDITOR] ✅ Oczyszczono konfigurację calculator.js');
+}
+
+// pokaż błędy w wariantach
+function showVariantErrors(errorMessage) {
+    document.querySelectorAll('.variant-option').forEach(option => {
+        const bruttoSpan = option.querySelector('.unit-brutto');
+        const nettoSpan = option.querySelector('.unit-netto');
+        const totalBruttoSpan = option.querySelector('.total-brutto');
+        const totalNettoSpan = option.querySelector('.total-netto');
+
+        if (bruttoSpan) bruttoSpan.textContent = errorMessage;
+        if (nettoSpan) nettoSpan.textContent = '';
+        if (totalBruttoSpan) totalBruttoSpan.textContent = errorMessage;
+        if (totalNettoSpan) totalNettoSpan.textContent = '';
+    });
+}
+
+/**
+ * Sprawdza czy formularz jest poprawnie wypełniony
+ * @returns {boolean} - True jeśli można zapisać
+ */
+function validateFormBeforeSave() {
+    // Sprawdź czy wybrano grupę cenową
+    const clientType = document.getElementById('edit-clientType')?.value;
+    if (!clientType) {
+        alert('Wybierz grupę cenową');
+        return false;
+    }
+
+    // Sprawdź wymiary
+    const length = parseFloat(document.getElementById('edit-length')?.value);
+    const width = parseFloat(document.getElementById('edit-width')?.value);
+    const thickness = parseFloat(document.getElementById('edit-thickness')?.value);
+    const quantity = parseInt(document.getElementById('edit-quantity')?.value);
+
+    if (!length || length <= 0) {
+        alert('Podaj poprawną długość');
+        return false;
+    }
+    if (!width || width <= 0) {
+        alert('Podaj poprawną szerokość');
+        return false;
+    }
+    if (!thickness || thickness <= 0) {
+        alert('Podaj poprawną grubość');
+        return false;
+    }
+    if (!quantity || quantity <= 0) {
+        alert('Podaj poprawną ilość');
+        return false;
+    }
+
+    // Sprawdź czy wybrano wariant
+    const selectedVariant = document.querySelector('input[name="edit-variantOption"]:checked');
+    if (!selectedVariant) {
+        alert('Wybierz wariant produktu');
+        return false;
+    }
+
+    // Sprawdź czy wybrany wariant jest dostępny
+    if (selectedVariant.disabled) {
+        alert('Wybrany wariant jest niedostępny. Wybierz dostępny wariant.');
+        return false;
+    }
+
+    // Sprawdź czy jest przynajmniej jeden dostępny wariant
+    const availableVariants = document.querySelectorAll('.variant-availability-checkbox:checked');
+    if (availableVariants.length === 0) {
+        alert('Musi być dostępny przynajmniej jeden wariant');
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Dynamicznie ładuje calculator.js tylko gdy potrzebny
+ */
+async function loadCalculatorScript() {
+    if (calculatorScriptLoaded) {
+        console.log('[QUOTE EDITOR] Calculator.js już załadowany');
+        return true;
+    }
+
+    console.log('[QUOTE EDITOR] Rozpoczynam dynamiczne ładowanie calculator.js...');
+
+    try {
+        // Załaduj calculator.js
+        await loadScript('/calculator/static/js/calculator.js');
+        console.log('[QUOTE EDITOR] ✅ Załadowano calculator.js');
+
+        // Załaduj save_quote.js (jeśli potrzebny)
+        await loadScript('/calculator/static/js/save_quote.js');
+        console.log('[QUOTE EDITOR] ✅ Załadowano save_quote.js');
+
+        calculatorScriptLoaded = true;
+        return true;
+
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ Błąd ładowania calculator.js:', error);
+        return false;
+    }
+}
+
+/**
+ * Pomocnicza funkcja do ładowania skryptów
+ */
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        // Sprawdź czy skrypt już istnieje
+        if (document.querySelector(`script[src="${src}"]`)) {
+            resolve();
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+        document.head.appendChild(script);
+    });
+}
+
+/**
+ * Inicjalizuje calculator.js dla edytora (bez DOM błędów)
+ */
+function initializeCalculatorForEditor() {
+    if (calculatorInitialized) {
+        console.log('[QUOTE EDITOR] Calculator już zainicjalizowany');
+        return;
+    }
+
+    console.log('[QUOTE EDITOR] Inicjalizuję calculator.js dla edytora...');
+
+    // Zastąp problematyczne funkcje calculator.js pustymi wersjami
+    if (typeof window.init === 'function') {
+        // Wyłącz automatyczną inicjalizację calculator.js
+        console.log('[QUOTE EDITOR] Wyłączam automatyczną inicjalizację calculator.js');
+    }
+
+    // Ustaw zmienne globalne potrzebne przez calculator.js
+    window.quoteFormsContainer = null;
+    window.activeQuoteForm = null;
+
+    // Zainicjalizuj tylko potrzebne części calculator.js
+    if (typeof window.buildPriceIndex === 'function') {
+        try {
+            // Sprawdź czy dane cennika są dostępne
+            const pricesDataEl = document.getElementById('prices-data');
+            if (pricesDataEl) {
+                const pricesFromDatabase = JSON.parse(pricesDataEl.textContent);
+
+                // Ustaw globalne zmienne calculator.js
+                window.pricesFromDatabase = pricesFromDatabase;
+                window.buildPriceIndex();
+                console.log('[QUOTE EDITOR] ✅ Zainicjalizowano indeks cenowy');
+            }
+        } catch (e) {
+            console.error('[QUOTE EDITOR] Błąd inicjalizacji indeksu cenowego:', e);
+        }
+    }
+
+    // Ustaw mnożniki
+    if (typeof window.multiplierMapping === 'undefined') {
+        const multipliersDataEl = document.getElementById('multipliers-data');
+        if (multipliersDataEl) {
+            try {
+                const multipliersFromDB = JSON.parse(multipliersDataEl.textContent);
+                window.multiplierMapping = {};
+                multipliersFromDB.forEach(m => {
+                    window.multiplierMapping[m.label] = m.value;
+                });
+                console.log('[QUOTE EDITOR] ✅ Zainicjalizowano mnożniki:', window.multiplierMapping);
+            } catch (e) {
+                console.error('[QUOTE EDITOR] Błąd inicjalizacji mnożników:', e);
+            }
+        }
+    }
+
+    calculatorInitialized = true;
+    console.log('[QUOTE EDITOR] ✅ Calculator.js zainicjalizowany dla edytora');
+}
+
 // Inicjalizacja po załadowaniu DOM
 document.addEventListener('DOMContentLoaded', function () {
     initQuoteEditor();
+    initFinishingButtons();
 });

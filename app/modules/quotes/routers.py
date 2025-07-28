@@ -1,7 +1,7 @@
 # modules/quotes/routers.py
 from flask import render_template, jsonify, request, make_response, current_app, send_file, Blueprint, session, redirect, url_for, flash, abort
 from . import quotes_bp
-from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog
+from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog, Multiplier
 from modules.clients.models import Client
 from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
@@ -13,12 +13,14 @@ from functools import wraps
 import logging
 import sys
 from sqlalchemy.orm import joinedload
-from sqlalchemy import func
+from sqlalchemy import func, text
 import re
 from datetime import datetime
 import base64
 import os
 from flask_login import login_required, current_user
+import json
+
 
 # Importuj wszystkie modele z quotes/models.py
 # To automatycznie zaimportuje też modele z calculator
@@ -122,48 +124,78 @@ def validate_email_or_phone(email_or_phone, quote):
 @quotes_bp.route('/')
 @login_required
 def quotes_home():
-    print("[quotes_home] routing wywolany", file=sys.stderr)
-    
-    # AUTOMATYCZNA SYNCHRONIZACJA BASELINKER CONFIG
+    """Główna strona modułu quotes - z dodanymi danymi dla calculator.js"""
     try:
-        # Sprawdź czy mamy już dane konfiguracyjne
-        config_count = BaselinkerConfig.query.count()
-        print(f"[quotes_home] Znaleziono {config_count} rekordów konfiguracji Baselinker", file=sys.stderr)
+        print("[quotes_home] Rozpoczynam ładowanie strony głównej quotes", file=sys.stderr)
         
-        # Jeśli brak konfiguracji lub jest stara (np. > 24h), zsynchronizuj
+        # DODANE: Pobierz dane użytkownika i jego rolę
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+        user_role = user.role if user else 'user'
+        user_multiplier = user.multiplier.multiplier if user and user.multiplier else 1.0
+        
+        print(f"[quotes_home] Użytkownik: {user_email}, rola: {user_role}, mnożnik: {user_multiplier}", file=sys.stderr)
+        
+        # DODANE: Pobierz ceny z bazy danych (tak jak w calculator)
+        prices_query = db.session.execute(text("""
+            SELECT species, technology, wood_class, thickness_min, thickness_max, 
+                   length_min, length_max, price_per_m3 
+            FROM prices
+        """)).fetchall()
+        prices_list = [dict(row._mapping) for row in prices_query]
+        for row in prices_list:
+            for key in ['thickness_min', 'thickness_max', 'length_min', 'length_max', 'price_per_m3']:
+                if key in row and row[key] is not None:
+                    row[key] = float(row[key])
+        prices_json = json.dumps(prices_list)
+
+        # DODANE: Pobierz mnożniki z bazy danych (tak jak w calculator)  
+        multipliers_query = Multiplier.query.all()
+        multipliers_list = [
+            {"label": m.client_type, "value": float(m.multiplier)}
+            for m in multipliers_query
+        ]
+        multipliers_json = json.dumps(multipliers_list)
+        
+        print(f"[quotes_home] Załadowano {len(prices_list)} cen i {len(multipliers_list)} mnożników", file=sys.stderr)
+
+        # Sprawdź konfigurację Baselinker (istniejący kod - pozostaw bez zmian)
+        from modules.baselinker.models import BaselinkerConfig
+        from modules.baselinker.service import BaselinkerService
+        
+        config_count = BaselinkerConfig.query.count()
+        
         if config_count == 0:
             print("[quotes_home] Brak konfiguracji Baselinker - rozpoczynam synchronizację", file=sys.stderr)
             
-            # Sprawdź czy mamy konfigurację API
             api_config = current_app.config.get('API_BASELINKER')
             if api_config and api_config.get('api_key'):
                 try:
                     service = BaselinkerService()
-                    
-                    # Synchronizuj źródła zamówień
                     sources_synced = service.sync_order_sources()
-                    print(f"[quotes_home] Synchronizacja źródeł: {'OK' if sources_synced else 'BŁĄD'}", file=sys.stderr)
-                    
-                    # Synchronizuj statusy zamówień  
                     statuses_synced = service.sync_order_statuses()
-                    print(f"[quotes_home] Synchronizacja statusów: {'OK' if statuses_synced else 'BŁĄD'}", file=sys.stderr)
-                    
-                    if sources_synced and statuses_synced:
-                        print("[quotes_home] Synchronizacja Baselinker zakończona pomyślnie", file=sys.stderr)
-                    else:
-                        print("[quotes_home] Synchronizacja Baselinker częściowo nieudana", file=sys.stderr)
-                        
+                    print(f"[quotes_home] Synchronizacja Baselinker: sources={sources_synced}, statuses={statuses_synced}", file=sys.stderr)
                 except Exception as e:
                     print(f"[quotes_home] Błąd synchronizacji Baselinker: {e}", file=sys.stderr)
             else:
-                print("[quotes_home] Brak konfiguracji API Baselinker - pomijam synchronizację", file=sys.stderr)
+                print("[quotes_home] Brak konfiguracji API Baselinker", file=sys.stderr)
         else:
-            print("[quotes_home] Konfiguracja Baselinker już istnieje - pomijam synchronizację", file=sys.stderr)
+            print("[quotes_home] Konfiguracja Baselinker już istnieje", file=sys.stderr)
             
     except Exception as e:
-        print(f"[quotes_home] Błąd podczas sprawdzania konfiguracji Baselinker: {e}", file=sys.stderr)
+        print(f"[quotes_home] Błąd podczas ładowania danych: {e}", file=sys.stderr)
+        # Utwórz puste dane w przypadku błędu
+        prices_json = json.dumps([])
+        multipliers_json = json.dumps([])
+        user_role = 'user'
+        user_multiplier = 1.0
     
-    return render_template('quotes/templates/quotes.html')
+    # ZMIANA: Przekaż dane do template (tak jak w calculator)
+    return render_template('quotes/templates/quotes.html', 
+                          prices_json=prices_json,
+                          multipliers_json=multipliers_json,
+                          user_role=user_role,
+                          user_multiplier=user_multiplier)
 
 @quotes_bp.route('/api/quotes')
 @login_required
@@ -1831,22 +1863,67 @@ def update_quote_variant(quote_id):
 
 @quotes_bp.route('/api/multipliers', methods=['GET'])
 def get_multipliers():
-    """Pobiera listę grup cenowych z bazy danych"""
+    """Pobiera listę grup cenowych z bazy danych - dostosowane do modelu z calculator"""
     try:
         from modules.calculator.models import Multiplier
         
-        multipliers = Multiplier.query.filter_by(is_active=True).order_by(Multiplier.id).all()
+        multipliers = Multiplier.query.order_by(Multiplier.id).all()
         
         result = []
         for multiplier in multipliers:
             result.append({
                 'id': multiplier.id,
                 'client_type': multiplier.client_type,
-                'multiplier': multiplier.multiplier
+                'multiplier': float(multiplier.multiplier)  # Konwersja na float dla JSON
             })
         
+        print(f"[get_multipliers] Zwracam {len(result)} grup cenowych", file=sys.stderr)
         return jsonify(result)
         
     except Exception as e:
-        current_app.logger.error(f"[get_multipliers] Błąd: {e}")
+        print(f"[get_multipliers] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return jsonify({'error': 'Błąd pobierania grup cenowych'}), 500
+
+@quotes_bp.route('/api/finishing-data', methods=['GET'])
+@login_required
+def get_finishing_data():
+    """Pobiera dane wykończenia - typy i kolory z bazy danych"""
+    try:
+        from modules.calculator.models import FinishingTypePrice, FinishingColor
+        
+        # Pobierz typy wykończenia z cenami
+        finishing_types = FinishingTypePrice.query.filter_by(is_active=True).all()
+        types_data = []
+        for ft in finishing_types:
+            types_data.append({
+                'id': ft.id,
+                'name': ft.name,
+                'price_netto': float(ft.price_netto)
+            })
+        
+        # Pobierz kolory z obrazkami
+        finishing_colors = FinishingColor.query.filter_by(is_available=True).all()
+        colors_data = []
+        for fc in finishing_colors:
+            colors_data.append({
+                'id': fc.id,
+                'name': fc.name,
+                'image_path': fc.image_path,
+                # Pełna ścieżka URL do obrazka
+                'image_url': f"/calculator/static/{fc.image_path}" if fc.image_path else None
+            })
+        
+        print(f"[get_finishing_data] Zwracam {len(types_data)} typów wykończenia i {len(colors_data)} kolorów", file=sys.stderr)
+        
+        return jsonify({
+            'finishing_types': types_data,
+            'finishing_colors': colors_data
+        })
+        
+    except Exception as e:
+        print(f"[get_finishing_data] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': 'Błąd pobierania danych wykończenia'}), 500

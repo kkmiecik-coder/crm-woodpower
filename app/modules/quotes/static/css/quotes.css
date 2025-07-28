@@ -3358,6 +3358,13 @@
     border-radius: 8px;
 }
 
+.finishing-section {
+    flex: 0 0 280px;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
 .edit-summary-section-container {
     background: #f8f9fa;
     padding: 20px;
@@ -4004,4 +4011,399 @@
     font-weight: 600;
     margin-top: 4px;
     padding: 12px 0 8px 0;
+}
+
+/* ===============================
+   Wykończenie - styles dla Quote Editor
+   Skopiowane z style_calculator.css
+   =============================== */
+
+.finishing-section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    font-family: "Poppins", sans-serif;
+}
+
+.finishing-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-self: stretch;
+    max-width: 331px;
+}
+
+.button-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.finishing-btn {
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 2px solid #E3E3E3;
+    background-color: #F5F5F5;
+    color: #1F2020;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    min-width: 80px;
+    font-family: "Poppins", sans-serif;
+    white-space: nowrap;
+    flex: auto;
+    align-self: stretch;
+}
+
+    .finishing-btn:hover {
+        background-color: #e3e3e3;
+    }
+
+    .finishing-btn.active {
+        background-color: #ED6B24;
+        color: white;
+        border-color: #ED6B24;
+    }
+
+.finishing-block .input-txt {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1F2020;
+    margin-bottom: -4px;
+    line-height: 1.4;
+}
+
+/* Color group - grid layout dla kolorów */
+.color-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.color-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px;
+    border: 2px solid #E3E3E3;
+    border-radius: 12px;
+    background-color: #F5F5F5;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    font-family: "Poppins", sans-serif;
+}
+
+    .color-btn:hover {
+        border-color: #ED6B24;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(237, 107, 36, 0.2);
+    }
+
+    .color-btn.active {
+        border-color: #ED6B24;
+        background-color: #FFF5F0;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+    }
+
+    .color-btn img {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        object-fit: cover;
+        margin-bottom: 8px;
+        border: 1px solid #ddd;
+    }
+
+    .color-btn span {
+        font-size: 11px;
+        font-weight: 500;
+        color: #1F2020;
+        line-height: 1.2;
+        word-break: break-word;
+        text-align: center;
+    }
+
+/* Responsive dla kolorów - na mniejszych ekranach */
+@media (max-width: 768px) {
+    .color-group {
+        grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+        gap: 8px;
+    }
+
+    .color-btn {
+        padding: 8px 6px;
+    }
+
+        .color-btn img {
+            width: 32px;
+            height: 32px;
+        }
+
+        .color-btn span {
+            font-size: 10px;
+        }
+}
+
+/* Dla bardzo małych ekranów - 2 kolumny */
+@media (max-width: 480px) {
+    .color-group {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* Style dla sekcji kalkulacji - IDENTYCZNE jak w calculator */
+.edit-calculations-main .variants {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    align-self: stretch;
+}
+
+.edit-calculations-main .variants-header {
+    display: flex;
+    width: 100%;
+    padding: 8px 6px;
+    align-items: center;
+    gap: 8px;
+    background: #f8f9fa;
+    border-bottom: 2px solid #ED6B24;
+    font-weight: 600;
+    font-size: 12px;
+    color: #1F2020;
+}
+
+    .edit-calculations-main .variants-header span {
+        display: inline-block;
+    }
+
+.edit-calculations-main .header-availability {
+    width: 60px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.edit-calculations-main .header-title {
+    width: 180px;
+    flex-shrink: 0;
+}
+
+.edit-calculations-main .header-unit-brutto,
+.edit-calculations-main .header-total-brutto {
+    width: 120px;
+    text-align: right;
+    font-weight: 600;
+}
+
+.edit-calculations-main .header-unit-netto,
+.edit-calculations-main .header-total-netto {
+    width: 90px;
+    text-align: right;
+}
+
+.edit-calculations-main .variant-option {
+    display: flex;
+    padding: 8px 6px;
+    align-items: center;
+    gap: 8px;
+    align-self: stretch;
+    border-bottom: 1px solid #EAEAEA;
+    transition: all 0.2s ease;
+}
+
+/* Checkbox dostępności */
+.edit-calculations-main .variant-availability-checkbox {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: #ED6B24;
+}
+
+/* Radio button */
+.edit-calculations-main .variant-option input[type="radio"] {
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: #ED6B24;
+}
+
+/* Label wariantu */
+.edit-calculations-main .variant-option .option-title {
+    width: 180px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+/* Ceny */
+.edit-calculations-main .variant-option .unit-brutto,
+.edit-calculations-main .variant-option .unit-netto,
+.edit-calculations-main .variant-option .total-brutto,
+.edit-calculations-main .variant-option .total-netto {
+    font-size: 12px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    text-align: right;
+    min-width: 80px;
+}
+
+/* STANY NIEDOSTĘPNOŚCI */
+.edit-calculations-main .variant-option.unavailable {
+    background: #FAFAFA;
+    opacity: 0.7;
+}
+
+    .edit-calculations-main .variant-option.unavailable input[type="radio"] {
+        pointer-events: none;
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .edit-calculations-main .variant-option.unavailable .option-title {
+        color: #000000;
+        cursor: default;
+    }
+
+    .edit-calculations-main .variant-option.unavailable .unit-brutto,
+    .edit-calculations-main .variant-option.unavailable .unit-netto,
+    .edit-calculations-main .variant-option.unavailable .total-brutto,
+    .edit-calculations-main .variant-option.unavailable .total-netto {
+        color: #1F2020;
+    }
+
+/* Hover effect dla dostępnych wariantów */
+.edit-calculations-main .variant-option:not(.unavailable):hover {
+    background: #FFF8F5;
+    border-color: #ED6B24;
+}
+
+/* Aktywny (zaznaczony) wariant */
+.edit-calculations-main .variant-option.selected {
+    background: #FFF8F5;
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 1px rgba(237, 107, 36, 0.2);
+}
+
+/* Checkbox w niedostępnym wariancie */
+.edit-calculations-main .variant-option.unavailable .variant-availability-checkbox {
+    opacity: 0.8;
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+    .edit-calculations-main .variant-option {
+        padding: 6px 4px;
+        gap: 6px;
+        font-size: 11px;
+    }
+
+    .edit-calculations-main .variant-availability-checkbox {
+        width: 14px;
+        height: 14px;
+    }
+
+    .edit-calculations-main .variant-option input[type="radio"] {
+        width: 18px;
+        height: 18px;
+    }
+
+    .edit-calculations-main .variant-option .option-title {
+        width: 160px;
+        font-size: 12px;
+    }
+
+    .edit-calculations-main .header-availability {
+        width: 50px;
+        font-size: 10px;
+    }
+
+    .edit-calculations-main .header-title {
+        width: 160px;
+    }
+}
+
+@media (max-width: 768px) {
+    .edit-calculations-main .variant-option {
+        padding: 4px 2px;
+        gap: 4px;
+        font-size: 10px;
+    }
+
+    .edit-calculations-main .variant-availability-checkbox {
+        width: 12px;
+        height: 12px;
+    }
+
+    .edit-calculations-main .variant-option input[type="radio"] {
+        width: 16px;
+        height: 16px;
+    }
+
+    .edit-calculations-main .variant-option .option-title {
+        width: 140px;
+        font-size: 11px;
+    }
+
+    .edit-calculations-main .variant-option .unit-brutto,
+    .edit-calculations-main .variant-option .unit-netto,
+    .edit-calculations-main .variant-option .total-brutto,
+    .edit-calculations-main .variant-option .total-netto {
+        font-size: 10px;
+        min-width: 60px;
+    }
+
+    .edit-calculations-main .header-availability {
+        width: 40px;
+        font-size: 9px;
+    }
+
+    .edit-calculations-main .header-title {
+        width: 140px;
+    }
+}
+
+/* Animacja dla zmian dostępności */
+.edit-calculations-main .variant-option {
+    transition: all 0.3s ease;
+}
+
+    .edit-calculations-main .variant-option.unavailable {
+        animation: fadeToUnavailable 0.3s ease;
+    }
+
+@keyframes fadeToUnavailable {
+    from {
+        opacity: 1;
+        background: #FFFFFF;
+    }
+
+    to {
+        opacity: 0.7;
+        background: #FAFAFA;
+    }
+}
+
+/* Dodatkowe style dla lepszego UX */
+.edit-calculations-main .variant-availability-checkbox:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+}
+
+.edit-calculations-main .variant-option input[type="radio"]:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
 }
