@@ -26,7 +26,6 @@ class BaselinkerReportsService:
         self.endpoint = current_app.config.get('API_BASELINKER', {}).get('endpoint')
         self.logger = get_structured_logger('reports.service')
         self.parser = ProductNameParser()
-        self.dimension_fixes = {}
         
         # Mapowanie statusów Baselinker
         self.status_map = {

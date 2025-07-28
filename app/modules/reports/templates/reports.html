@@ -405,25 +405,56 @@
                 </div>
 
                 <div class="sync-modal-footer">
-                    <button id="syncOrdersBack" class="btn btn-secondary">Wstecz</button>
-                    <button id="syncOrdersCancel" class="btn btn-secondary">Anuluj</button>
-                    <button id="syncOrdersSave" class="btn btn-primary" disabled>Zapisz rekordy (0)</button>
+                    <button id="ordersBack" class="btn btn-secondary">Wstecz</button>
+                    <button id="ordersCancel" class="btn btn-secondary">Anuluj</button>
+                    <button id="ordersSave" class="btn btn-primary" disabled>Zapisz rekordy (0)</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Loading overlay dla całego procesu -->
-    <div id="syncGlobalLoading" class="sync-global-loading" style="display: none;">
+    <!-- KROK 3: Modal uzupełniania wymiarów -->
+    <div id="dimensionsModal" class="sync-modal" style="display: none;">
+        <div class="sync-modal-overlay">
+            <div class="sync-modal-content sync-modal-extra-large">
+                <div class="sync-modal-header">
+                    <h3>Uzupełnij brakujące wymiary</h3>
+                    <button class="sync-modal-close" id="dimensionsModalClose">&times;</button>
+                </div>
+
+                <div class="sync-modal-body">
+                    <div class="dimensions-info">
+                        <p class="dimensions-description">
+                            Niektóre produkty w wybranych zamówieniach nie mają kompletnych wymiarów. 
+                            Uzupełnij brakujące dane aby móc obliczyć objętość (m³):
+                        </p>
+                    </div>
+
+                    <div id="dimensionsList" class="dimensions-list">
+                        <!-- Formularz wymiarów będzie wstawiony tutaj dynamicznie -->
+                    </div>
+                </div>
+
+                <div class="sync-modal-footer">
+                    <button id="dimensionsBack" class="btn btn-secondary">Wróć</button>
+                    <button id="dimensionsSkip" class="btn btn-warning">Pomiń i zapisz</button>
+                    <button id="dimensionsSave" class="btn btn-primary">Uzupełnij i zapisz</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global loading overlay -->
+    <div id="syncLoadingOverlay" class="sync-loading-overlay" style="display: none;">
         <div class="sync-loading-content">
-            <div class="loading-spinner-large"></div>
-            <h4 id="syncGlobalLoadingTitle">Zapisywanie zamówień...</h4>
-            <p id="syncGlobalLoadingText">Proszę czekać, trwa zapisywanie zamówień do bazy danych.</p>
+            <div class="spinner-large"></div>
+            <div class="sync-loading-title" id="syncLoadingTitle">Pobieranie danych...</div>
+            <div class="sync-loading-text" id="syncLoadingText">Proszę czekać...</div>
         </div>
     </div>
 
     <!-- Template dla pojedynczego zamówienia -->
-    <template id="orderItemTemplate">
+    <template id="orderTemplate">
         <div class="order-item" data-order-id="">
             <div class="order-checkbox">
                 <input type="checkbox" class="order-select" data-order-id="">
@@ -546,6 +577,75 @@
             </div>
         </div>
     </template>
+
+    <!-- Loading overlay dla całego procesu -->
+    <div id="syncGlobalLoading" class="sync-global-loading" style="display: none;">
+        <div class="sync-loading-content">
+            <div class="loading-spinner-large"></div>
+            <h4 id="syncGlobalLoadingTitle">Zapisywanie zamówień...</h4>
+            <p id="syncGlobalLoadingText">Proszę czekać, trwa zapisywanie zamówień do bazy danych.</p>
+        </div>
+    </div>
+
+    <!-- Template dla pojedynczego zamówienia -->
+    <template id="orderItemTemplate">
+        <div class="order-item" data-order-id="">
+            <div class="order-checkbox">
+                <input type="checkbox" class="order-select" data-order-id="">
+            </div>
+            
+            <div class="order-content">
+                <div class="order-header">
+                    <div class="order-id">
+                        <strong>Zamówienie #<span class="order-number"></span></strong>
+                        <span class="order-status-badge"></span>
+                    </div>
+                    <div class="order-actions">
+                        <button class="baselinker-btn" type="button" title="Otwórz w Baselinker">
+                            <i class="fas fa-external-link-alt"></i>
+                        </button>
+                        <span class="order-date-text"></span>
+                    </div>
+                </div>
+                
+                <div class="order-details">
+                    <div class="order-customer">
+                        <span class="customer-icon">👤</span>
+                        <span class="customer-name"></span>
+                    </div>
+                    
+                    <div class="order-products">
+                        <span class="products-icon">📦</span>
+                        <div class="products-list"></div>
+                    </div>
+                    
+                    <div class="order-amounts">
+                        <div class="amount-item">
+                            <span class="amount-label">Produkty:</span>
+                            <span class="amount-value products-amount"></span>
+                        </div>
+                        <div class="amount-item">
+                            <span class="amount-label">Dostawa:</span>
+                            <span class="amount-value delivery-amount"></span>
+                        </div>
+                        <div class="amount-item total">
+                            <span class="amount-label">Razem:</span>
+                            <span class="amount-value total-amount"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="order-status">
+                <div class="exists-badge" style="display: none;">
+                    <span class="exists-icon">✓</span>
+                    <span class="exists-text">Już w bazie</span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    
 
     <!-- Modal dodawania/edycji ręcznego wiersza -->
     <div id="manualRowModal" class="modal">
@@ -896,13 +996,12 @@
     </template>
 
     <!-- Overlay do ładowania -->
-    <div id="syncLoadingOverlay" class="sync-loading-overlay" style="display: none;">
-    <div class="sync-loading-content">
-        <div class="spinner-large"></div>
-        <div class="sync-loading-title" id="syncLoadingTitle">Pobieranie danych...</div>
-        <div class="sync-loading-text" id="syncLoadingText">Proszę czekać...</div>
+    <div id="syncLoadingOverlay" class="sync-loading-overlay hidden">
+        <div class="sync-loading-content">
+            <div class="spinner-large"></div>
+            <div class="sync-loading-text" id="syncLoadingText">Pobieranie danych...</div>
+        </div>
     </div>
-</div>
 
     <!-- Scripts -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
