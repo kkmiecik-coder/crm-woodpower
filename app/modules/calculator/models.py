@@ -81,7 +81,7 @@ class Quote(db.Model):
             # Zapisz token do bazy danych
             db.session.commit()
     
-        return f"/quotes/wycena/{self.quote_number}/{self.public_token}"
+        return f"/quotes/c/{self.public_token}"
 
     def disable_client_editing(self):
         """Wyłącza możliwość edycji przez klienta (np. po akceptacji)"""

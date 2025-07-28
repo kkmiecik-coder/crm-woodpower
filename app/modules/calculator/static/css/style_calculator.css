@@ -3538,3 +3538,180 @@ select.select-small option {
         font-size: 8px;
     }
 }
+
+/* ============================================
+   POPRAWKI CSS dla modułu calculator
+   ============================================ */
+
+/* POPRAWKA 1: Nowy header z przyciskiem dodawania produktu */
+.products-summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 10px 0;
+    align-self: stretch;
+}
+
+    .products-summary-header h2 {
+        margin: 0;
+        font-size: 16px;
+        color: #1F2020;
+        flex: 1;
+    }
+
+/* Przycisk dodawania produktu w headerze */
+.add-product-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid #ED6B24;
+    border-radius: 6px;
+    background: transparent;
+    color: #ED6B24;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+    .add-product-btn:hover {
+        background: #ED6B24;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(237, 107, 36, 0.2);
+    }
+
+.add-product-icon {
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.add-product-text {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* POPRAWKA 2: Dodanie scrolla do kontenera produktów */
+.products-summary-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-self: stretch;
+    flex: 1;
+    max-height: 300px;
+    overflow-y: auto; /* ZMIANA: z visible na auto */
+    background: #FFFFFF;
+    border-radius: 6px;
+    min-height: 120px;
+    padding-right: 4px; /* Dodaj padding dla scrollbara */
+}
+
+/* POPRAWKA 3: Usunięcie starego przycisku dodawania z JS (jeśli istnieje) */
+.add-product-card {
+    display: none !important; /* Ukryj stary przycisk z JS */
+}
+
+/* POPRAWKA 4: Aktualizacja głównego kontenera */
+.products-summary-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+    padding: 15px;
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    min-width: 0;
+    height: 100%;
+}
+
+/* POPRAWKA 5: Lepsze style dla scrollbara */
+.products-summary-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.products-summary-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.products-summary-container::-webkit-scrollbar-thumb {
+    background: #ED6B24;
+    border-radius: 3px;
+}
+
+    .products-summary-container::-webkit-scrollbar-thumb:hover {
+        background: #D45611;
+    }
+
+/* POPRAWKA 6: Responsive design dla nowego headera */
+@media (max-width: 1200px) {
+    .add-product-btn {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .add-product-icon {
+        font-size: 12px;
+    }
+
+    .add-product-text {
+        font-size: 11px;
+    }
+
+    .products-summary-header h2 {
+        font-size: 15px;
+    }
+}
+
+@media (max-width: 768px) {
+    .products-summary-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .add-product-btn {
+        align-self: flex-end;
+        padding: 5px 8px;
+        font-size: 10px;
+    }
+
+    .add-product-icon {
+        font-size: 11px;
+    }
+
+    .add-product-text {
+        font-size: 10px;
+    }
+
+    .products-summary-header h2 {
+        font-size: 14px;
+    }
+
+    .products-summary-container {
+        max-height: 200px;
+    }
+}
+
+/* POPRAWKA 7: Poprawka dla małych ekranów - zachowaj przycisk w jednej linii */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .add-product-text {
+        display: none; /* Ukryj tekst na średnich ekranach, zostaw tylko ikonę + */
+    }
+
+    .add-product-btn {
+        width: 32px;
+        height: 32px;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .add-product-icon {
+        font-size: 16px;
+    }
+}

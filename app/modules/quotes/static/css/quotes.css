@@ -10,7 +10,7 @@
     /* Kolory funkcjonalne */
     --success-color: #07B90D;
     --success-bg: #E8F5E8;
-    --warning-color: #FFC107;
+    --warning-color: #FF9500;
     --warning-bg: #FFF8E1;
     --error-color: #E53935;
     --error-bg: #FFEBEE;
@@ -604,19 +604,6 @@
         pointer-events: auto;
     }
 
-.quotes-details-modal-box {
-    background: #fff;
-    padding: 24px;
-    border-radius: 16px;
-    width: 100%;
-    max-width: 1000px;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    font-family: 'Poppins', sans-serif;
-    animation: slideIn 0.25s ease-out;
-}
-
 @keyframes slideIn {
     from {
         transform: scale(0.98) translateY(20px);
@@ -740,17 +727,6 @@
     padding: 40px;
 }
 
-.quotes-details-modal-box {
-    background: white;
-    border-radius: 12px;
-    padding: 24px;
-    max-width: 1200px;
-    margin: auto;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-    position: relative;
-    animation: fadeInUp 0.3s ease;
-}
-
 @keyframes fadeInUp {
     from {
         opacity: 0;
@@ -778,6 +754,7 @@
     display: flex;
     flex-direction: column;
     margin-bottom: 24px;
+    margin-top: 24px;
     font-size: 14px;
     font-weight: 500;
     color: #333;
@@ -861,11 +838,15 @@
     background: white;
     border-radius: 24px;
     padding: 24px;
-    max-width: 1200px;
+    max-width: 170vh;
     margin: auto;
     box-shadow: 0 10px 40px rgba(0,0,0,0.2);
     position: relative;
     animation: fadeInUp 0.3s ease;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    font-family: 'Poppins', sans-serif;
 }
 
 @keyframes fadeInUp {
@@ -1033,7 +1014,7 @@
     padding: 0;
     margin-top: 12px;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: 16px;
 }
 
@@ -1179,10 +1160,9 @@
 
 /* Style dla kwot netto - mniejszy, szary tekst */
 .cost-netto {
-    font-size: 12px;
+    font-size: 11px;
     color: #777;
     font-weight: normal;
-    margin-left: 8px;
     display: inline-block;
 }
 
@@ -2652,4 +2632,1778 @@
 .variant-list li:has(.edited-badge) .hidden-badge {
     top: 22px;
     border-radius: 8px 0 0 8px;
+}
+
+/* ===================================
+   QUOTES VARIANTS MODAL DETAILS (qvmd-)
+   Style dla nowych kafelków wariantów w modalu szczegółów
+   Dodaj do app/modules/quotes/static/css/quotes.css
+   =================================== */
+
+.qvmd-section-title {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-base);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 2px solid var(--primary-color);
+}
+
+/* Grid layout - 4 kolumny na desktop */
+.qvmd-variants-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--spacing-base);
+    margin-bottom: var(--spacing-xl);
+}
+
+@media (max-width: 1024px) {
+    .qvmd-variants-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .qvmd-variants-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ===================================
+   KAFELEK WARIANTU - DESIGN Z FIGMY
+   =================================== */
+
+.qvmd-variant-card {
+    background: var(--bg-white);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column; /* ZMIANA: kolumna zamiast wiersza */
+    min-height: 200px;
+}
+
+    /* Wybrany wariant - zielone obramowanie */
+    .qvmd-variant-card.qvmd-selected {
+        border: 2px solid var(--success-color);
+    }
+
+/* Tekstura drewna na górze */
+.qvmd-wood-texture {
+    width: 100%; /* ZMIANA: pełna szerokość */
+    height: 60px; /* ZMIANA: określona wysokość */
+    background: linear-gradient(135deg, #D4A574 0%, #C49660 50%, #B8864D 100%); /* fallback */
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+    background-position: top;
+}
+
+    /* Fallback dla brakujących obrazów */
+    .qvmd-wood-texture:not([style*="background-image"]) {
+        background-image: repeating-linear-gradient( 0deg, rgba(0,0,0,0.1), rgba(0,0,0,0.1) 1px, transparent 1px, transparent 3px ), repeating-linear-gradient( 90deg, rgba(0,0,0,0.05), rgba(0,0,0,0.05) 1px, transparent 1px, transparent 8px );
+    }
+
+/* Główna zawartość */
+.qvmd-variant-content {
+    flex: 1;
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Nagłówek */
+.qvmd-variant-header {
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    justify-content: space-between;
+}
+
+.qvmd-price-per-m2-wrapper {
+    min-width: 130px;
+}
+
+.qvmd-variant-title {
+    font-weight: 500;
+    font-size: 10px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+}
+
+.qvmd-variant-name {
+    display: inline;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--primary-color);
+}
+
+.qvmd-price-per-m2-label {
+    font-weight: 400;
+    font-size: 10px;
+    color: var(--text-primary);
+}
+
+.qvmd-price-per-m2-value {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+/* Sekcja cenowa */
+.qvmd-pricing-section {
+    flex: 1;
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Layout dla wariantu z wykończeniem */
+.qvmd-pricing-with-finishing {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.qvmd-label-spacer {
+    /* Puste miejsce dla etykiet */
+}
+
+/* Wiersz z nagłówkami kolumn */
+.qvmd-headers-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 1fr;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xs);
+}
+
+.qvmd-column-header {
+    font-weight: 600;
+    font-size: 10px;
+    color: var(--text-primary);
+    text-align: center;
+    padding-bottom: var(--spacing-xxs);
+    border-bottom: 1px solid var(--border-light);
+}
+
+    .qvmd-column-header.qvmd-finishing {
+        color: #FF5A00;
+    }
+.qvmd-pricing-column {
+    display: flex;
+    flex-direction: column;
+}
+
+.qvmd-pricing-with-finishing .qvmd-pricing-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 1fr;
+    gap: var(--spacing-sm);
+    align-items: flex-start;
+    margin-bottom: var(--spacing-xs);
+}
+
+.qvmd-pricing-with-finishing .qvmd-pricing-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.qvmd-pricing-with-finishing .qvmd-pricing-values {
+    text-align: center;
+}
+
+.qvmd-pricing-column-header {
+    font-weight: 600;
+    font-size: 10px;
+    color: var(--text-primary);
+    text-align: center;
+    margin-bottom: var(--spacing-xs);
+    padding-bottom: var(--spacing-xxs);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.qvmd-pricing-column.qvmd-finishing .qvmd-pricing-column-header {
+    color: #FF5A00;
+}
+
+.qvmd-pricing-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-xs);
+}
+
+.qvmd-pricing-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.qvmd-pricing-values {
+    text-align: center;
+}
+
+.qvmd-price-brutto {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+    .qvmd-price-brutto.qvmd-finishing {
+        color: #FF5A00;
+    }
+
+.qvmd-price-netto {
+    font-weight: 300;
+    font-size: 10px;
+    color: var(--text-primary);
+    margin-top: 1px;
+}
+
+/* Layout dla wariantu surowego (bez wykończenia) */
+.qvmd-pricing-simple {
+    display: flex;
+    flex-direction: column;
+}
+
+    .qvmd-pricing-simple .qvmd-pricing-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .qvmd-pricing-simple .qvmd-pricing-label {
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--text-primary);
+    }
+
+    .qvmd-pricing-simple .qvmd-pricing-values {
+        text-align: left;
+        min-width: 130px;
+    }
+
+/* Przyciski akcji */
+.qvmd-variant-actions {
+    margin-top: auto;
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
+.qvmd-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--border-medium);
+    background: var(--bg-white);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family);
+    font-weight: 500;
+    font-size: 12px;
+    cursor: pointer;
+    flex: 1;
+    text-align: center;
+    transition: var(--transition-base);
+}
+
+    .qvmd-btn:hover {
+        background: var(--bg-light);
+    }
+
+.qvmd-btn-selected {
+    background: var(--success-color);
+    color: var(--text-white);
+    border-color: var(--success-color);
+}
+
+    .qvmd-btn-selected:hover {
+        background: #06A00C;
+    }
+
+.qvmd-btn-edit {
+    background: var(--primary-color);
+    color: var(--text-white);
+    border-color: var(--primary-color);
+    flex: 0 0 auto;
+    width: 28px;
+    padding: var(--spacing-xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qvmd-edit-icon {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+
+/* Hover effects */
+.qvmd-btn-edit:hover {
+    background: var(--primary-dark);
+}
+
+    .qvmd-btn-edit:hover .qvmd-edit-icon {
+        filter: brightness(0) invert(1) opacity(0.9);
+    }
+
+/* Badge'e */
+.qvmd-variant-badges {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: flex-end;
+}
+
+.qvmd-badge {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-family: var(--font-family);
+    font-size: 10px;
+    line-height: 1.2;
+    z-index: 999;
+}
+
+.qvmd-badge-invisible {
+    background: #8B5CF6;
+    color: var(--text-white);
+    font-weight: 400;
+    border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
+}
+
+.qvmd-badge-discount {
+    background: var(--warning-color);
+    color: var(--text-white);
+    font-weight: 400;
+    border-radius: 0 0 0 var(--radius-sm);
+}
+
+/* Banner rabatu */
+.qvmd-discount-banner {
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-color);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    margin-top: var(--spacing-xs);
+}
+
+.qvmd-discount-banner-title {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--warning-color);
+    margin-bottom: 1px;
+}
+
+.qvmd-discount-banner-reason {
+    font-weight: 500;
+    font-size: 10px;
+    color: var(--text-primary);
+}
+
+/* Responsywność */
+@media (max-width: 480px) {
+    .qvmd-variant-card {
+        min-height: 180px;
+    }
+
+    .qvmd-wood-texture {
+        width: 50px;
+    }
+
+    .qvmd-variant-content {
+        padding: var(--spacing-sm);
+    }
+}
+
+/* ===================================
+   DODAJ DO ISTNIEJĄCEGO CSS - NOWA KLASA DLA WARIANTÓW Z WYKOŃCZENIEM
+   =================================== */
+
+/* Grid layout - warianty z wykończeniem (szersze kafelki) */
+.qvmd-variants-grid.qvmd-with-finishing {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+/* Responsywność dla wariantów z wykończeniem */
+@media (max-width: 1024px) {
+    .qvmd-variants-grid.qvmd-with-finishing {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 680px) {
+    .qvmd-variants-grid.qvmd-with-finishing {
+        grid-template-columns: 1fr;
+    }
+}
+
+.quotes-details-modal-header.sticky-header {
+    position: sticky;
+    top: -24px;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: var(--bg-white);
+    border-bottom: 1px solid var(--border-light);
+    box-shadow: var(--shadow-light);
+    margin: 0 !important; /* Usuń marginesy */
+    padding: var(--spacing-base) var(--spacing-lg); /* Padding wewnętrzny */
+    /* Rozciągnij poza kontener jeśli trzeba */
+    margin-left: calc(-1 * var(--spacing-lg)) !important;
+    margin-right: calc(-1 * var(--spacing-lg)) !important;
+    margin-top: calc(-1 * var(--spacing-lg)) !important;
+    width: calc(100% + 2 * var(--spacing-lg));
+}
+
+/* Upewnij się, że modal box nie ma overflow hidden na sticky header */
+.quotes-details-modal-box {
+    overflow-x: visible;
+}
+
+/* Container dla tabs i przycisku masowej zmiany */
+.products-controls-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+/* Tabs - pozwól im się zawijać i zajmować większość przestrzeni */
+.quotes-details-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex: 1;
+    min-width: 0; /* Pozwala na zawijanie */
+}
+
+/* Container dla masowej zmiany wariantów */
+.bulk-variant-change-container {
+    position: relative;
+    flex-shrink: 0; /* Nie kurczy się */
+}
+
+/* Przycisk masowej zmiany */
+.bulk-variant-change-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    color: #495057;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+    .bulk-variant-change-btn:hover {
+        background: #e9ecef;
+        border-color: #adb5bd;
+    }
+
+    .bulk-variant-change-btn:active,
+    .bulk-variant-change-btn.active {
+        background: #ED6B24;
+        border-color: #ED6B24;
+        color: white;
+    }
+
+/* Ikona chevron */
+.bulk-variant-chevron {
+    transition: transform 0.2s ease;
+}
+
+.bulk-variant-change-btn.active .bulk-variant-chevron {
+    transform: rotate(180deg);
+}
+
+/* Dropdown */
+.bulk-variant-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 1000;
+    min-width: 280px;
+    max-width: 400px;
+    margin-top: 4px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: fadeInDown 0.2s ease;
+}
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Header dropdowna */
+.bulk-variant-dropdown-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+    background: #f8f9fa;
+    border-radius: 8px 8px 0 0;
+}
+
+/* Container dla opcji */
+.bulk-variant-options {
+    padding: 8px 0;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Pojedyncza opcja wariantu */
+.bulk-variant-option {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #495057;
+    transition: background-color 0.15s ease;
+}
+
+    .bulk-variant-option:hover {
+        background: #f8f9fa;
+    }
+
+    .bulk-variant-option:active {
+        background: #e9ecef;
+    }
+
+/* Wariant w opcji */
+.bulk-variant-option-text {
+    font-weight: 500;
+}
+
+/* Responsive - na mniejszych ekranach */
+@media (max-width: 768px) {
+    .products-controls-container {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .bulk-variant-change-container {
+        align-self: flex-end;
+    }
+
+    .bulk-variant-dropdown {
+        right: 0;
+        left: auto;
+        min-width: 250px;
+    }
+}
+
+/* Gdy dropdown jest otwarty, dodaj overlay dla zamknięcia */
+.bulk-variant-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 999;
+    background: transparent;
+}
+
+/* Przycisk edycji wyceny */
+.edit-quote-btn {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-family: var(--font-family);
+    transition: background-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 2px 8px;
+    font-weight: 500;
+    transition: background 0.2s ease;
+}
+
+    .edit-quote-btn:hover {
+        background-color: #2563eb;
+    }
+
+    .edit-quote-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+/* Modal edytora wyceny */
+.quote-editor-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 99000; /* wyżej niż quote details modal */
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.quote-editor-modal-box {
+    background: white;
+    border-radius: 12px;
+    width: 95%;
+    max-width: 1400px;
+    max-height: 95vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Header modalu */
+.quote-editor-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 30px;
+    border-bottom: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    border-radius: 12px 12px 0 0;
+}
+
+.quote-editor-modal-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: #1F2020;
+    margin: 0;
+}
+
+.quote-editor-modal-info {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+    color: #666;
+}
+
+.quote-editor-modal-close {
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+    .quote-editor-modal-close:hover {
+        background-color: #e0e0e0;
+    }
+
+/* Główna zawartość */
+.quote-editor-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+/* Stylizacja analogiczna do calculator - z prefixem edit- */
+.edit-quote-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.edit-quote-forms {
+    display: flex;
+    gap: 20px;
+}
+
+.edit-quote-form {
+    flex: 1;
+    display: flex;
+    gap: 20px;
+}
+
+.edit-product-data,
+.edit-calculations-main {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.finishing-section {
+    flex: 0 0 280px;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.edit-summary-section-container {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    display: flex; /* DODAJ FLEX */
+    gap: 20px; /* ODSTĘP MIĘDZY KOLUMNAMI */
+}
+
+.edit-products-summary-main {
+    flex: 2; /* WIĘCEJ MIEJSCA DLA PRODUKTÓW */
+    background: white;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+/* Footer modalu */
+.quote-editor-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 20px 30px;
+    border-top: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    border-radius: 0 0 12px 12px;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+    .btn-secondary:hover {
+        background: #5a6268;
+    }
+
+.btn-primary {
+    background: #3b82f6;
+    color: white;
+}
+
+    .btn-primary:hover {
+        background: #2563eb;
+    }
+
+/* ========================================
+   STYLE EDYTORA WYCENY - SKOPIOWANE Z CALCULATOR
+   ======================================== */
+
+/* Layout modalu edytora - dwie kolumny */
+.edit-quote-forms {
+    display: flex;
+    gap: 20px;
+}
+
+.edit-quote-form {
+    flex: 1;
+    display: flex;
+    gap: 20px;
+}
+
+.edit-calculations-main {
+    flex: 1;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.edit-product-data {
+    flex: 0 0 220px;
+    background: #f8f9fa;
+    padding: 16px;
+    border-radius: 8px;
+}
+
+/* Style dla sekcji produktu */
+.product-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 280px;
+}
+
+    .product-inputs > div {
+        display: flex;
+        flex-direction: column;
+    }
+
+.input-txt {
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: #1F2020;
+}
+
+.input-window {
+    padding: 8px 12px;
+    border: 1px solid #CFCFCF;
+    border-radius: 12px;
+    font-size: 13px;
+    background-color: #FFF;
+    color: #1F2020;
+}
+
+/* Style dla wariantów */
+.edit-variants {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: white;
+}
+
+.variants-header {
+    display: grid;
+    grid-template-columns: 60px 2fr 1fr 1fr 1fr 1fr;
+    gap: 8px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    font-weight: 600;
+    font-size: 12px;
+    color: #666;
+}
+
+.variant-option {
+    display: grid;
+    grid-template-columns: 60px 2fr 1fr 1fr 1fr 1fr;
+    gap: 8px;
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+    align-items: center;
+    font-size: 13px;
+}
+
+    .variant-option:last-child {
+        border-bottom: none;
+    }
+
+    .variant-option input[type="radio"] {
+        margin: 0;
+    }
+
+    .variant-option label {
+        margin: 0;
+        cursor: pointer;
+        font-weight: 500;
+    }
+
+.unit-brutto, .unit-netto, .total-brutto, .total-netto {
+    text-align: right;
+    font-size: 12px;
+}
+
+/* Style dla sekcji podsumowania */
+.edit-summary-section-container {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.products-summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.add-product-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #ED6B24;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+    .add-product-btn:hover {
+        background: #d85d20;
+    }
+
+.add-product-icon {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+/* Style dla podsumowania kosztów - POPRAWIONE */
+.edit-quote-summary {
+    flex: 1; /* MNIEJ MIEJSCA DLA PODSUMOWANIA */
+    margin-top: 0; /* USUŃ MARGIN-TOP */
+    padding: 16px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    height: fit-content; /* DOSTOSUJ WYSOKOŚĆ */
+}
+
+    /* Każdy wiersz podsumowania */
+    .edit-quote-summary > div {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #f0f0f0;
+        font-size: 13px; /* MNIEJSZA CZCIONKA */
+    }
+
+        /* Ostatni wiersz (suma) - wyróżniony */
+        .edit-quote-summary > div:last-child {
+            border-bottom: 2px solid #ED6B24;
+            border-top: 1px solid #ddd;
+            font-weight: 600;
+            padding: 12px 0 8px 0;
+            margin-top: 4px;
+            font-size: 14px; /* WIĘKSZA CZCIONKA DLA SUMY */
+        }
+
+        /* Usuń border z przedostatniego elementu */
+        .edit-quote-summary > div:nth-last-child(2) {
+            border-bottom: none;
+            padding-bottom: 4px;
+        }
+
+/* Etykiety (lewa strona) */
+.input-txt-bold {
+    font-weight: 600;
+    color: #1F2020;
+    font-size: inherit;
+    flex: 1;
+}
+
+/* Kolumna z kwotami (prawa strona) */
+.edit-quote-summary .edit-order-brutto,
+.edit-quote-summary .edit-finishing-brutto,
+.edit-quote-summary .edit-delivery-brutto,
+.edit-quote-summary .edit-final-brutto {
+    font-weight: 600;
+    color: #1F2020;
+    text-align: right;
+    min-width: 80px;
+    font-size: inherit;
+}
+
+.edit-quote-summary .edit-order-netto,
+.edit-quote-summary .edit-finishing-netto,
+.edit-quote-summary .edit-delivery-netto,
+.edit-quote-summary .edit-final-netto {
+    font-weight: 400;
+    color: #888; /* JAŚNIEJSZY KOLOR */
+    text-align: right;
+    min-width: 80px;
+    font-size: 11px; /* MNIEJSZA CZCIONKA */
+    margin-left: 12px;
+}
+
+/* Specjalne style dla kuriera */
+.edit-courier {
+    color: #666;
+    font-size: 12px;
+    font-style: italic;
+    margin: 0 8px;
+}
+
+.input-txt-bold {
+    font-weight: 600;
+    color: #1F2020;
+}
+
+/* Responsive dla edytora */
+@media (max-width: 1200px) {
+    .edit-quote-form {
+        flex-direction: column;
+    }
+
+    .edit-quote-forms {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 768px) {
+    .product-inputs {
+        grid-template-columns: 1fr;
+    }
+
+    .variants-header,
+    .variant-option {
+        grid-template-columns: 40px 1fr 80px 80px;
+        font-size: 11px;
+    }
+
+        .variants-header .header-total-brutto,
+        .variants-header .header-total-netto,
+        .variant-option .total-brutto,
+        .variant-option .total-netto {
+            display: none;
+        }
+}
+
+/* Style dla kart produktów w edytorze */
+.edit-product-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: border-color 0.2s;
+}
+
+    .edit-product-card:hover {
+        border-color: #ED6B24;
+    }
+
+.edit-product-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+    .edit-product-header h4 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: #1F2020;
+    }
+
+.edit-product-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-remove-product {
+    padding: 4px 8px;
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    transition: background 0.2s;
+}
+
+    .btn-remove-product:hover {
+        background: #c82333;
+    }
+
+.edit-product-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.edit-product-info {
+    flex: 1;
+}
+
+    .edit-product-info p {
+        margin: 4px 0;
+        font-size: 13px;
+        color: #666;
+    }
+
+.edit-product-variants {
+    text-align: right;
+}
+
+    .edit-product-variants p {
+        margin: 4px 0;
+        font-size: 13px;
+        color: #666;
+    }
+
+.edit-product-price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin-top: 8px;
+}
+
+.price-brutto {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1F2020;
+}
+
+.price-netto {
+    font-size: 12px;
+    color: #666;
+}
+
+/* Kompaktowe karty produktów */
+.edit-product-card {
+    background: #f8f9fa; /* JAŚNIEJSZE TŁO */
+    border: 1px solid #e0e0e0;
+    border-radius: 6px; /* MNIEJSZY BORDER-RADIUS */
+    padding: 12px; /* MNIEJSZY PADDING */
+    margin-bottom: 8px; /* MNIEJSZY MARGIN */
+    transition: border-color 0.2s;
+}
+
+.edit-product-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px; /* ZMNIEJSZONE */
+    padding-bottom: 6px; /* ZMNIEJSZONE */
+    border-bottom: 1px solid #e0e0e0;
+}
+
+    .edit-product-header h4 {
+        margin: 0;
+        font-size: 14px; /* ZMNIEJSZONA CZCIONKA */
+        font-weight: 600;
+        color: #1F2020;
+    }
+
+.edit-product-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px; /* ZMNIEJSZONY GAP */
+}
+
+.edit-product-info p {
+    margin: 2px 0; /* ZMNIEJSZONE MARGINESY */
+    font-size: 12px; /* ZMNIEJSZONA CZCIONKA */
+    color: #666;
+}
+
+.edit-product-variants p {
+    margin: 2px 0; /* ZMNIEJSZONE MARGINESY */
+    font-size: 12px; /* ZMNIEJSZONA CZCIONKA */
+    color: #666;
+}
+
+.edit-product-price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin-top: 4px; /* ZMNIEJSZONE */
+}
+
+.price-brutto {
+    font-size: 14px; /* ZMNIEJSZONA CZCIONKA */
+    font-weight: 600;
+    color: #1F2020;
+}
+
+.price-netto {
+    font-size: 11px; /* ZMNIEJSZONA CZCIONKA */
+    color: #666;
+}
+
+/* Responsive - na mniejszych ekranach kolumna */
+@media (max-width: 1000px) {
+    .edit-summary-section-container {
+        flex-direction: column;
+    }
+
+    .edit-products-summary-main,
+    .edit-quote-summary {
+        flex: 1;
+    }
+}
+
+/* ============================================
+   KARTY PRODUKTÓW - SKOPIOWANE Z CALCULATOR
+   ============================================ */
+
+/* Karta pojedynczego produktu */
+.product-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    font-size: 12px;
+    animation: slideInProduct 0.3s ease-out;
+}
+
+    /* Hover effect dla kart produktów */
+    .product-card:hover {
+        border-color: #ED6B24;
+        background: #FFF8F5;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Aktywna karta produktu */
+    .product-card.active {
+        border-color: #ED6B24;
+        background: #FFF8F5;
+        box-shadow: 0 0 0 2px rgba(237, 107, 36, 0.1);
+    }
+
+/* Zawartość karty produktu */
+.product-card-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+.products-summary-container {
+    display: grid;
+    gap: 8px;
+}
+
+/* Numer produktu (kółko) */
+.product-card-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ED6B24;
+    color: #FFFFFF;
+    font-weight: 600;
+    font-size: 11px;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    margin-right: 12px;
+}
+
+.product-card.active .product-card-number {
+    background: #D45611;
+    box-shadow: 0 0 0 2px rgba(237, 107, 36, 0.3);
+}
+
+/* Szczegóły produktu */
+.product-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+/* Główne informacje o produkcie */
+.product-card-main-info {
+    font-weight: 500;
+    font-size: 12px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    hyphens: auto;
+}
+
+/* Dodatkowe informacje o produkcie */
+.product-card-sub-info {
+    font-size: 10px;
+    color: #666666;
+    font-family: Poppins, sans-serif;
+}
+
+/* Przycisk usuwania produktu */
+.remove-product-btn {
+    position: absolute;
+    right: 8px;
+    top: 8px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: #dc3545;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    opacity: 0.7;
+    font-size: 12px;
+}
+
+    .remove-product-btn:hover {
+        opacity: 1;
+        background: #c82333;
+        transform: scale(1.05);
+    }
+
+/* Animacja pojawiania się kart */
+@keyframes slideInProduct {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.cost-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.cost-values {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.cost-total {
+    border-top: 1px solid #ddd;
+    border-bottom: 2px solid #ED6B24;
+    font-weight: 600;
+    margin-top: 4px;
+    padding: 12px 0 8px 0;
+}
+
+/* ===============================
+   Wykończenie - styles dla Quote Editor
+   Skopiowane z style_calculator.css
+   =============================== */
+
+.finishing-section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    font-family: "Poppins", sans-serif;
+}
+
+.finishing-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-self: stretch;
+    max-width: 331px;
+}
+
+.button-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.finishing-btn {
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 2px solid #E3E3E3;
+    background-color: #F5F5F5;
+    color: #1F2020;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    min-width: 80px;
+    font-family: "Poppins", sans-serif;
+    white-space: nowrap;
+    flex: auto;
+    align-self: stretch;
+}
+
+    .finishing-btn:hover {
+        background-color: #e3e3e3;
+    }
+
+    .finishing-btn.active {
+        background-color: #ED6B24;
+        color: white;
+        border-color: #ED6B24;
+    }
+
+.finishing-block .input-txt {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1F2020;
+    margin-bottom: -4px;
+    line-height: 1.4;
+}
+
+/* Color group - grid layout dla kolorów */
+.color-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.color-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px;
+    border: 2px solid #E3E3E3;
+    border-radius: 12px;
+    background-color: #F5F5F5;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    font-family: "Poppins", sans-serif;
+}
+
+    .color-btn:hover {
+        border-color: #ED6B24;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(237, 107, 36, 0.2);
+    }
+
+    .color-btn.active {
+        border-color: #ED6B24;
+        background-color: #FFF5F0;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+    }
+
+    .color-btn img {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        object-fit: cover;
+        margin-bottom: 8px;
+        border: 1px solid #ddd;
+    }
+
+    .color-btn span {
+        font-size: 11px;
+        font-weight: 500;
+        color: #1F2020;
+        line-height: 1.2;
+        word-break: break-word;
+        text-align: center;
+    }
+
+/* Responsive dla kolorów - na mniejszych ekranach */
+@media (max-width: 768px) {
+    .color-group {
+        grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+        gap: 8px;
+    }
+
+    .color-btn {
+        padding: 8px 6px;
+    }
+
+        .color-btn img {
+            width: 32px;
+            height: 32px;
+        }
+
+        .color-btn span {
+            font-size: 10px;
+        }
+}
+
+/* Dla bardzo małych ekranów - 2 kolumny */
+@media (max-width: 480px) {
+    .color-group {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* Style dla sekcji kalkulacji - IDENTYCZNE jak w calculator */
+.edit-calculations-main .variants {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    align-self: stretch;
+}
+
+.edit-calculations-main .variants-header {
+    display: flex;
+    width: 100%;
+    padding: 8px 6px;
+    align-items: center;
+    gap: 8px;
+    background: #f8f9fa;
+    border-bottom: 2px solid #ED6B24;
+    font-weight: 600;
+    font-size: 12px;
+    color: #1F2020;
+}
+
+    .edit-calculations-main .variants-header span {
+        display: inline-block;
+    }
+
+.edit-calculations-main .header-availability {
+    width: 60px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.edit-calculations-main .header-title {
+    width: 180px;
+    flex-shrink: 0;
+}
+
+.edit-calculations-main .header-unit-brutto,
+.edit-calculations-main .header-total-brutto {
+    width: 120px;
+    text-align: right;
+    font-weight: 600;
+}
+
+.edit-calculations-main .header-unit-netto,
+.edit-calculations-main .header-total-netto {
+    width: 90px;
+    text-align: right;
+}
+
+.edit-calculations-main .variant-option {
+    display: flex;
+    padding: 8px 6px;
+    align-items: center;
+    gap: 8px;
+    align-self: stretch;
+    border-bottom: 1px solid #EAEAEA;
+    transition: all 0.2s ease;
+}
+
+/* Checkbox dostępności */
+.edit-calculations-main .variant-availability-checkbox {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: #ED6B24;
+}
+
+/* Radio button */
+.edit-calculations-main .variant-option input[type="radio"] {
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: #ED6B24;
+}
+
+/* Label wariantu */
+.edit-calculations-main .variant-option .option-title {
+    width: 205px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+/* Ceny */
+.edit-calculations-main .variant-option .unit-brutto,
+.edit-calculations-main .variant-option .unit-netto,
+.edit-calculations-main .variant-option .total-brutto,
+.edit-calculations-main .variant-option .total-netto {
+    font-size: 12px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    text-align: right;
+    min-width: 100px;
+}
+
+/* STANY NIEDOSTĘPNOŚCI */
+.edit-calculations-main .variant-option.unavailable {
+    background: #FAFAFA;
+    opacity: 0.7;
+}
+
+    .edit-calculations-main .variant-option.unavailable input[type="radio"] {
+        pointer-events: none;
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .edit-calculations-main .variant-option.unavailable .option-title {
+        color: #000000;
+        cursor: default;
+    }
+
+    .edit-calculations-main .variant-option.unavailable .unit-brutto,
+    .edit-calculations-main .variant-option.unavailable .unit-netto,
+    .edit-calculations-main .variant-option.unavailable .total-brutto,
+    .edit-calculations-main .variant-option.unavailable .total-netto {
+        color: #1F2020;
+    }
+
+/* Hover effect dla dostępnych wariantów */
+.edit-calculations-main .variant-option:not(.unavailable):hover {
+    background: #FFF8F5;
+    border-color: #ED6B24;
+}
+
+/* Aktywny (zaznaczony) wariant */
+.edit-calculations-main .variant-option.selected {
+    background: #FFF8F5;
+    border-color: #ED6B24;
+    box-shadow: 0 0 0 1px rgba(237, 107, 36, 0.2);
+}
+
+/* Checkbox w niedostępnym wariancie */
+.edit-calculations-main .variant-option.unavailable .variant-availability-checkbox {
+    opacity: 0.8;
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+    .edit-calculations-main .variant-option {
+        padding: 6px 4px;
+        gap: 6px;
+        font-size: 11px;
+    }
+
+    .edit-calculations-main .variant-availability-checkbox {
+        width: 14px;
+        height: 14px;
+    }
+
+    .edit-calculations-main .variant-option input[type="radio"] {
+        width: 18px;
+        height: 18px;
+    }
+
+    .edit-calculations-main .variant-option .option-title {
+        width: 160px;
+        font-size: 12px;
+    }
+
+    .edit-calculations-main .header-availability {
+        width: 50px;
+        font-size: 10px;
+    }
+
+    .edit-calculations-main .header-title {
+        width: 160px;
+    }
+}
+
+@media (max-width: 768px) {
+    .edit-calculations-main .variant-option {
+        padding: 4px 2px;
+        gap: 4px;
+        font-size: 10px;
+    }
+
+    .edit-calculations-main .variant-availability-checkbox {
+        width: 12px;
+        height: 12px;
+    }
+
+    .edit-calculations-main .variant-option input[type="radio"] {
+        width: 16px;
+        height: 16px;
+    }
+
+    .edit-calculations-main .variant-option .option-title {
+        width: 140px;
+        font-size: 11px;
+    }
+
+    .edit-calculations-main .variant-option .unit-brutto,
+    .edit-calculations-main .variant-option .unit-netto,
+    .edit-calculations-main .variant-option .total-brutto,
+    .edit-calculations-main .variant-option .total-netto {
+        font-size: 10px;
+        min-width: 60px;
+    }
+
+    .edit-calculations-main .header-availability {
+        width: 40px;
+        font-size: 9px;
+    }
+
+    .edit-calculations-main .header-title {
+        width: 140px;
+    }
+}
+
+/* Animacja dla zmian dostępności */
+.edit-calculations-main .variant-option {
+    transition: all 0.3s ease;
+}
+
+    .edit-calculations-main .variant-option.unavailable {
+        animation: fadeToUnavailable 0.3s ease;
+    }
+
+@keyframes fadeToUnavailable {
+    from {
+        opacity: 1;
+        background: #FFFFFF;
+    }
+
+    to {
+        opacity: 0.7;
+        background: #FAFAFA;
+    }
+}
+
+/* Dodatkowe style dla lepszego UX */
+.edit-calculations-main .variant-availability-checkbox:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
+}
+
+.edit-calculations-main .variant-option input[type="radio"]:focus {
+    outline: 2px solid #ED6B24;
+    outline-offset: 2px;
 }

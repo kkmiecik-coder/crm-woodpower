@@ -22,6 +22,7 @@ const shippingMessages = [
 let messageTimeouts = [];
 let currentClientType = '';
 let currentMultiplier = 1.0;
+let mainContainer = null;
 
 // Pobieranie cen wykończeń z bazy danych
 async function loadFinishingPrices() {
@@ -1694,6 +1695,14 @@ function attachGlobalValidationListeners() {
  */
 function init() {
     console.log("DOMContentLoaded – inicjalizacja calculator.js");
+    function initMainContainer() {
+        mainContainer = document.querySelector('.products-summary-main');
+        if (!mainContainer) {
+            console.warn('[initMainContainer] Nie znaleziono .products-summary-main');
+        } else {
+            console.log('[initMainContainer] mainContainer zainicjalizowany');
+        }
+    }
 
     // Załaduj ceny wykończeń z bazy danych
     loadFinishingPrices();
@@ -1882,10 +1891,11 @@ function init() {
     attachWidthValidation();
     attachGlobalValidationListeners();
     attachGoToQuoteListeners();
+    initMainContainer();
 
     quoteFormsContainer.querySelectorAll('.quote-form').forEach((form, index) => {
         prepareNewProductForm(form, index);
-        attachFormListeners(form);
+        safeAttachFormListeners(form);
         calculateFinishingCost(form);
     });
 
@@ -1915,6 +1925,100 @@ function init() {
     if (quoteFormsContainer.querySelector('.quote-form')) {
         activateProductCard(0);
     }
+}
+
+function safeAttachFormListeners(form) {
+    if (!form) return;
+
+    // Sprawdź czy listenery już zostały dodane
+    if (form.dataset.listenersAttached === "true") {
+        console.log(`[safeAttachFormListeners] Pomijam - listenery już dodane`);
+        return;
+    }
+
+    console.log(`[safeAttachFormListeners] Dodaję listenery dla formularza`);
+
+    // Dodaj listenery dla inputów
+    const inputs = form.querySelectorAll('input[data-field], select[data-field]');
+    inputs.forEach(input => {
+        // Usuń poprzednie listenery klonując element
+        const newInput = input.cloneNode(true);
+        input.parentNode.replaceChild(newInput, input);
+
+        // Dodaj nowe listenery
+        if (newInput.matches('input[data-field]')) {
+            newInput.addEventListener('input', updatePrices);
+        } else if (newInput.matches('select[data-field]')) {
+            newInput.addEventListener('change', updatePrices);
+        }
+    });
+
+    // Dodaj listenery dla radio buttons
+    const radios = form.querySelectorAll('input[type="radio"]');
+    radios.forEach(radio => {
+        // Usuń poprzednie listenery klonując element
+        const newRadio = radio.cloneNode(true);
+        radio.parentNode.replaceChild(newRadio, radio);
+
+        // Dodaj nowy listener
+        newRadio.addEventListener('change', updatePrices);
+    });
+
+    // Dodaj listenery dla przycisków wykończenia
+    const finishingBtns = form.querySelectorAll('.finishing-btn');
+    finishingBtns.forEach(btn => {
+        // Usuń poprzednie listenery klonując element
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+
+        // Dodaj nowy listener
+        newBtn.addEventListener('click', function () {
+            const parentForm = this.closest('.quote-form');
+            if (parentForm) {
+                // Znajdź typ przycisku i usuń active z innych tego samego typu
+                if (this.dataset.finishingType) {
+                    const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-type="${this.dataset.finishingType}"]`);
+                    sameTypeButtons.forEach(b => b.classList.remove('active'));
+                } else if (this.dataset.finishingVariant) {
+                    const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-variant]`);
+                    sameTypeButtons.forEach(b => b.classList.remove('active'));
+                } else if (this.dataset.finishingGloss) {
+                    const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-gloss]`);
+                    sameTypeButtons.forEach(b => b.classList.remove('active'));
+                }
+
+                // Dodaj active do klikniętego
+                this.classList.add('active');
+
+                // Aktualizuj
+                updatePrices();
+                generateProductsSummary();
+            }
+        });
+    });
+
+    // Dodaj listenery dla przycisków kolorów
+    const colorBtns = form.querySelectorAll('.color-btn');
+    colorBtns.forEach(btn => {
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+
+        newBtn.addEventListener('click', function () {
+            const parentForm = this.closest('.quote-form');
+            if (parentForm) {
+                const colorButtons = parentForm.querySelectorAll('.color-btn');
+                colorButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                generateProductsSummary();
+            }
+        });
+    });
+
+    // Oznacz że listenery zostały dodane
+    form.dataset.listenersAttached = "true";
+
+    // Dodaj listenery UI wykończeń
+    attachFinishingUIListeners(form);
 }
 
 function initCalculatorDownloadModal() {
@@ -3258,13 +3362,16 @@ function generateProductsSummary() {
     const forms = Array.from(quoteFormsContainer.querySelectorAll('.quote-form'));
     productSummaryContainer.innerHTML = '';
 
-    // Znajdź główny kontener (rodzic productSummaryContainer)
-    const mainContainer = productSummaryContainer.parentElement; // to powinno być .products-summary-main
+    // POPRAWKA: Znajdź główny kontener bezpiecznie
+    const summaryMainContainer = productSummaryContainer.parentElement ||
+        document.querySelector('.products-summary-main');
 
     // Usuń istniejące podsumowanie jeśli istnieje
-    const existingSummary = mainContainer.querySelector('.products-total-summary');
-    if (existingSummary) {
-        existingSummary.remove();
+    if (summaryMainContainer) {
+        const existingSummary = summaryMainContainer.querySelector('.products-total-summary');
+        if (existingSummary) {
+            existingSummary.remove();
+        }
     }
 
     if (forms.length === 0) {
@@ -3281,7 +3388,7 @@ function generateProductsSummary() {
         productCard.className = `product-card ${isActive ? 'active' : ''} ${!isComplete ? 'error' : ''}`;
         productCard.dataset.index = index;
 
-        // ✅ POPRAWKA: Dodaj przycisk usuwania gdy jest więcej niż 1 produkt
+        // Przycisk usuwania gdy jest więcej niż 1 produkt
         const removeButton = forms.length > 1 ? `
             <button class="remove-product-btn" data-index="${index}" title="Usuń produkt">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -3295,7 +3402,7 @@ function generateProductsSummary() {
             <div class="product-card-content">
                 <div class="product-card-number">${index + 1}</div>
                 <div class="product-card-details">
-                     <div class="product-card-main-info">${descriptionData.main}</div>
+                    <div class="product-card-main-info">${descriptionData.main}</div>
                     ${descriptionData.sub ? `<div class="product-card-sub-info">${descriptionData.sub}</div>` : ''}
                 </div>
                 <button class="duplicate-product-btn" data-index="${index}" title="Duplikuj produkt">
@@ -3308,32 +3415,20 @@ function generateProductsSummary() {
             ${removeButton}
         `;
 
-        // Dodaj listener dla przełączania produktów
+        // POPRAWKA: Dodaj listener NATYCHMIAST po utworzeniu elementu
         productCard.addEventListener('click', (e) => {
-            // ✅ POPRAWKA: Nie przełączaj jeśli kliknięto przycisk usuwania lub duplikowania
+            // Nie przełączaj jeśli kliknięto przycisk usuwania lub duplikowania
             if (e.target.closest('.remove-product-btn') || e.target.closest('.duplicate-product-btn')) return;
-
             activateProductCard(index);
         });
 
         productSummaryContainer.appendChild(productCard);
     });
 
-    // ✅ POPRAWKA: ZAWSZE dodaj przycisk dodawania nowego produktu
-    const addCard = document.createElement('div');
-    addCard.className = 'add-product-card';
-    addCard.innerHTML = `
-        <span class="add-product-card-icon">+</span>
-        <span class="add-product-card-text">Dodaj kolejny produkt</span>
-    `;
-
-    addCard.addEventListener('click', addNewProduct);
-    productSummaryContainer.appendChild(addCard);
-
     // NOWE: Dodaj podsumowanie objętości i wagi NA DOLE GŁÓWNEGO KONTENERA
     const { totalVolume, totalWeight } = calculateTotalVolumeAndWeight();
 
-    if (forms.length > 0 && (totalVolume > 0 || totalWeight > 0)) {
+    if (forms.length > 0 && (totalVolume > 0 || totalWeight > 0) && summaryMainContainer) {
         const summaryCard = document.createElement('div');
         summaryCard.className = 'products-total-summary';
         summaryCard.innerHTML = `
@@ -3343,30 +3438,49 @@ function generateProductsSummary() {
                 <span class="products-total-weight">${formatWeight(totalWeight)}</span>
             </div>
         `;
-        // Dodaj do głównego kontenera, nie do productSummaryContainer
-        mainContainer.appendChild(summaryCard);
+        // POPRAWKA: Dodaj do summaryMainContainer zamiast mainContainer
+        summaryMainContainer.appendChild(summaryCard);
     }
 
-    // ✅ POPRAWKA: Dodaj listenery dla przycisków usuwania
-    productSummaryContainer.querySelectorAll('.remove-product-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Zapobiegnij przełączeniu produktu
-            const index = parseInt(btn.dataset.index);
-            removeProduct(index);
-        });
-    });
-
-    // ✅ POPRAWKA: Dodaj listenery dla przycisków duplikowania
-    productSummaryContainer.querySelectorAll('.duplicate-product-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Zapobiegnij przełączeniu produktu
-            const index = parseInt(btn.dataset.index);
-            duplicateProduct(index);
-        });
-    });
+    // POPRAWKA: Dodaj event listeners FUNKCJĄ DELEGUJĄCĄ aby uniknąć problemów
+    attachProductCardListeners();
 
     // Aktualizuj stan przycisków
     updateCalculateDeliveryButtonState();
+}
+
+function attachProductCardListeners() {
+    // Usuń poprzednie listenery jeśli istnieją
+    if (productSummaryContainer._listenersAttached) {
+        return;
+    }
+
+    // Użyj delegacji eventów dla przycisków usuwania i duplikowania
+    productSummaryContainer.addEventListener('click', (e) => {
+        // Obsługa przycisku usuwania
+        const removeBtn = e.target.closest('.remove-product-btn');
+        if (removeBtn) {
+            e.stopPropagation();
+            const index = parseInt(removeBtn.dataset.index);
+            console.log(`[removeProduct] Usuwam produkt ${index + 1}`);
+            removeProduct(index);
+            return;
+        }
+
+        // Obsługa przycisku duplikowania
+        const duplicateBtn = e.target.closest('.duplicate-product-btn');
+        if (duplicateBtn) {
+            e.stopPropagation();
+            const index = parseInt(duplicateBtn.dataset.index);
+            console.log(`[duplicateProduct] Duplikuję produkt ${index + 1}`);
+            duplicateProduct(index);
+            return;
+        }
+    });
+
+    // Oznacz że listenery zostały dodane
+    productSummaryContainer._listenersAttached = true;
+    console.log('[attachProductCardListeners] Event listenery dla kart produktów zostały dodane');
 }
 
 function removeProduct(index) {
@@ -3584,6 +3698,7 @@ function addNewProduct() {
     setTimeout(() => {
         updateGlobalSummary();
         generateProductsSummary();
+        scrollToLatestProduct();
     }, 100);
     
     console.log(`[addNewProduct] ✅ Pomyślnie dodano produkt ${newIndex + 1}`);
@@ -3600,7 +3715,7 @@ function reinitializeAllEventListeners() {
         delete form.dataset.listenersAttached;
         
         // Dodaj event listenery
-        attachFormListeners(form);
+        safeAttachFormListeners(form);
     });
     
     console.log("[reinitializeAllEventListeners] ✅ Zakończono reinicjalizację");
@@ -3871,7 +3986,7 @@ function copyVariantAvailability(sourceForm, targetForm) {
  */
 function attachFormListenersWithAvailability(form) {
     // Wywołaj istniejącą funkcję
-    attachFormListeners(form);
+    safeAttachFormListeners(form);
 
     // Dodaj obsługę dostępności jeśli jeszcze nie została dodana
     if (!form.dataset.availabilityAttached) {
@@ -4056,10 +4171,26 @@ window.variantAvailability = {
     filter: filterAvailableVariantsForSave,
     getAvailable: getAvailableVariants
 };
+function scrollToLatestProduct() {
+    const container = document.getElementById('products-summary-container');
+    if (container) {
+        // Scroll do dołu kontenera po dodaniu nowego produktu
+        container.scrollTop = container.scrollHeight;
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log("🔧 Inicjalizuję poprawki resetowania wariantów...");
-    
+    function initializeAddProductButton() {
+        const addProductBtn = document.getElementById('add-product-btn');
+        if (addProductBtn) {
+            addProductBtn.addEventListener('click', addNewProduct);
+            console.log('[initializeAddProductButton] Przycisk dodawania produktu został zainicjalizowany');
+        } else {
+            console.warn('[initializeAddProductButton] Nie znaleziono przycisku #add-product-btn');
+        }
+    }
+
     // Wymuś reinicjalizację event listenerów po krótkim opóźnieniu
     setTimeout(() => {
         reinitializeAllEventListeners();
@@ -4075,7 +4206,9 @@ document.addEventListener('DOMContentLoaded', function() {
             updatePrices();
         }
     }, 500);
-    
+
+    initializeAddProductButton();
+
     console.log("✅ Poprawki resetowania wariantów zostały zainicjalizowane!");
 });
 

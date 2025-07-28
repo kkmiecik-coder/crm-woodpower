@@ -97,7 +97,7 @@ class BaselinkerReportOrder(db.Model):
             filters (dict): Słownik filtrów {kolumna: lista_wartości}
             date_from (date): Data od
             date_to (date): Data do
-    
+
         Returns:
             Query: SQLAlchemy Query object
         """
@@ -108,17 +108,7 @@ class BaselinkerReportOrder(db.Model):
             query = query.filter(cls.date_created >= date_from)
         if date_to:
             query = query.filter(cls.date_created <= date_to)
-    
-        # ZMIENIONE FILTRY STATUSÓW: wykluczamy tylko statusy 105112 i 138625
-        # 105112 = "Nowe - nieopłacone"
-        # 138625 = "Zamówienie anulowane"
-        excluded_status_ids = [105112, 138625]
-        query = query.filter(~cls.baselinker_status_id.in_(excluded_status_ids))
-    
-        # Dodatkowo wykluczamy na podstawie nazw statusów (fallback)
-        excluded_status_names = ['Nowe - nieopłacone', 'Zamówienie anulowane']
-        query = query.filter(~cls.current_status.in_(excluded_status_names))
-    
+
         # Dodatkowe filtry (obsługa multiple values)
         if filters:
             for column, values in filters.items():
@@ -131,48 +121,43 @@ class BaselinkerReportOrder(db.Model):
                         # Single value - użyj LIKE
                         query = query.filter(column_attr.like(f'%{values.strip()}%'))
 
-        # POPRAWIONE SORTOWANIE: najpierw po baselinker_order_id (malejąco), potem po dacie
+        # POPRAWKA SORTOWANIA: Najnowsze daty na górze jako GŁÓWNY priorytet
         from sqlalchemy import case, desc, asc
 
         return query.order_by(
-            # Najpierw ręczne wpisy (is_manual = True) na końcu
-            cls.is_manual.asc(),
-            # Potem sortuj po baselinker_order_id malejąco (NULL na końcu)
-            desc(case(
-                (cls.baselinker_order_id.is_(None), 0),  # NULL = 0 (najniższy priorytet)
-                else_=cls.baselinker_order_id  # Nie-NULL sortowane malejąco
-            )),
-            # Na końcu po dacie malejąco (najnowsze na górze)
+            # PRIORYTET 1: Najnowsze daty na górze (główne kryterium)
             desc(cls.date_created),
-            # Dodatkowo po ID dla stabilności sortowania
-            desc(cls.id)
+            # PRIORYTET 2: W ramach tego samego dnia - ręczne wpisy NA POCZĄTKU
+            cls.is_manual.desc(),  # TRUE (ręczne) przed FALSE (automatyczne)
+            # PRIORYTET 3: W ramach tego samego dnia i typu - większe ID (nowsze)
+            desc(cls.id),
+            # PRIORYTET 4: Baselinker ID jako ostatnie kryterium
+            desc(case(
+                (cls.baselinker_order_id.is_(None), 0),  # NULL = najniższy priorytet
+                else_=cls.baselinker_order_id
+            ))
         )
     
     @classmethod
     def get_orders_by_date_range(cls, days_back=None):
         """
         Pobiera zamówienia z ostatnich X dni lub wszystkie jeśli days_back=None
-    
+
         Args:
             days_back (int): Ile dni wstecz (None = wszystkie zamówienia)
-        
+
         Returns:
             List[BaselinkerReportOrder]: Lista zamówień
         """
         query = cls.query
-    
+
         # ZMIANA: Tylko jeśli podano days_back, dodaj filtr daty
         if days_back is not None:
             date_from = datetime.now().date() - timedelta(days=days_back)
             query = query.filter(cls.date_created >= date_from)
-    
-        # Zastosuj te same filtry statusów co w get_filtered_orders
-        excluded_status_ids = [105112, 138625]  # Nowe - nieopłacone, Zamówienie anulowane
-        query = query.filter(~cls.baselinker_status_id.in_(excluded_status_ids))
-    
-        excluded_status_names = ['Nowe - nieopłacone', 'Zamówienie anulowane']
-        query = query.filter(~cls.current_status.in_(excluded_status_names))
-    
+        
+        print(f"[DEBUG] get_orders_by_date_range: Pokazuję WSZYSTKIE statusy (bez domyślnych wykluczeń)")
+
         return query.order_by(cls.date_created.desc()).all()
     
     @classmethod
@@ -402,7 +387,7 @@ class BaselinkerReportOrder(db.Model):
         
         # Ustaw domyślny product_type na 'deska' jeśli nie ma
         if not self.product_type:
-            self.product_type = 'deska'
+            self.product_type = 'klejonka'
     
     def normalize_delivery_state(self):
         """

@@ -691,16 +691,10 @@ function collectQuoteData() {
 
         console.log(`[collectQuoteData] Produkt ${index + 1}: ${allVariants.length} wariantów (${allVariants.filter(v => v.is_available).length} dostępnych, ${allVariants.filter(v => v.is_selected).length} zaznaczonych)`);
 
-        // ✅ POPRAWKA: Dodaj koszty wykończenia do sumy TYLKO jeśli jest zaznaczony wariant
-        // i pomnóż przez quantity (ilość sztuk)
         if (hasSelectedVariant && finishingBrutto > 0) {
-            const finishingTotalBrutto = finishingBrutto * quantity;
-            const finishingTotalNetto = finishingNetto * quantity;
-
-            sumFinishingBrutto += finishingTotalBrutto;
-            sumFinishingNetto += finishingTotalNetto;
-
-            console.log(`[collectQuoteData] Dodano wykończenie dla produktu ${index + 1}: ${finishingBrutto} PLN × ${quantity} szt = ${finishingTotalBrutto} PLN brutto`);
+            sumFinishingBrutto += finishingBrutto;
+            sumFinishingNetto += finishingNetto;
+            console.log(`[collectQuoteData] Dodano wykończenie dla produktu ${index + 1}: ${finishingBrutto} PLN brutto (już uwzględnia ${quantity} szt)`);
         }
 
         // ✅ NOWE: Zapisz WSZYSTKIE warianty (zarówno dostępne jak i niedostępne)
@@ -710,7 +704,6 @@ function collectQuoteData() {
             width,
             thickness,
             quantity,
-            // ✅ DODANE: Dane wykończenia na poziomie produktu
             finishing_type: finishingType,
             finishing_variant: finishingVariant,
             finishing_color: finishingColor,

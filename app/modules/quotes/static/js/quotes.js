@@ -230,6 +230,9 @@ function showDetailsModal(quoteData) {
     itemsContainer.innerHTML = '';
     currentQuoteData = quoteData;
 
+    window.currentQuoteData = quoteData;
+    console.log('[MODAL] Ustawiono currentQuoteData:', quoteData);
+
     removeAcceptanceBanner(modalBox);
     removeOrderBanner(modalBox);
     removeUserAcceptanceBanner(modalBox); // NOWE
@@ -356,8 +359,90 @@ function showDetailsModal(quoteData) {
     console.log('[MODAL] Konfiguracja przycisku akceptacji przez użytkownika...');
     setupUserAcceptButton(quoteData);
 
-    console.log('[MODAL] Konfiguracja przycisku 3D...');
-    initializePreview3DButton(quoteData);
+    // === NOWA OBSŁUGA PRZYCISKU 3D/AR ===
+    console.log('[MODAL] Konfiguracja przycisku 3D/AR...');
+    const preview3dBtn = document.getElementById("quote-preview3d-btn");
+    if (preview3dBtn) {
+        console.log('[MODAL] Konfiguracja przycisku 3D/AR:', {
+            id: quoteData.id,
+            quote_number: quoteData.quote_number,
+            public_token: quoteData.public_token
+        });
+
+        let token = quoteData.public_token;
+
+        // FALLBACK 1: Jeśli brak tokenu, znajdź go z listy wycen (allQuotes)
+        if (!token && allQuotes && allQuotes.length > 0) {
+            const quoteInList = allQuotes.find(q => q.id === quoteData.id);
+            if (quoteInList && quoteInList.public_token) {
+                token = quoteInList.public_token;
+                console.log('[MODAL] ✅ Token 3D skopiowany z listy wycen:', token);
+            }
+        }
+
+        // FALLBACK 2: Jeśli nadal brak, wyodrębnij z public_url
+        if (!token && quoteData.public_url) {
+            const urlMatch = quoteData.public_url.match(/\/wycena\/[^\/]+\/([A-F0-9]+)$/);
+            if (urlMatch) {
+                token = urlMatch[1];
+                console.log('[MODAL] ✅ Token 3D wyodrębniony z public_url:', token);
+            }
+        }
+
+        if (!token) {
+            console.error('[MODAL] ❌ BRAK tokenu dla 3D - wyłączam przycisk');
+            preview3dBtn.disabled = true;
+            preview3dBtn.title = 'Brak tokenu zabezpieczającego';
+            preview3dBtn.style.opacity = '0.5';
+        } else {
+            console.log('[MODAL] ✅ Token 3D do użycia:', token);
+            preview3dBtn.disabled = false;
+            preview3dBtn.style.opacity = '1';
+            preview3dBtn.title = 'Podgląd wybranego wariantu w 3D/AR';
+
+            // Usuń poprzednie event listenery i dodaj nowy
+            const newPreview3dBtn = preview3dBtn.cloneNode(true);
+            preview3dBtn.parentNode.replaceChild(newPreview3dBtn, preview3dBtn);
+
+            newPreview3dBtn.addEventListener('click', () => {
+                console.log('[3D Button] Klik - otwieranie z tokenem:', token);
+
+                // Sprawdź czy są produkty w wycenie
+                if (!quoteData.items || quoteData.items.length === 0) {
+                    alert('Błąd: Wycena nie zawiera żadnych produktów.');
+                    return;
+                }
+
+                // URL nowego viewer'a z tokenem
+                const viewerUrl = `/preview3d-ar/${token}`;
+
+                // Parametry okna
+                const windowFeatures = [
+                    'width=1600',
+                    'height=1000',
+                    'scrollbars=yes',
+                    'resizable=yes',
+                    'menubar=no',
+                    'toolbar=no',
+                    'location=no',
+                    'status=no',
+                    'left=' + Math.max(0, (screen.width - 1600) / 2),
+                    'top=' + Math.max(0, (screen.height - 1000) / 2)
+                ].join(',');
+
+                // Otwórz viewer
+                const preview3DWindow = window.open(viewerUrl, 'QuoteViewer3D_' + token, windowFeatures);
+
+                if (!preview3DWindow) {
+                    // Fallback - spróbuj otworzyć w nowej karcie
+                    window.open(viewerUrl, '_blank');
+                    alert('Quote Viewer 3D/AR został otwarty w nowej karcie (sprawdź ustawienia blokady popup).');
+                } else {
+                    console.log('[3D Button] Okno Preview3D otwarte pomyślnie');
+                }
+            });
+        }
+    }
 
     modal.classList.add('active');
     console.log('[MODAL] Modal powinien być teraz widoczny! Data:', quoteData);
@@ -368,6 +453,12 @@ function showDetailsModal(quoteData) {
             console.log('[MODAL] Zamykam modal przez kliknięcie tła');
         }
     });
+
+    setTimeout(() => {
+        console.log('[MODAL] Inicjalizuję masową zmianę wariantów...');
+        console.log('[MODAL] currentQuoteData przed initBulkVariantChange:', currentQuoteData);
+        initBulkVariantChange();
+    }, 100);
 }
 
 function updateMultiplierDisplay(quoteData) {
@@ -544,7 +635,7 @@ function removeOrderBanner(modalBox) {
     }
 }
 
-// POPRAWIONA funkcja wyświetlania kosztów
+// POPRAWIONA funkcja wyświetlania kosztów - wklej do app/modules/quotes/static/js/quotes.js
 function updateCostsDisplay(quoteData) {
     console.log('[updateCostsDisplay] Aktualizuję wyświetlanie kosztów', quoteData);
 
@@ -558,32 +649,66 @@ function updateCostsDisplay(quoteData) {
             // Użyj nowej struktury z backendu
             const costs = quoteData.costs;
 
+            // Koszt surowych
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
 
+            // Koszt wykończenia
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
 
+            // NOWE: Suma produktów bez dostawy (surowe + wykończenie)
+            const productsTotalNetto = costs.products.netto + costs.finishing.netto;
+            const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
+
+            document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
+
+            // Koszt wysyłki
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
 
+            // Koszt całkowity
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+
+            // Kurier - wypełnij nazwę kuriera
+            const courierElement = document.getElementById('quotes-details-modal-courier-name');
+            if (courierElement) {
+                courierElement.textContent = quoteData.courier_name || '-';
+            }
         } else {
             // Oblicz VAT po stronie frontend
             const costs = calculateCostsClientSide(quoteData);
 
+            // Koszt surowych
             document.getElementById('quotes-details-modal-cost-products-brutto').textContent = `${costs.products.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-products-netto').textContent = `${costs.products.netto.toFixed(2)} PLN`;
 
+            // Koszt wykończenia
             document.getElementById('quotes-details-modal-cost-finishing-brutto').textContent = `${costs.finishing.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-finishing-netto').textContent = `${costs.finishing.netto.toFixed(2)} PLN`;
 
+            // NOWE: Suma produktów bez dostawy
+            const productsTotalNetto = costs.products.netto + costs.finishing.netto;
+            const productsTotalBrutto = costs.products.brutto + costs.finishing.brutto;
+
+            document.getElementById('quotes-details-modal-cost-products-total-brutto').textContent = `${productsTotalBrutto.toFixed(2)} PLN`;
+            document.getElementById('quotes-details-modal-cost-products-total-netto').textContent = `${productsTotalNetto.toFixed(2)} PLN`;
+
+            // Koszt wysyłki
             document.getElementById('quotes-details-modal-cost-shipping-brutto').textContent = `${costs.shipping.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-shipping-netto').textContent = `${costs.shipping.netto.toFixed(2)} PLN`;
 
+            // Koszt całkowity
             document.getElementById('quotes-details-modal-cost-total-brutto').textContent = `${costs.total.brutto.toFixed(2)} PLN`;
             document.getElementById('quotes-details-modal-cost-total-netto').textContent = `${costs.total.netto.toFixed(2)} PLN`;
+
+            // Kurier - wypełnij nazwę kuriera
+            const courierElement = document.getElementById('quotes-details-modal-courier-name');
+            if (courierElement) {
+                courierElement.textContent = quoteData.courier_name || '-';
+            }
         }
     } else {
         // STARA STRUKTURA - fallback do starych elementów
@@ -602,17 +727,9 @@ function updateCostsDisplay(quoteData) {
         if (oldShipping) oldShipping.textContent = `${costs.shipping?.brutto?.toFixed(2) || '0.00'} PLN`;
         if (oldTotal) oldTotal.textContent = `${costs.total?.brutto?.toFixed(2) || '0.00'} PLN`;
     }
-
-    // Kurier
-    const courierElement = document.getElementById('quotes-details-modal-courier-name');
-    if (courierElement) {
-        courierElement.textContent = quoteData.courier_name || '-';
-    }
-    
     // NOWE: Sekcja Baselinker
     updateBaselinkerSection(quoteData);
 }
-
 function updateBaselinkerSection(quoteData) {
     const section = document.getElementById('baselinker-section');
     const orderNumber = document.getElementById('baselinker-order-number');
@@ -779,41 +896,185 @@ function getEditIconURL() {
     return '/quotes/static/img/edit.svg';
 }
 
-function buildVariantPriceDisplay(variant, quantity) {
-    // NOWE: Używamy cen jednostkowych
+function buildVariantPriceDisplay(variant, quantity, quoteData) {
+    // Znajdź szczegóły wykończenia dla tego produktu
+    const finishing = (quoteData.finishing || []).find(f => f.product_index == variant.product_index);
+    const finishingType = finishing ? finishing.finishing_type : 'Surowe';
+    const hasFinishing = finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
+
+    // Przygotuj nazwę wariantu
+    const variantName = translateVariantCode(variant.variant_code);
+
+    // Przelicz ceny jednostkowe i całkowite
     const unitPriceBrutto = variant.unit_price_brutto || variant.final_price_brutto || 0;
     const unitPriceNetto = variant.unit_price_netto || variant.final_price_netto || 0;
-    
-    // Oblicz wartości całkowite
     const totalBrutto = unitPriceBrutto * quantity;
     const totalNetto = unitPriceNetto * quantity;
-    
-    return `
-        <div class="details-modal-variant-pricing">
-            <div class="details-modal-pricing-row">
-                <div class="details-modal-pricing-label">
-                    <strong>Cena:</strong>
+
+    // Ceny wykończenia (jeśli istnieje)
+    const finishingPriceBrutto = finishing ? (finishing.finishing_price_brutto || 0) : 0;
+    const finishingPriceNetto = finishing ? (finishing.finishing_price_netto || 0) : 0;
+    const finishingTotalBrutto = finishingPriceBrutto * quantity;
+    const finishingTotalNetto = finishingPriceNetto * quantity;
+
+    // Przygotuj HTML kafelka
+    let cardHTML = `
+        <div class="qvmd-variant-card ${variant.is_selected ? 'qvmd-selected' : ''}">
+            ${buildVariantBadges(variant)}
+            <div class="qvmd-wood-texture" style="background-image: url('/quotes/quotes/static/img/${variant.variant_code}.jpg');"></div>
+            <div class="qvmd-variant-content">
+                <div class="qvmd-variant-header">
+                    <div class="qvmd-variant-title">Wariant: <span class="qvmd-variant-name">${variantName}</span></div>
+                    <div class="qvmd-price-per-m2-wrapper">
+                        <div class="qvmd-price-per-m2-label">Cena za m³:</div>
+                        <div class="qvmd-price-per-m2-value">${variant.price_per_m3.toFixed(2)} PLN netto</div>
+                    </div>
                 </div>
-                <div class="details-modal-pricing-values">
-                    <div class="details-modal-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
-                    <div class="details-modal-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+
+                <div class="qvmd-pricing-section">
+    `;
+
+    if (hasFinishing) {
+        // Layout z wykończeniem - etykiety z lewej, kolumny z prawej
+        cardHTML += `
+                <div class="qvmd-pricing-with-finishing">
+                    <!-- Nagłówki kolumn -->
+                    <div class="qvmd-headers-row">
+                        <div class="qvmd-label-spacer"></div>
+                        <div class="qvmd-column-header">SUROWE</div>
+                        <div class="qvmd-column-header qvmd-finishing">Z WYKOŃCZENIEM</div>
+                    </div>
+                    
+                    <!-- Wiersz "Cena" -->
+                    <div class="qvmd-pricing-row">
+                        <span class="qvmd-pricing-label">Cena</span>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                        </div>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto qvmd-finishing">${(unitPriceBrutto + finishingPriceBrutto).toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${(unitPriceNetto + finishingPriceNetto).toFixed(2)} PLN netto</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Wiersz "Wartość" -->
+                    <div class="qvmd-pricing-row">
+                        <span class="qvmd-pricing-label">Wartość</span>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+                        </div>
+                        <div class="qvmd-pricing-values">
+                            <div class="qvmd-price-brutto qvmd-finishing">${(totalBrutto + finishingTotalBrutto).toFixed(2)} PLN brutto</div>
+                            <div class="qvmd-price-netto">${(totalNetto + finishingTotalNetto).toFixed(2)} PLN netto</div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="details-modal-pricing-row">
-                <div class="details-modal-pricing-label">
-                    <strong>Wartość:</strong>
+    `;
+    } else {
+        // Layout surowy (prosta kolumna)
+        cardHTML += `
+                    <div class="qvmd-pricing-simple">
+                        <div class="qvmd-pricing-row">
+                            <span class="qvmd-pricing-label">Cena</span>
+                            <div class="qvmd-pricing-values">
+                                <div class="qvmd-price-brutto">${unitPriceBrutto.toFixed(2)} PLN brutto</div>
+                                <div class="qvmd-price-netto">${unitPriceNetto.toFixed(2)} PLN netto</div>
+                            </div>
+                        </div>
+                        <div class="qvmd-pricing-row">
+                            <span class="qvmd-pricing-label">Wartość</span>
+                            <div class="qvmd-pricing-values">
+                                <div class="qvmd-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
+                                <div class="qvmd-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+                            </div>
+                        </div>
+                    </div>
+        `;
+    }
+
+    // Dodaj banner rabatu jeśli istnieje
+    if (variant.has_discount && variant.discount_percentage !== 0) {
+        const discountReasonName = getDiscountReasonName(variant.discount_reason_id);
+        cardHTML += `
+                    <div class="qvmd-discount-banner">
+                        <div class="qvmd-discount-banner-title">Rabat ${variant.discount_percentage}%</div>
+                        <div class="qvmd-discount-banner-reason">Powód: ${discountReasonName || 'Nie podano'}</div>
+                    </div>
+        `;
+    }
+
+    cardHTML += `
                 </div>
-                <div class="details-modal-pricing-values">
-                    <div class="details-modal-price-brutto">${totalBrutto.toFixed(2)} PLN brutto</div>
-                    <div class="details-modal-price-netto">${totalNetto.toFixed(2)} PLN netto</div>
+
+                <div class="qvmd-variant-actions">
+    `;
+
+    // Przyciski akcji
+    if (variant.is_selected) {
+        cardHTML += `<button class="qvmd-btn qvmd-btn-selected">✓ Wybrany wariant</button>`;
+    } else {
+        cardHTML += `<button class="qvmd-btn" onclick="selectVariant(${variant.id})">Ustaw jako wybrany</button>`;
+    }
+
+    cardHTML += `
+                    <button class="qvmd-btn qvmd-btn-edit" onclick="openVariantEditModal(${JSON.stringify(variant).replace(/"/g, '&quot;')}, currentQuoteData)">
+                        <img src="/quotes/quotes/static/img/edit.svg" alt="Edytuj" class="qvmd-edit-icon">
+                    </button>
                 </div>
             </div>
         </div>
     `;
+
+    return cardHTML;
+}
+
+/**
+ * 2. DODAJ TĘ NOWĄ FUNKCJĘ (wstaw gdziekolwiek po buildVariantPriceDisplay)
+ */
+function buildVariantBadges(variant) {
+    let badgesHTML = '';
+    const badges = [];
+
+    // Badge "Niewidoczny"
+    if (variant.show_on_client_page === false) {
+        badges.push('<div class="qvmd-badge qvmd-badge-invisible">Niewidoczny</div>');
+    }
+
+    // Badge "Rabat"
+    if (variant.has_discount && variant.discount_percentage !== 0) {
+        badges.push(`<div class="qvmd-badge qvmd-badge-discount">Rabat ${variant.discount_percentage}%</div>`);
+    }
+
+    if (badges.length > 0) {
+        badgesHTML = `
+            <div class="qvmd-variant-badges">
+                ${badges.join('')}
+            </div>
+        `;
+    }
+
+    return badgesHTML;
+}
+
+/**
+ * 3. DODAJ TĘ NOWĄ FUNKCJĘ (wstaw gdziekolwiek po buildVariantBadges)
+ */
+function selectVariant(variantId) {
+    if (!confirm('Na pewno zmienić wybór wariantu?')) return;
+
+    fetch(`/quotes/api/quote_items/${variantId}/select`, { method: 'PATCH' })
+        .then(res => res.json())
+        .then(() => fetch(`/quotes/api/quotes/${currentQuoteData.id}`))
+        .then(res => res.json())
+        .then(fullData => showDetailsModal(fullData))
+        .catch(err => console.error('[MODAL] Błąd zmiany wariantu:', err));
 }
 
 /**
  * Główna funkcja budująca zakładki produktów i listę wariantów
+ * ZASTĄP CAŁĄ ISTNIEJĄCĄ FUNKCJĘ setupProductTabs tym kodem
  */
 function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
     const items = quoteData.items || [];
@@ -847,120 +1108,50 @@ function setupProductTabs(quoteData, tabsContainer, itemsContainer) {
             tabContent.appendChild(summaryHeader);
         }
 
-        // ——— 3. Lista wariantów ———
-        const list = document.createElement('ul');
-        list.className = 'variant-list';
+        // ——— 3. NOWY LAYOUT: KAFELKI WARIANTÓW ———
 
-        grouped[index].forEach(item => {
-            const li = document.createElement('li');
-
-            // Dodaj klasę jeśli wariant ma rabat
-            if (item.has_discount) {
-                li.classList.add('has-discount');
-            }
-
-            // — Dane wariantu: nazwa i ceny — 
-            const variantName = translateVariantCode(item.variant_code);
-            const pricePerM3 = item.price_per_m3
-                ? `${item.price_per_m3.toFixed(2)} PLN`
-                : 'Brak informacji';
-
-            // Sprawdź czy są oryginalne ceny (czy był rabat)
-            // NOWE: Pobierz quantity z finishing details
+        // Znajdź warianty z wykończeniem
+        const variantsWithFinishing = grouped[index].filter(item => {
             const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
-            const quantity = finishing ? (finishing.quantity || 1) : 1;
-
-            // NOWE: Użyj nowej funkcji do wyświetlania cen
-            const priceDisplay = buildVariantPriceDisplay(item, quantity);
-
-            li.innerHTML = `
-                <p><strong>Wariant:</strong> ${variantName}</p>
-                <p><strong>Cena za m³:</strong> ${pricePerM3}</p>
-                ${priceDisplay}
-            `;
-
-            // Dodaj etykietę "Edytowane" jeśli wariant ma rabat
-            if (item.has_discount && item.discount_percentage !== 0) {
-                const editedBadge = document.createElement('div');
-                editedBadge.className = 'edited-badge';
-                editedBadge.textContent = 'Edytowane';
-                li.appendChild(editedBadge);
-            }
-
-            // Dodaj etykietę "Niewidoczny" jeśli wariant nie jest widoczny na stronie klienta
-            if (item.show_on_client_page === false) {
-                const hiddenBadge = document.createElement('div');
-                hiddenBadge.className = 'hidden-badge';
-                hiddenBadge.textContent = 'Niewidoczny';
-                li.appendChild(hiddenBadge);
-            }
-
-            // Dodaj informacje o rabacie jeśli istnieje
-            if (item.discount_percentage !== 0) {
-                const discountInfo = document.createElement('div');
-                discountInfo.className = 'discount-info';
-                discountInfo.innerHTML = `
-                    <span class="discount-label">Rabat: ${item.discount_percentage}%</span>
-                    ${item.discount_reason_id ? `<br><small>Powód: ${getDiscountReasonName(item.discount_reason_id)}</small>` : ''}
-                `;
-                li.appendChild(discountInfo);
-            }
-
-            // ——— 4. Wrapper na przyciski + oznaczenie ———
-            const actionsDiv = document.createElement('div');
-            actionsDiv.className = 'variant-actions';
-
-            // (a) jeśli wariant nie jest wybrany → dodajemy przycisk "Ustaw jako wybrany"
-            if (!item.is_selected) {
-                const chooseBtn = document.createElement('button');
-                chooseBtn.className = 'choose-btn';
-                chooseBtn.textContent = 'Ustaw jako wybrany';
-                chooseBtn.onclick = () => {
-                    if (!confirm('Na pewno zmienić wybór wariantu?')) return;
-                    fetch(`/quotes/api/quote_items/${item.id}/select`, { method: 'PATCH' })
-                        .then(res => res.json())
-                        .then(() => fetch(`/quotes/api/quotes/${quoteData.id}`))
-                        .then(res => res.json())
-                        .then(fullData => showDetailsModal(fullData))
-                        .catch(err => console.error('[MODAL] Błąd zmiany wariantu:', err));
-                };
-                actionsDiv.appendChild(chooseBtn);
-            }
-
-            // (b) zawsze dodajemy oznaczenie „Wybrany wariant" do środka actionsDiv,
-            //     ale tylko gdy item.is_selected === true
-            if (item.is_selected) {
-                const selectedTag = document.createElement('p');
-                selectedTag.className = 'selected-tag';
-                selectedTag.textContent = '✓ Wybrany wariant';
-                actionsDiv.appendChild(selectedTag);
-            }
-
-            // (c) zawsze dopisujemy przycisk z ikoną SVG edycji
-            const editBtn = document.createElement('button');
-            editBtn.className = 'edit-btn';
-            editBtn.innerHTML = `
-                <img 
-                    src="${editIconURL}" 
-                    alt="Edytuj wariant"
-                    title="Edytuj rabat wariantu"
-                >
-            `;
-
-            // NOWA FUNKCJONALNOŚĆ: Podłączenie do modala edycji
-            editBtn.onclick = () => {
-                console.log('[EDIT] Kliknięto edycję wariantu:', item);
-                openVariantEditModal(item, quoteData);
-            };
-
-            actionsDiv.appendChild(editBtn);
-
-            // ——— 5. Dopinamy wrapper actionsDiv do <li> i <li> do <ul> ———
-            li.appendChild(actionsDiv);
-            list.appendChild(li);
+            const finishingType = finishing ? finishing.finishing_type : 'Surowe';
+            return finishingType && finishingType !== 'Surowe' && finishingType !== 'Brak';
         });
 
-        tabContent.appendChild(list);
+        // Znajdź warianty surowe
+        const rawVariants = grouped[index].filter(item => {
+            const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+            const finishingType = finishing ? finishing.finishing_type : 'Surowe';
+            return !finishingType || finishingType === 'Surowe' || finishingType === 'Brak';
+        });
+
+        // Grid dla wariantów z wykończeniem
+        if (variantsWithFinishing.length > 0) {
+            const finishingGridDiv = document.createElement('div');
+            finishingGridDiv.className = 'qvmd-variants-grid qvmd-with-finishing';
+            finishingGridDiv.innerHTML = variantsWithFinishing
+                .map(item => {
+                    const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+                    const quantity = finishing ? (finishing.quantity || 1) : 1;
+                    return buildVariantPriceDisplay(item, quantity, quoteData);
+                })
+                .join('');
+            tabContent.appendChild(finishingGridDiv);
+        }
+
+        // Grid dla wariantów surowych
+        if (rawVariants.length > 0) {
+            const rawGridDiv = document.createElement('div');
+            rawGridDiv.className = 'qvmd-variants-grid';
+            rawGridDiv.innerHTML = rawVariants
+                .map(item => {
+                    const finishing = (quoteData.finishing || []).find(f => f.product_index == index);
+                    const quantity = finishing ? (finishing.quantity || 1) : 1;
+                    return buildVariantPriceDisplay(item, quantity, quoteData);
+                })
+                .join('');
+            tabContent.appendChild(rawGridDiv);
+        }
+
         itemsContainer.appendChild(tabContent);
     });
 
@@ -1271,15 +1462,50 @@ function renderSelectedSummary(groupedItems, container) {
 
         const variant = translateVariantCode(selected.variant_code) || "Nieznany wariant";
         const dims = `${selected.length_cm}×${selected.width_cm}×${selected.thickness_cm} cm`;
-        
-        // NOWE: Pobierz quantity i ceny jednostkowe
-        const quantity = selected.quantity || 1;
-        const unitPriceBrutto = selected.unit_price_brutto || selected.final_price_brutto || 0;
-        const unitPriceNetto = selected.unit_price_netto || selected.final_price_netto || 0;
-        
-        // Oblicz wartości całkowite
-        const totalBrutto = unitPriceBrutto * quantity;
-        const totalNetto = unitPriceNetto * quantity;
+
+        // Znajdź szczegóły wykończenia dla tego produktu
+        const finishing = window.currentQuoteData ?
+            (window.currentQuoteData.finishing || []).find(f => f.product_index == index) : null;
+
+        // Pobierz ilość z finishing details lub domyślnie 1
+        const quantity = finishing ? (finishing.quantity || 1) : 1;
+
+        // Oblicz ceny bazowe produktu
+        const baseUnitPriceBrutto = selected.unit_price_brutto || selected.final_price_brutto || 0;
+        const baseUnitPriceNetto = selected.unit_price_netto || selected.final_price_netto || 0;
+
+        // Dodaj cenę wykończenia do ceny jednostkowej (jeśli istnieje)
+        let finalUnitPriceBrutto = baseUnitPriceBrutto;
+        let finalUnitPriceNetto = baseUnitPriceNetto;
+
+        if (finishing && finishing.finishing_price_brutto) {
+            finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0);
+        }
+        if (finishing && finishing.finishing_price_netto) {
+            finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0);
+        }
+
+        // Oblicz wartości całkowite (cena jednostkowa × ilość)
+        const totalBrutto = finalUnitPriceBrutto * quantity;
+        const totalNetto = finalUnitPriceNetto * quantity;
+
+        // Przygotuj opis wykończenia dla wyświetlenia
+        let finishingText = '';
+        if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak' && finishing.finishing_type !== 'Surowe') {
+            const finishingParts = [];
+
+            if (finishing.finishing_type) {
+                finishingParts.push(finishing.finishing_type);
+            }
+            if (finishing.finishing_color && finishing.finishing_color !== 'Brak') {
+                finishingParts.push(finishing.finishing_color);
+            }
+            if (finishing.application_method && finishing.application_method !== 'Brak') {
+                finishingParts.push(finishing.application_method);
+            }
+
+            finishingText = finishingParts.length > 0 ? ` ${finishingParts.join(' ')}` : '';
+        }
 
         const p = document.createElement("p");
         p.className = "selected-summary-item";
@@ -1287,7 +1513,7 @@ function renderSelectedSummary(groupedItems, container) {
             <span class='dot'></span>
             <span style="font-size: 14px; font-weight: 600;">Produkt ${parseInt(index)}:</span>
             <span style="font-size: 12px; font-weight: 400;">
-                ${variant} ${dims} • 
+                ${variant} ${dims}${finishingText} • ${quantity} szt. • 
                 ${formatPriceWithNetto(totalBrutto, totalNetto)}
             </span>
         `;
@@ -1353,12 +1579,21 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     const totalBrutto = finalUnitPriceBrutto * quantity;
     const totalNetto = finalUnitPriceNetto * quantity;
 
+    // Oblicz koszt wykończenia dla wyświetlenia
+    let finishingCostDisplay = '0.00 PLN';
+    if (finishing && finishing.finishing_price_brutto && parseFloat(finishing.finishing_price_brutto) > 0) {
+        const finishingCostBrutto = parseFloat(finishing.finishing_price_brutto || 0);
+        const finishingCostNetto = parseFloat(finishing.finishing_price_netto || 0);
+        finishingCostDisplay = `${finishingCostBrutto.toFixed(2)} PLN <span class="cost-netto">${finishingCostNetto.toFixed(2)} PLN</span>`;
+    }
+
     wrap.innerHTML = `
         <div class="product-details">
             <div><strong>Wariant:</strong> ${translateVariantCode(item.variant_code) || 'Nieznany wariant'}</div>
             <div><strong>Wymiary:</strong> ${dims}</div>
             <div><strong>Objętość:</strong> ${volume}</div>
             <div><strong>Wykończenie:</strong> ${finishingDisplay}</div>
+            <div><strong>Koszt wykończenia:</strong> ${finishingCostDisplay}</div>
         </div>
         <div class="product-pricing">
             <div class="pricing-row" style="align-items: center;">
@@ -2257,7 +2492,7 @@ function initializeClientPageButtons(quoteData) {
 }
 function generateClientUrl(quoteNumber, token) {
     const baseUrl = window.location.origin;
-    return `${baseUrl}/wycena/${quoteNumber}/${token}`;
+    return `${baseUrl}/c/${token}`;
 }
 function openClientPage(quoteNumber, token) {
     if (!quoteNumber || !token) {
@@ -2348,7 +2583,7 @@ function formatPriceWithNetto(brutto, netto) {
         html += `${brutto.toFixed(2)} PLN brutto`;
     }
     if (netto && brutto) {
-        html += ` <span style="color: #666; font-size: 12px;">${netto.toFixed(2)} PLN netto</span>`;
+        html += ` <span style="font-size: 12px;">• ${netto.toFixed(2)} PLN netto</span>`;
     } else if (netto && !brutto) {
         html += `${netto.toFixed(2)} PLN netto`;
     }
@@ -2677,145 +2912,6 @@ function isQuoteAcceptedByUser(quoteData) {
 }
 
 /**
- * Inicjalizuje przycisk Preview3D w modalu szczegółów wyceny
- * @param {Object} quoteData - Dane wyceny
- */
-function initializePreview3DButton(quoteData) {
-    console.log('[Preview3D] Inicjalizacja przycisku Preview3D dla wyceny:', quoteData.id);
-
-    const preview3DBtn = document.getElementById('quote-preview3d-btn');
-    if (!preview3DBtn) {
-        console.warn('[Preview3D] Nie znaleziono przycisku quote-preview3d-btn w DOM');
-        return;
-    }
-
-    // Znajdź wybrany wariant
-    const selectedVariant = findSelectedVariantFromQuote(quoteData);
-
-    if (selectedVariant) {
-        // Aktywuj przycisk
-        preview3DBtn.disabled = false;
-        preview3DBtn.style.opacity = '1';
-        preview3DBtn.title = `Podgląd 3D/AR: ${selectedVariant.variant_code} (${selectedVariant.length_cm}×${selectedVariant.width_cm}×${selectedVariant.thickness_cm} cm)`;
-
-        // Usuń stary event listener i dodaj nowy
-        const newBtn = preview3DBtn.cloneNode(true);
-        preview3DBtn.parentNode.replaceChild(newBtn, preview3DBtn);
-
-        // Dodaj event listener
-        newBtn.addEventListener('click', function () {
-            handlePreview3DClick(quoteData, selectedVariant);
-        });
-
-        console.log('[Preview3D] Przycisk aktywny dla wariantu:', selectedVariant.variant_code);
-    } else {
-        // Dezaktywuj przycisk
-        preview3DBtn.disabled = true;
-        preview3DBtn.style.opacity = '0.6';
-        preview3DBtn.title = 'Wybierz wariant produktu aby zobaczyć podgląd 3D/AR';
-
-        console.log('[Preview3D] Przycisk nieaktywny - brak wybranego wariantu');
-    }
-}
-
-/**
- * Znajduje wybrany wariant z danych wyceny
- * @param {Object} quoteData - Dane wyceny
- * @returns {Object|null} - Wybrany wariant lub null
- */
-function findSelectedVariantFromQuote(quoteData) {
-    if (!quoteData || !quoteData.items || !Array.isArray(quoteData.items)) {
-        console.warn('[Preview3D] Nieprawidłowe dane wyceny');
-        return null;
-    }
-
-    // Znajdź wybrany wariant (is_selected: true)
-    const selectedItem = quoteData.items.find(item => item.is_selected === true);
-
-    if (selectedItem) {
-        console.log('[Preview3D] Znaleziono wybrany wariant:', selectedItem);
-        return {
-            variant_code: selectedItem.variant_code,
-            length_cm: selectedItem.length_cm,
-            width_cm: selectedItem.width_cm,
-            thickness_cm: selectedItem.thickness_cm,
-            quantity: selectedItem.quantity || 1,
-            volume_m3: selectedItem.volume_m3,
-            price: selectedItem.final_price_brutto
-        };
-    }
-
-    console.warn('[Preview3D] Nie znaleziono wybranego wariantu w wycenie');
-    return null;
-}
-
-/**
- * Obsługuje kliknięcie przycisku Preview3D - NOWA WERSJA z Quote Viewer i AR
- * @param {Object} quoteData - Dane wyceny
- * @param {Object} selectedVariant - Wybrany wariant (opcjonalne)
- */
-function handlePreview3DClick(quoteData, selectedVariant = null) {
-    try {
-        console.log('[Preview3D] Uruchamianie Quote Viewer 3D/AR dla wyceny:', quoteData.quote_number);
-
-        // Walidacja danych wyceny
-        if (!quoteData || !quoteData.id) {
-            alert('Błąd: Brak danych wyceny.');
-            return;
-        }
-
-        // Sprawdź czy są produkty w wycenie
-        if (!quoteData.items || quoteData.items.length === 0) {
-            alert('Błąd: Wycena nie zawiera żadnych produktów.');
-            return;
-        }
-
-        // URL nowego viewer'a z listą produktów i AR
-        const viewerUrl = `/preview3d-ar/quote/${quoteData.id}`;
-
-        // Parametry okna - większe dla nowego viewer'a
-        const windowFeatures = [
-            'width=1600',
-            'height=1000',
-            'scrollbars=yes',
-            'resizable=yes',
-            'menubar=no',
-            'toolbar=no',
-            'location=no',
-            'status=no',
-            'left=' + Math.max(0, (screen.width - 1600) / 2),
-            'top=' + Math.max(0, (screen.height - 1000) / 2)
-        ].join(',');
-
-        // Otwórz nowy viewer
-        const preview3DWindow = window.open(viewerUrl, 'QuoteViewer3D_' + quoteData.id, windowFeatures);
-
-        if (!preview3DWindow) {
-            // Fallback - spróbuj otworzyć w nowej karcie
-            window.open(viewerUrl, '_blank');
-            alert('Quote Viewer 3D/AR został otwarty w nowej karcie (sprawdź ustawienia blokady popup).');
-        } else {
-            console.log('[Preview3D] Quote Viewer 3D/AR otwarty pomyślnie');
-
-            // Spróbuj ustawić tytuł okna
-            try {
-                preview3DWindow.addEventListener('load', function () {
-                    if (preview3DWindow.document) {
-                        preview3DWindow.document.title = `${quoteData.quote_number} - Podgląd 3D/AR`;
-                    }
-                });
-            } catch (e) {
-                // Ignore cross-origin errors
-            }
-        }
-
-    } catch (error) {
-        console.error('[Preview3D] Błąd uruchamiania Quote Viewer:', error);
-        alert('Błąd uruchamiania Quote Viewer 3D/AR. Sprawdź konsolę przeglądarki.');
-    }
-}
-
-/**
  * Waliduje dane wariantu dla Preview3D
  * @param {Object} variant - Dane wariantu
  * @returns {boolean} - Czy dane są prawidłowe
@@ -2902,3 +2998,463 @@ window.debugQuotePreview3D = function () {
 };
 
 console.log('[Preview3D] Funkcje Preview3D załadowane - używa Quote Viewer 3D/AR');
+
+
+// Inicjalizacja masowej zmiany wariantów
+function initBulkVariantChange() {
+    console.log('[BulkVariant] Inicjalizacja masowej zmiany wariantów');
+
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) {
+        console.warn('[BulkVariant] Brak elementów bulk variant w DOM');
+        return;
+    }
+
+    // NOWE: Usuń stare event listenery poprzez klonowanie elementu
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+
+    // Dodaj event listener do nowego przycisku
+    newBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('[BulkVariant] Kliknięto przycisk masowej zmiany');
+        toggleBulkVariantDropdown();
+    });
+
+    // NOWE: Usuń globalne event listenery i dodaj nowe
+    // Usuń stare listenery dla dokumentu
+    document.removeEventListener('click', globalClickHandler);
+
+    // Dodaj nowy listener
+    document.addEventListener('click', globalClickHandler);
+
+    console.log('[BulkVariant] Event listenery zaktualizowane');
+}
+
+function globalClickHandler(e) {
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+    const btn = document.getElementById('bulk-variant-change-btn');
+
+    if (dropdown && btn && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+        closeBulkVariantDropdown();
+    }
+}
+
+function toggleBulkVariantDropdown() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) return;
+
+    const isOpen = dropdown.style.display !== 'none';
+
+    if (isOpen) {
+        closeBulkVariantDropdown();
+    } else {
+        openBulkVariantDropdown();
+    }
+}
+
+function openBulkVariantDropdown() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) return;
+
+    // Pobierz dostępne warianty
+    populateBulkVariantOptions();
+
+    // Pokaż dropdown
+    dropdown.style.display = 'block';
+    btn.classList.add('active');
+
+    // Dodaj overlay dla łatwiejszego zamykania na mobile
+    addBulkVariantOverlay();
+}
+
+function closeBulkVariantDropdown() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    const dropdown = document.getElementById('bulk-variant-dropdown');
+
+    if (!btn || !dropdown) return;
+
+    dropdown.style.display = 'none';
+    btn.classList.remove('active');
+    removeBulkVariantOverlay();
+}
+
+function addBulkVariantOverlay() {
+    removeBulkVariantOverlay(); // Usuń istniejący overlay
+
+    const overlay = document.createElement('div');
+    overlay.className = 'bulk-variant-overlay';
+    overlay.addEventListener('click', closeBulkVariantDropdown);
+    document.body.appendChild(overlay);
+}
+
+function removeBulkVariantOverlay() {
+    const overlay = document.querySelector('.bulk-variant-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
+
+function populateBulkVariantOptions() {
+    console.log('[BulkVariant DEBUG] Rozpoczynam populateBulkVariantOptions');
+
+    const optionsContainer = document.getElementById('bulk-variant-options');
+    if (!optionsContainer) {
+        console.error('[BulkVariant DEBUG] Brak elementu bulk-variant-options w DOM');
+        return;
+    }
+
+    // POPRAWKA: Użyj currentQuoteData zamiast window.currentQuoteData
+    if (!currentQuoteData) {
+        console.error('[BulkVariant DEBUG] Brak currentQuoteData (global variable)');
+        console.log('[BulkVariant DEBUG] Sprawdzam window.currentQuoteData:', window.currentQuoteData);
+        return;
+    }
+
+    console.log('[BulkVariant DEBUG] currentQuoteData:', currentQuoteData);
+    console.log('[BulkVariant DEBUG] currentQuoteData.items:', currentQuoteData.items);
+
+    // Zbierz wszystkie dostępne warianty z produktów
+    const availableVariants = new Set();
+
+    if (currentQuoteData.items) {
+        console.log('[BulkVariant DEBUG] Przetwarzam items, długość:', currentQuoteData.items.length);
+
+        currentQuoteData.items.forEach((item, index) => {
+            console.log(`[BulkVariant DEBUG] Item ${index}:`, {
+                variant_code: item.variant_code,
+                product_index: item.product_index,
+                is_selected: item.is_selected
+            });
+
+            if (item.variant_code) {
+                availableVariants.add(item.variant_code);
+            }
+        });
+    } else {
+        console.error('[BulkVariant DEBUG] Brak currentQuoteData.items lub jest null/undefined');
+    }
+
+    console.log('[BulkVariant DEBUG] Zebrane warianty:', Array.from(availableVariants));
+
+    // Konwertuj na array i posortuj
+    const variantsList = Array.from(availableVariants).sort();
+    console.log('[BulkVariant DEBUG] Posortowane warianty:', variantsList);
+
+    // Wyczyść i wypełnij opcje
+    optionsContainer.innerHTML = '';
+
+    if (variantsList.length === 0) {
+        console.warn('[BulkVariant DEBUG] Brak dostępnych wariantów - dodaję komunikat');
+        optionsContainer.innerHTML = '<div class="bulk-variant-option" style="color: #6c757d; cursor: default;">Brak dostępnych wariantów</div>';
+        return;
+    }
+
+    console.log('[BulkVariant DEBUG] Tworzę opcje dla wariantów');
+
+    variantsList.forEach((variantCode, index) => {
+        console.log(`[BulkVariant DEBUG] Tworzę opcję ${index} dla wariantu: ${variantCode}`);
+
+        const option = document.createElement('div');
+        option.className = 'bulk-variant-option';
+        option.dataset.variantCode = variantCode;
+
+        const variantName = translateVariantCode(variantCode) || variantCode;
+        console.log(`[BulkVariant DEBUG] Przetłumaczona nazwa: ${variantName}`);
+
+        option.innerHTML = `
+            <span class="bulk-variant-option-text">${variantName}</span>
+        `;
+
+        option.addEventListener('click', () => {
+            console.log(`[BulkVariant DEBUG] Kliknięto wariant: ${variantCode}`);
+            handleBulkVariantChange(variantCode);
+        });
+
+        optionsContainer.appendChild(option);
+        console.log(`[BulkVariant DEBUG] Dodano opcję do DOM`);
+    });
+
+    console.log('[BulkVariant DEBUG] Zakończono populateBulkVariantOptions');
+}
+
+// Dodaj też funkcję debugowania do sprawdzenia stanu
+function debugBulkVariantState() {
+    console.log('=== BULK VARIANT DEBUG STATE ===');
+    console.log('currentQuoteData (global):', currentQuoteData);
+    console.log('window.currentQuoteData:', window.currentQuoteData);
+    console.log('bulk-variant-change-btn:', document.getElementById('bulk-variant-change-btn'));
+    console.log('bulk-variant-dropdown:', document.getElementById('bulk-variant-dropdown'));
+    console.log('bulk-variant-options:', document.getElementById('bulk-variant-options'));
+
+    const quoteData = currentQuoteData || window.currentQuoteData;
+    if (quoteData && quoteData.items) {
+        console.log('Items count:', quoteData.items.length);
+        quoteData.items.forEach((item, i) => {
+            console.log(`Item ${i}:`, item.variant_code, item.product_index);
+        });
+    }
+    console.log('=== END DEBUG ===');
+}
+
+function checkModalStructure() {
+    console.log('=== SPRAWDZENIE STRUKTURY MODALA ===');
+
+    // Sprawdź czy modal istnieje
+    const modal = document.getElementById('quote-details-modal');
+    console.log('Modal details:', modal);
+
+    // Sprawdź sekcję produktów
+    const productsSection = modal?.querySelector('.quotes-details-modal-section');
+    console.log('Products section:', productsSection);
+
+    // Sprawdź czy istnieje kontener dla controls
+    const controlsContainer = document.querySelector('.products-controls-container');
+    console.log('Controls container:', controlsContainer);
+
+    // Sprawdź tabs
+    const tabs = document.getElementById('quotes-details-tabs');
+    console.log('Tabs container:', tabs);
+
+    // Sprawdź elementy masowej zmiany
+    const bulkBtn = document.getElementById('bulk-variant-change-btn');
+    const bulkDropdown = document.getElementById('bulk-variant-dropdown');
+    const bulkOptions = document.getElementById('bulk-variant-options');
+
+    console.log('Bulk change button:', bulkBtn);
+    console.log('Bulk dropdown:', bulkDropdown);
+    console.log('Bulk options container:', bulkOptions);
+
+    if (!controlsContainer) {
+        console.error('❌ BRAK KONTENERA .products-controls-container - musisz zaktualizować HTML!');
+    }
+
+    if (!bulkBtn) {
+        console.error('❌ BRAK PRZYCISKU #bulk-variant-change-btn - musisz zaktualizować HTML!');
+    }
+
+    if (!bulkDropdown) {
+        console.error('❌ BRAK DROPDOWN #bulk-variant-dropdown - musisz zaktualizować HTML!');
+    }
+
+    console.log('=== KONIEC SPRAWDZENIA ===');
+}
+
+async function handleBulkVariantChange(targetVariantCode) {
+    if (!currentQuoteData || !currentQuoteData.items) {
+        console.error('[BulkVariantChange] Brak danych wyceny');
+        return;
+    }
+
+    console.log(`[BulkVariantChange] Zmiana wszystkich produktów na wariant: ${targetVariantCode}`);
+
+    try {
+        // Zamknij dropdown
+        closeBulkVariantDropdown();
+
+        // Pokaż loader/info o przetwarzaniu
+        showBulkChangeProgress();
+
+        // Znajdź wszystkie produkty i ich indeksy
+        const productIndexes = [...new Set(currentQuoteData.items.map(item => item.product_index))];
+        console.log('[BulkVariantChange] Produkty do przetworzenia:', productIndexes);
+
+        let successCount = 0;
+        let errorCount = 0;
+        let notFoundCount = 0;
+
+        // Przetwarzaj każdy produkt
+        for (const productIndex of productIndexes) {
+            try {
+                console.log(`[BulkVariantChange] Przetwarzam produkt ${productIndex}`);
+
+                // Znajdź wariant docelowy dla tego produktu
+                const targetItem = currentQuoteData.items.find(item =>
+                    item.product_index === productIndex &&
+                    item.variant_code === targetVariantCode
+                );
+
+                if (!targetItem) {
+                    console.warn(`[BulkVariantChange] Brak wariantu ${targetVariantCode} dla produktu ${productIndex}`);
+                    notFoundCount++;
+                    continue;
+                }
+
+                // Wyślij request o zmianę wariantu
+                const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}/update-variant`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        product_index: productIndex,
+                        variant_code: targetVariantCode,
+                        quote_item_id: targetItem.id
+                    })
+                });
+
+                const responseData = await response.json();
+
+                if (response.ok) {
+                    console.log(`[BulkVariantChange] ✅ Sukces dla produktu ${productIndex}`);
+                    successCount++;
+                } else {
+                    console.error(`[BulkVariantChange] ❌ Błąd dla produktu ${productIndex}:`, responseData);
+                    errorCount++;
+                }
+
+            } catch (error) {
+                console.error(`[BulkVariantChange] Błąd przetwarzania produktu ${productIndex}:`, error);
+                errorCount++;
+            }
+        }
+
+        // Ukryj loader
+        hideBulkChangeProgress();
+
+        // Pokaż wynik użytkownikowi
+        showBulkChangeResult(successCount, errorCount, notFoundCount, targetVariantCode);
+
+        // Jeśli były sukcesy, odśwież modal
+        if (successCount > 0) {
+            console.log('[BulkVariantChange] Odświeżam modal...');
+
+            setTimeout(async () => {
+                try {
+                    const response = await fetch(`/quotes/api/quotes/${currentQuoteData.id}`);
+                    if (response.ok) {
+                        const updatedQuoteData = await response.json();
+                        showDetailsModal(updatedQuoteData);
+
+                        // NOWE: Re-inicjalizuj event listenery po odświeżeniu modala
+                        setTimeout(() => {
+                            console.log('[BulkVariantChange] Re-inicjalizuję event listenery po odświeżeniu');
+                            initBulkVariantChange();
+                        }, 150);
+                    }
+                } catch (error) {
+                    console.error('[BulkVariantChange] Błąd odświeżania:', error);
+                }
+            }, 200); // Zmniejszony timeout
+        }
+
+    } catch (error) {
+        console.error('[BulkVariantChange] Błąd masowej zmiany wariantów:', error);
+        hideBulkChangeProgress();
+        showNotification('Błąd podczas zmiany wariantów. Spróbuj ponownie.', 'error');
+    }
+}
+function showBulkChangeProgress() {
+    // Można pokazać spinner lub progress bar
+    const btn = document.getElementById('bulk-variant-change-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `
+            <span>Zmieniam warianty...</span>
+            <div style="width: 16px; height: 16px; border: 2px solid #ccc; border-top: 2px solid #ED6B24; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        `;
+    }
+}
+
+function hideBulkChangeProgress() {
+    const btn = document.getElementById('bulk-variant-change-btn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `
+            <span>Zmień wszystkie warianty</span>
+            <svg class="bulk-variant-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        `;
+    }
+}
+
+function showBulkChangeResult(successCount, errorCount, notFoundCount, variantCode) {
+    const variantName = translateVariantCode(variantCode) || variantCode;
+
+    if (errorCount === 0 && notFoundCount === 0) {
+        showNotification(`✅ Pomyślnie zmieniono wariant na "${variantName}" dla ${successCount} produktów`, 'success');
+    } else if (successCount === 0) {
+        if (notFoundCount > 0) {
+            showNotification(`❌ Wariant "${variantName}" nie jest dostępny dla żadnego produktu`, 'error');
+        } else {
+            showNotification(`❌ Nie udało się zmienić żadnego wariantu na "${variantName}"`, 'error');
+        }
+    } else {
+        let message = `⚠️ Zmieniono ${successCount} produktów na "${variantName}".`;
+        if (notFoundCount > 0) {
+            message += ` ${notFoundCount} produktów nie ma tego wariantu.`;
+        }
+        if (errorCount > 0) {
+            message += ` ${errorCount} produktów nie zostało zmienionych z powodu błędów.`;
+        }
+        showNotification(message, 'warning');
+    }
+}
+
+// Dodaj animację spin do CSS (jeśli nie istnieje)
+if (!document.querySelector('style[data-bulk-variant-styles]')) {
+    const style = document.createElement('style');
+    style.setAttribute('data-bulk-variant-styles', 'true');
+    style.textContent = `
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+
+// Dodaj też funkcję pomocniczą do odświeżania modala po zmianach
+async function refreshQuoteModal(quoteId) {
+    try {
+        console.log(`[refreshQuoteModal] Odświeżanie danych wyceny ${quoteId}`);
+
+        // Pobierz zaktualizowane dane wyceny
+        const response = await fetch(`/quotes/api/quotes/${quoteId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const updatedQuoteData = await response.json();
+
+        // Zaktualizuj modal z nowymi danymi
+        populateQuoteDetailsModal(updatedQuoteData);
+
+        console.log('[refreshQuoteModal] Modal został odświeżony');
+
+    } catch (error) {
+        console.error('[refreshQuoteModal] Błąd odświeżania modala:', error);
+        showNotification('Błąd podczas odświeżania danych. Odśwież stronę.', 'error');
+    }
+}
+
+// Funkcja pomocnicza do wyświetlania powiadomień (jeśli nie istnieje)
+function showNotification(message, type = 'info') {
+    console.log(`[showNotification] ${type.toUpperCase()}: ${message}`);
+
+    // Sprawdź czy istnieje funkcja showToast (która już jest w Twoim kodzie)
+    if (typeof showToast === 'function') {
+        showToast(message, type);
+        return;
+    }
+
+    // Fallback - prosty alert lub console.log
+    if (type === 'error') {
+        alert(`Błąd: ${message}`);
+    } else if (type === 'success') {
+        alert(`Sukces: ${message}`);
+    } else if (type === 'warning') {
+        alert(`Ostrzeżenie: ${message}`);
+    } else {
+        // Dla typu 'info' tylko console.log
+        console.info(`[Info] ${message}`);
+    }
+}

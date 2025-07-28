@@ -5,6 +5,7 @@
  */
 
 class ReportsManager {
+
     constructor() {
         this.currentData = [];
         this.currentStats = {};
@@ -16,6 +17,10 @@ class ReportsManager {
 
         // Referencias do elementów DOM
         this.elements = {};
+
+        this.quotesCache = new Map();
+
+        this.init();
 
         console.log('[ReportsManager] Initialized');
     }
@@ -30,6 +35,8 @@ class ReportsManager {
         this.setupEventListeners();
         this.setDefaultDates();
         this.loadInitialData();
+
+        window.reportsManager = this;
 
         console.log('[ReportsManager] Initialization complete');
     }
@@ -374,8 +381,8 @@ class ReportsManager {
     }
 
     /**
-     * Aktualizacja tabeli
-     */
+    * Aktualizacja tabeli
+    */
     updateTable() {
         if (!this.elements.reportsTableBody) {
             console.error('[ReportsManager] Table body element not found');
@@ -384,25 +391,38 @@ class ReportsManager {
 
         console.log('[ReportsManager] Updating table with', this.currentData.length, 'records');
 
+        // DEBUG: Sprawdź dane przed grupowaniem
+        const manualRecords = this.currentData.filter(r => r.is_manual);
+        this.currentData.slice(0, 10).forEach((record, i) => {
+            console.log(`  ${i + 1}. ID: ${record.id}, data: ${record.date_created}, klient: ${record.customer_name}`);
+        });
+
         if (this.currentData.length === 0) {
             this.elements.reportsTableBody.innerHTML = `
-                <tr>
-                    <td colspan="41" class="text-center text-muted" style="padding: 2rem;">
-                        <i class="fas fa-inbox fa-2x mb-2"></i><br>
-                        Brak danych do wyświetlenia
-                    </td>
-                </tr>
-            `;
+            <tr>
+                <td colspan="41" class="text-center text-muted" style="padding: 2rem;">
+                    <i class="fas fa-inbox fa-2x mb-2"></i><br>
+                    Brak danych do wyświetlenia
+                </td>
+            </tr>
+        `;
             return;
         }
 
-        // Grupuj dane według zamówienia dla merge cells
-        const groupedData = this.groupDataByOrder(this.currentData);
+        // Grupuj dane - NOWA STRUKTURA
+        const { grouped, ordersOrder } = this.groupDataByOrder(this.currentData);
+        ordersOrder.slice(0, 10).forEach((key, i) => {
+            const orders = grouped.get(key);
+            const firstOrder = orders[0];
+            console.log(`  Grupa ${i + 1}: ${key} - ${firstOrder.date_created} - ID: ${firstOrder.id} - manual: ${firstOrder.is_manual} - klient: ${firstOrder.customer_name}`);
+        });
 
+        // POPRAWKA: Iteruj przez ordersOrder zamiast Object.entries
         let html = '';
-        for (const [orderId, orders] of Object.entries(groupedData)) {
+        ordersOrder.forEach(key => {
+            const orders = grouped.get(key);
             html += this.renderOrderRows(orders);
-        }
+        });
 
         this.elements.reportsTableBody.innerHTML = html;
 
@@ -416,24 +436,39 @@ class ReportsManager {
             }, 100);
         }
 
-        console.log('[ReportsManager] Table updated');
+        // DODANE: Asynchronicznie sprawdź wyceny dla zamówień
+        setTimeout(() => {
+            if (this.checkQuotesForRenderedOrders) {
+                this.checkQuotesForRenderedOrders();
+            }
+        }, 100);
+
+        console.log('[ReportsManager] Table updated with corrected grouping order');
     }
 
     /**
      * Grupowanie danych według zamówienia
      */
     groupDataByOrder(data) {
-        const grouped = {};
+        const grouped = new Map();
+        const ordersOrder = [];
 
         data.forEach(record => {
-            const key = record.baselinker_order_id || `manual_${record.id}`;
-            if (!grouped[key]) {
-                grouped[key] = [];
+            // POPRAWKA: Używaj ZAWSZE prefiksów tekstowych, żeby uniknąć sortowania numerycznego
+            const key = record.baselinker_order_id
+                ? `bl_${record.baselinker_order_id}`
+                : `manual_${record.id}`;
+
+            if (!grouped.has(key)) {
+                grouped.set(key, []);
+                ordersOrder.push(key); // Zapisz kolejność pierwszego wystąpienia
             }
-            grouped[key].push(record);
+
+            grouped.get(key).push(record);
         });
 
-        return grouped;
+        // WAŻNE: Użyj Map.entries() zamiast konwersji na object
+        return { grouped, ordersOrder };
     }
 
     /**
@@ -454,55 +489,55 @@ class ReportsManager {
             const isLast = index === orderCount - 1;
 
             html += `
-            <tr data-record-id="${order.id}" 
-                data-baselinker-id="${baselinkerOrderId || `manual_${order.id}`}"
-                data-order-group="${baselinkerOrderId || `manual_${order.id}`}"
-                ${order.is_manual ? 'data-manual="true"' : ''}
-                ${isFirst ? 'class="order-group-start"' : ''}
-                ${isLast ? 'class="order-group-end"' : ''}>
-                ${this.renderMergedCell(order.date_created, orderCount, isFirst, 'cell-date')}
-                ${this.renderMergedCell(this.formatNumber(totalOrderM3, 4), orderCount, isFirst, 'cell-number')}
-                ${this.renderMergedCell(this.formatCurrency(order.order_amount_net), orderCount, isFirst, 'cell-currency')}
-                ${this.renderMergedCell(order.baselinker_order_id || '', orderCount, isFirst, 'cell-number')}
-                ${this.renderMergedCell(order.internal_order_number || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.customer_name || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_address || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_state || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.phone || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.caretaker || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.delivery_method || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(order.order_source || '', orderCount, isFirst, 'cell-text')}
-                <td class="cell-text">${order.group_type || ''}</td>
-                <td class="cell-text">${order.product_type || ''}</td>
-                <td class="cell-text">${order.finish_state || ''}</td>
-                <td class="cell-text">${order.wood_species || ''}</td>
-                <td class="cell-text">${order.technology || ''}</td>
-                <td class="cell-text">${order.wood_class || ''}</td>
-                <td class="cell-number">${this.formatNumber(order.length_cm, 2)}</td>
-                <td class="cell-number">${this.formatNumber(order.width_cm, 2)}</td>
-                <td class="cell-number">${this.formatNumber(order.thickness_cm, 2)}</td>
-                <td class="cell-number">${order.quantity || 0}</td>
-                <td class="cell-currency">${this.formatCurrency(order.price_gross)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.price_net)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.value_gross)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.value_net)}</td>
-                <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
-                <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
-                <td class="cell-date">${order.realization_date || ''}</td>
-                <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
-                ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
-                ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
-                ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
-                ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
-                <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
-                <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
-                <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
-                ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
-            </tr>
-        `;
+        <tr data-record-id="${order.id}" 
+            data-baselinker-id="${baselinkerOrderId || `manual_${order.id}`}"
+            data-order-group="${baselinkerOrderId || `manual_${order.id}`}"
+            ${order.is_manual ? 'data-manual="true"' : ''}
+            ${isFirst ? 'class="order-group-start"' : ''}
+            ${isLast ? 'class="order-group-end"' : ''}>
+            ${this.renderMergedCell(order.date_created, orderCount, isFirst, 'cell-date')}
+            ${this.renderMergedCell(this.formatNumber(totalOrderM3, 4), orderCount, isFirst, 'cell-number')}
+            ${this.renderMergedCell(this.formatCurrency(order.order_amount_net), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(order.baselinker_order_id || '', orderCount, isFirst, 'cell-number')}
+            ${this.renderMergedCell(order.internal_order_number || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.customer_name || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_address || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_city || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_postcode || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_state || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.phone || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.caretaker || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.delivery_method || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(order.order_source || '', orderCount, isFirst, 'cell-text')}
+            <td class="cell-text">${order.group_type || ''}</td>
+            <td class="cell-text">${order.product_type || ''}</td>
+            <td class="cell-text">${order.finish_state || ''}</td>
+            <td class="cell-text">${order.wood_species || ''}</td>
+            <td class="cell-text">${order.technology || ''}</td>
+            <td class="cell-text">${order.wood_class || ''}</td>
+            <td class="cell-number">${this.formatNumber(order.length_cm, 2)}</td>
+            <td class="cell-number">${this.formatNumber(order.width_cm, 2)}</td>
+            <td class="cell-number">${this.formatNumber(order.thickness_cm, 2)}</td>
+            <td class="cell-number">${order.quantity || 0}</td>
+            <td class="cell-currency">${this.formatCurrency(order.price_gross)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.price_net)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.value_gross)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.value_net)}</td>
+            <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
+            <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
+            <td class="cell-date">${order.realization_date || ''}</td>
+            <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
+            ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
+            ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
+            <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
+            <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
+            ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
+        </tr>
+    `;
         });
 
         return html;
@@ -528,62 +563,621 @@ class ReportsManager {
     renderActionButtons(order) {
         const buttons = [];
 
-        // Przycisk Baselinker
-        if (order.baselinker_order_id) {
-            const baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${order.baselinker_order_id}`;
+        // ===== PRZYCISK BASELINKER - NOWA LOGIKA =====
+
+        // Sprawdź czy ma numer zamówienia Baselinker (z API lub wpisany ręcznie)
+        const hasBaselinkerNumber = isValidBaselinkerOrderNumber(order.baselinker_order_id);
+
+        if (hasBaselinkerNumber) {
+            const baselinkerUrl = `https://panel.baselinker.com/orders.php#order:${order.baselinker_order_id}`;
+
+            // Określ źródło numeru dla celów debugowania
+            const source = order.is_manual ? 'ręczny wpis' : 'z Baselinker API';
+
             buttons.push(`
-                <a href="${baselinkerUrl}" target="_blank" class="action-btn action-btn-baselinker">
-                    <i class="fas fa-external-link-alt"></i>
-                    Baselinker
-                </a>
-            `);
+            <a href="${baselinkerUrl}" 
+               target="_blank" 
+               class="action-btn action-btn-baselinker"
+               title="Otwórz zamówienie #${order.baselinker_order_id} w Baselinker (${source})">
+                <i class="fas fa-external-link-alt"></i>
+                Baselinker
+            </a>
+        `);
+
+            // Debug log dla zamówień ręcznych z numerem Baselinker
+            if (order.is_manual) {
+                console.log(`[renderActionButtons] Dodano przycisk Baselinker dla ręcznego zamówienia:`, {
+                    recordId: order.id,
+                    baselinkerOrderId: order.baselinker_order_id,
+                    customerName: order.customer_name
+                });
+            }
         }
 
-        // Przycisk Wycena
-        const hasQuote = this.checkIfOrderHasQuote(order.baselinker_order_id);
+        // ===== PRZYCISK WYCENA - POZOSTAJE BEZ ZMIAN =====
+
         if (order.baselinker_order_id) {
-            if (hasQuote) {
+            // Sprawdź cache czy mamy info o wycenie
+            const cachedQuote = this.quotesCache.get(order.baselinker_order_id);
+
+            if (cachedQuote?.hasQuote) {
+                // Wycena istnieje - aktywny przycisk z przekierowaniem do modala
                 buttons.push(`
-                    <a href="/quotes/?search=${order.baselinker_order_id}" target="_blank" class="action-btn action-btn-quote">
+                <button class="action-btn action-btn-quote" 
+                        onclick="window.reportsManager.redirectToQuoteByOrderId('${order.baselinker_order_id}')"
+                        title="Przejdź do wyceny ${cachedQuote.quoteNumber || ''}">
+                    <i class="fas fa-file-invoice"></i>
+                    Wycena
+                </button>
+            `);
+            } else if (cachedQuote?.hasQuote === false) {
+                // Sprawdzono i nie ma wyceny
+                buttons.push(`
+                <button disabled class="action-btn action-btn-quote" title="Brak wyceny w systemie">
+                    <i class="fas fa-file-invoice"></i>
+                    Wycena
+                </button>
+            `);
+            } else {
+                // Nie sprawdzano jeszcze - przycisk w stanie loading
+                buttons.push(`
+                <button class="action-btn action-btn-quote action-btn-checking" 
+                        data-order-id="${order.baselinker_order_id}"
+                        title="Sprawdzanie dostępności wyceny...">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    Sprawdzam...
+                </button>
+            `);
+            }
+        }
+
+        // ===== PRZYCISK EDYCJI - POZOSTAJE BEZ ZMIAN =====
+
+        buttons.push(`
+        <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}" 
+                title="${order.is_manual ? 'Edytuj ręczny rekord' : 'Edytuj rekord z Baselinker'}">
+            <i class="fas fa-edit"></i>
+            Edytuj
+        </button>
+    `);
+
+        // ===== PRZYCISK USUWANIA - TYLKO DLA RĘCZNYCH =====
+
+        if (order.is_manual) {
+            buttons.push(`
+            <button class="action-btn action-btn-delete" data-action="delete" data-record-id="${order.id}" 
+                    title="Usuń ręczny rekord">
+                <i class="fas fa-trash"></i>
+                Usuń
+            </button>
+        `);
+        }
+
+        return `
+        <div class="action-buttons">
+            ${buttons.join('')}
+        </div>
+    `;
+    }
+
+    /**
+    * Obsługa usuwania rekordu z potwierdzeniem
+    */
+    handleDeleteManualRow(recordId) {
+        console.log('[ReportsManager] Delete record:', recordId, 'type:', typeof recordId);
+
+        try {
+            // Konwertuj recordId na liczbę jeśli to string
+            const numericRecordId = typeof recordId === 'string' ?
+                parseInt(recordId, 10) : recordId;
+
+            if (isNaN(numericRecordId)) {
+                console.error('[ReportsManager] Invalid recordId:', recordId);
+                this.showError('Nieprawidłowy ID rekordu');
+                return;
+            }
+
+            // Znajdź rekord w aktualnych danych
+            const record = this.currentData.find(r => {
+                return r.id === numericRecordId || r.id === recordId ||
+                    String(r.id) === String(recordId);
+            });
+
+            if (!record) {
+                console.error('[ReportsManager] Record not found:', numericRecordId);
+                this.showError('Nie znaleziono rekordu do usunięcia');
+                return;
+            }
+
+            // Sprawdź czy to zamówienie z Baselinker ma wiele produktów
+            let relatedRecords = [];
+            if (record.baselinker_order_id) {
+                relatedRecords = this.currentData.filter(r =>
+                    r.baselinker_order_id === record.baselinker_order_id
+                );
+            }
+
+            // Przygotuj komunikat potwierdzenia
+            let confirmMessage;
+            if (relatedRecords.length > 1) {
+                confirmMessage = `Czy na pewno chcesz usunąć całe zamówienie "${record.customer_name}" z ${relatedRecords.length} produktami?\n\nTa operacja jest nieodwracalna i zostanie usunięte na zawsze.`;
+            } else {
+                confirmMessage = `Czy na pewno chcesz usunąć rekord dla klienta "${record.customer_name}"?\n\nTa operacja jest nieodwracalna i rekord zostanie usunięty na zawsze.`;
+            }
+
+            // Pokaż dialog potwierdzenia
+            this.showDeleteConfirmation(confirmMessage, () => {
+                // Wywołaj usuwanie po potwierdzeniu
+                this.executeDelete(numericRecordId, relatedRecords);
+            });
+
+        } catch (error) {
+            console.error('[ReportsManager] Error in handleDeleteManualRow:', error);
+            this.showError('Błąd podczas przygotowania usuwania: ' + error.message);
+        }
+    }
+
+    /**
+     * Pokazanie modala potwierdzenia usunięcia
+     */
+    showDeleteConfirmation(message, onConfirm) {
+        // Utwórz modal potwierdzenia jeśli nie istnieje
+        let modal = document.getElementById('deleteConfirmationModal');
+
+        if (!modal) {
+            modal = this.createDeleteConfirmationModal();
+        }
+
+        // Ustaw komunikat
+        const messageElement = modal.querySelector('.delete-confirmation-message');
+        if (messageElement) {
+            messageElement.textContent = message;
+        }
+
+        // Ustaw event listenery
+        const confirmBtn = modal.querySelector('.delete-confirm-btn');
+        const cancelBtn = modal.querySelector('.delete-cancel-btn');
+        const closeBtn = modal.querySelector('.delete-modal-close');
+
+        // Usuń stare event listenery (jeśli istnieją)
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        const newCloseBtn = closeBtn.cloneNode(true);
+
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+
+        // Dodaj nowe event listenery
+        newConfirmBtn.addEventListener('click', () => {
+            this.hideDeleteConfirmation();
+            onConfirm();
+        });
+
+        newCancelBtn.addEventListener('click', () => {
+            this.hideDeleteConfirmation();
+        });
+
+        newCloseBtn.addEventListener('click', () => {
+            this.hideDeleteConfirmation();
+        });
+
+        // Pokaż modal
+        modal.style.display = 'block';
+        modal.classList.add('show');
+
+        // Zablokuj scroll na body
+        document.body.style.overflow = 'hidden';
+
+        // Focus na przycisk anuluj (bezpieczniejszy domyślny wybór)
+        setTimeout(() => {
+            newCancelBtn.focus();
+        }, 100);
+    }
+
+    /**
+     * Ukrycie modala potwierdzenia
+     */
+    hideDeleteConfirmation() {
+        const modal = document.getElementById('deleteConfirmationModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('show');
+        }
+
+        // Przywróć scroll
+        document.body.style.overflow = '';
+    }
+
+    /**
+     * Utworzenie modala potwierdzenia usunięcia
+     */
+    createDeleteConfirmationModal() {
+        const modal = document.createElement('div');
+        modal.id = 'deleteConfirmationModal';
+        modal.className = 'modal fade';
+        modal.setAttribute('tabindex', '-1');
+        modal.setAttribute('role', 'dialog');
+
+        modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Potwierdzenie usunięcia
+                    </h5>
+                    <button type="button" class="close delete-modal-close" aria-label="Zamknij">
+                        <span aria-hidden="true" class="text-white">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center">
+                        <i class="fas fa-trash-alt fa-3x text-danger mb-3"></i>
+                        <p class="delete-confirmation-message fw-bold fs-5"></p>
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Uwaga:</strong> Ta operacja jest nieodwracalna!
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary delete-cancel-btn">
+                        <i class="fas fa-times me-2"></i>Anuluj
+                    </button>
+                    <button type="button" class="btn btn-danger delete-confirm-btn">
+                        <i class="fas fa-trash me-2"></i>Usuń na zawsze
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    /**
+     * Wykonanie usuwania rekordu
+     */
+    async executeDelete(recordId, relatedRecords = []) {
+        console.log('[ReportsManager] Executing delete for record:', recordId);
+
+        try {
+            // Pokaż loading
+            this.setDeleteLoadingState(true);
+
+            // Wyślij zapytanie do API
+            const response = await fetch('/reports/api/delete-manual-row', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    record_id: recordId,
+                    delete_all_products: relatedRecords.length > 1
+                })
+            });
+
+            console.log('[ReportsManager] Delete response status:', response.status);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log('[ReportsManager] Delete response data:', result);
+
+            if (result.success) {
+                console.log('[ReportsManager] Delete successful');
+
+                // Odśwież dane
+                this.refreshData();
+
+                // Pokaż komunikat sukcesu
+                const deletedCount = result.deleted_count || 1;
+                const successMessage = deletedCount > 1 ?
+                    `Usunięto zamówienie z ${deletedCount} produktami` :
+                    'Rekord został usunięty';
+
+                this.showMessage(successMessage, 'success');
+
+            } else {
+                throw new Error(result.error || 'Błąd usuwania rekordu');
+            }
+
+        } catch (error) {
+            console.error('[ReportsManager] Delete error:', error);
+            this.showError('Błąd usuwania: ' + error.message);
+        } finally {
+            this.setDeleteLoadingState(false);
+        }
+    }
+
+    /**
+     * Ustawienie stanu loading dla operacji usuwania
+     */
+    setDeleteLoadingState(loading) {
+        const modal = document.getElementById('deleteConfirmationModal');
+        if (!modal) return;
+
+        const confirmBtn = modal.querySelector('.delete-confirm-btn');
+        const cancelBtn = modal.querySelector('.delete-cancel-btn');
+
+        if (confirmBtn) {
+            confirmBtn.disabled = loading;
+            confirmBtn.innerHTML = loading ?
+                '<i class="fas fa-spinner fa-spin me-2"></i>Usuwanie...' :
+                '<i class="fas fa-trash me-2"></i>Usuń na zawsze';
+        }
+
+        if (cancelBtn) {
+            cancelBtn.disabled = loading;
+        }
+    }
+
+    /**
+     * Pokazywanie komunikatów użytkownikowi
+     */
+    showMessage(message, type = 'info') {
+        console.log(`[ReportsManager] ${type.toUpperCase()}:`, message);
+
+        // Utwórz lub znajdź kontener na komunikaty
+        let messageContainer = document.getElementById('reports-message-container');
+
+        if (!messageContainer) {
+            messageContainer = this.createMessageContainer();
+        }
+
+        // Utwórz element komunikatu
+        const messageElement = document.createElement('div');
+        messageElement.className = `alert alert-${this.getBootstrapClass(type)} alert-dismissible fade show message-item`;
+        messageElement.setAttribute('role', 'alert');
+
+        messageElement.innerHTML = `
+        <i class="fas ${this.getMessageIcon(type)} me-2"></i>
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Zamknij"></button>
+    `;
+
+        // Dodaj komunikat do kontenera
+        messageContainer.appendChild(messageElement);
+
+        // Automatycznie usuń komunikat po 5 sekundach (tylko success i info)
+        if (type === 'success' || type === 'info') {
+            setTimeout(() => {
+                if (messageElement.parentNode) {
+                    messageElement.classList.remove('show');
+                    setTimeout(() => {
+                        if (messageElement.parentNode) {
+                            messageElement.remove();
+                        }
+                    }, 150); // Czas na animację fade
+                }
+            }, 5000);
+        }
+
+        // Przewiń do komunikatu
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    /**
+     * Pokazywanie komunikatu błędu (alias dla showMessage)
+     */
+    showError(message) {
+        this.showMessage(message, 'error');
+    }
+
+    /**
+     * Tworzenie kontenera na komunikaty
+     */
+    createMessageContainer() {
+        const container = document.createElement('div');
+        container.id = 'reports-message-container';
+        container.className = 'message-container position-fixed';
+        container.style.cssText = `
+        top: 80px;
+        right: 20px;
+        z-index: 1055;
+        max-width: 400px;
+    `;
+
+        document.body.appendChild(container);
+        return container;
+    }
+
+    /**
+     * Mapowanie typów komunikatów na klasy Bootstrap
+     */
+    getBootstrapClass(type) {
+        const classMap = {
+            'success': 'success',
+            'error': 'danger',
+            'warning': 'warning',
+            'info': 'info'
+        };
+        return classMap[type] || 'info';
+    }
+
+    /**
+     * Mapowanie typów komunikatów na ikony Font Awesome
+     */
+    getMessageIcon(type) {
+        const iconMap = {
+            'success': 'fa-check-circle',
+            'error': 'fa-exclamation-circle',
+            'warning': 'fa-exclamation-triangle',
+            'info': 'fa-info-circle'
+        };
+        return iconMap[type] || 'fa-info-circle';
+    }
+
+    /**
+     * Asynchroniczne sprawdzenie wycen dla zamówień po renderowaniu tabeli
+     */
+    async checkQuotesForRenderedOrders() {
+        console.log('[checkQuotesForRenderedOrders] Sprawdzanie wycen dla wyrenderowanych zamówień');
+
+        // Znajdź wszystkie przyciski w stanie "sprawdzania"
+        const checkingButtons = document.querySelectorAll('.action-btn-checking');
+
+        if (checkingButtons.length === 0) {
+            console.log('[checkQuotesForRenderedOrders] Brak przycisków do sprawdzenia');
+            return;
+        }
+
+        console.log(`[checkQuotesForRenderedOrders] Znaleziono ${checkingButtons.length} przycisków do sprawdzenia`);
+
+        // Sprawdź każdy przycisk asynchronicznie
+        const promises = Array.from(checkingButtons).map(async (button) => {
+            const orderID = button.dataset.orderId;
+
+            if (!orderID) {
+                console.warn('[checkQuotesForRenderedOrders] Brak orderID w przycisku');
+                return;
+            }
+
+            try {
+                const hasQuote = await this.checkIfOrderHasQuote(orderID);
+                const cachedData = this.quotesCache.get(orderID);
+
+                // Aktualizuj przycisk na podstawie wyniku
+                if (hasQuote && cachedData?.quoteId) {
+                    button.outerHTML = `
+                    <button class="action-btn action-btn-quote" 
+                            onclick="window.reportsManager.redirectToQuoteByOrderId('${orderID}')"
+                            title="Przejdź do wyceny ${cachedData.quoteNumber || ''}">
                         <i class="fas fa-file-invoice"></i>
                         Wycena
-                    </a>
-                `);
-            } else {
-                buttons.push(`
+                    </button>
+                `;
+                } else {
+                    button.outerHTML = `
                     <button disabled class="action-btn action-btn-quote" title="Brak wyceny w systemie">
                         <i class="fas fa-file-invoice"></i>
                         Wycena
                     </button>
-                `);
-            }
-        }
+                `;
+                }
 
-        // Przycisk edycji dla ręcznych wierszy
-        if (order.is_manual) {
-            buttons.push(`
-                <button class="action-btn action-btn-edit" data-action="edit" data-record-id="${order.id}">
-                    <i class="fas fa-edit"></i>
-                    Edytuj
+            } catch (error) {
+                console.error(`[checkQuotesForRenderedOrders] Błąd dla orderID ${orderID}:`, error);
+
+                // W przypadku błędu pokaż przycisk nieaktywny
+                button.outerHTML = `
+                <button disabled class="action-btn action-btn-quote" title="Błąd sprawdzania wyceny">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Błąd
                 </button>
-            `);
-        }
+            `;
+            }
+        });
 
-        return `
-            <div class="action-buttons">
-                ${buttons.join('')}
-                ${order.is_manual ? '<div class="manual-row-indicator">RĘCZNY</div>' : ''}
-            </div>
-        `;
+        // Poczekaj na wszystkie sprawdzenia
+        await Promise.all(promises);
+        console.log('[checkQuotesForRenderedOrders] Zakończono sprawdzanie wszystkich wycen');
     }
 
     /**
-     * Sprawdzenie czy zamówienie ma wycenę (placeholder - do implementacji)
+     * Sprawdzenie czy zamówienie ma wycenę w systemie
+     * @param {string|number} orderID - ID zamówienia z Baselinker
+     * @returns {boolean} - true jeśli zamówienie ma wycenę
      */
-    checkIfOrderHasQuote(orderID) {
-        // TODO: Implementacja sprawdzania czy zamówienie ma wycenę w systemie
-        // Można to zrobić przez AJAX call do endpointu quotes lub cache'ować te dane
-        return Math.random() > 0.5; // Tymczasowo losowo
+    async checkIfOrderHasQuote(orderID) {
+        if (!orderID) {
+            console.log('[checkIfOrderHasQuote] Brak orderID');
+            return false;
+        }
+
+        // Sprawdź cache
+        if (this.quotesCache.has(orderID)) {
+            const cachedResult = this.quotesCache.get(orderID);
+            console.log(`[checkIfOrderHasQuote] Cache hit dla ${orderID}:`, cachedResult);
+            return cachedResult.hasQuote;
+        }
+
+        try {
+            console.log(`[checkIfOrderHasQuote] Sprawdzanie wyceny dla zamówienia: ${orderID}`);
+
+            // Wywołaj endpoint API do sprawdzenia czy istnieje wycena z tym base_linker_order_id
+            const response = await fetch(`/quotes/api/check-quote-by-order/${orderID}`);
+
+            if (!response.ok) {
+                console.warn(`[checkIfOrderHasQuote] API error: ${response.status}`);
+                return false;
+            }
+
+            const data = await response.json();
+            console.log(`[checkIfOrderHasQuote] Response dla ${orderID}:`, data);
+
+            // Zapisz w cache wynik
+            this.quotesCache.set(orderID, {
+                hasQuote: data.hasQuote,
+                quoteId: data.quoteId,
+                quoteNumber: data.quoteNumber,
+                timestamp: Date.now()
+            });
+
+            return data.hasQuote;
+
+        } catch (error) {
+            console.error(`[checkIfOrderHasQuote] Błąd podczas sprawdzania wyceny dla ${orderID}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Funkcja do przekierowania do modułu quotes z otwarciem modala wyceny
+     * @param {string|number} orderID - ID zamówienia z Baselinker
+     */
+    async redirectToQuoteByOrderId(orderID) {
+        console.log(`[redirectToQuoteByOrderId] Przekierowanie do wyceny dla zamówienia: ${orderID}`);
+
+        if (!orderID) {
+            console.error("[redirectToQuoteByOrderId] Brak orderID");
+            return;
+        }
+
+        try {
+            // Sprawdź cache najpierw
+            let quoteData = this.quotesCache.get(orderID);
+
+            if (!quoteData || !quoteData.quoteId) {
+                // Jeśli nie ma w cache, wywołaj API
+                const response = await fetch(`/quotes/api/check-quote-by-order/${orderID}`);
+
+                if (!response.ok) {
+                    console.error(`[redirectToQuoteByOrderId] API error: ${response.status}`);
+                    alert('Nie udało się znaleźć wyceny dla tego zamówienia');
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (!data.hasQuote) {
+                    alert('To zamówienie nie ma powiązanej wyceny w systemie');
+                    return;
+                }
+
+                quoteData = {
+                    quoteId: data.quoteId,
+                    quoteNumber: data.quoteNumber
+                };
+            }
+
+            console.log(`[redirectToQuoteByOrderId] Przekierowanie do wyceny ID: ${quoteData.quoteId}`);
+
+            // Zapisz ID wyceny w sessionStorage (tak samo jak w calculator)
+            sessionStorage.setItem('openQuoteId', quoteData.quoteId);
+            console.log(`[redirectToQuoteByOrderId] Zapisano do sessionStorage: openQuoteModal=${quoteData.quoteId}`);
+
+            // Przekieruj do modułu quotes
+            window.location.href = '/quotes/';
+
+        } catch (error) {
+            console.error(`[redirectToQuoteByOrderId] Błąd podczas przekierowania:`, error);
+            alert('Wystąpił błąd podczas przekierowania do wyceny');
+        }
     }
 
     /**
@@ -820,6 +1414,42 @@ class ReportsManager {
         }
     }
 
+    handleEditManualRow(recordId) {
+        console.log('[ReportsManager] Edit record:', recordId, 'type:', typeof recordId);
+
+        try {
+            // POPRAWKA: Konwertuj recordId i porównuj różne typy
+            const numericRecordId = typeof recordId === 'string' ? parseInt(recordId, 10) : recordId;
+
+            const record = this.currentData.find(r => {
+                return r.id === numericRecordId || r.id === recordId || String(r.id) === String(recordId);
+            });
+
+            if (!record) {
+                console.error('[ReportsManager] Record not found. Available records:',
+                    this.currentData.slice(0, 3).map(r => ({ id: r.id, type: typeof r.id })));
+                this.showError('Nie znaleziono rekordu do edycji');
+                return;
+            }
+
+            console.log(`[ReportsManager] Found record ${record.id}. Opening edit modal for ${record.is_manual ? 'manual' : 'Baselinker'} record`);
+
+            if (window.tableManager) {
+                // Przekaż obsługę do TableManager z poprawnym ID
+                window.tableManager.handleEditButtonClick(record.id, {
+                    preventDefault: () => { },
+                    stopPropagation: () => { }
+                });
+            } else {
+                console.error('[ReportsManager] TableManager not available');
+                this.showError('TableManager nie jest dostępny');
+            }
+        } catch (error) {
+            console.error('[ReportsManager] Error in handleEditManualRow:', error);
+            this.showError('Błąd podczas otwierania edycji: ' + error.message);
+        }
+    }
+
     /**
      * Obsługa kliknięć w tabeli
      */
@@ -903,27 +1533,53 @@ class ReportsManager {
     }
 
     /**
-     * Obsługa edycji ręcznego wiersza
+     * Obsługa edycji rekordu - dla wszystkich typów
      */
-    handleEditManualRow(recordId) {
-        console.log('[ReportsManager] Edit manual row:', recordId);
+    handleTableClick(e) {
+        const target = e.target;
 
-        const record = this.currentData.find(r => r.id == recordId);
-        if (!record) {
-            this.showError('Nie znaleziono rekordu do edycji');
+        // Przycisk edycji
+        if (target.matches('.action-btn-edit') || target.closest('.action-btn-edit')) {
+            const button = target.matches('.action-btn-edit') ? target : target.closest('.action-btn-edit');
+            const recordId = button.getAttribute('data-record-id');
+
+            console.log('[ReportsManager] Edit button clicked, raw recordId:', recordId, 'type:', typeof recordId);
+
+            if (recordId) {
+                // POPRAWKA: Konwertuj string na number przed przekazaniem
+                const numericRecordId = parseInt(recordId, 10);
+                console.log('[ReportsManager] Converted to numeric:', numericRecordId);
+
+                if (!isNaN(numericRecordId)) {
+                    this.handleEditManualRow(numericRecordId);
+                } else {
+                    console.error('[ReportsManager] Invalid recordId:', recordId);
+                    this.showError('Nieprawidłowy ID rekordu');
+                }
+            }
             return;
         }
 
-        if (!record.is_manual) {
-            this.showError('Można edytować tylko rekordy dodane ręcznie');
+        // Przycisk usuwania ręcznego wiersza
+        if (target.matches('.action-btn-delete') || target.closest('.action-btn-delete')) {
+            const button = target.matches('.action-btn-delete') ? target : target.closest('.action-btn-delete');
+            const recordId = parseInt(button.getAttribute('data-record-id'), 10);
+
+            if (recordId && !isNaN(recordId)) {
+                this.handleDeleteManualRow(recordId);
+            }
             return;
         }
 
-        if (window.tableManager) {
-            window.tableManager.showManualRowModal(record);
-        } else {
-            console.error('[ReportsManager] TableManager not available');
-            this.showError('TableManager nie jest dostępny');
+        // Links do Baselinker i wycen - pozostają bez zmian
+        if (target.matches('a[href*="baselinker.com"]')) {
+            // Link do Baselinker - pozwól na standardowe działanie
+            return;
+        }
+
+        if (target.matches('a[href*="/quotes/"]')) {
+            // Link do wycen - pozwól na standardowe działanie  
+            return;
         }
     }
 
@@ -1468,3 +2124,88 @@ class ReportsManager {
 
 // Export dla global scope
 window.ReportsManager = ReportsManager;
+
+
+/**
+ * Sprawdza czy wartość jest prawidłowym numerem zamówienia Baselinker
+ * @param {*} value - Wartość do sprawdzenia
+ * @returns {boolean} - true jeśli to prawidłowy numer
+ */
+function isValidBaselinkerOrderNumber(value) {
+    // Sprawdź czy wartość istnieje i nie jest null/undefined
+    if (!value) {
+        return false;
+    }
+
+    // Konwertuj na string i usuń białe znaki
+    const stringValue = String(value).trim();
+
+    // Sprawdź czy to tylko cyfry (może być z zerem na początku)
+    const isNumeric = /^\d+$/.test(stringValue);
+
+    // Sprawdź czy nie jest pustym stringiem
+    const isNotEmpty = stringValue.length > 0;
+
+    // Sprawdź czy po konwersji na liczbę to nadal sensowna wartość
+    const numericValue = parseInt(stringValue, 10);
+    const isValidNumber = !isNaN(numericValue) && numericValue > 0;
+
+    return isNumeric && isNotEmpty && isValidNumber;
+}
+
+function testBaselinkerValidation() {
+    const testCases = [
+        // Prawidłowe wartości
+        { input: 123456, expected: true, description: "Liczba całkowita" },
+        { input: "123456", expected: true, description: "String z cyframi" },
+        { input: "000123", expected: true, description: "Z zerem na początku" },
+        { input: "  123456  ", expected: true, description: "Z białymi znakami" },
+
+        // Nieprawidłowe wartości
+        { input: null, expected: false, description: "null" },
+        { input: undefined, expected: false, description: "undefined" },
+        { input: "", expected: false, description: "Pusty string" },
+        { input: "   ", expected: false, description: "Same białe znaki" },
+        { input: "abc", expected: false, description: "Tekst" },
+        { input: "123abc", expected: false, description: "Cyfry z tekstem" },
+        { input: "abc123", expected: false, description: "Tekst z cyframi" },
+        { input: "12.34", expected: false, description: "Liczba dziesiętna" },
+        { input: "-123", expected: false, description: "Liczba ujemna" },
+        { input: "0", expected: false, description: "Zero" },
+        { input: 0, expected: false, description: "Liczba zero" },
+        { input: [], expected: false, description: "Pusta tablica" },
+        { input: {}, expected: false, description: "Pusty obiekt" }
+    ];
+
+    console.log("🧪 TESTY WALIDACJI NUMERU BASELINKER:");
+    console.log("=====================================");
+
+    let passed = 0;
+    let failed = 0;
+
+    testCases.forEach((testCase, index) => {
+        const result = isValidBaselinkerOrderNumber(testCase.input);
+        const status = result === testCase.expected ? "✅ PASS" : "❌ FAIL";
+
+        console.log(`${index + 1}. ${status} | ${testCase.description}`);
+        console.log(`   Input: ${JSON.stringify(testCase.input)} → Output: ${result} (Expected: ${testCase.expected})`);
+
+        if (result === testCase.expected) {
+            passed++;
+        } else {
+            failed++;
+            console.error(`   ❌ Test failed for: ${testCase.description}`);
+        }
+    });
+
+    console.log("=====================================");
+    console.log(`📊 WYNIKI: ${passed} przeszło, ${failed} nie przeszło`);
+
+    if (failed === 0) {
+        console.log("🎉 Wszystkie testy przeszły pomyślnie!");
+    } else {
+        console.error(`⚠️ ${failed} testów nie przeszło. Sprawdź implementację.`);
+    }
+
+    return { passed, failed, total: testCases.length };
+}

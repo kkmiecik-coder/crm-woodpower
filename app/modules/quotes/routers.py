@@ -1,8 +1,7 @@
 # modules/quotes/routers.py
-from flask import render_template, jsonify, request, make_response, current_app, send_file, Blueprint, session, redirect, url_for, flash
+from flask import render_template, jsonify, request, make_response, current_app, send_file, Blueprint, session, redirect, url_for, flash, abort
 from . import quotes_bp
-from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog
-from modules.quotes.models import QuoteStatus, DiscountReason
+from modules.calculator.models import Quote, User, QuoteItemDetails, QuoteItem, QuoteLog, Multiplier
 from modules.clients.models import Client
 from modules.baselinker.service import BaselinkerService
 from modules.baselinker.models import BaselinkerConfig
@@ -14,13 +13,31 @@ from functools import wraps
 import logging
 import sys
 from sqlalchemy.orm import joinedload
-from sqlalchemy import func
+from sqlalchemy import func, text
 import re
 from datetime import datetime
 import base64
 import os
+from flask_login import login_required, current_user
+import json
 
-def render_client_error(error_type, error_code=None, error_message=None, error_details=None, quote_number=None):
+
+# Importuj wszystkie modele z quotes/models.py
+# To automatycznie zaimportuje też modele z calculator
+from modules.quotes.models import (
+    Quote,
+    QuoteItem,
+    QuoteItemDetails,
+    QuoteStatus,
+    QuoteLog,
+    FinishingColor,
+    Client,
+    User,
+    DiscountReason
+)
+
+def render_client_error(error_type, error_code, error_message, error_details=None, quote_number=None):
+    """Renderuje stronę błędu dla klienta"""
     return render_template(
         'quotes/templates/client_error.html',
         error_type=error_type,
@@ -28,39 +45,49 @@ def render_client_error(error_type, error_code=None, error_message=None, error_d
         error_message=error_message,
         error_details=error_details,
         quote_number=quote_number
-    ), error_code or 400
+    ), error_code
 
-def calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto):
-    VAT_RATE = 0.23
+# Funkcje pomocnicze
+def calculate_costs_with_vat(products_netto, finishing_netto, shipping_brutto):
+    """Oblicza koszty z VAT"""
+    vat_rate = 0.23
     
-    # Produkty surowe
-    products_brutto = cost_products_netto * (1 + VAT_RATE)
+    # Produkty
+    products_vat = products_netto * vat_rate
+    products_brutto = products_netto + products_vat
     
     # Wykończenie
-    finishing_brutto = cost_finishing_netto * (1 + VAT_RATE)
+    finishing_vat = finishing_netto * vat_rate
+    finishing_brutto = finishing_netto + finishing_vat
     
-    # Wysyłka - konwersja z brutto na netto
-    shipping_netto = cost_shipping_brutto / (1 + VAT_RATE)
+    # Shipping - zakładamy że mamy już brutto
+    shipping_netto = shipping_brutto / (1 + vat_rate)
+    shipping_vat = shipping_brutto - shipping_netto
     
-    # Suma
-    total_netto = cost_products_netto + cost_finishing_netto + shipping_netto
-    total_brutto = products_brutto + finishing_brutto + cost_shipping_brutto
+    # Totale
+    total_netto = products_netto + finishing_netto + shipping_netto
+    total_vat = products_vat + finishing_vat + shipping_vat
+    total_brutto = total_netto + total_vat
     
     return {
         'products': {
-            'netto': round(cost_products_netto, 2),
+            'netto': round(products_netto, 2),
+            'vat': round(products_vat, 2),
             'brutto': round(products_brutto, 2)
         },
         'finishing': {
-            'netto': round(cost_finishing_netto, 2),
+            'netto': round(finishing_netto, 2),
+            'vat': round(finishing_vat, 2),
             'brutto': round(finishing_brutto, 2)
         },
         'shipping': {
             'netto': round(shipping_netto, 2),
-            'brutto': round(cost_shipping_brutto, 2)
+            'vat': round(shipping_vat, 2),
+            'brutto': round(shipping_brutto, 2)
         },
         'total': {
             'netto': round(total_netto, 2),
+            'vat': round(total_vat, 2),
             'brutto': round(total_brutto, 2)
         }
     }
@@ -97,48 +124,78 @@ def validate_email_or_phone(email_or_phone, quote):
 @quotes_bp.route('/')
 @login_required
 def quotes_home():
-    print("[quotes_home] routing wywolany", file=sys.stderr)
-    
-    # AUTOMATYCZNA SYNCHRONIZACJA BASELINKER CONFIG
+    """Główna strona modułu quotes - z dodanymi danymi dla calculator.js"""
     try:
-        # Sprawdź czy mamy już dane konfiguracyjne
-        config_count = BaselinkerConfig.query.count()
-        print(f"[quotes_home] Znaleziono {config_count} rekordów konfiguracji Baselinker", file=sys.stderr)
+        print("[quotes_home] Rozpoczynam ładowanie strony głównej quotes", file=sys.stderr)
         
-        # Jeśli brak konfiguracji lub jest stara (np. > 24h), zsynchronizuj
+        # DODANE: Pobierz dane użytkownika i jego rolę
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+        user_role = user.role if user else 'user'
+        user_multiplier = user.multiplier.multiplier if user and user.multiplier else 1.0
+        
+        print(f"[quotes_home] Użytkownik: {user_email}, rola: {user_role}, mnożnik: {user_multiplier}", file=sys.stderr)
+        
+        # DODANE: Pobierz ceny z bazy danych (tak jak w calculator)
+        prices_query = db.session.execute(text("""
+            SELECT species, technology, wood_class, thickness_min, thickness_max, 
+                   length_min, length_max, price_per_m3 
+            FROM prices
+        """)).fetchall()
+        prices_list = [dict(row._mapping) for row in prices_query]
+        for row in prices_list:
+            for key in ['thickness_min', 'thickness_max', 'length_min', 'length_max', 'price_per_m3']:
+                if key in row and row[key] is not None:
+                    row[key] = float(row[key])
+        prices_json = json.dumps(prices_list)
+
+        # DODANE: Pobierz mnożniki z bazy danych (tak jak w calculator)  
+        multipliers_query = Multiplier.query.all()
+        multipliers_list = [
+            {"label": m.client_type, "value": float(m.multiplier)}
+            for m in multipliers_query
+        ]
+        multipliers_json = json.dumps(multipliers_list)
+        
+        print(f"[quotes_home] Załadowano {len(prices_list)} cen i {len(multipliers_list)} mnożników", file=sys.stderr)
+
+        # Sprawdź konfigurację Baselinker (istniejący kod - pozostaw bez zmian)
+        from modules.baselinker.models import BaselinkerConfig
+        from modules.baselinker.service import BaselinkerService
+        
+        config_count = BaselinkerConfig.query.count()
+        
         if config_count == 0:
             print("[quotes_home] Brak konfiguracji Baselinker - rozpoczynam synchronizację", file=sys.stderr)
             
-            # Sprawdź czy mamy konfigurację API
             api_config = current_app.config.get('API_BASELINKER')
             if api_config and api_config.get('api_key'):
                 try:
                     service = BaselinkerService()
-                    
-                    # Synchronizuj źródła zamówień
                     sources_synced = service.sync_order_sources()
-                    print(f"[quotes_home] Synchronizacja źródeł: {'OK' if sources_synced else 'BŁĄD'}", file=sys.stderr)
-                    
-                    # Synchronizuj statusy zamówień  
                     statuses_synced = service.sync_order_statuses()
-                    print(f"[quotes_home] Synchronizacja statusów: {'OK' if statuses_synced else 'BŁĄD'}", file=sys.stderr)
-                    
-                    if sources_synced and statuses_synced:
-                        print("[quotes_home] Synchronizacja Baselinker zakończona pomyślnie", file=sys.stderr)
-                    else:
-                        print("[quotes_home] Synchronizacja Baselinker częściowo nieudana", file=sys.stderr)
-                        
+                    print(f"[quotes_home] Synchronizacja Baselinker: sources={sources_synced}, statuses={statuses_synced}", file=sys.stderr)
                 except Exception as e:
                     print(f"[quotes_home] Błąd synchronizacji Baselinker: {e}", file=sys.stderr)
             else:
-                print("[quotes_home] Brak konfiguracji API Baselinker - pomijam synchronizację", file=sys.stderr)
+                print("[quotes_home] Brak konfiguracji API Baselinker", file=sys.stderr)
         else:
-            print("[quotes_home] Konfiguracja Baselinker już istnieje - pomijam synchronizację", file=sys.stderr)
+            print("[quotes_home] Konfiguracja Baselinker już istnieje", file=sys.stderr)
             
     except Exception as e:
-        print(f"[quotes_home] Błąd podczas sprawdzania konfiguracji Baselinker: {e}", file=sys.stderr)
+        print(f"[quotes_home] Błąd podczas ładowania danych: {e}", file=sys.stderr)
+        # Utwórz puste dane w przypadku błędu
+        prices_json = json.dumps([])
+        multipliers_json = json.dumps([])
+        user_role = 'user'
+        user_multiplier = 1.0
     
-    return render_template('quotes/templates/quotes.html')
+    # ZMIANA: Przekaż dane do template (tak jak w calculator)
+    return render_template('quotes/templates/quotes.html', 
+                          prices_json=prices_json,
+                          multipliers_json=multipliers_json,
+                          user_role=user_role,
+                          user_multiplier=user_multiplier)
 
 @quotes_bp.route('/api/quotes')
 @login_required
@@ -674,37 +731,40 @@ def apply_total_discount(quote_id):
 
 
 
-@quotes_bp.route("/wycena/<path:quote_number>/<token>", methods=['GET'])
-def client_quote_view(quote_number, token):
-    """Publiczna strona wyceny dla klienta - z poprawioną obsługą stanów"""
-    
+@quotes_bp.route("/c/<token>")
+def client_quote_view(token):
+    """Widok strony klienta z redesignem"""
     try:
-        quote = Quote.query.filter_by(quote_number=quote_number, public_token=token).first()
+        print(f"[client_quote_view] Token: {token}", file=sys.stderr)
+        
+        # Znajdź wycenę po tokenie
+        quote = Quote.query.filter_by(public_token=token).first()
         
         if not quote:
-            print(f"[client_quote_view] ❌ NIE ZNALEZIONO wyceny dla numeru '{quote_number}' i tokenu '{token}'", file=sys.stderr)
+            print(f"[client_quote_view] Nie znaleziono wyceny dla tokenu: {token}", file=sys.stderr)
             return render_client_error(
                 error_type='not_found',
                 error_code=404,
-                quote_number=quote_number
+                error_message="Nie znaleziono wyceny",
+                error_details="Sprawdź czy link jest poprawny.",
+                quote_number=None
             )
         
-        print(f"[client_quote_view] ✅ ZNALEZIONO wycenę ID={quote.id}, is_client_editable={quote.is_client_editable}", file=sys.stderr)
+        quote_number = quote.quote_number
+        print(f"[client_quote_view] Znaleziono wycenę ID={quote.id}, is_client_editable={quote.is_client_editable}", file=sys.stderr)
         
-        # POPRAWKA: Zawsze pokazujemy stronę wyceny, ale z odpowiednim stanem
-        # Nie blokujemy dostępu dla zaakceptowanych wycen
+        # Przekazujemy dodatkowe dane potrzebne w nowym designie
+        current_year = datetime.now().year
         
-        print(f"[client_quote_view] Renderuję szablon client_quote.html", file=sys.stderr)
-        
-        # Przekierowanie na szablon strony klienta z pełnymi danymi
         return render_template("quotes/templates/client_quote.html", 
                              quote=quote,
                              quote_number=quote_number,
                              token=token,
-                             is_accepted=not quote.is_client_editable)  # NOWE: przekazujemy stan
+                             is_accepted=not quote.is_client_editable,
+                             current_year=current_year)
         
     except Exception as e:
-        print(f"[client_quote_view] ❌ BŁĄD: {e}", file=sys.stderr)
+        print(f"[client_quote_view] BŁĄD: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
         
@@ -713,12 +773,12 @@ def client_quote_view(quote_number, token):
             error_code=500,
             error_message="Wystąpił nieoczekiwany błąd podczas ładowania wyceny.",
             error_details=str(e),
-            quote_number=quote_number
+            quote_number=quote_number if 'quote_number' in locals() else None
         )
 
 @quotes_bp.route("/api/client/quote/<token>")
 def get_client_quote_data(token):
-    """API dla strony klienta - poprawiona obsługa zaakceptowanych wycen"""
+    """API dla strony klienta - rozszerzone dane dla redesignu"""
     try:
         quote = Quote.query.filter_by(public_token=token).first()
         
@@ -732,54 +792,83 @@ def get_client_quote_data(token):
         cost_products_netto = round(sum(i.get_total_price_netto() for i in quote.items if i.is_selected), 2)
         cost_finishing_netto = round(sum(d.finishing_price_netto or 0.0 for d in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()), 2)
         cost_shipping_brutto = quote.shipping_cost_brutto or 0.0
+        cost_shipping_netto = quote.shipping_cost_netto or 0.0
         costs = calculate_costs_with_vat(cost_products_netto, cost_finishing_netto, cost_shipping_brutto)
         
-        # Zawsze pokazujemy wszystkie pozycje, nie tylko show_on_client_page
-        # Bo po akceptacji klient powinien widzieć co wybrał
-        visible_items = quote.items if not quote.is_client_editable else [item for item in quote.items if item.show_on_client_page]
+        # Pobierz wszystkie pozycje jeśli wycena jest zaakceptowana, 
+        # w przeciwnym razie tylko te oznaczone jako widoczne
+        if not quote.is_client_editable:
+            visible_items = quote.items
+        else:
+            visible_items = [item for item in quote.items if item.show_on_client_page]
+        
+        # Pobierz szczegóły wykończenia
+        finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
+        
+        # Przygotuj dane o wykończeniach z obrazkami
+        finishing_data = []
+        for detail in finishing_details:
+            finishing_info = {
+                "product_index": detail.product_index,
+                "finishing_type": detail.finishing_type,
+                "finishing_variant": detail.finishing_variant,
+                "finishing_color": detail.finishing_color,
+                "finishing_gloss_level": detail.finishing_gloss_level,
+                "finishing_price_netto": float(detail.finishing_price_netto or 0),
+                "finishing_price_brutto": float(detail.finishing_price_brutto or 0),
+                "quantity": detail.quantity or 1
+            }
+            
+            # Dodaj ścieżkę do obrazka jeśli istnieje kolor
+            if detail.finishing_color and detail.finishing_color != 'Brak':
+                # Sprawdź czy istnieje obrazek w bazie
+                color_image = FinishingColor.query.filter_by(name=detail.finishing_color).first()
+                if color_image and color_image.image_path:
+                    finishing_info["image_path"] = color_image.image_path
+            
+            finishing_data.append(finishing_info)
+        
+        # Przygotuj dane pozycji z cenami jednostkowymi
+        items_data = []
+        for item in visible_items:
+            item_dict = item.to_dict()
+            
+            # Upewnij się, że ceny są jednostkowe (nie całkowite)
+            finishing = next((f for f in finishing_details if f.product_index == item.product_index), None)
+            quantity = finishing.quantity if finishing else 1
+            
+            # Popraw ceny jeśli są już pomnożone przez ilość
+            if quantity > 1:
+                # Sprawdź czy cena jest już pomnożona
+                if item_dict.get('final_price_netto'):
+                    # Jeśli cena końcowa istnieje, użyj jej jako jednostkowej
+                    item_dict['price_netto'] = item_dict['final_price_netto'] / quantity
+                    item_dict['price_brutto'] = item_dict['final_price_brutto'] / quantity
+            
+            items_data.append(item_dict)
         
         return jsonify({
             "id": quote.id,
             "quote_number": quote.quote_number,
             "created_at": quote.created_at.isoformat() if quote.created_at else None,
             "is_client_editable": quote.is_client_editable,
+            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
             "costs": costs,
+            "shipping_cost_netto": cost_shipping_netto,
+            "shipping_cost_brutto": cost_shipping_brutto,
             "courier_name": quote.courier_name or "-",
             "status_name": quote.quote_status.name if quote.quote_status else "-",
-            "client_comments": getattr(quote, 'client_comments', None),
-            "acceptance_date": getattr(quote, 'acceptance_date', None),
-            # DODANE: public_token do pobierania PDF po stronie klienta
-            "public_token": quote.public_token,
-            "client": {
-                "client_name": quote.client.client_name if quote.client else "-",
-                "email": quote.client.email if quote.client else "-",
-                "phone": quote.client.phone if quote.client else "-"
-            },
-            "user": {
-                "first_name": quote.user.first_name if quote.user else "",
-                "last_name": quote.user.last_name if quote.user else ""
-            },
-            "finishing": [
-                {
-                    "product_index": detail.product_index,
-                    "type": detail.finishing_type,
-                    "variant": detail.finishing_variant,
-                    "color": detail.finishing_color,
-                    "gloss": detail.finishing_gloss_level,
-                    "netto": detail.finishing_price_netto,
-                    "brutto": detail.finishing_price_brutto
-                } for detail in db.session.query(QuoteItemDetails).filter_by(quote_id=quote.id).all()
-            ],
-            "items": [item.to_dict() for item in visible_items]
+            "client_comment": quote.client_comments,
+            "items": items_data,
+            "finishing": finishing_data,
+            "public_token": token
         })
         
     except Exception as e:
         print(f"[get_client_quote_data] Błąd: {e}", file=sys.stderr)
-        return jsonify({
-            "error": "general",
-            "message": "Wystąpił błąd podczas pobierania danych wyceny",
-            "details": str(e)
-        }), 500
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "server_error", "message": str(e)}), 500
 
 @quotes_bp.route("/api/client/quote/<token>/update-variant", methods=["PATCH"])
 def client_update_variant(token):
@@ -816,103 +905,88 @@ def client_update_variant(token):
         print(f"[client_update_variant] Błąd: {e}", file=sys.stderr)
         return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
 
-
-# POPRAWKA 1: W routers.py w funkcji client_accept_quote
-# Zmień tę część kodu:
-
-# GŁÓWNA POPRAWKA W app/modules/quotes/routers.py
-# Zastąp funkcję client_accept_quote:
-
 @quotes_bp.route("/api/client/quote/<token>/accept", methods=["POST"])
 def client_accept_quote(token):
-    """Akceptacja wyceny przez klienta - z poprawną zmianą statusu"""
+    """Akceptacja wyceny przez klienta z rozszerzonymi danymi"""
     try:
-        data = request.get_json()
-        email_or_phone = data.get("email_or_phone")
-        comments = data.get("comments", "")
+        quote = Quote.query.filter_by(public_token=token).first()
         
-        if not email_or_phone:
-            return jsonify({"error": "Wymagany email lub numer telefonu"}), 400
-        
-        quote = Quote.query.filter_by(public_token=token).first_or_404()
+        if not quote:
+            return jsonify({"error": "not_found", "message": "Wycena nie została znaleziona"}), 404
         
         if not quote.is_client_editable:
-            return jsonify({"error": "Wycena została już zaakceptowana"}), 403
+            return jsonify({
+                "error": "quote_not_editable", 
+                "message": "Wycena została już zaakceptowana"
+            }), 403
         
-        # Walidacja email/telefon
-        if not validate_email_or_phone(email_or_phone, quote):
-            return jsonify({"error": "Nieprawidłowy email lub numer telefonu"}), 400
+        data = request.get_json()
+        email_or_phone = data.get("email_or_phone", "").strip()
+        phone = data.get("phone", "").strip()  # Dodatkowe pole telefonu
+        comments = data.get("comments", "").strip()
         
-        print(f"[client_accept_quote] PRZED zmianą - wycena {quote.id}, status_id: {quote.status_id}", file=sys.stderr)
+        if not email_or_phone:
+            return jsonify({"error": "validation_error", "message": "Email jest wymagany"}), 400
         
-        # KLUCZOWA POPRAWKA: Znajdź status "Zaakceptowane" (ID 3)
-        accepted_status = QuoteStatus.query.filter_by(id=3).first()
-        if not accepted_status:
-            # Fallback - spróbuj różne nazwy
-            accepted_status = QuoteStatus.query.filter(
-                QuoteStatus.name.in_(["Zaakceptowane", "Zaakceptowana", "Accepted", "Zatwierdzone"])
-            ).first()
+        # Weryfikacja klienta
+        client = quote.client
+        if not client:
+            return jsonify({"error": "client_error", "message": "Brak danych klienta"}), 400
         
-        if accepted_status:
-            old_status_id = quote.status_id
-            quote.status_id = accepted_status.id
-            print(f"[client_accept_quote] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
-        else:
-            print(f"[client_accept_quote] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
-            # Wypisz wszystkie dostępne statusy dla debugowania
-            all_statuses = QuoteStatus.query.all()
-            print(f"[client_accept_quote] Dostępne statusy:", file=sys.stderr)
-            for status in all_statuses:
-                print(f"  ID: {status.id}, Nazwa: '{status.name}'", file=sys.stderr)
+        # Sprawdź email lub telefon
+        client_email = (client.email or "").lower().strip()
+        client_phone = (client.phone or "").replace(" ", "").replace("-", "")
+        input_value = email_or_phone.lower().strip()
+        input_phone = phone.replace(" ", "").replace("-", "") if phone else ""
         
-        # Zapisz pozostałe dane akceptacji
-        quote.client_comments = comments
-        quote.acceptance_date = datetime.now()
+        email_matches = input_value == client_email or input_value.endswith(client_email)
+        phone_matches = input_phone and (input_phone in client_phone or client_phone in input_phone)
+        
+        if not (email_matches or phone_matches):
+            return jsonify({
+                "error": "verification_failed", 
+                "message": "Podane dane nie pasują do danych klienta"
+            }), 403
+        
+        # Zapisz komentarz jeśli podany
+        if comments:
+            quote.client_comment = comments
+        
+        # Ustaw datę akceptacji i status
+        quote.acceptance_date = datetime.utcnow()
+        quote.is_client_editable = False
         quote.accepted_by_email = email_or_phone
-        quote.disable_client_editing()
         
-        # WAŻNE: Flush przed commit żeby zobaczyć błędy
-        try:
-            db.session.flush()
-            print(f"[client_accept_quote] Flush wykonany pomyślnie", file=sys.stderr)
-        except Exception as e:
-            print(f"[client_accept_quote] BŁĄD podczas flush: {e}", file=sys.stderr)
-            db.session.rollback()
-            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        # Zmień status na "Zaakceptowana przez klienta" (ID=7)
+        quote.status_id = 7
         
-        # Commit zmian
-        try:
-            db.session.commit()
-            print(f"[client_accept_quote] Commit wykonany pomyślnie", file=sys.stderr)
-        except Exception as e:
-            print(f"[client_accept_quote] BŁĄD podczas commit: {e}", file=sys.stderr)
-            db.session.rollback()
-            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        # Dodaj log
+        log_entry = QuoteLog(
+            quote_id=quote.id,
+            user_id=None,  # Brak użytkownika - akcja klienta
+            change_time=datetime.utcnow(),
+            description=f"Wycena zaakceptowana przez klienta (email: {email_or_phone})"
+        )
+        db.session.add(log_entry)
         
-        # Sprawdź po zapisie
-        quote_after = Quote.query.get(quote.id)
-        print(f"[client_accept_quote] PO zapisie - wycena {quote_after.id}, status_id: {quote_after.status_id}", file=sys.stderr)
+        db.session.commit()
         
-        # Wyślij emaile
-        try:
-            send_acceptance_emails(quote)
-            print(f"[client_accept_quote] Emaile wysłane pomyślnie", file=sys.stderr)
-        except Exception as e:
-            print(f"[client_accept_quote] Błąd wysyłki maili: {e}", file=sys.stderr)
+        print(f"[client_accept_quote] Wycena {quote.id} zaakceptowana przez klienta", file=sys.stderr)
+        
+        # TODO: Wysłanie emaila z potwierdzeniem
         
         return jsonify({
+            "success": True,
             "message": "Wycena została zaakceptowana",
-            "acceptance_date": quote.acceptance_date.isoformat() if quote.acceptance_date else None,
-            "new_status": accepted_status.name if accepted_status else "Brak statusu",
-            "new_status_id": accepted_status.id if accepted_status else None
+            "quote_number": quote.quote_number
         })
         
     except Exception as e:
-        print(f"[client_accept_quote] WYJĄTEK: {e}", file=sys.stderr)
+        db.session.rollback()
+        print(f"[client_accept_quote] Błąd: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        db.session.rollback()
-        return jsonify({"error": "Błąd podczas akceptacji wyceny"}), 500
+        return jsonify({"error": "server_error", "message": "Błąd podczas akceptacji wyceny"}), 500
 
 def send_acceptance_email_to_salesperson(quote):
     """
@@ -1267,103 +1341,154 @@ def send_user_acceptance_email_to_client(quote, accepting_user):
 
 @quotes_bp.route("/api/client/quote/<token>/accept-with-data", methods=["POST"])
 def client_accept_quote_with_data(token):
-    """Akceptacja wyceny przez klienta z pełnymi danymi - NOWY WORKFLOW"""
+    """Akceptacja wyceny przez klienta z pełnymi danymi - ROZSZERZONA WERSJA"""
     try:
         data = request.get_json()
         print(f"[client_accept_quote_with_data] Otrzymane dane: {data}", file=sys.stderr)
         
-        # Walidacja wymaganych danych
-        required_fields = ['email', 'phone', 'delivery_name', 'delivery_city', 'delivery_address']
-        missing_fields = []
-        
-        for field in required_fields:
-            if not data.get(field) or str(data.get(field)).strip() == '':
-                missing_fields.append(field)
-        
-        # Sprawdź czy email LUB telefon jest wypełniony (jedno z dwóch wystarczy)
-        if not data.get('email') and not data.get('phone'):
-            missing_fields.append('email_lub_phone')
-        elif data.get('email') and data.get('phone'):
-            # Jeśli oba są wypełnione, usuń z brakujących
-            if 'email' in missing_fields:
-                missing_fields.remove('email')
-            if 'phone' in missing_fields:
-                missing_fields.remove('phone')
-        elif data.get('email'):
-            # Tylko email - usuń phone z wymaganych
-            if 'phone' in missing_fields:
-                missing_fields.remove('phone')
-        elif data.get('phone'):
-            # Tylko phone - usuń email z wymaganych  
-            if 'email' in missing_fields:
-                missing_fields.remove('email')
-        
-        if missing_fields:
-            return jsonify({
-                "error": "Brakujące wymagane pola", 
-                "missing_fields": missing_fields
-            }), 400
-        
-        # Pobierz wycenę
-        quote = Quote.query.filter_by(public_token=token).first_or_404()
+        quote = Quote.query.filter_by(public_token=token).first()
+        if not quote:
+            return jsonify({"error": "Nie znaleziono wyceny"}), 404
         
         if not quote.is_client_editable:
-            return jsonify({"error": "Wycena została już zaakceptowana"}), 403
+            return jsonify({"error": "Wycena została już zaakceptowana"}), 400
         
-        print(f"[client_accept_quote_with_data] Wycena {quote.id} - rozpoczynam aktualizację danych", file=sys.stderr)
-        
-        # AKTUALIZUJ DANE KLIENTA
+        # === WALIDACJA DANYCH ===
+
+        # Wymagane dane kontaktowe
+        email = data.get('email', '').strip()
+        phone = data.get('phone', '').strip()
+
+        if not email:
+            return jsonify({"error": "Email jest wymagany"}), 400
+
+        if not phone:
+            return jsonify({"error": "Numer telefonu jest wymagany"}), 400
+
+        # Walidacja formatu email
+        import re
+        email_regex = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+        if not re.match(email_regex, email):
+            return jsonify({"error": "Nieprawidłowy format adresu email"}), 400
+
+        # Walidacja telefonu (tylko długość)
+        phone_digits = re.sub(r'[^\d]', '', phone)
+        if len(phone_digits) < 9 or len(phone_digits) > 15:
+            return jsonify({"error": "Nieprawidłowy numer telefonu"}), 400
+
+        # === KRYTYCZNA WALIDACJA BEZPIECZEŃSTWA ===
+        # Sprawdź czy podany email LUB telefon pasuje do danych w bazie
+
         client = quote.client
         if not client:
-            return jsonify({"error": "Brak powiązanego klienta"}), 400
+            return jsonify({"error": "Brak przypisanego klienta do wyceny"}), 400
+
+        # Normalizacja danych do porównania
+        client_email = (client.email or "").lower().strip()
+        client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
+        input_email = email.lower().strip()
+        input_phone_digits = re.sub(r'[^\d]', '', phone)
+
+        # Usuń +48 z początku jeśli istnieje
+        if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
+            input_phone_digits = input_phone_digits[2:]
+        if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
+            client_phone_digits = client_phone_digits[2:]
+
+        # Sprawdź zgodność email LUB telefonu
+        email_matches = client_email and input_email == client_email
+        phone_matches = (client_phone_digits and input_phone_digits and 
+                        len(input_phone_digits) >= 9 and
+                        (input_phone_digits == client_phone_digits or 
+                         input_phone_digits in client_phone_digits or 
+                         client_phone_digits in input_phone_digits))
+
+        print(f"[client_accept_quote_with_data] Walidacja danych:", file=sys.stderr)
+        print(f"  - Input email: '{input_email}'", file=sys.stderr)
+        print(f"  - Client email: '{client_email}'", file=sys.stderr)
+        print(f"  - Email matches: {email_matches}", file=sys.stderr)
+        print(f"  - Input phone: '{input_phone_digits}'", file=sys.stderr)
+        print(f"  - Client phone: '{client_phone_digits}'", file=sys.stderr)
+        print(f"  - Phone matches: {phone_matches}", file=sys.stderr)
+
+        if not (email_matches or phone_matches):
+            return jsonify({
+                "error": "Podane dane nie pasują do danych przypisanych do tej wyceny. Sprawdź email lub numer telefonu."
+            }), 403
+
+        print(f"[client_accept_quote_with_data] Walidacja przeszła pomyślnie - dane są zgodne", file=sys.stderr)
+
+        # === UZUPEŁNIENIE/AKTUALIZACJA DANYCH ===
+        # Aktualizuj dane klienta - uzupełnij brakujące lub zaktualizuj istniejące
+
+        # Jeśli email się zgadza lub jest pusty w bazie, użyj nowego
+        if email_matches or not client.email:
+            client.email = email
+            print(f"[client_accept_quote_with_data] Zaktualizowano email klienta", file=sys.stderr)
+
+        # Jeśli telefon się zgadza lub jest pusty w bazie, użyj nowego
+        if phone_matches or not client.phone:
+            # Normalizacja telefonu - usuń spacje i myślniki
+            normalized_phone = re.sub(r'[\s\-\(\)]', '', phone)
+            if normalized_phone.startswith('+48'):
+                normalized_phone = normalized_phone[3:]
+            client.phone = normalized_phone
+            print(f"[client_accept_quote_with_data] Zaktualizowano telefon klienta", file=sys.stderr)
+
+        print(f"[client_accept_quote_with_data] Zaktualizowano podstawowe dane klienta ID: {client.id}", file=sys.stderr)
         
-        # Dane podstawowe
-        if data.get('delivery_name'):
-            client.client_name = data['delivery_name']
-            client.delivery_name = data['delivery_name']
+        # === DANE DOSTAWY ===
+        if not is_self_pickup:
+            client.delivery_name = data.get('delivery_name', '').strip()
+            client.delivery_company = data.get('delivery_company', '').strip()
+            client.delivery_address = data.get('delivery_address', '').strip()
+            client.delivery_zip = data.get('delivery_postcode', '').strip()
+            client.delivery_city = data.get('delivery_city', '').strip()
+            client.delivery_region = data.get('delivery_region', '').strip()
+            client.delivery_country = 'Polska'
+            
+            print(f"[client_accept_quote_with_data] Zaktualizowano dane dostawy", file=sys.stderr)
+        else:
+            # Oznacz jako odbiór osobisty
+            client.delivery_name = client.client_name or email
+            client.delivery_address = 'ODBIÓR OSOBISTY'
+            client.delivery_city = 'ODBIÓR OSOBISTY'
+            client.delivery_company = ''
+            client.delivery_zip = ''
+            client.delivery_region = ''
+            client.delivery_country = 'Polska'
+            
+            print(f"[client_accept_quote_with_data] Ustawiono odbiór osobisty", file=sys.stderr)
         
-        if data.get('email'):
-            client.email = data['email']
-        
-        if data.get('phone'):
-            client.phone = data['phone']
-        
-        # Dane dostawy
-        if data.get('delivery_company'):
-            client.delivery_company = data['delivery_company']
-        if data.get('delivery_address'):
-            client.delivery_address = data['delivery_address']
-        if data.get('delivery_postcode'):
-            client.delivery_zip = data['delivery_postcode']
-        if data.get('delivery_city'):
-            client.delivery_city = data['delivery_city']
-        if data.get('delivery_region'):
-            client.delivery_region = data['delivery_region']
-        
-        client.delivery_country = 'Polska'  # Wartość domyślna
-        
-        # Dane do faktury (jeśli klient chce fakturę)
-        wants_invoice = data.get('wants_invoice', False)
+        # === DANE DO FAKTURY ===
         if wants_invoice:
-            if data.get('invoice_name'):
-                client.invoice_name = data['invoice_name']
-            if data.get('invoice_company'):
-                client.invoice_company = data['invoice_company']
-            if data.get('invoice_address'):
-                client.invoice_address = data['invoice_address']
-            if data.get('invoice_postcode'):
-                client.invoice_zip = data['invoice_postcode']
-            if data.get('invoice_city'):
-                client.invoice_city = data['invoice_city']
-            if data.get('invoice_region'):
-                client.invoice_region = data['invoice_region']
-            if data.get('invoice_nip'):
-                client.invoice_nip = data['invoice_nip']
+            client.invoice_name = data.get('invoice_name', '').strip()
+            client.invoice_company = data.get('invoice_company', '').strip()
+            client.invoice_address = data.get('invoice_address', '').strip()
+            client.invoice_zip = data.get('invoice_postcode', '').strip()
+            client.invoice_city = data.get('invoice_city', '').strip()
+            client.invoice_nip = invoice_nip
+            
+            print(f"[client_accept_quote_with_data] Zaktualizowano dane do faktury", file=sys.stderr)
+        else:
+            # Wyczyść dane faktury jeśli nie chce faktury
+            client.invoice_name = None
+            client.invoice_company = None
+            client.invoice_address = None
+            client.invoice_zip = None
+            client.invoice_city = None
+            client.invoice_nip = None
+            
+            print(f"[client_accept_quote_with_data] Wyczyszczono dane faktury", file=sys.stderr)
         
-        print(f"[client_accept_quote_with_data] Zaktualizowano dane klienta ID: {client.id}", file=sys.stderr)
+        # === UWAGI ===
+        comments = data.get('comments', '').strip()
+        quote.client_comments = comments if comments else None
         
-        # AKTUALIZUJ WYCENĘ
-        # Znajdź status "Zaakceptowane" (ID 3)
+        # === ZMIANA STATUSU WYCENY ===
+        
+        # Znajdź status "Zaakceptowane" 
+        from modules.quotes.models import QuoteStatus
         accepted_status = QuoteStatus.query.filter_by(id=3).first()
         if not accepted_status:
             # Fallback - spróbuj różne nazwy
@@ -1371,129 +1496,434 @@ def client_accept_quote_with_data(token):
                 QuoteStatus.name.in_(["Zaakceptowane", "Zaakceptowana", "Accepted", "Zatwierdzone"])
             ).first()
         
-        if accepted_status:
-            old_status_id = quote.status_id
-            quote.status_id = accepted_status.id
-            print(f"[client_accept_quote_with_data] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
-        else:
+        if not accepted_status:
             print(f"[client_accept_quote_with_data] BŁĄD: Nie znaleziono statusu akceptacji!", file=sys.stderr)
-            # Wypisz wszystkie dostępne statusy dla debugowania
-            all_statuses = QuoteStatus.query.all()
-            print(f"[client_accept_quote_with_data] Dostępne statusy:", file=sys.stderr)
-            for status in all_statuses:
-                print(f"  ID: {status.id}, Nazwa: '{status.name}'", file=sys.stderr)
+            return jsonify({"error": "Błąd konfiguracji statusów"}), 500
         
-        # Zapisz dane akceptacji
-        quote.client_comments = data.get('quote_notes', '')  # Uwagi do wyceny
+        # Aktualizuj wycenę
+        old_status_id = quote.status_id
+        quote.status_id = accepted_status.id
+        quote.is_client_editable = False
         quote.acceptance_date = datetime.now()
-        quote.accepted_by_email = data.get('email') or data.get('phone')  # Email lub telefon jako identyfikator
-        quote.disable_client_editing()
+        quote.accepted_by_email = email
         
-        # Flush przed commit żeby zobaczyć błędy
-        try:
-            db.session.flush()
-            print(f"[client_accept_quote_with_data] Flush wykonany pomyślnie", file=sys.stderr)
-        except Exception as e:
-            print(f"[client_accept_quote_with_data] BŁĄD podczas flush: {e}", file=sys.stderr)
-            db.session.rollback()
-            return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
+        print(f"[client_accept_quote_with_data] Zmiana statusu z {old_status_id} na {accepted_status.id} ({accepted_status.name})", file=sys.stderr)
         
-        # Commit zmian
+        # === ZAPISZ ZMIANY ===
         try:
             db.session.commit()
-            print(f"[client_accept_quote_with_data] Commit wykonany pomyślnie", file=sys.stderr)
+            print(f"[client_accept_quote_with_data] Wszystkie zmiany zapisane pomyślnie", file=sys.stderr)
         except Exception as e:
-            print(f"[client_accept_quote_with_data] BŁĄD podczas commit: {e}", file=sys.stderr)
+            print(f"[client_accept_quote_with_data] BŁĄD podczas zapisu: {e}", file=sys.stderr)
             db.session.rollback()
             return jsonify({"error": "Błąd zapisu do bazy danych"}), 500
         
-        # Sprawdź po zapisie
-        quote_after = Quote.query.get(quote.id)
-        print(f"[client_accept_quote_with_data] PO zapisie - wycena {quote_after.id}, status_id: {quote_after.status_id}", file=sys.stderr)
-        
-        # Wyślij emaile powiadomienia
+        # === WYŚLIJ EMAILE POWIADOMIENIA ===
         try:
             send_acceptance_emails(quote)
             print(f"[client_accept_quote_with_data] Emaile wysłane pomyślnie", file=sys.stderr)
         except Exception as e:
             print(f"[client_accept_quote_with_data] Błąd wysyłki maili: {e}", file=sys.stderr)
+            # Nie przerywaj procesu z powodu błędu emaila
         
-        return jsonify({
-            "message": "Wycena została zaakceptowana z danymi klienta",
+        # === PRZYGOTUJ ODPOWIEDŹ ===
+        response_data = {
+            "message": "Wycena została zaakceptowana pomyślnie",
             "quote_id": quote.id,
             "quote_number": quote.quote_number,
             "acceptance_date": quote.acceptance_date.isoformat(),
             "client_updated": True,
-            "new_status": accepted_status.name if accepted_status else "Brak statusu",
-            "new_status_id": accepted_status.id if accepted_status else None,
-            "redirect_url": f"/quotes/wycena/{quote.quote_number}/{quote.public_token}/potwierdzenie"
-        })
+            "new_status": accepted_status.name,
+            "new_status_id": accepted_status.id,
+            "delivery_method": "Odbiór osobisty" if is_self_pickup else "Dostawa kurierska",
+            "invoice_requested": wants_invoice,
+            "redirect_url": f"/quotes/c/{quote.public_token}?accepted=true"
+        }
+        
+        print(f"[client_accept_quote_with_data] Akceptacja zakończona pomyślnie", file=sys.stderr)
+        return jsonify(response_data)
         
     except Exception as e:
         print(f"[client_accept_quote_with_data] WYJĄTEK: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
         db.session.rollback()
-        return jsonify({"error": "Błąd podczas akceptacji wyceny"}), 500
-    
-# Dodaj ten endpoint do app/modules/quotes/routers.py
+        return jsonify({"error": "Wystąpił błąd podczas przetwarzania żądania"}), 500
+
+@quotes_bp.route("/api/client/quote/<token>/validate-contact", methods=["POST"])
+def validate_client_contact(token):
+    """Waliduje dane kontaktowe klienta przed przejściem do następnego kroku"""
+    try:
+        data = request.get_json()
+        
+        quote = Quote.query.filter_by(public_token=token).first()
+        if not quote:
+            return jsonify({"error": "Nie znaleziono wyceny"}), 404
+        
+        if not quote.is_client_editable:
+            return jsonify({"error": "Wycena została już zaakceptowana"}), 400
+        
+        email = data.get('email', '').strip().lower()
+        phone = data.get('phone', '').strip()
+        
+        if not email and not phone:
+            return jsonify({"error": "Podaj email lub telefon"}), 400
+        
+        client = quote.client
+        if not client:
+            return jsonify({"error": "Brak danych klienta"}), 400
+        
+        # SPECJALNY PRZYPADEK: Jeśli klient nie ma ani email ani telefonu w bazie
+        # to przepuścić bez walidacji (nowi klienci)
+        client_email = (client.email or "").lower().strip()
+        client_phone_digits = re.sub(r'[^\d]', '', client.phone or '')
+        
+        if not client_email and not client_phone_digits:
+            print(f"[validate_client_contact] Klient bez danych kontaktowych - przepuszczam", file=sys.stderr)
+            return jsonify({
+                "success": True, 
+                "message": "Walidacja przeszła - nowy klient",
+                "client_has_data": False
+            })
+        
+        # Normalizacja danych wejściowych
+        input_phone_digits = re.sub(r'[^\d]', '', phone)
+        
+        # Usuń +48 z początku jeśli istnieje
+        if input_phone_digits.startswith('48') and len(input_phone_digits) > 9:
+            input_phone_digits = input_phone_digits[2:]
+        if client_phone_digits.startswith('48') and len(client_phone_digits) > 9:
+            client_phone_digits = client_phone_digits[2:]
+        
+        # Sprawdź zgodność
+        email_matches = client_email and email == client_email
+        phone_matches = (client_phone_digits and input_phone_digits and 
+                        len(input_phone_digits) >= 9 and
+                        (input_phone_digits == client_phone_digits or 
+                         input_phone_digits in client_phone_digits or 
+                         client_phone_digits in input_phone_digits))
+        
+        print(f"[validate_client_contact] Walidacja:", file=sys.stderr)
+        print(f"  - Input email: '{email}', Client email: '{client_email}', Match: {email_matches}", file=sys.stderr)
+        print(f"  - Input phone: '{input_phone_digits}', Client phone: '{client_phone_digits}', Match: {phone_matches}", file=sys.stderr)
+        
+        if email_matches or phone_matches:
+            return jsonify({
+                "success": True,
+                "message": "Dane zostały zweryfikowane",
+                "client_has_data": True,
+                "matched_email": email_matches,
+                "matched_phone": phone_matches
+            })
+        else:
+            return jsonify({
+                "error": "Podane dane nie pasują do danych przypisanych do tej wyceny. Sprawdź email lub numer telefonu."
+            }), 403
+            
+    except Exception as e:
+        print(f"[validate_client_contact] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Błąd podczas walidacji danych"}), 500
 
 @quotes_bp.route("/api/client/quote/<token>/client-data", methods=["GET"])
 def get_client_data_for_modal(token):
-    """Pobiera dane klienta do wypełnienia modalboxa - NOWY ENDPOINT"""
+    """Pobiera dane klienta do wypełnienia modalboxa - ENDPOINT DO AUTO-UZUPEŁNIENIA"""
     try:
         quote = Quote.query.filter_by(public_token=token).first_or_404()
+        
+        if not quote.client:
+            return jsonify({"error": "Brak przypisanego klienta"}), 404
+        
         client = quote.client
         
-        if not client:
-            return jsonify({"error": "Brak danych klienta"}), 404
-        
-        # Przygotuj dane do prefill formularza
-        client_data = {
-            # Dane podstawowe
-            "delivery_name": client.delivery_name or client.client_name or "",
-            "email": client.email or "",
-            "phone": client.phone or "",
-            
-            # Dane dostawy
-            "delivery_company": client.delivery_company or "",
-            "delivery_address": client.delivery_address or "",
-            "delivery_postcode": client.delivery_zip or "",
-            "delivery_city": client.delivery_city or "",
-            "delivery_region": client.delivery_region or "",
-            
-            # Dane do faktury
-            "invoice_name": client.invoice_name or "",
-            "invoice_company": client.invoice_company or "",
-            "invoice_address": client.invoice_address or "",
-            "invoice_postcode": client.invoice_zip or "",
-            "invoice_city": client.invoice_city or "",
-            "invoice_region": client.invoice_region or "",
-            "invoice_nip": client.invoice_nip or "",
-            
-            # Sprawdź czy klient ma dane do faktury (czy chce fakturę)
-            "wants_invoice": bool(client.invoice_name or client.invoice_company or client.invoice_nip),
-            
-            # Uwagi do wyceny (z poprzedniej akceptacji, jeśli były)
-            "quote_notes": quote.client_comments or ""
+        # Przygotuj dane do zwrócenia
+        response_data = {
+            "id": client.id,
+            "client_name": client.client_name,
+            "email": client.email,
+            "phone": client.phone,
+            "delivery": {
+                "name": client.delivery_name,
+                "company": client.delivery_company,
+                "address": client.delivery_address,
+                "zip": client.delivery_zip,
+                "city": client.delivery_city,
+                "region": client.delivery_region,
+                "country": client.delivery_country,
+            },
+            "invoice": {
+                "name": client.invoice_name,
+                "company": client.invoice_company,
+                "address": client.invoice_address,
+                "zip": client.invoice_zip,
+                "city": client.invoice_city,
+                "nip": client.invoice_nip,
+            } if client.invoice_nip else None
         }
         
-        # Informacje o wycenie
-        quote_info = {
-            "quote_number": quote.quote_number,
-            "quote_id": quote.id,
-            "is_editable": quote.is_client_editable,
-            "total_price": str(quote.total_price) if quote.total_price else "0.00"
-        }
+        print(f"[get_client_data_for_modal] Zwrócono dane klienta ID: {client.id}", file=sys.stderr)
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"[get_client_data_for_modal] Błąd: {e}", file=sys.stderr)
+        return jsonify({"error": "Błąd pobierania danych klienta"}), 500
+
+def normalize_phone_for_comparison(phone1, phone2):
+    """Porównuje dwa numery telefonu po normalizacji"""
+    if not phone1 or not phone2:
+        return False
+    
+    import re
+    
+    def normalize(phone):
+        # Usuń wszystkie znaki oprócz cyfr i +
+        cleaned = re.sub(r'[^\d+]', '', phone)
+        # Usuń +48 jeśli na początku
+        if cleaned.startswith('+48'):
+            cleaned = cleaned[3:]
+        return cleaned
+    
+    return normalize(phone1) == normalize(phone2)
+
+
+def normalize_email_for_comparison(email1, email2):
+    """Porównuje dwa emaile (case insensitive)"""
+    if not email1 or not email2:
+        return False
+    
+    return email1.lower().strip() == email2.lower().strip()
+
+@quotes_bp.route('/debug-static')
+def debug_static_files():
+    """Debug endpoint do sprawdzenia routingu plików statycznych"""
+    import os
+    from flask import current_app
+    
+    # Sprawdź ścieżki
+    static_folder = quotes_bp.static_folder
+    static_url_path = quotes_bp.static_url_path
+    
+    # Sprawdź czy folder img istnieje
+    img_folder = os.path.join(static_folder, 'img')
+    img_exists = os.path.exists(img_folder)
+    
+    # Lista plików w folderze img
+    img_files = []
+    if img_exists:
+        img_files = os.listdir(img_folder)
+    
+    debug_info = {
+        'blueprint_name': quotes_bp.name,
+        'static_folder': static_folder,
+        'static_url_path': static_url_path,
+        'img_folder_exists': img_exists,
+        'img_folder_path': img_folder,
+        'img_files': img_files,
+        'registered_rules': [str(rule) for rule in current_app.url_map.iter_rules() if 'static' in str(rule)]
+    }
+    
+    return f"<pre>{debug_info}</pre>"
+
+@quotes_bp.route('/api/check-quote-by-order/<order_id>')
+@login_required
+def check_quote_by_order(order_id):
+    """
+    Sprawdza czy zamówienie z Baselinker ma powiązaną wycenę w systemie
+    """
+    print(f"[check_quote_by_order] Sprawdzanie wyceny dla orderID: {order_id}", file=sys.stderr)
+    
+    try:
+        # Sprawdź czy istnieje wycena z tym base_linker_order_id
+        quote = Quote.query.filter_by(base_linker_order_id=str(order_id)).first()
+        
+        if quote:
+            print(f"[check_quote_by_order] ✅ Znaleziono wycenę ID: {quote.id}, numer: {quote.quote_number}", file=sys.stderr)
+            
+            return jsonify({
+                'hasQuote': True,
+                'quoteId': quote.id,
+                'quoteNumber': quote.quote_number,
+                'quoteToken': quote.public_token,
+                'createdAt': quote.created_at.isoformat() if quote.created_at else None,
+                'status': quote.quote_status.name if quote.quote_status else None
+            })
+        else:
+            print(f"[check_quote_by_order] ❌ Nie znaleziono wyceny dla orderID: {order_id}", file=sys.stderr)
+            
+            return jsonify({
+                'hasQuote': False,
+                'quoteId': None,
+                'quoteNumber': None
+            })
+            
+    except Exception as e:
+        print(f"[check_quote_by_order] Błąd: {str(e)}", file=sys.stderr)
+        return jsonify({
+            'error': 'Błąd podczas sprawdzania wyceny',
+            'hasQuote': False
+        }), 500
+
+@quotes_bp.route("/api/quotes/<int:quote_id>/update-variant", methods=['PATCH'])
+@login_required
+def update_quote_variant(quote_id):
+    """Aktualizuje wybrany wariant dla produktu w wycenie"""
+    try:
+        # Pobierz wycenę
+        quote = Quote.query.get_or_404(quote_id)
+        
+        # Pobierz dane z requestu
+        data = request.get_json()
+        product_index = data.get('product_index')
+        variant_code = data.get('variant_code')
+        quote_item_id = data.get('quote_item_id')
+        
+        # Walidacja danych
+        if not product_index or not variant_code:
+            return jsonify({"error": "Brakuje wymaganych danych (product_index, variant_code)"}), 400
+        
+        try:
+            product_index = int(product_index)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Nieprawidłowa wartość product_index"}), 400
+        
+        print(f"[update_quote_variant] Aktualizacja wariantu dla wyceny {quote_id}, produkt {product_index}, wariant: {variant_code}", file=sys.stderr)
+        
+        # Znajdź docelowy item do ustawienia jako wybrany
+        if quote_item_id:
+            # Jeśli podano konkretny ID, użyj go
+            target_item = QuoteItem.query.filter_by(
+                id=quote_item_id,
+                quote_id=quote_id,
+                product_index=product_index
+            ).first()
+        else:
+            # Jeśli nie podano ID, znajdź po product_index i variant_code
+            target_item = QuoteItem.query.filter_by(
+                quote_id=quote_id,
+                product_index=product_index,
+                variant_code=variant_code
+            ).first()
+        
+        if not target_item:
+            return jsonify({"error": f"Nie znaleziono wariantu {variant_code} dla produktu {product_index}"}), 404
+        
+        # Sprawdź czy item już jest wybrany
+        if target_item.is_selected:
+            print(f"[update_quote_variant] Wariant {variant_code} już jest wybrany dla produktu {product_index}", file=sys.stderr)
+            return jsonify({"message": "Wariant już jest wybrany", "already_selected": True})
+        
+        # Zapisz stary wariant dla logowania
+        old_selected = QuoteItem.query.filter_by(
+            quote_id=quote_id,
+            product_index=product_index,
+            is_selected=True
+        ).first()
+        old_variant_code = old_selected.variant_code if old_selected else "Brak"
+        
+        # Odznacz wszystkie warianty w tej grupie produktów
+        QuoteItem.query.filter_by(
+            quote_id=quote_id,
+            product_index=product_index
+        ).update({QuoteItem.is_selected: False})
+        
+        # Ustaw nowy wariant jako wybrany
+        target_item.is_selected = True
+        
+        # Zapisz zmiany
+        db.session.commit()
+        
+        print(f"[update_quote_variant] Zmieniono wariant z '{old_variant_code}' na '{variant_code}' dla produktu {product_index}", file=sys.stderr)
+        
+        # Zaloguj zmianę
+        current_user_id = session.get('user_id')
+        if current_user_id:
+            log_entry = QuoteLog(
+                quote_id=quote_id,
+                user_id=current_user_id,
+                description=f"Zmieniono wariant produktu {product_index} z '{old_variant_code}' na '{variant_code}'"
+            )
+            db.session.add(log_entry)
+            db.session.commit()
         
         return jsonify({
-            "client_data": client_data,
-            "quote_info": quote_info,
-            "prefill_available": True
+            "message": "Wariant został zmieniony",
+            "product_index": product_index,
+            "old_variant": old_variant_code,
+            "new_variant": variant_code,
+            "item_id": target_item.id
         })
         
     except Exception as e:
-        print(f"[get_client_data_for_modal] BŁĄD: {e}", file=sys.stderr)
+        db.session.rollback()
+        print(f"[update_quote_variant] Błąd: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        return jsonify({"error": "Błąd podczas pobierania danych klienta"}), 500
+        return jsonify({"error": "Błąd podczas zmiany wariantu"}), 500
+
+@quotes_bp.route('/api/multipliers', methods=['GET'])
+def get_multipliers():
+    """Pobiera listę grup cenowych z bazy danych - dostosowane do modelu z calculator"""
+    try:
+        from modules.calculator.models import Multiplier
+        
+        multipliers = Multiplier.query.order_by(Multiplier.id).all()
+        
+        result = []
+        for multiplier in multipliers:
+            result.append({
+                'id': multiplier.id,
+                'client_type': multiplier.client_type,
+                'multiplier': float(multiplier.multiplier)  # Konwersja na float dla JSON
+            })
+        
+        print(f"[get_multipliers] Zwracam {len(result)} grup cenowych", file=sys.stderr)
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"[get_multipliers] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': 'Błąd pobierania grup cenowych'}), 500
+
+@quotes_bp.route('/api/finishing-data', methods=['GET'])
+@login_required
+def get_finishing_data():
+    """Pobiera dane wykończenia - typy i kolory z bazy danych"""
+    try:
+        from modules.calculator.models import FinishingTypePrice, FinishingColor
+        
+        # Pobierz typy wykończenia z cenami
+        finishing_types = FinishingTypePrice.query.filter_by(is_active=True).all()
+        types_data = []
+        for ft in finishing_types:
+            types_data.append({
+                'id': ft.id,
+                'name': ft.name,
+                'price_netto': float(ft.price_netto)
+            })
+        
+        # Pobierz kolory z obrazkami
+        finishing_colors = FinishingColor.query.filter_by(is_available=True).all()
+        colors_data = []
+        for fc in finishing_colors:
+            colors_data.append({
+                'id': fc.id,
+                'name': fc.name,
+                'image_path': fc.image_path,
+                # Pełna ścieżka URL do obrazka
+                'image_url': f"/calculator/static/{fc.image_path}" if fc.image_path else None
+            })
+        
+        print(f"[get_finishing_data] Zwracam {len(types_data)} typów wykończenia i {len(colors_data)} kolorów", file=sys.stderr)
+        
+        return jsonify({
+            'finishing_types': types_data,
+            'finishing_colors': colors_data
+        })
+        
+    except Exception as e:
+        print(f"[get_finishing_data] Błąd: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': 'Błąd pobierania danych wykończenia'}), 500

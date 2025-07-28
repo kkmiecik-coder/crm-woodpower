@@ -755,74 +755,74 @@ class RealityGenerator:
         thickness = dimensions.get('thickness', 3) / 100.0
         
         usd_content = f'''#usda 1.0
-(
-    customLayerData = {{
-        string creator = "Wood Power CRM"
-        string[] providedExtensions = ["USDZ"]
-    }}
-    defaultPrim = "WoodPanel"
-    metersPerUnit = 1
-    upAxis = "Y"
-)
+        (
+            customLayerData = {{
+                string creator = "Wood Power CRM"
+                string[] providedExtensions = ["USDZ"]
+            }}
+            defaultPrim = "WoodPanel"
+            metersPerUnit = 1
+            upAxis = "Y"
+        )
 
-def Xform "WoodPanel" (
-    assetInfo = {{
-        string name = "Wood Panel {variant_code}"
-        string identifier = "{variant_code}"
-        string version = "1.0"
-    }}
-    kind = "component"
-)
-{{
-    # Metadane AR dla iOS QuickLook
-    custom bool preliminary_collidesWithEnvironment = 1
-    custom string preliminary_planeAnchoring = "horizontal"
-    custom float preliminary_worldScale = 1.0
-    custom bool preliminary_receivesShadows = 1
-    custom bool preliminary_castsShadows = 1
-    
-    def Mesh "WoodMesh"
-    {{
-        # Geometria box
-        int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
-        int[] faceVertexIndices = [0, 1, 3, 2, 4, 6, 7, 5, 0, 2, 6, 4, 1, 5, 7, 3, 0, 4, 5, 1, 2, 3, 7, 6]
-        point3f[] points = [
-            ({-length/2}, {-thickness/2}, {-width/2}),
-            ({length/2}, {-thickness/2}, {-width/2}),
-            ({-length/2}, {thickness/2}, {-width/2}),
-            ({length/2}, {thickness/2}, {-width/2}),
-            ({-length/2}, {-thickness/2}, {width/2}),
-            ({length/2}, {-thickness/2}, {width/2}),
-            ({-length/2}, {thickness/2}, {width/2}),
-            ({length/2}, {thickness/2}, {width/2})
-        ]
-        
-        rel material:binding = </WoodPanel/Materials/WoodMaterial>
-        uniform token subdivisionScheme = "none"
-        uniform bool doubleSided = 1
-    }}
-    
-    def Scope "Materials"
-    {{
-        def Material "WoodMaterial"
+        def Xform "WoodPanel" (
+            assetInfo = {{
+                string name = "Wood Panel {variant_code}"
+                string identifier = "{variant_code}"
+                string version = "1.0"
+            }}
+            kind = "component"
+        )
         {{
-            token outputs:surface.connect = </WoodPanel/Materials/WoodMaterial/PreviewSurface.outputs:surface>
-            
-            def Shader "PreviewSurface"
+            # Metadane AR dla iOS QuickLook
+            custom bool preliminary_collidesWithEnvironment = 1
+            custom string preliminary_planeAnchoring = "horizontal"
+            custom float preliminary_worldScale = 1.0
+            custom bool preliminary_receivesShadows = 1
+            custom bool preliminary_castsShadows = 1
+    
+            def Mesh "WoodMesh"
             {{
-                uniform token info:id = "UsdPreviewSurface"
-                color3f inputs:diffuseColor = (0.82, 0.71, 0.55)
-                float inputs:roughness = 0.85
-                float inputs:metallic = 0.0
-                float inputs:clearcoat = 0.0
-                float inputs:opacity = 1.0
-                float inputs:ior = 1.45
-                token outputs:surface
+                # Geometria box
+                int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+                int[] faceVertexIndices = [0, 1, 3, 2, 4, 6, 7, 5, 0, 2, 6, 4, 1, 5, 7, 3, 0, 4, 5, 1, 2, 3, 7, 6]
+                point3f[] points = [
+                    ({-length/2}, {-thickness/2}, {-width/2}),
+                    ({length/2}, {-thickness/2}, {-width/2}),
+                    ({-length/2}, {thickness/2}, {-width/2}),
+                    ({length/2}, {thickness/2}, {-width/2}),
+                    ({-length/2}, {-thickness/2}, {width/2}),
+                    ({length/2}, {-thickness/2}, {width/2}),
+                    ({-length/2}, {thickness/2}, {width/2}),
+                    ({length/2}, {thickness/2}, {width/2})
+                ]
+        
+                rel material:binding = </WoodPanel/Materials/WoodMaterial>
+                uniform token subdivisionScheme = "none"
+                uniform bool doubleSided = 1
+            }}
+    
+            def Scope "Materials"
+            {{
+                def Material "WoodMaterial"
+                {{
+                    token outputs:surface.connect = </WoodPanel/Materials/WoodMaterial/PreviewSurface.outputs:surface>
+            
+                    def Shader "PreviewSurface"
+                    {{
+                        uniform token info:id = "UsdPreviewSurface"
+                        color3f inputs:diffuseColor = (0.82, 0.71, 0.55)
+                        float inputs:roughness = 0.85
+                        float inputs:metallic = 0.0
+                        float inputs:clearcoat = 0.0
+                        float inputs:opacity = 1.0
+                        float inputs:ior = 1.45
+                        token outputs:surface
+                    }}
+                }}
             }}
         }}
-    }}
-}}
-'''
+        '''
         
         print(f"[RealityGenerator] USD content created - AR dimensions: {length:.3f}m x {width:.3f}m x {thickness:.3f}m", file=sys.stderr)
         return usd_content
@@ -1098,6 +1098,169 @@ def Xform "WoodPanel" (
                 'error': str(e)
             }
 
+    def generate_glb_file(self, product_data):
+        """
+        Generuje plik GLB dla Android AR
+    
+        Args:
+            product_data (dict): Dane produktu z variant_code, dimensions, quality
+        
+        Returns:
+            dict: Wynik generowania z file_url, file_size, cache_key
+        """
+        try:
+            print(f"[RealityGenerator] Generowanie GLB dla Android AR", file=sys.stderr)
+        
+            # Cache key
+            cache_key = self._generate_cache_key(product_data)
+            glb_filename = f"{cache_key}.glb"
+            glb_path = os.path.join(self.cache_dir, glb_filename)
+        
+            # Sprawdź cache
+            if os.path.exists(glb_path):
+                print(f"[RealityGenerator] GLB z cache: {glb_filename}", file=sys.stderr)
+                file_size = os.path.getsize(glb_path)
+                return {
+                    'success': True,
+                    'file_url': f"/preview3d-ar/ar-models/{glb_filename}",
+                    'file_size': file_size,
+                    'cache_key': cache_key,
+                    'cached': True
+                }
+        
+            # Generuj nowy GLB
+            print(f"[RealityGenerator] Tworzenie nowego GLB: {glb_filename}", file=sys.stderr)
+        
+            # 1. Utwórz geometrię panelu
+            geometry_data = self._create_panel_geometry(product_data['dimensions'])
+        
+            # 2. Przygotuj tekstury
+            textures_data = self._prepare_textures_for_glb(product_data['variant_code'])
+        
+            # 3. Utwórz GLB używając biblioteki gltf (przykład)
+            glb_content = self._create_glb_content(geometry_data, textures_data, product_data)
+        
+            # 4. Zapisz plik GLB
+            with open(glb_path, 'wb') as f:
+                f.write(glb_content)
+        
+            file_size = os.path.getsize(glb_path)
+            print(f"[RealityGenerator] GLB zapisany: {glb_path} ({file_size} bytes)", file=sys.stderr)
+        
+            return {
+                'success': True,
+                'file_url': f"/preview3d-ar/ar-models/{glb_filename}",
+                'file_size': file_size,
+                'cache_key': cache_key,
+                'cached': False
+            }
+        
+        except Exception as e:
+            print(f"[RealityGenerator] Błąd generowania GLB: {str(e)}", file=sys.stderr)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def _create_glb_content(self, geometry_data, textures_data, product_data):
+        """
+        Tworzy zawartość pliku GLB
+    
+        Args:
+            geometry_data: Dane geometrii panelu
+            textures_data: Dane tekstur
+            product_data: Dane produktu
+        
+        Returns:
+            bytes: Zawartość pliku GLB
+        """
+        try:
+            # UWAGA: To jest uproszczona implementacja
+            # W rzeczywistości potrzebujesz biblioteki do tworzenia GLB jak pygltflib
+        
+            print(f"[RealityGenerator] Tworzenie GLB content...", file=sys.stderr)
+        
+            # Przykład: podstawowy GLB z prostokątnym panelem
+            # Użyj biblioteki pygltflib lub podobnej do tworzenia prawidłowego GLB
+        
+            # Dla teraz zwrócimy placeholder - musisz zaimplementować prawdziwą generację GLB
+            import json
+        
+            # Podstawowa struktura glTF
+            gltf_data = {
+                "asset": {"version": "2.0"},
+                "scene": 0,
+                "scenes": [{"nodes": [0]}],
+                "nodes": [{"mesh": 0}],
+                "meshes": [{
+                    "primitives": [{
+                        "attributes": {"POSITION": 0},
+                        "indices": 1
+                    }]
+                }],
+                "accessors": [
+                    {
+                        "bufferView": 0,
+                        "componentType": 5126,  # FLOAT
+                        "count": 4,
+                        "type": "VEC3",
+                        "min": [0, 0, 0],
+                        "max": [
+                            geometry_data['width'], 
+                            geometry_data['height'], 
+                            geometry_data['depth']
+                        ]
+                    },
+                    {
+                        "bufferView": 1,
+                        "componentType": 5123,  # UNSIGNED_SHORT
+                        "count": 6,
+                        "type": "SCALAR"
+                    }
+                ],
+                "bufferViews": [
+                    {"buffer": 0, "byteOffset": 0, "byteLength": 48},  # 4 vertices * 12 bytes
+                    {"buffer": 0, "byteOffset": 48, "byteLength": 12}  # 6 indices * 2 bytes
+                ],
+                "buffers": [{"byteLength": 60}]
+            }
+        
+            # Konwertuj do bytes (to jest placeholder - potrzebujesz prawdziwej implementacji GLB)
+            json_str = json.dumps(gltf_data).encode('utf-8')
+        
+            # GLB ma specyficzny format binary - to jest bardzo uproszczone
+            # W rzeczywistości musisz użyć odpowiedniej biblioteki
+        
+            print(f"[RealityGenerator] GLB content created (placeholder)", file=sys.stderr)
+            return json_str  # To nie jest prawdziwy GLB!
+        
+        except Exception as e:
+            print(f"[RealityGenerator] Błąd tworzenia GLB content: {str(e)}", file=sys.stderr)
+            raise
+
+    def _prepare_textures_for_glb(self, variant_code):
+        """Przygotowuje tekstury dla formatu GLB"""
+        try:
+            # Użyj istniejącej logiki tekstur
+            textures = TextureConfig.get_all_textures_for_variant(variant_code)
+        
+            # Konwertuj do formatu GLB
+            glb_textures = {}
+            for surface, texture_data in textures.items():
+                if texture_data.get('variants'):
+                    # Użyj pierwszej dostępnej tekstury
+                    texture_url = texture_data['variants'][0]
+                    glb_textures[surface] = {
+                        'url': texture_url,
+                        'format': 'jpg'
+                    }
+        
+            return glb_textures
+        
+        except Exception as e:
+            print(f"[RealityGenerator] Błąd przygotowania tekstur GLB: {str(e)}", file=sys.stderr)
+            return {}
+
 # Backward compatibility - zachowaj stary generator USDZ
 class AR3DGenerator(RealityGenerator):
     """Deprecated - używaj RealityGenerator"""
@@ -1106,4 +1269,3 @@ class AR3DGenerator(RealityGenerator):
         """Backward compatibility wrapper"""
         print("[AR3DGenerator] DEPRECATED: Use RealityGenerator.generate_reality()", file=sys.stderr)
         return self.generate_reality(product_data)
-

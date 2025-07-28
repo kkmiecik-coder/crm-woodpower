@@ -1,277 +1,402 @@
-// modules/reports/static/js/sync_manager.js
+// app/modules/reports/static/js/sync_manager.js
 /**
- * Manager synchronizacji z Baselinker
- * Odpowiedzialny za sprawdzanie nowych zamówień i synchronizację
+ * KOMPLETNIE NOWY SyncManager - System synchronizacji z obsługą problemów wymiarów
+ * Obsługuje dwuetapowy proces: wybór dni -> wybór zamówień -> opcjonalne uzupełnienie wymiarów -> zapis
  */
 
 class SyncManager {
     constructor() {
-        this.syncModal = null;
-        this.syncModalContent = null;
-        this.syncLoadingOverlay = null;
-        this.syncLoadingText = null;
-        this.isSync = false;
-        this.newOrders = [];
-        this.selectedOrders = [];
+        console.log('[SyncManager] 🚀 Inicjalizacja nowego SyncManager z obsługą wymiarów');
+        
+        // === ELEMENTY DOM - KROK 1 (wybór dni) ===
+        this.daysModal = null;
+        this.daysSelect = null;
+        this.datePreview = null;
+        this.dateFromPreview = null;
+        this.dateToPreview = null;
+        this.daysConfirmBtn = null;
+        this.daysCancelBtn = null;
+        this.daysCloseBtn = null;
 
-        // POPRAWKA: Dodano elementy przycisków
-        this.syncModalCancel = null;
-        this.syncModalConfirm = null;
+        // === ELEMENTY DOM - KROK 2 (lista zamówień) ===
+        this.ordersModal = null;
+        this.ordersLoadingState = null;
+        this.ordersListContainer = null;
+        this.ordersList = null;
+        this.ordersEmptyState = null;
+        this.ordersErrorState = null;
+        this.ordersCount = null;
+        this.selectAllBtn = null;
+        this.deselectAllBtn = null;
+        this.ordersBackBtn = null;
+        this.ordersCancelBtn = null;
+        this.ordersSaveBtn = null;
+        this.ordersCloseBtn = null;
 
-        console.log('[SyncManager] Initialized');
+        // === ELEMENTY DOM - Loading overlay ===
+        this.globalLoading = null;
+        this.globalLoadingTitle = null;
+        this.globalLoadingText = null;
+
+        // === Template ===
+        this.orderTemplate = null;
+
+        // === STAN APLIKACJI ===
+        this.selectedDays = null;
+        this.dateFrom = null;
+        this.dateTo = null;
+        this.fetchedOrders = [];
+        this.selectedOrderIds = new Set();
+        this.isProcessing = false;
+        this.ordersWithDimensionIssues = new Map(); // NOWE: Mapa zamówień z problemami wymiarów
+
+        console.log('[SyncManager] ✅ Konstruktor zakończony');
     }
 
-    /**
-     * Inicjalizacja managera
-     */
+    // =====================================================
+    // INICJALIZACJA
+    // =====================================================
+
     init() {
-        console.log('[SyncManager] Starting initialization...');
+        console.log('[SyncManager] 🔧 Rozpoczęcie inicjalizacji...');
 
-        this.cacheElements();
-        this.setupEventListeners();
-
-        console.log('[SyncManager] Initialization complete');
+        try {
+            this.cacheElements();
+            this.setupEventListeners();
+            console.log('[SyncManager] ✅ Inicjalizacja zakończona pomyślnie');
+        } catch (error) {
+            console.error('[SyncManager] ❌ Błąd podczas inicjalizacji:', error);
+        }
     }
 
-    /**
-     * Cache elementów DOM
-     */
     cacheElements() {
-        this.syncModal = document.getElementById('syncModal');
-        this.syncModalContent = document.getElementById('syncModalContent');
-        this.syncLoadingOverlay = document.getElementById('syncLoadingOverlay');
-        this.syncLoadingText = document.getElementById('syncLoadingText');
+        console.log('[SyncManager] 📋 Cachowanie elementów DOM...');
 
-        // Przyciski modala
-        this.syncModalCancel = document.getElementById('syncModalCancel');
-        this.syncModalConfirm = document.getElementById('syncModalConfirm');
+        // KROK 1 - Modal wyboru dni
+        this.daysModal = document.getElementById('syncDaysModal');
+        this.daysSelect = document.getElementById('daysSelect');
+        this.datePreview = document.getElementById('datePreview');
+        this.dateFromPreview = document.getElementById('dateFromPreview');
+        this.dateToPreview = document.getElementById('dateToPreview');
+        this.daysConfirmBtn = document.getElementById('syncDaysConfirm');
+        this.daysCancelBtn = document.getElementById('syncDaysCancel');
+        this.daysCloseBtn = document.getElementById('syncDaysModalClose');
 
-        console.log('[SyncManager] Elements cached');
+        // KROK 2 - Modal z zamówieniami
+        this.ordersModal = document.getElementById('syncOrdersModal');
+        this.ordersLoadingState = document.getElementById('ordersLoadingState');
+        this.ordersListContainer = document.getElementById('ordersListContainer');
+        this.ordersList = document.getElementById('ordersList');
+        this.ordersEmptyState = document.getElementById('ordersEmptyState');
+        this.ordersErrorState = document.getElementById('ordersErrorState');
+        this.ordersCount = document.getElementById('ordersCount');
+        this.selectAllBtn = document.getElementById('selectAllOrders');
+        this.deselectAllBtn = document.getElementById('deselectAllOrders');
+        this.ordersBackBtn = document.getElementById('syncOrdersBack');
+        this.ordersCancelBtn = document.getElementById('syncOrdersCancel');
+        this.ordersSaveBtn = document.getElementById('syncOrdersSave');
+        this.ordersCloseBtn = document.getElementById('syncOrdersModalClose');
+
+        // Global loading
+        this.globalLoading = document.getElementById('syncGlobalLoading');
+        this.globalLoadingTitle = document.getElementById('syncGlobalLoadingTitle');
+        this.globalLoadingText = document.getElementById('syncGlobalLoadingText');
+
+        // Template
+        this.orderTemplate = document.getElementById('orderItemTemplate');
+
+        // Walidacja kluczowych elementów
+        const requiredElements = [
+            'daysModal', 'daysSelect', 'daysConfirmBtn',
+            'ordersModal', 'ordersList', 'ordersSaveBtn'
+        ];
+
+        const missingElements = requiredElements.filter(elementName => !this[elementName]);
+        
+        if (missingElements.length > 0) {
+            throw new Error(`Brakuje elementów DOM: ${missingElements.join(', ')}`);
+        }
+
+        console.log('[SyncManager] ✅ Wszystkie elementy DOM zostały znalezione');
     }
 
-    /**
-     * Ustawienie event listenerów
-     */
     setupEventListeners() {
-        // Zamknięcie modala
-        if (this.syncModal) {
-            const closeBtn = this.syncModal.querySelector('.close');
-            if (closeBtn) {
-                closeBtn.addEventListener('click', () => this.hideSyncModal());
-            }
+        console.log('[SyncManager] 🔗 Ustawianie event listenerów...');
 
-            // Kliknięcie poza modalem
-            this.syncModal.addEventListener('click', (e) => {
-                if (e.target === this.syncModal) {
-                    this.hideSyncModal();
-                }
-            });
-        }
+        // === KROK 1: Wybór dni ===
+        this.daysSelect.addEventListener('change', (e) => {
+            console.log('[SyncManager] 📅 Zmiana wyboru dni:', e.target.value);
+            this.handleDaysChange(e.target.value);
+        });
 
-        // Przycisk anuluj
-        if (this.syncModalCancel) {
-            this.syncModalCancel.addEventListener('click', () => {
-                this.hideSyncModal();
-            });
-        }
+        this.daysConfirmBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ✅ Potwierdzenie wyboru dni');
+            this.handleDaysConfirm();
+        });
 
-        // Przycisk synchronizuj
-        if (this.syncModalConfirm) {
-            this.syncModalConfirm.addEventListener('click', () => {
-                this.performSync();
-            });
-        }
+        this.daysCancelBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ❌ Anulowanie wyboru dni');
+            this.hideDaysModal();
+        });
 
-        // POPRAWKA: Dodano obsługę klawisza Escape
+        this.daysCloseBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ❌ Zamykanie modala dni (X)');
+            this.hideDaysModal();
+        });
+
+        // === KROK 2: Lista zamówień ===
+        this.selectAllBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ☑️ Zaznaczanie wszystkich zamówień');
+            this.selectAllOrders();
+        });
+
+        this.deselectAllBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ☐ Odznaczanie wszystkich zamówień');
+            this.deselectAllOrders();
+        });
+
+        this.ordersBackBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ⬅️ Powrót do wyboru dni');
+            this.hideOrdersModal();
+            this.showDaysModal();
+        });
+
+        this.ordersCancelBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ❌ Anulowanie wyboru zamówień');
+            this.hideOrdersModal();
+        });
+
+        this.ordersCloseBtn.addEventListener('click', () => {
+            console.log('[SyncManager] ❌ Zamykanie modala zamówień (X)');
+            this.hideOrdersModal();
+        });
+
+        this.ordersSaveBtn.addEventListener('click', () => {
+            console.log('[SyncManager] 💾 Zapisywanie wybranych zamówień');
+            this.handleOrdersSave();
+        });
+
+        // === Globalne event listenery ===
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.syncModal && this.syncModal.style.display === 'block') {
-                this.hideSyncModal();
+            if (e.key === 'Escape') {
+                if (this.ordersModal && this.ordersModal.classList.contains('show')) {
+                    console.log('[SyncManager] ⌨️ Escape - zamykanie modala zamówień');
+                    this.hideOrdersModal();
+                } else if (this.daysModal && this.daysModal.classList.contains('show')) {
+                    console.log('[SyncManager] ⌨️ Escape - zamykanie modala dni');
+                    this.hideDaysModal();
+                }
             }
         });
 
-        console.log('[SyncManager] Event listeners setup complete');
-    }
-
-    /**
-     * Pokazanie modala synchronizacji
-     */
-    async showSyncModal() {
-        console.log('[SyncManager] Showing sync modal...');
-
-        if (!this.syncModal) {
-            console.error('[SyncManager] Sync modal not found');
-            this.showError('Modal synchronizacji nie został znaleziony');
-            return;
-        }
-
-        // POPRAWKA: Sprawdź czy już trwa synchronizacja
-        if (this.isSync) {
-            console.log('[SyncManager] Sync already in progress');
-            this.showError('Synchronizacja już trwa');
-            return;
-        }
-
-        // Pokaż loading
-        this.showSyncLoading('Sprawdzanie nowych zamówień...');
-
-        try {
-            // Sprawdź nowe zamówienia
-            await this.checkNewOrders();
-
-            // Ukryj loading
-            this.hideSyncLoading();
-
-            // Pokaż modal
-            this.syncModal.classList.add('show');
-            this.syncModal.style.display = 'block';
-
-        } catch (error) {
-            this.hideSyncLoading();
-            console.error('[SyncManager] Error showing sync modal:', error);
-            this.showError('Błąd sprawdzania nowych zamówień: ' + error.message);
-        }
-    }
-
-    /**
-     * Ukrycie modala synchronizacji
-     */
-    hideSyncModal() {
-        console.log('[SyncManager] Hiding sync modal');
-
-        if (this.syncModal) {
-            this.syncModal.classList.remove('show');
-            this.syncModal.style.display = 'none';
-        }
-
-        // Reset danych po ukryciu modala
-        this.newOrders = [];
-        this.selectedOrders = [];
-        this.isSync = false; // POPRAWKA: Reset flagi synchronizacji
-    }
-
-    /**
-     * Sprawdzenie nowych zamówień
-     */
-    async checkNewOrders() {
-        console.log('[SyncManager] Checking for new orders...');
-
-        try {
-            // ZMIANA: Nie używaj żadnych filtrów dat - sprawdź wszystkie zamówienia
-            console.log('[SyncManager] Sprawdzanie wszystkich nowych zamówień (bez filtrów dat)');
-
-            // Wywołaj API bez żadnych parametrów dat
-            const url = '/reports/api/check-new-orders';
-            console.log('[SyncManager] Checking new orders URL:', url);
-
-            const response = await fetch(url);
-
-            // POPRAWKA: Sprawdź status HTTP
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Zamykanie przez kliknięcie w overlay
+        this.daysModal.addEventListener('click', (e) => {
+            if (e.target === this.daysModal || e.target.classList.contains('sync-modal-overlay')) {
+                console.log('[SyncManager] 🖱️ Kliknięcie w overlay - zamykanie modala dni');
+                this.hideDaysModal();
             }
+        });
 
-            const result = await response.json();
-
-            if (!result.success) {
-                throw new Error(result.error || 'Błąd sprawdzania zamówień');
+        this.ordersModal.addEventListener('click', (e) => {
+            if (e.target === this.ordersModal || e.target.classList.contains('sync-modal-overlay')) {
+                console.log('[SyncManager] 🖱️ Kliknięcie w overlay - zamykanie modala zamówień');
+                this.hideOrdersModal();
             }
+        });
 
-            this.newOrders = result.new_orders || [];
-            this.selectedOrders = this.newOrders.map(order => order.order_id); // Domyślnie wszystkie zaznaczone
-
-            console.log('[SyncManager] Found new orders:', this.newOrders.length);
-            console.log('[SyncManager] Sprawdzono wszystkie zamówienia w Baselinker (bez ograniczeń dat)');
-
-            // Aktualizuj zawartość modala
-            this.updateModalContent(result);
-
-            return result;
-
-        } catch (error) {
-            console.error('[SyncManager] Error checking new orders:', error);
-            throw error;
-        }
+        console.log('[SyncManager] ✅ Event listenery ustawione');
     }
 
-    /**
-     * Pobieranie bieżącego zakresu dat
-     */
-    getCurrentDateRange() {
-        // ZMIANA: SyncManager zawsze sprawdza wszystkie zamówienia
-        // Ignoruje filtry dat ustawione przez użytkownika w interfejsie
-        console.log('[SyncManager] SyncManager ignoruje filtry dat - sprawdza wszystkie zamówienia');
+    // =====================================================
+    // PUBLICZNE API
+    // =====================================================
 
-        return {
-            date_from: null,
-            date_to: null
-        };
-    }
-
-    /**
-     * Aktualizacja zawartości modala
-     */
-    updateModalContent(result) {
-        if (!this.syncModalContent) return;
-
-        if (!result.has_new_orders) {
-            // Brak nowych zamówień
-            this.syncModalContent.innerHTML = this.renderNoNewOrders();
-            this.updateModalButtons(false);
-
-            // NOWE: Dodaj obsługę przycisku "Odśwież wszystkie zamówienia"
-            this.setupRefreshAllButton();
-        } else {
-            // Mamy nowe zamówienia
-            this.syncModalContent.innerHTML = this.renderNewOrdersList(result);
-            this.updateModalButtons(true);
-            this.setupOrderSelection();
-        }
-    }
-
-    /**
-     * NOWA METODA: Konfiguracja przycisku odświeżania wszystkich zamówień
-     */
-    setupRefreshAllButton() {
-        const refreshBtn = document.getElementById('syncAllOrdersBtn');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
-                this.performRefreshAllOrders();
-            });
-            console.log('[SyncManager] Setup refresh all orders button');
-        }
-    }
-
-    /**
-     * NOWA METODA: Wykonanie odświeżenia wszystkich zamówień
-     */
-    async performRefreshAllOrders() {
-        console.log('[SyncManager] Performing refresh all orders...');
-
-        // POPRAWKA: Sprawdź czy już trwa synchronizacja
-        if (this.isSync) {
-            console.log('[SyncManager] Sync already in progress');
-            this.showError('Synchronizacja już trwa');
+    showSyncModal() {
+        console.log('[SyncManager] 🎯 Rozpoczęcie procesu synchronizacji');
+        
+        if (this.isProcessing) {
+            console.warn('[SyncManager] ⚠️ Proces już trwa - ignorowanie');
             return;
         }
 
-        // Ustaw flagę synchronizacji
-        this.isSync = true;
+        this.resetState();
+        this.showDaysModal();
+    }
 
-        // Ukryj modal
-        this.hideSyncModal();
+    // =====================================================
+    // KROK 1: WYBÓR ILOŚCI DNI
+    // =====================================================
 
-        // Pokaż loading overlay
-        this.showSyncLoading('Odświeżanie wszystkich zamówień...');
+    showDaysModal() {
+        console.log('[SyncManager] 📅 Pokazywanie modala wyboru dni');
+        
+        this.daysModal.style.display = 'flex';
+        setTimeout(() => {
+            this.daysModal.classList.add('show');
+        }, 10);
+    }
+
+    hideDaysModal() {
+        console.log('[SyncManager] 📅 Ukrywanie modala wyboru dni');
+        
+        this.daysModal.classList.remove('show');
+        setTimeout(() => {
+            this.daysModal.style.display = 'none';
+        }, 300);
+    }
+
+    handleDaysChange(selectedDays) {
+        console.log('[SyncManager] 📊 Przetwarzanie zmiany dni:', selectedDays);
+
+        if (!selectedDays || selectedDays === '') {
+            console.log('[SyncManager] ❌ Brak wyboru - ukrywanie preview');
+            this.hideDatePreview();
+            this.daysConfirmBtn.disabled = true;
+            return;
+        }
+
+        this.selectedDays = parseInt(selectedDays);
+        this.calculateDateRange();
+        this.showDatePreview();
+        this.daysConfirmBtn.disabled = false;
+
+        console.log('[SyncManager] ✅ Wybór dni zaktualizowany:', {
+            selectedDays: this.selectedDays,
+            dateFrom: this.dateFrom,
+            dateTo: this.dateTo
+        });
+    }
+
+    calculateDateRange() {
+        const today = new Date();
+        this.dateTo = this.formatDate(today);
+        
+        const fromDate = new Date(today);
+        fromDate.setDate(today.getDate() - this.selectedDays + 1);
+        this.dateFrom = this.formatDate(fromDate);
+
+        console.log('[SyncManager] 📊 Obliczony zakres dat:', {
+            from: this.dateFrom,
+            to: this.dateTo,
+            days: this.selectedDays
+        });
+    }
+
+    showDatePreview() {
+        if (this.dateFromPreview && this.dateToPreview && this.datePreview) {
+            this.dateFromPreview.textContent = this.dateFrom;
+            this.dateToPreview.textContent = this.dateTo;
+            this.datePreview.style.display = 'block';
+            
+            console.log('[SyncManager] 👁️ Preview dat wyświetlony');
+        }
+    }
+
+    hideDatePreview() {
+        if (this.datePreview) {
+            this.datePreview.style.display = 'none';
+            console.log('[SyncManager] 👁️ Preview dat ukryty');
+        }
+    }
+
+    async handleDaysConfirm() {
+        console.log('[SyncManager] ✅ Potwierdzenie wyboru dni - przechodzę do pobierania zamówień');
+
+        if (!this.selectedDays || !this.dateFrom || !this.dateTo) {
+            console.error('[SyncManager] ❌ Brak wymaganych danych do pobrania zamówień');
+            this.showError('Błąd: Nie wybrano prawidłowego zakresu dat');
+            return;
+        }
+
+        this.hideDaysModal();
+        this.showOrdersModal();
+        await this.fetchOrders();
+    }
+
+    // =====================================================
+    // KROK 2: LISTA ZAMÓWIEŃ
+    // =====================================================
+
+    showOrdersModal() {
+        console.log('[SyncManager] 📦 Pokazywanie modala zamówień');
+        
+        this.ordersModal.style.display = 'flex';
+        setTimeout(() => {
+            this.ordersModal.classList.add('show');
+        }, 10);
+        
+        this.showOrdersLoading();
+    }
+
+    hideOrdersModal() {
+        console.log('[SyncManager] 📦 Ukrywanie modala zamówień');
+        
+        this.ordersModal.classList.remove('show');
+        setTimeout(() => {
+            this.ordersModal.style.display = 'none';
+        }, 300);
+    }
+
+    showOrdersLoading() {
+        console.log('[SyncManager] ⏳ Pokazywanie loading state');
+        
+        this.ordersLoadingState.style.display = 'block';
+        this.ordersListContainer.style.display = 'none';
+        this.ordersEmptyState.style.display = 'none';
+        this.ordersErrorState.style.display = 'none';
+    }
+
+    showOrdersList() {
+        console.log('[SyncManager] 📋 Pokazywanie listy zamówień');
+        
+        this.ordersLoadingState.style.display = 'none';
+        this.ordersListContainer.style.display = 'block';
+        this.ordersEmptyState.style.display = 'none';
+        this.ordersErrorState.style.display = 'none';
+    }
+
+    showOrdersEmpty() {
+        console.log('[SyncManager] 📭 Pokazywanie pustego stanu');
+        
+        this.ordersLoadingState.style.display = 'none';
+        this.ordersListContainer.style.display = 'none';
+        this.ordersEmptyState.style.display = 'block';
+        this.ordersErrorState.style.display = 'none';
+    }
+
+    showOrdersError(message) {
+        console.log('[SyncManager] ❌ Pokazywanie stanu błędu:', message);
+        
+        this.ordersLoadingState.style.display = 'none';
+        this.ordersListContainer.style.display = 'none';
+        this.ordersEmptyState.style.display = 'none';
+        this.ordersErrorState.style.display = 'block';
+        
+        const errorMessageEl = document.getElementById('errorMessage');
+        if (errorMessageEl) {
+            errorMessageEl.textContent = message;
+        }
+    }
+
+    async fetchOrders() {
+        console.log('[SyncManager] 🌐 Rozpoczęcie pobierania zamówień z API');
+        console.log('[SyncManager] 📊 Parametry zapytania:', {
+            dateFrom: this.dateFrom,
+            dateTo: this.dateTo,
+            selectedDays: this.selectedDays
+        });
 
         try {
-            // Wyślij zapytanie bez selected_orders (synchronizuj wszystkie)
             const requestData = {
-                selected_orders: [] // Puste - oznacza wszystkie zamówienia
+                date_from: this.dateFrom,
+                date_to: this.dateTo,
+                days_count: this.selectedDays,
+                get_all_statuses: true
             };
 
-            console.log('[SyncManager] Sending refresh all request');
+            console.log('[SyncManager] 📤 Wysyłanie zapytania:', requestData);
 
-            const response = await fetch('/reports/api/sync', {
+            const response = await fetch('/reports/api/fetch-orders-for-selection', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -279,556 +404,432 @@ class SyncManager {
                 body: JSON.stringify(requestData)
             });
 
-            console.log('[SyncManager] Refresh response status:', response.status);
+            console.log('[SyncManager] 📥 Odpowiedź z serwera - status:', response.status);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const result = await response.json();
+            console.log('[SyncManager] 📊 Dane z serwera:', result);
 
             if (result.success) {
-                this.showSyncLoading(`
-                <div style="text-align: center;">
-                    <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
-                    <h4>Odświeżenie zakończone!</h4>
-                    <p>Wszystkie zamówienia zostały zsynchronizowane</p>
-                    <p>Przetworzono: ${result.orders_processed || 0} zamówień</p>
-                    <p>Dodano: ${result.orders_added || 0} nowych rekordów</p>
-                    <p>Zaktualizowano: ${result.orders_updated || 0} zamówień</p>
-                </div>
-            `);
-
-                setTimeout(() => {
-                    this.hideSyncLoading();
-                    if (window.reportsManager) {
-                        window.reportsManager.refreshData();
-                    }
-                }, 3000);
-
-            } else {
-                throw new Error(result.error || 'Błąd odświeżania');
-            }
-
-        } catch (error) {
-            console.error('[SyncManager] Refresh all error:', error);
-            this.hideSyncLoading();
-            this.showError('Błąd odświeżania zamówień: ' + error.message);
-        } finally {
-            // POPRAWKA: Zawsze resetuj flagę synchronizacji
-            this.isSync = false;
-        }
-    }
-
-    /**
-     * Renderowanie komunikatu o braku nowych zamówień
-     */
-    renderNoNewOrders() {
-        return `
-        <div class="no-new-orders">
-            <i class="fas fa-check-circle"></i>
-            <h4>Brak nowych zamówień</h4>
-            <p>Wszystkie zamówienia są już zsynchronizowane lub nie ma nowych zamówień w Baselinker.</p>
-            <div class="sync-options" style="margin-top: 1rem;">
-                <button id="syncAllOrdersBtn" class="btn btn-primary">
-                    <i class="fas fa-sync-alt"></i>
-                    Odśwież wszystkie zamówienia
-                </button>
-            </div>
-        </div>
-    `;
-    }
-
-    /**
-     * Renderowanie listy nowych zamówień
-     */
-    renderNewOrdersList(result) {
-        const { new_orders, total_orders, existing_orders } = result;
-
-        let html = `
-            <div class="sync-summary">
-                <h4>Znaleziono nowe zamówienia</h4>
-                <p>
-                    <strong>Łącznie zamówień:</strong> ${total_orders} | 
-                    <strong>Już zsynchronizowane:</strong> ${existing_orders} | 
-                    <strong>Nowe:</strong> ${new_orders.length}
-                </p>
-            </div>
-            
-            <div class="sync-orders-controls">
-                <label>
-                    <input type="checkbox" id="selectAllOrders" checked>
-                    Zaznacz wszystkie
-                </label>
-            </div>
-            
-            <div class="sync-orders-list">
-        `;
-
-        new_orders.forEach(order => {
-            html += this.renderOrderItem(order);
-        });
-
-        html += '</div>';
-
-        return html;
-    }
-
-    /**
-     * Renderowanie pojedynczego zamówienia - POPRAWKA: Bezpieczniejsze renderowanie
-     */
-    renderOrderItem(order) {
-        const totalNetFormatted = this.formatCurrency(order.total_net);
-        const totalGrossFormatted = this.formatCurrency(order.total_gross);
-        const deliveryFormatted = this.formatCurrency(order.delivery_price);
-
-        // POPRAWKA: Bezpieczne renderowanie produktów
-        const products = order.products || [];
-        const productsDisplay = products.length > 0 ? products.slice(0, 3).join(', ') : 'Brak produktów';
-        const moreProductsIndicator = products.length > 3 ? '...' : '';
-
-        return `
-            <div class="sync-order-item">
-                <div class="sync-order-checkbox">
-                    <input type="checkbox" 
-                           class="order-checkbox" 
-                           data-order-id="${order.order_id}" 
-                           checked>
-                </div>
+                this.fetchedOrders = result.orders || [];
+                console.log('[SyncManager] ✅ Pobrano zamówienia:', this.fetchedOrders.length);
                 
-                <div class="sync-order-details">
-                    <div class="sync-order-title">
-                        Zamówienie #${order.order_id}
-                        ${order.internal_number ? `(${order.internal_number})` : ''}
-                    </div>
-                    
-                    <div class="sync-order-meta">
-                        <i class="fas fa-calendar"></i> ${order.date_add || 'Brak daty'} |
-                        <i class="fas fa-user"></i> ${order.customer_name || 'Nieznany klient'} |
-                        <i class="fas fa-box"></i> ${products.length} produktów
-                    </div>
-                    
-                    <div class="sync-order-products">
-                        <strong>Produkty:</strong> ${productsDisplay}${moreProductsIndicator}
-                    </div>
-                </div>
-                
-                <div class="sync-order-summary">
-                    <div class="sync-order-amount">
-                        ${totalGrossFormatted} brutto
-                    </div>
-                    <div class="sync-order-amount text-muted">
-                        ${totalNetFormatted} netto
-                    </div>
-                    ${(order.delivery_price && order.delivery_price > 0) ? `
-                        <div class="sync-order-delivery">
-                            + ${deliveryFormatted} dostawa
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-    }
-
-    /**
-     * Ustawienie obsługi zaznaczania zamówień
-     */
-    setupOrderSelection() {
-        // Checkbox "Zaznacz wszystkie"
-        const selectAllCheckbox = document.getElementById('selectAllOrders');
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', (e) => {
-                this.toggleAllOrders(e.target.checked);
-            });
-        }
-
-        // Checkboxy poszczególnych zamówień
-        const orderCheckboxes = document.querySelectorAll('.order-checkbox');
-        orderCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', (e) => {
-                this.toggleOrder(parseInt(e.target.dataset.orderId), e.target.checked);
-                this.updateSelectAllState();
-            });
-        });
-
-        console.log('[SyncManager] Order selection setup complete');
-    }
-
-    /**
-     * Zaznaczenie/odznaczenie wszystkich zamówień
-     */
-    toggleAllOrders(checked) {
-        console.log('[SyncManager] Toggle all orders:', checked);
-
-        const orderCheckboxes = document.querySelectorAll('.order-checkbox');
-        orderCheckboxes.forEach(checkbox => {
-            checkbox.checked = checked;
-            this.toggleOrder(parseInt(checkbox.dataset.orderId), checked);
-        });
-
-        this.updateConfirmButton();
-    }
-
-    /**
-     * Zaznaczenie/odznaczenie pojedynczego zamówienia
-     */
-    toggleOrder(orderId, checked) {
-        console.log('[SyncManager] toggleOrder called:', { orderId, checked, currentSelected: this.selectedOrders });
-
-        if (checked) {
-            if (!this.selectedOrders.includes(orderId)) {
-                this.selectedOrders.push(orderId);
-            }
-        } else {
-            const index = this.selectedOrders.indexOf(orderId);
-            if (index > -1) {
-                this.selectedOrders.splice(index, 1);
-            }
-        }
-
-        console.log('[SyncManager] Selected orders after toggle:', this.selectedOrders);
-        this.updateConfirmButton();
-    }
-
-    /**
-     * Aktualizacja stanu checkbox "Zaznacz wszystkie"
-     */
-    updateSelectAllState() {
-        const selectAllCheckbox = document.getElementById('selectAllOrders');
-        if (!selectAllCheckbox) return;
-
-        const orderCheckboxes = document.querySelectorAll('.order-checkbox');
-        const checkedCount = document.querySelectorAll('.order-checkbox:checked').length;
-
-        if (checkedCount === 0) {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = false;
-        } else if (checkedCount === orderCheckboxes.length) {
-            selectAllCheckbox.checked = true;
-            selectAllCheckbox.indeterminate = false;
-        } else {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = true;
-        }
-    }
-
-    /**
-     * Aktualizacja przycisków modala
-     */
-    updateModalButtons(hasNewOrders) {
-        if (this.syncModalConfirm) {
-            this.syncModalConfirm.style.display = hasNewOrders ? 'block' : 'none';
-        }
-
-        if (this.syncModalCancel) {
-            this.syncModalCancel.textContent = hasNewOrders ? 'Anuluj' : 'OK';
-        }
-
-        this.updateConfirmButton();
-    }
-
-    /**
-     * Aktualizacja przycisku potwierdzenia
-     */
-    updateConfirmButton() {
-        if (!this.syncModalConfirm) return;
-
-        const selectedCount = this.selectedOrders.length;
-
-        if (selectedCount === 0) {
-            this.syncModalConfirm.disabled = true;
-            this.syncModalConfirm.textContent = 'Synchronizuj';
-        } else {
-            this.syncModalConfirm.disabled = false;
-            this.syncModalConfirm.textContent = `Synchronizuj (${selectedCount})`;
-        }
-    }
-
-    /**
-     * Wykonanie synchronizacji - POPRAWKA: Ignoruje filtry dat przy synchronizacji
-     */
-    async performSync() {
-        // Skopiuj selectedOrders na początku - zabezpieczenie przed wyczyszczeniem
-        const ordersToSync = [...this.selectedOrders];
-
-        console.log('[SyncManager] Performing sync with orders:', ordersToSync);
-
-        // ZMIANA: Jeśli nie ma wybranych zamówień, synchronizuj wszystkie
-        if (ordersToSync.length === 0) {
-            console.log('[SyncManager] No selected orders - syncing all orders');
-        }
-
-        // POPRAWKA: Sprawdź czy już trwa synchronizacja
-        if (this.isSync) {
-            console.log('[SyncManager] Sync already in progress');
-            return;
-        }
-
-        // Ustaw flagę synchronizacji
-        this.isSync = true;
-
-        // Ukryj modal
-        this.hideSyncModal();
-
-        // Pokaż loading overlay
-        const loadingMessage = ordersToSync.length > 0 ?
-            `Synchronizowanie ${ordersToSync.length} zamówień...` :
-            'Synchronizowanie wszystkich zamówień...';
-        this.showSyncLoading(loadingMessage);
-
-        try {
-            // ZMIANA: Nie wysyłaj żadnych filtrów dat - synchronizuj wszystkie
-            const requestData = {
-                selected_orders: ordersToSync
-                // USUNIĘTO: date_from i date_to - SyncManager ignoruje filtry dat
-            };
-
-            console.log('[SyncManager] Sending request data (bez filtrów dat):', requestData);
-
-            const response = await fetch('/reports/api/sync', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestData)
-            });
-
-            console.log('[SyncManager] Response status:', response.status);
-
-            // POPRAWKA: Sprawdź status HTTP
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-
-            if (result.success) {
-                // ZMIANA: Lepsze komunikaty w zależności od wyniku synchronizacji
-                let message;
-                let detailsHtml = '';
-
-                const ordersProcessed = result.orders_processed || 0;
-                const ordersAdded = result.orders_added || 0;
-                const ordersUpdated = result.orders_updated || 0;
-                const missingOrders = result.missing_orders_count || 0;
-                const failedOrders = result.failed_orders_count || 0;
-
-                if (ordersToSync.length > 0) {
-                    // Synchronizacja wybranych zamówień
-                    if (ordersProcessed > 0) {
-                        message = `Zsynchronizowano ${ordersProcessed} z ${ordersToSync.length} wybranych zamówień`;
-                    } else if (missingOrders > 0) {
-                        message = `Zamówienia już nie istnieją w Baselinker`;
-                        detailsHtml = `<p style="color: #856404;">Wszystkie ${missingOrders} zamówień zostało usuniętych z Baselinker lub ma wykluczony status</p>`;
-                    } else {
-                        message = `Sprawdzono ${ordersToSync.length} wybranych zamówień`;
-                    }
+                if (this.fetchedOrders.length === 0) {
+                    this.showOrdersEmpty();
                 } else {
-                    // Synchronizacja wszystkich zamówień
-                    if (ordersProcessed > 0) {
-                        message = `Zsynchronizowano wszystkie zamówienia`;
-                    } else {
-                        message = `Sprawdzono wszystkie zamówienia`;
-                    }
+                    this.renderOrdersList();
+                    this.showOrdersList();
                 }
-
-                // ZMIANA: Lepsze szczegóły z informacją o nieistniejących zamówieniach
-                if (ordersProcessed > 0) {
-                    detailsHtml = `
-                    <p>Dodano: ${ordersAdded} nowych rekordów</p>
-                    <p>Zaktualizowano: ${ordersUpdated} zamówień</p>
-                `;
-
-                    if (missingOrders > 0) {
-                        detailsHtml += `<p style="color: #856404;">Nieistniejące w Baselinker: ${missingOrders}</p>`;
-                    }
-                    if (failedOrders > 0) {
-                        detailsHtml += `<p style="color: #dc3545;">Błędy pobierania: ${failedOrders}</p>`;
-                    }
-                } else if (missingOrders > 0 && failedOrders === 0) {
-                    // Wszystkie zamówienia nieistniejące
-                    detailsHtml = `<p style="color: #856404;">Te zamówienia zostały usunięte z Baselinker lub mają wykluczony status (anulowane/nieopłacone)</p>`;
-                }
-
-                this.showSyncLoading(`
-                <div style="text-align: center;">
-                    <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
-                    <h4>Synchronizacja zakończona!</h4>
-                    <p><strong>${message}</strong></p>
-                    ${detailsHtml}
-                </div>
-            `);
-
-                setTimeout(() => {
-                    this.hideSyncLoading();
-                    if (window.reportsManager) {
-                        window.reportsManager.refreshData();
-                    }
-                }, 3000);
-
             } else {
-                throw new Error(result.error || 'Błąd synchronizacji');
+                throw new Error(result.error || 'Błąd pobierania zamówień');
             }
 
         } catch (error) {
-            console.error('[SyncManager] Sync error:', error);
-            this.hideSyncLoading();
-            this.showError('Błąd synchronizacji: ' + error.message);
-        } finally {
-            // POPRAWKA: Zawsze resetuj flagę synchronizacji
-            this.isSync = false;
+            console.error('[SyncManager] ❌ Błąd pobierania zamówień:', error);
+            this.showOrdersError(`Błąd pobierania zamówień: ${error.message}`);
         }
     }
 
-    /**
-     * Pokazanie loading overlay
-     */
-    showSyncLoading(message) {
-        if (this.syncLoadingOverlay) {
-            this.syncLoadingOverlay.classList.remove('hidden');
-        }
+    renderOrdersList() {
+        console.log('[SyncManager] 🎨 Renderowanie listy zamówień:', this.fetchedOrders.length);
 
-        if (this.syncLoadingText) {
-            this.syncLoadingText.innerHTML = message;
-        }
-
-        console.log('[SyncManager] Showing sync loading:', message);
-    }
-
-    /**
-     * Ukrycie loading overlay
-     */
-    hideSyncLoading() {
-        if (this.syncLoadingOverlay) {
-            this.syncLoadingOverlay.classList.add('hidden');
-        }
-
-        console.log('[SyncManager] Hiding sync loading');
-    }
-
-    /**
-     * Pokazanie błędu
-     */
-    showError(message) {
-        console.error('[SyncManager] Error:', message);
-        alert('Błąd: ' + message); // TODO: Lepszy system notyfikacji
-    }
-
-    /**
- * Formatowanie waluty z separatorami tysięcy
- */
-    formatCurrency(value) {
-        if (value === null || value === undefined) return '0.00 PLN';
-
-        const num = parseFloat(value);
-        if (isNaN(num)) return '0.00 PLN';
-
-        // Formatuj z 2 miejscami po przecinku
-        const formatted = num.toFixed(2);
-        const parts = formatted.split('.');
-
-        // Dodaj spacje co 3 cyfry od prawej strony
-        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-
-        return parts.join('.') + ' PLN';
-    }
-
-    /**
-     * Publiczne API dla automatycznego sprawdzania
-     */
-    async checkForNewOrdersInBackground() {
-        console.log('[SyncManager] Background check for new orders...');
-
-        try {
-            // Sprawdź tylko dzisiejsze zamówienia w tle
-            const today = new Date().toISOString().split('T')[0];
-            const params = new URLSearchParams({
-                date_from: today,
-                date_to: today
-            });
-
-            const response = await fetch(`/reports/api/check-new-orders?${params}`);
-
-            // POPRAWKA: Sprawdź status HTTP
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-
-            if (result.success && result.has_new_orders) {
-                console.log('[SyncManager] Found new orders in background:', result.new_orders.length);
-
-                // Aktualizuj badge z nowymi zamówieniami
-                this.updateNewOrdersBadge(result.new_orders.length);
-
-                return result.new_orders.length;
-            }
-
-            return 0;
-
-        } catch (error) {
-            console.error('[SyncManager] Background check error:', error);
-            return 0;
-        }
-    }
-
-    /**
-     * Aktualizacja badge z nowymi zamówieniami
-     */
-    updateNewOrdersBadge(count) {
-        const badge = document.querySelector('.new-orders-badge');
-        if (badge) {
-            if (count > 0) {
-                badge.textContent = `${count} nowych zamówień`;
-                badge.style.display = 'block';
-            } else {
-                badge.style.display = 'none';
-            }
-        }
-
-        console.log('[SyncManager] Updated new orders badge:', count);
-    }
-
-    /**
-     * Rozpoczęcie automatycznego sprawdzania (co 30 minut)
-     */
-    startBackgroundCheck() {
-        console.log('[SyncManager] Starting background check...');
-
-        // Sprawdź od razu
-        this.checkForNewOrdersInBackground();
-
-        // Następnie co 30 minut
-        setInterval(() => {
-            this.checkForNewOrdersInBackground();
-        }, 30 * 60 * 1000); // 30 minut
-    }
-
-    /**
-     * Synchronizacja z konkretnym zakresem dat - POPRAWKA: Lepsza obsługa błędów
-     */
-    async syncWithDateRange(dateFrom, dateTo) {
-        console.log('[SyncManager] Manual sync with date range:', dateFrom, dateTo);
-
-        // POPRAWKA: Sprawdź czy już trwa synchronizacja
-        if (this.isSync) {
-            console.log('[SyncManager] Sync already in progress');
-            this.showError('Synchronizacja już trwa');
+        if (!this.orderTemplate) {
+            console.error('[SyncManager] ❌ Brak template dla zamówień');
             return;
         }
 
-        this.isSync = true;
-        this.showSyncLoading('Synchronizowanie z wybranym zakresem dat...');
+        this.ordersList.innerHTML = '';
+        this.selectedOrderIds.clear();
+
+        this.fetchedOrders.forEach((order, index) => {
+            console.log(`[SyncManager] 🎨 Renderowanie zamówienia ${index + 1}:`, order);
+            this.renderSingleOrder(order);
+        });
+
+        this.updateOrdersCount();
+        this.updateSaveButton();
+
+        console.log('[SyncManager] ✅ Lista zamówień wyrenderowana');
+    }
+
+    renderSingleOrder(order) {
+        const orderElement = this.orderTemplate.content.cloneNode(true);
+        
+        const orderItem = orderElement.querySelector('.order-item');
+        orderItem.setAttribute('data-order-id', order.order_id);
+        
+        // NOWE: Obsługa zamówień z problemami wymiarów
+        if (order.has_dimension_issues) {
+            orderItem.classList.add('has-dimension-issues');
+            console.log(`[SyncManager] ⚠️ Zamówienie ${order.order_id} ma problemy z wymiarami:`, order.products_with_issues);
+            
+            this.ordersWithDimensionIssues.set(order.order_id, {
+                order: order,
+                products_with_issues: order.products_with_issues || []
+            });
+        }
+        
+        const checkbox = orderElement.querySelector('.order-select');
+        checkbox.setAttribute('data-order-id', order.order_id);
+        
+        if (order.exists_in_db) {
+            console.log(`[SyncManager] ⚠️ Zamówienie ${order.order_id} już istnieje w bazie`);
+            orderItem.classList.add('disabled');
+            checkbox.disabled = true;
+            orderElement.querySelector('.exists-badge').style.display = 'flex';
+        } else {
+            checkbox.addEventListener('change', (e) => {
+                this.handleOrderCheckboxChange(order.order_id, e.target.checked);
+            });
+        }
+
+        // Wypełnij dane zamówienia
+        orderElement.querySelector('.order-number').textContent = order.order_id;
+        
+        // NOWE: Dodaj badge z problemami wymiarów
+        const orderIdContainer = orderElement.querySelector('.order-id');
+        if (order.has_dimension_issues) {
+            const dimensionBadge = document.createElement('span');
+            dimensionBadge.className = 'dimension-issues-badge';
+            dimensionBadge.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Brak wymiarów';
+            orderIdContainer.appendChild(dimensionBadge);
+        }
+        
+        orderElement.querySelector('.order-date-text').textContent = this.formatDateTime(order.date_add);
+        orderElement.querySelector('.customer-name').textContent = order.customer_name || 'Brak danych';
+        
+        const productsListElement = orderElement.querySelector('.products-list');
+        productsListElement.textContent = order.products_summary || 'Brak produktów';
+        
+        orderElement.querySelector('.products-amount').textContent = this.formatMoney(order.order_value || 0);
+        orderElement.querySelector('.delivery-amount').textContent = this.formatMoney(order.delivery_price || 0);
+        orderElement.querySelector('.total-amount').textContent = this.formatMoney((order.order_value || 0) + (order.delivery_price || 0));
+        
+        const statusBadge = orderElement.querySelector('.order-status-badge');
+        statusBadge.textContent = order.order_status || 'Nieznany';
+        statusBadge.style.backgroundColor = this.getStatusColor(order.order_status);
+
+        // Przycisk Baselinker
+        const baselinkerBtn = orderElement.querySelector('.baselinker-btn');
+        if (baselinkerBtn) {
+            baselinkerBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${order.order_id}`;
+                window.open(baselinkerUrl, '_blank');
+                console.log(`[SyncManager] 🔗 Otwieranie Baselinker dla zamówienia ${order.order_id}`);
+            });
+        }
+
+        this.ordersList.appendChild(orderElement);
+    }
+
+    handleOrderCheckboxChange(orderId, isChecked) {
+        console.log(`[SyncManager] ☑️ Zmiana checkbox zamówienia ${orderId}:`, isChecked);
+
+        if (isChecked) {
+            this.selectedOrderIds.add(orderId);
+        } else {
+            this.selectedOrderIds.delete(orderId);
+        }
+
+        this.updateSaveButton();
+        console.log('[SyncManager] 📊 Aktualnie wybrane zamówienia:', Array.from(this.selectedOrderIds));
+    }
+
+    selectAllOrders() {
+        console.log('[SyncManager] ☑️ Zaznaczanie wszystkich dostępnych zamówień');
+
+        const availableCheckboxes = this.ordersList.querySelectorAll('.order-select:not(:disabled)');
+        
+        availableCheckboxes.forEach(checkbox => {
+            checkbox.checked = true;
+            this.selectedOrderIds.add(checkbox.getAttribute('data-order-id'));
+        });
+
+        this.updateSaveButton();
+        console.log('[SyncManager] ✅ Zaznaczono wszystkie:', Array.from(this.selectedOrderIds));
+    }
+
+    deselectAllOrders() {
+        console.log('[SyncManager] ☐ Odznaczanie wszystkich zamówień');
+
+        const allCheckboxes = this.ordersList.querySelectorAll('.order-select');
+        
+        allCheckboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+
+        this.selectedOrderIds.clear();
+        this.updateSaveButton();
+        console.log('[SyncManager] ✅ Odznaczono wszystkie zamówienia');
+    }
+
+    updateOrdersCount() {
+        if (this.ordersCount) {
+            this.ordersCount.textContent = this.fetchedOrders.length;
+        }
+    }
+
+    updateSaveButton() {
+        const selectedCount = this.selectedOrderIds.size;
+        
+        if (this.ordersSaveBtn) {
+            this.ordersSaveBtn.disabled = selectedCount === 0;
+            this.ordersSaveBtn.textContent = `Zapisz rekordy (${selectedCount})`;
+        }
+
+        console.log('[SyncManager] 🔄 Przycisk zapisz zaktualizowany:', selectedCount);
+    }
+
+    // =====================================================
+    // ZAPISYWANIE ZAMÓWIEŃ Z OBSŁUGĄ PROBLEMÓW WYMIARÓW
+    // =====================================================
+
+    async handleOrdersSave() {
+        if (this.selectedOrderIds.size === 0) {
+            console.warn('[SyncManager] ⚠️ Brak wybranych zamówień do zapisania');
+            return;
+        }
+
+        if (this.isProcessing) {
+            console.warn('[SyncManager] ⚠️ Proces zapisywania już trwa');
+            return;
+        }
+
+        const selectedOrdersList = Array.from(this.selectedOrderIds);
+        const ordersWithIssues = selectedOrdersList.filter(orderId => 
+            this.ordersWithDimensionIssues.has(orderId)
+        );
+
+        console.log('[SyncManager] 📋 Analiza wybranych zamówień:', {
+            total: selectedOrdersList.length,
+            withIssues: ordersWithIssues.length,
+            problemOrders: ordersWithIssues
+        });
+
+        if (ordersWithIssues.length > 0) {
+            console.log('[SyncManager] ⚠️ Znaleziono zamówienia z problemami wymiarów - pokazuję modal uzupełnienia');
+            this.showDimensionFixModal(ordersWithIssues, selectedOrdersList);
+            return;
+        }
+
+        console.log('[SyncManager] ✅ Wszystkie zamówienia mają wymiary - zapisuję bezpośrednio');
+        await this.performOrdersSave(selectedOrdersList);
+    }
+
+    showDimensionFixModal(ordersWithIssues, allSelectedOrders) {
+        console.log('[SyncManager] 🔧 Tworzenie modala uzupełnienia wymiarów dla zamówień:', ordersWithIssues);
+        
+        this.hideOrdersModal();
+        
+        const issuesData = ordersWithIssues.map(orderId => {
+            const issueInfo = this.ordersWithDimensionIssues.get(orderId);
+            return {
+                orderId: orderId,
+                order: issueInfo.order,
+                products: issueInfo.products_with_issues
+            };
+        });
+
+        this.createDimensionFixModal(issuesData, allSelectedOrders);
+    }
+
+    createDimensionFixModal(issuesData, allSelectedOrders) {
+        console.log('[SyncManager] 🏗️ Tworzenie modala uzupełnienia wymiarów');
+
+        const existingModal = document.getElementById('dimensionFixModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        const modal = document.createElement('div');
+        modal.id = 'dimensionFixModal';
+        modal.className = 'sync-modal show';
+        
+        let productsHtml = '';
+        
+        issuesData.forEach(issue => {
+            const order = issue.order;
+            
+            productsHtml += `
+                <div class="dimension-fix-order">
+                    <div class="dimension-fix-order-header">
+                        <h4>Zamówienie #${order.order_id}</h4>
+                        <span class="order-customer">👤 ${order.customer_name}</span>
+                    </div>
+                    <div class="dimension-fix-products">
+            `;
+            
+            issue.products.forEach(product => {
+                productsHtml += `
+                    <div class="dimension-fix-product" data-order-id="${order.order_id}" data-product-index="${product.index}">
+                        <div class="product-info">
+                            <strong>${product.index}. ${product.name}</strong>
+                            <span class="product-quantity">Ilość: ${product.quantity} szt.</span>
+                        </div>
+                        <div class="volume-input-group">
+                            <label>Objętość (m³):</label>
+                            <input type="number" 
+                                   step="0.0001" 
+                                   min="0" 
+                                   class="volume-input" 
+                                   data-order-id="${order.order_id}" 
+                                   data-product-index="${product.index}"
+                                   placeholder="np. 0.0640"
+                                   required>
+                            <small class="volume-help">Wpisz objętość dla tej pozycji w m³</small>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            productsHtml += `
+                    </div>
+                </div>
+            `;
+        });
+
+        modal.innerHTML = `
+            <div class="sync-modal-overlay">
+                <div class="sync-modal-content sync-modal-large">
+                    <div class="sync-modal-header">
+                        <h3>Uzupełnij objętości produktów</h3>
+                        <button class="sync-modal-close" id="dimensionFixClose">&times;</button>
+                    </div>
+                    
+                    <div class="sync-modal-body">
+                        <div class="dimension-fix-info">
+                            <div class="info-icon">⚠️</div>
+                            <div class="info-text">
+                                <p><strong>Niektóre produkty nie mają wymiarów w nazwie.</strong></p>
+                                <p>Uzupełnij objętość (m³) dla każdego produktu, aby system mógł poprawnie obliczyć statystyki.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="dimension-fix-list">
+                            ${productsHtml}
+                        </div>
+                    </div>
+                    
+                    <div class="sync-modal-footer">
+                        <button id="dimensionFixBack" class="btn btn-secondary">Wstecz</button>
+                        <button id="dimensionFixCancel" class="btn btn-secondary">Anuluj</button>
+                        <button id="dimensionFixSave" class="btn btn-primary">Zapisz z uzupełnionymi objętościami</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+        this.setupDimensionFixModalEvents(modal, allSelectedOrders);
+        
+        console.log('[SyncManager] ✅ Modal uzupełnienia wymiarów utworzony');
+    }
+
+    setupDimensionFixModalEvents(modal, allSelectedOrders) {
+        console.log('[SyncManager] 🔗 Ustawianie event listenerów dla modala wymiarów');
+
+        const closeBtn = modal.querySelector('#dimensionFixClose');
+        const cancelBtn = modal.querySelector('#dimensionFixCancel');
+        const backBtn = modal.querySelector('#dimensionFixBack');
+        const saveBtn = modal.querySelector('#dimensionFixSave');
+
+        const closeModal = () => {
+            modal.remove();
+            this.showOrdersModal();
+        };
+
+        closeBtn?.addEventListener('click', closeModal);
+        cancelBtn?.addEventListener('click', closeModal);
+        backBtn?.addEventListener('click', closeModal);
+
+        const handleKeydown = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', handleKeydown);
+            }
+        };
+        document.addEventListener('keydown', handleKeydown);
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal || e.target.classList.contains('sync-modal-overlay')) {
+                closeModal();
+            }
+        });
+
+        saveBtn?.addEventListener('click', async () => {
+            console.log('[SyncManager] 💾 Zapisywanie z uzupełnionymi objętościami');
+            
+            const volumeInputs = modal.querySelectorAll('.volume-input');
+            const volumeOverrides = {};
+            let allValid = true;
+
+            volumeInputs.forEach(input => {
+                const orderId = input.getAttribute('data-order-id');
+                const productIndex = input.getAttribute('data-product-index');
+                const volume = parseFloat(input.value);
+
+                if (!input.value || isNaN(volume) || volume < 0) {
+                    input.classList.add('error');
+                    allValid = false;
+                } else {
+                    input.classList.remove('error');
+                    
+                    if (!volumeOverrides[orderId]) {
+                        volumeOverrides[orderId] = {};
+                    }
+                    volumeOverrides[orderId][productIndex] = volume;
+                }
+            });
+
+            if (!allValid) {
+                this.showError('Wszystkie pola objętości muszą być wypełnione poprawnymi wartościami');
+                return;
+            }
+
+            console.log('[SyncManager] 📊 Zebrane objętości:', volumeOverrides);
+
+            modal.remove();
+            document.removeEventListener('keydown', handleKeydown);
+            
+            await this.performOrdersSave(allSelectedOrders, volumeOverrides);
+        });
+
+        const volumeInputs = modal.querySelectorAll('.volume-input');
+        volumeInputs.forEach(input => {
+            input.addEventListener('input', () => {
+                const value = parseFloat(input.value);
+                if (input.value && (!isNaN(value) && value >= 0)) {
+                    input.classList.remove('error');
+                } else if (input.value) {
+                    input.classList.add('error');
+                }
+            });
+        });
+    }
+
+    async performOrdersSave(selectedOrdersList, volumeOverrides = null) {
+        console.log('[SyncManager] 💾 Rozpoczęcie faktycznego zapisywania zamówień:', selectedOrdersList);
+
+        this.isProcessing = true;
+        
+        this.showGlobalLoading('Zapisywanie zamówień...', 'Proszę czekać, trwa zapisywanie wybranych zamówień do bazy danych.');
 
         try {
             const requestData = {
-                date_from: dateFrom,
-                date_to: dateTo,
-                selected_orders: [] // Puste - zsynchronizuj wszystkie nowe z zakresu
+                order_ids: selectedOrdersList,
+                date_from: this.dateFrom,
+                date_to: this.dateTo,
+                volume_overrides: volumeOverrides || {}
             };
 
-            const response = await fetch('/reports/api/sync', {
+            console.log('[SyncManager] 📤 Wysyłanie zamówień do zapisania:', requestData);
+
+            const response = await fetch('/reports/api/save-selected-orders', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -836,120 +837,201 @@ class SyncManager {
                 body: JSON.stringify(requestData)
             });
 
-            // POPRAWKA: Sprawdź status HTTP
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const result = await response.json();
+            console.log('[SyncManager] 📥 Wynik zapisywania:', result);
 
             if (result.success) {
-                this.showSyncLoading(`
-                    <div style="text-align: center;">
-                        <i class="fas fa-check-circle" style="color: #28a745; font-size: 2rem; margin-bottom: 1rem;"></i>
-                        <h4>Synchronizacja zakończona!</h4>
-                        <p>Dodano: ${result.orders_added || 0} zamówień</p>
-                    </div>
-                `);
-
+                this.showGlobalLoading('Sukces!', `Pomyślnie zapisano ${result.orders_saved || selectedOrdersList.length} zamówień do bazy danych.`);
+                
                 setTimeout(() => {
-                    this.hideSyncLoading();
+                    this.hideGlobalLoading();
+                    this.resetState();
+                    
                     if (window.reportsManager) {
                         window.reportsManager.refreshData();
                     }
-                }, 2000);
+                }, 3000);
 
             } else {
-                throw new Error(result.error || 'Błąd synchronizacji');
+                throw new Error(result.error || 'Błąd zapisywania zamówień');
             }
 
         } catch (error) {
-            console.error('[SyncManager] Manual sync error:', error);
-            this.hideSyncLoading();
-            this.showError('Błąd synchronizacji: ' + error.message);
+            console.error('[SyncManager] ❌ Błąd zapisywania zamówień:', error);
+            this.hideGlobalLoading();
+            this.showError(`Błąd zapisywania zamówień: ${error.message}`);
         } finally {
-            // POPRAWKA: Zawsze resetuj flagę synchronizacji
-            this.isSync = false;
+            this.isProcessing = false;
         }
     }
 
-    /**
-     * Sprawdzenie czy synchronizacja jest w toku
-     */
-    isSyncInProgress() {
-        return this.isSync;
+    // =====================================================
+    // GLOBALNY LOADING
+    // =====================================================
+
+    showGlobalLoading(title, text) {
+        console.log('[SyncManager] ⏳ Pokazywanie globalnego loading:', title);
+
+        if (this.globalLoadingTitle) this.globalLoadingTitle.textContent = title;
+        if (this.globalLoadingText) this.globalLoadingText.textContent = text;
+        
+        if (this.globalLoading) {
+            this.globalLoading.style.display = 'flex';
+        }
     }
 
-    /**
-     * NOWA METODA - Anulowanie synchronizacji
-     */
-    cancelSync() {
-        console.log('[SyncManager] Canceling sync...');
-        this.isSync = false;
-        this.hideSyncLoading();
-        this.hideSyncModal();
+    hideGlobalLoading() {
+        console.log('[SyncManager] ⏳ Ukrywanie globalnego loading');
+
+        if (this.globalLoading) {
+            this.globalLoading.style.display = 'none';
+        }
     }
 
-    /**
-     * NOWA METODA - Walidacja stanu managera
-     */
-    validateState() {
-        const issues = [];
+    // =====================================================
+    // FUNKCJE POMOCNICZE
+    // =====================================================
 
-        if (!this.syncModal) {
-            issues.push('Missing sync modal element');
-        }
-
-        if (!this.syncModalContent) {
-            issues.push('Missing sync modal content element');
-        }
-
-        if (!this.syncLoadingOverlay) {
-            issues.push('Missing sync loading overlay element');
-        }
-
-        return {
-            isValid: issues.length === 0,
-            issues: issues
-        };
-    }
-
-    /**
-     * NOWA METODA - Reset stanu managera
-     */
     resetState() {
-        console.log('[SyncManager] Resetting state...');
+        console.log('[SyncManager] 🔄 Resetowanie stanu aplikacji');
 
-        this.isSync = false;
-        this.newOrders = [];
-        this.selectedOrders = [];
-        this.hideSyncModal();
-        this.hideSyncLoading();
+        this.selectedDays = null;
+        this.dateFrom = null;
+        this.dateTo = null;
+        this.fetchedOrders = [];
+        this.selectedOrderIds.clear();
+        this.ordersWithDimensionIssues.clear();
+        this.isProcessing = false;
+
+        if (this.daysSelect) this.daysSelect.value = '';
+        if (this.daysConfirmBtn) this.daysConfirmBtn.disabled = true;
+        this.hideDatePreview();
     }
 
-    /**
-     * Debug info - POPRAWKA: Rozszerzone informacje
-     */
-    getDebugInfo() {
-        const validation = this.validateState();
+    formatDate(date) {
+        return date.toISOString().split('T')[0];
+    }
 
-        return {
-            newOrders: this.newOrders.length,
-            selectedOrders: this.selectedOrders.length,
-            isSync: this.isSync,
-            modalVisible: this.syncModal ? (this.syncModal.style.display === 'block') : false,
-            loadingVisible: this.syncLoadingOverlay ? !this.syncLoadingOverlay.classList.contains('hidden') : false,
-            validation: validation,
-            elements: {
-                syncModal: !!this.syncModal,
-                syncModalContent: !!this.syncModalContent,
-                syncLoadingOverlay: !!this.syncLoadingOverlay,
-                syncModalCancel: !!this.syncModalCancel,
-                syncModalConfirm: !!this.syncModalConfirm
+    formatDateTime(dateString) {
+        if (!dateString) return 'Brak daty';
+        
+        try {
+            let date;
+            
+            if (typeof dateString === 'number') {
+                console.log(`[SyncManager] 📅 Formatowanie timestamp: ${dateString}`);
+                date = new Date(dateString * 1000);
+            } else if (typeof dateString === 'string') {
+                if (dateString.match(/^\d+$/)) {
+                    console.log(`[SyncManager] 📅 Formatowanie timestamp jako string: ${dateString}`);
+                    date = new Date(parseInt(dateString) * 1000);
+                } else {
+                    console.log(`[SyncManager] 📅 Formatowanie string daty: ${dateString}`);
+                    date = new Date(dateString);
+                }
+            } else {
+                date = new Date(dateString);
             }
+
+            if (isNaN(date.getTime())) {
+                console.warn(`[SyncManager] ⚠️ Nieprawidłowa data: ${dateString}`);
+                return `Błędna data: ${dateString}`;
+            }
+
+            console.log(`[SyncManager] 🔍 Debug formatowania daty:`, {
+                input: dateString,
+                inputType: typeof dateString,
+                parsedDate: date.toISOString(),
+                year: date.getFullYear()
+            });
+
+            if (date.getFullYear() < 2000) {
+                console.warn(`[SyncManager] ⚠️ Podejrzany rok w dacie: ${date.getFullYear()}`);
+                if (typeof dateString === 'number' && dateString > 1000000000000) {
+                    date = new Date(dateString);
+                    console.log(`[SyncManager] 🔧 Próba naprawy - używam timestamp w ms: ${date.toISOString()}`);
+                }
+            }
+
+            const formattedDate = date.toLocaleDateString('pl-PL') + ' ' + date.toLocaleTimeString('pl-PL', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+
+            console.log(`[SyncManager] ✅ Sformatowana data: ${formattedDate}`);
+            return formattedDate;
+            
+        } catch (error) {
+            console.error('[SyncManager] ❌ Błąd formatowania daty:', dateString, error);
+            return `Błąd: ${dateString}`;
+        }
+    }
+
+    formatMoney(amount) {
+        if (amount === null || amount === undefined || isNaN(amount)) {
+            return '0,00 zł';
+        }
+        
+        return parseFloat(amount).toLocaleString('pl-PL', {
+            style: 'currency',
+            currency: 'PLN',
+            minimumFractionDigits: 2
+        });
+    }
+
+    getStatusColor(status) {
+        const statusColors = {
+            'new': '#28a745',
+            'processing': '#ffc107',
+            'shipped': '#17a2b8',
+            'delivered': '#6f42c1',
+            'cancelled': '#dc3545',
+            'paid': '#20c997',
+            'unpaid': '#fd7e14'
         };
+
+        return statusColors[status?.toLowerCase()] || '#6c757d';
+    }
+
+    showError(message) {
+        console.error('[SyncManager] 💥 Wyświetlanie błędu:', message);
+        
+        alert(message);
+        
+        if (window.reportsManager && window.reportsManager.showError) {
+            window.reportsManager.showError(message);
+        }
+    }
+
+    // =====================================================
+    // PUBLICZNE API DLA KOMPATYBILNOŚCI
+    // =====================================================
+
+    isInProgress() {
+        return this.isProcessing;
+    }
+
+    reset() {
+        console.log('[SyncManager] 🔄 Manualny reset przez publiczne API');
+        this.resetState();
+        this.hideDaysModal();
+        this.hideOrdersModal();
+        this.hideGlobalLoading();
+        
+        // Usuń modal wymiarów jeśli istnieje
+        const dimensionModal = document.getElementById('dimensionFixModal');
+        if (dimensionModal) {
+            dimensionModal.remove();
+        }
     }
 }
 
-// Export dla global scope
-window.SyncManager = SyncManager;
+// =====================================================
+// INICJALIZACJA GLOBALNEGO OBIEKTU
+// =====================================================
+
+console.log('[SyncManager] 🌟 Kompletny nowy SyncManager z obsługą wymiarów załadowany - gotowy do użycia');
