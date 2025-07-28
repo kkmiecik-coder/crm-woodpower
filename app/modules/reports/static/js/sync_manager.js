@@ -50,6 +50,22 @@ class SyncManager {
         this.isProcessing = false;
         this.ordersWithDimensionIssues = new Map(); // NOWE: Mapa zamówień z problemami wymiarów
 
+        // === NOWE ELEMENTY DOM - KROK 3 (modal wymiarów) ===
+        this.dimensionsModal = null;
+        this.dimensionsList = null;
+        this.dimensionsBackBtn = null;
+        this.dimensionsSkipBtn = null;
+        this.dimensionsSaveBtn = null;
+        this.dimensionsCloseBtn = null;
+        
+        // === NOWE TEMPLATES ===
+        this.dimensionOrderTemplate = null;
+        this.dimensionProductTemplate = null;
+        
+        // === NOWY STAN ===
+        this.ordersWithDimensionIssues = new Map();
+        this.dimensionFixes = {};  // {order_id: {product_id: {length_cm: X, width_cm: Y, thickness_mm: Z}}}
+
         console.log('[SyncManager] ✅ Konstruktor zakończony');
     }
 
@@ -82,7 +98,7 @@ class SyncManager {
         this.daysCancelBtn = document.getElementById('syncDaysCancel');
         this.daysCloseBtn = document.getElementById('syncDaysModalClose');
 
-        // KROK 2 - Modal z zamówieniami
+        // KROK 2 - Modal zamówień
         this.ordersModal = document.getElementById('syncOrdersModal');
         this.ordersLoadingState = document.getElementById('ordersLoadingState');
         this.ordersListContainer = document.getElementById('ordersListContainer');
@@ -92,32 +108,46 @@ class SyncManager {
         this.ordersCount = document.getElementById('ordersCount');
         this.selectAllBtn = document.getElementById('selectAllOrders');
         this.deselectAllBtn = document.getElementById('deselectAllOrders');
-        this.ordersBackBtn = document.getElementById('syncOrdersBack');
-        this.ordersCancelBtn = document.getElementById('syncOrdersCancel');
-        this.ordersSaveBtn = document.getElementById('syncOrdersSave');
+        this.ordersBackBtn = document.getElementById('ordersBack');
+        this.ordersCancelBtn = document.getElementById('ordersCancel');
+        this.ordersSaveBtn = document.getElementById('ordersSave');
         this.ordersCloseBtn = document.getElementById('syncOrdersModalClose');
 
-        // Global loading
-        this.globalLoading = document.getElementById('syncGlobalLoading');
-        this.globalLoadingTitle = document.getElementById('syncGlobalLoadingTitle');
-        this.globalLoadingText = document.getElementById('syncGlobalLoadingText');
+        // KROK 3 - Modal wymiarów
+        this.dimensionsModal = document.getElementById('dimensionsModal');
+        this.dimensionsList = document.getElementById('dimensionsList');
+        this.dimensionsBackBtn = document.getElementById('dimensionsBack');
+        this.dimensionsSkipBtn = document.getElementById('dimensionsSkip');
+        this.dimensionsSaveBtn = document.getElementById('dimensionsSave');
+        this.dimensionsCloseBtn = document.getElementById('dimensionsModalClose');
 
-        // Template
-        this.orderTemplate = document.getElementById('orderItemTemplate');
+        // POPRAWKA: Loading overlay - dodaj brakujące elementy
+        this.globalLoading = document.getElementById('syncLoadingOverlay');
+        this.globalLoadingTitle = document.getElementById('syncLoadingTitle');
+        this.globalLoadingText = document.getElementById('syncLoadingText');
 
-        // Walidacja kluczowych elementów
+        // Templates
+        this.orderTemplate = document.getElementById('orderTemplate');
+        this.dimensionOrderTemplate = document.getElementById('dimensionOrderTemplate');
+        this.dimensionProductTemplate = document.getElementById('dimensionProductTemplate');
+
+        // Walidacja podstawowych elementów
         const requiredElements = [
             'daysModal', 'daysSelect', 'daysConfirmBtn',
-            'ordersModal', 'ordersList', 'ordersSaveBtn'
+            'ordersModal', 'ordersLoadingState', 'ordersListContainer', 'ordersList',
+            'ordersCount', 'selectAllBtn', 'deselectAllBtn', 'ordersSaveBtn',
+            'dimensionsModal', 'dimensionsList', 'dimensionsBackBtn', 
+            'dimensionsSkipBtn', 'dimensionsSaveBtn',
+            'globalLoading', 'orderTemplate'
         ];
 
-        const missingElements = requiredElements.filter(elementName => !this[elementName]);
-        
+        const missingElements = requiredElements.filter(element => !this[element]);
         if (missingElements.length > 0) {
-            throw new Error(`Brakuje elementów DOM: ${missingElements.join(', ')}`);
+            console.error('[SyncManager] ❌ Brakujące wymagane elementy DOM:', missingElements);
+            throw new Error(`Brakujące elementy DOM: ${missingElements.join(', ')}`);
         }
 
-        console.log('[SyncManager] ✅ Wszystkie elementy DOM zostały znalezione');
+        console.log('[SyncManager] ✅ Wszystkie elementy DOM zacachowane');
     }
 
     setupEventListeners() {
@@ -203,6 +233,32 @@ class SyncManager {
                 this.hideOrdersModal();
             }
         });
+
+        if (this.dimensionsBackBtn) {
+            this.dimensionsBackBtn.addEventListener('click', () => this.handleDimensionsBack());
+        }
+        
+        if (this.dimensionsSkipBtn) {
+            this.dimensionsSkipBtn.addEventListener('click', () => this.handleDimensionsSkip());
+        }
+        
+        if (this.dimensionsSaveBtn) {
+            this.dimensionsSaveBtn.addEventListener('click', () => this.handleDimensionsSave());
+        }
+        
+        if (this.dimensionsCloseBtn) {
+            this.dimensionsCloseBtn.addEventListener('click', () => this.hideDimensionsModal());
+        }
+        
+        // Zamykanie przez kliknięcie w overlay - modal wymiarów
+        if (this.dimensionsModal) {
+            this.dimensionsModal.addEventListener('click', (e) => {
+                if (e.target === this.dimensionsModal || e.target.classList.contains('sync-modal-overlay')) {
+                    console.log('[SyncManager] 🖱️ Kliknięcie w overlay - zamykanie modala wymiarów');
+                    this.hideDimensionsModal();
+                }
+            });
+        }
 
         console.log('[SyncManager] ✅ Event listenery ustawione');
     }
@@ -379,7 +435,7 @@ class SyncManager {
     }
 
     async fetchOrders() {
-        console.log('[SyncManager] 🌐 Rozpoczęcie pobierania zamówień z API');
+        console.log('[SyncManager] 🌐 Rozpoczęcie pobierania zamówień z automatyczną paginacją');
         console.log('[SyncManager] 📊 Parametry zapytania:', {
             dateFrom: this.dateFrom,
             dateTo: this.dateTo,
@@ -394,7 +450,7 @@ class SyncManager {
                 get_all_statuses: true
             };
 
-            console.log('[SyncManager] 📤 Wysyłanie zapytania:', requestData);
+            console.log('[SyncManager] 📤 Wysyłanie zapytania z paginacją:', requestData);
 
             const response = await fetch('/reports/api/fetch-orders-for-selection', {
                 method: 'POST',
@@ -411,11 +467,19 @@ class SyncManager {
             }
 
             const result = await response.json();
-            console.log('[SyncManager] 📊 Dane z serwera:', result);
+            console.log('[SyncManager] 📊 Dane z serwera (z paginacją):', result);
 
             if (result.success) {
                 this.fetchedOrders = result.orders || [];
-                console.log('[SyncManager] ✅ Pobrano zamówienia:', this.fetchedOrders.length);
+                console.log('[SyncManager] ✅ Pobrano zamówienia z paginacją:', this.fetchedOrders.length);
+                
+                if (result.pagination_info) {
+                    console.log('[SyncManager] 📄 Info o paginacji:', result.pagination_info);
+                }
+                
+                // Sprawdź problemy z wymiarami
+                const ordersWithIssues = this.fetchedOrders.filter(order => order.has_dimension_issues);
+                console.log('[SyncManager] ⚠️ Zamówienia z problemami wymiarów:', ordersWithIssues.length);
                 
                 if (this.fetchedOrders.length === 0) {
                     this.showOrdersEmpty();
@@ -585,6 +649,251 @@ class SyncManager {
         console.log('[SyncManager] 🔄 Przycisk zapisz zaktualizowany:', selectedCount);
     }
 
+    showDimensionsModal(orderIdsWithIssues) {
+        console.log('[SyncManager] 📐 Pokazywanie modala wymiarów:', orderIdsWithIssues);
+        
+        this.hideOrdersModal();
+        this.renderDimensionsList(orderIdsWithIssues);
+        
+        this.dimensionsModal.style.display = 'flex';
+        setTimeout(() => {
+            this.dimensionsModal.classList.add('show');
+        }, 10);
+    }
+
+    hideDimensionsModal() {
+        console.log('[SyncManager] 📐 Ukrywanie modala wymiarów');
+        
+        this.dimensionsModal.classList.remove('show');
+        setTimeout(() => {
+            this.dimensionsModal.style.display = 'none';
+        }, 300);
+    }
+
+    renderDimensionsList(orderIdsWithIssues) {
+        console.log('[SyncManager] 🎨 Renderowanie listy wymiarów dla zamówień:', orderIdsWithIssues);
+        
+        if (!this.dimensionsList || !this.dimensionOrderTemplate || !this.dimensionProductTemplate) {
+            console.error('[SyncManager] ❌ Brak wymaganych elementów do renderowania wymiarów');
+            return;
+        }
+
+        this.dimensionsList.innerHTML = '';
+        this.dimensionFixes = {};
+
+        orderIdsWithIssues.forEach(orderId => {
+            const order = this.fetchedOrders.find(o => o.order_id == orderId);
+            if (order && order.has_dimension_issues) {
+                this.renderSingleOrderDimensions(order);
+            }
+        });
+
+        console.log('[SyncManager] ✅ Lista wymiarów wyrenderowana');
+    }
+
+    renderSingleOrderDimensions(order) {
+        const orderElement = this.dimensionOrderTemplate.content.cloneNode(true);
+        
+        // Wypełnij header zamówienia
+        orderElement.querySelector('.order-number').textContent = order.order_id;
+        orderElement.querySelector('.customer-name').textContent = order.delivery_fullname || 'Brak nazwy';
+        orderElement.querySelector('.order-date').textContent = new Date(order.date_add).toLocaleDateString('pl-PL');
+        
+        const productsContainer = orderElement.querySelector('.dimension-products-list');
+        
+        // Renderuj produkty z problemami wymiarów
+        order.products_with_issues.forEach(product => {
+            const productElement = this.renderSingleProductDimensions(order.order_id, product);
+            productsContainer.appendChild(productElement);
+        });
+        
+        this.dimensionsList.appendChild(orderElement);
+    }
+
+    renderSingleProductDimensions(orderId, product) {
+        const productElement = this.dimensionProductTemplate.content.cloneNode(true);
+        
+        // Wypełnij informacje o produkcie
+        productElement.querySelector('.product-name').textContent = product.name;
+        productElement.querySelector('.product-quantity span').textContent = product.quantity;
+        productElement.querySelector('.missing-list').textContent = product.missing_dimensions.join(', ');
+        
+        // Ustaw obecne wartości wymiarów
+        const currentDimensions = product.current_dimensions || {};
+        const inputs = productElement.querySelectorAll('.dimension-input');
+        
+        inputs.forEach(input => {
+            const dimension = input.getAttribute('data-dimension');
+            const currentValue = currentDimensions[dimension];
+            
+            if (currentValue) {
+                input.value = currentValue;
+            }
+            
+            // Dodaj data attributes dla identyfikacji
+            input.setAttribute('data-order-id', orderId);
+            input.setAttribute('data-product-id', product.product_id);
+            
+            // Obsługa zmiany wartości
+            input.addEventListener('input', () => {
+                this.handleDimensionChange(orderId, product.product_id, product.quantity);
+            });
+        });
+        
+        return productElement;
+    }
+
+    handleDimensionChange(orderId, productId, quantity) {
+        // Znajdź wszystkie inputy dla tego produktu
+        const inputs = this.dimensionsList.querySelectorAll(
+            `.dimension-input[data-order-id="${orderId}"][data-product-id="${productId}"]`
+        );
+        
+        const dimensions = {};
+        let hasAllDimensions = true;
+        
+        inputs.forEach(input => {
+            const dimension = input.getAttribute('data-dimension');
+            const value = parseFloat(input.value);
+            
+            if (!isNaN(value) && value > 0) {
+                dimensions[dimension] = value;
+            } else {
+                hasAllDimensions = false;
+            }
+        });
+        
+        // Zapisz poprawki
+        if (!this.dimensionFixes[orderId]) {
+            this.dimensionFixes[orderId] = {};
+        }
+        this.dimensionFixes[orderId][productId] = dimensions;
+        
+        // Oblicz objętość jeśli mamy wszystkie wymiary
+        const volumeElement = inputs[0].closest('.dimension-product-item').querySelector('.calculated-volume');
+        
+        if (hasAllDimensions && dimensions.length_cm && dimensions.width_cm && dimensions.thickness_mm) {
+            const volume = (dimensions.length_cm / 100) * (dimensions.width_cm / 100) * (dimensions.thickness_mm / 1000) * quantity;
+            volumeElement.textContent = volume.toFixed(4) + ' m³';
+            volumeElement.style.color = '#28a745';
+        } else {
+            volumeElement.textContent = 'Brak danych';
+            volumeElement.style.color = '#6c757d';
+        }
+    }
+
+    async handleDimensionsBack() {
+        console.log('[SyncManager] ⬅️ Powrót z modala wymiarów do listy zamówień');
+        this.hideDimensionsModal();
+        this.showOrdersModal();
+    }
+
+    async handleDimensionsSkip() {
+        console.log('[SyncManager] ⏭️ Pomiń wymiary i zapisz zamówienia');
+        
+        if (!confirm('Czy na pewno chcesz pominąć uzupełnianie wymiarów? Produkty bez wymiarów nie będą miały obliczonej objętości (m³).')) {
+            return;
+        }
+        
+        const selectedOrdersList = Array.from(this.selectedOrderIds);
+        this.hideDimensionsModal();
+        await this.saveOrdersWithoutDimensions(selectedOrdersList);
+    }
+
+    async handleDimensionsSave() {
+        console.log('[SyncManager] 💾 Zapisz zamówienia z uzupełnionymi wymiarami');
+        
+        const selectedOrdersList = Array.from(this.selectedOrderIds);
+        this.hideDimensionsModal();
+        await this.saveOrdersWithDimensions(selectedOrdersList, this.dimensionFixes);
+    }
+
+    async saveOrdersWithoutDimensions(orderIds) {
+        console.log('[SyncManager] 💾 Zapisywanie zamówień bez poprawek wymiarów');
+        await this.performSaveOrders(orderIds, {});
+    }
+
+    async saveOrdersWithDimensions(orderIds, dimensionFixes) {
+        console.log('[SyncManager] 💾 Zapisywanie zamówień z poprawkami wymiarów:', dimensionFixes);
+        await this.performSaveOrders(orderIds, dimensionFixes);
+    }
+
+    async performSaveOrders(orderIds, dimensionFixes = {}) {
+        if (this.isProcessing) {
+            console.warn('[SyncManager] ⚠️ Proces zapisywania już trwa');
+            return;
+        }
+
+        this.isProcessing = true;
+        this.showGlobalLoading('Zapisywanie zamówień...', 'Przetwarzanie wybranych zamówień');
+
+        try {
+            const requestData = {
+                order_ids: orderIds,
+                dimension_fixes: dimensionFixes
+            };
+
+            console.log('[SyncManager] 📤 Wysyłanie zamówień do zapisania:', requestData);
+
+            const response = await fetch('/reports/api/save-selected-orders-with-dimensions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log('[SyncManager] 📥 Wynik zapisywania:', result);
+
+            if (result.success) {
+                this.handleSaveSuccess(result);
+            } else {
+                throw new Error(result.error || 'Błąd zapisywania zamówień');
+            }
+
+        } catch (error) {
+            console.error('[SyncManager] ❌ Błąd zapisywania zamówień:', error);
+            this.handleSaveError(error);
+        } finally {
+            this.isProcessing = false;
+            this.hideGlobalLoading();
+        }
+    }
+
+    handleSaveSuccess(result) {
+        console.log('[SyncManager] ✅ Zamówienia zapisane pomyślnie');
+        
+        let message = 'Synchronizacja zakończona pomyślnie!\n\n';
+        message += `Zapisano: ${result.orders_added || 0} nowych zamówień\n`;
+        message += `Zaktualizowano: ${result.orders_updated || 0} zamówień\n`;
+        message += `Przetworzono łącznie: ${result.orders_processed || 0} zamówień`;
+        
+        alert(message);
+        
+        // Zamknij wszystkie modale i odśwież stronę
+        this.resetState();
+        this.hideDaysModal();
+        this.hideOrdersModal();
+        this.hideDimensionsModal();
+        
+        // Odśwież dane na stronie
+        if (window.reportsManager && typeof window.reportsManager.refreshData === 'function') {
+            window.reportsManager.refreshData();
+        } else {
+            window.location.reload();
+        }
+    }
+
+    handleSaveError(error) {
+        console.error('[SyncManager] ❌ Błąd zapisywania:', error);
+        alert(`Błąd podczas zapisywania zamówień:\n${error.message}`);
+    }
+
     // =====================================================
     // ZAPISYWANIE ZAMÓWIEŃ Z OBSŁUGĄ PROBLEMÓW WYMIARÓW
     // =====================================================
@@ -601,24 +910,23 @@ class SyncManager {
         }
 
         const selectedOrdersList = Array.from(this.selectedOrderIds);
-        const ordersWithIssues = selectedOrdersList.filter(orderId => 
-            this.ordersWithDimensionIssues.has(orderId)
-        );
+        const ordersWithIssues = selectedOrdersList.filter(orderId => {
+            const order = this.fetchedOrders.find(o => o.order_id == orderId);
+            return order && order.has_dimension_issues;
+        });
 
-        console.log('[SyncManager] 📋 Analiza wybranych zamówień:', {
+        console.log('[SyncManager] 📊 Analiza wybranych zamówień:', {
             total: selectedOrdersList.length,
-            withIssues: ordersWithIssues.length,
-            problemOrders: ordersWithIssues
+            withIssues: ordersWithIssues.length
         });
 
         if (ordersWithIssues.length > 0) {
-            console.log('[SyncManager] ⚠️ Znaleziono zamówienia z problemami wymiarów - pokazuję modal uzupełnienia');
-            this.showDimensionFixModal(ordersWithIssues, selectedOrdersList);
-            return;
+            console.log('[SyncManager] ⚠️ Znaleziono zamówienia z problemami wymiarów - pokazuję modal');
+            this.showDimensionsModal(ordersWithIssues);
+        } else {
+            console.log('[SyncManager] ✅ Brak problemów z wymiarami - zapisuję bezpośrednio');
+            await this.saveOrdersWithoutDimensions(selectedOrdersList);
         }
-
-        console.log('[SyncManager] ✅ Wszystkie zamówienia mają wymiary - zapisuję bezpośrednio');
-        await this.performOrdersSave(selectedOrdersList);
     }
 
     showDimensionFixModal(ordersWithIssues, allSelectedOrders) {
@@ -874,19 +1182,14 @@ class SyncManager {
     // =====================================================
 
     showGlobalLoading(title, text) {
-        console.log('[SyncManager] ⏳ Pokazywanie globalnego loading:', title);
-
-        if (this.globalLoadingTitle) this.globalLoadingTitle.textContent = title;
-        if (this.globalLoadingText) this.globalLoadingText.textContent = text;
-        
         if (this.globalLoading) {
+            if (this.globalLoadingTitle) this.globalLoadingTitle.textContent = title;
+            if (this.globalLoadingText) this.globalLoadingText.textContent = text;
             this.globalLoading.style.display = 'flex';
         }
     }
 
     hideGlobalLoading() {
-        console.log('[SyncManager] ⏳ Ukrywanie globalnego loading');
-
         if (this.globalLoading) {
             this.globalLoading.style.display = 'none';
         }
@@ -910,6 +1213,8 @@ class SyncManager {
         if (this.daysSelect) this.daysSelect.value = '';
         if (this.daysConfirmBtn) this.daysConfirmBtn.disabled = true;
         this.hideDatePreview();
+        this.ordersWithDimensionIssues.clear();
+        this.dimensionFixes = {};
     }
 
     formatDate(date) {

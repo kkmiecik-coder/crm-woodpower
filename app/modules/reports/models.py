@@ -109,29 +109,6 @@ class BaselinkerReportOrder(db.Model):
         if date_to:
             query = query.filter(cls.date_created <= date_to)
 
-<<<<<<< HEAD
-=======
-        # POPRAWKA FILTRÓW STATUSÓW: Uwzględnij rekordy ręczne
-        # 105112 = "Nowe - nieopłacone"
-        # 138625 = "Zamówienie anulowane"
-        excluded_status_ids = [105112, 138625]
-        excluded_status_names = ['Nowe - nieopłacone', 'Zamówienie anulowane']
-
-        # GŁÓWNA POPRAWKA: Zastosuj filtry statusów TYLKO do rekordów z Baselinker
-        query = query.filter(
-            db.or_(
-                # Rekordy ręczne - zawsze pokazuj (niezależnie od statusu)
-                cls.is_manual == True,
-                # Rekordy z Baselinker - zastosuj filtry statusów
-                db.and_(
-                    cls.is_manual == False,
-                    ~cls.baselinker_status_id.in_(excluded_status_ids),
-                    ~cls.current_status.in_(excluded_status_names)
-                )
-            )
-        )
-
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
         # Dodatkowe filtry (obsługa multiple values)
         if filters:
             for column, values in filters.items():
@@ -168,11 +145,7 @@ class BaselinkerReportOrder(db.Model):
 
         Args:
             days_back (int): Ile dni wstecz (None = wszystkie zamówienia)
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
         Returns:
             List[BaselinkerReportOrder]: Lista zamówień
         """
@@ -182,29 +155,8 @@ class BaselinkerReportOrder(db.Model):
         if days_back is not None:
             date_from = datetime.now().date() - timedelta(days=days_back)
             query = query.filter(cls.date_created >= date_from)
-<<<<<<< HEAD
         
         print(f"[DEBUG] get_orders_by_date_range: Pokazuję WSZYSTKIE statusy (bez domyślnych wykluczeń)")
-=======
-
-        # POPRAWKA: Zastosuj te same filtry statusów co w get_filtered_orders
-        excluded_status_ids = [105112, 138625]  # Nowe - nieopłacone, Zamówienie anulowane
-        excluded_status_names = ['Nowe - nieopłacone', 'Zamówienie anulowane']
-
-        # GŁÓWNA POPRAWKA: Uwzględnij rekordy ręczne (analogicznie do get_filtered_orders)
-        query = query.filter(
-            db.or_(
-                # Rekordy ręczne - zawsze pokazuj (niezależnie od statusu)
-                cls.is_manual == True,
-                # Rekordy z Baselinker - zastosuj filtry statusów
-                db.and_(
-                    cls.is_manual == False,
-                    ~cls.baselinker_status_id.in_(excluded_status_ids),
-                    ~cls.current_status.in_(excluded_status_names)
-                )
-            )
-        )
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 
         return query.order_by(cls.date_created.desc()).all()
     

@@ -26,6 +26,7 @@ class BaselinkerReportsService:
         self.endpoint = current_app.config.get('API_BASELINKER', {}).get('endpoint')
         self.logger = get_structured_logger('reports.service')
         self.parser = ProductNameParser()
+        self.dimension_fixes = {}
         
         # Mapowanie statusów Baselinker
         self.status_map = {
@@ -1091,6 +1092,103 @@ class BaselinkerReportsService:
                 'error': f'Błąd serwera: {str(e)}',
                 'orders': []
             }
+    def set_dimension_fixes(self, fixes: Dict):
+        """
+        Ustawia poprawki wymiarów dla produktów
+        
+        Args:
+            fixes (Dict): {order_id: {product_id: {length_cm: X, width_cm: Y, thickness_mm: Z}}}
+        """
+        self.dimension_fixes = fixes
+        self.logger.info("Ustawiono poprawki wymiarów", fixes_count=len(fixes))
+    
+    def clear_dimension_fixes(self):
+        """Czyści poprawki wymiarów"""
+        self.dimension_fixes = {}
+        self.logger.info("Wyczyszczono poprawki wymiarów")
+    
+    def _apply_dimension_fixes(self, order_id: int, product_id: int, parsed_data: Dict) -> Dict:
+        """
+        Stosuje poprawki wymiarów dla konkretnego produktu
+        
+        Args:
+            order_id (int): ID zamówienia
+            product_id (int): ID produktu
+            parsed_data (Dict): Sparsowane dane produktu
+            
+        Returns:
+            Dict: Poprawione dane produktu
+        """
+        if not self.dimension_fixes:
+            return parsed_data
+            
+        order_fixes = self.dimension_fixes.get(str(order_id), {})
+        product_fixes = order_fixes.get(str(product_id), {})
+        
+        if product_fixes:
+            # Zastosuj poprawki
+            if 'length_cm' in product_fixes:
+                parsed_data['length_cm'] = float(product_fixes['length_cm'])
+            if 'width_cm' in product_fixes:
+                parsed_data['width_cm'] = float(product_fixes['width_cm'])
+            if 'thickness_mm' in product_fixes:
+                parsed_data['thickness_mm'] = float(product_fixes['thickness_mm'])
+                
+            self.logger.info("Zastosowano poprawki wymiarów",
+                           order_id=order_id,
+                           product_id=product_id,
+                           fixes=product_fixes)
+        
+        return parsed_data
+    
+    # POPRAWKA w metodzie _create_report_record - dodaj zastosowanie poprawek
+    def _create_report_record(self, order: Dict, product: Dict) -> BaselinkerReportOrder:
+        """
+        POPRAWIONA METODA: Tworzy rekord raportu z zastosowaniem poprawek wymiarów
+        """
+        try:
+            # Parsuj nazwę produktu
+            product_name = product.get('name', '')
+            parsed_data = self.parser.parse_product_name(product_name)
+            
+            # NOWE: Zastosuj poprawki wymiarów jeśli są dostępne
+            order_id = order.get('order_id')
+            product_id = product.get('product_id')
+            if order_id and product_id:
+                parsed_data = self._apply_dimension_fixes(order_id, product_id, parsed_data)
+            
+            # Pozostała część metody bez zmian...
+            # [kod kontynuowany jak w oryginalnej metodzie]
+            
+            # Oblicz m3 (tylko jeśli mamy wszystkie wymiary)
+            total_m3 = None
+            if all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_mm']):
+                quantity = float(product.get('quantity', 0))
+                if quantity > 0:
+                    length_m = parsed_data['length_cm'] / 100
+                    width_m = parsed_data['width_cm'] / 100
+                    thickness_m = parsed_data['thickness_mm'] / 1000
+                    total_m3 = quantity * length_m * width_m * thickness_m
+            
+            # Reszta kodu tworzenia rekordu...
+            record = BaselinkerReportOrder(
+                # ... wszystkie pola jak w oryginalnej metodzie ...
+                total_m3=total_m3,
+                length_cm=parsed_data.get('length_cm'),
+                width_cm=parsed_data.get('width_cm'), 
+                thickness_mm=parsed_data.get('thickness_mm'),
+                # ... pozostałe pola ...
+            )
+            
+            return record
+            
+        except Exception as e:
+            self.logger.error("Błąd tworzenia rekordu z poprawkami wymiarów",
+                            order_id=order.get('order_id'),
+                            product_id=product.get('product_id'),
+                            error=str(e))
+            raise
+    
 
 # ===== FUNKCJE POMOCNICZE =====
 
@@ -1139,9 +1237,5 @@ def safe_float_convert(value) -> float:
     try:
         return float(value)
     except (ValueError, TypeError):
-<<<<<<< HEAD
         return 0.0
     
-=======
-        return 0.0
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec

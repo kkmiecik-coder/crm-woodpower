@@ -304,7 +304,7 @@
             </div>
         </main>
     </div>
-    
+
     <!-- Modal synchronizacji -->
     <!-- KROK 1: Modal wyboru ilości dni -->
     <div id="syncDaysModal" class="sync-modal" style="display: none;">
@@ -476,6 +476,73 @@
                     <span class="exists-icon">✓</span>
                     <span class="exists-text">Już w bazie</span>
                 </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Template dla pojedynczego zamówienia z problemami wymiarów -->
+    <template id="dimensionOrderTemplate">
+        <div class="dimension-order-item">
+            <div class="dimension-order-header">
+                <h4>Zamówienie #<span class="order-number"></span></h4>
+                <div class="order-info">
+                    <span class="customer-name"></span> • <span class="order-date"></span>
+                </div>
+            </div>
+            
+            <div class="dimension-products-list">
+                <!-- Produkty będą dodane tutaj -->
+            </div>
+        </div>
+    </template>
+
+    <!-- Template dla pojedynczego produktu z brakującymi wymiarami -->
+    <template id="dimensionProductTemplate">
+        <div class="dimension-product-item">
+            <div class="dimension-product-header">
+                <div class="product-name"></div>
+                <div class="product-quantity">Ilość: <span></span></div>
+            </div>
+            
+            <div class="dimension-inputs-grid">
+                <div class="dimension-input-group">
+                    <label>Długość (cm)</label>
+                    <input type="number" 
+                        class="dimension-input" 
+                        data-dimension="length_cm"
+                        step="0.1" 
+                        min="0"
+                        placeholder="np. 120">
+                </div>
+                
+                <div class="dimension-input-group">
+                    <label>Szerokość (cm)</label>
+                    <input type="number" 
+                        class="dimension-input" 
+                        data-dimension="width_cm"
+                        step="0.1" 
+                        min="0"
+                        placeholder="np. 60">
+                </div>
+                
+                <div class="dimension-input-group">
+                    <label>Grubość (mm)</label>
+                    <input type="number" 
+                        class="dimension-input" 
+                        data-dimension="thickness_mm"
+                        step="0.1" 
+                        min="0"
+                        placeholder="np. 18">
+                </div>
+                
+                <div class="dimension-calculated">
+                    <label>Objętość m³</label>
+                    <div class="calculated-volume">-</div>
+                </div>
+            </div>
+            
+            <div class="missing-dimensions-info">
+                Brakuje: <span class="missing-list"></span>
             </div>
         </div>
     </template>
@@ -829,12 +896,13 @@
     </template>
 
     <!-- Overlay do ładowania -->
-    <div id="syncLoadingOverlay" class="sync-loading-overlay hidden">
-        <div class="sync-loading-content">
-            <div class="spinner-large"></div>
-            <div class="sync-loading-text" id="syncLoadingText">Pobieranie danych...</div>
-        </div>
+    <div id="syncLoadingOverlay" class="sync-loading-overlay" style="display: none;">
+    <div class="sync-loading-content">
+        <div class="spinner-large"></div>
+        <div class="sync-loading-title" id="syncLoadingTitle">Pobieranie danych...</div>
+        <div class="sync-loading-text" id="syncLoadingText">Proszę czekać...</div>
     </div>
+</div>
 
     <!-- Scripts -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
