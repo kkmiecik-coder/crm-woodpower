@@ -4238,7 +4238,11 @@
 
 /* Label wariantu */
 .edit-calculations-main .variant-option .option-title {
+<<<<<<< HEAD
+    width: 205px;
+=======
     width: 180px;
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     color: #1F2020;
     font-family: Poppins, sans-serif;
     font-size: 14px;
@@ -4258,7 +4262,11 @@
     color: #1F2020;
     font-family: Poppins, sans-serif;
     text-align: right;
+<<<<<<< HEAD
+    min-width: 100px;
+=======
     min-width: 80px;
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 }
 
 /* STANY NIEDOSTĘPNOŚCI */

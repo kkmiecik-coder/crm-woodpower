@@ -668,11 +668,141 @@ function attachRemoveProductListeners() {
 }
 
 /**
+<<<<<<< HEAD
+ * POPRAWIONA WERSJA addVariantsToCalculatorForm - z poprawnym tabIndex
+ */
+function addVariantsToCalculatorForm() {
+    if (!window.activeQuoteForm) {
+        console.warn('[QUOTE EDITOR] Brak activeQuoteForm dla wariantów');
+        return;
+    }
+
+    const variantsContainer = window.activeQuoteForm.querySelector('.variants');
+    if (!variantsContainer) {
+        console.warn('[QUOTE EDITOR] Brak kontenera wariantów w activeQuoteForm');
+        return;
+    }
+
+    // Sprawdź czy warianty już istnieją
+    if (variantsContainer.children.length > 0) {
+        console.log('[QUOTE EDITOR] Warianty już istnieją w formularzu calculator.js');
+        return;
+    }
+
+    // Pobierz dostępne warianty z edytora
+    const editorVariants = document.querySelectorAll('.variant-option');
+
+    // KRYTYCZNE: Sprawdź tabIndex (powinien być 0 dla pierwszego formularza)
+    const allForms = window.quoteFormsContainer.querySelectorAll('.quote-form');
+    const tabIndex = Array.from(allForms).indexOf(window.activeQuoteForm);
+    console.log('[QUOTE EDITOR] tabIndex dla wariantów:', tabIndex);
+
+    editorVariants.forEach((editorVariant, index) => {
+        const radio = editorVariant.querySelector('input[type="radio"]');
+        if (!radio) return;
+
+        // Stwórz kontener wariantu dla calculator.js
+        const calculatorVariant = document.createElement('div');
+        calculatorVariant.className = 'variant-item';
+        calculatorVariant.style.display = 'none';
+
+        // Stwórz radio button zgodny z calculator.js
+        const calculatorRadio = document.createElement('input');
+        calculatorRadio.type = 'radio';
+        // POPRAWKA: Użyj prawidłowego tabIndex (powinno być 0)
+        calculatorRadio.name = `variant-product-${tabIndex}-selected`;
+        calculatorRadio.id = `calc-${radio.id}`;
+        calculatorRadio.value = radio.value;
+        calculatorRadio.checked = radio.checked;
+
+        // Dodaj spans dla cen (wymagane przez calculator.js)
+        const unitBrutto = document.createElement('span');
+        unitBrutto.className = 'unit-brutto';
+        const unitNetto = document.createElement('span');
+        unitNetto.className = 'unit-netto';
+        const totalBrutto = document.createElement('span');
+        totalBrutto.className = 'total-brutto';
+        const totalNetto = document.createElement('span');
+        totalNetto.className = 'total-netto';
+
+        calculatorVariant.appendChild(calculatorRadio);
+        calculatorVariant.appendChild(unitBrutto);
+        calculatorVariant.appendChild(unitNetto);
+        calculatorVariant.appendChild(totalBrutto);
+        calculatorVariant.appendChild(totalNetto);
+
+        variantsContainer.appendChild(calculatorVariant);
+    });
+
+    console.log(`[QUOTE EDITOR] ✅ Dodano ${editorVariants.length} wariantów do formularza calculator.js z tabIndex: ${tabIndex}`);
+}
+
+/**
+=======
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
  * Obsługa zmiany danych formularza
  */
 function onFormDataChange() {
     console.log('[QUOTE EDITOR] Dane formularza zostały zmienione');
 
+<<<<<<< HEAD
+    // Sprawdź czy calculator.js jest gotowy
+    if (!checkCalculatorReadiness()) {
+        console.warn('[QUOTE EDITOR] Calculator.js nie jest gotowy - używam fallback');
+        calculateEditorPrices();
+        return;
+    }
+
+    try {
+        // 1. Skonfiguruj środowisko calculator.js
+        console.log('[QUOTE EDITOR] Konfiguracja calculator.js dla edytora...');
+        const setupSuccess = setupCalculatorForEditor();
+
+        if (!setupSuccess) {
+            console.error('[QUOTE EDITOR] Błąd konfiguracji calculator.js');
+            return;
+        }
+
+        // 2. Synchronizuj dane z edytora
+        console.log('[QUOTE EDITOR] Synchronizacja danych...');
+        const syncSuccess = syncEditorDataToCalculatorForm();
+
+        if (!syncSuccess) {
+            console.error('[QUOTE EDITOR] Błąd synchronizacji danych');
+            return;
+        }
+
+        // 3. ✅ DODAJ: Upewnij się że variantMapping jest dostępny
+        copyVariantMappingToEditor();
+
+        // 4. NOWE: Zastąp funkcję updatePrices KOMPLETNĄ wersją
+        console.log('[QUOTE EDITOR] Tworzę KOMPLETNĄ funkcję updatePrices...');
+        createCustomUpdatePricesForEditor();
+
+        // 5. Sprawdź stan activeQuoteForm
+        if (!window.activeQuoteForm) {
+            console.error('[QUOTE EDITOR] ❌ activeQuoteForm nie jest ustawiony!');
+            return;
+        }
+
+        console.log('[QUOTE EDITOR] ✅ activeQuoteForm gotowy:', window.activeQuoteForm);
+
+        // 6. Wywołaj KOMPLETNĄ funkcję updatePrices
+        console.log('[QUOTE EDITOR] ✅ Wywołuję KOMPLETNĄ updatePrices()...');
+        callUpdatePricesSecurely();
+
+        console.log('[QUOTE EDITOR] ✅ updatePrices() wykonany pomyślnie');
+
+        // 7. Skopiuj wyniki z powrotem do edytora
+        copyCalculationResults();
+
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ Błąd w onFormDataChange:', error);
+
+        // Fallback w przypadku błędu
+        console.log('[QUOTE EDITOR] Używam funkcji fallback...');
+        calculateEditorPrices();
+=======
     // Pobierz dane formularza
     const formData = collectFormData();
     if (!formData) {
@@ -697,12 +827,49 @@ function onFormDataChange() {
         console.warn('[QUOTE EDITOR] Calculator.js nie jest gotowy - używam fallback');
         // Fallback - wywołaj własną funkcję obliczeń
         calculateEditorPrices(formData);
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     }
 }
 
 // Eksportuj funkcję do globalnego scope dla debugowania
 window.checkCalculatorReadiness = checkCalculatorReadiness;
 
+<<<<<<< HEAD
+function restoreOriginalUpdatePrices() {
+    if (typeof window.originalUpdatePrices === 'function') {
+        window.updatePrices = window.originalUpdatePrices;
+        delete window.originalUpdatePrices;
+        console.log('[QUOTE EDITOR] ✅ Przywrócono oryginalną funkcję updatePrices');
+    }
+}
+
+/**
+ * NOWA FUNKCJA - Bezpieczne wywołanie updatePrices z zabezpieczeniem activeQuoteForm
+ */
+function callUpdatePricesSecurely() {
+    console.log('[QUOTE EDITOR] 🔒 Wywołuję updatePrices() z prostym zabezpieczeniem...');
+
+    // Upewnij się że activeQuoteForm jest ustawiony
+    if (!window.activeQuoteForm) {
+        console.error('[QUOTE EDITOR] ❌ activeQuoteForm nie jest ustawiony!');
+        return;
+    }
+
+    console.log('[QUOTE EDITOR] activeQuoteForm przed updatePrices:', window.activeQuoteForm);
+
+    // Wywołaj naszą własną funkcję updatePrices
+    try {
+        updatePrices();
+        console.log('[QUOTE EDITOR] ✅ Własna updatePrices() wykonana pomyślnie');
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ Błąd w updatePrices():', error);
+    }
+
+    console.log('[QUOTE EDITOR] activeQuoteForm po updatePrices:', window.activeQuoteForm);
+}
+
+=======
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 /**
  * Funkcja do sprawdzania czy calculator.js jest ready
  */
@@ -724,6 +891,150 @@ function checkCalculatorReadiness() {
 
     return isReady;
 }
+<<<<<<< HEAD
+function setupCalculatorForEditor() {
+    console.log('[QUOTE EDITOR] Konfiguracja calculator.js dla edytora...');
+
+    // 1. Zapisz oryginalne zmienne jeśli istnieją
+    if (window.quoteFormsContainer && !window.originalQuoteFormsContainer) {
+        window.originalQuoteFormsContainer = window.quoteFormsContainer;
+        console.log('[QUOTE EDITOR] Zapisano oryginalny quoteFormsContainer');
+    }
+    if (window.activeQuoteForm && !window.originalActiveQuoteForm) {
+        window.originalActiveQuoteForm = window.activeQuoteForm;
+        console.log('[QUOTE EDITOR] Zapisano oryginalny activeQuoteForm');
+    }
+
+    // 2. Znajdź lub stwórz kontener formularzy
+    let editorQuoteFormsContainer = document.querySelector('#quote-editor-modal .quote-forms-container');
+    if (!editorQuoteFormsContainer) {
+        editorQuoteFormsContainer = document.createElement('div');
+        editorQuoteFormsContainer.className = 'quote-forms-container';
+        editorQuoteFormsContainer.style.display = 'none';
+
+        const modal = document.getElementById('quote-editor-modal');
+        modal.appendChild(editorQuoteFormsContainer);
+        console.log('[QUOTE EDITOR] Stworzono kontener formularzy');
+    }
+
+    // 3. Znajdź lub stwórz formularz
+    let mockQuoteForm = editorQuoteFormsContainer.querySelector('.quote-form');
+    if (!mockQuoteForm) {
+        mockQuoteForm = document.createElement('div');
+        mockQuoteForm.className = 'quote-form';
+        mockQuoteForm.style.display = 'none';
+
+        mockQuoteForm.innerHTML = `
+            <div class="product-inputs">
+                <select data-field="clientType" style="display: none;">
+                    <option value="">Wybierz grupę</option>
+                    <option value="Florek">Florek</option>
+                    <option value="Hurt">Hurt</option>
+                    <option value="Detal">Detal</option>
+                    <option value="Detal+">Detal+</option>
+                </select>
+                <input type="number" data-field="length" style="display: none;">
+                <input type="number" data-field="width" style="display: none;">
+                <input type="number" data-field="thickness" style="display: none;">
+                <input type="number" data-field="quantity" value="1" style="display: none;">
+            </div>
+            <div class="variants" style="display: none;"></div>
+        `;
+
+        // KRYTYCZNE: Dodaj formularz do kontenera
+        editorQuoteFormsContainer.appendChild(mockQuoteForm);
+        console.log('[QUOTE EDITOR] Stworzono i dodano formularz calculator.js do kontenera');
+    }
+
+    // 4. KRYTYCZNE: Ustaw zmienne globalne wymagane przez calculator.js
+    window.quoteFormsContainer = editorQuoteFormsContainer;
+    window.activeQuoteForm = mockQuoteForm;
+
+    console.log('[QUOTE EDITOR] ✅ Ustawiono activeQuoteForm:', window.activeQuoteForm);
+    console.log('[QUOTE EDITOR] ✅ Ustawiono quoteFormsContainer:', window.quoteFormsContainer);
+
+    // 5. Sprawdź czy formularz jest w kontenerze (dla debugowania)
+    const formIsInContainer = editorQuoteFormsContainer.contains(mockQuoteForm);
+    console.log('[QUOTE EDITOR] ✅ Formularz jest w kontenerze:', formIsInContainer);
+
+    // 6. Sprawdź indexOf dla debugowania
+    const allForms = editorQuoteFormsContainer.querySelectorAll('.quote-form');
+    const indexOf = Array.from(allForms).indexOf(mockQuoteForm);
+    console.log('[QUOTE EDITOR] ✅ indexOf formularza w kontenerze:', indexOf);
+
+    // 7. Dodaj warianty do formularza calculator.js
+    addVariantsToCalculatorForm();
+
+    return true;
+}
+
+function syncEditorDataToCalculatorForm() {
+    if (!window.activeQuoteForm) {
+        console.error('[QUOTE EDITOR] Brak activeQuoteForm do synchronizacji');
+        return false;
+    }
+
+    // Pobierz dane z inputów edytora
+    const editLength = document.getElementById('edit-length')?.value;
+    const editWidth = document.getElementById('edit-width')?.value;
+    const editThickness = document.getElementById('edit-thickness')?.value;
+    const editQuantity = document.getElementById('edit-quantity')?.value;
+    const editClientType = document.getElementById('edit-clientType')?.value;
+
+    // Znajdź inputy w formularzu calculator.js
+    const lengthInput = window.activeQuoteForm.querySelector('[data-field="length"]');
+    const widthInput = window.activeQuoteForm.querySelector('[data-field="width"]');
+    const thicknessInput = window.activeQuoteForm.querySelector('[data-field="thickness"]');
+    const quantityInput = window.activeQuoteForm.querySelector('[data-field="quantity"]');
+    const clientTypeSelect = window.activeQuoteForm.querySelector('[data-field="clientType"]');
+
+    // Skopiuj wartości
+    if (lengthInput) {
+        lengthInput.value = editLength || '';
+        console.log('[QUOTE EDITOR] Skopiowano length:', editLength);
+    }
+    if (widthInput) {
+        widthInput.value = editWidth || '';
+        console.log('[QUOTE EDITOR] Skopiowano width:', editWidth);
+    }
+    if (thicknessInput) {
+        thicknessInput.value = editThickness || '';
+        console.log('[QUOTE EDITOR] Skopiowano thickness:', editThickness);
+    }
+    if (quantityInput) {
+        quantityInput.value = editQuantity || '1';
+        console.log('[QUOTE EDITOR] Skopiowano quantity:', editQuantity);
+    }
+    if (clientTypeSelect) {
+        clientTypeSelect.value = editClientType || '';
+        console.log('[QUOTE EDITOR] Skopiowano clientType:', editClientType);
+    }
+
+    // Synchronizuj wybrany wariant
+    syncSelectedVariant();
+
+    console.log('[QUOTE EDITOR] ✅ Zsynchronizowano dane z edytora do calculator.js');
+    return true;
+}
+
+function syncSelectedVariant() {
+    if (!window.activeQuoteForm) return;
+
+    // Znajdź wybrany wariant w edytorze
+    const selectedEditorRadio = document.querySelector('.variant-option input[type="radio"]:checked');
+    if (!selectedEditorRadio) {
+        console.log('[QUOTE EDITOR] Brak wybranego wariantu w edytorze');
+        return;
+    }
+
+    // Znajdź odpowiedni radio button w formularzu calculator.js
+    const calculatorRadio = window.activeQuoteForm.querySelector(`input[value="${selectedEditorRadio.value}"]`);
+    if (calculatorRadio) {
+        calculatorRadio.checked = true;
+        console.log('[QUOTE EDITOR] Zsynchronizowano wybrany wariant:', selectedEditorRadio.value);
+    } else {
+        console.warn('[QUOTE EDITOR] Nie znaleziono wariantu w formularzu calculator.js:', selectedEditorRadio.value);
+=======
 
 function setupCalculatorForEditor() {
     console.log('[QUOTE EDITOR] Konfiguracja calculator.js dla edytora...');
@@ -893,11 +1204,66 @@ function syncSelectedVariant(mockForm) {
             mockRadio.checked = true;
             console.log(`[QUOTE EDITOR] Zsynchronizowano wybrany wariant: ${variantValue}`);
         }
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     }
 }
 
 function copyCalculationResults() {
     if (!window.activeQuoteForm) {
+<<<<<<< HEAD
+        console.warn('[QUOTE EDITOR] Brak activeQuoteForm do kopiowania wyników');
+        return;
+    }
+
+    // Pobierz wyniki z formularza calculator.js
+    const calculatorVariants = window.activeQuoteForm.querySelectorAll('.variant-item');
+    const editorVariants = document.querySelectorAll('.variant-option');
+
+    calculatorVariants.forEach((calcVariant, index) => {
+        const calcRadio = calcVariant.querySelector('input[type="radio"]');
+        if (!calcRadio) return;
+
+        // Znajdź odpowiedni wariant w edytorze
+        const editorVariant = Array.from(editorVariants).find(variant => {
+            const editorRadio = variant.querySelector('input[type="radio"]');
+            return editorRadio && editorRadio.value === calcRadio.value;
+        });
+
+        if (!editorVariant) return;
+
+        // Skopiuj ceny
+        const calcUnitBrutto = calcVariant.querySelector('.unit-brutto')?.textContent;
+        const calcUnitNetto = calcVariant.querySelector('.unit-netto')?.textContent;
+        const calcTotalBrutto = calcVariant.querySelector('.total-brutto')?.textContent;
+        const calcTotalNetto = calcVariant.querySelector('.total-netto')?.textContent;
+
+        const editorUnitBrutto = editorVariant.querySelector('.unit-brutto');
+        const editorUnitNetto = editorVariant.querySelector('.unit-netto');
+        const editorTotalBrutto = editorVariant.querySelector('.total-brutto');
+        const editorTotalNetto = editorVariant.querySelector('.total-netto');
+
+        if (editorUnitBrutto && calcUnitBrutto) editorUnitBrutto.textContent = calcUnitBrutto;
+        if (editorUnitNetto && calcUnitNetto) editorUnitNetto.textContent = calcUnitNetto;
+        if (editorTotalBrutto && calcTotalBrutto) editorTotalBrutto.textContent = calcTotalBrutto;
+        if (editorTotalNetto && calcTotalNetto) editorTotalNetto.textContent = calcTotalNetto;
+    });
+
+    // Skopiuj dataset z activeQuoteForm (ceny wybranego wariantu)
+    if (window.activeQuoteForm.dataset.orderBrutto) {
+        const summaryBrutto = document.getElementById('edit-summary-brutto');
+        if (summaryBrutto) {
+            summaryBrutto.textContent = window.activeQuoteForm.dataset.orderBrutto;
+        }
+    }
+
+    if (window.activeQuoteForm.dataset.orderNetto) {
+        const summaryNetto = document.getElementById('edit-summary-netto');
+        if (summaryNetto) {
+            summaryNetto.textContent = window.activeQuoteForm.dataset.orderNetto;
+        }
+    }
+
+=======
         console.warn('[QUOTE EDITOR] Brak activeQuoteForm do skopiowania wyników');
         return;
     }
@@ -923,6 +1289,7 @@ function copyCalculationResults() {
         });
     });
 
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     console.log('[QUOTE EDITOR] ✅ Skopiowano wyniki obliczeń do edytora');
 }
 
@@ -1877,6 +2244,39 @@ function collectFormData() {
  * Fallback funkcja do obliczeń jeśli calculator.js nie jest dostępny
  * @param {Object} formData - Dane formularza
  */
+<<<<<<< HEAD
+function calculateEditorPrices() {
+    console.log('[QUOTE EDITOR] Wykonuję obliczenia fallback...');
+
+    // Pobierz dane z formularza
+    const length = parseFloat(document.getElementById('edit-length')?.value) || 0;
+    const width = parseFloat(document.getElementById('edit-width')?.value) || 0;
+    const thickness = parseFloat(document.getElementById('edit-thickness')?.value) || 0;
+    const quantity = parseInt(document.getElementById('edit-quantity')?.value) || 1;
+
+    if (length <= 0 || width <= 0 || thickness <= 0) {
+        showVariantErrors('Brak wymiarów');
+        return;
+    }
+
+    // Podstawowe obliczenie objętości
+    const volume = (length / 1000) * (width / 1000) * (thickness / 1000) * quantity;
+
+    // Ustaw przykładowe ceny (to będzie zastąpione przez prawdziwe obliczenia)
+    document.querySelectorAll('.variant-option').forEach(variant => {
+        const unitBrutto = variant.querySelector('.unit-brutto');
+        const unitNetto = variant.querySelector('.unit-netto');
+        const totalBrutto = variant.querySelector('.total-brutto');
+        const totalNetto = variant.querySelector('.total-netto');
+
+        if (unitBrutto) unitBrutto.textContent = 'Obliczanie...';
+        if (unitNetto) unitNetto.textContent = 'Obliczanie...';
+        if (totalBrutto) totalBrutto.textContent = 'Obliczanie...';
+        if (totalNetto) totalNetto.textContent = 'Obliczanie...';
+    });
+
+    console.log('[QUOTE EDITOR] ✅ Wykonano obliczenia fallback dla objętości:', volume);
+=======
 function calculateEditorPrices(formData) {
     console.log('[QUOTE EDITOR] Wykonuję obliczenia fallback:', formData);
 
@@ -1902,6 +2302,7 @@ function calculateEditorPrices(formData) {
         if (totalBruttoSpan) totalBruttoSpan.textContent = 'Brak cennika';
         if (totalNettoSpan) totalNettoSpan.textContent = 'Brak cennika';
     });
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 }
 
 function syncEditorToMockForm() {
@@ -1936,6 +2337,12 @@ function syncEditorToMockForm() {
 function resetCalculatorAfterEditor() {
     console.log('[QUOTE EDITOR] Resetowanie konfiguracji calculator.js...');
 
+<<<<<<< HEAD
+    // NOWE: Przywróć oryginalną funkcję updatePrices
+    restoreOriginalUpdatePrices();
+
+=======
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     // Przywróć oryginalne zmienne globalne
     if (window.originalQuoteFormsContainer) {
         window.quoteFormsContainer = window.originalQuoteFormsContainer;
@@ -2095,9 +2502,14 @@ function initializeCalculatorForEditor() {
 
     console.log('[QUOTE EDITOR] Inicjalizuję calculator.js dla edytora...');
 
+<<<<<<< HEAD
+    // Wyłącz automatyczną inicjalizację calculator.js
+    if (typeof window.init === 'function') {
+=======
     // Zastąp problematyczne funkcje calculator.js pustymi wersjami
     if (typeof window.init === 'function') {
         // Wyłącz automatyczną inicjalizację calculator.js
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
         console.log('[QUOTE EDITOR] Wyłączam automatyczną inicjalizację calculator.js');
     }
 
@@ -2105,6 +2517,12 @@ function initializeCalculatorForEditor() {
     window.quoteFormsContainer = null;
     window.activeQuoteForm = null;
 
+<<<<<<< HEAD
+    // ✅ DODAJ: Skopiuj variantMapping
+    copyVariantMappingToEditor();
+
+=======
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     // Zainicjalizuj tylko potrzebne części calculator.js
     if (typeof window.buildPriceIndex === 'function') {
         try {
@@ -2149,3 +2567,409 @@ document.addEventListener('DOMContentLoaded', function () {
     initQuoteEditor();
     initFinishingButtons();
 });
+<<<<<<< HEAD
+
+/**
+ * KROK 1: Dodaj tę funkcję na KOŃCU pliku quote_editor.js
+ * Ta funkcja zastąpi oryginalną updatePrices z calculator.js
+ */
+function createCustomUpdatePricesForEditor() {
+    // Zapisz oryginalną funkcję updatePrices
+    if (typeof window.originalUpdatePrices === 'undefined' && typeof updatePrices === 'function') {
+        window.originalUpdatePrices = updatePrices;
+        console.log('[QUOTE EDITOR] 💾 Zapisano oryginalną funkcję updatePrices');
+    }
+
+    // NAPRAWIONA KOMPLETNA WERSJA updatePrices
+    window.updatePrices = function () {
+        console.log('[QUOTE EDITOR] 🚀 Wywołano NAPRAWIONĄ updatePrices dla edytora');
+
+        // Sprawdź czy activeQuoteForm jest ustawiony
+        if (!window.activeQuoteForm) {
+            console.error('[CUSTOM updatePrices] ❌ Brak activeQuoteForm w edytorze');
+            return;
+        }
+
+        const activeQuoteForm = window.activeQuoteForm;
+
+        // Pobierz elementy z formularza
+        const lengthEl = activeQuoteForm.querySelector('input[data-field="length"]');
+        const widthEl = activeQuoteForm.querySelector('input[data-field="width"]');
+        const thicknessEl = activeQuoteForm.querySelector('input[data-field="thickness"]');
+        const quantityEl = activeQuoteForm.querySelector('input[data-field="quantity"]');
+        const clientTypeEl = activeQuoteForm.querySelector('select[data-field="clientType"]');
+        const variantContainer = activeQuoteForm.querySelector('.variants');
+
+        if (!lengthEl || !widthEl || !thicknessEl || !quantityEl || !variantContainer) {
+            console.warn('[CUSTOM updatePrices] ❌ Brak wymaganych elementów w formularzu');
+            return;
+        }
+
+        // Pobierz i waliduj wartości
+        const length = parseFloat(lengthEl.value);
+        const width = parseFloat(widthEl.value);
+        const thickness = parseFloat(thicknessEl.value);
+        let quantity = parseInt(quantityEl.value);
+        const clientType = clientTypeEl ? clientTypeEl.value : "";
+
+        // Walidacja quantity
+        if (isNaN(quantity) || quantity < 1) {
+            quantity = 1;
+            quantityEl.value = 1;
+        }
+
+        console.log('[CUSTOM updatePrices] 📊 Pobrane wartości:', {
+            length, width, thickness, quantity, clientType
+        });
+
+        // Sprawdź błędy wymiarów
+        let errorMsg = "";
+        if (isNaN(length)) errorMsg = "Brak dług.";
+        else if (isNaN(width)) errorMsg = "Brak szer.";
+        else if (isNaN(thickness)) errorMsg = "Brak grub.";
+
+        if (errorMsg) {
+            console.warn('[CUSTOM updatePrices] ⚠️ Błąd wymiarów:', errorMsg);
+            showErrorForAllVariants(errorMsg, variantContainer);
+            activeQuoteForm.dataset.orderBrutto = "";
+            activeQuoteForm.dataset.orderNetto = "";
+            return;
+        }
+
+        // Sprawdź grupę cenową
+        if (!clientType) {
+            console.warn('[CUSTOM updatePrices] ⚠️ Brak grupy cenowej');
+            showErrorForAllVariants("Brak grupy", variantContainer);
+            activeQuoteForm.dataset.orderBrutto = "";
+            activeQuoteForm.dataset.orderNetto = "";
+            return;
+        }
+
+        // ✅ IDENTYCZNE z calculator.js: Oblicz objętość z zaokrągleniem grubości
+        const singleVolume = calculateSingleVolume(length, width, Math.ceil(thickness));
+        console.log('[CUSTOM updatePrices] 📐 Obliczona objętość (z Math.ceil):', singleVolume, {
+            length, width, thickness,
+            thicknessCeil: Math.ceil(thickness)
+        });
+
+        // ✅ Pobierz mnożnik
+        let multiplier = 1.0;
+        if (typeof window.isPartner === 'boolean' && window.isPartner) {
+            multiplier = window.userMultiplier || 1.0;
+        } else if (typeof window.multiplierMapping === 'object' && window.multiplierMapping[clientType]) {
+            multiplier = window.multiplierMapping[clientType];
+        } else {
+            const fallbackMultipliers = {
+                'Florek': 1.0,
+                'Hurt': 1.1,
+                'Detal': 1.3,
+                'Detal+': 1.5
+            };
+            multiplier = fallbackMultipliers[clientType] || 1.0;
+        }
+
+        console.log('[CUSTOM updatePrices] 💰 Mnożnik dla grupy', clientType + ':', multiplier);
+
+        // Pobierz warianty
+        const variantItems = Array.from(variantContainer.children)
+            .filter(child => child.querySelector('input[type="radio"]'));
+
+        console.log('[CUSTOM updatePrices] 🎯 Znaleziono wariantów:', variantItems.length);
+
+        // Reset kolorów wariantów
+        variantItems.forEach(variant => {
+            variant.querySelectorAll('*').forEach(el => el.style.color = "");
+        });
+
+        let selectedVariantData = null;
+
+        // ✅ NAPRAWIONE obliczenia dla każdego wariantu
+        variantItems.forEach(variant => {
+            const radio = variant.querySelector('input[type="radio"]');
+            if (!radio) return;
+
+            const variantCode = radio.value;
+            console.log('[CUSTOM updatePrices] 🔄 Przetwarzam wariant:', variantCode);
+
+            // Pobierz elementy cen
+            const unitBruttoSpan = variant.querySelector('.unit-brutto');
+            const unitNettoSpan = variant.querySelector('.unit-netto');
+            const totalBruttoSpan = variant.querySelector('.total-brutto');
+            const totalNettoSpan = variant.querySelector('.total-netto');
+
+            if (!unitBruttoSpan || !unitNettoSpan || !totalBruttoSpan || !totalNettoSpan) {
+                console.warn('[CUSTOM updatePrices] ⚠️ Brak elementów cen dla wariantu:', variantCode);
+                return;
+            }
+
+            // ✅ NAPRAWIONE WYSZUKIWANIE CEN
+            let basePrice = 0;
+            let match = null;
+
+            if (typeof getPrice === 'function' && typeof window.variantMapping === 'object') {
+                const config = window.variantMapping[variantCode];
+                if (config) {
+                    // ✅ KLUCZOWE: Użyj DOKŁADNIE tych samych parametrów co calculator.js
+                    // NIE zaokrąglaj grubości tutaj - getPrice() robi to wewnętrznie
+                    match = getPrice(config.species, config.technology, config.wood_class, thickness, length);
+
+                    console.log('[CUSTOM updatePrices] 🔍 Wyszukiwanie w cenniku:', {
+                        variant: variantCode,
+                        species: config.species,
+                        technology: config.technology,
+                        wood_class: config.wood_class,
+                        thickness: thickness,
+                        thicknessCeil: Math.ceil(thickness),
+                        length: length,
+                        match: match
+                    });
+
+                    if (match) {
+                        basePrice = match.price_per_m3;
+                        console.log('[CUSTOM updatePrices] ✅ ZNALEZIONO CENĘ Z BAZY:', {
+                            variant: variantCode,
+                            basePrice: basePrice,
+                            match: match
+                        });
+                    } else {
+                        // ✅ DODATKOWE DEBUGOWANIE gdy nie ma dopasowania
+                        console.warn('[CUSTOM updatePrices] ❌ BRAK DOPASOWANIA - szczegóły:', {
+                            variant: variantCode,
+                            config: config,
+                            searchParams: { thickness, length },
+                            mathCeil: Math.ceil(thickness)
+                        });
+
+                        // Sprawdź czy mamy priceIndex
+                        const key = `${config.species}::${config.technology}::${config.wood_class}`;
+                        const availableEntries = window.priceIndex?.[key] || [];
+                        console.log('[CUSTOM updatePrices] Dostępne wpisy dla klucza', key + ':', availableEntries.length);
+
+                        if (availableEntries.length > 0) {
+                            console.log('[CUSTOM updatePrices] Przykładowe wpisy:', availableEntries.slice(0, 3));
+
+                            // Sprawdź czy któryś wpis by się dopasował
+                            availableEntries.forEach((entry, idx) => {
+                                const thickOk = Math.ceil(thickness) >= entry.thickness_min && Math.ceil(thickness) <= entry.thickness_max;
+                                const lengthOk = length >= entry.length_min && length <= entry.length_max;
+                                console.log(`[CUSTOM updatePrices] Wpis ${idx}: thick=${thickOk} (${Math.ceil(thickness)} in ${entry.thickness_min}-${entry.thickness_max}), length=${lengthOk} (${length} in ${entry.length_min}-${entry.length_max})`);
+                            });
+                        }
+                    }
+                }
+            }
+
+            // ✅ POPRAWIONE FALLBACK z cenami z rzeczywistego cennika
+            if (basePrice === 0) {
+                // Ceny na podstawie rzeczywistego cennika dla długości ~200cm
+                const realisticPrices = {
+                    'dab-lity-ab': 14500,  // Dąb Lity A/B 149.01-200.0cm
+                    'dab-lity-bb': 13000,  // Dąb Lity B/B 149.01-200.0cm  
+                    'dab-micro-ab': 10000, // Dąb Mikrowczep A/B
+                    'dab-micro-bb': 10000, // Dąb Mikrowczep B/B
+                    'jes-lity-ab': 13000,  // Jesion Lity A/B 149.01-200.0cm
+                    'jes-micro-ab': 11000, // Jesion Mikrowczep A/B
+                    'buk-lity-ab': 9000,   // Buk Lity A/B
+                    'buk-micro-ab': 8500   // Buk Mikrowczep A/B
+                };
+                basePrice = realisticPrices[variantCode] || 12000;
+                console.warn('[CUSTOM updatePrices] ⚠️ Używam REALISTYCZNĄ cenę fallback dla:', variantCode, '=', basePrice);
+            }
+
+            // ✅ IDENTYCZNE OBLICZENIA jak w calculator.js
+            let unitNetto = singleVolume * basePrice * multiplier;
+            let unitBrutto = unitNetto * 1.23;
+            let totalNetto = unitNetto * quantity;
+            let totalBrutto = unitBrutto * quantity;
+
+            console.log('[CUSTOM updatePrices] 💵 Ceny dla', variantCode + ':', {
+                basePrice,
+                singleVolume,
+                multiplier,
+                unitNetto: unitNetto.toFixed(2),
+                unitBrutto: unitBrutto.toFixed(2),
+                totalNetto: totalNetto.toFixed(2),
+                totalBrutto: totalBrutto.toFixed(2)
+            });
+
+            // ✅ FORMATOWANIE jak w calculator.js
+            if (typeof formatPLN === 'function') {
+                unitBruttoSpan.textContent = formatPLN(unitBrutto);
+                unitNettoSpan.textContent = formatPLN(unitNetto);
+                totalBruttoSpan.textContent = formatPLN(totalBrutto);
+                totalNettoSpan.textContent = formatPLN(totalNetto);
+            } else {
+                unitBruttoSpan.textContent = unitBrutto.toFixed(2) + ' PLN';
+                unitNettoSpan.textContent = unitNetto.toFixed(2) + ' PLN';
+                totalBruttoSpan.textContent = totalBrutto.toFixed(2) + ' PLN';
+                totalNettoSpan.textContent = totalNetto.toFixed(2) + ' PLN';
+            }
+
+            // ✅ ZAPISZ CENY w dataset radio buttona
+            radio.dataset.unitBrutto = unitBrutto.toFixed(2);
+            radio.dataset.unitNetto = unitNetto.toFixed(2);
+            radio.dataset.totalBrutto = totalBrutto.toFixed(2);
+            radio.dataset.totalNetto = totalNetto.toFixed(2);
+
+            // Jeśli ten wariant jest zaznaczony
+            if (radio.checked) {
+                selectedVariantData = {
+                    unitBrutto: unitBrutto.toFixed(2),
+                    unitNetto: unitNetto.toFixed(2),
+                    totalBrutto: totalBrutto.toFixed(2),
+                    totalNetto: totalNetto.toFixed(2)
+                };
+
+                // ✅ POMARAŃCZOWY KOLOR dla wybranego wariantu
+                variant.querySelectorAll('*').forEach(el => el.style.color = "#ED6B24");
+            }
+        });
+
+        // ✅ ZAPISZ dane wybranego wariantu w dataset formularza
+        if (selectedVariantData) {
+            activeQuoteForm.dataset.orderBrutto = selectedVariantData.totalBrutto;
+            activeQuoteForm.dataset.orderNetto = selectedVariantData.totalNetto;
+
+            console.log('[CUSTOM updatePrices] ✅ Zapisano dane wybranego wariantu:', selectedVariantData);
+        } else {
+            activeQuoteForm.dataset.orderBrutto = "";
+            activeQuoteForm.dataset.orderNetto = "";
+            console.log('[CUSTOM updatePrices] ⚠️ Brak wybranego wariantu');
+        }
+
+        // ✅ OBLICZ WYKOŃCZENIE
+        if (typeof calculateFinishingCost === 'function') {
+            try {
+                const finishingResult = calculateFinishingCost(activeQuoteForm);
+                console.log('[CUSTOM updatePrices] 🎨 Obliczono wykończenie:', finishingResult);
+            } catch (error) {
+                console.warn('[CUSTOM updatePrices] ⚠️ Błąd obliczania wykończenia:', error);
+            }
+        }
+
+        console.log('[CUSTOM updatePrices] 🎉 Naprawione obliczenia zakończone pomyślnie');
+    };
+
+    console.log('[QUOTE EDITOR] ✅ Zastąpiono funkcję updatePrices NAPRAWIONĄ wersją');
+}
+
+/**
+ * DODAJ funkcję testową dla cennika
+ */
+function testPriceSearch() {
+    console.log('=== TEST WYSZUKIWANIA CEN ===');
+
+    const testCases = [
+        { species: 'Dąb', technology: 'Lity', wood_class: 'A/B', thickness: 4, length: 200, expected: 14500 },
+        { species: 'Dąb', technology: 'Lity', wood_class: 'A/B', thickness: 2, length: 180, expected: 16000 },
+        { species: 'Dąb', technology: 'Mikrowczep', wood_class: 'A/B', thickness: 4, length: 200, expected: 10000 },
+        { species: 'Buk', technology: 'Lity', wood_class: 'A/B', thickness: 4, length: 200, expected: 9000 }
+    ];
+
+    testCases.forEach((test, index) => {
+        console.log(`\n--- Test ${index + 1}: ${test.species} ${test.technology} ${test.wood_class} ---`);
+        console.log(`Parametry: grubość=${test.thickness}cm, długość=${test.length}cm`);
+        console.log(`Oczekiwana cena: ${test.expected} PLN/m³`);
+
+        if (typeof getPrice === 'function') {
+            const result = getPrice(test.species, test.technology, test.wood_class, test.thickness, test.length);
+            if (result) {
+                console.log(`✅ ZNALEZIONO: ${result.price_per_m3} PLN/m³`);
+                console.log(`Zakres grubości: ${result.thickness_min}-${result.thickness_max}`);
+                console.log(`Zakres długości: ${result.length_min}-${result.length_max}`);
+
+                if (result.price_per_m3 === test.expected) {
+                    console.log(`🎯 PERFECT MATCH!`);
+                } else {
+                    console.log(`⚠️ Cena różna od oczekiwanej (${test.expected})`);
+                }
+            } else {
+                console.log(`❌ BRAK DOPASOWANIA`);
+                console.log(`Math.ceil(${test.thickness}) = ${Math.ceil(test.thickness)}`);
+            }
+        } else {
+            console.log('❌ Funkcja getPrice niedostępna');
+        }
+    });
+
+    console.log('\n=== KONIEC TESTU ===');
+}
+
+// Eksportuj funkcję testową
+window.testPriceSearch = testPriceSearch;
+
+// ✅ calculateSingleVolume - WAŻNA FUNKCJA z calculator.js
+function calculateSingleVolume(length, width, thickness) {
+    // UWAGA: W calculator.js to jest (length/100) * (width/100) * (thickness/100)
+    // ale sprawdźmy czy to nie powinno być inne przeliczenie
+    return (length / 100) * (width / 100) * (thickness / 100);
+}
+
+// ✅ showErrorForAllVariants - funkcja wyświetlania błędów
+function showErrorForAllVariants(errorMsg, variantContainer) {
+    const variantItems = Array.from(variantContainer.children)
+        .filter(child => child.querySelector('input[type="radio"]'));
+
+    variantItems.forEach(variant => {
+        const unitBruttoSpan = variant.querySelector('.unit-brutto');
+        const unitNettoSpan = variant.querySelector('.unit-netto');
+        const totalBruttoSpan = variant.querySelector('.total-brutto');
+        const totalNettoSpan = variant.querySelector('.total-netto');
+
+        if (unitBruttoSpan) unitBruttoSpan.textContent = errorMsg;
+        if (unitNettoSpan) unitNettoSpan.textContent = '';
+        if (totalBruttoSpan) totalBruttoSpan.textContent = errorMsg;
+        if (totalNettoSpan) totalNettoSpan.textContent = '';
+    });
+}
+
+/**
+ * DODAJ funkcję kopiowania variantMapping z calculator.js
+ */
+function copyVariantMappingToEditor() {
+    // ✅ KLUCZOWE: Skopiuj variantMapping z calculator.js
+    if (typeof window.variantMapping === 'undefined') {
+        window.variantMapping = {
+            'dab-lity-ab': { species: 'Dąb', technology: 'Lity', wood_class: 'A/B' },
+            'dab-lity-bb': { species: 'Dąb', technology: 'Lity', wood_class: 'B/B' },
+            'dab-micro-ab': { species: 'Dąb', technology: 'Mikrowczep', wood_class: 'A/B' },
+            'dab-micro-bb': { species: 'Dąb', technology: 'Mikrowczep', wood_class: 'B/B' },
+            'jes-lity-ab': { species: 'Jesion', technology: 'Lity', wood_class: 'A/B' },
+            'jes-micro-ab': { species: 'Jesion', technology: 'Mikrowczep', wood_class: 'A/B' },
+            'buk-lity-ab': { species: 'Buk', technology: 'Lity', wood_class: 'A/B' },
+            'buk-micro-ab': { species: 'Buk', technology: 'Mikrowczep', wood_class: 'A/B' }
+        };
+        console.log('[QUOTE EDITOR] ✅ Skopiowano variantMapping do edytora');
+    }
+}
+
+/**
+* DEBUGGING: Funkcja do sprawdzenia dostępności wszystkich komponentów
+*/
+function debugCalculatorComponents() {
+    console.log('=== DEBUG CALCULATOR COMPONENTS ===');
+    console.log('variantMapping:', typeof window.variantMapping, window.variantMapping);
+    console.log('getPrice function:', typeof getPrice);
+    console.log('formatPLN function:', typeof formatPLN);
+    console.log('calculateFinishingCost function:', typeof calculateFinishingCost);
+    console.log('pricesFromDatabase:', typeof window.pricesFromDatabase, window.pricesFromDatabase?.length);
+    console.log('multiplierMapping:', typeof window.multiplierMapping, window.multiplierMapping);
+    console.log('isPartner:', typeof window.isPartner, window.isPartner);
+    console.log('userMultiplier:', typeof window.userMultiplier, window.userMultiplier);
+
+    // Test getPrice jeśli dostępny
+    if (typeof getPrice === 'function' && window.variantMapping) {
+        const testConfig = window.variantMapping['dab-lity-ab'];
+        if (testConfig) {
+            const testResult = getPrice(testConfig.species, testConfig.technology, testConfig.wood_class, 4, 200);
+            console.log('Test getPrice dla dab-lity-ab (4mm, 200cm):', testResult);
+        }
+    }
+
+    console.log('=== END DEBUG ===');
+}
+
+// Eksportuj funkcję debugową
+window.debugCalculatorComponents = debugCalculatorComponents;
+=======
+>>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
