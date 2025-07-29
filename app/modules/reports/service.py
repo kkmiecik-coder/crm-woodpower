@@ -142,7 +142,7 @@ class BaselinkerReportsService:
                             error=str(e),
                             error_type=type(e).__name__)
             raise
-    
+
     def update_existing_record(self, record: BaselinkerReportOrder, order: Dict, 
                              product: Dict, parsed_product: Dict) -> bool:
         """
@@ -681,13 +681,29 @@ class BaselinkerReportsService:
                               order_id=order.get('order_id'))
             return records
     
+        # NOWE: Pobierz informację o typie ceny z custom_extra_fields
+        custom_fields = order.get('custom_extra_fields', {})
+        price_type_from_api = custom_fields.get('106169', '').strip()
+        
+        self.logger.debug("Pobrano typ ceny z custom_extra_fields",
+                         order_id=order.get('order_id'),
+                         price_type_from_api=price_type_from_api)
+
         # Podstawowe dane zamówienia (wspólne dla wszystkich produktów)
         base_data = self._extract_base_order_data(order)
     
         # Oblicz łączną wartość zamówienia netto (dla order_amount_net)
         total_order_value_gross = 0
         for product in products:
-            product_value = float(product.get('price_brutto', 0)) * int(product.get('quantity', 1))
+            original_price_gross = float(product.get('price_brutto', 0))
+            
+            # Przetwórz cenę przez metodę z modelu
+            temp_record = BaselinkerReportOrder()
+            processed_price_gross, _ = temp_record.process_baselinker_amount(
+                original_price_gross, price_type_from_api
+            )
+            
+            product_value = processed_price_gross * int(product.get('quantity', 1))
             total_order_value_gross += product_value
     
         # Dodaj koszt dostawy
@@ -765,6 +781,13 @@ class BaselinkerReportsService:
                 # Parsuj nazwę produktu
                 parsed_product = self.parser.parse_product_name(product.get('name', ''))
             
+                # NOWE: Przetwórz cenę produktu
+                original_price_gross = float(product.get('price_brutto', 0))
+                temp_record = BaselinkerReportOrder()
+                processed_price_gross, processed_price_type = temp_record.process_baselinker_amount(
+                    original_price_gross, price_type_from_api
+                )
+                
                 # Utwórz rekord
                 record = BaselinkerReportOrder(
                     # Dane zamówienia
@@ -774,13 +797,15 @@ class BaselinkerReportsService:
                     total_m3=total_m3_all_products,
                     order_amount_net=total_order_value_net,
                     
-                    # Dane produktu z Baselinker
+                    # Dane produktu z Baselinker - NOWE POLA
                     raw_product_name=product.get('name'),
                     quantity=product.get('quantity', 1),
-                    price_gross=product.get('price_brutto', 0),
+                    price_gross=processed_price_gross,  # ZMIANA: użyj przetworzonej ceny
+                    price_type=processed_price_type,    # NOWE POLE
+                    original_amount_from_baselinker=original_price_gross,  # NOWE POLE
                     
                     # Dane z parsera
-                    product_type=parsed_product.get('product_type') or 'deska',  # Domyślnie deska
+                    product_type=parsed_product.get('product_type') or 'deska',
                     wood_species=parsed_product.get('wood_species'),
                     technology=parsed_product.get('technology'),
                     wood_class=parsed_product.get('wood_class'),
@@ -899,6 +924,10 @@ class BaselinkerReportsService:
                 # Aktualizuj wszystkie rekordy tego zamówienia
                 records = BaselinkerReportOrder.query.filter_by(baselinker_order_id=order_id).all()
                 
+                # NOWE: Sprawdź czy trzeba zaktualizować pola price_type
+                custom_fields = order.get('custom_extra_fields', {})
+                price_type_from_api = custom_fields.get('106169', '').strip()
+
                 for record in records:
                     if record.current_status != new_status or record.paid_amount_net != paid_amount_net:
                         record.current_status = new_status
@@ -914,6 +943,16 @@ class BaselinkerReportsService:
                             record.balance_due = float(record.order_amount_net) - paid_amount_net
                         
                         updated_count += 1
+
+                    if not record.price_type and price_type_from_api:
+                        # Zaktualizuj price_type dla starych rekordów
+                        normalized_type = 'netto' if price_type_from_api.lower() == 'netto' else 'brutto' if price_type_from_api.lower() == 'brutto' else ''
+                        if normalized_type != record.price_type:
+                            record.price_type = normalized_type
+                            self.logger.info("Zaktualizowano price_type dla istniejącego rekordu",
+                                           record_id=record.id,
+                                           order_id=order_id,
+                                           new_price_type=normalized_type)
                 
             except Exception as e:
                 self.logger.error("Błąd aktualizacji zamówienia",
@@ -938,13 +977,43 @@ class BaselinkerReportsService:
         """
         try:
             orders = self.fetch_orders_from_baselinker(order_id=order_id)
-            return orders[0] if orders else None
+            if orders and len(orders) > 0:
+                order = orders[0]
+                
+                # NOWE: Przetwórz ceny produktów w pojedynczym zamówieniu
+                custom_fields = order.get('custom_extra_fields', {})
+                price_type_from_api = custom_fields.get('106169', '').strip()
+                
+                # Jeśli zamówienie ma produkty, przetworz ich ceny
+                if 'products' in order and order['products']:
+                    for product in order['products']:
+                        original_price = float(product.get('price_brutto', 0))
+                        
+                        # Utwórz tymczasowy rekord do przetworzenia
+                        temp_record = BaselinkerReportOrder()
+                        processed_price, _ = temp_record.process_baselinker_amount(
+                            original_price, price_type_from_api
+                        )
+                        
+                        # Zaktualizuj cenę w produkcie
+                        product['price_brutto'] = processed_price
+                        
+                        self.logger.debug("Przetworzono cenę produktu w get_order_details",
+                                        order_id=order.get('order_id'),
+                                        product_name=product.get('name'),
+                                        original_price=original_price,
+                                        processed_price=processed_price,
+                                        price_type=price_type_from_api)
+                
+                return order
+            
+            return None
         except Exception as e:
             self.logger.error("Błąd pobierania szczegółów zamówienia",
                             order_id=order_id,
                             error=str(e))
             return None
-    
+        
     def check_for_new_orders(self, hours_back: int = 24) -> Tuple[bool, int]:
         """
         Sprawdza czy są nowe zamówienia w Baselinker (dla automatycznego sprawdzania)
@@ -989,8 +1058,7 @@ class BaselinkerReportsService:
                              hours_back=hours_back)
             return False, 0
 
-    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, 
-                                 get_all_statuses: bool = True) -> Dict[str, any]:
+    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = True) -> Dict[str, any]:
         """
         NOWA METODA: Pobiera zamówienia z Baselinker dla konkretnego zakresu dat
         Używana przez nowy system wyboru zamówień

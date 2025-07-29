@@ -37,6 +37,10 @@ class BaselinkerReportOrder(db.Model):
     delivery_method = db.Column(db.String(100), nullable=True, comment="13. Metoda dostawy")
     order_source = db.Column(db.String(50), nullable=True, comment="14. Źródło zamówienia")
     
+    # === NOWE POLA DLA OBSŁUGI NETTO/BRUTTO ===
+    price_type = db.Column(db.Enum('netto', 'brutto', '', name='price_type_enum'), nullable=True, default='', comment="Typ ceny z extra_field_106169: netto/brutto/puste")
+    original_amount_from_baselinker = db.Column(db.Numeric(10, 2), nullable=True, comment="Oryginalna kwota pobrana z Baselinker przed konwersją")
+
     # === DANE PRODUKTU (kolumny 15-24) ===
     group_type = db.Column(db.Enum('towar', 'usługa', name='group_type_enum'), nullable=True, comment="15. Grupa")
     product_type = db.Column(db.Enum('klejonka', 'deska', name='product_type_enum'), nullable=True, comment="16. Rodzaj")
@@ -505,6 +509,38 @@ class BaselinkerReportOrder(db.Model):
             'production_value_net': float(self.production_value_net or 0),
             'ready_pickup_volume': float(self.ready_pickup_volume or 0)
         }
+
+    def process_baselinker_amount(self, baselinker_amount, price_type_from_api):
+        """
+        Przetwarza kwotę z Baselinker na podstawie informacji o typie ceny
+    
+        Args:
+            baselinker_amount (float): Oryginalna kwota z Baselinker
+            price_type_from_api (str): Wartość z extra_field_106169
+    
+        Returns:
+            tuple: (processed_amount, price_type) - przetworzona kwota i typ
+        """
+        # Zapisz oryginalną kwotę
+        self.original_amount_from_baselinker = baselinker_amount
+    
+        # Normalizuj wartość z API
+        price_type = (price_type_from_api or '').strip().lower()
+    
+        if price_type == 'netto':
+            # Kwota netto - pomnóż razy 1.23 aby symulować brutto
+            processed_amount = float(baselinker_amount) * 1.23
+            self.price_type = 'netto'
+        elif price_type == 'brutto':
+            # Kwota brutto - zostaw bez zmian
+            processed_amount = float(baselinker_amount)
+            self.price_type = 'brutto'
+        else:
+            # Puste lub nieznane - traktuj jako brutto (domyślnie)
+            processed_amount = float(baselinker_amount)
+            self.price_type = ''
+    
+        return processed_amount, self.price_type
 
 
 class ReportsSyncLog(db.Model):

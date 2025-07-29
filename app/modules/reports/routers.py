@@ -771,7 +771,10 @@ def _update_product_fields(record, product_data):
         'width_cm': float,
         'thickness_cm': float,
         'quantity': int,
-        'price_net': float
+        'price_net': float,
+        # NOWE POLA:
+        'price_type': str,                      # Typ ceny: 'netto', 'brutto', ''
+        'original_amount_from_baselinker': float  # Oryginalna kwota z BL
     }
     
     for field, field_type in product_fields.items():
@@ -785,6 +788,18 @@ def _update_product_fields(record, product_data):
                 # Ustaw order_amount_net na podstawie price_net i quantity
                 quantity = int(product_data.get('quantity', record.quantity or 1))
                 setattr(record, 'order_amount_net', price_net * quantity)
+            elif field == 'original_amount_from_baselinker' and value:
+                # NOWE: Obsługa oryginalnej kwoty z Baselinker
+                setattr(record, field, float(value))
+            elif field == 'price_type' and value:
+                # NOWE: Obsługa typu ceny
+                # Normalizuj wartość
+                normalized_value = value.strip().lower()
+                if normalized_value in ['netto', 'brutto', '']:
+                    setattr(record, field, normalized_value)
+                else:
+                    # Jeśli nieznana wartość, ustaw jako puste
+                    setattr(record, field, '')
             elif field_type == float and value:
                 setattr(record, field, float(value))
             elif field_type == int and value:
