@@ -456,56 +456,73 @@
     <!-- Template dla pojedynczego zamówienia -->
     <template id="orderTemplate">
         <div class="order-item" data-order-id="">
+            <!-- Badge dla zamówień już istniejących w bazie -->
+            <div class="exists-badge" style="display: none; position: absolute; top: 5px; right: 5px; background: #28a745; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
+                ✓ W bazie
+            </div>
+
+            <!-- Badge dla problemów z wymiarami -->
+            <div class="dimensions-issue-badge" style="display: none; position: absolute; top: 5px; right: 80px; background: #dc3545; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
+                ⚠️ Problemy z wymiarami
+            </div>
+
             <div class="order-checkbox">
                 <input type="checkbox" class="order-select" data-order-id="">
             </div>
-            
-            <div class="order-content">
-                <div class="order-header">
-                    <div class="order-id">
+
+            <div class="order-content" style="flex: 1; padding: 12px;">
+                <!-- Header zamówienia -->
+                <div class="order-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div class="order-title">
                         <strong>Zamówienie #<span class="order-number"></span></strong>
-                        <span class="order-status-badge"></span>
+                        <span class="order-status-badge" style="margin-left: 8px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500;"></span>
                     </div>
-                    <div class="order-actions">
-                        <button class="baselinker-btn" type="button" title="Otwórz w Baselinker">
-                            <i class="fas fa-external-link-alt"></i>
+                    <div class="order-actions" style="display: flex; align-items: center; gap: 8px; font-size: 11px;">
+                        <a href="#" class="baselinker-link" style="color: #007bff; text-decoration: none;" title="Otwórz w Baselinker">🔗 Baselinker</a>
+                        <span class="order-date" style="color: #6c757d;"></span>
+                    </div>
+                </div>
+
+                <!-- Informacje o kliencie i dostawie -->
+                <div class="order-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px; margin-bottom: 8px;">
+                    <div class="customer-info">
+                        <strong>Klient:</strong> <span class="customer-name" style="color: #495057;"></span>
+                    </div>
+                    <div class="delivery-info-container">
+                        <strong>Dostawa:</strong> <span class="delivery-info" style="color: #495057;"></span>
+                    </div>
+                </div>
+
+                <!-- NOWA SEKCJA: Lista produktów -->
+                <div class="products-section" style="border: 1px solid #e9ecef; border-radius: 4px; background: #f8f9fa; margin-bottom: 8px;">
+                    <div class="products-header" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; cursor: pointer;">
+                        <span class="products-count-text" style="font-size: 12px; color: #6c757d; font-weight: 500;"></span>
+                        <button class="products-toggle" type="button" style="background: none; border: none; color: #007bff; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                            <span class="toggle-icon" style="transition: transform 0.2s ease;">▼</span>
+                            <span class="toggle-text">Pokaż produkty</span>
                         </button>
-                        <span class="order-date-text"></span>
+                    </div>
+                    <div class="products-list" style="display: none; border-top: 1px solid #e9ecef; background: white; max-height: 200px; overflow-y: auto;">
+                        <!-- Produkty będą dodane dynamicznie tutaj -->
                     </div>
                 </div>
-                
-                <div class="order-details">
-                    <div class="order-customer">
-                        <span class="customer-icon">👤</span>
-                        <span class="customer-name"></span>
-                    </div>
-                    
-                    <div class="order-products">
-                        <span class="products-icon">📦</span>
-                        <div class="products-list"></div>
-                    </div>
-                    
-                    <div class="order-amounts">
-                        <div class="amount-item">
-                            <span class="amount-label">Produkty:</span>
-                            <span class="amount-value products-amount"></span>
+
+                <!-- Szczegóły finansowe -->
+                <div class="order-summary" style="display: flex; justify-content: flex-end; padding-top: 8px; border-top: 1px solid #e9ecef;">
+                    <div class="financial-details" style="text-align: right; font-size: 12px;">
+                        <div class="amount-row" style="display: flex; justify-content: space-between; min-width: 140px; margin-bottom: 2px;">
+                            <span class="amount-label" style="color: #6c757d; margin-right: 8px;">Produkty:</span>
+                            <span class="products-amount"></span>
                         </div>
-                        <div class="amount-item">
-                            <span class="amount-label">Dostawa:</span>
-                            <span class="amount-value delivery-amount"></span>
+                        <div class="amount-row" style="display: flex; justify-content: space-between; min-width: 140px; margin-bottom: 2px;">
+                            <span class="amount-label" style="color: #6c757d; margin-right: 8px;">Dostawa:</span>
+                            <span class="delivery-amount"></span>
                         </div>
-                        <div class="amount-item total">
-                            <span class="amount-label">Razem:</span>
-                            <span class="amount-value total-amount"></span>
+                        <div class="amount-row total-row" style="display: flex; justify-content: space-between; min-width: 140px; border-top: 1px solid #e9ecef; padding-top: 2px; margin-top: 2px;">
+                            <span class="amount-label" style="color: #2c3e50; font-weight: 600; margin-right: 8px;">Razem:</span>
+                            <strong class="total-amount" style="color: #28a745; font-weight: 600;"></strong>
                         </div>
                     </div>
-                </div>
-            </div>
-            
-            <div class="order-status">
-                <div class="exists-badge" style="display: none;">
-                    <span class="exists-icon">✓</span>
-                    <span class="exists-text">Już w bazie</span>
                 </div>
             </div>
         </div>

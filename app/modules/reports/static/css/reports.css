@@ -3299,7 +3299,7 @@ body.fullscreen-mode {
     background: #ffffff;
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 500px;
+    max-width: 800px;
     width: 90%;
     max-height: 90vh;
     overflow: hidden;
@@ -3997,15 +3997,14 @@ body.fullscreen-mode {
 }
 
 .dimension-inputs-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
-    gap: 15px;
+    display: flow;
     align-items: end;
 }
 
 .dimension-input-group {
     display: flex;
     flex-direction: column;
+    margin-bottom: 4px;
 }
 
 .dimension-input-group label {
@@ -4173,3 +4172,413 @@ body.fullscreen-mode {
     transform: scale(1);
 }
 
+.order-item {
+    position: relative;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    background: white;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: flex-start;
+    padding: 12px;
+}
+
+    .order-item:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .order-item.disabled {
+        opacity: 0.6;
+        background-color: #f8f9fa;
+    }
+
+    /* WAŻNE: Style dla zamówień z problemami wymiarów */
+    .order-item.has-dimension-issues {
+        border-left: 4px solid #dc3545;
+        background: linear-gradient(90deg, rgba(220, 53, 69, 0.05) 0%, rgba(255, 255, 255, 1) 100%);
+    }
+
+        .order-item.has-dimension-issues:hover {
+            background: linear-gradient(90deg, rgba(220, 53, 69, 0.08) 0%, rgba(248, 249, 250, 1) 100%);
+        }
+
+/* Badge'y */
+.exists-badge {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: #28a745;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 500;
+    z-index: 10;
+}
+
+.dimensions-issue-badge {
+    position: absolute;
+    top: 5px;
+    right: 80px;
+    background: #dc3545;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 500;
+    z-index: 10;
+}
+
+/* Checkbox */
+.order-checkbox {
+    margin-right: 12px;
+    padding-top: 2px;
+}
+
+/* Główna zawartość */
+.order-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Header zamówienia */
+.order-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.order-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+    .order-title strong {
+        font-size: 14px;
+        color: #2c3e50;
+    }
+
+.order-status-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.order-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+}
+
+.baselinker-link {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.order-date {
+    color: #6c757d;
+}
+
+/* Informacje o kliencie i dostawie */
+.order-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    font-size: 12px;
+}
+
+.customer-info, .delivery-info-container {
+    color: #495057;
+}
+
+    .customer-info strong, .delivery-info-container strong {
+        color: #2c3e50;
+    }
+
+/* NOWA SEKCJA: Produkty */
+.products-section {
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    background: #f8f9fa;
+}
+
+.products-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.products-count-text {
+    font-size: 12px;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.products-toggle {
+    background: none;
+    border: none;
+    color: #007bff;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+    .products-toggle:hover {
+        color: #0056b3;
+    }
+
+.toggle-icon {
+    transition: transform 0.2s ease;
+}
+
+.products-toggle.expanded .toggle-icon {
+    transform: rotate(180deg);
+}
+
+.products-list {
+    border-top: 1px solid #e9ecef;
+    background: white;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.product-item {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f3f4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+}
+
+    .product-item:last-child {
+        border-bottom: none;
+    }
+
+    .product-item.has-dimension-issues {
+        background-color: #fff5f5;
+        border-left: 3px solid #dc3545;
+    }
+
+.product-name {
+    flex: 1;
+    color: #2c3e50;
+    margin-right: 10px;
+    line-height: 1.3;
+}
+
+.product-item.has-dimension-issues .product-name {
+    color: #dc3545;
+    font-weight: 500;
+}
+
+.product-details {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: #6c757d;
+    white-space: nowrap;
+}
+
+.product-quantity {
+    font-weight: 500;
+}
+
+.product-price {
+    font-weight: 500;
+}
+
+.dimension-issue-icon {
+    color: #dc3545;
+    font-size: 12px;
+    title: "Brak wymiarów w nazwie produktu";
+}
+
+/* Podsumowanie finansowe */
+.order-summary {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid #e9ecef;
+}
+
+.financial-details {
+    text-align: right;
+    font-size: 12px;
+}
+
+.amount-row {
+    display: flex;
+    justify-content: space-between;
+    min-width: 140px;
+    margin-bottom: 2px;
+}
+
+.amount-label {
+    color: #6c757d;
+    margin-right: 8px;
+}
+
+.total-row {
+    border-top: 1px solid #e9ecef;
+    padding-top: 2px;
+    margin-top: 2px;
+}
+
+    .total-row .amount-label {
+        color: #2c3e50;
+        font-weight: 600;
+    }
+
+.total-amount {
+    color: #28a745;
+    font-weight: 600;
+}
+
+/* Style dla statusów */
+.status-new-unpaid {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.status-new-paid {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.status-in-production {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.status-shipped {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status-delivered {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.status-cancelled {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
+    .order-info {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .order-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .product-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .product-details {
+        align-self: flex-end;
+    }
+}
+
+.order-item.has-dimension-issues {
+    border-left: 4px solid #dc3545 !important;
+    background: linear-gradient(90deg, rgba(220, 53, 69, 0.05) 0%, rgba(255, 255, 255, 1) 100%) !important;
+}
+
+.products-toggle.expanded .toggle-icon {
+    transform: rotate(180deg);
+}
+
+.product-item {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f3f4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+}
+
+    .product-item:last-child {
+        border-bottom: none;
+    }
+
+    .product-item.has-dimension-issues {
+        background-color: #fff5f5;
+        border-left: 3px solid #dc3545;
+    }
+
+.product-name {
+    flex: 1;
+    color: #2c3e50;
+    margin-right: 10px;
+    line-height: 1.3;
+}
+
+.product-item.has-dimension-issues .product-name {
+    color: #dc3545;
+    font-weight: 500;
+}
+
+.product-details {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: #6c757d;
+    white-space: nowrap;
+}
+
+.product-quantity, .product-price {
+    font-weight: 500;
+}
+
+/* Style dla statusów - dodaj jeśli nie istnieją */
+.status-new-unpaid {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.status-new-paid {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.status-in-production {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.status-shipped {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status-delivered {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.status-cancelled {
+    background-color: #f8d7da;
+    color: #721c24;
+}

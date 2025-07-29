@@ -66,6 +66,25 @@ class SyncManager {
         this.ordersWithDimensionIssues = new Map();
         this.dimensionFixes = {};  // {order_id: {product_id: {length_cm: X, width_cm: Y, thickness_mm: Z}}}
 
+        this.statusMap = {
+            105112: 'Nowe - nieopłacone',
+            155824: 'Nowe - opłacone',
+            138619: 'W produkcji - surowe',
+            148832: 'W produkcji - olejowanie',
+            148831: 'W produkcji - bejcowanie',
+            148830: 'W produkcji - lakierowanie',
+            138620: 'Produkcja zakończona',
+            138623: 'Zamówienie spakowane',
+            105113: 'Paczka zgłoszona do wysyłki',
+            105114: 'Wysłane - kurier',
+            149763: 'Wysłane - transport WoodPower',
+            149777: 'Czeka na odbiór osobisty',
+            138624: 'Dostarczona - kurier',
+            149778: 'Dostarczona - transport WoodPower',
+            149779: 'Odebrane',
+            138625: 'Zamówienie anulowane'
+        };
+
         console.log('[SyncManager] ✅ Konstruktor zakończony');
     }
 
@@ -521,86 +540,300 @@ class SyncManager {
 
     renderSingleOrder(order) {
         const orderElement = this.orderTemplate.content.cloneNode(true);
-        
+
         const orderItem = orderElement.querySelector('.order-item');
-        orderItem.setAttribute('data-order-id', order.order_id);
-        
-        // NOWE: Obsługa zamówień z problemami wymiarów
+        if (orderItem) {
+            orderItem.setAttribute('data-order-id', order.order_id);
+        }
+
+        // WAŻNE: Sprawdź problemy z wymiarami i zaznacz wizualnie
+        console.log(`[SyncManager] 🔍 Sprawdzanie wymiarów zamówienia ${order.order_id}:`, {
+            has_dimension_issues: order.has_dimension_issues,
+            products_with_issues: order.products_with_issues
+        });
+
         if (order.has_dimension_issues) {
-            orderItem.classList.add('has-dimension-issues');
+            if (orderItem) {
+                orderItem.classList.add('has-dimension-issues');
+            }
             console.log(`[SyncManager] ⚠️ Zamówienie ${order.order_id} ma problemy z wymiarami:`, order.products_with_issues);
-            
+
             this.ordersWithDimensionIssues.set(order.order_id, {
                 order: order,
                 products_with_issues: order.products_with_issues || []
             });
+
+            // Pokaż badge problemów z wymiarami
+            const dimensionsBadge = orderElement.querySelector('.dimensions-issue-badge');
+            if (dimensionsBadge) {
+                dimensionsBadge.style.display = 'block';
+                const issuesCount = order.products_with_issues?.length || 0;
+                dimensionsBadge.textContent = `⚠️ Brak wymiarów (${issuesCount})`;
+            }
         }
-        
+
         const checkbox = orderElement.querySelector('.order-select');
-        checkbox.setAttribute('data-order-id', order.order_id);
-        
+        if (checkbox) {
+            checkbox.setAttribute('data-order-id', order.order_id);
+        }
+
         if (order.exists_in_db) {
             console.log(`[SyncManager] ⚠️ Zamówienie ${order.order_id} już istnieje w bazie`);
-            orderItem.classList.add('disabled');
-            checkbox.disabled = true;
-            orderElement.querySelector('.exists-badge').style.display = 'flex';
+            if (orderItem) {
+                orderItem.classList.add('disabled');
+            }
+            if (checkbox) {
+                checkbox.disabled = true;
+            }
+            const existsBadge = orderElement.querySelector('.exists-badge');
+            if (existsBadge) {
+                existsBadge.style.display = 'block';
+            }
         } else {
-            checkbox.addEventListener('change', (e) => {
-                this.handleOrderCheckboxChange(order.order_id, e.target.checked);
-            });
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    this.handleOrderCheckboxChange(order.order_id, e.target.checked);
+                });
+            }
         }
 
-        // Wypełnij dane zamówienia
-        orderElement.querySelector('.order-number').textContent = order.order_id;
-        
-        // NOWE: Dodaj badge z problemami wymiarów
-        const orderIdContainer = orderElement.querySelector('.order-id');
-        if (order.has_dimension_issues) {
-            const dimensionBadge = document.createElement('span');
-            dimensionBadge.className = 'dimension-issues-badge';
-            dimensionBadge.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Brak wymiarów';
-            orderIdContainer.appendChild(dimensionBadge);
-        }
-        
-        orderElement.querySelector('.order-date-text').textContent = this.formatDateTime(order.date_add);
-        orderElement.querySelector('.customer-name').textContent = order.customer_name || 'Brak danych';
-        
-        const productsListElement = orderElement.querySelector('.products-list');
-        productsListElement.innerHTML = '';  // wyczyść kontener
-
-        if (order.products && order.products.length) {
-        // wypisz każdy produkt: ilość × nazwa
-        order.products.forEach(prod => {
-            const row = document.createElement('div');
-            row.className = 'order-product-row';
-            row.textContent = `${prod.quantity}× ${prod.name}`;
-            productsListElement.appendChild(row);
-        });
-        } else {
-        productsListElement.textContent = 'Brak produktów';
-        }
-        
-        orderElement.querySelector('.products-amount').textContent = this.formatMoney(order.order_value || 0);
-        orderElement.querySelector('.delivery-amount').textContent = this.formatMoney(order.delivery_price || 0);
-        orderElement.querySelector('.total-amount').textContent = this.formatMoney((order.order_value || 0) + (order.delivery_price || 0));
-        
+        // Ustawianie statusu
         const statusBadge = orderElement.querySelector('.order-status-badge');
-        statusBadge.textContent = order.order_status || 'Nieznany';
-        statusBadge.style.backgroundColor = this.getStatusColor(order.order_status);
+        if (statusBadge) {
+            const statusId = order.order_status_id;
+            const statusName = this.getStatusName(statusId);
 
-        // Przycisk Baselinker
-        const baselinkerBtn = orderElement.querySelector('.baselinker-btn');
-        if (baselinkerBtn) {
-            baselinkerBtn.addEventListener('click', (e) => {
+            statusBadge.textContent = statusName;
+            statusBadge.className = 'order-status-badge';
+
+            // Dodaj klasę CSS w zależności od statusu
+            if (statusId === 105112) {
+                statusBadge.classList.add('status-new-unpaid');
+            } else if (statusId === 155824) {
+                statusBadge.classList.add('status-new-paid');
+            } else if ([138619, 148832, 148831, 148830].includes(statusId)) {
+                statusBadge.classList.add('status-in-production');
+            } else if ([105113, 105114, 149763].includes(statusId)) {
+                statusBadge.classList.add('status-shipped');
+            } else if ([138624, 149778, 149779].includes(statusId)) {
+                statusBadge.classList.add('status-delivered');
+            } else if (statusId === 138625) {
+                statusBadge.classList.add('status-cancelled');
+            }
+
+            console.log(`[SyncManager] 📊 Status zamówienia ${order.order_id}: ${statusName} (ID: ${statusId})`);
+        }
+
+        // Obliczanie kwot finansowych
+        const financialData = this.calculateOrderAmounts(order);
+
+        // Bezpieczne ustawianie tekstu
+        const safeSetText = (selector, text, fallback = 'Brak danych') => {
+            const element = orderElement.querySelector(selector);
+            if (element) {
+                element.textContent = text || fallback;
+            }
+        };
+
+        // Wypełnij podstawowe informacje
+        safeSetText('.order-number', order.order_id);
+        safeSetText('.customer-name', order.customer_name || order.delivery_fullname);
+
+        // Data - konwersja timestamp na datę
+        const orderDate = order.date_add ? new Date(order.date_add * 1000).toLocaleDateString('pl-PL') : 'Brak daty';
+        safeSetText('.order-date', orderDate);
+
+        // Informacje o dostawie
+        const deliveryInfo = `${order.delivery_postcode || ''} ${order.delivery_city || ''}`.trim();
+        safeSetText('.delivery-info', deliveryInfo);
+
+        // NOWE: Renderuj listę produktów
+        this.renderProductsList(orderElement, order);
+
+        // Wypełnij szczegółowe kwoty
+        safeSetText('.products-amount', financialData.productsAmount);
+        safeSetText('.delivery-amount', financialData.deliveryAmount);
+        safeSetText('.total-amount', financialData.totalAmount);
+
+        // Link do Baselinker
+        const baselinkerLink = orderElement.querySelector('.baselinker-link');
+        if (baselinkerLink) {
+            baselinkerLink.addEventListener('click', (e) => {
                 e.preventDefault();
-                e.stopPropagation();
-                const baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${order.order_id}`;
-                window.open(baselinkerUrl, '_blank');
+                const url = `https://panel.baselinker.com/orders.php?action=order_details&order_id=${order.order_id}`;
+                window.open(url, '_blank');
                 console.log(`[SyncManager] 🔗 Otwieranie Baselinker dla zamówienia ${order.order_id}`);
             });
         }
 
-        this.ordersList.appendChild(orderElement);
+        // Dodaj element do listy
+        if (this.ordersList) {
+            this.ordersList.appendChild(orderElement);
+        }
+    }
+
+    renderProductsList(orderElement, order) {
+        const productsCountText = orderElement.querySelector('.products-count-text');
+        const productsToggle = orderElement.querySelector('.products-toggle');
+        const productsList = orderElement.querySelector('.products-list');
+
+        if (!order.products || !Array.isArray(order.products)) {
+            if (productsCountText) {
+                productsCountText.textContent = 'Brak danych o produktach';
+            }
+            if (productsToggle) {
+                productsToggle.style.display = 'none';
+            }
+            return;
+        }
+
+        const productsCount = order.products.length;
+        const problemProducts = order.products_with_issues?.length || 0;
+
+        // Ustaw licznik produktów
+        if (productsCountText) {
+            let countText = `${productsCount} ${productsCount === 1 ? 'produkt' : 'produktów'}`;
+            if (problemProducts > 0) {
+                countText += ` (${problemProducts} bez wymiarów)`;
+            }
+            productsCountText.textContent = countText;
+        }
+
+        // Ustaw toggle dla pokazywania/ukrywania produktów
+        if (productsToggle && productsList) {
+            productsToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isExpanded = productsToggle.classList.contains('expanded');
+
+                if (isExpanded) {
+                    // Ukryj produkty
+                    productsList.style.display = 'none';
+                    productsToggle.classList.remove('expanded');
+                    productsToggle.querySelector('.toggle-text').textContent = 'Pokaż produkty';
+                } else {
+                    // Pokaż produkty
+                    productsList.style.display = 'block';
+                    productsToggle.classList.add('expanded');
+                    productsToggle.querySelector('.toggle-text').textContent = 'Ukryj produkty';
+
+                    // Renderuj produkty jeśli jeszcze nie zostały wyrenderowane
+                    if (productsList.children.length === 0) {
+                        this.renderProductsInList(productsList, order);
+                    }
+                }
+            });
+        }
+    }
+
+    // NOWA METODA: Renderowanie pojedynczych produktów w liście
+    renderProductsInList(productsList, order) {
+        if (!order.products || !Array.isArray(order.products)) {
+            return;
+        }
+
+        // Stwórz mapę produktów z problemami wymiarów dla szybkiego dostępu
+        const problemProductsMap = new Map();
+        if (order.products_with_issues) {
+            order.products_with_issues.forEach(problemProduct => {
+                // Użyj nazwy produktu jako klucza, bo product_id może nie być unikalne
+                problemProductsMap.set(problemProduct.name, problemProduct);
+            });
+        }
+
+        order.products.forEach((product, index) => {
+            const productDiv = document.createElement('div');
+            productDiv.className = 'product-item';
+
+            const productName = product.name || 'Nieznany produkt';
+            const quantity = parseInt(product.quantity) || 1;
+            const price = parseFloat(product.price_brutto) || 0;
+            const totalPrice = price * quantity;
+
+            // Sprawdź czy produkt ma problemy z wymiarami
+            const hasDimensionIssues = problemProductsMap.has(productName);
+            if (hasDimensionIssues) {
+                productDiv.classList.add('has-dimension-issues');
+            }
+
+            productDiv.innerHTML = `
+            <div class="product-name">
+                ${hasDimensionIssues ? '⚠️ ' : ''}${productName}
+            </div>
+            <div class="product-details">
+                <span class="product-quantity">${quantity} szt.</span>
+                <span class="product-price">${totalPrice.toFixed(2)} PLN</span>
+            </div>
+        `;
+
+            productsList.appendChild(productDiv);
+        });
+
+        console.log(`[SyncManager] 📦 Wyrenderowano ${order.products.length} produktów dla zamówienia ${order.order_id}`);
+    }
+
+    getStatusName(statusId) {
+        if (!this.statusMap) {
+            this.statusMap = {
+                105112: 'NOWE - NIEOPŁACONE',
+                155824: 'NOWE - OPŁACONE',
+                138619: 'W PRODUKCJI - SUROWE',
+                148832: 'W PRODUKCJI - OLEJOWANIE',
+                148831: 'W PRODUKCJI - BEJCOWANIE',
+                148830: 'W PRODUKCJI - LAKIEROWANIE',
+                138620: 'PRODUKCJA ZAKOŃCZONA',
+                138623: 'ZAMÓWIENIE SPAKOWANE',
+                105113: 'PACZKA ZGŁOSZONA DO WYSYŁKI',
+                105114: 'WYSŁANE - KURIER',
+                149763: 'WYSŁANE - TRANSPORT WOODPOWER',
+                149777: 'CZEKA NA ODBIÓR OSOBISTY',
+                138624: 'DOSTARCZONA - KURIER',
+                149778: 'DOSTARCZONA - TRANSPORT WOODPOWER',
+                149779: 'ODEBRANE',
+                138625: 'ZAMÓWIENIE ANULOWANE'
+            };
+        }
+
+        return this.statusMap[statusId] || `STATUS ${statusId}` || 'NIEZNANY';
+    }
+
+    // Obliczanie kwot zamówienia
+    calculateOrderAmounts(order) {
+        let productsTotal = 0;
+        let deliveryPrice = parseFloat(order.delivery_price) || 0;
+
+        // Oblicz sumę produktów z order.products jeśli istnieje
+        if (order.products && Array.isArray(order.products)) {
+            productsTotal = order.products.reduce((sum, product) => {
+                const price = parseFloat(product.price_brutto) || 0;
+                const quantity = parseInt(product.quantity) || 1;
+                return sum + (price * quantity);
+            }, 0);
+        } else {
+            // Jeśli nie ma szczegółów produktów, użyj order_value minus dostawa
+            const orderValue = parseFloat(order.order_value) || 0;
+            productsTotal = orderValue - deliveryPrice;
+            if (productsTotal < 0) productsTotal = orderValue; // zabezpieczenie
+        }
+
+        const totalAmount = productsTotal + deliveryPrice;
+
+        // Formatowanie kwot
+        const formatCurrency = (amount) => {
+            return `${amount.toFixed(2)} PLN`;
+        };
+
+        const result = {
+            productsAmount: formatCurrency(productsTotal),
+            deliveryAmount: formatCurrency(deliveryPrice),
+            totalAmount: formatCurrency(totalAmount),
+            productsTotal: productsTotal,
+            deliveryPrice: deliveryPrice,
+            totalAmountNum: totalAmount
+        };
+
+        console.log(`[SyncManager] 💰 Kwoty zamówienia ${order.order_id}:`, result);
+
+        return result;
     }
 
     handleOrderCheckboxChange(orderId, isChecked) {
@@ -792,6 +1025,61 @@ class SyncManager {
             volumeElement.textContent = 'Brak danych';
             volumeElement.style.color = '#6c757d';
         }
+    }
+
+    async saveSelectedOrders() {
+        console.log('[SyncManager] 💾 Rozpoczynanie zapisu wybranych zamówień');
+
+        if (this.selectedOrderIds.size === 0) {
+            alert('Proszę wybrać co najmniej jedno zamówienie do zapisania.');
+            return;
+        }
+
+        if (this.isProcessing) {
+            console.log('[SyncManager] ⏳ Przetwarzanie już w toku, ignorowanie');
+            return;
+        }
+
+        this.isProcessing = true;
+
+        try {
+            // Pobierz wybrane zamówienia
+            const selectedOrders = this.fetchedOrders.filter(order =>
+                this.selectedOrderIds.has(order.order_id.toString())
+            );
+
+            console.log('[SyncManager] 📊 Wybrane zamówienia do zapisu:', selectedOrders.length);
+
+            // WAŻNE: Sprawdź czy są zamówienia z problemami wymiarów
+            const ordersWithIssues = selectedOrders.filter(order => order.has_dimension_issues);
+
+            if (ordersWithIssues.length > 0) {
+                console.log('[SyncManager] ⚠️ Znaleziono zamówienia z problemami wymiarów:', ordersWithIssues.length);
+
+                // Pokaż modal wymiarów (jeśli istnieje implementacja)
+                alert(`Znaleziono ${ordersWithIssues.length} zamówień z problemami wymiarów. Funkcja modala wymiarów zostanie wdrożona.`);
+
+                // TODO: Implementacja modala wymiarów
+                // this.showDimensionsModal(ordersWithIssues);
+                return;
+            }
+
+            // Jeśli nie ma problemów z wymiarami, zapisz normalnie
+            await this.saveSelectedOrdersWithoutIssues(selectedOrders);
+
+        } catch (error) {
+            console.error('[SyncManager] ❌ Błąd podczas zapisu:', error);
+            alert(`Wystąpił błąd: ${error.message}`);
+        } finally {
+            this.isProcessing = false;
+        }
+    }
+
+    // Pomocnicza metoda dla zamówień bez problemów
+    async saveSelectedOrdersWithoutIssues(selectedOrders) {
+        // Implementacja zapisu bez poprawek wymiarów
+        console.log('[SyncManager] ✅ Zapisywanie zamówień bez problemów z wymiarami');
+        // Tu będzie logika zapisu do bazy...
     }
 
     async handleDimensionsBack() {
