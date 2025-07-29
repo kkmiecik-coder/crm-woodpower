@@ -3493,7 +3493,6 @@ body.fullscreen-mode {
 }
 
 .orders-list {
-    max-height: 400px;
     overflow-y: auto;
     border: 1px solid #e9ecef;
     border-radius: 8px;

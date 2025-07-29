@@ -966,6 +966,21 @@ class SyncManager {
         // Ustaw obecne wartości wymiarów
         const currentDimensions = product.current_dimensions || {};
         const inputs = productElement.querySelectorAll('.dimension-input');
+
+        const volumeInput = productElement.querySelector('.calculated-volume');
+        // Ustaw data-attributes analogicznie do pozostałych:
+        volumeInput.setAttribute('data-order-id', orderId);
+        volumeInput.setAttribute('data-product-id', product.product_id);
+        // Obsługa ręcznej zmiany objętości:
+        volumeInput.addEventListener('input', () => {
+            const manualValue = parseFloat(volumeInput.value);
+            if (!isNaN(manualValue) && manualValue > 0) {
+                // Nadpisz w tymczasowych poprawkach
+                if (!this.dimensionFixes[orderId]) this.dimensionFixes[orderId] = {};
+                if (!this.dimensionFixes[orderId][product.product_id]) this.dimensionFixes[orderId][product.product_id] = {};
+                this.dimensionFixes[orderId][product.product_id]['volume_m3'] = manualValue;
+            }
+        });
         
         inputs.forEach(input => {
             const dimension = input.getAttribute('data-dimension');
@@ -989,41 +1004,40 @@ class SyncManager {
     }
 
     handleDimensionChange(orderId, productId, quantity) {
-        // Znajdź wszystkie inputy dla tego produktu
-        const inputs = this.dimensionsList.querySelectorAll(
-            `.dimension-input[data-order-id="${orderId}"][data-product-id="${productId}"]`
-        );
-        
-        const dimensions = {};
-        let hasAllDimensions = true;
-        
+        const container = this.dimensionsList.querySelector(
+            `.dimension-product-item input[data-order-id="${orderId}"][data-product-id="${productId}"]`
+        ).closest('.dimension-product-item');
+        const inputs = container.querySelectorAll('.dimension-input');
+        const volumeInput = container.querySelector('.calculated-volume');
+
+        const dims = {};
+        let hasAll = true;
         inputs.forEach(input => {
-            const dimension = input.getAttribute('data-dimension');
-            const value = parseFloat(input.value);
-            
-            if (!isNaN(value) && value > 0) {
-                dimensions[dimension] = value;
-            } else {
-                hasAllDimensions = false;
-            }
+            const key = input.getAttribute('data-dimension');
+            const val = parseFloat(input.value);
+            if (!isNaN(val) && val > 0) dims[key] = val;
+            else hasAll = false;
+
+            // Zapiszę w poprawkach wymiary
+            if (!this.dimensionFixes[orderId]) this.dimensionFixes[orderId] = {};
+            if (!this.dimensionFixes[orderId][productId]) this.dimensionFixes[orderId][productId] = {};
+            this.dimensionFixes[orderId][productId][key] = val;
         });
-        
-        // Zapisz poprawki
-        if (!this.dimensionFixes[orderId]) {
-            this.dimensionFixes[orderId] = {};
+
+        // Jeżeli wymiary zmienione, usuń ewentualne manualne nadpisanie objętości
+        if (this.dimensionFixes[orderId] && this.dimensionFixes[orderId][productId]) {
+            delete this.dimensionFixes[orderId][productId]['volume_m3'];
         }
-        this.dimensionFixes[orderId][productId] = dimensions;
-        
-        // Oblicz objętość jeśli mamy wszystkie wymiary
-        const volumeElement = inputs[0].closest('.dimension-product-item').querySelector('.calculated-volume');
-        
-        if (hasAllDimensions && dimensions.length_cm && dimensions.width_cm && dimensions.thickness_cm) {
-            const volume = (dimensions.length_cm / 100) * (dimensions.width_cm / 100) * (dimensions.thickness_cm / 100) * quantity;
-            volumeElement.textContent = volume.toFixed(4) + ' m³';
-            volumeElement.style.color = '#28a745';
+
+        // Automatyczne obliczenie objętości
+        if (hasAll && dims.length_cm && dims.width_cm && dims.thickness_mm) {
+            const lengthM = dims.length_cm / 100;
+            const widthM = dims.width_cm / 100;
+            const thicknessM = dims.thickness_mm / 1000;
+            const computed = lengthM * widthM * thicknessM * quantity;
+            volumeInput.value = computed.toFixed(4);
         } else {
-            volumeElement.textContent = 'Brak danych';
-            volumeElement.style.color = '#6c757d';
+            volumeInput.value = '';
         }
     }
 

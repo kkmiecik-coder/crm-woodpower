@@ -1182,6 +1182,9 @@ class BaselinkerReportsService:
                 parsed_data['width_cm'] = float(product_fixes['width_cm'])
             if 'thickness_mm' in product_fixes:
                 parsed_data['thickness_mm'] = float(product_fixes['thickness_mm'])
+            # NOWE: nadpisanie objętości per sztuka
+            if 'volume_m3' in product_fixes:
+                parsed_data['volume_override_m3'] = float(product_fixes['volume_m3'])
                 
             self.logger.info("Zastosowano poprawki wymiarów",
                            order_id=order_id,
@@ -1190,52 +1193,57 @@ class BaselinkerReportsService:
         
         return parsed_data
     
-    # POPRAWKA w metodzie _create_report_record - dodaj zastosowanie poprawek
     def _create_report_record(self, order: Dict, product: Dict) -> BaselinkerReportOrder:
         """
-        POPRAWIONA METODA: Tworzy rekord raportu z zastosowaniem poprawek wymiarów
+        Tworzy rekord raportu z zastosowaniem poprawek wymiarów.
         """
         try:
             # Parsuj nazwę produktu
             product_name = product.get('name', '')
             parsed_data = self.parser.parse_product_name(product_name)
-            
-            # NOWE: Zastosuj poprawki wymiarów jeśli są dostępne
+
+            # Zastosuj poprawki wymiarów jeśli są dostępne
             order_id = order.get('order_id')
             product_id = product.get('product_id')
             if order_id and product_id:
                 parsed_data = self._apply_dimension_fixes(order_id, product_id, parsed_data)
-            
-            # Pozostała część metody bez zmian...
-            # [kod kontynuowany jak w oryginalnej metodzie]
-            
-            # Oblicz m3 (tylko jeśli mamy wszystkie wymiary)
+
+            # Oblicz objętość (m³) z priorytetem nadpisania ręcznego
+            quantity = float(product.get('quantity', 0))
             total_m3 = None
-            if all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_mm']):
-                quantity = float(product.get('quantity', 0))
-                if quantity > 0:
-                    length_m = parsed_data['length_cm'] / 100
-                    width_m = parsed_data['width_cm'] / 100
-                    thickness_m = parsed_data['thickness_mm'] / 1000
-                    total_m3 = quantity * length_m * width_m * thickness_m
-            
-            # Reszta kodu tworzenia rekordu...
+            # Ręczne nadpisanie objętości per sztuka
+            if parsed_data.get('volume_override_m3') is not None:
+                total_m3 = quantity * parsed_data['volume_override_m3']
+            # Automatyczne obliczenie z wymiarów jeśli brak nadpisania
+            elif all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_mm']):
+                length_m = parsed_data['length_cm'] / 100
+                width_m = parsed_data['width_cm'] / 100
+                thickness_m = parsed_data['thickness_mm'] / 1000
+                total_m3 = quantity * length_m * width_m * thickness_m
+
+            # Budowanie rekordu raportu
             record = BaselinkerReportOrder(
-                # ... wszystkie pola jak w oryginalnej metodzie ...
-                total_m3=total_m3,
+                order_id=order_id,
+                product_id=product_id,
+                product_name=product_name,
+                quantity=quantity,
                 length_cm=parsed_data.get('length_cm'),
-                width_cm=parsed_data.get('width_cm'), 
+                width_cm=parsed_data.get('width_cm'),
                 thickness_mm=parsed_data.get('thickness_mm'),
-                # ... pozostałe pola ...
+                # Zapisz objętość do kolumny total_m3 w bazie i ttl m3 w UI
+                total_volume=total_m3,
+                # ... inne pola zgodnie z modelem BaselinkerReportOrder
             )
-            
+
             return record
-            
+
         except Exception as e:
-            self.logger.error("Błąd tworzenia rekordu z poprawkami wymiarów",
-                            order_id=order.get('order_id'),
-                            product_id=product.get('product_id'),
-                            error=str(e))
+            self.logger.error(
+                "Błąd tworzenia rekordu z poprawkami wymiarów",
+                order_id=order.get('order_id'),
+                product_id=order.get('product_id'),
+                error=str(e)
+            )
             raise
     
 
