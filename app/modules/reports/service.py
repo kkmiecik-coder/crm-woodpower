@@ -864,7 +864,7 @@ class BaselinkerReportsService:
         
         # Oblicz koszt dostawy netto
         delivery_price_gross = order.get('delivery_price', 0)
-        delivery_cost_net = float(delivery_price_gross) / 1.23 if delivery_price_gross else 0
+        delivery_cost_original = float(delivery_price_gross) if delivery_price_gross else 0
 
         # Pobieramy custom fields i wyciągamy opiekuna
         custom_fields = order.get('custom_extra_fields') or {}
@@ -885,7 +885,7 @@ class BaselinkerReportsService:
             'order_source': order.get('order_source'),
             'current_status': current_status,
             'baselinker_status_id': status_id,
-            'delivery_cost': delivery_cost_net,  # Koszt dostawy netto
+            'delivery_cost': float(order.get('delivery_price', 0)),
             'payment_method': order.get('payment_method'),
             'paid_amount_net': paid_amount_net,  # Zapłacono netto
             'email': order.get('email')

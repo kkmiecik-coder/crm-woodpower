@@ -2200,6 +2200,17 @@ def api_fetch_orders_for_selection():
             products_with_issues = []
             has_dimension_issues = False
             
+            custom_fields = order.get('custom_extra_fields', {})
+            price_type_from_api = custom_fields.get('106169', '').strip().lower()
+    
+            # Normalizuj typ ceny
+            if price_type_from_api == 'netto':
+                price_type = 'netto'
+            elif price_type_from_api == 'brutto':
+                price_type = 'brutto'
+            else:
+                price_type = ''  # Puste lub nieznane
+
             # Sprawdź każdy produkt w zamówieniu
             for product in order.get('products', []):
                 product_name = product.get('name', '')
@@ -2246,7 +2257,8 @@ def api_fetch_orders_for_selection():
                 'delivery_price': float(order.get('delivery_price', 0)),
                 'exists_in_db': exists_in_db,
                 'has_dimension_issues': has_dimension_issues,
-                'products_with_issues': products_with_issues if has_dimension_issues else []
+                'products_with_issues': products_with_issues if has_dimension_issues else [],
+                'price_type': price_type  # NOWE POLE
             })
 
         # Sortuj zamówienia według daty (najnowsze pierwsze)

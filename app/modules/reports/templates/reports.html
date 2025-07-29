@@ -92,7 +92,7 @@
                     <div class="stat-comparison" id="compPricePerM3"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Koszt kuriera</div>
+                    <div class="stat-label">Koszt kuriera brutto</div>
                     <div class="stat-value" id="statDeliveryCost">0.00 zł</div>
                     <div class="stat-comparison" id="compDeliveryCost"></div>
                 </div>
@@ -286,7 +286,7 @@
                                 <th>Cena za m³</th>
                                 <th>Data realizacji</th>
                                 <th>Status</th>
-                                <th>Koszt kuriera</th>
+                                <th>Koszt kuriera brutto</th>
                                 <th>Sposób płatności</th>
                                 <th>Zapłacono netto</th>
                                 <th>Saldo</th>
@@ -465,30 +465,35 @@
                 ⚠️ Problemy z wymiarami
             </div>
 
+            <!-- NOWY: Badge dla typu ceny -->
+            <div class="price-type-badge" style="display: none; position: absolute; top: 30px; right: 5px; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
+                <span class="price-type-icon">ℹ️</span>
+                <span class="price-type-text"></span>
+            </div>
+
+            <!-- Reszta template pozostaje bez zmian -->
             <div class="order-checkbox">
                 <input type="checkbox" class="order-select" data-order-id="">
             </div>
 
-            <div class="order-content" style="flex: 1; padding: 12px;">
-                <!-- Header zamówienia -->
-                <div class="order-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div class="order-content">
+                <div class="order-header">
                     <div class="order-title">
                         <strong>Zamówienie #<span class="order-number"></span></strong>
-                        <span class="order-status-badge" style="margin-left: 8px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500;"></span>
+                        <span class="order-status-badge"></span>
                     </div>
-                    <div class="order-actions" style="display: flex; align-items: center; gap: 8px; font-size: 11px;">
-                        <a href="#" class="baselinker-link" style="color: #007bff; text-decoration: none;" title="Otwórz w Baselinker">🔗 Baselinker</a>
-                        <span class="order-date" style="color: #6c757d;"></span>
+                    <div class="order-actions">
+                        <a href="#" class="baselinker-link">🔗 Baselinker</a>
+                        <span class="order-date"></span>
                     </div>
                 </div>
 
-                <!-- Informacje o kliencie i dostawie -->
-                <div class="order-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px; margin-bottom: 8px;">
+                <div class="order-info">
                     <div class="customer-info">
-                        <strong>Klient:</strong> <span class="customer-name" style="color: #495057;"></span>
+                        <strong>Klient:</strong> <span class="customer-name"></span>
                     </div>
                     <div class="delivery-info-container">
-                        <strong>Dostawa:</strong> <span class="delivery-info" style="color: #495057;"></span>
+                        <strong>Dostawa:</strong> <span class="delivery-info"></span>
                     </div>
                 </div>
 

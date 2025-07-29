@@ -572,6 +572,33 @@ class SyncManager {
             }
         }
 
+        // === NOWY KOD: Obsługa price type badge ===
+        const priceTypeBadge = orderElement.querySelector('.price-type-badge');
+        const priceTypeText = orderElement.querySelector('.price-type-text');
+
+        if (priceTypeBadge && priceTypeText && order.price_type) {
+            priceTypeBadge.style.display = 'block';
+
+            // Usuń poprzednie klasy
+            priceTypeBadge.classList.remove('netto', 'brutto', 'unknown');
+
+            if (order.price_type === 'netto') {
+                priceTypeBadge.classList.add('netto');
+                priceTypeText.textContent = 'Netto';
+            } else if (order.price_type === 'brutto') {
+                priceTypeBadge.classList.add('brutto');
+                priceTypeText.textContent = 'Brutto';
+            } else {
+                priceTypeBadge.classList.add('unknown');
+                priceTypeText.textContent = 'Nieznane';
+            }
+
+            console.log(`[SyncManager] ℹ️ Zamówienie ${order.order_id} ma typ ceny: ${order.price_type}`);
+        } else if (priceTypeBadge) {
+            // Brak informacji o price_type - ukryj badge
+            priceTypeBadge.style.display = 'none';
+        }
+
         const checkbox = orderElement.querySelector('.order-select');
         if (checkbox) {
             checkbox.setAttribute('data-order-id', order.order_id);
