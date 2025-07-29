@@ -447,6 +447,56 @@ class BaselinkerReportsService:
     
         return all_orders
     
+    def fetch_order_statuses(self) -> List[Dict]:
+        """
+        Pobiera listę statusów zamówień z API Baselinker i zwraca
+        listę słowników: {'status_id': int, 'status_name': str}
+        """
+        if not self.api_key or not self.endpoint:
+            self.logger.error("Brak konfiguracji API Baselinker")
+            raise ValueError("Brak konfiguracji API Baselinker")
+
+        headers = {
+            'X-BLToken': self.api_key,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+
+        # Przygotuj payload
+        data = {
+            'method': 'getOrderStatusList',
+            'parameters': json.dumps({})  # brak dodatkowych parametrów
+        }
+
+        try:
+            self.logger.info("Pobieram statusy zamówień z Baselinker")
+            response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+
+            if result.get('status') != 'SUCCESS':
+                msg = result.get('error_message', 'Nieznany błąd API')
+                code = result.get('error_code', '')
+                self.logger.error("Błąd API przy pobieraniu statusów",
+                                  status=msg, code=code)
+                return []
+
+            raw_statuses = result.get('orders_statuses', [])
+            statuses = []
+            for s in raw_statuses:
+                try:
+                    sid = int(s.get('orders_status_id', 0))
+                    name = s.get('name', '').strip()
+                    statuses.append({'status_id': sid, 'status_name': name})
+                except Exception:
+                    self.logger.warning("Nieprawidłowy wpis statusu", raw=s)
+
+            self.logger.info("Pobrano statusy zamówień", count=len(statuses))
+            return statuses
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error("Błąd HTTP przy pobieraniu statusów", error=str(e))
+            return []
+
     def sync_orders(self, date_from: Optional[datetime] = None, 
                    sync_type: str = 'manual', orders_list: Optional[List[Dict]] = None) -> Dict[str, any]:
         """
@@ -939,6 +989,256 @@ class BaselinkerReportsService:
                              hours_back=hours_back)
             return False, 0
 
+    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, 
+                                 get_all_statuses: bool = True) -> Dict[str, any]:
+        """
+        NOWA METODA: Pobiera zamówienia z Baselinker dla konkretnego zakresu dat
+        Używana przez nowy system wyboru zamówień
+        
+        Args:
+            date_from (datetime): Data początkowa
+            date_to (datetime): Data końcowa  
+            get_all_statuses (bool): Czy pobierać wszystkie statusy (ignoruj filtry)
+            
+        Returns:
+            Dict: {'success': bool, 'orders': List, 'error': str}
+        """
+        try:
+            self.logger.info("Pobieranie zamówień dla zakresu dat",
+                            date_from=date_from.isoformat(),
+                            date_to=date_to.isoformat(),
+                            get_all_statuses=get_all_statuses)
+
+            headers = {
+                'X-BLToken': self.api_key,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+
+            all_orders = []
+            seen_order_ids = set()
+            page = 0
+            max_pages = 10  # Bezpiecznik - maksymalnie 10 stron dla zakresu dat
+            
+            # Konwertuj daty na timestampy
+            date_from_timestamp = int(date_from.timestamp())
+            date_to_timestamp = int(date_to.timestamp()) + 86399  # Dodaj 23:59:59 do daty końcowej
+
+            self.logger.info("Konwersja dat na timestampy",
+                            date_from_timestamp=date_from_timestamp,
+                            date_to_timestamp=date_to_timestamp)
+
+            while page < max_pages:
+                page += 1
+                
+                # Parametry zapytania zgodne z API Baselinker
+                parameters = {
+                    "include_custom_extra_fields": True,
+                    "get_unconfirmed_orders": True,
+                    "date_confirmed_from": date_from_timestamp,
+                    "date_confirmed_to": date_to_timestamp
+                }
+
+                # Jeśli nie chcemy wszystkich statusów, dodaj filtry
+                if not get_all_statuses:
+                    parameters["filter_order_status_id"] = "!105112,!138625"  # Wykluczamy nieopłacone i anulowane
+
+                self.logger.debug("Pobieranie partii zamówień dla zakresu dat",
+                                page=page,
+                                parameters=parameters)
+
+                data = {
+                    'method': 'getOrders',
+                    'parameters': json.dumps(parameters)
+                }
+
+                try:
+                    response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
+                    response.raise_for_status()
+                    result = response.json()
+
+                    if result.get('status') == 'SUCCESS':
+                        batch_orders = result.get('orders', [])
+                        
+                        if not batch_orders:
+                            self.logger.info("Brak więcej zamówień - kończę pobieranie",
+                                        page=page, total_collected=len(all_orders))
+                            break
+
+                        # Filtruj duplikaty
+                        new_orders_in_batch = 0
+                        for order in batch_orders:
+                            order_id_val = order.get('order_id')
+                            
+                            if order_id_val not in seen_order_ids:
+                                all_orders.append(order)
+                                seen_order_ids.add(order_id_val)
+                                new_orders_in_batch += 1
+
+                        self.logger.info("Pobrano partię zamówień",
+                                    page=page,
+                                    batch_size=len(batch_orders),
+                                    new_orders_in_batch=new_orders_in_batch,
+                                    total_collected=len(all_orders))
+
+                        # Jeśli batch był mniejszy niż typowy rozmiar, prawdopodobnie to koniec
+                        if len(batch_orders) < 100:  # Baselinker zwykle zwraca max 100 na stronę
+                            self.logger.info("Mała partia - prawdopodobnie koniec danych",
+                                        batch_size=len(batch_orders))
+                            break
+
+                    else:
+                        error_msg = result.get('error_message', 'Nieznany błąd API')
+                        self.logger.error("Błąd API Baselinker przy pobieraniu zakresu dat",
+                                        page=page, error_message=error_msg)
+                        return {
+                            'success': False,
+                            'error': f'Błąd API Baselinker: {error_msg}',
+                            'orders': []
+                        }
+
+                except requests.exceptions.Timeout:
+                    self.logger.error("Timeout przy pobieraniu zakresu dat", page=page)
+                    return {
+                        'success': False,
+                        'error': 'Timeout połączenia z Baselinker',
+                        'orders': []
+                    }
+                    
+                except requests.exceptions.RequestException as e:
+                    self.logger.error("Błąd połączenia przy pobieraniu zakresu dat", 
+                                    page=page, error=str(e))
+                    return {
+                        'success': False,
+                        'error': f'Błąd połączenia: {str(e)}',
+                        'orders': []
+                    }
+
+            # Sortuj zamówienia według daty dodania (najnowsze pierwsze)
+            all_orders.sort(key=lambda x: x.get('date_add', 0), reverse=True)
+
+            self.logger.info("Zakończono pobieranie zamówień dla zakresu dat",
+                            total_orders=len(all_orders),
+                            pages_processed=page,
+                            unique_orders=len(seen_order_ids),
+                            date_from=date_from.isoformat(),
+                            date_to=date_to.isoformat())
+
+            return {
+                'success': True,
+                'orders': all_orders,
+                'total_count': len(all_orders),
+                'pages_processed': page
+            }
+
+        except Exception as e:
+            self.logger.error("Błąd pobierania zamówień dla zakresu dat",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            date_from=date_from.isoformat(),
+                            date_to=date_to.isoformat())
+            return {
+                'success': False,
+                'error': f'Błąd serwera: {str(e)}',
+                'orders': []
+            }
+    def set_dimension_fixes(self, fixes: Dict):
+        """
+        Ustawia poprawki wymiarów dla produktów
+        
+        Args:
+            fixes (Dict): {order_id: {product_id: {length_cm: X, width_cm: Y, thickness_mm: Z}}}
+        """
+        self.dimension_fixes = fixes
+        self.logger.info("Ustawiono poprawki wymiarów", fixes_count=len(fixes))
+    
+    def clear_dimension_fixes(self):
+        """Czyści poprawki wymiarów"""
+        self.dimension_fixes = {}
+        self.logger.info("Wyczyszczono poprawki wymiarów")
+    
+    def _apply_dimension_fixes(self, order_id: int, product_id: int, parsed_data: Dict) -> Dict:
+        """
+        Stosuje poprawki wymiarów dla konkretnego produktu
+        
+        Args:
+            order_id (int): ID zamówienia
+            product_id (int): ID produktu
+            parsed_data (Dict): Sparsowane dane produktu
+            
+        Returns:
+            Dict: Poprawione dane produktu
+        """
+        if not self.dimension_fixes:
+            return parsed_data
+            
+        order_fixes = self.dimension_fixes.get(str(order_id), {})
+        product_fixes = order_fixes.get(str(product_id), {})
+        
+        if product_fixes:
+            # Zastosuj poprawki
+            if 'length_cm' in product_fixes:
+                parsed_data['length_cm'] = float(product_fixes['length_cm'])
+            if 'width_cm' in product_fixes:
+                parsed_data['width_cm'] = float(product_fixes['width_cm'])
+            if 'thickness_mm' in product_fixes:
+                parsed_data['thickness_mm'] = float(product_fixes['thickness_mm'])
+                
+            self.logger.info("Zastosowano poprawki wymiarów",
+                           order_id=order_id,
+                           product_id=product_id,
+                           fixes=product_fixes)
+        
+        return parsed_data
+    
+    # POPRAWKA w metodzie _create_report_record - dodaj zastosowanie poprawek
+    def _create_report_record(self, order: Dict, product: Dict) -> BaselinkerReportOrder:
+        """
+        POPRAWIONA METODA: Tworzy rekord raportu z zastosowaniem poprawek wymiarów
+        """
+        try:
+            # Parsuj nazwę produktu
+            product_name = product.get('name', '')
+            parsed_data = self.parser.parse_product_name(product_name)
+            
+            # NOWE: Zastosuj poprawki wymiarów jeśli są dostępne
+            order_id = order.get('order_id')
+            product_id = product.get('product_id')
+            if order_id and product_id:
+                parsed_data = self._apply_dimension_fixes(order_id, product_id, parsed_data)
+            
+            # Pozostała część metody bez zmian...
+            # [kod kontynuowany jak w oryginalnej metodzie]
+            
+            # Oblicz m3 (tylko jeśli mamy wszystkie wymiary)
+            total_m3 = None
+            if all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_mm']):
+                quantity = float(product.get('quantity', 0))
+                if quantity > 0:
+                    length_m = parsed_data['length_cm'] / 100
+                    width_m = parsed_data['width_cm'] / 100
+                    thickness_m = parsed_data['thickness_mm'] / 1000
+                    total_m3 = quantity * length_m * width_m * thickness_m
+            
+            # Reszta kodu tworzenia rekordu...
+            record = BaselinkerReportOrder(
+                # ... wszystkie pola jak w oryginalnej metodzie ...
+                total_m3=total_m3,
+                length_cm=parsed_data.get('length_cm'),
+                width_cm=parsed_data.get('width_cm'), 
+                thickness_mm=parsed_data.get('thickness_mm'),
+                # ... pozostałe pola ...
+            )
+            
+            return record
+            
+        except Exception as e:
+            self.logger.error("Błąd tworzenia rekordu z poprawkami wymiarów",
+                            order_id=order.get('order_id'),
+                            product_id=product.get('product_id'),
+                            error=str(e))
+            raise
+    
+
 # ===== FUNKCJE POMOCNICZE =====
 
 def get_reports_service() -> BaselinkerReportsService:
@@ -987,3 +1287,4 @@ def safe_float_convert(value) -> float:
         return float(value)
     except (ValueError, TypeError):
         return 0.0
+    

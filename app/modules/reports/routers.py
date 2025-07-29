@@ -436,130 +436,6 @@ def api_sync_with_baselinker():
             'error': str(e)
         }), 500
 
-@reports_bp.route('/api/check-new-orders')
-@login_required
-def api_check_new_orders():
-    """
-    API endpoint do sprawdzania nowych zamówień przed synchronizacją
-    """
-    user_email = session.get('user_email')
-    
-    try:
-        date_from_str = request.args.get('date_from')
-        date_to_str = request.args.get('date_to')
-        
-        # ZMIANA: Nie używaj domyślnych 30 dni - sprawdź wszystkie zamówienia
-        date_from = None
-        if date_from_str:
-            try:
-                date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
-                reports_logger.info("Sprawdzanie nowych zamówień od daty", 
-                                  user_email=user_email,
-                                  date_from=date_from.isoformat())
-            except ValueError as e:
-                reports_logger.warning("Błędny format daty w sprawdzaniu nowych zamówień",
-                                     user_email=user_email,
-                                     date_from_str=date_from_str,
-                                     error=str(e))
-                date_from = None
-        
-        if date_from is None:
-            reports_logger.info("Sprawdzanie wszystkich nowych zamówień (bez ograniczenia daty)",
-                              user_email=user_email)
-        
-        service = get_reports_service()
-        
-        # ZMIANA: Pobierz zamówienia bez domyślnego ograniczenia dat
-        orders = service.fetch_orders_from_baselinker(date_from=date_from)
-        
-        if not orders:
-            reports_logger.info("Brak zamówień w Baselinker",
-                              user_email=user_email,
-                              has_date_filter=date_from is not None)
-            return jsonify({
-                'success': True,
-                'has_new_orders': False,
-                'message': 'Brak zamówień w Baselinker'
-            })
-        
-        # UWAGA: Jeśli API zwrócił 100 zamówień, może być więcej
-        if len(orders) >= 100:
-            reports_logger.warning("Limit API Baselinker osiągnięty na stronie głównej",
-                                 user_email=user_email,
-                                 orders_returned=len(orders),
-                                 api_limit=100,
-                                 info="Może być więcej nowych zamówień niż pokazane")
-        
-        # Sprawdź które zamówienia są nowe
-        order_ids = [order['order_id'] for order in orders]
-        existing_ids = service._get_existing_order_ids(order_ids)
-        
-        reports_logger.info("Analiza nowych zamówień",
-                          user_email=user_email,
-                          total_orders_in_baselinker=len(orders),
-                          existing_in_database=len(existing_ids),
-                          potentially_new=len(order_ids) - len(existing_ids))
-        
-        new_orders = []
-        for order in orders:
-            if order['order_id'] not in existing_ids:
-                # Przygotuj podstawowe informacje do wyświetlenia
-                customer_name = (
-                    order.get('delivery_fullname') or 
-                    order.get('delivery_company') or 
-                    order.get('user_login') or 
-                    'Nieznany klient'
-                )
-                
-                # Oblicz wartości brutto i netto
-                total_gross = sum(p.get('price_brutto', 0) * p.get('quantity', 1) for p in order.get('products', [])) + order.get('delivery_price', 0)
-                total_net = total_gross / 1.23
-                
-                order_info = {
-                    'order_id': order['order_id'],
-                    'date_add': datetime.fromtimestamp(order['date_add']).strftime('%d-%m-%Y %H:%M') if order.get('date_add') else '',
-                    'customer_name': customer_name,
-                    'products_count': len(order.get('products', [])),
-                    'total_gross': total_gross,
-                    'total_net': total_net,
-                    'delivery_price': order.get('delivery_price', 0),
-                    'internal_number': order.get('extra_field_1', ''),
-                    'products': [p.get('name') for p in order.get('products', [])]
-                }
-                new_orders.append(order_info)
-        
-        reports_logger.info("Sprawdzenie nowych zamówień zakończone",
-                          user_email=user_email,
-                          total_orders=len(orders),
-                          new_orders=len(new_orders),
-                          has_date_filter=date_from is not None,
-                          api_limit_reached=len(orders) >= 100)
-        
-        # Dodaj ostrzeżenie jeśli osiągnięto limit API
-        response_data = {
-            'success': True,
-            'has_new_orders': len(new_orders) > 0,
-            'new_orders': new_orders,
-            'total_orders': len(orders),
-            'existing_orders': len(existing_ids)
-        }
-        
-        if len(orders) >= 100:
-            response_data['api_limit_warning'] = True
-            response_data['message'] = f'Sprawdzono {len(orders)} zamówień (limit API). Może być więcej zamówień w Baselinker.'
-        
-        return jsonify(response_data)
-        
-    except Exception as e:
-        reports_logger.error("Błąd sprawdzania nowych zamówień", 
-                           user_email=user_email,
-                           error=str(e),
-                           error_type=type(e).__name__)
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
 @reports_bp.route('/api/add-manual-row', methods=['POST'])
 @login_required
 def api_add_manual_row():
@@ -2177,4 +2053,497 @@ def api_delete_manual_row():
         return jsonify({
             'success': False,
             'error': f'Błąd usuwania rekordu: {str(e)}'
+        }), 500
+    
+@reports_bp.route('/api/fetch-orders-for-selection', methods=['POST'])
+@login_required
+def api_fetch_orders_for_selection():
+    """
+    POPRAWIONY ENDPOINT: Pobiera zamówienia z Baselinker dla wybranego zakresu dat
+    z mechanizmem automatycznej paginacji gdy jest >90 zamówień
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        if not data:
+            reports_logger.error("Brak danych w zapytaniu fetch-orders-for-selection", 
+                               user_email=user_email)
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w zapytaniu'
+            }), 400
+
+        date_from = data.get('date_from')
+        date_to = data.get('date_to')
+        days_count = data.get('days_count')
+
+        if not all([date_from, date_to, days_count]):
+            return jsonify({
+                'success': False,
+                'error': 'Brak wymaganych parametrów: date_from, date_to, days_count'
+            }), 400
+
+        reports_logger.info("Pobieranie zamówień do wyboru",
+                          user_email=user_email,
+                          date_from=date_from,
+                          date_to=date_to,
+                          days_count=days_count)
+
+        service = get_reports_service()
+        
+        # NOWA LOGIKA: Mechanizm automatycznej paginacji
+        all_orders = []
+        current_date_from = datetime.fromisoformat(date_from).date()
+        end_date = datetime.fromisoformat(date_to).date()
+        
+        # Pobierz istniejące zamówienia z bazy aby nie duplikować
+        existing_orders = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.isnot(None)
+        ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
+        existing_order_ids = {order[0] for order in existing_orders}
+        
+        reports_logger.info("Załadowano istniejące zamówienia", 
+                          existing_count=len(existing_order_ids))
+        
+        iteration = 0
+        max_iterations = 20  # Zabezpieczenie przed nieskończoną pętlą
+        
+        while current_date_from <= end_date and iteration < max_iterations:
+            iteration += 1
+            
+            reports_logger.info(f"Iteracja {iteration} pobierania zamówień",
+                              current_date_from=current_date_from.isoformat(),
+                              end_date=end_date.isoformat())
+            
+            # Pobierz zamówienia z aktualnego zakresu
+            batch_orders = service.fetch_orders_from_baselinker(
+                date_from=datetime.combine(current_date_from, datetime.min.time()),
+                max_orders=100  # Limit API Baselinker
+            )
+            
+            if not batch_orders:
+                reports_logger.info(f"Brak zamówień w iteracji {iteration}")
+                break
+                
+            reports_logger.info(f"Pobrano {len(batch_orders)} zamówień w iteracji {iteration}")
+            
+            # Dodaj nowe zamówienia do listy
+            new_orders_in_batch = 0
+            for order in batch_orders:
+                if order['order_id'] not in existing_order_ids:
+                    all_orders.append(order)
+                    new_orders_in_batch += 1
+            
+            reports_logger.info(f"Nowe zamówienia w iteracji {iteration}: {new_orders_in_batch}")
+            
+            # Jeśli pobrano mniej niż 90 zamówień, prawdopodobnie to koniec
+            if len(batch_orders) < 90:
+                reports_logger.info("Pobrano mniej niż 90 zamówień - koniec paginacji")
+                break
+            
+            # Znajdź najstarszą datę w tym batch'u
+            oldest_date = None
+            for order in batch_orders:
+                date_add = order.get('date_add')
+                # gdy Baselinker zwraca timestamp (int/float)
+                if isinstance(date_add, (int, float)):
+                    order_date = datetime.fromtimestamp(date_add).date()
+                else:
+                    # gdy to string – próbujemy isoformat
+                    try:
+                        order_date = datetime.fromisoformat(str(date_add)).date()
+                    except (TypeError, ValueError):
+                        reports_logger.warning(
+                            "Niepoprawny format pola date_add",
+                            order_id=order.get('order_id'),
+                            raw_value=date_add
+                        )
+                        continue
+                if oldest_date is None or order_date < oldest_date:
+                    oldest_date = order_date
+            reports_logger.info(f"Najstarsza data w iteracji {iteration}: {oldest_date}")
+            
+            if oldest_date:
+                # Przesuń date_from do najstarszej daty - 1 dzień
+                current_date_from = oldest_date - timedelta(days=1)
+                reports_logger.info(f"Przesunięcie date_from do: {current_date_from}")
+            else:
+                break
+        
+        # Przygotuj response z informacjami o wymiarach
+        # Pobierz mapę statusów z serwisu
+        status_map = {
+            s['status_id']: s['status_name']
+            for s in service.fetch_order_statuses()
+        }
+
+        # Przygotuj response z informacjami o wymiarach
+        orders_with_info = []
+        
+        for order in all_orders:
+            products_with_issues = []
+            has_dimension_issues = False
+            
+            # Sprawdź każdy produkt w zamówieniu
+            for product in order.get('products', []):
+                product_name = product.get('name', '')
+                parsed_data = service.parser.parse_product_name(product_name)
+                
+                # Sprawdź czy brakuje wymiarów
+                missing_dimensions = []
+                if not parsed_data.get('length_cm'):
+                    missing_dimensions.append('długość')
+                if not parsed_data.get('width_cm'):
+                    missing_dimensions.append('szerokość')
+                if not parsed_data.get('thickness_cm'):
+                    missing_dimensions.append('grubość')
+                
+                if missing_dimensions:
+                    has_dimension_issues = True
+                    products_with_issues.append({
+                        'product_id': product.get('product_id'),
+                        'name': product_name,
+                        'quantity': product.get('quantity'),
+                        'missing_dimensions': missing_dimensions,
+                        'current_dimensions': parsed_data
+                    })
+            
+            # Sprawdź czy zamówienie już istnieje w bazie
+            exists_in_db = order['order_id'] in existing_order_ids
+            
+            orders_with_info.append({
+                'order_id': order['order_id'],
+                'date_add': order['date_add'],
+                'delivery_fullname': order.get('delivery_fullname', ''),
+                'customer_name': order.get('delivery_fullname', ''),
+                'delivery_city': order.get('delivery_city', ''),
+                'delivery_postcode': order.get('delivery_postcode', ''),
+                'order_status_id': order.get('order_status_id'),
+                'order_status': status_map.get(order.get('order_status_id'), ''),
+                'order_source_id': order.get('order_source_id'),
+                'products': order.get('products', []),
+                'products_count': len(order.get('products', [])),
+                'order_value': sum(
+                    float(p.get('price_brutto', 0)) * int(p.get('quantity', 1))
+                    for p in order.get('products', [])
+                ),
+                'delivery_price': float(order.get('delivery_price', 0)),
+                'exists_in_db': exists_in_db,
+                'has_dimension_issues': has_dimension_issues,
+                'products_with_issues': products_with_issues if has_dimension_issues else []
+            })
+
+        # Sortuj zamówienia według daty (najnowsze pierwsze)
+        orders_with_info.sort(key=lambda x: x['date_add'], reverse=True)
+
+        reports_logger.info("Pobieranie zamówień zakończone",
+                          total_orders=len(orders_with_info),
+                          iterations=iteration,
+                          orders_with_dimension_issues=len([o for o in orders_with_info if o['has_dimension_issues']]))
+
+        return jsonify({
+            'success': True,
+            'orders': orders_with_info,
+            'total_found': len(orders_with_info),
+            'pagination_info': {
+                'iterations': iteration,
+                'max_iterations_reached': iteration >= max_iterations
+            }
+        })
+        
+    except Exception as e:
+        reports_logger.error("Błąd pobierania zamówień do wyboru",
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({
+            'success': False,
+            'error': f'Błąd pobierania zamówień: {str(e)}'
+        }), 500
+    
+@reports_bp.route('/api/save-selected-orders-with-dimensions', methods=['POST'])
+@login_required
+def api_save_selected_orders_with_dimensions():
+    """
+    NOWY ENDPOINT: Zapisuje wybrane zamówienia z opcjonalnym uzupełnieniem wymiarów
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w zapytaniu'
+            }), 400
+
+        order_ids = data.get('order_ids', [])
+        dimension_fixes = data.get('dimension_fixes', {})  # {order_id: {product_id: {length_cm: X, width_cm: Y, thickness_mm: Z}}}
+
+        if not order_ids:
+            return jsonify({
+                'success': False,
+                'error': 'Brak wybranych zamówień do zapisania'
+            }), 400
+
+        reports_logger.info("Rozpoczęcie zapisywania zamówień z wymiarami",
+                          user_email=user_email,
+                          order_ids_count=len(order_ids),
+                          has_dimension_fixes=bool(dimension_fixes))
+
+        # Walidacja ID zamówień
+        try:
+            order_ids = [int(order_id) for order_id in order_ids]
+        except (ValueError, TypeError) as e:
+            return jsonify({
+                'success': False,
+                'error': 'Błędne ID zamówień'
+            }), 400
+
+        # Sprawdź które zamówienia już istnieją w bazie
+        existing_orders = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.in_(order_ids)
+        ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
+        existing_order_ids = {order.baselinker_order_id for order in existing_orders}
+
+        # Filtruj tylko nowe zamówienia
+        new_order_ids = [order_id for order_id in order_ids if order_id not in existing_order_ids]
+
+        if not new_order_ids:
+            return jsonify({
+                'success': True,
+                'message': 'Wszystkie wybrane zamówienia już istnieją w bazie danych',
+                'orders_saved': 0,
+                'orders_skipped': len(order_ids)
+            })
+
+        # Pobierz service
+        service = get_reports_service()
+        
+        # Zastosuj poprawki wymiarów jeśli zostały podane
+        if dimension_fixes:
+            service.set_dimension_fixes(dimension_fixes)
+            reports_logger.info("Zastosowano poprawki wymiarów", 
+                              fixes_count=len(dimension_fixes))
+
+        # Synchronizuj wybrane zamówienia
+        result = _sync_selected_orders(service, new_order_ids)
+        
+        # Wyczyść poprawki wymiarów
+        if dimension_fixes:
+            service.clear_dimension_fixes()
+
+        if result.get('success'):
+            reports_logger.info("Zapisywanie zamówień z wymiarami zakończone pomyślnie",
+                              orders_processed=result.get('orders_processed', 0),
+                              orders_added=result.get('orders_added', 0))
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        reports_logger.error("Błąd zapisywania zamówień z wymiarami",
+                           user_email=user_email,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Błąd zapisywania zamówień: {str(e)}'
+        }), 500
+
+def check_product_dimensions(product_name):
+    """
+    NOWA FUNKCJA: Sprawdza czy nazwa produktu zawiera wymiary
+    NAPRAWIONE: Obsługuje liczby z przecinkami i kropkami
+    
+    Args:
+        product_name (str): Nazwa produktu
+        
+    Returns:
+        bool: True jeśli produkt ma wymiary, False jeśli nie
+    """
+    if not product_name:
+        return False
+    
+    name_lower = product_name.lower()
+    
+    # NAPRAWIONE: Wzorce obsługujące liczby z przecinkami i kropkami
+    dimension_patterns = [
+        # Klasyczne formaty 3 wymiarów (z kropkami i przecinkami)
+        r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*\s*x\s*\d+[,.]?\d*',  # 200,4x89x4.5
+        r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*\s*×\s*\d+[,.]?\d*',  # 200,4×89×4.5
+        
+        # Format 2 wymiarów (z kropkami i przecinkami)
+        r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*(?!\s*x)',  # 200,4x89 (ale nie x coś dalej)
+        r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*(?!\s*×)',  # 200,4×89
+        
+        # Z jednostkami cm/mm
+        r'\d+[,.]?\d*\s*cm\s*x\s*\d+[,.]?\d*\s*cm',  # 200,4cm x 89cm
+        r'\d+[,.]?\d*\s*mm\s*x\s*\d+[,.]?\d*\s*mm',  # 200,4mm x 89mm
+        r'\d+[,.]?\d*\s*cm\s*×\s*\d+[,.]?\d*\s*cm',  # 200,4cm × 89cm
+        
+        # Wymiary w tekście
+        r'długość\s*:?\s*\d+[,.]?\d*',  # "długość: 200,4"
+        r'szerokość\s*:?\s*\d+[,.]?\d*',  # "szerokość: 89"
+        r'grubość\s*:?\s*\d+[,.]?\d*',  # "grubość: 4,5"
+        r'wysokość\s*:?\s*\d+[,.]?\d*',  # "wysokość: 4,5"
+        r'głębokość\s*:?\s*\d+[,.]?\d*',  # "głębokość: 4,5"
+        
+        # Dodatkowe formaty
+        r'\d+[,.]?\d*\s*/\s*\d+[,.]?\d*\s*/\s*\d+[,.]?\d*',  # 200,4/89/4.5
+        r'\d+[,.]?\d*-\d+[,.]?\d*-\d+[,.]?\d*',  # 200,4-89-4.5
+        
+        # Wymiary w nawiasach
+        r'\(\s*\d+[,.]?\d*\s*x\s*\d+[,.]?\d*.*?\)',  # (200,4 x 89)
+        r'\[\s*\d+[,.]?\d*\s*x\s*\d+[,.]?\d*.*?\]',  # [200,4 x 89]
+    ]
+    
+    import re
+    for pattern in dimension_patterns:
+        if re.search(pattern, name_lower):
+            print(f"[DEBUG] Znaleziono wymiary w '{product_name}' przy użyciu wzorca: {pattern}")
+            return True
+    
+    # Dodatkowe sprawdzenia heurystyczne
+    has_numbers = any(char.isdigit() for char in product_name)
+    has_dimension_separators = any(sep in name_lower for sep in ['x', '×', '/', '-'])
+    has_units = any(unit in name_lower for unit in ['cm', 'mm', 'm'])
+    
+    # Jeśli ma liczby i separatory wymiarów lub jednostki
+    if has_numbers and (has_dimension_separators or has_units):
+        # Dodatkowa walidacja - sprawdź czy to nie jest tylko data lub numer zamówienia
+        date_patterns = [
+            r'\d{1,2}[.-/]\d{1,2}[.-/]\d{2,4}',  # Daty
+            r'\d{4,}',  # Długie numery (prawdopodobnie ID)
+        ]
+        
+        is_probably_date_or_id = any(re.search(pattern, product_name) for pattern in date_patterns)
+        
+        if not is_probably_date_or_id:
+            print(f"[DEBUG] Prawdopodobnie wymiary w '{product_name}' (heurystyka)")
+            return True
+    
+    print(f"[DEBUG] Brak wymiarów w '{product_name}'")
+    return False
+
+@reports_bp.route('/api/save-selected-orders', methods=['POST'])
+@login_required
+def api_save_selected_orders():
+    """
+    NOWY ENDPOINT: Zapisuje wybrane zamówienia do bazy danych
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        if not data:
+            reports_logger.error("Brak danych w zapytaniu save-selected-orders",
+                               user_email=user_email)
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w zapytaniu'
+            }), 400
+
+        order_ids = data.get('order_ids', [])
+        date_from = data.get('date_from')
+        date_to = data.get('date_to')
+
+        if not order_ids:
+            return jsonify({
+                'success': False,
+                'error': 'Brak wybranych zamówień do zapisania'
+            }), 400
+
+        reports_logger.info("Rozpoczęcie zapisywania wybranych zamówień",
+                          user_email=user_email,
+                          order_ids_count=len(order_ids),
+                          order_ids=order_ids,
+                          date_from=date_from,
+                          date_to=date_to)
+
+        # Walidacja ID zamówień
+        try:
+            order_ids = [int(order_id) for order_id in order_ids]
+        except (ValueError, TypeError) as e:
+            reports_logger.error("Błędne ID zamówień",
+                               user_email=user_email,
+                               order_ids=order_ids,
+                               error=str(e))
+            return jsonify({
+                'success': False,
+                'error': 'Błędne ID zamówień'
+            }), 400
+
+        # Sprawdź które zamówienia już istnieją w bazie
+        existing_orders = BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id.in_(order_ids)
+        ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
+        existing_order_ids = {order.baselinker_order_id for order in existing_orders}
+
+        # Filtruj tylko nowe zamówienia
+        new_order_ids = [order_id for order_id in order_ids if order_id not in existing_order_ids]
+
+        reports_logger.info("Analiza zamówień do zapisania",
+                          total_requested=len(order_ids),
+                          existing_in_db=len(existing_order_ids),
+                          new_to_save=len(new_order_ids),
+                          existing_order_ids=list(existing_order_ids),
+                          new_order_ids=new_order_ids)
+
+        if not new_order_ids:
+            reports_logger.warning("Wszystkie wybrane zamówienia już istnieją w bazie",
+                                 user_email=user_email,
+                                 requested_orders=order_ids)
+            return jsonify({
+                'success': True,
+                'message': 'Wszystkie wybrane zamówienia już istnieją w bazie danych',
+                'orders_saved': 0,
+                'orders_skipped': len(order_ids),
+                'existing_orders': order_ids
+            })
+
+        # Użyj istniejącej funkcji synchronizacji dla wybranych zamówień
+        service = get_reports_service()
+        
+        reports_logger.info("Wywołanie synchronizacji dla wybranych zamówień",
+                          new_order_ids=new_order_ids)
+
+        # Użyj funkcji _sync_selected_orders (może trzeba będzie ją zmodyfikować)
+        result = _sync_selected_orders(service, new_order_ids)
+
+        if result.get('success'):
+            reports_logger.info("Zapisywanie wybranych zamówień zakończone pomyślnie",
+                              user_email=user_email,
+                              orders_requested=len(order_ids),
+                              orders_saved=result.get('orders_added', 0),
+                              orders_updated=result.get('orders_updated', 0),
+                              orders_processed=result.get('orders_processed', 0))
+
+            return jsonify({
+                'success': True,
+                'message': f'Pomyślnie zapisano {result.get("orders_added", 0)} zamówień',
+                'orders_saved': result.get('orders_added', 0),
+                'orders_updated': result.get('orders_updated', 0),
+                'orders_processed': result.get('orders_processed', 0),
+                'orders_skipped': len(existing_order_ids),
+                'existing_orders': list(existing_order_ids)
+            })
+        else:
+            error_msg = result.get('error', 'Nieznany błąd synchronizacji')
+            reports_logger.error("Błąd podczas zapisywania wybranych zamówień",
+                               user_email=user_email,
+                               error=error_msg)
+            return jsonify({
+                'success': False,
+                'error': f'Błąd zapisywania: {error_msg}'
+            }), 500
+
+    except Exception as e:
+        reports_logger.error("Błąd zapisywania wybranych zamówień",
+                           user_email=user_email,
+                           error=str(e),
+                           error_type=type(e).__name__)
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
         }), 500
