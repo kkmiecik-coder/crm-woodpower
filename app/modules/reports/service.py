@@ -48,7 +48,7 @@ class BaselinkerReportsService:
         }
 
     def _create_order_record(self, order: Dict, product: Dict, parsed_product: Dict, 
-                           total_m3_all_products: float, total_order_value_net: float) -> BaselinkerReportOrder:
+                       total_m3_all_products: float, total_order_value_net: float) -> BaselinkerReportOrder:
         """
         Tworzy rekord zamówienia z automatycznym uzupełnianiem województwa
         """
@@ -56,18 +56,10 @@ class BaselinkerReportsService:
             # Pobierz dane adresowe
             postcode = order.get('delivery_postcode', '').strip()
             current_state = order.get('delivery_state', '').strip()
-            
-            # NOWE: Automatycznie uzupełnij województwo
-            auto_state = self.postcode_mapper.auto_fill_state(postcode, current_state)
-            
-            # Loguj jeśli dokonano auto-uzupełnienia
-            if auto_state and auto_state != current_state:
-                self.logger.info("Automatyczne uzupełnienie województwa",
-                               order_id=order.get('order_id'),
-                               postcode=postcode,
-                               original_state=current_state or 'BRAK',
-                               auto_filled_state=auto_state)
-            
+        
+            # NOWA LOGIKA: Automatyczne uzupełnianie województwa zgodnie z wymaganiami
+            final_state = self._auto_fill_state_for_order(postcode, current_state)
+        
             # Oblicz wartości produktu
             quantity = product.get('quantity', 1)
             price_gross = safe_float_convert(product.get('price_brutto', 0))
@@ -77,11 +69,11 @@ class BaselinkerReportsService:
             volume_per_piece = parsed_product.get('volume_per_piece') or Decimal('0')
             total_volume = float(volume_per_piece) * quantity
             price_per_m3 = (price_net / float(volume_per_piece)) if volume_per_piece > 0 else 0
-            
+        
             record = BaselinkerReportOrder(
                 # Dane zamówienia
                 date_created=datetime.strptime(order['date_add'], '%Y-%m-%d %H:%M:%S').date(),
-                total_m3=total_m3_all_products,  # Łączna objętość całego zamówienia
+                total_m3=total_m3_all_products,
                 order_amount_net=total_order_value_net,
                 baselinker_order_id=order.get('order_id'),
                 internal_order_number=order.get('extra_field_1'),
@@ -89,12 +81,12 @@ class BaselinkerReportsService:
                 delivery_postcode=postcode,
                 delivery_city=order.get('delivery_city'),
                 delivery_address=order.get('delivery_address'),
-                delivery_state=auto_state,  # ZMIANA: Użyj auto-uzupełnionego województwa
+                delivery_state=final_state,  # ZMIANA: Użyj przetworzoonego województwa
                 phone=order.get('phone'),
                 caretaker=order.get('user_comments'),
                 delivery_method=order.get('delivery_method'),
                 order_source=order.get('order_source'),
-                
+            
                 # Dane produktu z Baselinker
                 raw_product_name=product.get('name'),
                 quantity=quantity,
@@ -105,9 +97,9 @@ class BaselinkerReportsService:
                 volume_per_piece=float(volume_per_piece),
                 total_volume=total_volume,
                 price_per_m3=price_per_m3,
-                
+            
                 # Dane z parsera
-                group_type='towar',  # Domyślnie towar
+                group_type='towar',
                 product_type=parsed_product.get('product_type') or 'klejonka',
                 finish_state=parsed_product.get('finish_state') or 'surowy',
                 wood_species=parsed_product.get('wood_species'),
@@ -116,25 +108,25 @@ class BaselinkerReportsService:
                 length_cm=float(parsed_product.get('length_cm') or 0),
                 width_cm=float(parsed_product.get('width_cm') or 0),
                 thickness_cm=float(parsed_product.get('thickness_cm') or 0),
-                
+            
                 # Status i pozostałe
                 current_status=self.status_map.get(order.get('order_status_id'), 'Nieznany'),
                 delivery_cost=safe_float_convert(order.get('delivery_price', 0)),
                 payment_method=order.get('payment_method'),
                 paid_amount_net=safe_float_convert(order.get('paid', 0)) / 1.23,
                 balance_due=max(0, value_net - (safe_float_convert(order.get('paid', 0)) / 1.23)),
-                
+            
                 # Dane produkcji (zostaną zaktualizowane przez metodę update_production_fields)
                 production_volume=0,
                 production_value_net=0,
                 ready_pickup_volume=0
             )
-            
+        
             # Aktualizuj pola produkcji na podstawie statusu
             record.update_production_fields()
-            
+        
             return record
-            
+        
         except Exception as e:
             self.logger.error("Błąd tworzenia rekordu zamówienia",
                             order_id=order.get('order_id'),
@@ -143,21 +135,60 @@ class BaselinkerReportsService:
                             error_type=type(e).__name__)
             raise
 
+    def _auto_fill_state_for_order(self, postcode: str, current_state: str) -> str:
+        """
+        Automatyczne uzupełnianie województwa zgodnie z wymaganiami:
+        1. Jeśli województwo jest wpisane - puszczamy dalej
+        2. Jeśli nie ma województwa, sprawdzamy kod pocztowy i uzupełniamy  
+        3. Jeśli nie ma województwa ani kodu pocztowego - puszczamy dalej
+    
+        Args:
+            postcode (str): Kod pocztowy
+            current_state (str): Obecne województwo
+        
+        Returns:
+            str: Finalne województwo
+        """
+        # KROK 1: Jeśli województwo jest wpisane - puszczamy dalej
+        if current_state and current_state.strip():
+            self.logger.debug("Województwo już wpisane, pomijamy auto-fill",
+                             current_state=current_state,
+                             postcode=postcode)
+            return current_state.strip()
+    
+        # KROK 2: Jeśli nie ma województwa, sprawdzamy kod pocztowy i uzupełniamy
+        if postcode and postcode.strip():
+            auto_state = PostcodeToStateMapper.get_state_from_postcode(postcode)
+            if auto_state:
+                self.logger.info("Automatyczne uzupełnienie województwa z kodu pocztowego",
+                               postcode=postcode,
+                               auto_filled_state=auto_state)
+                return auto_state
+            else:
+                self.logger.debug("Nie rozpoznano województwa z kodu pocztowego",
+                                postcode=postcode)
+    
+        # KROK 3: Jeśli nie ma województwa ani kodu pocztowego - puszczamy dalej
+        self.logger.debug("Brak danych do auto-fill województwa",
+                         postcode=postcode or 'BRAK',
+                         current_state=current_state or 'BRAK')
+        return current_state or ''
+
     def update_existing_record(self, record: BaselinkerReportOrder, order: Dict, 
-                             product: Dict, parsed_product: Dict) -> bool:
+                         product: Dict, parsed_product: Dict) -> bool:
         """
         Aktualizuje istniejący rekord z automatycznym uzupełnianiem województwa
         """
         try:
             changes_made = False
-            
+        
             # Pobierz dane adresowe
             postcode = order.get('delivery_postcode', '').strip()
             current_state = order.get('delivery_state', '').strip()
-            
-            # NOWE: Automatycznie uzupełnij województwo
-            auto_state = self.postcode_mapper.auto_fill_state(postcode, current_state)
-            
+        
+            # NOWA LOGIKA: Automatyczne uzupełnianie województwa
+            auto_state = self._auto_fill_state_for_order(postcode, current_state or record.delivery_state)
+        
             # Sprawdź czy województwo się zmieniło
             if record.delivery_state != auto_state:
                 self.logger.info("Aktualizacja województwa w istniejącym rekordzie",
@@ -168,43 +199,43 @@ class BaselinkerReportsService:
                                new_state=auto_state)
                 record.delivery_state = auto_state
                 changes_made = True
-            
+        
             # Sprawdź inne pola, które mogły się zmienić
             new_status = self.status_map.get(order.get('order_status_id'), 'Nieznany')
             if record.current_status != new_status:
                 record.current_status = new_status
                 changes_made = True
-            
+        
             # Sprawdź dane kontaktowe
             new_phone = order.get('phone', '').strip()
             if record.phone != new_phone:
                 record.phone = new_phone
                 changes_made = True
-            
+        
             # Sprawdź kod pocztowy
             if record.delivery_postcode != postcode:
                 record.delivery_postcode = postcode
                 changes_made = True
-            
+        
             # Sprawdź miasto
             new_city = order.get('delivery_city', '').strip()
             if record.delivery_city != new_city:
                 record.delivery_city = new_city
                 changes_made = True
-            
+        
             # Sprawdź adres
             new_address = order.get('delivery_address', '').strip()
             if record.delivery_address != new_address:
                 record.delivery_address = new_address
                 changes_made = True
-            
-            # Jeśli status się zmienił, zaktualizuj pola produkcji
+        
+            # Jeśli zaszły zmiany, zaktualizuj pola produkcji
             if changes_made:
                 record.update_production_fields()
                 record.updated_at = datetime.utcnow()
-            
+        
             return changes_made
-            
+        
         except Exception as e:
             self.logger.error("Błąd aktualizacji rekordu",
                             record_id=record.id,

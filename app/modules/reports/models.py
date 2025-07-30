@@ -7,6 +7,8 @@ from extensions import db
 from datetime import datetime, timedelta
 from sqlalchemy import Index
 import re
+from .utils import PostcodeToStateMapper
+
 
 class BaselinkerReportOrder(db.Model):
     """
@@ -379,19 +381,49 @@ class BaselinkerReportOrder(db.Model):
             self.realization_date = target_date
             
         # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
-        # POPRAWKA: Saldo obliczane na podstawie order_amount_net (całe zamówienie netto)
         if self.order_amount_net is not None and self.paid_amount_net is not None:
             self.balance_due = float(self.order_amount_net) - float(self.paid_amount_net)
             
+        # NOWE: Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
+        self.auto_fill_delivery_state()
+        
         # Oblicz produkcję i odbiór na podstawie statusu
         self.update_production_fields()
-        
+    
         # Normalizuj województwo
         self.normalize_delivery_state()
         
         # Ustaw domyślny product_type na 'deska' jeśli nie ma
         if not self.product_type:
             self.product_type = 'klejonka'
+
+    def auto_fill_delivery_state(self):
+        """
+        Automatycznie uzupełnia województwo na podstawie kodu pocztowego
+        Logika zgodna z wymaganiami:
+        1. Jeśli województwo jest wpisane - puszczamy dalej
+        2. Jeśli nie ma województwa, sprawdzamy kod pocztowy i uzupełniamy
+        3. Jeśli nie ma województwa ani kodu pocztowego - puszczamy dalej
+        """
+        # KROK 1: Jeśli mamy województwo, nie robimy nic
+        if self.delivery_state and self.delivery_state.strip():
+            return
+    
+        # KROK 2: Jeśli nie ma województwa, ale mamy kod pocztowy - uzupełniamy
+        if self.delivery_postcode and self.delivery_postcode.strip():
+        
+            auto_state = PostcodeToStateMapper.get_state_from_postcode(self.delivery_postcode)
+            if auto_state:
+                self.delivery_state = auto_state
+                # Loguj automatyczne uzupełnienie (nie print, tylko strukturalny log)
+                from modules.logging import get_structured_logger
+                logger = get_structured_logger('reports.auto_fill')
+                logger.info("Automatyczne uzupełnienie województwa",
+                           record_id=getattr(self, 'id', 'NEW'),
+                           postcode=self.delivery_postcode,
+                           auto_filled_state=auto_state)
+    
+        # KROK 3: Jeśli nie ma województwa ani kodu pocztowego - nie robimy nic (puszczamy dalej)
     
     def normalize_delivery_state(self):
         """
@@ -444,21 +476,36 @@ class BaselinkerReportOrder(db.Model):
         """
         if not self.current_status:
             return
-            
-        status_lower = self.current_status.lower()
         
+        status_lower = self.current_status.lower()
+    
         # Reset wartości
         self.production_volume = 0.0
         self.production_value_net = 0.0
         self.ready_pickup_volume = 0.0
-        
-        # Jeśli status zawiera "w produkcji"
-        if 'w produkcji' in status_lower:
+    
+        # Jeśli status zawiera "w produkcji" LUB to "Nowe - opłacone"
+        if 'w produkcji' in status_lower or 'nowe - opłacone' in status_lower:
             self.production_volume = float(self.total_volume or 0.0)
             self.production_value_net = float(self.value_net or 0.0)
-            
-        # Jeśli status to "Czeka na odbiór osobisty"
-        elif 'czeka na odbiór osobisty' in status_lower:
+        
+        # NOWA LOGIKA: Statusy dla "Wyprodukowane" (zamiast tylko "Czeka na odbiór osobisty")
+        # ID statusów: 138620, 138623, 105114, 149763, 149777, 138624, 149778, 149779
+        elif (self.baselinker_status_id and 
+              self.baselinker_status_id in [138620, 138623, 105114, 149763, 149777, 138624, 149778, 149779]):
+            self.ready_pickup_volume = float(self.total_volume or 0.0)
+        
+        # FALLBACK: Sprawdź także po nazwie statusu (dla ręcznych wpisów lub starych rekordów bez baselinker_status_id)
+        elif any(status_name in status_lower for status_name in [
+            'produkcja zakończona',           # 138620
+            'zamówienie spakowane',           # 138623  
+            'wysłane - kurier',               # 105114
+            'wysłane - transport woodpower',  # 149763
+            'czeka na odbiór osobisty',       # 149777
+            'dostarczona - kurier',           # 138624
+            'dostarczona - transport woodpower', # 149778
+            'odebrane'                        # 149779
+        ]):
             self.ready_pickup_volume = float(self.total_volume or 0.0)
     
     def to_dict(self):

@@ -72,29 +72,24 @@
                     <div class="stat-comparison" id="compTotalM3"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Kwota zamówień netto</div>
-                    <div class="stat-value" id="statOrderAmountNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compOrderAmountNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość netto <br><span style="font-size: 10px; font-weight: 400;">(bez kosztów kuriera)</span></div>
-                    <div class="stat-value" id="statValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compValueNet"></div>
-                </div>
-                <div class="stat-box">
                     <div class="stat-label">Wartość brutto</div>
                     <div class="stat-value" id="statValueGross">0.00 zł</div>
                     <div class="stat-comparison" id="compValueGross"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Średnia cena za m³</div>
-                    <div class="stat-value" id="statPricePerM3">0.00 zł</div>
-                    <div class="stat-comparison" id="compPricePerM3"></div>
+                    <div class="stat-label">Wartość netto</div>
+                    <div class="stat-value" id="statOrderAmountNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compOrderAmountNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Koszt kuriera brutto</div>
                     <div class="stat-value" id="statDeliveryCost">0.00 zł</div>
                     <div class="stat-comparison" id="compDeliveryCost"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Wartość netto <span style="font-size: 10px; font-weight: 400;">(bez kuriera)</span></div>
+                    <div class="stat-value" id="statValueNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compValueNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Zapłacono TTL netto</div>
@@ -107,6 +102,11 @@
                     <div class="stat-comparison" id="compBalanceDue"></div>
                 </div>
                 <div class="stat-box">
+                    <div class="stat-label">Średnia cena za m³</div>
+                    <div class="stat-value" id="statPricePerM3">0.00 zł</div>
+                    <div class="stat-comparison" id="compPricePerM3"></div>
+                </div>
+                <div class="stat-box">
                     <div class="stat-label">Ilość m³ w produkcji</div>
                     <div class="stat-value" id="statProductionVolume">0.00</div>
                     <div class="stat-comparison" id="compProductionVolume"></div>
@@ -117,7 +117,7 @@
                     <div class="stat-comparison" id="compProductionValueNet"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Gotowe do odbioru</div>
+                    <div class="stat-label">Wyprodukowane</div>
                     <div class="stat-value" id="statReadyPickupVolume">0.00</div>
                     <div class="stat-comparison" id="compReadyPickupVolume"></div>
                 </div>
@@ -292,7 +292,7 @@
                                 <th>Saldo</th>
                                 <th>Ilość w produkcji</th>
                                 <th>Wartość w produkcji</th>
-                                <th>Gotowe do odbioru</th>
+                                <th>Wyprodukowane</th>
                                 <th>Akcje</th>
                             </tr>
                         </thead>

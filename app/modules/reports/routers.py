@@ -49,10 +49,11 @@ def reports_home():
         # ZMIANA: Sprawdź wszystkie nowe zamówienia, nie tylko z ostatnich 48h
         service = get_reports_service()
         
-        # Sprawdź nowe zamówienia bez ograniczenia czasowego
+        # Sprawdź nowe zamówienia z ostatnich 4 dni
         try:
             # Pobierz wszystkie zamówienia z Baselinker
-            orders = service.fetch_orders_from_baselinker(date_from=None)
+            date_from_4_days = datetime.now() - timedelta(days=4)
+            orders = service.fetch_orders_from_baselinker(date_from=date_from_4_days)
             
             if orders:
                 # Sprawdź które są nowe
@@ -71,11 +72,11 @@ def reports_home():
                 
                 # UWAGA: Jeśli API zwrócił 100 zamówień, może być więcej
                 if len(orders) >= 100:
-                    reports_logger.warning("Limit API Baselinker osiągnięty na stronie głównej",
+                    reports_logger.warning("Limit API Baselinker osiągnięty na stronie głównej (4 dni)",
                                          user_email=user_email,
                                          orders_returned=len(orders),
                                          api_limit=100,
-                                         info="Może być więcej nowych zamówień niż pokazane")
+                                         info="Może być więcej nowych zamówień z ostatnich 4 dni niż pokazane")
             else:
                 has_new_orders = False
                 new_orders_count = 0
@@ -100,7 +101,7 @@ def reports_home():
                     new_orders_count = len(order_ids) - len(existing_ids)
                     has_new_orders = new_orders_count > 0
                     
-                    reports_logger.info("Fallback: Sprawdzenie zamówień z ostatnich 24h",
+                    reports_logger.info("Fallback: Sprawdzenie zamówień z ostatnich 4 dni",
                                       user_email=user_email,
                                       fallback_orders=len(orders_fallback),
                                       new_orders_count=new_orders_count,
