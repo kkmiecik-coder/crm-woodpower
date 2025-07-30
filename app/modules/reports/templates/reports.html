@@ -57,10 +57,26 @@
                     </button>
 
                     <!-- Przycisk eksportu -->
-                    <button id="exportExcelBtn" class="btn btn-info">
-                        <i class="fas fa-download"></i>
-                        Eksport Excel
-                    </button>
+                    <div class="dropdown export-dropdown">
+                        <button id="exportBtn" class="btn btn-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-download"></i>
+                            Export
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <a class="dropdown-item" href="#" id="exportExcelOption">
+                                    <i class="fas fa-file-excel"></i>
+                                    Excel
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="#" id="exportRoutimoOption">
+                                    <i class="fas fa-route"></i>
+                                    Routimo
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
             </div>
 
@@ -233,10 +249,26 @@
                         </button>
 
                         <!-- Przycisk eksportu dla fullscreen (widoczny tylko w fullscreen) -->
-                        <button id="fullscreenExportBtn" class="btn btn-info btn-sm fullscreen-export-btn">
-                            <i class="fas fa-download"></i>
-                            Eksport Excel
-                        </button>
+                        <div class="dropdown export-dropdown fullscreen-export-btn">
+                            <button id="fullscreenExportBtn" class="btn btn-info btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-download"></i>
+                                Export
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item" href="#" id="fullscreenExportExcelOption">
+                                        <i class="fas fa-file-excel"></i>
+                                        Excel
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" id="fullscreenExportRoutimoOption">
+                                        <i class="fas fa-route"></i>
+                                        Routimo
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
 
                     <!-- Aktywne filtry -->

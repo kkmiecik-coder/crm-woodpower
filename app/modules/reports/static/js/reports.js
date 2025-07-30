@@ -159,6 +159,42 @@ class ReportsManager {
             });
         }
 
+        // Excel export - normalny tryb
+        const exportExcelOption = document.getElementById('exportExcelOption');
+        if (exportExcelOption) {
+            exportExcelOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportExcel();
+            });
+        }
+
+        // Excel export - fullscreen
+        const fullscreenExportExcelOption = document.getElementById('fullscreenExportExcelOption');
+        if (fullscreenExportExcelOption) {
+            fullscreenExportExcelOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportExcel();
+            });
+        }
+
+        // Routimo export - normalny tryb
+        const exportRoutimoOption = document.getElementById('exportRoutimoOption');
+        if (exportRoutimoOption) {
+            exportRoutimoOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportRoutimo();
+            });
+        }
+
+        // Routimo export - fullscreen
+        const fullscreenExportRoutimoOption = document.getElementById('fullscreenExportRoutimoOption');
+        if (fullscreenExportRoutimoOption) {
+            fullscreenExportRoutimoOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportRoutimo();
+            });
+        }
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             this.handleKeyboardShortcuts(e);
@@ -1584,7 +1620,7 @@ class ReportsManager {
     }
 
     /**
-     * Obsługa eksportu Excel
+     * Obsługa eksportu Excel - ZAKTUALIZOWANE dla dropdown
      */
     handleExportExcel() {
         console.log('[ReportsManager] Export Excel clicked');
@@ -1594,6 +1630,45 @@ class ReportsManager {
         } else {
             console.error('[ReportsManager] ExportManager not available');
             this.showError('ExportManager nie jest dostępny');
+        }
+    }
+
+    /**
+     * NOWA METODA - Obsługa eksportu Routimo
+     */
+    handleExportRoutimo() {
+        console.log('[ReportsManager] Export Routimo clicked');
+
+        if (window.exportManager) {
+            window.exportManager.exportToRoutimo();
+        } else {
+            console.error('[ReportsManager] ExportManager not available');
+            this.showError('ExportManager nie jest dostępny');
+        }
+    }
+
+    /**
+     * NOWA METODA - Generyczna obsługa eksportu
+     */
+    handleExport(type) {
+        console.log('[ReportsManager] Export requested:', type);
+
+        if (!window.exportManager) {
+            console.error('[ReportsManager] ExportManager not available');
+            this.showError('ExportManager nie jest dostępny');
+            return;
+        }
+
+        switch (type) {
+            case 'excel':
+                window.exportManager.exportToExcel();
+                break;
+            case 'routimo':
+                window.exportManager.exportToRoutimo();
+                break;
+            default:
+                console.error('[ReportsManager] Unknown export type:', type);
+                this.showError(`Nieznany typ eksportu: ${type}`);
         }
     }
 
@@ -1952,6 +2027,31 @@ class ReportsManager {
 
         // Odśwież hover effects dla grupowanych zamówień
         this.setupOrderHoverEffects();
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie dostępności opcji eksportu
+     */
+    getAvailableExportOptions() {
+        if (window.exportManager && typeof window.exportManager.getExportOptions === 'function') {
+            return window.exportManager.getExportOptions();
+        }
+
+        return {
+            excel: { available: true, label: 'Excel' },
+            routimo: { available: false, label: 'Routimo' }
+        };
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie czy eksport jest w toku
+     */
+    isExportInProgress() {
+        if (window.exportManager && typeof window.exportManager.isExportInProgress === 'function') {
+            return window.exportManager.isExportInProgress();
+        }
+
+        return false;
     }
 
     /**

@@ -7,10 +7,11 @@
 class ExportManager {
     constructor() {
         this.isExporting = false;
-        this.exportButton = null;
-        this.lastExportTime = null; // POPRAWKA: Dodano śledzenie czasu ostatniego eksportu
+        this.exportDropdown = null;
+        this.fullscreenExportDropdown = null;
+        this.lastExportTime = null;
 
-        console.log('[ExportManager] Initialized');
+        console.log('[ExportManager] Initialized with dropdown support');
     }
 
     /**
@@ -21,37 +22,219 @@ class ExportManager {
 
         this.cacheElements();
         this.setupEventListeners();
+        this.initDropdowns();
 
         console.log('[ExportManager] Initialization complete');
     }
 
     /**
-     * Cache elementów DOM
+     * Cache elementów DOM - ZAKTUALIZOWANE dla dropdown
      */
     cacheElements() {
-        this.exportButton = document.getElementById('exportExcelBtn');
+        // Dropdown'y export
+        this.exportDropdown = document.querySelector('.export-dropdown');
+        this.fullscreenExportDropdown = document.querySelector('.fullscreen-export-btn.export-dropdown');
+
+        // Przyciski główne
+        this.exportButton = document.getElementById('exportBtn');
         this.fullscreenExportButton = document.getElementById('fullscreenExportBtn');
 
-        console.log('[ExportManager] Elements cached');
+        // Opcje export
+        this.exportExcelOption = document.getElementById('exportExcelOption');
+        this.exportRoutimoOption = document.getElementById('exportRoutimoOption');
+        this.fullscreenExportExcelOption = document.getElementById('fullscreenExportExcelOption');
+        this.fullscreenExportRoutimoOption = document.getElementById('fullscreenExportRoutimoOption');
+
+        console.log('[ExportManager] Elements cached:', {
+            exportDropdown: !!this.exportDropdown,
+            exportButton: !!this.exportButton,
+            exportExcelOption: !!this.exportExcelOption,
+            exportRoutimoOption: !!this.exportRoutimoOption
+        });
+    }
+
+    setupEventListeners() {
+        // === OBSŁUGA DROPDOWN EXPORT ===
+
+        // Excel export - normalny tryb
+        if (this.exportExcelOption) {
+            this.exportExcelOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.closeAllDropdowns(); // Zamknij dropdown po kliknięciu
+                this.exportToExcel();
+            });
+        }
+
+        // Excel export - fullscreen
+        if (this.fullscreenExportExcelOption) {
+            this.fullscreenExportExcelOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.closeAllDropdowns();
+                this.exportToExcel();
+            });
+        }
+
+        // Routimo export - normalny tryb  
+        if (this.exportRoutimoOption) {
+            this.exportRoutimoOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.closeAllDropdowns();
+                this.exportToRoutimo();
+            });
+        }
+
+        // Routimo export - fullscreen
+        if (this.fullscreenExportRoutimoOption) {
+            this.fullscreenExportRoutimoOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.closeAllDropdowns();
+                this.exportToRoutimo();
+            });
+        }
+
+        // === OBSŁUGA PRZYCISKÓW DROPDOWN TOGGLE ===
+
+        // Główny przycisk dropdown
+        if (this.exportButton) {
+            this.exportButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleDropdown(this.exportDropdown);
+            });
+        }
+
+        // Fullscreen przycisk dropdown
+        if (this.fullscreenExportButton) {
+            this.fullscreenExportButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleDropdown(this.fullscreenExportDropdown);
+            });
+        }
+
+        // Zamknięcie dropdown'a po kliknięciu poza nim
+        document.addEventListener('click', (e) => {
+            this.handleOutsideClick(e);
+        });
+
+        // Obsługa klawisza ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeAllDropdowns();
+            }
+        });
+
+        console.log('[ExportManager] Event listeners setup complete');
     }
 
     /**
-     * Ustawienie event listenerów
+     * NOWA METODA - Toggle dropdown
      */
-    setupEventListeners() {
-        if (this.exportButton) {
-            this.exportButton.addEventListener('click', () => {
-                this.exportToExcel();
-            });
-        }
+    toggleDropdown(dropdown) {
+        if (!dropdown) return;
 
-        if (this.fullscreenExportButton) {
-            this.fullscreenExportButton.addEventListener('click', () => {
-                this.exportToExcel();
-            });
-        }
+        const button = dropdown.querySelector('.dropdown-toggle');
+        const menu = dropdown.querySelector('.dropdown-menu');
 
-        console.log('[ExportManager] Event listeners setup complete');
+        if (!button || !menu) return;
+
+        const isOpen = menu.classList.contains('show');
+
+        // Zamknij wszystkie inne dropdown'y
+        this.closeAllDropdowns();
+
+        if (!isOpen) {
+            // Otwórz ten dropdown
+            button.setAttribute('aria-expanded', 'true');
+            menu.classList.add('show');
+
+            // Dostosuj pozycję w fullscreen
+            if (dropdown.classList.contains('fullscreen-export-btn') ||
+                dropdown.closest('.fullscreen-mode')) {
+                this.adjustDropdownPositionFullscreen(menu);
+            }
+
+            console.log('[ExportManager] Dropdown opened');
+        }
+    }
+
+    /**
+     * ZAKTUALIZOWANA METODA - Obsługa kliknięcia poza dropdown'em
+     */
+    handleOutsideClick(e) {
+        // Sprawdź czy kliknięto poza dropdown'ami export
+        const exportDropdowns = document.querySelectorAll('.export-dropdown');
+        let clickedInside = false;
+
+        exportDropdowns.forEach(dropdown => {
+            if (dropdown.contains(e.target)) {
+                clickedInside = true;
+            }
+        });
+
+        if (!clickedInside) {
+            this.closeAllDropdowns();
+        }
+    }
+
+    /**
+     * ZAKTUALIZOWANA METODA - Zamknięcie dropdown'a
+     */
+    closeDropdown(dropdown) {
+        if (!dropdown) return;
+
+        const button = dropdown.querySelector('.dropdown-toggle');
+        const menu = dropdown.querySelector('.dropdown-menu');
+
+        if (button && menu) {
+            button.setAttribute('aria-expanded', 'false');
+            menu.classList.remove('show');
+        }
+    }
+
+    /**
+     * NOWA METODA - Inicjalizacja dropdown'ów (wywołaj w init())
+     */
+    initDropdowns() {
+        // Upewnij się, że wszystkie dropdown'y są zamknięte na start
+        this.closeAllDropdowns();
+
+        // Sprawdź czy Bootstrap jest dostępny
+        if (typeof bootstrap !== 'undefined') {
+            console.log('[ExportManager] Bootstrap detected, using Bootstrap dropdowns');
+            this.initBootstrapDropdowns();
+        } else {
+            console.log('[ExportManager] Bootstrap not detected, using manual dropdowns');
+        }
+    }
+
+    /**
+     * NOWA METODA - Zamknij wszystkie dropdown'y
+     */
+    closeAllDropdowns() {
+        const dropdowns = document.querySelectorAll('.export-dropdown');
+
+        dropdowns.forEach(dropdown => {
+            this.closeDropdown(dropdown);
+        });
+    }
+
+    /**
+     * NOWA METODA - Dostosuj pozycję dropdown'a w fullscreen
+     */
+    adjustDropdownPositionFullscreen(menu) {
+        if (!menu) return;
+
+        menu.style.position = 'absolute';
+        menu.style.top = 'auto';
+        menu.style.bottom = '100%';
+        menu.style.left = '0';
+        menu.style.marginBottom = '2px';
+        menu.style.zIndex = '1002';
     }
 
     /**
@@ -65,10 +248,9 @@ class ExportManager {
         }
 
         // POPRAWKA: Sprawdź czy nie eksportowano zbyt niedawno (throttling)
-        if (this.lastExportTime && (Date.now() - this.lastExportTime) < 2000) {
-            console.log('[ExportManager] Export throttled - too soon after last export');
-            this.showNotification('Proszę poczekać przed kolejnym eksportem', 'warning');
-            return;
+        if (this.isExporting) {
+            console.log('[ExportManager] Export already in progress, skipping...');
+            return; // Bez alert'a
         }
 
         console.log('[ExportManager] Starting Excel export...');
@@ -172,6 +354,174 @@ class ExportManager {
         } finally {
             this.setExportingState(false);
         }
+    }
+
+    /**
+ * NOWA METODA - Export do Routimo CSV
+ */
+    async exportToRoutimo() {
+        if (this.isExporting) {
+            console.log('[ExportManager] Export already in progress, skipping...');
+            return;
+        }
+
+        if (this.lastExportTime && (Date.now() - this.lastExportTime) < 2000) {
+            console.log('[ExportManager] Export throttled - too soon after last export');
+            return;
+        }
+
+        console.log('[ExportManager] Starting Routimo export...');
+
+        this.setExportingState(true, 'routimo');
+        this.lastExportTime = Date.now();
+
+        try {
+            // Pobierz aktualne filtry i zakres dat z ReportsManager
+            const dateRange = this.getCurrentDateRange();
+            const filters = this.getCurrentFilters();
+
+            console.log('[ExportManager] Routimo export parameters:', {
+                dateRange,
+                filtersCount: Object.keys(filters).length,
+                isFullscreen: this.isInFullscreenMode()
+            });
+
+            // Walidacja danych przed eksportem
+            const validationResult = this.validateRoutimoExportData(dateRange, filters);
+            if (!validationResult.isValid) {
+                throw new Error(validationResult.message);
+            }
+
+            // Przygotuj parametry URL
+            const params = new URLSearchParams();
+
+            // Dodaj daty
+            if (dateRange.date_from) {
+                params.append('date_from', dateRange.date_from);
+            }
+            if (dateRange.date_to) {
+                params.append('date_to', dateRange.date_to);
+            }
+
+            // WAŻNE: Routimo nie używa filtrów kolumn - tylko statusy są filtrowane backend
+            // Dodaj informację o trybie fullscreen
+            if (this.isInFullscreenMode()) {
+                params.append('fullscreen_mode', 'true');
+            }
+
+            const response = await this.fetchWithTimeout(`/reports/api/export-routimo?${params}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'text/csv'
+                }
+            }, 30000); // 30 sekund timeout
+
+            if (!response.ok) {
+                // Sprawdź czy to JSON z błędem
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    const errorResult = await response.json();
+                    throw new Error(errorResult.error || 'Błąd eksportu Routimo');
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            }
+
+            // Pobierz blob z pliku CSV
+            const blob = await response.blob();
+
+            if (blob.size === 0) {
+                throw new Error('Otrzymano pusty plik CSV');
+            }
+
+            // Pobierz nazwę pliku z nagłówka lub wygeneruj
+            const filename = this.getFilenameFromResponse(response) || this.generateRoutimoFilename(dateRange);
+
+            // Pobierz plik
+            this.downloadBlob(blob, filename);
+
+            console.log('[ExportManager] Routimo export completed successfully', {
+                filename,
+                fileSize: blob.size,
+                isFullscreen: this.isInFullscreenMode()
+            });
+
+            // Pokaż komunikat sukcesu (opcjonalnie)
+            console.log(`✅ Plik "${filename}" został pobrany pomyślnie (${Math.round(blob.size / 1024)} KB)`);
+
+        } catch (error) {
+            console.error('[ExportManager] Routimo export error:', error);
+            // Pokaż błąd użytkownikowi
+            alert('Błąd eksportu Routimo: ' + error.message);
+        } finally {
+            this.setExportingState(false);
+        }
+    }
+
+    /**
+     * NOWA METODA - Walidacja danych przed eksportem Routimo
+     */
+    validateRoutimoExportData(dateRange, filters) {
+        // Sprawdź czy są dane do eksportu
+        const currentData = this.getCurrentData();
+        if (!currentData || currentData.length === 0) {
+            return {
+                isValid: false,
+                message: 'Brak danych do eksportu. Sprawdź filtry i zakres dat.'
+            };
+        }
+
+        // Sprawdź czy są zamówienia z odpowiednim statusem
+        const routimoStatuses = [
+            'Wysłane - transport WoodPower',
+            'Wysł. - trans. WP'
+        ];
+
+        const hasRoutimoOrders = currentData.some(record =>
+            routimoStatuses.includes(record.current_status)
+        );
+
+        if (!hasRoutimoOrders) {
+            return {
+                isValid: false,
+                message: 'Brak zamówień ze statusem "Wysłane - transport WoodPower". Sprawdź filtry i statusy zamówień.'
+            };
+        }
+
+        // Sprawdź zakres dat
+        if (!dateRange.date_from || !dateRange.date_to) {
+            return {
+                isValid: false,
+                message: 'Nieprawidłowy zakres dat. Wybierz datę początkową i końcową.'
+            };
+        }
+
+        return {
+            isValid: true,
+            message: 'Dane są prawidłowe dla eksportu Routimo'
+        };
+    }
+
+    /**
+     * NOWA METODA - Generowanie nazwy pliku CSV dla Routimo
+     */
+    generateRoutimoFilename(dateRange) {
+        const now = new Date();
+        const dateString = now.toISOString().slice(0, 10); // YYYY-MM-DD
+
+        // Dodaj informacje o zakresie dat jeśli dostępne
+        let dateRangeStr = dateString;
+        if (dateRange.date_from && dateRange.date_to) {
+            const fromStr = dateRange.date_from.replace(/-/g, '');
+            const toStr = dateRange.date_to.replace(/-/g, '');
+            if (fromStr === toStr) {
+                dateRangeStr = fromStr;
+            } else {
+                dateRangeStr = `${fromStr}_${toStr}`;
+            }
+        }
+
+        return `routimo_export_${dateRangeStr}.csv`;
     }
 
     /**
@@ -335,46 +685,16 @@ class ExportManager {
     }
 
     /**
-     * Ustawienie stanu eksportowania
+     * Ustawienie stanu eksportowania - ZAKTUALIZOWANE dla dropdown
      */
-    setExportingState(isExporting) {
+    setExportingState(isExporting, exportType = 'excel') {
         this.isExporting = isExporting;
 
-        // Standardowy przycisk eksportu
-        if (this.exportButton) {
-            this.exportButton.disabled = isExporting;
+        // Aktualizuj wszystkie dropdown'y export
+        this.updateDropdownState(this.exportDropdown, isExporting, exportType);
+        this.updateDropdownState(this.fullscreenExportDropdown, isExporting, exportType);
 
-            if (isExporting) {
-                this.exportButton.innerHTML = `
-                    <i class="fas fa-spinner fa-spin"></i>
-                    Eksportowanie...
-                `;
-            } else {
-                this.exportButton.innerHTML = `
-                    <i class="fas fa-download"></i>
-                    Eksport Excel
-                `;
-            }
-        }
-
-        // Przycisk eksportu w fullscreen
-        if (this.fullscreenExportButton) {
-            this.fullscreenExportButton.disabled = isExporting;
-
-            if (isExporting) {
-                this.fullscreenExportButton.innerHTML = `
-                    <i class="fas fa-spinner fa-spin"></i>
-                    Eksportowanie...
-                `;
-            } else {
-                this.fullscreenExportButton.innerHTML = `
-                    <i class="fas fa-download"></i>
-                    Eksport Excel
-                `;
-            }
-        }
-
-        console.log('[ExportManager] Export state changed:', isExporting);
+        console.log('[ExportManager] Export state changed:', isExporting, 'type:', exportType);
     }
 
     /**
@@ -383,14 +703,41 @@ class ExportManager {
     showExportSuccess(filename, fileSize) {
         const fileSizeKB = Math.round(fileSize / 1024);
         const message = `Plik "${filename}" został pobrany pomyślnie (${fileSizeKB} KB)`;
-
         console.log('[ExportManager] Export success:', message);
+        // Usunięte wszystkie notyfikacje - plik się pobiera, to wystarczy
+    }
 
-        // NOWE: W fullscreen pokaż bardziej dyskretną notyfikację
-        if (this.isInFullscreenMode()) {
-            this.showFullscreenNotification(message, 'success');
+    /**
+     * ZAKTUALIZOWANA METODA - Aktualizacja stanu dropdown'a z obsługą Routimo
+     */
+    updateDropdownState(dropdown, isExporting, exportType) {
+        if (!dropdown) return;
+
+        const button = dropdown.querySelector('.dropdown-toggle');
+        if (!button) return;
+
+        button.disabled = isExporting;
+
+        if (isExporting) {
+            dropdown.classList.add('exporting');
+
+            let exportLabel = 'Eksportowanie';
+            if (exportType === 'excel') {
+                exportLabel = 'Eksport Excel...';
+            } else if (exportType === 'routimo') {
+                exportLabel = 'Eksport Routimo...';
+            }
+
+            button.innerHTML = `
+            <i class="fas fa-spinner fa-spin"></i>
+            ${exportLabel}
+        `;
         } else {
-            this.showNotification(message, 'success');
+            dropdown.classList.remove('exporting');
+            button.innerHTML = `
+            <i class="fas fa-download"></i>
+            Export
+        `;
         }
     }
 
@@ -494,22 +841,7 @@ class ExportManager {
      */
     showNotification(message, type = 'info') {
         console.log(`[ExportManager] ${type.toUpperCase()}: ${message}`);
-
-        // POPRAWKA: Różne typy powiadomień
-        switch (type) {
-            case 'error':
-                alert(`❌ ${message}`);
-                break;
-            case 'success':
-                // Dla sukcesu nie pokazuj alert'a - download jest wystarczający
-                console.log(`✅ ${message}`);
-                break;
-            case 'warning':
-                alert(`⚠️ ${message}`);
-                break;
-            default:
-                console.log(`ℹ️ ${message}`);
-        }
+        // Wszystkie alert'y usunięte - tylko console.log
     }
 
     /**
@@ -519,9 +851,8 @@ class ExportManager {
         console.log('[ExportManager] Custom export with params:', customParams);
 
         if (this.isExporting) {
-            console.log('[ExportManager] Export already in progress, skipping custom export...');
-            this.showNotification('Eksport już w toku. Proszę czekać...', 'warning');
-            return;
+            console.log('[ExportManager] Export already in progress, skipping...');
+            return; // Bez alert'a
         }
 
         this.setExportingState(true);
@@ -1027,7 +1358,322 @@ Czy chcesz kontynuować eksport?
         console.log('[ExportManager] Fullscreen elements cleaned up');
     }
 
+    /**
+     * ZAKTUALIZOWANA METODA - Opcje eksportu z Routimo
+     */
+    getExportOptions() {
+        return {
+            excel: {
+                available: true,
+                label: 'Excel',
+                icon: 'fas fa-file-excel',
+                description: 'Pełny raport wszystkich danych'
+            },
+            routimo: {
+                available: true, // Teraz dostępne!
+                label: 'Routimo',
+                icon: 'fas fa-route',
+                description: 'CSV dla planowania tras (tylko transport WoodPower)'
+            }
+        };
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie liczby zamówień dla Routimo
+     */
+    getRoutimoOrdersCount() {
+        const currentData = this.getCurrentData();
+        if (!currentData || currentData.length === 0) {
+            return 0;
+        }
+
+        const routimoStatuses = [
+            'Wysłane - transport WoodPower',
+            'Wysł. - trans. WP'
+        ];
+
+        return currentData.filter(record =>
+            routimoStatuses.includes(record.current_status)
+        ).length;
+    }
+
+
+    /**
+     * NOWA METODA - Debug info dla Routimo
+     */
+    getRoutimoDebugInfo() {
+        const currentData = this.getCurrentData();
+        const routimoOrdersCount = this.getRoutimoOrdersCount();
+
+        return {
+            totalRecords: currentData.length,
+            routimoRecords: routimoOrdersCount,
+            routimoAvailable: routimoOrdersCount > 0,
+            supportedStatuses: [
+                'Wysłane - transport WoodPower',
+                'Wysł. - trans. WP'
+            ]
+        };
+    }
 }
 
 // Export dla global scope
 window.ExportManager = ExportManager;
+
+class BootstrapDropdownIntegration {
+    constructor(exportManager) {
+        this.exportManager = exportManager;
+        this.dropdownInstances = new Map();
+
+        console.log('[BootstrapDropdownIntegration] Initialized');
+    }
+
+    /**
+     * Inicjalizacja Bootstrap dropdown'ów
+     */
+    init() {
+        console.log('[BootstrapDropdownIntegration] Starting initialization...');
+
+        // Sprawdź czy Bootstrap jest dostępny
+        if (typeof bootstrap === 'undefined') {
+            console.warn('[BootstrapDropdownIntegration] Bootstrap not found, using manual implementation');
+            this.initManualDropdowns();
+            return;
+        }
+
+        this.initBootstrapDropdowns();
+
+        console.log('[BootstrapDropdownIntegration] Initialization complete');
+    }
+
+    /**
+     * NOWA METODA - Inicjalizacja Bootstrap dropdown'ów
+     */
+    initBootstrapDropdowns() {
+        const dropdownElements = document.querySelectorAll('.export-dropdown .dropdown-toggle');
+
+        dropdownElements.forEach(element => {
+            try {
+                // Disable Bootstrap auto-initialization
+                element.setAttribute('data-bs-auto-close', 'true');
+
+                // Jeśli Bootstrap Dropdown jest dostępny, użyj go
+                if (bootstrap.Dropdown) {
+                    new bootstrap.Dropdown(element);
+                }
+            } catch (error) {
+                console.warn('[ExportManager] Bootstrap dropdown initialization failed:', error);
+            }
+        });
+    }
+
+    /**
+     * Ręczna implementacja dropdown'ów (fallback)
+     */
+    initManualDropdowns() {
+        const dropdownToggles = document.querySelectorAll('.export-dropdown .dropdown-toggle');
+
+        dropdownToggles.forEach(toggle => {
+            toggle.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const dropdown = toggle.closest('.export-dropdown');
+                const menu = dropdown.querySelector('.dropdown-menu');
+
+                // Zamknij inne dropdown'y
+                this.closeAllDropdowns();
+
+                // Toggle current dropdown
+                const isOpen = menu.classList.contains('show');
+                if (!isOpen) {
+                    this.openDropdown(dropdown, toggle, menu);
+                }
+            });
+        });
+
+        // Zamknij dropdown przy kliknięciu poza nim
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.export-dropdown')) {
+                this.closeAllDropdowns();
+            }
+        });
+
+        // Obsługa ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeAllDropdowns();
+            }
+        });
+    }
+
+    /**
+     * Otwórz dropdown
+     */
+    openDropdown(dropdown, toggle, menu) {
+        toggle.setAttribute('aria-expanded', 'true');
+        menu.classList.add('show');
+
+        // Dostosuj pozycję w fullscreen
+        if (dropdown.closest('.fullscreen-mode')) {
+            this.adjustDropdownPositionFullscreen(menu);
+        }
+
+        this.onDropdownShow({ target: toggle });
+    }
+
+    /**
+     * Zamknij dropdown
+     */
+    closeDropdown(dropdown, toggle, menu) {
+        toggle.setAttribute('aria-expanded', 'false');
+        menu.classList.remove('show');
+
+        this.onDropdownHide({ target: toggle });
+    }
+
+    /**
+     * Zamknij wszystkie dropdown'y
+     */
+    closeAllDropdowns() {
+        const dropdowns = document.querySelectorAll('.export-dropdown');
+
+        dropdowns.forEach(dropdown => {
+            const toggle = dropdown.querySelector('.dropdown-toggle');
+            const menu = dropdown.querySelector('.dropdown-menu');
+
+            if (toggle && menu && menu.classList.contains('show')) {
+                this.closeDropdown(dropdown, toggle, menu);
+            }
+        });
+    }
+
+    /**
+     * Dostosowanie pozycji dropdown'a w fullscreen
+     */
+    adjustDropdownPositionFullscreen(menu) {
+        // W fullscreen dropdown pojawia się nad przyciskiem
+        menu.style.position = 'absolute';
+        menu.style.top = 'auto';
+        menu.style.bottom = '100%';
+        menu.style.left = '0';
+        menu.style.marginBottom = '2px';
+        menu.style.zIndex = '1002';
+    }
+
+    /**
+     * Event handler - dropdown pokazany
+     */
+    onDropdownShow(event) {
+        const toggle = event.target;
+        const dropdown = toggle.closest('.export-dropdown');
+
+        console.log('[BootstrapDropdownIntegration] Dropdown shown:', toggle.id);
+
+        // Sprawdź czy jesteśmy w fullscreen
+        if (dropdown.closest('.fullscreen-mode')) {
+            const menu = dropdown.querySelector('.dropdown-menu');
+            this.adjustDropdownPositionFullscreen(menu);
+        }
+    }
+
+    /**
+     * Event handler - dropdown ukryty
+     */
+    onDropdownHide(event) {
+        const toggle = event.target;
+
+        console.log('[BootstrapDropdownIntegration] Dropdown hidden:', toggle.id);
+    }
+
+    /**
+     * Zarządzanie stanem podczas eksportu
+     */
+    updateDropdownDuringExport(isExporting, exportType) {
+        const dropdowns = document.querySelectorAll('.export-dropdown');
+
+        dropdowns.forEach(dropdown => {
+            const toggle = dropdown.querySelector('.dropdown-toggle');
+
+            if (!toggle) return;
+
+            if (isExporting) {
+                // Zablokuj dropdown podczas eksportu
+                toggle.disabled = true;
+                dropdown.classList.add('exporting');
+
+                // Zamknij jeśli jest otwarty
+                const menu = dropdown.querySelector('.dropdown-menu');
+                if (menu.classList.contains('show')) {
+                    this.closeDropdown(dropdown, toggle, menu);
+                }
+
+            } else {
+                // Odblokuj dropdown po eksporcie
+                toggle.disabled = false;
+                dropdown.classList.remove('exporting');
+            }
+        });
+    }
+
+    /**
+     * Cleanup przy niszczeniu
+     */
+    destroy() {
+        // Usuń Bootstrap instances
+        this.dropdownInstances.forEach((instance, elementId) => {
+            try {
+                instance.dispose();
+            } catch (error) {
+                console.error('[BootstrapDropdownIntegration] Error disposing dropdown:', elementId, error);
+            }
+        });
+
+        this.dropdownInstances.clear();
+
+        console.log('[BootstrapDropdownIntegration] Destroyed');
+    }
+
+    /**
+     * Debug info
+     */
+    getDebugInfo() {
+        return {
+            bootstrapAvailable: typeof bootstrap !== 'undefined',
+            dropdownInstancesCount: this.dropdownInstances.size,
+            dropdownInstances: Array.from(this.dropdownInstances.keys())
+        };
+    }
+}
+
+// Integracja z ExportManager
+if (window.ExportManager) {
+    const originalInit = window.ExportManager.prototype.init;
+
+    window.ExportManager.prototype.init = function () {
+        // Wywołaj oryginalną init
+        originalInit.call(this);
+
+        // Dodaj Bootstrap dropdown integration
+        this.dropdownIntegration = new BootstrapDropdownIntegration(this);
+        this.dropdownIntegration.init();
+
+        console.log('[ExportManager] Bootstrap dropdown integration added');
+    };
+
+    // Dodaj metodę do zarządzania dropdown'ami podczas eksportu
+    const originalSetExportingState = window.ExportManager.prototype.setExportingState;
+
+    window.ExportManager.prototype.setExportingState = function (isExporting, exportType = 'excel') {
+        // Wywołaj oryginalną metodę
+        originalSetExportingState.call(this, isExporting, exportType);
+
+        // Aktualizuj dropdown'y
+        if (this.dropdownIntegration) {
+            this.dropdownIntegration.updateDropdownDuringExport(isExporting, exportType);
+        }
+    };
+}
+
+// Export dla global scope
+window.BootstrapDropdownIntegration = BootstrapDropdownIntegration;

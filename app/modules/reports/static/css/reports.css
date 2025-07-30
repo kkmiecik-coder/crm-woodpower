@@ -4623,3 +4623,333 @@ body.fullscreen-mode {
     font-weight: 600;
 }
 
+
+/* Upewnij się że parent ma position: relative */
+.export-dropdown {
+    position: relative !important;
+    display: inline-block;
+}
+
+    /* Menu pozycjonowane względem przycisku */
+    .export-dropdown .dropdown-menu {
+        position: absolute !important;
+        top: 100% !important;
+        left: 0 !important;
+        right: auto !important;
+        bottom: auto !important;
+        transform: none !important;
+        margin-top: 2px !important;
+        z-index: 1000 !important;
+        /* Rozmiary */
+        min-width: 150px;
+        max-width: 200px;
+        /* Wygląd */
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        margin: 0;
+        list-style: none;
+    }
+
+    /* Ukryj domyślnie */
+    .export-dropdown .dropdown-menu {
+        display: none !important;
+    }
+
+        /* Pokaż gdy aktywne */
+        .export-dropdown .dropdown-menu.show {
+            display: block !important;
+        }
+
+/* SPECJALNE POZYCJONOWANIE DLA PRAWEGO GÓRNEGO ROGU */
+
+/* Jeśli dropdown jest w prawym górnym rogu, ustaw right: 0 zamiast left: 0 */
+.filter-actions .export-dropdown .dropdown-menu,
+.fullscreen-controls .export-dropdown .dropdown-menu {
+    left: auto !important;
+    right: 0 !important;
+}
+
+/* W fullscreen - dropdown nad przyciskiem */
+.fullscreen-mode .export-dropdown .dropdown-menu,
+.fullscreen-export-btn .dropdown-menu {
+    top: auto !important;
+    bottom: 100% !important;
+    margin-top: 0 !important;
+    margin-bottom: 2px !important;
+    z-index: 1002 !important;
+}
+
+/* Elementy listy */
+.export-dropdown .dropdown-menu li {
+    list-style: none !important;
+    margin: 0;
+    padding: 0;
+}
+
+.export-dropdown .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    color: #212529;
+    text-decoration: none;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+}
+
+    .export-dropdown .dropdown-item:hover {
+        background-color: #f8f9fa;
+        color: #0d6efd;
+    }
+
+    .export-dropdown .dropdown-item i {
+        width: 16px;
+        text-align: center;
+    }
+
+    /* Kolory dla różnych opcji eksportu */
+    .export-dropdown .dropdown-item[id*="Excel"] i {
+        color: #28a745;
+    }
+
+    .export-dropdown .dropdown-item[id*="Routimo"] i {
+        color: #007bff;
+    }
+
+    .export-dropdown .dropdown-item[id*="Excel"]:hover {
+        background-color: rgba(40, 167, 69, 0.1);
+    }
+
+    .export-dropdown .dropdown-item[id*="Routimo"]:hover {
+        background-color: rgba(0, 123, 255, 0.1);
+    }
+
+/* RESPONSIVE - na mniejszych ekranach */
+@media (max-width: 768px) {
+    .export-dropdown .dropdown-menu {
+        min-width: 120px;
+        right: 0 !important;
+        left: auto !important;
+    }
+}
+
+/* POPRAWKA DLA RÓŻNYCH KONTENERÓW */
+
+/* W głównym interfejsie */
+.reports-controls .export-dropdown .dropdown-menu {
+    right: 0 !important;
+    left: auto !important;
+}
+
+/* W przyciskach akcji */
+.action-buttons .export-dropdown .dropdown-menu {
+    right: 0 !important;
+    left: auto !important;
+}
+
+/* Upewnij się że nadrzędne kontenery nie mają overflow: hidden */
+.filter-actions,
+.reports-controls,
+.fullscreen-controls {
+    overflow: visible !important;
+    position: relative !important;
+}
+
+/* Loading state dla eksportu */
+.export-dropdown.exporting .btn {
+    position: relative;
+    pointer-events: none;
+}
+
+    .export-dropdown.exporting .btn::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 16px;
+        height: 16px;
+        margin: -8px 0 0 -8px;
+        border: 2px solid transparent;
+        border-top: 2px solid currentColor;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    .export-dropdown.exporting .btn * {
+        opacity: 0;
+    }
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Przycisk Export w różnych stanach */
+.export-dropdown .btn.dropdown-toggle {
+    border-radius: 4px;
+    position: relative;
+}
+
+    .export-dropdown .btn.dropdown-toggle::after {
+        margin-left: 0.5rem;
+        vertical-align: 0.125em;
+    }
+
+    /* Pokaż dropdown gdy ma klasę show */
+    .export-dropdown .dropdown-menu.show {
+        display: block !important;
+    }
+
+    /* Usuń domyślne style list */
+    .export-dropdown .dropdown-menu li {
+        list-style: none !important;
+        margin: 0;
+        padding: 0;
+    }
+
+.export-dropdown .dropdown-item {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+}
+
+    .export-dropdown .dropdown-item:hover {
+        background-color: var(--bg-light, #f8f9fa);
+        color: var(--primary-color, #007bff);
+    }
+
+    .export-dropdown .dropdown-item i {
+        width: 16px;
+        text-align: center;
+        opacity: 0.7;
+    }
+
+    .export-dropdown .dropdown-item:hover i {
+        opacity: 1;
+    }
+
+/* Bootstrap override - upewnij się że dropdown nie jest widoczny */
+.dropdown-menu:not(.show) {
+    display: none !important;
+}
+
+/* Export dropdown w trybie fullscreen */
+.fullscreen-mode .export-dropdown .dropdown-menu {
+    position: absolute;
+    top: auto;
+    bottom: 100%;
+    margin-bottom: 2px;
+    z-index: 1002;
+    animation: fadeInUpFullscreen 0.2s ease;
+}
+
+.fullscreen-mode .export-dropdown {
+    z-index: 1001;
+}
+
+/* Animacja dla dropdown w fullscreen */
+@keyframes fadeInUpFullscreen {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Przycisk Export w różnych stanach */
+.export-dropdown .btn.dropdown-toggle {
+    border-radius: var(--radius-base, 4px);
+    position: relative;
+}
+
+    .export-dropdown .btn.dropdown-toggle::after {
+        margin-left: 0.5rem;
+        vertical-align: 0.125em;
+    }
+
+/* Loading state */
+.export-dropdown.exporting .btn {
+    position: relative;
+    pointer-events: none;
+}
+
+    .export-dropdown.exporting .btn::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 16px;
+        height: 16px;
+        margin: -8px 0 0 -8px;
+        border: 2px solid transparent;
+        border-top: 2px solid currentColor;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    .export-dropdown.exporting .btn * {
+        opacity: 0;
+    }
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Kolory dla różnych opcji */
+.export-dropdown .dropdown-item[id*="Excel"] i {
+    color: #28a745;
+}
+
+.export-dropdown .dropdown-item[id*="Routimo"] i {
+    color: #007bff;
+}
+
+.export-dropdown .dropdown-item[id*="Excel"]:hover {
+    background-color: rgba(40, 167, 69, 0.1);
+}
+
+.export-dropdown .dropdown-item[id*="Routimo"]:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
+    .export-dropdown .dropdown-menu {
+        min-width: 120px;
+        font-size: 0.8rem;
+    }
+
+    .export-dropdown .dropdown-item {
+        padding: 0.375rem 0.75rem;
+    }
+}

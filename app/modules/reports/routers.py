@@ -2,21 +2,23 @@
 """
 Endpointy Flask dla modułu Reports
 """
-
-from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response
-from datetime import datetime, timedelta, date
-from functools import wraps
-from typing import List, Dict
+import csv
+import re
 import os
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import pandas as pd
 import io
 import sys
+from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response, make_response
+from datetime import datetime, timedelta, date
+from functools import wraps
+from typing import List, Dict
 from extensions import db
 from . import reports_bp
 from .models import BaselinkerReportOrder, ReportsSyncLog
 from .service import BaselinkerReportsService, get_reports_service
 from modules.logging import get_structured_logger
+from collections import defaultdict
 
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
@@ -2611,3 +2613,408 @@ def api_save_selected_orders():
             'success': False,
             'error': f'Błąd serwera: {str(e)}'
         }), 500
+
+@reports_bp.route('/api/export-routimo', methods=['GET'])
+@login_required
+def export_routimo():
+    """
+    Eksport danych do formatu Routimo CSV
+    Tylko zamówienia ze statusem transport WoodPower
+    """
+    try:
+        user_email = session.get('user_email')
+        reports_logger.info("Rozpoczęcie eksportu Routimo", user_email=user_email)
+        
+        # Pobierz parametry filtrowania
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # Parsuj daty
+        date_from = None
+        date_to = None
+        
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Nieprawidłowy format daty początkowej'}), 400
+                
+        if date_to_str:
+            try:
+                date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Nieprawidłowy format daty końcowej'}), 400
+        
+        # KLUCZOWE: Filtruj tylko statusy transport WoodPower
+        routimo_statuses = [
+            'Wysłane - transport WoodPower',
+            'Wysł. - trans. WP'
+        ]
+        
+        # Używaj SQLAlchemy ORM jak reszta modułu
+        query = BaselinkerReportOrder.query
+        
+        # Filtruj po dacie
+        if date_from:
+            query = query.filter(BaselinkerReportOrder.date_created >= date_from)
+        if date_to:
+            query = query.filter(BaselinkerReportOrder.date_created <= date_to)
+            
+        # Filtruj po statusie - TYLKO transport WoodPower
+        query = query.filter(BaselinkerReportOrder.current_status.in_(routimo_statuses))
+        
+        # Sortuj po dacie i ID zamówienia
+        query = query.order_by(
+            BaselinkerReportOrder.date_created.desc(),
+            BaselinkerReportOrder.baselinker_order_id
+        )
+        
+        # Wykonaj zapytanie
+        orders = query.all()
+        
+        if not orders:
+            return jsonify({
+                'success': False,
+                'error': 'Brak zamówień ze statusem "Wysłane - transport WoodPower" w wybranym okresie. Sprawdź filtry i statusy zamówień.'
+            }), 400
+        
+        reports_logger.info("Pobrano dane do eksportu Routimo",
+                          user_email=user_email,
+                          raw_records=len(orders),
+                          date_from=date_from.isoformat() if date_from else None,
+                          date_to=date_to.isoformat() if date_to else None)
+            
+        # Grupuj dane po zamówieniach
+        grouped_orders = group_orders_for_routimo(orders)
+        
+        # Generuj CSV
+        csv_content = generate_routimo_csv(grouped_orders)
+        
+        # Przygotuj response
+        filename = f"routimo_export_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        
+        response = make_response(csv_content)
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+        
+        reports_logger.info("Wygenerowano eksport Routimo",
+                          user_email=user_email,
+                          grouped_orders=len(grouped_orders),
+                          filename=filename)
+        
+        return response
+        
+    except Exception as e:
+        reports_logger.error("Błąd eksportu Routimo",
+                           user_email=user_email if 'user_email' in locals() else 'unknown',
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Błąd eksportu Routimo: {str(e)}'
+        }), 500
+
+
+def group_orders_for_routimo(orders):
+    """
+    Grupuje dane po zamówieniach dla eksportu Routimo
+    Jedno zamówienie = jeden wiersz w CSV
+    
+    Args:
+        orders (List[BaselinkerReportOrder]): Lista rekordów z bazy danych
+        
+    Returns:
+        List[Dict]: Lista zamówień zgrupowanych
+    """
+    grouped = defaultdict(lambda: {
+        'records': [],
+        'baselinker_order_id': None,
+        'customer_name': None,
+        'delivery_address': None,
+        'delivery_postcode': None,
+        'delivery_city': None,
+        'delivery_state': None,
+        'phone': None,
+        'email': None,
+        'total_quantity': 0,
+        'total_volume': 0,
+        'total_value_net': 0,
+        'current_status': None
+    })
+    
+    for order in orders:
+        # Klucz grupowania - baselinker_order_id lub manual_id
+        if order.baselinker_order_id:
+            order_key = f"bl_{order.baselinker_order_id}"
+        else:
+            order_key = f"manual_{order.id}"
+            
+        order_group = grouped[order_key]
+        order_group['records'].append(order)
+        
+        # Ustaw dane zamówienia (z pierwszego rekordu)
+        if not order_group['customer_name']:
+            order_group['baselinker_order_id'] = order.baselinker_order_id or f"Manual_{order.id}"
+            order_group['customer_name'] = order.customer_name or ''
+            order_group['delivery_address'] = order.delivery_address or ''
+            order_group['delivery_postcode'] = order.delivery_postcode or ''
+            order_group['delivery_city'] = order.delivery_city or ''
+            order_group['delivery_state'] = order.delivery_state or ''
+            order_group['phone'] = order.phone or ''
+            order_group['email'] = order.email or ''
+            order_group['current_status'] = order.current_status or ''
+        
+        # Sumuj wartości - POPRAWKA: używaj właściwości SQLAlchemy
+        order_group['total_quantity'] += float(order.quantity or 0)
+        order_group['total_volume'] += float(order.total_volume or 0)
+        order_group['total_value_net'] += float(order.value_net or 0)
+    
+    # Konwertuj na listę
+    result = []
+    for order_key, order_data in grouped.items():
+        result.append(order_data)
+    
+    reports_logger.info("Zgrupowano zamówienia dla Routimo",
+                      raw_records=len(orders),
+                      grouped_orders=len(result))
+    
+    return result
+
+
+def extract_house_and_apartment_number(address):
+    """
+    Wyciąga numer domu i mieszkania z adresu oraz zwraca oczyszczoną ulicę
+    Obsługuje formaty: "ul. Nazwa 123", "123 Nazwa ulicy", "Nazwa 123/45"
+    
+    Args:
+        address (str): Pełny adres
+        
+    Returns:
+        tuple: (house_number, apartment_number, clean_street)
+    """
+    if not address or not isinstance(address, str):
+        return '', '', address or ''
+        
+    original_address = address.strip()
+    
+    # WZORCE - NUMER PO NAZWIE ULICY (tradycyjne)
+    traditional_patterns = [
+        # "ul. Nazwa 123/45" 
+        {
+            'pattern': r'^(.+?)\s+(\d+[A-Za-z]*)\/(\d+[A-Za-z]*)$',
+            'has_apartment': True,
+            'street_group': 1,
+            'house_group': 2,
+            'apartment_group': 3
+        },
+        # "ul. Nazwa 123 / 45" (ze spacjami)  
+        {
+            'pattern': r'^(.+?)\s+(\d+[A-Za-z]*)\s*\/\s*(\d+[A-Za-z]*)$',
+            'has_apartment': True,
+            'street_group': 1,
+            'house_group': 2,
+            'apartment_group': 3
+        },
+        # "ul. Nazwa 123m45"
+        {
+            'pattern': r'^(.+?)\s+(\d+[A-Za-z]*)\s*m\.?\s*(\d+[A-Za-z]*)$',
+            'has_apartment': True,
+            'street_group': 1,
+            'house_group': 2,
+            'apartment_group': 3
+        },
+        # "ul. Nazwa 123" (tylko dom)
+        {
+            'pattern': r'^(.+?)\s+(\d+[A-Za-z]*)\s*$',
+            'has_apartment': False,
+            'street_group': 1,
+            'house_group': 2,
+            'apartment_group': None
+        }
+    ]
+    
+    # WZORCE - NUMER PRZED NAZWĄ ULICY (odwrócone)
+    reversed_patterns = [
+        # "123/45 Nazwa ulicy"
+        {
+            'pattern': r'^(\d+[A-Za-z]*)\/(\d+[A-Za-z]*)\s+(.+)$',
+            'has_apartment': True,
+            'street_group': 3,
+            'house_group': 1,
+            'apartment_group': 2
+        },
+        # "123 / 45 Nazwa ulicy" (ze spacjami)
+        {
+            'pattern': r'^(\d+[A-Za-z]*)\s*\/\s*(\d+[A-Za-z]*)\s+(.+)$',
+            'has_apartment': True,
+            'street_group': 3,
+            'house_group': 1,
+            'apartment_group': 2
+        },
+        # "123m45 Nazwa ulicy"
+        {
+            'pattern': r'^(\d+[A-Za-z]*)\s*m\.?\s*(\d+[A-Za-z]*)\s+(.+)$',
+            'has_apartment': True,
+            'street_group': 3,
+            'house_group': 1,
+            'apartment_group': 2
+        },
+        # "123 Nazwa ulicy" (tylko dom)
+        {
+            'pattern': r'^(\d+[A-Za-z]*)\s+(.+)$',
+            'has_apartment': False,
+            'street_group': 2,
+            'house_group': 1,
+            'apartment_group': None
+        }
+    ]
+    
+    # Sprawdź wszystkie wzorce - najpierw tradycyjne, potem odwrócone
+    all_patterns = traditional_patterns + reversed_patterns
+    
+    for pattern_info in all_patterns:
+        match = re.search(pattern_info['pattern'], original_address, re.IGNORECASE)
+        if match:
+            groups = match.groups()
+            
+            # Wyciągnij komponenty według grup
+            street = groups[pattern_info['street_group'] - 1].strip()
+            house = groups[pattern_info['house_group'] - 1].strip()
+            apartment = ''
+            
+            if pattern_info['has_apartment'] and pattern_info['apartment_group']:
+                apartment = groups[pattern_info['apartment_group'] - 1].strip()
+            
+            # Sprawdź czy ulica nie jest pusta
+            if not street:
+                continue
+                
+            # Oczyść ulicę delikatnie
+            clean_street = clean_street_name(street)
+            
+            # Jeśli po czyszczeniu ulica jest pusta, spróbuj następny wzorzec
+            if not clean_street:
+                continue
+                
+            return house, apartment, clean_street
+    
+    # Fallback - nie znaleziono wzorca, zwróć oryginalny adres
+    return '', '', original_address
+
+
+def clean_street_name(street):
+    """
+    Delikatnie czyści nazwę ulicy z niepotrzebnych elementów
+    POPRAWKA: Nie usuwa "Aleja" jeśli to część nazwy ulicy
+    
+    Args:
+        street (str): Surowa nazwa ulicy
+        
+    Returns:
+        str: Oczyszczona nazwa ulicy
+    """
+    if not street:
+        return ''
+    
+    # Usuń zbędne białe znaki
+    street = street.strip()
+    
+    # Usuń końcowe przecinki i kropki
+    street = re.sub(r'[,\.]+$', '', street).strip()
+    
+    # Usuń miasto z początku (tylko jeśli po przecinku jest coś więcej)
+    # "Warszawa, ul. Nowa" → "ul. Nowa"
+    city_pattern = r'^([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)\s*,\s*(.+)$'
+    city_match = re.match(city_pattern, street)
+    if city_match and city_match.group(2).strip():
+        street = city_match.group(2).strip()
+    
+    # POPRAWKA: Usuń prefiksy TYLKO jeśli są na początku i po nich jest jeszcze tekst
+    # ALE zachowaj "Aleja Nazwa" jako całość - nie traktuj "Aleja" jako prefiksu do usunięcia
+    
+    # Lista prefixów do usunięcia TYLKO jeśli są na samym początku
+    prefixes_to_remove = ['ul', 'ulica']  # Skróciłem listę!
+    
+    for prefix in prefixes_to_remove:
+        # Usuń tylko "ul." lub "ulica" na początku, ale zostaw "al.", "pl.", "os."
+        pattern = rf'^{prefix}\.?\s+(.+)$'
+        match = re.match(pattern, street, re.IGNORECASE)
+        if match and match.group(1).strip():
+            street = match.group(1).strip()
+            break  # Usuń tylko pierwszy pasujący prefiks
+    
+    return street
+
+def generate_routimo_csv(grouped_orders):
+    """
+    Generuje CSV w formacie Routimo
+    """
+    # Nagłówki pozostają bez zmian...
+    headers = [
+        'Nazwa', 'Klient', 'Nazwa przesyłki', 'Ulica', 'Numer domu', 'Numer mieszkania',
+        'Kod pocztowy', 'Miasto', 'Kraj', 'Region', 'Numer telefonu', 'Email',
+        'Email klienta', 'Nip klienta', 'Początek okna czasowego', 'Koniec okna czasowego',
+        'Okno czasowe', 'Czas na wykonanie zadania', 'Oczekiwana data realizacji',
+        'Harmonogram', 'Pojazd', 'Typy pojazdów', 'Liczba przesyłek', 'Wielkość przesyłki',
+        'Waga przesyłki', 'Wartość przesyłki', 'Forma płatności', 'Waluta',
+        'Szerokość geograficzna', 'Długość geograficzna', 'Komentarz', 'Komentarz 2',
+        'Uwagi', 'Dodatkowe 1', 'Dodatkowe 2'
+    ]
+    
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(headers)
+    
+    for order in grouped_orders:
+        # ZMIANA: Używaj nowej funkcji z czyszczeniem ulicy
+        house_number, apartment_number, clean_street = extract_house_and_apartment_number(order['delivery_address'])
+        
+        # Oblicz wagę
+        weight = round(order['total_volume'] * 800, 2)
+        
+        row = [
+            order['customer_name'],                    # A - Nazwa
+            order['customer_name'],                    # B - Klient
+            order['baselinker_order_id'],              # C - Nazwa przesyłki
+            clean_street,                              # D - Ulica (OCZYSZCZONA!)
+            house_number,                              # E - Numer domu
+            apartment_number,                          # F - Numer mieszkania
+            order['delivery_postcode'],                # G - Kod pocztowy
+            order['delivery_city'],                    # H - Miasto
+            'Polska',                                  # I - Kraj
+            order['delivery_state'],                   # J - Region
+            order['phone'],                            # K - Numer telefonu
+            '',                                        # L - Email (puste)
+            order['email'],                            # M - Email klienta
+            '',                                        # N - Nip klienta (puste)
+            '',                                        # O - Początek okna czasowego (puste)
+            '',                                        # P - Koniec okna czasowego (puste)
+            '',                                        # Q - Okno czasowe (puste)
+            '',                                        # R - Czas na wykonanie zadania (puste)
+            '',                                        # S - Oczekiwana data realizacji (puste)
+            '',                                        # T - Harmonogram (puste)
+            '',                                        # U - Pojazd (puste)
+            '',                                        # V - Typy pojazdów (puste)
+            int(order['total_quantity']),              # W - Liczba przesyłek
+            round(order['total_volume'], 4),           # X - Wielkość przesyłki (m³)
+            weight,                                    # Y - Waga przesyłki (kg)
+            round(order['total_value_net'], 2),        # Z - Wartość przesyłki
+            '',                                        # AA - Forma płatności (puste)
+            'PLN',                                     # AB - Waluta
+            '',                                        # AC - Szerokość geograficzna (puste)
+            '',                                        # AD - Długość geograficzna (puste)
+            '',                                        # AE - Komentarz (puste)
+            '',                                        # AF - Komentarz 2 (puste)
+            '',                                        # AG - Uwagi (puste)
+            '',                                        # AH - Dodatkowe 1 (puste)
+            '',                                        # AI - Dodatkowe 2 (puste)
+        ]
+        
+        writer.writerow(row)
+    
+    csv_content = output.getvalue()
+    output.close()
+    
+    reports_logger.info("Wygenerowano CSV dla Routimo z oczyszczonymi adresami",
+                      orders_count=len(grouped_orders))
+    
+    return csv_content
