@@ -391,8 +391,15 @@ class BaselinkerReportOrder(db.Model):
             self.realization_date = target_date
             
         # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
-        if self.order_amount_net is not None and self.paid_amount_net is not None:
-            self.balance_due = float(self.order_amount_net) - float(self.paid_amount_net)
+        if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
+            # Przelicz koszt dostawy na netto
+            delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+        
+            # Całkowita kwota zamówienia netto = produkty netto + kurier netto
+            total_order_net = float(self.order_amount_net) + delivery_cost_net
+        
+            # Saldo = (produkty + kurier) netto - zapłacono netto
+            self.balance_due = total_order_net - float(self.paid_amount_net)
             
         # NOWE: Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
         self.auto_fill_delivery_state()

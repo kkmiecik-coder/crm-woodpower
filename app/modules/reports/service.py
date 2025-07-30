@@ -113,7 +113,7 @@ class BaselinkerReportsService:
                 current_status=self.status_map.get(order.get('order_status_id'), 'Nieznany'),
                 delivery_cost=safe_float_convert(order.get('delivery_price', 0)),
                 payment_method=order.get('payment_method'),
-                paid_amount_net=safe_float_convert(order.get('paid', 0)) / 1.23,
+                paid_amount_net=safe_float_convert(order.get('payment_done', 0)) / 1.23,
                 balance_due=max(0, value_net - (safe_float_convert(order.get('paid', 0)) / 1.23)),
             
                 # Dane produkcji (zostaną zaktualizowane przez metodę update_production_fields)
@@ -782,20 +782,36 @@ class BaselinkerReportsService:
                 
                 # Utwórz rekord
                 record = BaselinkerReportOrder(
-                    # Dane zamówienia
-                    **base_data,
+                    # Dane zamówienia - EXPLICITE BEZ KOPIOWANIA base_data
+                    date_created=datetime.fromtimestamp(order.get('date_add')).date() if order.get('date_add') else datetime.now().date(),
+                    baselinker_order_id=order.get('order_id'),
+                    internal_order_number=order.get('extra_field_1'),
+                    customer_name=order.get('delivery_fullname') or order.get('delivery_company') or order.get('user_login') or 'Nieznany klient',
+                    delivery_postcode=order.get('delivery_postcode'),
+                    delivery_city=order.get('delivery_city'),
+                    delivery_address=order.get('delivery_address'),
+                    delivery_state=order.get('delivery_state'),
+                    phone=order.get('phone'),
+                    caretaker=(order.get('custom_extra_fields', {}).get('105623') or "Brak danych"),
+                    delivery_method=order.get('delivery_method'),
+                    order_source=order.get('order_source'),
+                    current_status=self.status_map.get(order.get('order_status_id'), f'Status {order.get("order_status_id")}'),
+                    baselinker_status_id=order.get('order_status_id'),
                 
-                    # ZMIANA: Każdy rekord ma tę samą łączną objętość całego zamówienia
+                    # FINANSE - POPRAWNIE OBLICZONE
+                    order_amount_net=total_order_value_net,  # ✅ Tylko produkty netto 124.80
+                    delivery_cost=float(order.get('delivery_price', 0)),  # ✅ Kurier brutto 25.00
+                    paid_amount_net=float(order.get('payment_done', 0)) / 1.23,  # ✅ payment_done netto
+                    payment_method=order.get('payment_method'),
+                
+                    # DANE PRODUKTU
                     total_m3=total_m3_all_products,
-                    order_amount_net=total_order_value_net,
-                    
-                    # Dane produktu z Baselinker - NOWE POLA
                     raw_product_name=product.get('name'),
                     quantity=product.get('quantity', 1),
-                    price_gross=processed_price_gross,  # ZMIANA: użyj przetworzonej ceny
-                    price_type=processed_price_type,    # NOWE POLE
-                    original_amount_from_baselinker=original_price_gross,  # NOWE POLE
-                    
+                    price_gross=processed_price_gross,
+                    price_type=processed_price_type,
+                    original_amount_from_baselinker=original_price_gross,
+                
                     # Dane z parsera
                     product_type=parsed_product.get('product_type') or 'deska',
                     wood_species=parsed_product.get('wood_species'),
@@ -805,26 +821,27 @@ class BaselinkerReportsService:
                     length_cm=parsed_product.get('length_cm'),
                     width_cm=parsed_product.get('width_cm'),
                     thickness_cm=parsed_product.get('thickness_cm'),
-                    
+                
                     # Grupa - domyślnie 'towar' dla produktów z Baselinker
                     group_type='towar',
-                    
-                    # Pola techniczne
-                    is_manual=False
-                )
                 
+                    # Pola techniczne
+                    is_manual=False,
+                    email=order.get('email')
+                )
+            
                 # Oblicz pola pochodne
                 record.calculate_fields()
-                
+            
                 records.append(record)
-                
+            
             except Exception as e:
                 self.logger.error("Błąd przetwarzania produktu",
                                 order_id=order.get('order_id'),
                                 product_name=product.get('name'),
                                 error=str(e))
                 continue
-        
+    
         return records
     
     def _extract_base_order_data(self, order: Dict) -> Dict:
