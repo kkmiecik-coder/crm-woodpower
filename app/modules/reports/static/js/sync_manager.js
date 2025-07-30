@@ -466,10 +466,10 @@ class SyncManager {
                 date_from: this.dateFrom,
                 date_to: this.dateTo,
                 days_count: this.selectedDays,
-                get_all_statuses: true
+                get_all_statuses: false  // POPRAWKA: Zmiana z true na false, żeby wykluczać anulowane i nieopłacone
             };
 
-            console.log('[SyncManager] 📤 Wysyłanie zapytania z paginacją:', requestData);
+            console.log('[SyncManager] 📤 Wysyłanie zapytania z paginacją (wykluczając statusy 105112 i 138625):', requestData);
 
             const response = await fetch('/reports/api/fetch-orders-for-selection', {
                 method: 'POST',
@@ -486,20 +486,23 @@ class SyncManager {
             }
 
             const result = await response.json();
-            console.log('[SyncManager] 📊 Dane z serwera (z paginacją):', result);
+            console.log('[SyncManager] 📊 Dane z serwera (z filtrowaniem statusów):', result);
 
             if (result.success) {
                 this.fetchedOrders = result.orders || [];
                 console.log('[SyncManager] ✅ Pobrano zamówienia z paginacją:', this.fetchedOrders.length);
-                
+
                 if (result.pagination_info) {
                     console.log('[SyncManager] 📄 Info o paginacji:', result.pagination_info);
+                    if (result.pagination_info.filtered_excluded_statuses) {
+                        console.log('[SyncManager] 🚫 Wykluczono zamówienia ze statusami 105112 (Nowe - nieopłacone) i 138625 (Anulowane)');
+                    }
                 }
-                
+
                 // Sprawdź problemy z wymiarami
                 const ordersWithIssues = this.fetchedOrders.filter(order => order.has_dimension_issues);
                 console.log('[SyncManager] ⚠️ Zamówienia z problemami wymiarów:', ordersWithIssues.length);
-                
+
                 if (this.fetchedOrders.length === 0) {
                     this.showOrdersEmpty();
                 } else {
@@ -515,6 +518,9 @@ class SyncManager {
             this.showOrdersError(`Błąd pobierania zamówień: ${error.message}`);
         }
     }
+
+    // W pliku app/modules/reports/static/js/sync_manager.js
+    // Znajdź metodę renderOrdersList() i zamień całą metodę na:
 
     renderOrdersList() {
         console.log('[SyncManager] 🎨 Renderowanie listy zamówień:', this.fetchedOrders.length);
@@ -532,10 +538,58 @@ class SyncManager {
             this.renderSingleOrder(order);
         });
 
+        // NOWA FUNKCJONALNOŚĆ: Automatyczne zaznaczenie wszystkich nowych zamówień
+        this.autoSelectNewOrders();
+
         this.updateOrdersCount();
         this.updateSaveButton();
-
         console.log('[SyncManager] ✅ Lista zamówień wyrenderowana');
+    }
+
+    // NOWA METODA: Automatyczne zaznaczanie nowych zamówień
+    autoSelectNewOrders() {
+        console.log('[SyncManager] 🔄 Automatyczne zaznaczanie nowych zamówień');
+
+        let autoSelectedCount = 0;
+        let totalNewOrders = 0;
+
+        // Znajdź wszystkie checkboxy dla zamówień które nie istnieją w bazie
+        const checkboxes = this.ordersList.querySelectorAll('.order-select');
+
+        checkboxes.forEach(checkbox => {
+            const orderId = checkbox.getAttribute('data-order-id');
+
+            // Znajdź odpowiadające zamówienie w danych
+            const order = this.fetchedOrders.find(o => o.order_id == orderId);
+
+            if (order && !order.exists_in_db) {
+                totalNewOrders++;
+
+                if (!checkbox.disabled) {
+                    // Zaznacz zamówienie które nie istnieje w bazie i nie jest zablokowane
+                    checkbox.checked = true;
+                    this.selectedOrderIds.add(orderId);
+                    autoSelectedCount++;
+
+                    console.log(`[SyncManager] ✅ Auto-zaznaczono nowe zamówienie: ${orderId}`);
+                } else {
+                    console.log(`[SyncManager] ⚠️ Zamówienie ${orderId} jest nowe, ale zablokowane (prawdopodobnie problemy z wymiarami)`);
+                }
+            }
+        });
+
+        console.log(`[SyncManager] 📊 Automatyczne zaznaczanie zakończone:`, {
+            totalNewOrders: totalNewOrders,
+            autoSelectedCount: autoSelectedCount,
+            skippedCount: totalNewOrders - autoSelectedCount
+        });
+
+        // Zapisz statystyki do użycia w innych metodach
+        this.autoSelectionStats = {
+            totalNewOrders: totalNewOrders,
+            autoSelectedCount: autoSelectedCount,
+            skippedCount: totalNewOrders - autoSelectedCount
+        };
     }
 
     renderSingleOrder(order) {

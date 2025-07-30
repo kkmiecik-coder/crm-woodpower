@@ -2076,6 +2076,7 @@ def api_fetch_orders_for_selection():
     """
     POPRAWIONY ENDPOINT: Pobiera zamówienia z Baselinker dla wybranego zakresu dat
     z mechanizmem automatycznej paginacji gdy jest >90 zamówień
+    DOMYŚLNIE WYKLUCZAJĄCY STATUSY 105112 i 138625
     """
     user_email = session.get('user_email')
     
@@ -2092,6 +2093,8 @@ def api_fetch_orders_for_selection():
         date_from = data.get('date_from')
         date_to = data.get('date_to')
         days_count = data.get('days_count')
+        # POPRAWKA: Domyślnie FALSE, żeby wykluczać anulowane i nieopłacone
+        get_all_statuses = data.get('get_all_statuses', False)
 
         if not all([date_from, date_to, days_count]):
             return jsonify({
@@ -2103,7 +2106,8 @@ def api_fetch_orders_for_selection():
                           user_email=user_email,
                           date_from=date_from,
                           date_to=date_to,
-                          days_count=days_count)
+                          days_count=days_count,
+                          get_all_statuses=get_all_statuses)
 
         service = get_reports_service()
         
@@ -2129,12 +2133,14 @@ def api_fetch_orders_for_selection():
             
             reports_logger.info(f"Iteracja {iteration} pobierania zamówień",
                               current_date_from=current_date_from.isoformat(),
-                              end_date=end_date.isoformat())
+                              end_date=end_date.isoformat(),
+                              include_excluded_statuses=get_all_statuses)
             
-            # Pobierz zamówienia z aktualnego zakresu
+            # POPRAWKA: Pobierz zamówienia z kontrolą nad filtrowaniem statusów
             batch_orders = service.fetch_orders_from_baselinker(
                 date_from=datetime.combine(current_date_from, datetime.min.time()),
-                max_orders=100  # Limit API Baselinker
+                max_orders=100,  # Limit API Baselinker
+                include_excluded_statuses=get_all_statuses  # Przekaż parametr filtrowania
             )
             
             if not batch_orders:
@@ -2143,10 +2149,23 @@ def api_fetch_orders_for_selection():
                 
             reports_logger.info(f"Pobrano {len(batch_orders)} zamówień w iteracji {iteration}")
             
-            # Dodaj nowe zamówienia do listy
+            # Dodaj nowe zamówienia do listy z dodatkowym filtrowaniem
             new_orders_in_batch = 0
             for order in batch_orders:
-                if order['order_id'] not in existing_order_ids:
+                order_id = order['order_id']
+                
+                # Sprawdź czy zamówienie już istnieje
+                if order_id not in existing_order_ids:
+                    # DODATKOWA OCHRONA: Filtruj wykluczane statusy po stronie aplikacji
+                    status_id = order.get('order_status_id')
+                    
+                    if not get_all_statuses and status_id in [105112, 138625]:
+                        reports_logger.debug("Wykluczono zamówienie ze względu na status",
+                                           order_id=order_id,
+                                           status_id=status_id,
+                                           status_name=service.status_map.get(status_id, f'Status {status_id}'))
+                        continue
+                    
                     all_orders.append(order)
                     new_orders_in_batch += 1
             
@@ -2185,6 +2204,20 @@ def api_fetch_orders_for_selection():
                 reports_logger.info(f"Przesunięcie date_from do: {current_date_from}")
             else:
                 break
+
+        # DODATKOWE FILTROWANIE PO STRONIE APLIKACJI (backup safety)
+        if not get_all_statuses:
+            original_count = len(all_orders)
+            all_orders = [order for order in all_orders 
+                         if order.get('order_status_id') not in [105112, 138625]]
+            filtered_count = original_count - len(all_orders)
+            
+            if filtered_count > 0:
+                reports_logger.info("Dodatkowe filtrowanie statusów po stronie aplikacji",
+                                  original_count=original_count,
+                                  filtered_out=filtered_count,
+                                  final_count=len(all_orders),
+                                  excluded_statuses=[105112, 138625])
         
         # Przygotuj response z informacjami o wymiarach
         # Pobierz mapę statusów z serwisu
@@ -2267,7 +2300,8 @@ def api_fetch_orders_for_selection():
         reports_logger.info("Pobieranie zamówień zakończone",
                           total_orders=len(orders_with_info),
                           iterations=iteration,
-                          orders_with_dimension_issues=len([o for o in orders_with_info if o['has_dimension_issues']]))
+                          orders_with_dimension_issues=len([o for o in orders_with_info if o['has_dimension_issues']]),
+                          filtered_excluded_statuses=not get_all_statuses)
 
         return jsonify({
             'success': True,
@@ -2275,7 +2309,9 @@ def api_fetch_orders_for_selection():
             'total_found': len(orders_with_info),
             'pagination_info': {
                 'iterations': iteration,
-                'max_iterations_reached': iteration >= max_iterations
+                'max_iterations_reached': iteration >= max_iterations,
+                'filtered_excluded_statuses': not get_all_statuses,
+                'excluded_status_ids': [105112, 138625] if not get_all_statuses else []
             }
         })
         
