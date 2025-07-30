@@ -891,13 +891,29 @@ def api_export_excel():
         # ===== ARKUSZ 1: DANE SZCZEGÓŁOWE =====
         ws_details = workbook.active
         ws_details.title = "Dane szczegółowe"
-        
+
+        # NOWE: Oblicz TTL m³ dla każdego zamówienia
+        order_volumes = {}
+        for order in orders:
+            # Identyfikator zamówienia (Baselinker ID lub manual ID)
+            order_key = order.baselinker_order_id or f"manual_{order.id}"
+
+            if order_key not in order_volumes:
+                order_volumes[order_key] = 0.0
+
+            # Dodaj objętość tego produktu do sumy zamówienia
+            order_volumes[order_key] += float(order.total_volume or 0)
+
         # Przygotuj dane do DataFrame
         excel_data = []
         for order in orders:
+            # TUTAJ definiuj calculated_ttl_m3 dla każdego rekordu
+            order_key = order.baselinker_order_id or f"manual_{order.id}"
+            calculated_ttl_m3 = order_volumes.get(order_key, 0.0)
+    
             excel_data.append({
                 'Data': order.date_created.strftime('%d-%m-%Y') if order.date_created else '',
-                'TTL m³': float(order.total_volume or 0),
+                'TTL m³': calculated_ttl_m3,  # TERAZ TO BĘDZIE DZIAŁAĆ
                 'Kwota zamówień netto': float(order.order_amount_net or 0),
                 'Nr Baselinker': order.baselinker_order_id or '',
                 'Nr wew.': order.internal_order_number or '',
@@ -1152,20 +1168,54 @@ def api_export_excel():
                         elif header in ['Długość', 'Szerokość', 'Grubość']:
                             cell.number_format = '#,##0.00'
             
-            # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN
+            # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN I UKRYWANIE
             for col_idx, header in enumerate(headers, 1):
                 col_letter = get_column_letter(col_idx)
-                
+        
                 # Oblicz maksymalną szerokość na podstawie zawartości
                 max_length = len(header)
                 for row in worksheet.iter_rows(min_col=col_idx, max_col=col_idx, min_row=1, max_row=worksheet.max_row):
                     for cell in row:
                         if cell.value:
                             max_length = max(max_length, len(str(cell.value)))
-                
+        
                 # Ustaw szerokość (minimum 10, maksimum 30)
                 width = min(max(max_length + 2, 10), 30)
                 worksheet.column_dimensions[col_letter].width = width
+        
+                # UKRYWANIE WYBRANYCH KOLUMN
+                columns_to_hide = [
+                    'Nr Baselinker',
+                    'Nr wew.',
+                    'Imię i nazwisko',
+                    'Kod pocztowy',
+                    'Miejscowość',
+                    'Ulica',
+                    'Województwo',
+                    'Telefon',
+                    'Opiekun',
+                    'Dostawa',
+                    'Źródło',
+                    'Grupa',
+                    'Rodzaj',
+                    'Długość',
+                    'Szerokość',
+                    'Ilość',
+                    'Cena brutto',
+                    'Cena netto',
+                    'Wartość brutto',
+                    'Wartość netto',
+                    'Objętość 1 szt.',
+                    'Objętość TTL',
+                    'Data realizacji',
+                    'Status',
+                    'Sposób płatności',
+                    'Zapłacono netto'
+                ]
+        
+                # Ukryj kolumnę jeśli jest na liście
+                if header in columns_to_hide:
+                    worksheet.column_dimensions[col_letter].hidden = True
             
             # ZAMROŻENIE PANELI (pierwsze 3 wiersze i pierwsze 5 kolumn)
             worksheet.freeze_panes = 'F4'

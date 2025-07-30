@@ -701,12 +701,8 @@ class BaselinkerReportsService:
             
             product_value = processed_price_gross * int(product.get('quantity', 1))
             total_order_value_gross += product_value
-    
-        # Dodaj koszt dostawy
-        delivery_cost_gross = float(order.get('delivery_price', 0))
-        total_order_value_gross += delivery_cost_gross
-    
-        # Przelicz na netto (VAT 23%)
+
+        # Przelicz na netto (VAT 23%) - tylko produkty, bez kuriera
         total_order_value_net = total_order_value_gross / 1.23
     
         # NOWA LOGIKA: Oblicz łączną objętość wszystkich produktów w zamówieniu

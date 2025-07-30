@@ -272,9 +272,19 @@ class BaselinkerReportOrder(db.Model):
         stats.update(product_level_stats)
         stats.update(order_level_stats)
 
-        # Oblicz średnią cenę za m3
-        if stats['total_m3'] > 0:
-            stats['avg_price_per_m3'] = stats['value_net'] / stats['total_m3']
+        # POPRAWKA: Oblicz średnią cenę za m³ jako średnią arytmetyczną (jak w Excel)
+        # Zamiast dzielić łączną wartość przez łączną objętość
+        
+        # Zbierz wszystkie ceny za m³ z produktów (pomijając 0 i None)
+        price_per_m3_values = []
+        for order in orders:
+            price_per_m3 = float(order.price_per_m3 or 0)
+            if price_per_m3 > 0:  # Pomiń produkty bez ceny za m³
+                price_per_m3_values.append(price_per_m3)
+        
+        # Oblicz średnią arytmetyczną (jak Excel AVERAGE)
+        if price_per_m3_values:
+            stats['avg_price_per_m3'] = sum(price_per_m3_values) / len(price_per_m3_values)
         else:
             stats['avg_price_per_m3'] = 0.0
 
