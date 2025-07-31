@@ -1954,8 +1954,11 @@ def api_sync_statuses():
                     new_status = service.status_map.get(new_status_id, f'Status {new_status_id}')
                     
                     # Pobierz kwotę zapłaconą (brutto -> netto)
-                    payment_done_gross = order_details.get('payment_done', 0)
-                    new_paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0.0
+                    payment_done = order_details.get('payment_done', 0)
+                    custom_fields = order_details.get('custom_extra_fields', {})
+                    price_type_from_api = custom_fields.get('106169', '').strip()
+                    
+                    new_paid_amount_net = service._calculate_paid_amount_net(payment_done, price_type_from_api)
                     
                     # Aktualizuj wszystkie rekordy tego zamówienia
                     records_updated = BaselinkerReportOrder.query.filter_by(

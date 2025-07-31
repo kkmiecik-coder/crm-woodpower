@@ -574,36 +574,37 @@ class BaselinkerReportOrder(db.Model):
             'ready_pickup_volume': float(self.ready_pickup_volume or 0)
         }
 
-    def process_baselinker_amount(self, baselinker_amount, price_type_from_api):
+    def process_baselinker_amount(self, baselinker_amount: float, price_type_from_api: str) -> tuple:
         """
-        Przetwarza kwotę z Baselinker na podstawie informacji o typie ceny
+        Przetwarza kwotę z Baselinker na podstawie typu ceny
     
         Args:
-            baselinker_amount (float): Oryginalna kwota z Baselinker
-            price_type_from_api (str): Wartość z extra_field_106169
-    
+            baselinker_amount: kwota z Baselinker
+            price_type_from_api: typ ceny z extra_field_106169
+        
         Returns:
             tuple: (processed_amount, price_type) - przetworzona kwota i typ
         """
         # Zapisz oryginalną kwotę
         self.original_amount_from_baselinker = baselinker_amount
-    
+
         # Normalizuj wartość z API
         price_type = (price_type_from_api or '').strip().lower()
-    
+
         if price_type == 'netto':
-            # Kwota netto - pomnóż razy 1.23 aby symulować brutto
-            processed_amount = float(baselinker_amount) * 1.23
+            # Kwota z Baselinker jest NETTO - zostaw bez zmian
+            # System dalej sam przeliczy brutto gdy będzie potrzebował
+            processed_amount = float(baselinker_amount)
             self.price_type = 'netto'
         elif price_type == 'brutto':
-            # Kwota brutto - zostaw bez zmian
+            # Kwota z Baselinker jest BRUTTO - zostaw bez zmian  
             processed_amount = float(baselinker_amount)
             self.price_type = 'brutto'
         else:
             # Puste lub nieznane - traktuj jako brutto (domyślnie)
             processed_amount = float(baselinker_amount)
             self.price_type = ''
-    
+
         return processed_amount, self.price_type
 
 

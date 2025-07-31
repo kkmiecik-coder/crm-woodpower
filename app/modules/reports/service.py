@@ -59,11 +59,38 @@ class BaselinkerReportsService:
         
             # NOWA LOGIKA: Automatyczne uzupełnianie województwa zgodnie z wymaganiami
             final_state = self._auto_fill_state_for_order(postcode, current_state)
+            
+            # NOWE: Pobierz typ ceny z custom_extra_fields
+            custom_fields = order.get('custom_extra_fields', {})
+            price_type_from_api = custom_fields.get('106169', '').strip()
+            
+            # Pobierz opiekuna z custom_extra_fields (pole 105623)
+            caretaker_name = custom_fields.get('105623') or order.get('user_comments') or "Brak danych"
         
-            # Oblicz wartości produktu
+            # Oblicz wartości produktu z uwzględnieniem typu ceny
             quantity = product.get('quantity', 1)
-            price_gross = safe_float_convert(product.get('price_brutto', 0))
-            price_net = price_gross / 1.23 if price_gross else 0
+            original_price_from_baselinker = safe_float_convert(product.get('price_brutto', 0))
+            
+            # POPRAWIONA LOGIKA: Rozróżnianie typu ceny
+            if price_type_from_api == 'netto':
+                # PRZYPADEK 1: Zamówienie ma oznaczenie "Netto"
+                # Kwota z Baselinker jest rzeczywiście NETTO
+                price_net = original_price_from_baselinker
+                price_gross = price_net * 1.23
+                price_type_to_save = 'netto'
+            elif price_type_from_api == 'brutto':
+                # PRZYPADEK 2: Zamówienie ma oznaczenie "Brutto"
+                # Kwota z Baselinker jest rzeczywiście BRUTTO
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+                price_type_to_save = 'brutto'
+            else:
+                # PRZYPADEK 3: Zamówienie bez oznaczenia (domyślnie BRUTTO)
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+                price_type_to_save = ''
+                
+            # Oblicz pozostałe wartości
             value_gross = price_gross * quantity
             value_net = price_net * quantity
             volume_per_piece = parsed_product.get('volume_per_piece') or Decimal('0')
@@ -81,19 +108,23 @@ class BaselinkerReportsService:
                 delivery_postcode=postcode,
                 delivery_city=order.get('delivery_city'),
                 delivery_address=order.get('delivery_address'),
-                delivery_state=final_state,  # ZMIANA: Użyj przetworzoonego województwa
+                delivery_state=final_state,  # ZMIANA: Użyj przetworzonego województwa
                 phone=order.get('phone'),
-                caretaker=order.get('user_comments'),
+                caretaker=caretaker_name,  # ZMIANA: Użyj opiekuna z custom_fields
                 delivery_method=order.get('delivery_method'),
                 order_source=order.get('order_source'),
+                
+                # NOWE POLA: Informacje o typie ceny
+                price_type=price_type_to_save,
+                original_amount_from_baselinker=original_price_from_baselinker,
             
-                # Dane produktu z Baselinker
+                # Dane produktu z Baselinker - POPRAWIONE CENY
                 raw_product_name=product.get('name'),
                 quantity=quantity,
-                price_gross=price_gross,
-                price_net=price_net,
-                value_gross=value_gross,
-                value_net=value_net,
+                price_gross=price_gross,      # POPRAWIONA: uwzględnia typ ceny
+                price_net=price_net,          # POPRAWIONA: uwzględnia typ ceny
+                value_gross=value_gross,      # POPRAWIONA: uwzględnia typ ceny
+                value_net=value_net,          # POPRAWIONA: uwzględnia typ ceny
                 volume_per_piece=float(volume_per_piece),
                 total_volume=total_volume,
                 price_per_m3=price_per_m3,
@@ -113,7 +144,10 @@ class BaselinkerReportsService:
                 current_status=self.status_map.get(order.get('order_status_id'), 'Nieznany'),
                 delivery_cost=safe_float_convert(order.get('delivery_price', 0)),
                 payment_method=order.get('payment_method'),
-                paid_amount_net=safe_float_convert(order.get('payment_done', 0)) / 1.23,
+                paid_amount_net=self._calculate_paid_amount_net(
+                    order.get('payment_done', 0), 
+                    price_type_from_api
+                ),
                 balance_due=max(0, value_net - (safe_float_convert(order.get('paid', 0)) / 1.23)),
             
                 # Dane produkcji (zostaną zaktualizowane przez metodę update_production_fields)
@@ -121,6 +155,16 @@ class BaselinkerReportsService:
                 production_value_net=0,
                 ready_pickup_volume=0
             )
+            
+            # Debug log - pokaż co się dzieje z cenami
+            self.logger.debug("Przetworzono ceny produktu",
+                            order_id=order.get('order_id'),
+                            product_name=product.get('name'),
+                            price_type_from_api=price_type_from_api,
+                            original_price=original_price_from_baselinker,
+                            final_price_net=price_net,
+                            final_price_gross=price_gross,
+                            price_type_saved=price_type_to_save)
         
             # Aktualizuj pola produkcji na podstawie statusu
             record.update_production_fields()
@@ -138,16 +182,6 @@ class BaselinkerReportsService:
     def _auto_fill_state_for_order(self, postcode: str, current_state: str) -> str:
         """
         Automatyczne uzupełnianie województwa zgodnie z wymaganiami:
-        1. Jeśli województwo jest wpisane - puszczamy dalej
-        2. Jeśli nie ma województwa, sprawdzamy kod pocztowy i uzupełniamy  
-        3. Jeśli nie ma województwa ani kodu pocztowego - puszczamy dalej
-    
-        Args:
-            postcode (str): Kod pocztowy
-            current_state (str): Obecne województwo
-        
-        Returns:
-            str: Finalne województwo
         """
         # KROK 1: Jeśli województwo jest wpisane - puszczamy dalej
         if current_state and current_state.strip():
@@ -671,40 +705,54 @@ class BaselinkerReportsService:
         """
         records = []
         products = order.get('products', [])
-    
+
         if not products:
             self.logger.warning("Zamówienie bez produktów",
-                              order_id=order.get('order_id'))
+                            order_id=order.get('order_id'))
             return records
-    
+
         # NOWE: Pobierz informację o typie ceny z custom_extra_fields
         custom_fields = order.get('custom_extra_fields', {})
         price_type_from_api = custom_fields.get('106169', '').strip()
         
         self.logger.debug("Pobrano typ ceny z custom_extra_fields",
-                         order_id=order.get('order_id'),
-                         price_type_from_api=price_type_from_api)
+                        order_id=order.get('order_id'),
+                        price_type_from_api=price_type_from_api)
 
         # Podstawowe dane zamówienia (wspólne dla wszystkich produktów)
         base_data = self._extract_base_order_data(order)
-    
-        # Oblicz łączną wartość zamówienia netto (dla order_amount_net)
-        total_order_value_gross = 0
-        for product in products:
-            original_price_gross = float(product.get('price_brutto', 0))
-            
-            # Przetwórz cenę przez metodę z modelu
-            temp_record = BaselinkerReportOrder()
-            processed_price_gross, _ = temp_record.process_baselinker_amount(
-                original_price_gross, price_type_from_api
-            )
-            
-            product_value = processed_price_gross * int(product.get('quantity', 1))
-            total_order_value_gross += product_value
 
-        # Przelicz na netto (VAT 23%) - tylko produkty, bez kuriera
-        total_order_value_net = total_order_value_gross / 1.23
+        # POPRAWIONA LOGIKA: Oblicz łączną wartość zamówienia netto (dla order_amount_net)
+        total_order_value_gross = 0
+        total_order_value_net = 0 
+        for product in products:
+            original_price_from_baselinker = float(product.get('price_brutto', 0))
+            
+            # POPRAWIONA LOGIKA: Rozróżnianie typu ceny (zamiast process_baselinker_amount)
+            if price_type_from_api.lower() == 'netto':
+                # PRZYPADEK 1: Zamówienie ma oznaczenie "Netto"
+                # Kwota z Baselinker jest rzeczywiście NETTO
+                price_net = original_price_from_baselinker
+                price_gross = price_net * 1.23
+            elif price_type_from_api.lower() == 'brutto':
+                # PRZYPADEK 2: Zamówienie ma oznaczenie "Brutto"
+                # Kwota z Baselinker jest rzeczywiście BRUTTO
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+            else:
+                # PRZYPADEK 3: Zamówienie bez oznaczenia (domyślnie BRUTTO)
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+            
+            quantity = int(product.get('quantity', 1))
     
+            # POPRAWIONE: Dodaj do obu sum
+            product_value_gross = price_gross * quantity
+            product_value_net = price_net * quantity
+            
+            total_order_value_gross += product_value_gross
+            total_order_value_net += product_value_net
+
         # NOWA LOGIKA: Oblicz łączną objętość wszystkich produktów w zamówieniu
         total_m3_all_products = 0.0
         for product in products:
@@ -773,12 +821,35 @@ class BaselinkerReportsService:
                 # Parsuj nazwę produktu
                 parsed_product = self.parser.parse_product_name(product.get('name', ''))
             
-                # NOWE: Przetwórz cenę produktu
-                original_price_gross = float(product.get('price_brutto', 0))
-                temp_record = BaselinkerReportOrder()
-                processed_price_gross, processed_price_type = temp_record.process_baselinker_amount(
-                    original_price_gross, price_type_from_api
-                )
+                # POPRAWIONA LOGIKA: Przetwórz cenę produktu (zamiast process_baselinker_amount)
+                original_price_from_baselinker = float(product.get('price_brutto', 0))
+                
+                # Rozróżnianie typu ceny - TAKA SAMA LOGIKA jak wyżej
+                if price_type_from_api.lower() == 'netto':
+                    # Kwota z Baselinker jest NETTO
+                    price_net = original_price_from_baselinker
+                    price_gross = price_net * 1.23
+                    price_type_to_save = 'netto'
+                elif price_type_from_api.lower() == 'brutto':
+                    # Kwota z Baselinker jest BRUTTO
+                    price_gross = original_price_from_baselinker
+                    price_net = price_gross / 1.23
+                    price_type_to_save = 'brutto'
+                else:
+                    # Domyślnie BRUTTO
+                    price_gross = original_price_from_baselinker
+                    price_net = price_gross / 1.23
+                    price_type_to_save = ''
+
+                # Debug log
+                self.logger.debug("Przetworzono ceny produktu w _convert_order_to_records",
+                                order_id=order.get('order_id'),
+                                product_name=product.get('name'),
+                                price_type_from_api=price_type_from_api,
+                                original_price=original_price_from_baselinker,
+                                final_price_net=price_net,
+                                final_price_gross=price_gross,
+                                price_type_saved=price_type_to_save)
                 
                 # Utwórz rekord
                 record = BaselinkerReportOrder(
@@ -799,18 +870,26 @@ class BaselinkerReportsService:
                     baselinker_status_id=order.get('order_status_id'),
                 
                     # FINANSE - POPRAWNIE OBLICZONE
-                    order_amount_net=total_order_value_net,  # ✅ Tylko produkty netto 124.80
-                    delivery_cost=float(order.get('delivery_price', 0)),  # ✅ Kurier brutto 25.00
-                    paid_amount_net=float(order.get('payment_done', 0)) / 1.23,  # ✅ payment_done netto
+                    order_amount_net=total_order_value_net,
+                    delivery_cost=float(order.get('delivery_price', 0)),
+                    paid_amount_net=self._calculate_paid_amount_net(
+                        order.get('payment_done', 0), 
+                        price_type_from_api
+                    ),
                     payment_method=order.get('payment_method'),
                 
-                    # DANE PRODUKTU
+                    # DANE PRODUKTU - POPRAWIONE CENY
                     total_m3=total_m3_all_products,
                     raw_product_name=product.get('name'),
                     quantity=product.get('quantity', 1),
-                    price_gross=processed_price_gross,
-                    price_type=processed_price_type,
-                    original_amount_from_baselinker=original_price_gross,
+                    price_gross=price_gross,                           # POPRAWIONE: używa obliczonej ceny
+                    price_net=price_net,                               # DODANE: cena netto
+                    price_type=price_type_to_save,                     # POPRAWIONE: używa obliczonego typu
+                    original_amount_from_baselinker=original_price_from_baselinker,  # POPRAWIONE: oryginalna cena
+                    
+                    # Oblicz wartości
+                    value_gross=price_gross * product.get('quantity', 1),
+                    value_net=price_net * product.get('quantity', 1),
                 
                     # Dane z parsera
                     product_type=parsed_product.get('product_type') or 'deska',
@@ -868,8 +947,11 @@ class BaselinkerReportsService:
         current_status = self.status_map.get(status_id, f'Status {status_id}')
         
         # Oblicz zapłaconą kwotę netto z brutto
-        payment_done_gross = order.get('payment_done', 0)
-        paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
+        payment_done = order.get('payment_done', 0)
+        custom_fields = order.get('custom_extra_fields', {})
+        price_type_from_api = custom_fields.get('106169', '').strip()
+        
+        paid_amount_net = self._calculate_paid_amount_net(payment_done, price_type_from_api)
         
         # Oblicz koszt dostawy netto
         delivery_price_gross = order.get('delivery_price', 0)
@@ -927,8 +1009,11 @@ class BaselinkerReportsService:
                 new_status = self.status_map.get(status_id, f'Status {status_id}')
                 
                 # Oblicz zapłaconą kwotę netto z brutto
-                payment_done_gross = order.get('payment_done', 0)
-                paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
+                payment_done = order.get('payment_done', 0)
+                custom_fields = order.get('custom_extra_fields', {})
+                price_type_from_api = custom_fields.get('106169', '').strip()
+                
+                paid_amount_net = self._calculate_paid_amount_net(payment_done, price_type_from_api)
                 
                 # Aktualizuj wszystkie rekordy tego zamówienia
                 records = BaselinkerReportOrder.query.filter_by(baselinker_order_id=order_id).all()
@@ -1325,6 +1410,37 @@ class BaselinkerReportsService:
             )
             raise
     
+    def _calculate_paid_amount_net(self, payment_done, price_type_from_api):
+        """
+        Oblicza paid_amount_net na podstawie typu ceny z custom_extra_fields
+    
+        Args:
+            payment_done (float): Kwota zapłacona z Baselinker (payment_done)
+            price_type_from_api (str): Typ ceny z extra_field_106169
+        
+        Returns:
+            float: Przeliczona kwota netto
+        """
+        if not payment_done:
+            return 0.0
+        
+        # Normalizuj wartość z API
+        price_type = (price_type_from_api or '').strip().lower()
+    
+        if price_type == 'netto':
+            # Dla zamówień netto: payment_done jest już kwotą netto, nie dziel przez 1.23
+            paid_amount_net = float(payment_done)
+            self.logger.debug("Obliczono paid_amount_net dla zamówienia NETTO",
+                             payment_done=payment_done,
+                             paid_amount_net=paid_amount_net)
+        else:
+            # Dla zamówień brutto lub pustych: payment_done to brutto, podziel przez 1.23
+            paid_amount_net = float(payment_done) / 1.23
+            self.logger.debug("Obliczono paid_amount_net dla zamówienia BRUTTO",
+                             payment_done=payment_done,
+                             paid_amount_net=paid_amount_net)
+    
+        return paid_amount_net
 
 # ===== FUNKCJE POMOCNICZE =====
 

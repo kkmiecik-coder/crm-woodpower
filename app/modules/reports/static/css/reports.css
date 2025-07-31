@@ -1271,16 +1271,6 @@
     border-bottom: none !important;
 }
 
-/* Specjalne klasy dla grupowania zamówień */
-.order-group-start {
-    border-top: 2px solid var(--primary-color);
-}
-
-.order-group-end {
-    border-bottom: 2px solid var(--primary-color);
-}
-
-
 /* ===================================
    FILTER IMPROVEMENTS
    =================================== */
@@ -2479,11 +2469,12 @@ body.fullscreen-mode {
     justify-content: flex-end;
 }
 
-/* Alternatywny przycisk eksportu dla fullscreen */
+/* Domyślnie ukryj przycisk eksportu w panelu filtrów */
 .fullscreen-export-btn {
-    display: none;
+    display: none !important;
 }
 
+/* Pokaż go TYLKO w trybie fullscreen */
 .fullscreen-mode .fullscreen-export-btn {
     display: inline-flex !important;
 }
