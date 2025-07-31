@@ -88,19 +88,19 @@
                     <div class="stat-comparison" id="compTotalM3"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Wartość netto</div>
+                    <div class="stat-label">Wartość produktów netto</div>
                     <div class="stat-value" id="statOrderAmountNet">0.00 zł</div>
                     <div class="stat-comparison" id="compOrderAmountNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość netto <br><span style="font-size: 10px; font-weight: 400;">(bez dostawy)</span></div>
-                    <div class="stat-value" id="statValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compValueNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Średnia cena netto m³</div>
                     <div class="stat-value" id="statPricePerM3">0.00 zł</div>
                     <div class="stat-comparison" id="compPricePerM3"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Koszt dostawy netto</div>
+                    <div class="stat-value" id="statDeliveryCostNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compDeliveryCostNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Zapłacono TTL netto</div>
@@ -123,21 +123,11 @@
                     <div class="stat-comparison" id="compReadyPickupVolume"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Do zapłaty</div>
+                    <div class="stat-label">Do zapłaty netto</div>
                     <div class="stat-value" id="statBalanceDue">0.00 zł</div>
                     <div class="stat-comparison" id="compBalanceDue"></div>
                 </div>
                 <!-- do usunięcia -->
-                <div class="stat-box">
-                    <div class="stat-label">Wartość brutto</div>
-                    <div class="stat-value" id="statValueGross">0.00 zł</div>
-                    <div class="stat-comparison" id="compValueGross"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Koszt dostawy brutto</div>
-                    <div class="stat-value" id="statDeliveryCost">0.00 zł</div>
-                    <div class="stat-comparison" id="compDeliveryCost"></div>
-                </div>
             </div>
 
             <!-- Loading overlay -->
@@ -320,6 +310,7 @@
                                 <th>Data realizacji</th>
                                 <th>Status</th>
                                 <th>Koszt kuriera brutto</th>
+                                <th>Koszt kuriera netto</th>
                                 <th>Sposób płatności</th>
                                 <th>Zapłacono netto</th>
                                 <th>Do zapłaty</th>

@@ -946,6 +946,7 @@ def api_export_excel():
                 'Data realizacji': order.realization_date.strftime('%d-%m-%Y') if order.realization_date else '',
                 'Status': order.current_status or '',
                 'Koszt kuriera': float(order.delivery_cost or 0),
+                'Koszt dostawy netto': float(order.delivery_cost or 0) / 1.23,
                 'Sposób płatności': order.payment_method or '',
                 'Zapłacono netto': float(order.paid_amount_net or 0),
                 'Saldo': float(order.balance_due or 0),
@@ -1001,6 +1002,7 @@ def api_export_excel():
             'Wartość netto': 'financial_data',
             'Cena za m³': 'financial_data',
             'Koszt kuriera': 'financial_data',
+            'Koszt dostawy netto': 'financial_data',
             'Zapłacono netto': 'financial_data',
             'Saldo': 'financial_data',
             'Objętość 1 szt.': 'production_data',
@@ -1027,6 +1029,7 @@ def api_export_excel():
             'Objętość TTL': 'SUM',
             'Cena za m³': 'AVERAGE',
             'Koszt kuriera': 'SUM',
+            'Koszt dostawy netto': 'SUM',
             'Zapłacono netto': 'SUM',
             'Saldo': 'SUM',
             'Ilość w produkcji': 'SUM',
@@ -1057,7 +1060,7 @@ def api_export_excel():
             'Wykończenie', 'Gatunek', 'Technologia', 'Klasa', 'Długość', 'Szerokość',
             'Grubość', 'Ilość', 'Cena brutto', 'Cena netto', 'Wartość brutto', 'Wartość netto',
             'Objętość 1 szt.', 'Objętość TTL', 'Cena za m³', 'Data realizacji', 'Status',
-            'Koszt kuriera', 'Sposób płatności', 'Zapłacono netto', 'Saldo',
+            'Koszt kuriera', 'Koszt dostawy netto', 'Sposób płatności', 'Zapłacono netto', 'Saldo',
             'Ilość w produkcji', 'Wartość w produkcji', 'Gotowe do odbioru'
             ]
         
@@ -1108,7 +1111,7 @@ def api_export_excel():
                     col_letter = get_column_letter(col_idx)
                     
                     # POPRAWKA: Specjalne formuły dla pól które mogą być duplikowane per zamówienie
-                    scalable_fields = ['Kwota zamówień netto', 'Koszt kuriera', 'Zapłacono netto', 'Saldo']
+                    scalable_fields = ['Kwota zamówień netto', 'Koszt kuriera', 'Koszt dostawy netto', 'Zapłacono netto', 'Saldo']
                     
                     if header in scalable_fields and formula_type == 'SUM':
                         # Użyj SUMPRODUCT z COUNTIFS żeby sumować tylko raz na zamówienie
@@ -1252,8 +1255,9 @@ def api_export_excel():
                 'K': 'Telefon',                 # Telefon (kolumna 11)
                 'L': 'Opiekun',                 # Opiekun (kolumna 12)
                 'AH': 'Koszt kuriera',          # Kolumna 34
-                'AJ': 'Zapłacono netto',        # Kolumna 36  
-                'AK': 'Saldo'                   # Kolumna 37
+                'AI': 'Koszt dostawy netto',    # Kolumna 35
+                'AK': 'Zapłacono netto',        # Kolumna 37  
+                'AL': 'Saldo'                   # Kolumna 38
             }
     
             # KROK 1: Ustaw wyrównanie dla WSZYSTKICH komórek PRZED scalaniem
@@ -1399,6 +1403,7 @@ def api_export_excel():
         current_row = add_stat_row(ws_summary, current_row, "Wartość brutto produktów:", stats['value_gross'], 'currency')
         current_row = add_stat_row(ws_summary, current_row, "Średnia wartość zamówienia:", avg_order_value, 'currency')
         current_row = add_stat_row(ws_summary, current_row, "Koszt kuriera łącznie:", stats['delivery_cost'], 'currency')
+        current_row = add_stat_row(ws_summary, current_row, "Koszt dostawy netto łącznie:", stats['delivery_cost_net'], 'currency')
         current_row = add_stat_row(ws_summary, current_row, "Zapłacono łącznie:", stats['paid_amount_net'], 'currency')
         current_row = add_stat_row(ws_summary, current_row, "Saldo łączne:", stats['balance_due'], 'currency')
         current_row += 1

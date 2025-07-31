@@ -64,9 +64,8 @@ class ReportsManager {
             statTotalM3: document.getElementById('statTotalM3'),
             statOrderAmountNet: document.getElementById('statOrderAmountNet'),
             statValueNet: document.getElementById('statValueNet'),
-            statValueGross: document.getElementById('statValueGross'),
             statPricePerM3: document.getElementById('statPricePerM3'),
-            statDeliveryCost: document.getElementById('statDeliveryCost'),
+            statDeliveryCostNet: document.getElementById('statDeliveryCostNet'),
             statPaidAmountNet: document.getElementById('statPaidAmountNet'),
             statBalanceDue: document.getElementById('statBalanceDue'),
             statProductionVolume: document.getElementById('statProductionVolume'),
@@ -76,10 +75,8 @@ class ReportsManager {
             // Statystyki porównawcze
             compTotalM3: document.getElementById('compTotalM3'),
             compOrderAmountNet: document.getElementById('compOrderAmountNet'),
-            compValueNet: document.getElementById('compValueNet'),
-            compValueGross: document.getElementById('compValueGross'),
             compPricePerM3: document.getElementById('compPricePerM3'),
-            compDeliveryCost: document.getElementById('compDeliveryCost'),
+            compDeliveryCostNet: document.getElementById('compDeliveryCostNet'),
             compPaidAmountNet: document.getElementById('compPaidAmountNet'),
             compBalanceDue: document.getElementById('compBalanceDue'),
             compProductionVolume: document.getElementById('compProductionVolume'),
@@ -290,9 +287,8 @@ class ReportsManager {
             total_m3: 0,
             order_amount_net: 0,
             value_net: 0,
-            value_gross: 0,
             avg_price_per_m3: 0,
-            delivery_cost: 0,
+            delivery_cost_net: 0,
             paid_amount_net: 0,
             balance_due: 0,
             production_volume: 0,
@@ -312,10 +308,8 @@ class ReportsManager {
         const elementMap = {
             'total_m3': 'compTotalM3',
             'order_amount_net': 'compOrderAmountNet',
-            'value_net': 'compValueNet',
-            'value_gross': 'compValueGross',
             'avg_price_per_m3': 'compPricePerM3',
-            'delivery_cost': 'compDeliveryCost',
+            'delivery_cost_net': 'compDeliveryCostNet',
             'paid_amount_net': 'compPaidAmountNet',
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
@@ -565,6 +559,7 @@ class ReportsManager {
             <td class="cell-date">${order.realization_date || ''}</td>
             <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
             ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(this.formatCurrency(order.delivery_cost / 1.23), orderCount, isFirst, 'cell-currency')}
             ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
             ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
             ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
@@ -1256,9 +1251,8 @@ class ReportsManager {
         this.updateStat('statTotalM3', stats.total_m3, 2, ' M³');
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
         this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
-        this.updateStat('statValueGross', stats.value_gross, 2, ' PLN');
         this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
-        this.updateStat('statDeliveryCost', stats.delivery_cost, 2, ' PLN');
+        this.updateStat('statDeliveryCostNet', stats.delivery_cost_net, 2, ' PLN');
         this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' PLN');
         this.updateStat('statBalanceDue', stats.balance_due, 2, ' PLN');
         this.updateStat('statProductionVolume', stats.production_volume, 2, '');
@@ -1308,18 +1302,16 @@ class ReportsManager {
         console.log('[ReportsManager] Updating comparisons:', comparison);
 
         const fields = [
-            'total_m3', 'order_amount_net', 'value_net', 'value_gross',
-            'avg_price_per_m3', 'delivery_cost', 'paid_amount_net', 'balance_due',
+            'total_m3', 'order_amount_net', 'value_net',
+            'avg_price_per_m3', 'delivery_cost_net', 'paid_amount_net', 'balance_due',
             'production_volume', 'production_value_net', 'ready_pickup_volume'
         ];
 
         const elementMap = {
             'total_m3': 'compTotalM3',
             'order_amount_net': 'compOrderAmountNet',
-            'value_net': 'compValueNet',
-            'value_gross': 'compValueGross',
             'avg_price_per_m3': 'compPricePerM3',
-            'delivery_cost': 'compDeliveryCost',
+            'delivery_cost_net': 'compDeliveryCostNet',
             'paid_amount_net': 'compPaidAmountNet',
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',

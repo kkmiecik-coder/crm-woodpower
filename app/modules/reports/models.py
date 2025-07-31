@@ -190,6 +190,7 @@ class BaselinkerReportOrder(db.Model):
             'value_gross': 0.0,
             'avg_price_per_m3': 0.0,
             'delivery_cost': 0.0,
+            'delivery_cost_net': 0.0,
             'paid_amount_net': 0.0,
             'balance_due': 0.0,
             'production_volume': 0.0,
@@ -239,6 +240,7 @@ class BaselinkerReportOrder(db.Model):
         order_level_stats = {
             'order_amount_net': 0.0,
             'delivery_cost': 0.0,
+            'delivery_cost_net': 0.0,
             'paid_amount_net': 0.0,
             'balance_due': 0.0
         }
@@ -259,12 +261,14 @@ class BaselinkerReportOrder(db.Model):
                 for product in products:
                     order_level_stats['order_amount_net'] += float(product.order_amount_net or 0)
                     order_level_stats['delivery_cost'] += float(product.delivery_cost or 0)
+                    order_level_stats['delivery_cost_net'] += float(product.delivery_cost or 0) / 1.23
                     order_level_stats['paid_amount_net'] += float(product.paid_amount_net or 0)
                     order_level_stats['balance_due'] += float(product.balance_due or 0)
             else:
                 # Dla zamówień Baselinker - raz na zamówienie (z pierwszego produktu)
                 order_level_stats['order_amount_net'] += float(representative_product.order_amount_net or 0)
                 order_level_stats['delivery_cost'] += float(representative_product.delivery_cost or 0)
+                order_level_stats['delivery_cost_net'] += float(representative_product.delivery_cost or 0) / 1.23
                 order_level_stats['paid_amount_net'] += float(representative_product.paid_amount_net or 0)
                 order_level_stats['balance_due'] += float(representative_product.balance_due or 0)
 
@@ -392,14 +396,21 @@ class BaselinkerReportOrder(db.Model):
             
         # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
         if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
-            # Przelicz koszt dostawy na netto
-            delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+            # POPRAWKA: Logika zależna od typu ceny zamówienia
+            
+            # Sprawdź typ ceny zamówienia
+            price_type = (self.price_type or '').strip().lower()
+            
+            if price_type == 'netto':
+                # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
+                total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
+            else:
+                # Zamówienia BRUTTO: porównujemy wszystko na netto
+                delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+                total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
         
-            # Całkowita kwota zamówienia netto = produkty netto + kurier netto
-            total_order_net = float(self.order_amount_net) + delivery_cost_net
-        
-            # Saldo = (produkty + kurier) netto - zapłacono netto
-            self.balance_due = total_order_net - float(self.paid_amount_net)
+            # Saldo = całkowita kwota do zapłaty - zapłacono netto
+            self.balance_due = total_order_to_pay - float(self.paid_amount_net)
             
         # NOWE: Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
         self.auto_fill_delivery_state()
