@@ -566,6 +566,7 @@ class ReportsManager {
             <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
             <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
             <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
+            <td class="cell-number">${order.current_status && order.current_status.toLowerCase() === 'czeka na odbiór osobisty' ? this.formatNumber(order.total_volume, 4) : '0.00'}</td>
             ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
         </tr>
     `;
@@ -1258,6 +1259,7 @@ class ReportsManager {
         this.updateStat('statProductionVolume', stats.production_volume, 2, '');
         this.updateStat('statProductionValueNet', stats.production_value_net, 2, ' PLN');
         this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 2, '');
+        this.updateStat('statPickupReady', stats.pickup_ready_volume, 2, '');
     }
 
     /**

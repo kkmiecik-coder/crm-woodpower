@@ -171,16 +171,17 @@ class BaselinkerReportOrder(db.Model):
         """
         Oblicza statystyki dla widocznych (przefiltrowanych) zamówień
         NAPRAWKA: Poprawione grupowanie zamówień i obliczenia
-    
+        NOWE: Dodana kolumna "Do odebrania" (pickup_ready_volume)
+
         Args:
             filtered_query: Query object z filtrami
-    
+
         Returns:
             dict: Słownik ze statystykami
         """
         if filtered_query is None:
             filtered_query = cls.query
-    
+
         orders = filtered_query.all()
 
         stats = {
@@ -195,7 +196,8 @@ class BaselinkerReportOrder(db.Model):
             'balance_due': 0.0,
             'production_volume': 0.0,
             'production_value_net': 0.0,
-            'ready_pickup_volume': 0.0
+            'ready_pickup_volume': 0.0,
+            'pickup_ready_volume': 0.0  # NOWA KOLUMNA: Do odebrania
         }
 
         if not orders:
@@ -210,7 +212,7 @@ class BaselinkerReportOrder(db.Model):
                 unique_id = f"bl_{order.baselinker_order_id}"
             else:
                 unique_id = f"manual_{order.id}"
-            
+        
             if unique_id not in orders_by_unique_id:
                 orders_by_unique_id[unique_id] = {
                     'products': [],
@@ -225,9 +227,10 @@ class BaselinkerReportOrder(db.Model):
             'value_gross': 0.0,
             'production_volume': 0.0,
             'production_value_net': 0.0,
-            'ready_pickup_volume': 0.0
+            'ready_pickup_volume': 0.0,
+            'pickup_ready_volume': 0.0  # NOWA KOLUMNA
         }
-    
+
         for order in orders:
             product_level_stats['total_m3'] += float(order.total_volume or 0)
             product_level_stats['value_net'] += float(order.value_net or 0)
@@ -235,6 +238,11 @@ class BaselinkerReportOrder(db.Model):
             product_level_stats['production_volume'] += float(order.production_volume or 0)
             product_level_stats['production_value_net'] += float(order.production_value_net or 0)
             product_level_stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
+        
+            # NOWA LOGIKA: Suma objętości tylko dla statusu "Czeka na odbiór osobisty"
+            if (order.current_status and 
+                order.current_status.lower() == 'czeka na odbiór osobisty'):
+                product_level_stats['pickup_ready_volume'] += float(order.total_volume or 0)
 
         # NAPRAWKA: Sumuj wartości NA POZIOMIE ZAMÓWIENIA (raz na zamówienie)
         order_level_stats = {
@@ -244,17 +252,17 @@ class BaselinkerReportOrder(db.Model):
             'paid_amount_net': 0.0,
             'balance_due': 0.0
         }
-    
+
         for unique_id, order_group in orders_by_unique_id.items():
             products = order_group['products']
             is_manual = order_group['is_manual']
-        
+    
             if not products:
                 continue
-            
+        
             # Weź pierwszy produkt jako reprezentanta zamówienia
             representative_product = products[0]
-        
+    
             # NAPRAWKA: Dla ręcznych wpisów każdy jest osobnym "zamówieniem"
             if is_manual:
                 # Dla ręcznych wpisów sumujemy wszystkie wartości
@@ -278,14 +286,14 @@ class BaselinkerReportOrder(db.Model):
 
         # POPRAWKA: Oblicz średnią cenę za m³ jako średnią arytmetyczną (jak w Excel)
         # Zamiast dzielić łączną wartość przez łączną objętość
-        
+    
         # Zbierz wszystkie ceny za m³ z produktów (pomijając 0 i None)
         price_per_m3_values = []
         for order in orders:
             price_per_m3 = float(order.price_per_m3 or 0)
             if price_per_m3 > 0:  # Pomiń produkty bez ceny za m³
                 price_per_m3_values.append(price_per_m3)
-        
+    
         # Oblicz średnią arytmetyczną (jak Excel AVERAGE)
         if price_per_m3_values:
             stats['avg_price_per_m3'] = sum(price_per_m3_values) / len(price_per_m3_values)
