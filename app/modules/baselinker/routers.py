@@ -416,6 +416,7 @@ def get_order_statuses():
                                error=str(e),
                                error_type=type(e).__name__)
         return jsonify({'error': 'Błąd pobierania statusów'}), 500
+
 @baselinker_bp.route('/api/quote/<int:quote_id>/order-modal-data')
 @login_required
 def get_order_modal_data(quote_id):
@@ -425,96 +426,89 @@ def get_order_modal_data(quote_id):
                           endpoint='get_order_modal_data')
     
     try:
-        # ZMIENIONE: Usuń eager loading - wróć do prostego zapytania
         quote = Quote.query.get_or_404(quote_id)
         
-        # ZMIENIONE: Bezpieczne sprawdzenie długości bez eager loading
-        try:
-            items_list = list(quote.items)  # Konwertuj na listę
-            items_count = len(items_list)
-        except:
-            items_count = 0  # Fallback
-        
-        baselinker_logger.debug("Pobrano wycenę dla modalu",
-                               quote_id=quote_id,
-                               quote_number=quote.quote_number,
-                               client_id=quote.client_id,
-                               items_count=items_count)
-        
-        # Pobierz wybrane produkty - użyj już przekonwertowanej listy
+        # Pobierz wybrane produkty
         selected_items = [item for item in quote.items if item.is_selected]
         if not selected_items:
             baselinker_logger.warning("Wycena nie ma wybranych produktów",
                                      quote_id=quote_id)
             return jsonify({'error': 'Wycena nie ma wybranych produktów'}), 400
         
+        # Pobierz wszystkie szczegóły wykończenia dla tej wyceny
+        finishing_details_list = QuoteItemDetails.query.filter_by(quote_id=quote.id).all()
+        
         products = []
-        total_products_value = 0
+        
+        # POPRAWKA 1: Osobno oblicz koszty produktów surowych i wykończenia
+        total_products_value_brutto = 0  # Tylko surowe produkty
+        total_products_value_netto = 0   # Tylko surowe produkty
+        total_finishing_value_brutto = 0 # Tylko wykończenie
+        total_finishing_value_netto = 0  # Tylko wykończenie
         
         for item in selected_items:
-            # Pobierz szczegóły wykończenia
+            # Pobierz szczegóły wykończenia dla tego produktu
             finishing_details = QuoteItemDetails.query.filter_by(
                 quote_id=quote.id, 
                 product_index=item.product_index
             ).first()
             
+            # Oblicz quantity
             quantity = finishing_details.quantity if finishing_details and finishing_details.quantity else 1
+            
+            # CENY SUROWEGO PRODUKTU (bez wykończenia)
             unit_price_netto = float(item.price_netto or 0)
             unit_price_brutto = float(item.price_brutto or 0)
             
-            # Dodaj cenę wykończenia jeśli istnieje
+            # Dodaj do sumy surowych produktów
+            total_products_value_netto += unit_price_netto * quantity
+            total_products_value_brutto += unit_price_brutto * quantity
+            
+            # CENY WYKOŃCZENIA (jeśli istnieje)
             if finishing_details and finishing_details.finishing_price_netto:
+                # finishing_price_netto to już CAŁKOWITA kwota za wykończenie wszystkich sztuk
                 finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
                 finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
-    
-                # Dziel przez quantity żeby otrzymać koszt wykończenia za 1 sztukę
-                finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
-                finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
-    
-                unit_price_netto += finishing_unit_netto
-                unit_price_brutto += finishing_unit_brutto
+                
+                # Dodaj do sumy wykończenia (bez mnożenia przez quantity!)
+                total_finishing_value_netto += finishing_total_netto
+                total_finishing_value_brutto += finishing_total_brutto
             
-            total_price_netto = unit_price_netto * quantity
-            total_price_brutto = unit_price_brutto * quantity
-            total_products_value += total_price_brutto
+            # KOŃCOWE CENY JEDNOSTKOWE (surowe + wykończenie na sztukę)
+            finishing_unit_netto = 0
+            finishing_unit_brutto = 0
             
-            # Przygotuj nazwę produktu
-            variant_translations = {
-                'dab-lity-ab': 'Klejonka dębowa lita A/B',
-                'dab-lity-bb': 'Klejonka dębowa lita B/B',
-                'dab-micro-ab': 'Klejonka dębowa mikrowczep A/B',
-                'jes-lity-ab': 'Klejonka jesionowa lita A/B'
-            }
+            if finishing_details and finishing_details.finishing_price_netto:
+                finishing_unit_netto = float(finishing_details.finishing_price_netto or 0) / quantity if quantity > 0 else 0
+                finishing_unit_brutto = float(finishing_details.finishing_price_brutto or 0) / quantity if quantity > 0 else 0
             
-            product_name = variant_translations.get(
-                item.variant_code, 
-                f'Klejonka {item.variant_code}' if item.variant_code else 'Nieznany produkt'
-            )
+            final_unit_price_netto = unit_price_netto + finishing_unit_netto
+            final_unit_price_brutto = unit_price_brutto + finishing_unit_brutto
             
-            # Dodaj wymiary
-            product_name += f" {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
+            # Przygotuj dane produktu dla frontendu
+            product_name = f"{item.variant_code} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
             
-            # Dodaj wykończenie do nazwy jeśli istnieje
-            if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak':
-                finishing_parts = [finishing_details.finishing_type]
-                if finishing_details.finishing_color:
-                    finishing_parts.append(finishing_details.finishing_color)
-                product_name += f" ({' - '.join(finishing_parts)})"
+            # Oblicz wagę
+            volume_m3 = (item.length_cm * item.width_cm * item.thickness_cm) / 1_000_000
+            weight_kg = round(volume_m3 * 650, 2)  # gęstość drewna
             
-            # 1) Pobierz objętość (m³) – jeśli nie ma, przyjmujemy 0
-            volume_m3 = getattr(item, 'volume_m3', 0) or 0
-            # 2) Oblicz wagę [kg] (przy gęstości 800 kg/m³)
-            weight_kg = round(float(volume_m3) * 800, 2)
-
             product_data = {
+                'product_index': item.product_index,
                 'name': product_name,
                 'dimensions': f"{item.length_cm}×{item.width_cm}×{item.thickness_cm} cm",
                 'quantity': quantity,
-                'unit_price_netto': round(unit_price_netto, 2),
-                'unit_price_brutto': round(unit_price_brutto, 2),
-                'total_price_netto': round(total_price_netto, 2),
-                'total_price_brutto': round(total_price_brutto, 2),
+                'unit_price_netto': round(final_unit_price_netto, 2),
+                'unit_price_brutto': round(final_unit_price_brutto, 2),
+                'total_price_netto': round(final_unit_price_netto * quantity, 2),
+                'total_price_brutto': round(final_unit_price_brutto * quantity, 2),
                 'weight': weight_kg,
+                'finishing': {
+                    'type': finishing_details.finishing_type if finishing_details else 'Brak',
+                    'color': finishing_details.finishing_color if finishing_details else 'Brak',
+                    'price_netto': finishing_total_netto if finishing_details and finishing_details.finishing_price_netto else 0,
+                    'price_brutto': finishing_total_brutto if finishing_details and finishing_details.finishing_price_brutto else 0,
+                    'quantity': quantity
+                } if finishing_details else None
             }
             
             products.append(product_data)
@@ -523,159 +517,102 @@ def get_order_modal_data(quote_id):
         client_data = {}
         if quote.client:
             client_data = {
-                'name':            quote.client.client_name,
-                'delivery_name':   quote.client.client_delivery_name or quote.client.client_name,
-                'email':           quote.client.email,
-                'phone':           quote.client.phone,
-                'delivery_address':quote.client.delivery_address or '',
-                'delivery_postcode':quote.client.delivery_zip or '',
-                'delivery_city':   quote.client.delivery_city or '',
+                'name': quote.client.client_name,
+                'delivery_name': quote.client.client_delivery_name or quote.client.client_name,
+                'email': quote.client.email,
+                'phone': quote.client.phone,
+                'delivery_address': quote.client.delivery_address or '',
+                'delivery_postcode': quote.client.delivery_zip or '',
+                'delivery_city': quote.client.delivery_city or '',
                 'delivery_region': quote.client.delivery_region or '',
-                'delivery_company':quote.client.delivery_company or '',
-                'invoice_name':    quote.client.invoice_name or quote.client.client_name or '',
+                'delivery_company': quote.client.delivery_company or '',
+                'invoice_name': quote.client.invoice_name or quote.client.client_name or '',
                 'invoice_company': quote.client.invoice_company or '',
-                'invoice_nip':     quote.client.invoice_nip or '',
+                'invoice_nip': quote.client.invoice_nip or '',
                 'invoice_address': quote.client.invoice_address or '',
-                'invoice_postcode':quote.client.invoice_zip or '',
-                'invoice_city':    quote.client.invoice_city or '',
-                'invoice_region':  quote.client.invoice_region or '',  # ← tu musi być
-                'want_invoice':    bool(quote.client.invoice_nip)
+                'invoice_postcode': quote.client.invoice_zip or '',
+                'invoice_city': quote.client.invoice_city or '',
+                'invoice_region': quote.client.invoice_region or '',
+                'want_invoice': bool(quote.client.invoice_nip)
             }
         
-        # NOWE: Pobierz konfigurację Baselinker
-        baselinker_logger.debug("Pobieranie konfiguracji Baselinker")
-        
+        # Pobierz konfigurację Baselinker
         try:
-            # Pobierz źródła zamówień
             order_sources = BaselinkerConfig.query.filter_by(
                 config_type='order_source',
                 is_active=True
             ).order_by(BaselinkerConfig.name).all()
             
-            sources_data = [
-                {
-                    'id': source.baselinker_id,
-                    'name': source.name
-                }
-                for source in order_sources
-            ]
+            sources_data = [{'id': source.baselinker_id, 'name': source.name} for source in order_sources]
             
-            # Pobierz statusy zamówień
             order_statuses = BaselinkerConfig.query.filter_by(
                 config_type='order_status',
                 is_active=True
             ).order_by(BaselinkerConfig.name).all()
             
-            statuses_data = [
-                {
-                    'id': status.baselinker_id,
-                    'name': status.name
-                }
-                for status in order_statuses
-            ]
-            
-            baselinker_logger.debug("Pobrano konfigurację Baselinker",
-                                   sources_count=len(sources_data),
-                                   statuses_count=len(statuses_data))
-            
-            # Przygotuj konfigurację
-            config_data = {
-                'order_sources': sources_data,
-                'order_statuses': statuses_data,
-                'payment_methods': [
-                    'Przelew bankowy',
-                    'Płatność przy odbiorze',
-                    'Karta płatnicza'
-                ],
-                'delivery_countries': [
-                    {'code': 'PL', 'name': 'Polska'},
-                    {'code': 'DE', 'name': 'Niemcy'},
-                    {'code': 'CZ', 'name': 'Czechy'}
-                ],
-                # DODANE: metody dostawy dla JavaScript
-                'delivery_methods': [
-                    'Kurier DPD',
-                    'Kurier InPost',
-                    'Kurier UPS',
-                    'Kurier DHL',
-                    'Paczkomaty InPost',
-                    'Odbiór osobisty',
-                    'Transport własny'
-                ]
-            }
+            statuses_data = [{'id': status.baselinker_id, 'name': status.name} for status in order_statuses]
             
         except Exception as config_error:
-            baselinker_logger.error("Błąd podczas pobierania konfiguracji Baselinker",
-                                   error=str(config_error))
-            # Fallback - pusta konfiguracja
-            config_data = {
-                'order_sources': sources_data,
-                'order_statuses': statuses_data,
-                'payment_methods': [
-                    'Przelew bankowy',
-                    'Płatność przy odbiorze',
-                    'Karta płatnicza'
-                ],
-                'delivery_countries': [
-                    {'code': 'PL', 'name': 'Polska'},
-                    {'code': 'DE', 'name': 'Niemcy'},
-                    {'code': 'CZ', 'name': 'Czechy'}
-                ],
-                # DODANE: metody dostawy dla JavaScript
-                'delivery_methods': [
-                    'Kurier DPD',
-                    'Kurier InPost',
-                    'Kurier UPS',
-                    'Kurier DHL',
-                    'Paczkomaty InPost',
-                    'Odbiór osobisty',
-                    'Transport własny'
-                ]
-            }
+            baselinker_logger.error("Błąd podczas pobierania konfiguracji Baselinker", error=str(config_error))
+            sources_data = []
+            statuses_data = []
         
-        # Oblicz koszty
-        shipping_cost = float(quote.shipping_cost_brutto or 0)
-        total_value = total_products_value + shipping_cost
+        config_data = {
+            'order_sources': sources_data,
+            'order_statuses': statuses_data,
+            'payment_methods': ['Przelew bankowy', 'Płatność przy odbiorze', 'Karta płatnicza'],
+            'delivery_countries': [
+                {'code': 'PL', 'name': 'Polska'},
+                {'code': 'DE', 'name': 'Niemcy'},
+                {'code': 'CZ', 'name': 'Czechy'}
+            ],
+            'delivery_methods': [
+                'Kurier DPD', 'Kurier InPost', 'Kurier UPS', 'Kurier DHL',
+                'Paczkomaty InPost', 'Odbiór osobisty', 'Transport własny'
+            ]
+        }
         
-        # Oblicz netto
-        total_products_netto = sum(
-            (float(item.price_netto or 0) + float(getattr(finishing_details, 'finishing_price_netto', 0))) *
-            (finishing_details.quantity if finishing_details and finishing_details.quantity else 1)
-            for item in selected_items
-            for finishing_details in [QuoteItemDetails.query.filter_by(
-                quote_id=quote.id, product_index=item.product_index).first()]
-        )
-        shipping_netto = float(getattr(quote, 'shipping_cost_netto', 0))
-        total_netto    = total_products_netto + shipping_netto
+        # POPRAWKA 2: Oblicz koszty wysyłki
+        shipping_cost_brutto = float(quote.shipping_cost_brutto or 0)
+        shipping_cost_netto = shipping_cost_brutto / 1.23 if shipping_cost_brutto > 0 else 0
+        
+        # POPRAWKA 3: Poprawne koszty całkowite
+        total_value_netto = total_products_value_netto + total_finishing_value_netto + shipping_cost_netto
+        total_value_brutto = total_products_value_brutto + total_finishing_value_brutto + shipping_cost_brutto
 
         response_data = {
             'quote': {
                 'id': quote.id,
-                'client_id':  quote.client_id,
+                'client_id': quote.client_id,
                 'quote_number': quote.quote_number,
                 'created_at': quote.created_at.isoformat(),
                 'courier_name': quote.courier_name,
                 'source': getattr(quote, 'source', ''),
-                'status_name': quote.quote_status.name if quote.quote_status else 'Nieznany',  # DODANE
-                'status_id': quote.status_id  # DODANE dla JS
+                'status_name': quote.quote_status.name if quote.quote_status else 'Nieznany',
+                'status_id': quote.status_id
             },
             'client': client_data,
             'products': products,
             'costs': {
-                'products_brutto': round(total_products_value, 2),
-                'shipping_brutto': round(shipping_cost, 2),
-                'total_brutto': round(total_value, 2),
-                'products_netto': round(total_products_netto, 2),
-                'shipping_netto': round(shipping_netto, 2),
-                'total_netto': round(total_netto, 2)
+                # POPRAWKA 4: Osobne koszty dla produktów surowych i wykończenia
+                'products_brutto': round(total_products_value_brutto, 2),
+                'products_netto': round(total_products_value_netto, 2),
+                'finishing_brutto': round(total_finishing_value_brutto, 2),
+                'finishing_netto': round(total_finishing_value_netto, 2),
+                'shipping_brutto': round(shipping_cost_brutto, 2),
+                'shipping_netto': round(shipping_cost_netto, 2),
+                'total_brutto': round(total_value_brutto, 2),
+                'total_netto': round(total_value_netto, 2)
             },
-            'config': config_data  # NOWE: Dodana konfiguracja
+            'config': config_data
         }
         
         baselinker_logger.info("Przygotowano dane dla modalu zamówienia",
                               quote_id=quote_id,
                               products_count=len(products),
-                              total_value=total_value,
+                              products_value_brutto=total_products_value_brutto,
+                              finishing_value_brutto=total_finishing_value_brutto,
+                              total_value_brutto=total_value_brutto,
                               has_client=bool(quote.client),
                               sources_count=len(config_data['order_sources']),
                               statuses_count=len(config_data['order_statuses']))
@@ -688,6 +625,5 @@ def get_order_modal_data(quote_id):
                                error=str(e),
                                error_type=type(e).__name__)
         import traceback
-        baselinker_logger.debug("Stack trace błędu",
-                               traceback=traceback.format_exc())
+        baselinker_logger.debug("Stack trace błędu", traceback=traceback.format_exc())
         return jsonify({'error': 'Błąd pobierania danych'}), 500
