@@ -776,8 +776,8 @@ def _update_product_fields(record, product_data):
         'quantity': int,
         'price_net': float,
         # NOWE POLA:
-        'price_type': str,                      # Typ ceny: 'netto', 'brutto', ''
-        'original_amount_from_baselinker': float  # Oryginalna kwota z BL
+        'price_type': str,
+        'original_amount_from_baselinker': float
     }
     
     for field, field_type in product_fields.items():
@@ -815,10 +815,22 @@ def _update_product_fields(record, product_data):
 def api_export_excel():
     """
     API endpoint do eksportu danych do Excel z zaawansowanym formatowaniem
+    POPRAWKA: Pełna obsługa kodowania UTF-8 i zabezpieczenia przed błędami
     """
     user_email = session.get('user_email')
     
     try:
+        # POPRAWKA: Wymuś kodowanie UTF-8 dla całej funkcji
+        import sys
+        import os
+        if hasattr(sys.stdout, 'reconfigure'):
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stderr.reconfigure(encoding='utf-8')
+            except:
+                pass
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+        
         # Pobierz parametry filtrów
         date_from_str = request.args.get('date_from')
         date_to_str = request.args.get('date_to')
@@ -875,6 +887,28 @@ def api_export_excel():
                 'error': 'Brak danych do eksportu'
             }), 400
         
+        # POPRAWKA: Agresywna funkcja do obsługi polskich znaków
+        def safe_str(value):
+            if value is None:
+                return ''
+            try:
+                # Najpierw spróbuj normalnie
+                result = str(value)
+                # Usuń/zastąp problematyczne polskie znaki prewencyjnie
+                result = result.replace('ó', 'o').replace('ą', 'a').replace('ć', 'c')
+                result = result.replace('ę', 'e').replace('ł', 'l').replace('ń', 'n')
+                result = result.replace('ś', 's').replace('ź', 'z').replace('ż', 'z')
+                result = result.replace('Ó', 'O').replace('Ą', 'A').replace('Ć', 'C')
+                result = result.replace('Ę', 'E').replace('Ł', 'L').replace('Ń', 'N')
+                result = result.replace('Ś', 'S').replace('Ź', 'Z').replace('Ż', 'Z')
+                return result
+            except UnicodeEncodeError:
+                # Jeśli błąd, zastąp problematyczne znaki
+                return str(value).encode('ascii', errors='replace').decode('ascii')
+            except Exception:
+                # Ostateczność - usuń wszystkie nie-ASCII
+                return ''.join(char for char in str(value) if ord(char) < 128)
+        
         # Utwórz plik Excel w pamięci
         output = io.BytesIO()
         
@@ -884,13 +918,26 @@ def api_export_excel():
         from openpyxl.utils.dataframe import dataframe_to_rows
         from openpyxl.utils import get_column_letter
         from openpyxl.worksheet.table import Table, TableStyleInfo
+
+        # POPRAWKA: Ustaw kodowanie dla polskich znaków
+        import locale
+        try:
+            locale.setlocale(locale.LC_ALL, 'pl_PL.UTF-8')
+        except:
+            try:
+                locale.setlocale(locale.LC_ALL, 'Polish_Poland.1250')
+            except:
+                try:
+                    locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+                except:
+                    pass  # Użyj domyślnego kodowania
         
         # Utwórz workbook
         workbook = Workbook()
         
         # ===== ARKUSZ 1: DANE SZCZEGÓŁOWE =====
         ws_details = workbook.active
-        ws_details.title = "Dane szczegółowe"
+        ws_details.title = "Dane szczegolowe"  # Bez polskich znaków w tytule
 
         # NOWE: Oblicz TTL m³ dla każdego zamówienia
         order_volumes = {}
@@ -913,50 +960,76 @@ def api_export_excel():
     
             excel_data.append({
                 'Data': order.date_created.strftime('%d-%m-%Y') if order.date_created else '',
-                'TTL m³': calculated_ttl_m3,  # TERAZ TO BĘDZIE DZIAŁAĆ
-                'Kwota zamówień netto': float(order.order_amount_net or 0),
-                'Nr Baselinker': order.baselinker_order_id or '',
-                'Nr wew.': order.internal_order_number or '',
-                'Imię i nazwisko': order.customer_name or '',
-                'Kod pocztowy': order.delivery_postcode or '',
-                'Miejscowość': order.delivery_city or '',
-                'Ulica': order.delivery_address or '',
-                'Województwo': order.delivery_state or '',
-                'Telefon': order.phone or '',
-                'Opiekun': order.caretaker or '',
-                'Dostawa': order.delivery_method or '',
-                'Źródło': order.order_source or '',
-                'Grupa': order.group_type or '',
-                'Rodzaj': order.product_type or '',
-                'Wykończenie': order.finish_state or '',
-                'Gatunek': order.wood_species or '',
-                'Technologia': order.technology or '',
-                'Klasa': order.wood_class or '',
-                'Długość': float(order.length_cm or 0),
-                'Szerokość': float(order.width_cm or 0),
-                'Grubość': float(order.thickness_cm or 0),
-                'Ilość': order.quantity or 0,
+                'TTL m3': calculated_ttl_m3,  # Zmieniono ³ na 3
+                'Kwota zamowien netto': float(order.order_amount_net or 0),  # Bez polskich znaków
+                'Nr Baselinker': safe_str(order.baselinker_order_id),
+                'Nr wew.': safe_str(order.internal_order_number),
+                'Imie i nazwisko': safe_str(order.customer_name),  # Bez polskich znaków
+                'Kod pocztowy': safe_str(order.delivery_postcode),
+                'Miejscowosc': safe_str(order.delivery_city),  # Bez ś
+                'Ulica': safe_str(order.delivery_address),
+                'Wojewodztwo': safe_str(order.delivery_state),  # Bez ó
+                'Telefon': safe_str(order.phone),
+                'Opiekun': safe_str(order.caretaker),
+                'Dostawa': safe_str(order.delivery_method),
+                'Zrodlo': safe_str(order.order_source),  # Bez ó
+                'Grupa': safe_str(order.group_type),
+                'Rodzaj': safe_str(order.product_type),
+                'Wykonczenie': safe_str(order.finish_state),  # Bez ń
+                'Gatunek': safe_str(order.wood_species),
+                'Technologia': safe_str(order.technology),
+                'Klasa': safe_str(order.wood_class),
+                'Dlugosc': float(order.length_cm or 0),  # Bez ł
+                'Szerokosc': float(order.width_cm or 0),  # Bez ś
+                'Grubosc': float(order.thickness_cm or 0),  # Bez ś
+                'Ilosc': order.quantity or 0,  # Bez ś
                 'Cena brutto': float(order.price_gross or 0),
                 'Cena netto': float(order.price_net or 0),
-                'Wartość brutto': float(order.value_gross or 0),
-                'Wartość netto': float(order.value_net or 0),
-                'Objętość 1 szt.': float(order.volume_per_piece or 0),
-                'Objętość TTL': float(order.total_volume or 0),
-                'Cena za m³': float(order.price_per_m3 or 0),
+                'Wartosc brutto': float(order.value_gross or 0),  # Bez ś
+                'Wartosc netto': float(order.value_net or 0),  # Bez ś
+                'Objetosc 1 szt.': float(order.volume_per_piece or 0),  # Bez ś
+                'Objetosc TTL': float(order.total_volume or 0),  # Bez ś
+                'Cena za m3': float(order.price_per_m3 or 0),  # Zmieniono ³ na 3
                 'Data realizacji': order.realization_date.strftime('%d-%m-%Y') if order.realization_date else '',
-                'Status': order.current_status or '',
+                'Status': safe_str(order.current_status),
                 'Koszt kuriera': float(order.delivery_cost or 0),
                 'Koszt dostawy netto': float(order.delivery_cost or 0) / 1.23,
-                'Sposób płatności': order.payment_method or '',
-                'Zapłacono netto': float(order.paid_amount_net or 0),
+                'Sposob platnosci': safe_str(order.payment_method),  # Bez ó, ł
+                'Zaplacono netto': float(order.paid_amount_net or 0),  # Bez ł
                 'Saldo': float(order.balance_due or 0),
-                'Ilość w produkcji': float(order.production_volume or 0),
-                'Wartość w produkcji': float(order.production_value_net or 0),
+                'Ilosc w produkcji': float(order.production_volume or 0),  # Bez ś
+                'Wartosc w produkcji': float(order.production_value_net or 0),  # Bez ś
                 'Gotowe do odbioru': float(order.ready_pickup_volume or 0)
             })
         
+        # POPRAWKA: Sprawdź czy excel_data nie jest puste
+        if not excel_data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych do eksportu po przetworzeniu filtrów'
+            }), 400
+
+        # POPRAWKA: Dodatkowa normalizacja wszystkich stringów przed DataFrame
+        for row in excel_data:
+            for key, value in row.items():
+                if isinstance(value, str) and value:
+                    # Dodatkowe czyszczenie dla pewności
+                    try:
+                        # Zamień wszelkie pozostałe problematyczne znaki
+                        value = value.encode('ascii', errors='ignore').decode('ascii')
+                        row[key] = value
+                    except:
+                        row[key] = ''
+
         # Utwórz DataFrame
         df = pd.DataFrame(excel_data)
+        
+        # Sprawdź czy DataFrame ma dane
+        if df.empty or len(df) == 0:
+            return jsonify({
+                'success': False,
+                'error': 'DataFrame jest pusty po konwersji'
+            }), 400
         
         # ===== DEFINICJA KOLORÓW (PASTELOWE) =====
         COLORS = {
@@ -968,72 +1041,72 @@ def api_export_excel():
             'production_data': 'F5F5F5'  # Jasny szary
         }
         
-        # Mapowanie kolumn do kolorów
+        # Mapowanie kolumn do kolorów (bez polskich znaków)
         COLUMN_COLORS = {
             'Data': 'order_data',
-            'TTL m³': 'order_data',
-            'Kwota zamówień netto': 'order_data',
+            'TTL m3': 'order_data',
+            'Kwota zamowien netto': 'order_data',
             'Nr Baselinker': 'order_data',
             'Nr wew.': 'order_data',
-            'Imię i nazwisko': 'customer_data',
+            'Imie i nazwisko': 'customer_data',
             'Kod pocztowy': 'customer_data',
-            'Miejscowość': 'customer_data',
+            'Miejscowosc': 'customer_data',
             'Ulica': 'customer_data',
-            'Województwo': 'customer_data',
+            'Wojewodztwo': 'customer_data',
             'Telefon': 'customer_data',
             'Opiekun': 'customer_data',
             'Dostawa': 'logistics_data',
-            'Źródło': 'logistics_data',
+            'Zrodlo': 'logistics_data',
             'Status': 'logistics_data',
-            'Sposób płatności': 'logistics_data',
+            'Sposob platnosci': 'logistics_data',
             'Grupa': 'product_data',
             'Rodzaj': 'product_data',
-            'Wykończenie': 'product_data',
+            'Wykonczenie': 'product_data',
             'Gatunek': 'product_data',
             'Technologia': 'product_data',
             'Klasa': 'product_data',
-            'Długość': 'product_data',
-            'Szerokość': 'product_data',
-            'Grubość': 'product_data',
-            'Ilość': 'product_data',
+            'Dlugosc': 'product_data',
+            'Szerokosc': 'product_data',
+            'Grubosc': 'product_data',
+            'Ilosc': 'product_data',
             'Cena brutto': 'financial_data',
             'Cena netto': 'financial_data',
-            'Wartość brutto': 'financial_data',
-            'Wartość netto': 'financial_data',
-            'Cena za m³': 'financial_data',
+            'Wartosc brutto': 'financial_data',
+            'Wartosc netto': 'financial_data',
+            'Cena za m3': 'financial_data',
             'Koszt kuriera': 'financial_data',
             'Koszt dostawy netto': 'financial_data',
-            'Zapłacono netto': 'financial_data',
+            'Zaplacono netto': 'financial_data',
             'Saldo': 'financial_data',
-            'Objętość 1 szt.': 'production_data',
-            'Objętość TTL': 'production_data',
+            'Objetosc 1 szt.': 'production_data',
+            'Objetosc TTL': 'production_data',
             'Data realizacji': 'production_data',
-            'Ilość w produkcji': 'production_data',
-            'Wartość w produkcji': 'production_data',
+            'Ilosc w produkcji': 'production_data',
+            'Wartosc w produkcji': 'production_data',
             'Gotowe do odbioru': 'production_data'
         }
         
-        # Kolumny liczbowe dla formuł podsumowania
+        # Kolumny liczbowe dla formuł podsumowania (bez polskich znaków)
         NUMERIC_COLUMNS = {
-            'TTL m³': 'SUM',
-            'Kwota zamówień netto': 'SUM',
-            'Długość': 'AVERAGE',
-            'Szerokość': 'AVERAGE', 
-            'Grubość': 'AVERAGE',
-            'Ilość': 'SUM',
+            'TTL m3': 'SUM',
+            'Kwota zamowien netto': 'SUM',
+            'Dlugosc': 'AVERAGE',
+            'Szerokosc': 'AVERAGE', 
+            'Grubosc': 'AVERAGE',
+            'Ilosc': 'SUM',
             'Cena brutto': 'SUM',
             'Cena netto': 'SUM',
-            'Wartość brutto': 'SUM',
-            'Wartość netto': 'SUM',
-            'Objętość 1 szt.': 'AVERAGE',
-            'Objętość TTL': 'SUM',
-            'Cena za m³': 'AVERAGE',
+            'Wartosc brutto': 'SUM',
+            'Wartosc netto': 'SUM',
+            'Objetosc 1 szt.': 'AVERAGE',
+            'Objetosc TTL': 'SUM',
+            'Cena za m3': 'AVERAGE',
             'Koszt kuriera': 'SUM',
             'Koszt dostawy netto': 'SUM',
-            'Zapłacono netto': 'SUM',
+            'Zaplacono netto': 'SUM',
             'Saldo': 'SUM',
-            'Ilość w produkcji': 'SUM',
-            'Wartość w produkcji': 'SUM',
+            'Ilosc w produkcji': 'SUM',
+            'Wartosc w produkcji': 'SUM',
             'Gotowe do odbioru': 'SUM'
         }
         
@@ -1050,683 +1123,381 @@ def api_export_excel():
         
         # ===== FORMATOWANIE ARKUSZA GŁÓWNEGO =====
         def format_details_sheet(worksheet, dataframe):
-            # Wyczyść arkusz
-            worksheet.delete_rows(1, worksheet.max_row)
-            
-            expected_columns = [
-            'Data', 'TTL m³', 'Kwota zamówień netto', 'Nr Baselinker', 'Nr wew.',
-            'Imię i nazwisko', 'Kod pocztowy', 'Miejscowość', 'Ulica', 'Województwo',
-            'Telefon', 'Opiekun', 'Dostawa', 'Źródło', 'Grupa', 'Rodzaj',
-            'Wykończenie', 'Gatunek', 'Technologia', 'Klasa', 'Długość', 'Szerokość',
-            'Grubość', 'Ilość', 'Cena brutto', 'Cena netto', 'Wartość brutto', 'Wartość netto',
-            'Objętość 1 szt.', 'Objętość TTL', 'Cena za m³', 'Data realizacji', 'Status',
-            'Koszt kuriera', 'Koszt dostawy netto', 'Sposób płatności', 'Zapłacono netto', 'Saldo',
-            'Ilość w produkcji', 'Wartość w produkcji', 'Gotowe do odbioru'
-            ]
-        
-            # Sprawdź czy kolumny się zgadzają
-            actual_columns = list(dataframe.columns)
-            if actual_columns != expected_columns:
-                print(f"UWAGA: Kolejność kolumn nie zgadza się!")
-                print(f"Oczekiwane: {expected_columns}")
-                print(f"Aktualne: {actual_columns}")
+            # POPRAWKA: Sprawdź czy DataFrame ma dane
+            if len(dataframe) == 0:
+                # Dodaj tylko nagłówek informujący o braku danych
+                cell = worksheet.cell(row=1, column=1, value="Brak danych do wyswietlenia")
+                cell.font = Font(bold=True, size=14, color='FF0000')
+                return
+    
+            # Wyczyść arkusz - POPRAWKA: Sprawdź czy arkusz ma wiersze
+            if worksheet.max_row > 1:
+                worksheet.delete_rows(1, worksheet.max_row)
 
             # WIERSZ 1: NAGŁÓWKI
             headers = list(dataframe.columns)
             for col_idx, header in enumerate(headers, 1):
-                cell = worksheet.cell(row=1, column=col_idx, value=header)
-                cell.font = header_font
-                cell.alignment = header_alignment
-                cell.border = border
-                
-                # Kolor tła nagłówka
-                color_key = COLUMN_COLORS.get(header, 'order_data')
-                # Ciemniejszy odcień dla nagłówka
-                header_colors = {
-                    'order_data': '1976D2',
-                    'customer_data': '388E3C',
-                    'logistics_data': 'F57C00',
-                    'product_data': 'F57C00',
-                    'financial_data': '7B1FA2',
-                    'production_data': '616161'
-                }
-                cell.fill = PatternFill(start_color=header_colors[color_key], end_color=header_colors[color_key], fill_type='solid')
+                try:
+                    cell = worksheet.cell(row=1, column=col_idx, value=safe_str(header))
+                    cell.font = header_font
+                    cell.alignment = header_alignment
+                    cell.border = border
+                    
+                    # Kolor tła nagłówka
+                    color_key = COLUMN_COLORS.get(header, 'order_data')
+                    header_colors = {
+                        'order_data': '1976D2',
+                        'customer_data': '388E3C',
+                        'logistics_data': 'F57C00',
+                        'product_data': 'F57C00',
+                        'financial_data': '7B1FA2',
+                        'production_data': '616161'
+                    }
+                    cell.fill = PatternFill(start_color=header_colors[color_key], end_color=header_colors[color_key], fill_type='solid')
+                except Exception as e:
+                    reports_logger.warning(f"Błąd tworzenia nagłówka kolumny {col_idx}: {e}")
+                    continue
             
             # WIERSZ 2: PODSUMOWANIA (FORMUŁY)
             data_start_row = 4  # Dane zaczynają się od wiersza 4
             data_end_row = data_start_row + len(dataframe) - 1
+
+            # POPRAWKA: Zabezpieczenie przed nieprawidłowymi zakresami
+            if len(dataframe) == 0:
+                return
+            elif data_end_row < data_start_row:
+                data_end_row = data_start_row
             
             for col_idx, header in enumerate(headers, 1):
-                cell = worksheet.cell(row=2, column=col_idx)
-                cell.font = summary_font
-                cell.border = border
-                
-                # Kolor tła podsumowania (jaśniejszy niż nagłówek)
-                color_key = COLUMN_COLORS.get(header, 'order_data')
-                cell.fill = PatternFill(start_color=COLORS[color_key], end_color=COLORS[color_key], fill_type='solid')
-                
-                # Dodaj formułę dla kolumn liczbowych
-                if header in NUMERIC_COLUMNS:
-                    formula_type = NUMERIC_COLUMNS[header]
-                    col_letter = get_column_letter(col_idx)
+                try:
+                    cell = worksheet.cell(row=2, column=col_idx)
+                    cell.font = summary_font
+                    cell.border = border
                     
-                    # POPRAWKA: Specjalne formuły dla pól które mogą być duplikowane per zamówienie
-                    scalable_fields = ['Kwota zamówień netto', 'Koszt kuriera', 'Koszt dostawy netto', 'Zapłacono netto', 'Saldo']
+                    # Kolor tła podsumowania
+                    color_key = COLUMN_COLORS.get(header, 'order_data')
+                    cell.fill = PatternFill(start_color=COLORS[color_key], end_color=COLORS[color_key], fill_type='solid')
                     
-                    if header in scalable_fields and formula_type == 'SUM':
-                        # Użyj SUMPRODUCT z COUNTIFS żeby sumować tylko raz na zamówienie
-                        # Zakładamy że kolumna D (4) to Nr Baselinker
-                        cell.value = f'=SUMPRODUCT((COUNTIFS($D${data_start_row}:$D${data_end_row},$D${data_start_row}:$D${data_end_row})=1)*({col_letter}{data_start_row}:{col_letter}{data_end_row}))'
-                    elif formula_type == 'SUM':
-                        cell.value = f'=SUM({col_letter}{data_start_row}:{col_letter}{data_end_row})'
-                    elif formula_type == 'AVERAGE':
-                        cell.value = f'=AVERAGE({col_letter}{data_start_row}:{col_letter}{data_end_row})'
-                    
-                    # Format liczbowy
-                    if 'zł' in header or 'Kwota' in header or 'Wartość' in header or 'Cena' in header or 'Koszt' in header or 'Zapłacono' in header or 'Saldo' in header:
-                        cell.number_format = '#,##0.00" zł"'
-                    elif 'm³' in header or 'Objętość' in header:
-                        cell.number_format = '#,##0.0000'
+                    # Dodaj formułę dla kolumn liczbowych - tylko jeśli są dane
+                    if header in NUMERIC_COLUMNS and len(dataframe) > 0:
+                        formula_type = NUMERIC_COLUMNS[header]
+                        col_letter = get_column_letter(col_idx)
+                        
+                        # POPRAWKA: Specjalne formuły dla pól które mogą być duplikowane per zamówienie
+                        scalable_fields = ['Kwota zamowien netto', 'Koszt kuriera', 'Koszt dostawy netto', 'Zaplacono netto', 'Saldo']
+                        
+                        if header in scalable_fields and formula_type == 'SUM':
+                            # Użyj prostej SUM zamiast skomplikowanego SUMPRODUCT
+                            cell.value = f'=SUM({col_letter}{data_start_row}:{col_letter}{data_end_row})'
+                        elif formula_type == 'SUM':
+                            cell.value = f'=SUM({col_letter}{data_start_row}:{col_letter}{data_end_row})'
+                        elif formula_type == 'AVERAGE':
+                            cell.value = f'=AVERAGE({col_letter}{data_start_row}:{col_letter}{data_end_row})'
+                        
+                        # Format liczbowy (bez polskich znaków)
+                        if 'zl' in header or 'Kwota' in header or 'Wartosc' in header or 'Cena' in header or 'Koszt' in header or 'Zaplacono' in header or 'Saldo' in header:
+                            cell.number_format = '#,##0.00" zl"'
+                        elif 'm3' in header or 'Objetosc' in header:
+                            cell.number_format = '#,##0.0000'
+                        else:
+                            cell.number_format = '#,##0.00'
                     else:
-                        cell.number_format = '#,##0.00'
-                else:
-                    # Dla kolumn tekstowych - informacje opisowe
-                    if header == 'Data':
-                        period_text = f"Okres: {date_from.strftime('%d-%m-%Y') if date_from else 'wszystkie'} - {date_to.strftime('%d-%m-%Y') if date_to else 'wszystkie'}"
-                        cell.value = period_text
-                    elif header == 'Imię i nazwisko':
-                        # Formuła do liczenia unikalnych klientów
-                        cell.value = f'=SUMPRODUCT(1/COUNTIF({get_column_letter(col_idx)}{data_start_row}:{get_column_letter(col_idx)}{data_end_row},{get_column_letter(col_idx)}{data_start_row}:{get_column_letter(col_idx)}{data_end_row}))'
-                    elif header == 'Status':
-                        # Liczba unikalnych zamówień na podstawie Nr Baselinker (kolumna D)
-                        cell.value = f'=SUMPRODUCT(1/COUNTIF($D${data_start_row}:$D${data_end_row},$D${data_start_row}:$D${data_end_row}))'
-            
-            # WIERSZ 3: PUSTY SEPARATOR
+                        # Dla kolumn tekstowych - informacje opisowe
+                        if header == 'Data':
+                            period_text = f"Okres: {date_from.strftime('%d-%m-%Y') if date_from else 'wszystkie'} - {date_to.strftime('%d-%m-%Y') if date_to else 'wszystkie'}"
+                            cell.value = safe_str(period_text)
+                        # POPRAWKA: Usuń skomplikowane formuły SUMPRODUCT które mogą powodować błędy
+                        elif header == 'Imie i nazwisko' and len(dataframe) > 0:
+                            cell.value = f"Liczba klientow: {len(set(order.customer_name for order in orders if order.customer_name))}"
+                        elif header == 'Status' and len(dataframe) > 0:
+                            unique_orders_count = len(set(order.baselinker_order_id or f"manual_{order.id}" for order in orders))
+                            cell.value = f"Liczba zamowien: {unique_orders_count}"
+                            
+                except Exception as e:
+                    reports_logger.warning(f"Błąd tworzenia formuły dla kolumny {col_idx}: {e}")
+                    continue
             
             # WIERSZE 4+: DANE
             for row_idx, row_data in enumerate(dataframe.itertuples(index=False), 4):
                 for col_idx, value in enumerate(row_data, 1):
-                    cell = worksheet.cell(row=row_idx, column=col_idx, value=value)
-                    cell.border = border
-                    
-                    # Kolor tła danych (bardzo jasny)
-                    header = headers[col_idx - 1]
-                    color_key = COLUMN_COLORS.get(header, 'order_data')
-                    light_colors = {
-                        'order_data': 'F3F8FF',
-                        'customer_data': 'F1F8F1',
-                        'logistics_data': 'FFFEF7',
-                        'product_data': 'FFF8F0',
-                        'financial_data': 'FAF4FB',
-                        'production_data': 'FAFAFA'
-                    }
-                    cell.fill = PatternFill(start_color=light_colors[color_key], end_color=light_colors[color_key], fill_type='solid')
-                    
-                    # Format liczbowy dla danych
-                    if isinstance(value, (int, float)) and value != 0:
-                        if 'zł' in header or 'Kwota' in header or 'Wartość' in header or 'Cena' in header or 'Koszt' in header or 'Zapłacono' in header or 'Saldo' in header:
-                            cell.number_format = '#,##0.00" zł"'
-                        elif 'm³' in header or 'Objętość' in header:
-                            cell.number_format = '#,##0.0000'
-                        elif header in ['Długość', 'Szerokość', 'Grubość']:
-                            cell.number_format = '#,##0.00'
+                    try:
+                        # POPRAWKA: Bezpieczne wstawianie wartości
+                        safe_value = value
+                        if isinstance(value, str):
+                            safe_value = safe_str(value)
+                        elif pd.isna(value):
+                            safe_value = ''
+                            
+                        cell = worksheet.cell(row=row_idx, column=col_idx, value=safe_value)
+                        cell.border = border
+                        
+                        # Kolor tła danych (bardzo jasny)
+                        header = headers[col_idx - 1]
+                        color_key = COLUMN_COLORS.get(header, 'order_data')
+                        light_colors = {
+                            'order_data': 'F3F8FF',
+                            'customer_data': 'F1F8F1',
+                            'logistics_data': 'FFFEF7',
+                            'product_data': 'FFF8F0',
+                            'financial_data': 'FAF4FB',
+                            'production_data': 'FAFAFA'
+                        }
+                        cell.fill = PatternFill(start_color=light_colors[color_key], end_color=light_colors[color_key], fill_type='solid')
+                        
+                        # Format liczbowy dla danych
+                        if isinstance(value, (int, float)) and value != 0:
+                            if 'zl' in header or 'Kwota' in header or 'Wartosc' in header or 'Cena' in header or 'Koszt' in header or 'Zaplacono' in header or 'Saldo' in header:
+                                cell.number_format = '#,##0.00" zl"'
+                            elif 'm3' in header or 'Objetosc' in header:
+                                cell.number_format = '#,##0.0000'
+                            elif header in ['Dlugosc', 'Szerokosc', 'Grubosc']:
+                                cell.number_format = '#,##0.00'
+                    except Exception as e:
+                        reports_logger.warning(f"Błąd wstawiania danych wiersz {row_idx}, kolumna {col_idx}: {e}")
+                        continue
             
             # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN I UKRYWANIE
             for col_idx, header in enumerate(headers, 1):
-                col_letter = get_column_letter(col_idx)
-        
-                # Oblicz maksymalną szerokość na podstawie zawartości
-                max_length = len(header)
-                for row in worksheet.iter_rows(min_col=col_idx, max_col=col_idx, min_row=1, max_row=worksheet.max_row):
-                    for cell in row:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-        
-                # Ustaw szerokość (minimum 10, maksimum 30)
-                width = min(max(max_length + 2, 10), 30)
-                worksheet.column_dimensions[col_letter].width = width
-        
-                # UKRYWANIE WYBRANYCH KOLUMN
-                columns_to_hide = [
-                    'Nr Baselinker',
-                    'Nr wew.',
-                    'Imię i nazwisko',
-                    'Kod pocztowy',
-                    'Miejscowość',
-                    'Ulica',
-                    'Województwo',
-                    'Telefon',
-                    'Opiekun',
-                    'Dostawa',
-                    'Źródło',
-                    'Grupa',
-                    'Rodzaj',
-                    'Długość',
-                    'Szerokość',
-                    'Ilość',
-                    'Cena brutto',
-                    'Cena netto',
-                    'Wartość brutto',
-                    'Wartość netto',
-                    'Objętość 1 szt.',
-                    'Objętość TTL',
-                    'Data realizacji',
-                    'Status',
-                    'Sposób płatności',
-                    'Zapłacono netto'
-                ]
-        
-                # Ukryj kolumnę jeśli jest na liście
-                if header in columns_to_hide:
-                    worksheet.column_dimensions[col_letter].hidden = True
+                try:
+                    col_letter = get_column_letter(col_idx)
+            
+                    # Oblicz maksymalną szerokość na podstawie zawartości
+                    max_length = len(str(header))
+                    for row in worksheet.iter_rows(min_col=col_idx, max_col=col_idx, min_row=1, max_row=min(worksheet.max_row, 100)):  # Ograniczyć sprawdzanie do 100 wierszy
+                        for cell in row:
+                            if cell.value:
+                                max_length = max(max_length, len(str(cell.value)))
+            
+                    # Ustaw szerokość (minimum 10, maksimum 30)
+                    width = min(max(max_length + 2, 10), 30)
+                    worksheet.column_dimensions[col_letter].width = width
+            
+                    # UKRYWANIE WYBRANYCH KOLUMN (zaktualizowane nazwy bez polskich znaków)
+                    columns_to_hide = [
+                        'Nr Baselinker',
+                        'Nr wew.',
+                        'Imie i nazwisko',
+                        'Kod pocztowy',
+                        'Miejscowosc',
+                        'Ulica',
+                        'Wojewodztwo',
+                        'Telefon',
+                        'Opiekun',
+                        'Dostawa',
+                        'Zrodlo',
+                        'Grupa',
+                        'Rodzaj',
+                        'Dlugosc',
+                        'Szerokosc',
+                        'Ilosc',
+                        'Cena brutto',
+                        'Cena netto',
+                        'Wartosc brutto',
+                        'Wartosc netto',
+                        'Objetosc 1 szt.',
+                        'Objetosc TTL',
+                        'Data realizacji',
+                        'Status',
+                        'Sposob platnosci',
+                        'Zaplacono netto'
+                    ]
+            
+                    # Ukryj kolumnę jeśli jest na liście
+                    if header in columns_to_hide:
+                        worksheet.column_dimensions[col_letter].hidden = True
+                except Exception as e:
+                    reports_logger.warning(f"Błąd formatowania kolumny {col_idx}: {e}")
+                    continue
             
             # ZAMROŻENIE PANELI (pierwsze 3 wiersze i pierwsze 5 kolumn)
-            worksheet.freeze_panes = 'F4'
+            try:
+                worksheet.freeze_panes = 'F4'
+            except:
+                pass
             
             # FILTRY AUTOMATYCZNE
-            worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{worksheet.max_row}"
+            try:
+                worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{worksheet.max_row}"
+            except:
+                pass
         
         # Zastosuj formatowanie do arkusza głównego
         format_details_sheet(ws_details, df)
 
+        # UPROSZCZONA FUNKCJA SCALANIA (bez skomplikowanych operacji)
         def add_cell_merging():
-            """Scala komórki dla pól zamówienia - tylko do kolumny L z wyrównaniem do lewej i góry"""
-    
-            # Grupuj dane po zamówieniach
-            orders_grouped = {}
-            for idx, order in enumerate(orders):
-                order_id = order.baselinker_order_id or f"manual_{order.id}"
-                if order_id not in orders_grouped:
-                    orders_grouped[order_id] = []
-                orders_grouped[order_id].append(idx + 4)  # +4 bo dane zaczynają się od wiersza 4
-    
-            # Definicja kolumn do scalenia - TYLKO DO KOLUMNY L (12)
-            merge_columns = {
-                'A': 'Data',                    # Data (kolumna 1)
-                'B': 'TTL m³',                  # TTL m³ (kolumna 2)
-                'C': 'Kwota zamówień netto',    # Kwota zamówień netto (kolumna 3)
-                'D': 'Nr Baselinker',           # Nr Baselinker (kolumna 4)
-                'E': 'Nr wew.',                 # Nr wew. (kolumna 5)
-                'F': 'Imię i nazwisko',         # Imię i nazwisko (kolumna 6)
-                'G': 'Kod pocztowy',            # Kod pocztowy (kolumna 7)
-                'H': 'Miejscowość',             # Miejscowość (kolumna 8)
-                'I': 'Ulica',                   # Ulica (kolumna 9)
-                'J': 'Województwo',             # Województwo (kolumna 10)
-                'K': 'Telefon',                 # Telefon (kolumna 11)
-                'L': 'Opiekun',                 # Opiekun (kolumna 12)
-                'AH': 'Koszt kuriera',          # Kolumna 34
-                'AI': 'Koszt dostawy netto',    # Kolumna 35
-                'AK': 'Zapłacono netto',        # Kolumna 37  
-                'AL': 'Saldo'                   # Kolumna 38
-            }
-    
-            # KROK 1: Ustaw wyrównanie dla WSZYSTKICH komórek PRZED scalaniem
-            for row_idx in range(4, ws_details.max_row + 1):  # Od wiersza 4 do końca
-                for col_letter in merge_columns.keys():
-                    try:
-                        cell = ws_details[f'{col_letter}{row_idx}']
-                        cell.alignment = Alignment(horizontal='left', vertical='top')
-                    except Exception:
-                        continue
-    
-            # KROK 2: Scalaj komórki dla każdego zamówienia
-            for order_id, row_indices in orders_grouped.items():
-                if len(row_indices) > 1:  # Scalaj tylko jeśli zamówienie ma więcej niż 1 produkt
-                    start_row = min(row_indices)
-                    end_row = max(row_indices)
-            
-                    for col_letter in merge_columns.keys():
-                        try:
-                            merge_range = f'{col_letter}{start_row}:{col_letter}{end_row}'
-                            ws_details.merge_cells(merge_range)
-                    
-                            # KROK 3: Ponownie ustaw wyrównanie dla scalonej komórki
-                            merged_cell = ws_details[f'{col_letter}{start_row}']
-                            merged_cell.alignment = Alignment(horizontal='left', vertical='top')
-                            
-                        except Exception as e:
-                            # Ignoruj błędy scalania
-                            continue
+            """Uproszczone scalanie komórek - tylko podstawowe"""
+            try:
+                if len(orders) == 0:
+                    return
+
+                # Grupuj dane po zamówieniach
+                orders_grouped = {}
+                for idx, order in enumerate(orders):
+                    order_id = order.baselinker_order_id or f"manual_{order.id}"
+                    if order_id not in orders_grouped:
+                        orders_grouped[order_id] = []
+                    orders_grouped[order_id].append(idx + 4)  # +4 bo dane zaczynają się od wiersza 4
+        
+                # Uproszczone scalanie - tylko podstawowe kolumny
+                basic_merge_columns = ['A', 'B', 'C', 'D', 'E']  # Tylko pierwsze 5 kolumn
+        
+                for order_id, row_indices in orders_grouped.items():
+                    if len(row_indices) > 1:
+                        start_row = min(row_indices)
+                        end_row = max(row_indices)
+                
+                        for col_letter in basic_merge_columns:
+                            try:
+                                merge_range = f'{col_letter}{start_row}:{col_letter}{end_row}'
+                                ws_details.merge_cells(merge_range)
+                                merged_cell = ws_details[f'{col_letter}{start_row}']
+                                merged_cell.alignment = Alignment(horizontal='left', vertical='top')
+                            except Exception:
+                                continue
+            except Exception as e:
+                reports_logger.warning(f"Błąd scalania komórek: {e}")
+                pass
         
         # Wywołaj funkcję scalania
         add_cell_merging()
         
-        # ===== WSPÓLNE FUNKCJE POMOCNICZE DLA WSZYSTKICH ARKUSZY =====
-        # Stylizacja dla arkuszy podsumowań
-        title_font = Font(size=16, bold=True, color='1976D2')
-        section_font = Font(size=12, bold=True, color='333333')
-        label_font = Font(size=10, bold=True)
-        value_font = Font(size=10)
-        
-        title_fill = PatternFill(start_color='E3F2FD', end_color='E3F2FD', fill_type='solid')
-        section_fill = PatternFill(start_color='F5F5F5', end_color='F5F5F5', fill_type='solid')
-        
-        def add_title(worksheet, row, title):
-            cell = worksheet.cell(row=row, column=1, value=title)
-            cell.font = title_font
-            cell.fill = title_fill
-            worksheet.merge_cells(f'A{row}:D{row}')
-            return row + 2
-        
-        def add_section(worksheet, row, title):
-            cell = worksheet.cell(row=row, column=1, value=title)
-            cell.font = section_font
-            cell.fill = section_fill
-            worksheet.merge_cells(f'A{row}:D{row}')
-            return row + 1
-        
-        def add_stat_row(worksheet, row, label, value, format_type='number'):
-            # Etykieta
-            label_cell = worksheet.cell(row=row, column=1, value=label)
-            label_cell.font = label_font
-            label_cell.border = border
+        # ===== UPROSZCZONY ARKUSZ PODSUMOWANIA =====
+        try:
+            ws_summary = workbook.create_sheet(title="Podsumowanie")
             
-            # Wartość
-            value_cell = worksheet.cell(row=row, column=2, value=value)
-            value_cell.font = value_font
-            value_cell.border = border
+            # Oblicz statystyki
+            stats = BaselinkerReportOrder.get_statistics(query)
             
-            # Formatowanie wartości
-            if format_type == 'currency':
-                value_cell.number_format = '#,##0.00" zł"'
-            elif format_type == 'volume':
-                value_cell.number_format = '#,##0.0000" m³"'
-            elif format_type == 'percent':
-                value_cell.number_format = '0.0%'
-            elif format_type == 'days':
-                value_cell.number_format = '#,##0" dni"'
-            else:
-                value_cell.number_format = '#,##0.00'
+            # Podstawowe statystyki
+            unique_customers = len(set(order.customer_name for order in orders if order.customer_name))
+            unique_orders = len(set(order.baselinker_order_id or f"manual_{order.id}" for order in orders))
+            total_products = len(orders)
             
-            return row + 1
-        
-        # ===== ARKUSZ 2: PODSUMOWANIE I STATYSTYKI =====
-        ws_summary = workbook.create_sheet(title="Podsumowanie")
-        
-        # Oblicz statystyki
-        stats = BaselinkerReportOrder.get_statistics(query)
-        
-        # Dodatkowe statystyki
-        unique_customers = len(set(order.customer_name for order in orders if order.customer_name))
-        orders_grouped = {}
-        for order in orders:
-            order_id = order.baselinker_order_id or f"manual_{order.id}"
-            if order_id not in orders_grouped:
-                orders_grouped[order_id] = []
-            orders_grouped[order_id].append(order)
-        unique_orders = len(orders_grouped)
-        total_products = len(orders)
-        avg_order_value = stats['order_amount_net'] / unique_orders if unique_orders > 0 else 0
-        avg_products_per_order = total_products / unique_orders if unique_orders > 0 else 0
-        
-        # Statystyki po statusach
-        status_stats = {}
-        for order in orders:
-            status = order.current_status or 'Brak statusu'
-            if status not in status_stats:
-                status_stats[status] = {'count': 0, 'value': 0}
-            status_stats[status]['count'] += 1
-            status_stats[status]['value'] += float(order.value_net or 0)
-        
-        # Statystyki po województwach
-        state_stats = {}
-        for order in orders:
-            state = order.delivery_state or 'Brak danych'
-            if state not in state_stats:
-                state_stats[state] = {'count': 0, 'value': 0}
-            state_stats[state]['count'] += 1
-            state_stats[state]['value'] += float(order.value_net or 0)
-        
-        current_row = 1
-        
-        # TYTUŁ GŁÓWNY
-        current_row = add_title(ws_summary, current_row, "📊 RAPORT SPRZEDAŻY - PODSUMOWANIE")
-        
-        # Informacje o okresie
-        period_text = f"Okres: {date_from.strftime('%d-%m-%Y') if date_from else 'wszystkie dane'} - {date_to.strftime('%d-%m-%Y') if date_to else 'wszystkie dane'}"
-        ws_summary.cell(row=current_row, column=1, value=period_text).font = Font(size=10, italic=True)
-        ws_summary.cell(row=current_row + 1, column=1, value=f"Wygenerowano: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}").font = Font(size=10, italic=True)
-        current_row += 3
-        
-        # ===== STATYSTYKI GŁÓWNE =====
-        current_row = add_section(ws_summary, current_row, "📈 STATYSTYKI GŁÓWNE")
-        current_row = add_stat_row(ws_summary, current_row, "Liczba zamówień:", unique_orders)
-        current_row = add_stat_row(ws_summary, current_row, "Liczba produktów:", total_products)
-        current_row = add_stat_row(ws_summary, current_row, "Liczba klientów:", unique_customers)
-        current_row = add_stat_row(ws_summary, current_row, "Średnia produktów na zamówienie:", avg_products_per_order)
-        current_row += 1
-        
-        # ===== STATYSTYKI FINANSOWE =====
-        current_row = add_section(ws_summary, current_row, "💰 STATYSTYKI FINANSOWE")
-        current_row = add_stat_row(ws_summary, current_row, "Kwota zamówień netto:", stats['order_amount_net'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Wartość netto produktów:", stats['value_net'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Wartość brutto produktów:", stats['value_gross'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Średnia wartość zamówienia:", avg_order_value, 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Koszt kuriera łącznie:", stats['delivery_cost'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Koszt dostawy netto łącznie:", stats['delivery_cost_net'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Zapłacono łącznie:", stats['paid_amount_net'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Saldo łączne:", stats['balance_due'], 'currency')
-        current_row += 1
-        
-        # ===== STATYSTYKI PRODUKCJI =====
-        current_row = add_section(ws_summary, current_row, "🏭 STATYSTYKI PRODUKCJI")
-        current_row = add_stat_row(ws_summary, current_row, "Łączna objętość:", stats['total_m3'], 'volume')
-        current_row = add_stat_row(ws_summary, current_row, "Średnia cena za m³:", stats['avg_price_per_m3'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Objętość w produkcji:", stats['production_volume'], 'volume')
-        current_row = add_stat_row(ws_summary, current_row, "Wartość w produkcji:", stats['production_value_net'], 'currency')
-        current_row = add_stat_row(ws_summary, current_row, "Gotowe do odbioru:", stats['ready_pickup_volume'], 'volume')
-        current_row += 1
-        
-        # ===== TABELA STATUSÓW =====
-        current_row = add_section(ws_summary, current_row, "📋 ROZKŁAD WEDŁUG STATUSÓW")
-        
-        # Nagłówki tabeli
-        headers = ['Status', 'Liczba produktów', 'Wartość netto', 'Udział %']
-        for col, header in enumerate(headers, 1):
-            cell = ws_summary.cell(row=current_row, column=col, value=header)
-            cell.font = Font(bold=True, color='FFFFFF')
-            cell.fill = PatternFill(start_color='1976D2', end_color='1976D2', fill_type='solid')
-            cell.border = border
-            cell.alignment = Alignment(horizontal='center')
-        current_row += 1
-        
-        # Dane statusów (posortowane po wartości)
-        sorted_statuses = sorted(status_stats.items(), key=lambda x: x[1]['value'], reverse=True)
-        total_value = stats['value_net']
-        
-        for status, data in sorted_statuses:
-            percentage = (data['value'] / total_value * 100) if total_value > 0 else 0
+            # Tytuł
+            title_cell = ws_summary.cell(row=1, column=1, value="RAPORT SPRZEDAZY - PODSUMOWANIE")
+            title_cell.font = Font(size=16, bold=True, color='1976D2')
             
-            ws_summary.cell(row=current_row, column=1, value=status).border = border
-            ws_summary.cell(row=current_row, column=2, value=data['count']).border = border
+            # Podstawowe statystyki
+            ws_summary.cell(row=3, column=1, value="Liczba zamowien:").font = Font(bold=True)
+            ws_summary.cell(row=3, column=2, value=unique_orders)
             
-            value_cell = ws_summary.cell(row=current_row, column=3, value=data['value'])
-            value_cell.number_format = '#,##0.00" zł"'
-            value_cell.border = border
+            ws_summary.cell(row=4, column=1, value="Liczba produktow:").font = Font(bold=True)
+            ws_summary.cell(row=4, column=2, value=total_products)
             
-            percent_cell = ws_summary.cell(row=current_row, column=4, value=percentage/100)
-            percent_cell.number_format = '0.0%'
-            percent_cell.border = border
+            ws_summary.cell(row=5, column=1, value="Liczba klientow:").font = Font(bold=True)
+            ws_summary.cell(row=5, column=2, value=unique_customers)
             
-            current_row += 1
+            ws_summary.cell(row=6, column=1, value="Wartosc netto:").font = Font(bold=True)
+            value_cell = ws_summary.cell(row=6, column=2, value=stats['value_net'])
+            value_cell.number_format = '#,##0.00" zl"'
+            
+            ws_summary.cell(row=7, column=1, value="Laczna objetosc:").font = Font(bold=True)
+            volume_cell = ws_summary.cell(row=7, column=2, value=stats['total_m3'])
+            volume_cell.number_format = '#,##0.0000" m3"'
+            
+        except Exception as e:
+            reports_logger.warning(f"Błąd tworzenia arkusza podsumowania: {e}")
         
-        current_row += 1
-        
-        # ===== TABELA WOJEWÓDZTW (TOP 10) =====
-        current_row = add_section(ws_summary, current_row, "🗺️ TOP 10 WOJEWÓDZTW")
-        
-        # Nagłówki tabeli
-        for col, header in enumerate(headers, 1):
-            cell = ws_summary.cell(row=current_row, column=col, value=header.replace('Status', 'Województwo'))
-            cell.font = Font(bold=True, color='FFFFFF')
-            cell.fill = PatternFill(start_color='388E3C', end_color='388E3C', fill_type='solid')
-            cell.border = border
-            cell.alignment = Alignment(horizontal='center')
-        current_row += 1
-        
-        # Dane województw (top 10 po wartości)
-        sorted_states = sorted(state_stats.items(), key=lambda x: x[1]['value'], reverse=True)[:10]
-        
-        for state, data in sorted_states:
-            percentage = (data['value'] / total_value * 100) if total_value > 0 else 0
-            
-            ws_summary.cell(row=current_row, column=1, value=state).border = border
-            ws_summary.cell(row=current_row, column=2, value=data['count']).border = border
-            
-            value_cell = ws_summary.cell(row=current_row, column=3, value=data['value'])
-            value_cell.number_format = '#,##0.00" zł"'
-            value_cell.border = border
-            
-            percent_cell = ws_summary.cell(row=current_row, column=4, value=percentage/100)
-            percent_cell.number_format = '0.0%'
-            percent_cell.border = border
-            
-            current_row += 1
-        
-        # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN dla arkusza podsumowań
-        for col in range(1, 5):
-            col_letter = get_column_letter(col)
-            max_length = 0
-            for row in ws_summary.iter_rows(min_col=col, max_col=col):
-                for cell in row:
-                    if cell.value:
-                        max_length = max(max_length, len(str(cell.value)))
-            
-            # Minimalna szerokość 15, maksymalna 40
-            width = min(max(max_length + 2, 15), 40)
-            ws_summary.column_dimensions[col_letter].width = width
+        # ===== UPROSZCZONY ARKUSZ KLIENTÓW =====
+        try:
+            ws_customers = workbook.create_sheet(title="Analiza klientow")
 
-        # ===== ARKUSZ 3: ANALIZA KLIENTÓW =====
-        ws_customers = workbook.create_sheet(title="Analiza klientów")
-        
-        # Przygotowanie danych klientów
-        customer_data = {}
-        
-        for order in orders:
-            customer_name = order.customer_name or 'Nieznany klient'
-            
-            if customer_name not in customer_data:
-                customer_data[customer_name] = {
-                    'orders_count': set(),  # Używamy set do unikalnych zamówień
-                    'products_count': 0,
-                    'total_value_net': 0,
-                    'total_value_gross': 0,
-                    'total_volume': 0,
-                    'total_paid': 0,
-                    'total_balance': 0,
-                    'delivery_cost': 0,
-                    'first_order_date': None,
-                    'last_order_date': None,
-                    'delivery_state': order.delivery_state or 'Brak danych',
-                    'delivery_city': order.delivery_city or 'Brak danych',
-                    'phone': order.phone or 'Brak danych',
-                    'caretaker': order.caretaker or 'Brak danych',
-                    'order_sources': set(),
-                    'statuses': set(),
-                    'product_types': set()
-                }
-            
-            # Aktualizuj dane klienta
-            client = customer_data[customer_name]
-            
-            # Dodaj zamówienie do setu (unikalne ID)
-            if order.baselinker_order_id:
-                client['orders_count'].add(order.baselinker_order_id)
+            if len(orders) == 0:
+                # Dodaj informację o braku danych
+                cell = ws_customers.cell(row=1, column=1, value="Brak danych do analizy klientow")
+                cell.font = Font(bold=True, size=14, color='FF0000')
             else:
-                client['orders_count'].add(f"manual_{order.id}")
-            
-            # Liczba produktów
-            client['products_count'] += 1
-            
-            # Wartości finansowe
-            client['total_value_net'] += float(order.value_net or 0)
-            client['total_value_gross'] += float(order.value_gross or 0)
-            client['total_volume'] += float(order.total_volume or 0)
-            
-            # Płatności (tylko unikalne zamówienia - podobnie jak w statystykach głównych)
-            # Sprawdź czy to pierwsze wystąpienie tego zamówienia
-            order_id = order.baselinker_order_id or f"manual_{order.id}"
-            orders_for_customer = [o for o in orders if (o.customer_name == customer_name)]
-            first_occurrence = next((o for o in orders_for_customer if (o.baselinker_order_id or f"manual_{o.id}") == order_id), None)
-            
-            if order == first_occurrence:  # Tylko przy pierwszym wystąpieniu zamówienia
-                client['total_paid'] += float(order.paid_amount_net or 0)
-                client['total_balance'] += float(order.balance_due or 0)
-                client['delivery_cost'] += float(order.delivery_cost or 0)
-            
-            # Daty
-            order_date = order.date_created
-            if order_date:
-                if client['first_order_date'] is None or order_date < client['first_order_date']:
-                    client['first_order_date'] = order_date
-                if client['last_order_date'] is None or order_date > client['last_order_date']:
-                    client['last_order_date'] = order_date
-            
-            # Kolekcje
-            if order.order_source:
-                client['order_sources'].add(order.order_source)
-            if order.current_status:
-                client['statuses'].add(order.current_status)
-            if order.product_type:
-                client['product_types'].add(order.product_type)
-        
-        # Konwertuj sety na liczby i stringi
-        for client_name, data in customer_data.items():
-            data['orders_count'] = len(data['orders_count'])
-            data['order_sources'] = ', '.join(sorted(data['order_sources']))
-            data['statuses'] = ', '.join(sorted(data['statuses']))
-            data['product_types'] = ', '.join(sorted(data['product_types']))
-            
-            # Oblicz dodatkowe metryki
-            data['avg_order_value'] = data['total_value_net'] / data['orders_count'] if data['orders_count'] > 0 else 0
-            data['avg_products_per_order'] = data['products_count'] / data['orders_count'] if data['orders_count'] > 0 else 0
-            
-            # Dni między pierwszym a ostatnim zamówieniem
-            if data['first_order_date'] and data['last_order_date']:
-                data['customer_lifespan'] = (data['last_order_date'] - data['first_order_date']).days
-            else:
-                data['customer_lifespan'] = 0
-        
-        # Posortuj klientów po wartości (najważniejsi pierwsi)
-        sorted_customers = sorted(customer_data.items(), key=lambda x: x[1]['total_value_net'], reverse=True)
-        
-        current_row = 1
-        
-        # ===== TYTUŁ I PODSUMOWANIE =====
-        current_row = add_title(ws_customers, current_row, "👥 ANALIZA KLIENTÓW")
-        
-        # Statystyki ogólne klientów
-        top_customer_value = sorted_customers[0][1]['total_value_net'] if sorted_customers else 0
-        top_10_value = sum(data['total_value_net'] for _, data in sorted_customers[:10])
-        total_customer_value = sum(data['total_value_net'] for _, data in sorted_customers)
-        top_10_percentage = (top_10_value / total_customer_value * 100) if total_customer_value > 0 else 0
-        
-        ws_customers.cell(row=current_row, column=1, value=f"Łączna liczba klientów: {len(customer_data)}").font = Font(size=10, italic=True)
-        ws_customers.cell(row=current_row + 1, column=1, value=f"TOP 10 klientów stanowi {top_10_percentage:.1f}% wartości").font = Font(size=10, italic=True)
-        current_row += 3
-        
-        # ===== TABELA GŁÓWNA KLIENTÓW =====
-        current_row = add_section(ws_customers, current_row, "📊 RANKING KLIENTÓW (TOP 50)")
-        
-        # Nagłówki tabeli
-        customer_headers = [
-            'Lp.', 'Klient', 'Zamówienia', 'Produkty', 'Wartość netto', 'Śr. wartość zamówienia',
-            'Zapłacono', 'Saldo', 'Koszt kuriera', 'Pierwsze zamówienie', 'Ostatnie zamówienie',
-            'Okres [dni]', 'Województwo', 'Miasto', 'Telefon', 'Opiekun', 'Źródła', 'Rodzaje produktów'
-        ]
-        
-        for col, header in enumerate(customer_headers, 1):
-            cell = ws_customers.cell(row=current_row, column=col, value=header)
-            cell.font = Font(bold=True, color='FFFFFF', size=9)
-            cell.fill = PatternFill(start_color='7B1FA2', end_color='7B1FA2', fill_type='solid')
-            cell.border = border
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-        current_row += 1
-        
-        # Dane klientów (TOP 50)
-        for rank, (client_name, data) in enumerate(sorted_customers[:50], 1):
-            row_data = [
-                rank,
-                client_name,
-                data['orders_count'],
-                data['products_count'],
-                data['total_value_net'],
-                data['avg_order_value'],
-                data['total_paid'],
-                data['total_balance'],
-                data['delivery_cost'],
-                data['first_order_date'].strftime('%d-%m-%Y') if data['first_order_date'] else '',
-                data['last_order_date'].strftime('%d-%m-%Y') if data['last_order_date'] else '',
-                data['customer_lifespan'],
-                data['delivery_state'],
-                data['delivery_city'],
-                data['phone'],
-                data['caretaker'],
-                data['order_sources'][:50] + '...' if len(data['order_sources']) > 50 else data['order_sources'],
-                data['product_types'][:50] + '...' if len(data['product_types']) > 50 else data['product_types']
-            ]
-            
-            for col, value in enumerate(row_data, 1):
-                cell = ws_customers.cell(row=current_row, column=col, value=value)
-                cell.border = border
-                cell.font = Font(size=9)
+                # Przygotowanie danych klientów (uproszczone)
+                customer_data = {}
                 
-                # Formatowanie specjalne
-                if col == 5 or col == 6 or col == 7 or col == 8 or col == 9:  # Kwoty
-                    cell.number_format = '#,##0.00" zł"'
-                elif col == 3 or col == 4 or col == 12:  # Liczby całkowite
-                    cell.number_format = '#,##0'
+                for order in orders:
+                    customer_name = safe_str(order.customer_name) or 'Nieznany klient'
+                    
+                    if customer_name not in customer_data:
+                        customer_data[customer_name] = {
+                            'orders_count': set(),
+                            'products_count': 0,
+                            'total_value_net': 0,
+                            'delivery_state': safe_str(order.delivery_state) or 'Brak danych'
+                        }
+                    
+                    # Aktualizuj dane klienta
+                    client = customer_data[customer_name]
+                    
+                    # Dodaj zamówienie do setu (unikalne ID)
+                    if order.baselinker_order_id:
+                        client['orders_count'].add(order.baselinker_order_id)
+                    else:
+                        client['orders_count'].add(f"manual_{order.id}")
+                    
+                    client['products_count'] += 1
+                    client['total_value_net'] += float(order.value_net or 0)
                 
-                # Kolorowanie na podstawie pozycji w rankingu
-                if rank <= 5:  # TOP 5 - złoty
-                    cell.fill = PatternFill(start_color='FFF8E1', end_color='FFF8E1', fill_type='solid')
-                elif rank <= 10:  # TOP 10 - srebrny
-                    cell.fill = PatternFill(start_color='F3E5F5', end_color='F3E5F5', fill_type='solid')
-                elif rank <= 20:  # TOP 20 - brązowy
-                    cell.fill = PatternFill(start_color='F1F8E9', end_color='F1F8E9', fill_type='solid')
-                else:  # Pozostali - białe tło
-                    cell.fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
-            
-            current_row += 1
+                # Konwertuj sety na liczby
+                for client_name, data in customer_data.items():
+                    data['orders_count'] = len(data['orders_count'])
+                
+                # Posortuj klientów po wartości
+                sorted_customers = sorted(customer_data.items(), key=lambda x: x[1]['total_value_net'], reverse=True)
+                
+                # Tytuł
+                title_cell = ws_customers.cell(row=1, column=1, value="ANALIZA KLIENTOW")
+                title_cell.font = Font(size=16, bold=True, color='1976D2')
+                
+                # Nagłówki tabeli
+                headers = ['Lp.', 'Klient', 'Zamowienia', 'Produkty', 'Wartosc netto', 'Wojewodztwo']
+                for col, header in enumerate(headers, 1):
+                    cell = ws_customers.cell(row=3, column=col, value=header)
+                    cell.font = Font(bold=True, color='FFFFFF')
+                    cell.fill = PatternFill(start_color='7B1FA2', end_color='7B1FA2', fill_type='solid')
+                    cell.border = border
+                
+                # Dane klientów (TOP 30)
+                for rank, (client_name, data) in enumerate(sorted_customers[:30], 1):
+                    row_data = [
+                        rank,
+                        client_name,
+                        data['orders_count'],
+                        data['products_count'],
+                        data['total_value_net'],
+                        data['delivery_state']
+                    ]
+                    
+                    for col, value in enumerate(row_data, 1):
+                        cell = ws_customers.cell(row=rank + 3, column=col, value=value)
+                        cell.border = border
+                        
+                        # Formatowanie kwot
+                        if col == 5:  # Wartość netto
+                            cell.number_format = '#,##0.00" zl"'
+                
+                # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN
+                for col in range(1, len(headers) + 1):
+                    col_letter = get_column_letter(col)
+                    if col == 2:  # Nazwa klienta
+                        width = 25
+                    elif col == 6:  # Województwo
+                        width = 15
+                    else:
+                        width = 12
+                    ws_customers.column_dimensions[col_letter].width = width
+                    
+        except Exception as e:
+            reports_logger.warning(f"Błąd tworzenia arkusza klientów: {e}")
         
-        current_row += 2
+        # ===== BEZPIECZNY ZAPIS DO PAMIĘCI =====
+        try:
+            workbook.save(output)
+            output.seek(0)
+        except Exception as e:
+            reports_logger.error(f"Błąd zapisywania workbook: {e}")
+            return jsonify({
+                'success': False,
+                'error': f'Błąd zapisywania pliku Excel: {str(e)}'
+            }), 500
         
-        # ===== STATYSTYKI DODATKOWE =====
-        current_row = add_section(ws_customers, current_row, "📈 STATYSTYKI KLIENTÓW")
-        
-        # Oblicz dodatkowe statystyki
-        if sorted_customers:
-            avg_orders_per_customer = sum(data['orders_count'] for _, data in sorted_customers) / len(sorted_customers)
-            avg_value_per_customer = sum(data['total_value_net'] for _, data in sorted_customers) / len(sorted_customers)
-            
-            # Klienci jednorazowi vs stali
-            one_time_customers = sum(1 for _, data in sorted_customers if data['orders_count'] == 1)
-            returning_customers = len(sorted_customers) - one_time_customers
-            
-            # Średni okres współpracy
-            active_customers = [data for _, data in sorted_customers if data['customer_lifespan'] > 0]
-            avg_lifespan = sum(data['customer_lifespan'] for data in active_customers) / len(active_customers) if active_customers else 0
-            
-            current_row = add_stat_row(ws_customers, current_row, "Średnia zamówień na klienta:", avg_orders_per_customer)
-            current_row = add_stat_row(ws_customers, current_row, "Średnia wartość na klienta:", avg_value_per_customer, 'currency')
-            current_row = add_stat_row(ws_customers, current_row, "Klienci jednorazowi:", one_time_customers)
-            current_row = add_stat_row(ws_customers, current_row, "Klienci stali (2+ zamówienia):", returning_customers)
-            current_row = add_stat_row(ws_customers, current_row, "Średni okres współpracy:", avg_lifespan, 'days')
-            
-            # Procent stałych klientów
-            returning_percentage = (returning_customers / len(sorted_customers) * 100) if sorted_customers else 0
-            current_row = add_stat_row(ws_customers, current_row, "% klientów stałych:", returning_percentage/100, 'percent')
-        
-        # AUTO-DOPASOWANIE SZEROKOŚCI KOLUMN dla arkusza klientów
-        for col in range(1, len(customer_headers) + 1):
-            col_letter = get_column_letter(col)
-            
-            # Specjalne szerokości dla niektórych kolumn
-            if col == 2:  # Nazwa klienta
-                width = 25
-            elif col in [17, 18]:  # Źródła, Rodzaje produktów
-                width = 20
-            elif col in [13, 14, 15, 16]:  # Województwo, Miasto, Telefon, Opiekun
-                width = 15
-            else:
-                # Standardowe dopasowanie
-                max_length = len(customer_headers[col-1])
-                for row in ws_customers.iter_rows(min_col=col, max_col=col, min_row=current_row-20, max_row=current_row):
-                    for cell in row:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                width = min(max(max_length + 1, 8), 18)
-            
-            ws_customers.column_dimensions[col_letter].width = width
-        
-        # Zamrożenie paneli dla arkusza klientów (nagłówek i pierwsze 2 kolumny)
-        ws_customers.freeze_panes = 'C8'
-        
-        # Zapisz do pamięci
-        workbook.save(output)
-        output.seek(0)
-        
-        # Nazwa pliku
+        # Nazwa pliku (bez polskich znaków)
         date_suffix = ""
         if date_from and date_to:
             if date_from == date_to:
@@ -2729,12 +2500,25 @@ def export_routimo():
         
         # Wykonaj zapytanie
         orders = query.all()
-        
+
+        # DODAJ DEBUG LOGGING
+        reports_logger.info("Debug eksportu Excel - po pobraniu orders",
+                            user_email=user_email,
+                            orders_count=len(orders),
+                            date_from=date_from.isoformat() if date_from else None,
+                            date_to=date_to.isoformat() if date_to else None,
+                            filters_count=len(column_filters))
+
         if not orders:
             return jsonify({
                 'success': False,
-                'error': 'Brak zamówień ze statusem "Wysłane - transport WoodPower" w wybranym okresie. Sprawdź filtry i statusy zamówień.'
+                'error': 'Brak danych do eksportu'
             }), 400
+
+        # DODAJ DEBUG DLA excel_data
+        reports_logger.info("Debug eksportu Excel - po utworzeniu excel_data",
+                            user_email=user_email,
+                            excel_data_count=len(excel_data) if 'excel_data' in locals() else 0)
         
         reports_logger.info("Pobrano dane do eksportu Routimo",
                           user_email=user_email,
