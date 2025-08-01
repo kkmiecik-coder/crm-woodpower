@@ -998,7 +998,7 @@ def api_export_excel():
                 'Koszt dostawy netto': float(order.delivery_cost or 0) / 1.23,
                 'Sposob platnosci': safe_str(order.payment_method),  # Bez ó, ł
                 'Zaplacono netto': float(order.paid_amount_net or 0),  # Bez ł
-                'Saldo': float(order.balance_due or 0),
+                'Do zaplaty netto': float(order.balance_due or 0),
                 'Ilosc w produkcji': float(order.production_volume or 0),  # Bez ś
                 'Wartosc w produkcji': float(order.production_value_net or 0),  # Bez ś
                 'Gotowe do odbioru': float(order.ready_pickup_volume or 0)
@@ -1079,7 +1079,7 @@ def api_export_excel():
             'Koszt kuriera': 'financial_data',
             'Koszt dostawy netto': 'financial_data',
             'Zaplacono netto': 'financial_data',
-            'Saldo': 'financial_data',
+            'Do zaplaty netto': 'financial_data',
             'Objetosc 1 szt.': 'production_data',
             'Objetosc TTL': 'production_data',
             'Data realizacji': 'production_data',
@@ -1106,7 +1106,7 @@ def api_export_excel():
             'Koszt kuriera': 'SUM',
             'Koszt dostawy netto': 'SUM',
             'Zaplacono netto': 'SUM',
-            'Saldo': 'SUM',
+            'Do zaplaty netto': 'SUM',
             'Ilosc w produkcji': 'SUM',
             'Wartosc w produkcji': 'SUM',
             'Gotowe do odbioru': 'SUM'
@@ -1250,8 +1250,8 @@ def api_export_excel():
                         if isinstance(value, (int, float)) and value != 0:
                             if 'zl' in header or 'Kwota' in header or 'Wartosc' in header or 'Cena' in header or 'Koszt' in header or 'Zaplacono' in header or 'Saldo' in header:
                                 cell.number_format = '#,##0.00" zl"'
-                            elif 'm3' in header or 'Objetosc' in header:
-                                cell.number_format = '#,##0.0000'
+                            elif 'm3' in header or 'Objetosc' in header or header in ['Ilosc w produkcji', 'Gotowe do odbioru']:  # ZMIANA: dodano kolumny produkcyjne
+                                cell.number_format = '#,##0.0000'  # 4 miejsca po przecinku
                             elif header in ['Dlugosc', 'Szerokosc', 'Grubosc']:
                                 cell.number_format = '#,##0.00'
                     except Exception as e:
@@ -1301,6 +1301,7 @@ def api_export_excel():
                         'Data realizacji',
                         'Status',
                         'Sposob platnosci',
+                        'Koszt kuriera',
                         'Zaplacono netto'
                     ]
             
@@ -1342,7 +1343,7 @@ def api_export_excel():
                     orders_grouped[order_id].append(idx + 4)  # +4 bo dane zaczynają się od wiersza 4
         
                 # Uproszczone scalanie - tylko podstawowe kolumny
-                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'AL']
+                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'AI', 'AL']
         
                 for order_id, row_indices in orders_grouped.items():
                     if len(row_indices) > 1:
