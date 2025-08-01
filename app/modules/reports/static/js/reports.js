@@ -1249,17 +1249,17 @@ class ReportsManager {
         console.log('[ReportsManager] Updating statistics:', stats);
 
         // Aktualizuj wszystkie statystyki
-        this.updateStat('statTotalM3', stats.total_m3, 2, ' M³');
+        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');              // ZMIANA: 4 zamiast 2
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
         this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
         this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
         this.updateStat('statDeliveryCostNet', stats.delivery_cost_net, 2, ' PLN');
         this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' PLN');
         this.updateStat('statBalanceDue', stats.balance_due, 2, ' PLN');
-        this.updateStat('statProductionVolume', stats.production_volume, 2, '');
+        this.updateStat('statProductionVolume', stats.production_volume, 4, ' m³');     // ZMIANA: 4 zamiast 2
         this.updateStat('statProductionValueNet', stats.production_value_net, 2, ' PLN');
-        this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 2, '');
-        this.updateStat('statPickupReady', stats.pickup_ready_volume, 2, '');
+        this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 4, ' m³');  // ZMIANA: 4 zamiast 2
+        this.updateStat('statPickupReady', stats.pickup_ready_volume, 4, ' m³');        // ZMIANA: 4 zamiast 2
     }
 
     /**
@@ -1773,22 +1773,21 @@ class ReportsManager {
      */
     formatNumber(value, decimals = 2) {
         if (value === null || value === undefined || value === '') {
-            return '0' + (decimals > 0 ? '.' + '0'.repeat(decimals) : '');
+            return '0' + ',0000'.substring(0, decimals + 1);
         }
 
         const num = parseFloat(value);
         if (isNaN(num)) {
-            return '0' + (decimals > 0 ? '.' + '0'.repeat(decimals) : '');
+            return '0' + ',0000'.substring(0, decimals + 1);
         }
 
-        // NOWE: Dodaj separatory tysięcy (spacje)
-        const formatted = num.toFixed(decimals);
-        const parts = formatted.split('.');
+        // Dla pól objętości zawsze używaj 4 miejsca po przecinku
+        const fixedDecimals = decimals === 4 ? 4 : decimals;
 
-        // Dodaj spacje co 3 cyfry od prawej strony
-        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-
-        return parts.join('.');
+        return num.toLocaleString('pl-PL', {
+            minimumFractionDigits: fixedDecimals,
+            maximumFractionDigits: fixedDecimals
+        });
     }
 
     /**

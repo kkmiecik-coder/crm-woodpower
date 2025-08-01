@@ -920,14 +920,35 @@ class SyncManager {
     handleOrderCheckboxChange(orderId, isChecked) {
         console.log(`[SyncManager] ☑️ Zmiana checkbox zamówienia ${orderId}:`, isChecked);
 
+        // Konwertuj na string aby być spójnym z resztą kodu
+        const orderIdStr = String(orderId);
+
         if (isChecked) {
-            this.selectedOrderIds.add(orderId);
+            this.selectedOrderIds.add(orderIdStr);
         } else {
-            this.selectedOrderIds.delete(orderId);
+            this.selectedOrderIds.delete(orderIdStr);
+        }
+
+        // DODANE: Sprawdź czy checkbox rzeczywiście został zaznaczony/odznaczony
+        const checkbox = this.ordersList.querySelector(`[data-order-id="${orderIdStr}"]`);
+        if (checkbox && checkbox.checked !== isChecked) {
+            console.warn(`[SyncManager] ⚠️ Niezgodność stanu checkbox dla ${orderIdStr}: checkbox.checked=${checkbox.checked}, isChecked=${isChecked}`);
         }
 
         this.updateSaveButton();
         console.log('[SyncManager] 📊 Aktualnie wybrane zamówienia:', Array.from(this.selectedOrderIds));
+    }
+
+    // POPRAWKA 3: Dodaj walidację czy zamówienia netto powinny iść do modala wymiarów
+    shouldCheckDimensions(order) {
+        // Zamówienia netto nie wymagają sprawdzania wymiarów
+        if (order.price_type === 'netto') {
+            console.log(`[SyncManager] ℹ️ Zamówienie ${order.order_id} jest typu NETTO - pomijam sprawdzanie wymiarów`);
+            return false;
+        }
+
+        // Tylko zamówienia brutto lub bez typu wymagają sprawdzania wymiarów
+        return order.has_dimension_issues === true;
     }
 
     selectAllOrders() {
@@ -1294,8 +1315,14 @@ class SyncManager {
     // =====================================================
 
     async handleOrdersSave() {
-        if (this.selectedOrderIds.size === 0) {
-            console.warn('[SyncManager] ⚠️ Brak wybranych zamówień do zapisania');
+        console.log('[SyncManager] 💾 Rozpoczynanie zapisu zamówień');
+
+        // POPRAWKA: Pobierz AKTUALNIE zaznaczone checkboxy zamiast polegać tylko na this.selectedOrderIds
+        const actuallySelectedOrderIds = this.getActuallySelectedOrderIds();
+
+        if (actuallySelectedOrderIds.length === 0) {
+            console.warn('[SyncManager] ⚠️ Brak aktualnie zaznaczonych zamówień');
+            alert('Brak zaznaczonych zamówień do zapisania');
             return;
         }
 
@@ -1304,14 +1331,20 @@ class SyncManager {
             return;
         }
 
-        const selectedOrdersList = Array.from(this.selectedOrderIds);
-        const ordersWithIssues = selectedOrdersList.filter(orderId => {
+        console.log('[SyncManager] 📊 Aktualnie zaznaczone zamówienia:', actuallySelectedOrderIds);
+
+        // POPRAWKA: Synchronizuj this.selectedOrderIds z rzeczywistym stanem checkboxów
+        this.selectedOrderIds.clear();
+        actuallySelectedOrderIds.forEach(id => this.selectedOrderIds.add(id));
+
+        // Znajdź zamówienia z problemami wymiarów WŚRÓD AKTUALNIE ZAZNACZONYCH
+        const ordersWithIssues = actuallySelectedOrderIds.filter(orderId => {
             const order = this.fetchedOrders.find(o => o.order_id == orderId);
             return order && order.has_dimension_issues;
         });
 
-        console.log('[SyncManager] 📊 Analiza wybranych zamówień:', {
-            total: selectedOrdersList.length,
+        console.log('[SyncManager] 📊 Analiza zaznaczonych zamówień:', {
+            total: actuallySelectedOrderIds.length,
             withIssues: ordersWithIssues.length
         });
 
@@ -1320,9 +1353,25 @@ class SyncManager {
             this.showDimensionsModal(ordersWithIssues);
         } else {
             console.log('[SyncManager] ✅ Brak problemów z wymiarami - zapisuję bezpośrednio');
-            await this.saveOrdersWithoutDimensions(selectedOrdersList);
+            await this.saveOrdersWithoutDimensions(actuallySelectedOrderIds);
         }
     }
+
+    getActuallySelectedOrderIds() {
+        const selectedIds = [];
+        const checkboxes = this.ordersList.querySelectorAll('.order-select:checked');
+
+        checkboxes.forEach(checkbox => {
+            const orderId = checkbox.getAttribute('data-order-id');
+            if (orderId) {
+                selectedIds.push(orderId);
+            }
+        });
+
+        console.log('[SyncManager] 🔍 Pobrano aktualnie zaznaczone ID:', selectedIds);
+        return selectedIds;
+    }
+
 
     showDimensionFixModal(ordersWithIssues, allSelectedOrders) {
         console.log('[SyncManager] 🔧 Tworzenie modala uzupełnienia wymiarów dla zamówień:', ordersWithIssues);

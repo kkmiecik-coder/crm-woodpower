@@ -512,29 +512,30 @@ class BaselinkerReportOrder(db.Model):
         """
         if not self.current_status:
             return
-        
-        status_lower = self.current_status.lower()
     
+        status_lower = self.current_status.lower()
+
         # Reset wartości
         self.production_volume = 0.0
         self.production_value_net = 0.0
         self.ready_pickup_volume = 0.0
-    
+
         # Jeśli status zawiera "w produkcji" LUB to "Nowe - opłacone"
         if 'w produkcji' in status_lower or 'nowe - opłacone' in status_lower:
             self.production_volume = float(self.total_volume or 0.0)
             self.production_value_net = float(self.value_net or 0.0)
-        
+    
         # NOWA LOGIKA: Statusy dla "Wyprodukowane" (zamiast tylko "Czeka na odbiór osobisty")
-        # ID statusów: 138620, 138623, 105114, 149763, 149777, 138624, 149778, 149779
+        # ID statusów: 138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779
         elif (self.baselinker_status_id and 
-              self.baselinker_status_id in [138620, 138623, 105114, 149763, 149777, 138624, 149778, 149779]):
+              self.baselinker_status_id in [138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779]):
             self.ready_pickup_volume = float(self.total_volume or 0.0)
-        
+    
         # FALLBACK: Sprawdź także po nazwie statusu (dla ręcznych wpisów lub starych rekordów bez baselinker_status_id)
         elif any(status_name in status_lower for status_name in [
             'produkcja zakończona',           # 138620
             'zamówienie spakowane',           # 138623  
+            'paczka zgłoszona do wysyłki',    # 105113
             'wysłane - kurier',               # 105114
             'wysłane - transport woodpower',  # 149763
             'czeka na odbiór osobisty',       # 149777
