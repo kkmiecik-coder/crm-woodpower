@@ -912,8 +912,13 @@ function buildVariantPriceDisplay(variant, quantity, quoteData) {
     const totalNetto = unitPriceNetto * quantity;
 
     // Ceny wykończenia (jeśli istnieje)
-    const finishingPriceBrutto = finishing ? (finishing.finishing_price_brutto || 0) : 0;
-    const finishingPriceNetto = finishing ? (finishing.finishing_price_netto || 0) : 0;
+    let finishingPriceBrutto = 0;
+    let finishingPriceNetto = 0;
+    if (finishing) {
+        const finishingQuantity = finishing.quantity || quantity || 1;
+        finishingPriceBrutto = (finishing.finishing_price_brutto || 0) / finishingQuantity;
+        finishingPriceNetto = (finishing.finishing_price_netto || 0) / finishingQuantity;
+    }
     const finishingTotalBrutto = finishingPriceBrutto * quantity;
     const finishingTotalNetto = finishingPriceNetto * quantity;
 
@@ -1479,10 +1484,12 @@ function renderSelectedSummary(groupedItems, container) {
         let finalUnitPriceNetto = baseUnitPriceNetto;
 
         if (finishing && finishing.finishing_price_brutto) {
-            finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0);
+            const finishingQuantity = finishing.quantity || quantity || 1;
+            finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0) / finishingQuantity;
         }
         if (finishing && finishing.finishing_price_netto) {
-            finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0);
+            const finishingQuantity = finishing.quantity || quantity || 1;
+            finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0) / finishingQuantity;
         }
 
         // Oblicz wartości całkowite (cena jednostkowa × ilość)
@@ -1569,10 +1576,12 @@ function renderVariantSummary(groupedItemsForIndex, quoteData, productIndex) {
     
     // Dodaj cenę wykończenia do ceny jednostkowej
     if (finishing && finishing.finishing_price_brutto) {
-        finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0);
+        const finishingQuantity = finishing.quantity || quantity || 1;
+        finalUnitPriceBrutto += parseFloat(finishing.finishing_price_brutto || 0) / finishingQuantity;
     }
     if (finishing && finishing.finishing_price_netto) {
-        finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0);
+        const finishingQuantity = finishing.quantity || quantity || 1;
+        finalUnitPriceNetto += parseFloat(finishing.finishing_price_netto || 0) / finishingQuantity;
     }
     
     // Oblicz wartości całkowite

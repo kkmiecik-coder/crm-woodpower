@@ -513,16 +513,24 @@ class BaselinkerService:
 
             # Dodaj cenę wykończenia do ceny jednostkowej (jeśli istnieje)
             if finishing_details and finishing_details.finishing_price_netto:
-                finishing_unit_netto = float(finishing_details.finishing_price_netto or 0)
-                finishing_unit_brutto = float(finishing_details.finishing_price_brutto or 0)
-        
+                # finishing_details.finishing_price_netto to CAŁKOWITY koszt wykończenia
+                # Dzielimy przez quantity, żeby otrzymać koszt za 1 sztukę
+                finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
+                finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
+    
+                finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
+                finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
+
                 unit_price_netto += finishing_unit_netto
                 unit_price_brutto += finishing_unit_brutto
-        
-                self.logger.debug("Dodano cenę wykończenia",
+
+                self.logger.debug("Dodano cenę wykończenia jednostkową",
                                 product_index=item.product_index,
-                                finishing_netto=finishing_unit_netto,
-                                finishing_brutto=finishing_unit_brutto)
+                                finishing_total_netto=finishing_total_netto,
+                                finishing_total_brutto=finishing_total_brutto,
+                                quantity=quantity,
+                                finishing_unit_netto=finishing_unit_netto,
+                                finishing_unit_brutto=finishing_unit_brutto)
 
             self.logger.debug("Finalne ceny produktu",
                             product_index=item.product_index,

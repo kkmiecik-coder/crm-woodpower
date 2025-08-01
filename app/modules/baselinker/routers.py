@@ -464,8 +464,15 @@ def get_order_modal_data(quote_id):
             
             # Dodaj cenę wykończenia jeśli istnieje
             if finishing_details and finishing_details.finishing_price_netto:
-                unit_price_netto += float(finishing_details.finishing_price_netto or 0)
-                unit_price_brutto += float(finishing_details.finishing_price_brutto or 0)
+                finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
+                finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
+    
+                # Dziel przez quantity żeby otrzymać koszt wykończenia za 1 sztukę
+                finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
+                finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
+    
+                unit_price_netto += finishing_unit_netto
+                unit_price_brutto += finishing_unit_brutto
             
             total_price_netto = unit_price_netto * quantity
             total_price_brutto = unit_price_brutto * quantity

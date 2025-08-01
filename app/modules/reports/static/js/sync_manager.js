@@ -1264,7 +1264,7 @@ class SyncManager {
         console.log('[SyncManager] ✅ Zamówienia zapisane pomyślnie');
         
         let message = 'Synchronizacja zakończona pomyślnie!\n\n';
-        message += `Zapisano: ${result.orders_added || 0} nowych zamówień\n`;
+        message += `Zapisano: ${result.orders_added || 0} produktów\n`;
         message += `Zaktualizowano: ${result.orders_updated || 0} zamówień\n`;
         message += `Przetworzono łącznie: ${result.orders_processed || 0} zamówień`;
         
