@@ -19,6 +19,8 @@ from .models import BaselinkerReportOrder, ReportsSyncLog
 from .service import BaselinkerReportsService, get_reports_service
 from modules.logging import get_structured_logger
 from collections import defaultdict
+import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
@@ -2447,12 +2449,12 @@ def api_save_selected_orders():
 @login_required
 def export_routimo():
     """
-    Eksport danych do formatu Routimo CSV
-    Tylko zamówienia ze statusem transport WoodPower
+    Eksport danych do formatu Routimo EXCEL
+    ZMIANA: Wszystkie rekordy OPRÓCZ wykluczonych statusów
     """
     try:
         user_email = session.get('user_email')
-        reports_logger.info("Rozpoczęcie eksportu Routimo", user_email=user_email)
+        reports_logger.info("Rozpoczęcie eksportu Routimo Excel", user_email=user_email)
         
         # Pobierz parametry filtrowania
         date_from_str = request.args.get('date_from')
@@ -2474,13 +2476,10 @@ def export_routimo():
             except ValueError:
                 return jsonify({'success': False, 'error': 'Nieprawidłowy format daty końcowej'}), 400
         
-        # KLUCZOWE: Filtruj tylko statusy transport WoodPower
-        routimo_statuses = [
-            'Wysłane - transport WoodPower',
-            'Wysł. - trans. WP'
-        ]
+        # KLUCZOWA ZMIANA: Wykluczaj określone statusy zamiast włączać tylko transport WoodPower
+        excluded_status_ids = [138625, 149779, 149778, 138624, 149777, 149763, 105114]
         
-        # Używaj SQLAlchemy ORM jak reszta modułu
+        # Buduj zapytanie SQLAlchemy
         query = BaselinkerReportOrder.query
         
         # Filtruj po dacie
@@ -2489,8 +2488,8 @@ def export_routimo():
         if date_to:
             query = query.filter(BaselinkerReportOrder.date_created <= date_to)
             
-        # Filtruj po statusie - TYLKO transport WoodPower
-        query = query.filter(BaselinkerReportOrder.current_status.in_(routimo_statuses))
+        # ZMIANA: Wykluczaj statusy zamiast je włączać
+        query = query.filter(~BaselinkerReportOrder.baselinker_status_id.in_(excluded_status_ids))
         
         # Sortuj po dacie i ID zamówienia
         query = query.order_by(
@@ -2501,45 +2500,33 @@ def export_routimo():
         # Wykonaj zapytanie
         orders = query.all()
 
-        # DODAJ DEBUG LOGGING
-        reports_logger.info("Debug eksportu Excel - po pobraniu orders",
-                            user_email=user_email,
-                            orders_count=len(orders),
-                            date_from=date_from.isoformat() if date_from else None,
-                            date_to=date_to.isoformat() if date_to else None,
-                            filters_count=len(column_filters))
+        reports_logger.info("Pobrano dane do eksportu Routimo Excel",
+                          user_email=user_email,
+                          raw_records=len(orders),
+                          excluded_status_ids=excluded_status_ids,
+                          date_from=date_from.isoformat() if date_from else None,
+                          date_to=date_to.isoformat() if date_to else None)
 
         if not orders:
             return jsonify({
                 'success': False,
                 'error': 'Brak danych do eksportu'
             }), 400
-
-        # DODAJ DEBUG DLA excel_data
-        reports_logger.info("Debug eksportu Excel - po utworzeniu excel_data",
-                            user_email=user_email,
-                            excel_data_count=len(excel_data) if 'excel_data' in locals() else 0)
-        
-        reports_logger.info("Pobrano dane do eksportu Routimo",
-                          user_email=user_email,
-                          raw_records=len(orders),
-                          date_from=date_from.isoformat() if date_from else None,
-                          date_to=date_to.isoformat() if date_to else None)
             
         # Grupuj dane po zamówieniach
         grouped_orders = group_orders_for_routimo(orders)
         
-        # Generuj CSV
-        csv_content = generate_routimo_csv(grouped_orders)
+        # ZMIANA: Generuj EXCEL zamiast CSV
+        excel_content = generate_routimo_excel(grouped_orders)
         
-        # Przygotuj response
-        filename = f"routimo_export_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        # ZMIANA: Przygotuj response dla Excel
+        filename = f"routimo_export_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
         
-        response = make_response(csv_content)
+        response = make_response(excel_content)
         response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-        response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         
-        reports_logger.info("Wygenerowano eksport Routimo",
+        reports_logger.info("Wygenerowano eksport Routimo Excel",
                           user_email=user_email,
                           grouped_orders=len(grouped_orders),
                           filename=filename)
@@ -2547,13 +2534,212 @@ def export_routimo():
         return response
         
     except Exception as e:
-        reports_logger.error("Błąd eksportu Routimo",
+        reports_logger.error("Błąd eksportu Routimo Excel",
                            user_email=user_email if 'user_email' in locals() else 'unknown',
                            error=str(e))
         return jsonify({
             'success': False,
-            'error': f'Błąd eksportu Routimo: {str(e)}'
+            'error': f'Błąd eksportu Routimo Excel: {str(e)}'
         }), 500
+
+
+def generate_routimo_excel(grouped_orders):
+    """
+    NOWA FUNKCJA: Generuje Excel w formacie identycznym z wzorcem
+    """
+    # Nagłówki - identyczne z plikiem wzorcowym
+    headers = [
+        'Nazwa', 'Klient', 'Nazwa przesyłki', 'Ulica', 'Numer domu', 'Numer mieszkania',
+        'Kod pocztowy', 'Miasto', 'Kraj', 'Region', 'Numer telefonu', 'Email',
+        'Email klienta', 'Nip klienta', 'Początek okna czasowego', 'Koniec okna czasowego',
+        'Okno czasowe', 'Czas na wykonanie zadania', 'Oczekiwana data realizacji',
+        'Harmonogram', 'Pojazd', 'Typy pojazdów', 'Liczba przesyłek', 'Wielkość przesyłki',
+        'Waga przesyłki', 'Wartość przesyłki', 'Forma płatności', 'Waluta',
+        'Szerokość geograficzna', 'Długość geograficzna', 'Komentarz', 'Komentarz 2',
+        'Uwagi', 'Dodatkowe 1', 'Dodatkowe 2'
+    ]
+    
+    # Utwórz nowy workbook
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Sheet1"
+    
+    # Dodaj drugi pusty arkusz (jak w wzorcu)
+    workbook.create_sheet("Sheet2")
+    
+    # STYLOWANIE NAGŁÓWKÓW - szare tło + pogrubienie + podkreślenie
+    header_fill = PatternFill(
+    start_color="F3F3F3",
+    end_color="EFEFEF", 
+    fill_type="solid"
+    )
+
+    header_font = Font(
+        bold=True,
+        underline='single'
+    )
+
+    header_alignment = Alignment(
+        horizontal='left',        # ZMIANA: wyrównanie do lewej
+        vertical='center',
+        wrap_text=True           # ZMIANA: zawijanie tekstu
+    )
+
+    # OBRAMOWANIE - czarne, standardowe
+    header_border = Border(
+        left=Side(border_style='thin', color='000000'),
+        right=Side(border_style='thin', color='000000'),
+        top=Side(border_style='thin', color='000000'),
+        bottom=Side(border_style='thin', color='000000')
+    )
+
+    # Dodaj nagłówki z pełnym stylowaniem
+    for col_idx, header in enumerate(headers, 1):
+        cell = worksheet.cell(row=1, column=col_idx)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = header_border     # ZMIANA: dodanie obramowania
+    
+    # SZEROKOŚCI KOLUMN - dokładne z pliku wzorcowego + automatyczne dla reszty
+    column_widths = {
+        'A': 83.8,   # Nazwa (bardzo szeroka dla długich nazw firm)
+        'B': 31.81,  # Klient  
+        'C': 23.08,  # Nazwa przesyłki (ID zamówienia)
+        'D': 50.57,  # Ulica (szeroka dla długich nazw ulic)
+        'E': 12.0,   # Numer domu
+        'F': 12.0,   # Numer mieszkania
+        'G': 15.0,   # Kod pocztowy
+        'H': 25.0,   # Miasto
+        'I': 12.0,   # Kraj
+        'J': 20.0,   # Region/Województwo
+        'K': 20.0,   # Telefon
+        'L': 25.0,   # Email (puste)
+        'M': 30.0,   # Email klienta
+        'N': 15.0,   # NIP (puste)
+        'O': 20.0,   # Początek okna
+        'P': 20.0,   # Koniec okna
+        'Q': 15.0,   # Okno czasowe
+        'R': 25.0,   # Czas na zadanie
+        'S': 20.0,   # Data realizacji
+        'T': 15.0,   # Harmonogram
+        'U': 15.0,   # Pojazd
+        'V': 20.0,   # Typy pojazdów
+        'W': 15.0,   # Liczba przesyłek
+        'X': 18.0,   # Wielkość (m³)
+        'Y': 15.0,   # Waga (kg)
+        'Z': 18.0,   # Wartość PLN
+        'AA': 20.0,  # Forma płatności
+        'AB': 10.0,  # Waluta
+        'AC': 20.0,  # Szerokość geo
+        'AD': 20.0,  # Długość geo
+        'AE': 25.0,  # Komentarz
+        'AF': 25.0,  # Komentarz 2
+        'AG': 25.0,  # Uwagi
+        'AH': 15.0,  # Dodatkowe 1
+        'AI': 15.0   # Dodatkowe 2
+    }
+    
+    # Ustaw szerokości kolumn
+    for col_letter, width in column_widths.items():
+        worksheet.column_dimensions[col_letter].width = width
+    
+    # WYSOKOŚĆ WIERSZA NAGŁÓWKOWEGO - 57px jak żądasz (≈43pt)
+    worksheet.row_dimensions[1].height = 43.0
+    
+    # Dodaj dane
+    for row_idx, order in enumerate(grouped_orders, 2):  # Zaczynaj od wiersza 2
+        # Wyciągnij numer domu i mieszkania z adresu
+        house_number, apartment_number, clean_street = extract_house_and_apartment_number(order['delivery_address'])
+        
+        # Oblicz wagę (jak w oryginalnym CSV)
+        weight = round(order['total_volume'] * 800, 2)
+        
+        # Generuj komentarz z listą produktów
+        products_comment = generate_products_comment(order['records'])
+        
+        # Dane wiersza - z komentarzem produktów
+        row_data = [
+            order['customer_name'],                    # A - Nazwa
+            order['customer_name'],                    # B - Klient
+            order['baselinker_order_id'],              # C - Nazwa przesyłki
+            clean_street,                              # D - Ulica (OCZYSZCZONA!)
+            house_number,                              # E - Numer domu
+            apartment_number,                          # F - Numer mieszkania
+            order['delivery_postcode'],                # G - Kod pocztowy
+            order['delivery_city'],                    # H - Miasto
+            'Polska',                                  # I - Kraj
+            order['delivery_state'],                   # J - Region
+            order['phone'],                            # K - Numer telefonu
+            '',                                        # L - Email (puste)
+            order['email'],                            # M - Email klienta
+            '',                                        # N - Nip klienta (puste)
+            '',                                        # O - Początek okna czasowego (puste)
+            '',                                        # P - Koniec okna czasowego (puste)
+            '',                                        # Q - Okno czasowe (puste)
+            '',                                        # R - Czas na wykonanie zadania (puste)
+            '',                                        # S - Oczekiwana data realizacji (puste)
+            '',                                        # T - Harmonogram (puste)
+            '',                                        # U - Pojazd (puste)
+            '',                                        # V - Typy pojazdów (puste)
+            int(order['total_quantity']),              # W - Liczba przesyłek
+            round(order['total_volume'], 4),           # X - Wielkość przesyłki (m³)
+            weight,                                    # Y - Waga przesyłki (kg)
+            round(order['total_value_net'], 2),        # Z - Wartość przesyłki
+            '',                                        # AA - Forma płatności (puste)
+            'PLN',                                     # AB - Waluta
+            '',                                        # AC - Szerokość geograficzna (puste)
+            '',                                        # AD - Długość geograficzna (puste)
+            products_comment,                          # AE - Komentarz (LISTA PRODUKTÓW!)
+            '',                                        # AF - Komentarz 2 (puste)
+            '',                                        # AG - Uwagi (puste)
+            '',                                        # AH - Dodatkowe 1 (puste)
+            '',                                        # AI - Dodatkowe 2 (puste)
+        ]
+        
+        # Wstaw dane do wiersza
+        for col_idx, value in enumerate(row_data, 1):
+            worksheet.cell(row=row_idx, column=col_idx).value = value
+    
+    # Zapisz do BytesIO
+    excel_buffer = io.BytesIO()
+    workbook.save(excel_buffer)
+    excel_buffer.seek(0)
+    
+    reports_logger.info("Wygenerowano Excel dla Routimo z identycznym formatowaniem",
+                      orders_count=len(grouped_orders))
+    
+    return excel_buffer.getvalue()
+
+
+def generate_products_comment(order_records):
+    """
+    Generuje komentarz z listą wszystkich produktów w zamówieniu
+    Format: "Klejonka dębowa lita A/B 200.0×30.0×3.2cm (Surowe) x1, Klejonka... x6"
+    
+    Args:
+        order_records: Lista rekordów BaselinkerReportOrder dla jednego zamówienia
+        
+    Returns:
+        str: Sformatowany komentarz z produktami
+    """
+    if not order_records:
+        return ''
+    
+    products_list = []
+    
+    for record in order_records:
+        # Użyj raw_product_name z bazy danych
+        product_name = record.raw_product_name or 'Produkt bez nazwy'
+        quantity = int(record.quantity or 1)
+        
+        # Format: "Nazwa produktu x{ilość}"
+        product_entry = f"{product_name} x{quantity}"
+        products_list.append(product_entry)
+    
+    # Połącz wszystkie produkty przecinkami
+    return ', '.join(products_list)
 
 
 def group_orders_for_routimo(orders):

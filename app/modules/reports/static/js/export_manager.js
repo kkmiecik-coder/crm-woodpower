@@ -412,7 +412,7 @@ class ExportManager {
             const response = await this.fetchWithTimeout(`/reports/api/export-routimo?${params}`, {
                 method: 'GET',
                 headers: {
-                    'Accept': 'text/csv'
+                    'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 }
             }, 30000); // 30 sekund timeout
 
@@ -471,20 +471,27 @@ class ExportManager {
             };
         }
 
-        // Sprawdź czy są zamówienia z odpowiednim statusem
-        const routimoStatuses = [
+        // ZMIANA: Sprawdź czy są zamówienia INNE NIŻ wykluczone statusy
+        const excludedStatusIds = [138625, 149779, 149778, 138624, 149777, 149763, 105114];
+        const excludedStatusNames = [
+            'Zamówienie anulowane',
+            'Odebrane',
+            'Dostarczona - transport WoodPower',
+            'Dostarczona - kurier',
+            'Czeka na odbiór osobisty',
             'Wysłane - transport WoodPower',
-            'Wysł. - trans. WP'
+            'Wysłane - kurier'
         ];
 
-        const hasRoutimoOrders = currentData.some(record =>
-            routimoStatuses.includes(record.current_status)
-        );
+        const hasValidOrders = currentData.some(record => {
+            // Sprawdź czy status NIE jest na liście wykluczonych
+            return !excludedStatusNames.includes(record.current_status);
+        });
 
-        if (!hasRoutimoOrders) {
+        if (!hasValidOrders) {
             return {
                 isValid: false,
-                message: 'Brak zamówień ze statusem "Wysłane - transport WoodPower". Sprawdź filtry i statusy zamówień.'
+                message: 'Brak zamówień dostępnych do eksportu. Wszystkie zamówienia mają wykluczone statusy (anulowane, dostarczone, odebrane).'
             };
         }
 
@@ -521,7 +528,7 @@ class ExportManager {
             }
         }
 
-        return `routimo_export_${dateRangeStr}.csv`;
+        return `routimo_export_${dateRangeStr}.xlsx`; // ZMIANA: .xlsx zamiast .csv
     }
 
     /**
@@ -1370,10 +1377,10 @@ Czy chcesz kontynuować eksport?
                 description: 'Pełny raport wszystkich danych'
             },
             routimo: {
-                available: true, // Teraz dostępne!
+                available: true,
                 label: 'Routimo',
                 icon: 'fas fa-route',
-                description: 'CSV dla planowania tras (tylko transport WoodPower)'
+                description: 'Excel dla planowania tras (wszystkie aktywne zamówienia)' // ZMIANA OPISU
             }
         };
     }
@@ -1387,13 +1394,19 @@ Czy chcesz kontynuować eksport?
             return 0;
         }
 
-        const routimoStatuses = [
+        // ZMIANA: Licz wszystkie OPRÓCZ wykluczonych statusów
+        const excludedStatusNames = [
+            'Zamówienie anulowane',
+            'Odebrane',
+            'Dostarczona - transport WoodPower',
+            'Dostarczona - kurier',
+            'Czeka na odbiór osobisty',
             'Wysłane - transport WoodPower',
-            'Wysł. - trans. WP'
+            'Wysłane - kurier'
         ];
 
         return currentData.filter(record =>
-            routimoStatuses.includes(record.current_status)
+            !excludedStatusNames.includes(record.current_status)
         ).length;
     }
 
@@ -1409,9 +1422,14 @@ Czy chcesz kontynuować eksport?
             totalRecords: currentData.length,
             routimoRecords: routimoOrdersCount,
             routimoAvailable: routimoOrdersCount > 0,
-            supportedStatuses: [
+            excludedStatuses: [ // ZMIANA: pokaż wykluczone zamiast wspieranych
+                'Zamówienie anulowane',
+                'Odebrane',
+                'Dostarczona - transport WoodPower',
+                'Dostarczona - kurier',
+                'Czeka na odbiór osobisty',
                 'Wysłane - transport WoodPower',
-                'Wysł. - trans. WP'
+                'Wysłane - kurier'
             ]
         };
     }
