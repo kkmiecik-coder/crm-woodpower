@@ -519,14 +519,14 @@ function translateVariantCode(variantCode) {
     if (!variantCode) return 'Nieznany wariant';
 
     const translations = {
-        'dab-lity-ab': 'Dąb lity A/B',
-        'dab-lity-bb': 'Dąb lity B/B',
-        'dab-mikrowzor-ab': 'Dąb mikrowzór A/B',
-        'dab-mikrowzor-bb': 'Dąb mikrowzór B/B',
-        'jesion-lity-ab': 'Jesion lity A/B',
-        'jesion-mikrowzor-ab': 'Jesion mikrowzór A/B',
-        'buk-lity-ab': 'Buk lity A/B',
-        'buk-mikrowzor-ab': 'Buk mikrowzór A/B'
+        'dab-lity-ab': 'Klejonka dębowa lita A/B',
+        'dab-lity-bb': 'Klejonka dębowa lita B/B',
+        'dab-micro-ab': 'Klejonka dębowa mikrowczep A/B', // Poprawka: micro -> mikrowczep
+        'dab-micro-bb': 'Klejonka dębowa mikrowczep B/B',
+        'jes-lity-ab': 'Klejonka jesionowa lita A/B', // Poprawka: jesion -> jesionowa
+        'jes-micro-ab': 'Klejonka jesionowa mikrowczep A/B',
+        'buk-lity-ab': 'Klejonka bukowa lita A/B',
+        'buk-micro-ab': 'Klejonka bukowa mikrowczep A/B'
     };
 
     return translations[variantCode] || variantCode;

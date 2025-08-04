@@ -500,7 +500,7 @@ class BaselinkerService:
             sku = self._generate_sku(item, finishing_details)
 
             # Nazwa produktu z wymiarami
-            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
+            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm} cm"
 
             # NOWE: Używamy cen jednostkowych bezpośrednio z bazy (już nie trzeba dzielić!)
             unit_price_netto = float(item.price_netto or 0)
@@ -550,10 +550,12 @@ class BaselinkerService:
 
             # Dodaj wykończenie do nazwy jeśli istnieje
             product_name = base_name
-            if finishing_details and finishing_details.finishing_type:
-                finishing_desc = self._translate_finishing(finishing_details)
+            if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak' and finishing_details.finishing_type != 'Surowe':
+                finishing_desc = self._translate_finishing_to_adjective(finishing_details)
                 if finishing_desc:
-                    product_name += f" ({finishing_desc})"
+                    product_name += f" {finishing_desc}"
+            else:
+                product_name += " surowa"
 
             products.append({
                 'name': product_name,
@@ -836,6 +838,58 @@ class BaselinkerService:
             parts.append(f"połysk {finishing_details.finishing_gloss_level}")
         
         return ' - '.join(parts) if parts else None
+
+    def _translate_finishing_to_adjective(self, finishing_details):
+        """Tłumaczy szczegóły wykończenia na przymiotnik w rodzaju żeńskim (dla klejonki)"""
+        if not finishing_details or not finishing_details.finishing_type or finishing_details.finishing_type == 'Brak':
+            return None
+    
+        finishing_type = finishing_details.finishing_type.lower()
+    
+        # Mapowanie na przymiotniki w rodzaju żeńskim
+        if 'lakier' in finishing_type:
+            result = 'lakierowana'
+        
+            # Dodaj wariant lakieru jeśli istnieje
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                if finishing_details.finishing_color.lower() == 'bezbarwny' or 'bezbarwn' in finishing_details.finishing_color.lower():
+                    result += ' bezbarwnie'
+                else:
+                    result += f' {finishing_details.finishing_color}'
+            else:
+                result += ' bezbarwnie'  # Domyślnie bezbarwnie
+            
+        elif 'olej' in finishing_type or 'olejow' in finishing_type:
+            result = 'olejowana'
+        
+            # Dodaj kolor oleju jeśli istnieje
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                result += f' {finishing_details.finishing_color}'
+            
+        elif 'wosk' in finishing_type:
+            result = 'woskowana'
+        
+        elif 'bejc' in finishing_type:
+            result = 'bejcowana'
+        
+            # Dla bejcy kolor jest zwykle ważny
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                result += f' {finishing_details.finishing_color}'
+            
+        else:
+            # Fallback - spróbuj przekształcić automatycznie
+            result = finishing_type.replace('owanie', 'owana').replace('enie', 'ona')
+        
+            # Dodaj kolor jeśli istnieje
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                result += f' {finishing_details.finishing_color}'
+    
+        self.logger.debug("Przetłumaczono wykończenie na przymiotnik",
+                         finishing_type=finishing_details.finishing_type,
+                         finishing_color=finishing_details.finishing_color,
+                         result=result)
+    
+        return result
     
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""

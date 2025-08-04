@@ -1793,6 +1793,25 @@ function translateVariantCode(code) {
     };
     return dict[code] || code || 'Nieznany wariant';
 }
+function buildFullProductName(variantCode, dimensions, finishing) {
+    // Podstawowa nazwa z gatunku, technologii i klasy
+    const baseName = translateVariantCode(variantCode);
+
+    // Formatuj wymiary z odstępem przed "cm"
+    const formattedDimensions = dimensions ? `${dimensions} cm` : '';
+
+    // Formatuj wykończenie
+    let finishingText = '';
+    if (finishing && finishing !== 'Surowe' && finishing !== 'Brak' && finishing !== 'brak') {
+        // Konwertuj na małe litery zgodnie z wymaganiem (surowa, lakierowana, olejowana)
+        const finishingLower = finishing.toLowerCase();
+        finishingText = ` ${finishingLower}`;
+    } else {
+        finishingText = ' surowa'; // Domyślnie surowa
+    }
+
+    return `${baseName} ${formattedDimensions}${finishingText}`.trim();
+}
 
 // Pobieranie powodów rabatów z API
 async function fetchDiscountReasons() {

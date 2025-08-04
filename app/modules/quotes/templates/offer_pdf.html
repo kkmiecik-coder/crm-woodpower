@@ -429,14 +429,14 @@
                     <td class="left">
                         <strong>Klejonka drewniana</strong>
                         <br>
-                        {% if item.variant_code == 'dab-lity-ab' %}Dąb lity A/B
-                        {% elif item.variant_code == 'dab-lity-bb' %}Dąb lity B/B
-                        {% elif item.variant_code == 'dab-micro-ab' %}Dąb mikrowczep A/B
-                        {% elif item.variant_code == 'dab-micro-bb' %}Dąb mikrowczep B/B
-                        {% elif item.variant_code == 'jes-lity-ab' %}Jesion lity A/B
-                        {% elif item.variant_code == 'jes-micro-ab' %}Jesion mikrowczep A/B
-                        {% elif item.variant_code == 'buk-lity-ab' %}Buk lity A/B
-                        {% elif item.variant_code == 'buk-micro-ab' %}Buk mikrowczep A/B
+                        {% if item.variant_code == 'dab-lity-ab' %}Klejonka dębowa lita A/B
+                        {% elif item.variant_code == 'dab-lity-bb' %}Klejonka dębowa lita B/B
+                        {% elif item.variant_code == 'dab-micro-ab' %}Klejonka dębowa mikrowczep A/B
+                        {% elif item.variant_code == 'dab-micro-bb' %}Klejonka dębowa mikrowczep B/B
+                        {% elif item.variant_code == 'jes-lity-ab' %}Klejonka jesionowa lita A/B
+                        {% elif item.variant_code == 'jes-micro-ab' %}Klejonka jesionowa mikrowczep A/B
+                        {% elif item.variant_code == 'buk-lity-ab' %}Klejonka bukowa lita A/B
+                        {% elif item.variant_code == 'buk-micro-ab' %}Klejonka bukowa mikrowczep A/B
                         {% else %}{{ item.variant_code }}
                         {% endif %}
 
@@ -444,11 +444,11 @@
                         <br><span class="finishing-details">
                             Wykończenie:
                             {% if finishing_detail and finishing_detail.finishing_type and finishing_detail.finishing_type != 'Brak' %}
-                                {{ finishing_detail.finishing_type }}
-                                {%- if finishing_detail.finishing_color and finishing_detail.finishing_color != 'Brak' %} - {{ finishing_detail.finishing_color }}{% endif -%}
-                                {%- if finishing_detail.application_method and finishing_detail.application_method != 'Brak' %} ({{ finishing_detail.application_method }}){% endif -%}
+                            {{ finishing_detail.finishing_type }}
+                            {%- if finishing_detail.finishing_color and finishing_detail.finishing_color != 'Brak' %} - {{ finishing_detail.finishing_color }}{% endif -%}
+                            {%- if finishing_detail.application_method and finishing_detail.application_method != 'Brak' %} ({{ finishing_detail.application_method }}){% endif -%}
                             {% else %}
-                                brak
+                            brak
                             {% endif %}
                         </span>
                     </td>
