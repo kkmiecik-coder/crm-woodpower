@@ -24,6 +24,7 @@ let currentClientType = '';
 let currentMultiplier = 1.0;
 let mainContainer = null;
 let quoteDraftManager = null;
+let isDraftRestoreInProgress = false;
 
 // Pobieranie cen wykończeń z bazy danych
 async function loadFinishingPrices() {
@@ -4526,12 +4527,37 @@ function restoreVariantDataToForm(form, variant) {
  * Przywraca grupę cenową - NOWA FUNKCJA  
  */
 function restoreClientGroup(clientType) {
-    const clientTypeSelect = document.querySelector('#clientType');
-    if (clientTypeSelect && clientType) {
-        clientTypeSelect.value = clientType;
-        clientTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        console.log('[Calculator] Przywrócono grupę cenową:', clientType);
+    console.log('[Calculator] Przywracanie grupy cenowej:', clientType);
+
+    // Najpierw ustaw zmienne globalne
+    if (typeof multiplierMapping !== 'undefined' && multiplierMapping[clientType]) {
+        currentClientType = clientType;
+        currentMultiplier = multiplierMapping[clientType];
+        userMultiplier = multiplierMapping[clientType];
+
+        console.log('[Calculator] Zaktualizowano zmienne globalne:', {
+            currentClientType,
+            currentMultiplier,
+            userMultiplier
+        });
     }
+
+    // Następnie zaktualizuj wszystkie selecty w formularzach
+    const clientTypeSelects = document.querySelectorAll('#clientType, select[data-field="clientType"]');
+    clientTypeSelects.forEach(select => {
+        if (select && select.value !== clientType) {
+            select.value = clientType;
+            // NIE WYWOŁUJ event change - to może wywołać ponowny zapis draft
+            console.log('[Calculator] Zaktualizowano select grupa cenowa:', clientType);
+        }
+    });
+
+    // Opóźnij przeliczenie cen, żeby zmienne globalne się ustabilizowały
+    setTimeout(() => {
+        if (typeof updatePrices === 'function') {
+            updatePrices();
+        }
+    }, 100);
 }
 
 /**
@@ -4553,39 +4579,54 @@ function setupAutosave() {
     // Dodaj listenery dla eventów
     autosaveEvents.forEach(eventName => {
         document.addEventListener(eventName, () => {
+            // SPRAWDŹ czy przywracanie draft nie jest w toku
+            if (isDraftRestoreInProgress) {
+                console.log('[setupAutosave] Pominięto autosave - trwa przywracanie draft');
+                return;
+            }
+
             // Opóźnij zapis, żeby DOM się zaktualizował
             setTimeout(() => {
-                quoteDraftManager.saveDraft();
-            }, 200);
+                if (!isDraftRestoreInProgress) { // Sprawdź ponownie
+                    quoteDraftManager.saveDraft();
+                }
+            }, 300);
         });
     });
 
-    // Zapis przy zmianie inputów
-    const inputs = document.querySelectorAll('input, select, textarea');
-    inputs.forEach(input => {
-        input.addEventListener('change', () => {
-            document.dispatchEvent(new CustomEvent('form-changed'));
+    // Zapis przy zmianie inputów - z blokowaniem podczas restore
+    const inputSelectors = [
+        'input[data-field]',
+        'select[data-field]',
+        'input[name="client_name"]',
+        'input[name="client_email"]',
+        'input[name="client_phone"]',
+        'select[name="quote_source"]'
+    ];
+
+    inputSelectors.forEach(selector => {
+        document.addEventListener('input', (e) => {
+            if (e.target.matches(selector) && !isDraftRestoreInProgress) {
+                setTimeout(() => {
+                    if (!isDraftRestoreInProgress) {
+                        quoteDraftManager.saveDraft();
+                    }
+                }, 500);
+            }
         });
 
-        // Zapis też przy wpisywaniu (z debounce)
-        let timeoutId;
-        input.addEventListener('input', () => {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => {
-                document.dispatchEvent(new CustomEvent('form-changed'));
-            }, 1000); // Zapis po 1 sekundzie od ostatniej zmiany
+        document.addEventListener('change', (e) => {
+            if (e.target.matches(selector) && !isDraftRestoreInProgress) {
+                setTimeout(() => {
+                    if (!isDraftRestoreInProgress) {
+                        quoteDraftManager.saveDraft();
+                    }
+                }, 500);
+            }
         });
     });
 
-    // Zapis przed opuszczeniem strony
-    window.addEventListener('beforeunload', (e) => {
-        quoteDraftManager.saveDraft();
-    });
-
-    // Okresowy zapis co 30 sekund (opcjonalnie)
-    quoteDraftManager.startPeriodicSave(30);
-
-    console.log('[Calculator] Autosave skonfigurowany');
+    console.log('[setupAutosave] Autosave skonfigurowany z blokowaniem podczas restore');
 }
 
 /**
@@ -4741,7 +4782,10 @@ function setupDraftModalButtons(draftData) {
  */
 function restoreQuoteFromDraft(draftData) {
     try {
-        console.log('[Calculator] Przywracam draft:', draftData);
+        console.log('[Calculator] Rozpoczynam przywracanie draft...');
+
+        // ZABLOKUJ autosave podczas przywracania
+        isDraftRestoreInProgress = true;
 
         // Przywróć dane klienta
         if (draftData.client_name) {
@@ -4772,17 +4816,20 @@ function restoreQuoteFromDraft(draftData) {
             }, 500);
         }
 
-        // Finalne przeliczenie po dłuższej przerwie
+        // ODBLOKUJ autosave i wykonaj finalne przeliczenie
         setTimeout(() => {
-            console.log('[Calculator] Finalne przeliczenie po przywróceniu draft');
+            isDraftRestoreInProgress = false;
+            console.log('[Calculator] Przywracanie draft zakończone, odblokowano autosave');
+
             if (typeof updatePrices === 'function') {
                 updatePrices();
             }
-        }, 1500);
+        }, 2000);
 
         console.log('[Calculator] Rozpoczęto przywracanie draft');
 
     } catch (error) {
+        isDraftRestoreInProgress = false; // Odblokuj w przypadku błędu
         console.error('[Calculator] Błąd przy przywracaniu draft:', error);
         showNotification('Błąd przy przywracaniu wyceny', 'error');
     }

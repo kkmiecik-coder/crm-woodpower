@@ -17,47 +17,36 @@ class QuoteDraftManager {
      * Zapisuje aktualny stan wyceny do cookie
      */
     saveDraft() {
-        if (!this.isEnabled) return false;
-
         try {
-            const quoteData = this.collectCurrentQuoteData();
+            const currentData = this.collectCurrentQuoteData();
 
-            // Sprawdź czy wycena ma jakieś dane warte zapisania
-            if (!this.hasValidQuoteData(quoteData)) {
-                console.log('[QuoteDraft] Brak istotnych danych do zapisania, pomijam');
-                return false;
-
+            // Sprawdź czy dane są warte zapisania
+            if (!this.hasValidQuoteData(currentData)) {
+                console.log('[QuoteDraft] Brak danych wartych zapisania');
+                return;
             }
 
-            const draftData = {
-                data: quoteData,
-                timestamp: Date.now(),
-                version: this.VERSION,
-                page_url: window.location.pathname,
-                user_agent: navigator.userAgent.substring(0, 50) // Dla bezpieczeństwa
-            };
-
-            // Kompresja danych
-            const compressedData = this.compressData(JSON.stringify(draftData));
-
-            // Sprawdź rozmiar (cookies mają limit ~4KB)
-            if (compressedData.length > 3500) {
-                console.warn('[QuoteDraft] Draft zbyt duży, pomijam zapis');
-                return false;
+            // Sprawdź czy istniejący draft ma inną grupę cenową
+            const existingDraft = this.loadDraft();
+            if (existingDraft && !this.hasClientGroupChanged(existingDraft)) {
+                // Jeśli grupa się nie zmieniła, zaktualizuj tylko inne dane
+                currentData.quote_client_type = existingDraft.quote_client_type;
+                console.log('[QuoteDraft] Zachowano grupę cenową z istniejącego draft:', existingDraft.quote_client_type);
             }
 
-            // Ustaw cookie z wygaśnięciem po 3 minutach
-            const expiryDate = new Date();
-            expiryDate.setMinutes(expiryDate.getMinutes() + this.EXPIRY_MINUTES);
+            // Kompresja i zapis
+            const compressedData = this.compressData(JSON.stringify(currentData));
 
-            document.cookie = `${this.COOKIE_NAME}=${compressedData}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+            // Utwórz cookie z długim czasem wygaśnięcia
+            const expireDate = new Date();
+            expireDate.setMinutes(expireDate.getMinutes() + this.EXPIRY_MINUTES);
 
-            console.log('[QuoteDraft] Zapisano draft do cookie, rozmiar:', compressedData.length, 'bajtów');
-            return true;
+            document.cookie = `${this.COOKIE_NAME}=${compressedData}; expires=${expireDate.toUTCString()}; path=/; SameSite=Lax`;
+
+            console.log('[QuoteDraft] Draft zapisany z grupą cenową:', currentData.quote_client_type);
 
         } catch (error) {
             console.error('[QuoteDraft] Błąd przy zapisywaniu draft:', error);
-            return false;
         }
     }
 
@@ -338,26 +327,42 @@ class QuoteDraftManager {
      * Ulepszone wykrywanie grupy cenowej
      */
     detectClientGroup() {
-        // Najpierw sprawdź select #clientType z formularza
+        // 1. Najpierw sprawdź select #clientType z formularza
         const clientTypeSelect = document.querySelector('#clientType');
-        if (clientTypeSelect && clientTypeSelect.value) {
+        if (clientTypeSelect && clientTypeSelect.value && clientTypeSelect.value !== '') {
             console.log('[QuoteDraft] Wykryto grupę cenową z #clientType:', clientTypeSelect.value);
             return clientTypeSelect.value;
         }
 
-        // Z logów widzę że masz zmienną multiplierMapping
-        if (typeof multiplierMapping !== 'undefined') {
+        // 2. Sprawdź wszystkie selecty grup cenowych w formularzach produktów
+        const productForms = document.querySelectorAll('.quote-form');
+        for (const form of productForms) {
+            const select = form.querySelector('select[data-field="clientType"]');
+            if (select && select.value && select.value !== '') {
+                console.log('[QuoteDraft] Wykryto grupę cenową z formularza produktu:', select.value);
+                return select.value;
+            }
+        }
+
+        // 3. Sprawdź zmienną globalną currentClientType
+        if (typeof currentClientType !== 'undefined' && currentClientType && currentClientType !== '') {
+            console.log('[QuoteDraft] Wykryto grupę cenową z currentClientType:', currentClientType);
+            return currentClientType;
+        }
+
+        // 4. Z logów widzę że masz zmienną multiplierMapping
+        if (typeof multiplierMapping !== 'undefined' && typeof userMultiplier !== 'undefined') {
             // Znajdź aktualnie wybraną grupę na podstawie userMultiplier
             const currentMultiplier = userMultiplier || 1;
             for (const [groupName, multiplier] of Object.entries(multiplierMapping)) {
-                if (multiplier === currentMultiplier) {
+                if (Math.abs(multiplier - currentMultiplier) < 0.001) { // Porównanie z tolerancją
                     console.log('[QuoteDraft] Wykryto grupę cenową z multiplierMapping:', groupName);
                     return groupName;
                 }
             }
         }
 
-        // Sprawdź inne możliwe selektory
+        // 5. Sprawdź inne możliwe selektory
         const groupSelectors = [
             'select[name="quote_client_type"]',
             'select[name="client_group"]',
@@ -366,15 +371,32 @@ class QuoteDraftManager {
 
         for (const selector of groupSelectors) {
             const element = document.querySelector(selector);
-            if (element && element.value) {
+            if (element && element.value && element.value !== '') {
                 console.log('[QuoteDraft] Wykryto grupę cenową z selecta:', element.value);
                 return element.value;
             }
         }
 
-        // Fallback - domyślna grupa z logów
-        console.log('[QuoteDraft] Używam domyślnej grupy: Florek');
+        // 6. TYLKO w ostateczności użyj domyślnej grupy
+        console.warn('[QuoteDraft] Nie znaleziono grupy cenowej, używam domyślnej: Florek');
         return 'Florek';
+    }
+
+    hasClientGroupChanged(draftData) {
+        if (!draftData || !draftData.quote_client_type) {
+            return true; // Brak danych w draft - zawsze zapisz
+        }
+
+        const currentGroup = this.detectClientGroup();
+        const savedGroup = draftData.quote_client_type;
+
+        const hasChanged = currentGroup !== savedGroup;
+
+        if (hasChanged) {
+            console.log('[QuoteDraft] Grupa cenowa się zmieniła:', savedGroup, '->', currentGroup);
+        }
+
+        return hasChanged;
     }
 
     /**
