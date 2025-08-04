@@ -23,8 +23,6 @@ let messageTimeouts = [];
 let currentClientType = '';
 let currentMultiplier = 1.0;
 let mainContainer = null;
-let quoteDraftManager = null;
-let isDraftRestoreInProgress = false;
 
 // Pobieranie cen wykończeń z bazy danych
 async function loadFinishingPrices() {
@@ -162,8 +160,6 @@ async function calculateDelivery() {
             overlay.style.display = 'none';
         }
     }
-
-    document.dispatchEvent(new CustomEvent('delivery-calculated'));
 }
 
 const variantMapping = {
@@ -244,9 +240,6 @@ function getPrice(species, technology, wood_class, thickness, length) {
 }
 
 /**
- * Aktualizuje globalne podsumowanie
- */
-/**
  * Aktualizuje globalne podsumowanie oraz pojedynczy koszt aktywnego formularza
  */
 function updateGlobalSummary() {
@@ -325,7 +318,7 @@ function updateGlobalSummary() {
  */
 function updatePrices() {
     dbg("updatePrices: start");
-    
+
     if (!activeQuoteForm) {
         console.warn("updatePrices: Brak aktywnego formularza");
         return;
@@ -355,13 +348,13 @@ function updatePrices() {
     }
 
     const clientType = clientTypeEl ? clientTypeEl.value : "";
-    
+
     // ✅ ZACHOWAJ: Walidacja grupy cenowej z error-outline
     if (clientTypeEl) {
         if (!clientType) clientTypeEl.classList.add('error-outline');
         else clientTypeEl.classList.remove('error-outline');
     }
-    
+
     if (!isPartner && !clientType) {
         showErrorForAllVariants("Brak grupy", variantContainer);
         activeQuoteForm.dataset.orderBrutto = "";
@@ -411,7 +404,7 @@ function updatePrices() {
 
     const variantItems = Array.from(variantContainer.children)
         .filter(child => child.querySelector('input[type="radio"]'));
-        
+
     const tabIndex = Array.from(quoteFormsContainer.querySelectorAll('.quote-form')).indexOf(activeQuoteForm);
     dbg("updatePrices: tabIndex", tabIndex);
 
@@ -424,12 +417,12 @@ function updatePrices() {
     variantItems.forEach(variant => {
         variant.querySelectorAll('*').forEach(el => el.style.color = "");
     });
-        
+
     // Oblicz ceny dla wszystkich wariantów
     variantItems.forEach(variant => {
         const radio = variant.querySelector('input[type="radio"]');
         if (!radio) return;
-        
+
         const id = radio.value;
         const config = variantMapping[id];
         if (!config) return;
@@ -445,7 +438,7 @@ function updatePrices() {
         if (match && unitBruttoSpan && unitNettoSpan && totalBruttoSpan && totalNettoSpan) {
             const basePrice = match.price_per_m3;
             dbg("→ obliczenia:", { basePrice, singleVolume, multiplier });
-            
+
             let effectiveMultiplier = multiplier;
             let unitNetto = singleVolume * basePrice * effectiveMultiplier;
 
@@ -478,17 +471,17 @@ function updatePrices() {
     // ✅ POPRAWKA: Znajdź zaznaczony radio button BEZ zmiany nazw
     // Używamy prostego selektora :checked zamiast manipulacji nazwami
     const selectedRadio = activeQuoteForm.querySelector('input[type="radio"]:checked');
-    
+
     if (selectedRadio && selectedRadio.dataset.totalBrutto && selectedRadio.dataset.totalNetto) {
         activeQuoteForm.dataset.orderBrutto = selectedRadio.dataset.totalBrutto;
         activeQuoteForm.dataset.orderNetto = selectedRadio.dataset.totalNetto;
-        
+
         // Pokoloruj wybrany wariant
         const selectedVariant = selectedRadio.closest('div');
         if (selectedVariant) {
             selectedVariant.querySelectorAll('*').forEach(el => el.style.color = "#ED6B24");
         }
-        
+
         console.log(`[updatePrices] Zaznaczony wariant w produkcie ${tabIndex + 1}: ${selectedRadio.value}`);
     } else {
         activeQuoteForm.dataset.orderBrutto = "";
@@ -501,19 +494,12 @@ function updatePrices() {
     updateGlobalSummary();
     updateCalculateDeliveryButtonState();
     generateProductsSummary();
-    
+
     // ✅ ZACHOWAJ: Przelicz inne produkty tylko przy zmianie wymiarów
     if (lengthEl.matches(':focus') || widthEl.matches(':focus') || thicknessEl.matches(':focus') || quantityEl.matches(':focus')) {
         updatePricesInOtherProducts();
     }
 
-    setTimeout(() => {
-        if (!checkRadioButtonIntegrity()) {
-            console.log("🔧 Wykryto problemy z radio buttonami - próba naprawy...");
-        }
-    }, 100);
-
-    
     dbg("← updatePrices end");
 }
 
@@ -906,18 +892,23 @@ function attachFormListeners(form) {
 
     console.log(`[attachFormListeners] Dodaję listenery dla formularza`);
 
-    // POPRAWKA: Usuń wszystkie poprzednie event listenery
+    // POPRAWNE ROZWIĄZANIE - bez klonowania
     const inputs = form.querySelectorAll('input[data-field], select[data-field]');
     inputs.forEach(input => {
-        // Klonuj element żeby usunąć wszystkie event listenery
-        const newInput = input.cloneNode(true);
-        input.parentNode.replaceChild(newInput, input);
+        // Usuń poprzednie listenery bezpośrednio
+        input.removeEventListener('input', updatePrices);
+        input.removeEventListener('change', updatePrices);
 
         // Dodaj nowe listenery
-        if (newInput.matches('input[data-field]')) {
-            newInput.addEventListener('input', updatePrices);
-        } else if (newInput.matches('select[data-field]')) {
-            newInput.addEventListener('change', updatePrices);
+        if (input.matches('input[data-field]')) {
+            input.addEventListener('input', updatePrices);
+        } else if (input.matches('select[data-field]')) {
+            input.addEventListener('change', updatePrices);
+        }
+
+        // DEBUG: Sprawdź wartość grupy cenowej
+        if (input.matches('select[data-field="clientType"]')) {
+            console.log(`[attachFormListeners] Grupa cenowa w formularzu: ${input.value}`);
         }
     });
 
@@ -1174,53 +1165,6 @@ function resetVariantPrices(form, missingField = 'długości') {
     form.dataset.orderNetto = '';
 }
 
-// ========== FUNKCJA TESTOWA DO SPRAWDZENIA POPRAWKI ==========
-
-window.testUniqueNames = function() {
-    console.log("\n🧪 TEST UNIKALNOŚCI NAZW:");
-    
-    const allForms = document.querySelectorAll('.quote-form');
-    const radiosByName = {};
-    
-    // Zbierz wszystkie radio buttons po nazwie
-    document.querySelectorAll('input[type="radio"]').forEach(radio => {
-        if (!radiosByName[radio.name]) {
-            radiosByName[radio.name] = [];
-        }
-        radiosByName[radio.name].push({
-            id: radio.id,
-            formIndex: Array.from(radio.closest('.quote-form').parentNode.children).indexOf(radio.closest('.quote-form'))
-        });
-    });
-    
-    // Sprawdź konflikty
-    let hasConflicts = false;
-    Object.entries(radiosByName).forEach(([name, radios]) => {
-        if (radios.length > 8) { // Każdy formularz ma 8 radio buttons
-            console.error(`❌ KONFLIKT: "${name}" - ${radios.length} radio buttons`);
-            hasConflicts = true;
-        } else if (radios.length === 8) {
-            // Sprawdź czy wszystkie należą do tego samego formularza
-            const formIndices = [...new Set(radios.map(r => r.formIndex))];
-            if (formIndices.length === 1) {
-                console.log(`✅ OK: "${name}" - 8 radio buttons w formularzu ${formIndices[0] + 1}`);
-            } else {
-                console.error(`❌ KONFLIKT: "${name}" - radio buttons w wielu formularzach: ${formIndices.map(i => i + 1).join(', ')}`);
-                hasConflicts = true;
-            }
-        }
-    });
-    
-    if (!hasConflicts) {
-        console.log("✅ Wszystkie nazwy radio buttons są unikalne!");
-    }
-    
-    return !hasConflicts;
-};
-
-console.log("✅ Ostateczna poprawka funkcji prepareNewProductForm została załadowana!");
-console.log("Dostępne funkcje testowe:");
-console.log("- testUniqueNames() - sprawdza unikalność nazw radio buttons");
 
 /**
  * Toggles visibility of the angle column in the edge3d table
@@ -1521,7 +1465,6 @@ function attachCalculateDeliveryListener() {
         return;
     }
     calculateDeliveryBtn.addEventListener('click', calculateDelivery);
-    dbg("Podpięty event listener do .calculate-delivery");
 }
 
 /**
@@ -1726,7 +1669,6 @@ function init() {
     }
     try {
         pricesFromDatabase = JSON.parse(pricesDataEl.textContent);
-        dbg("Dane cennika:", pricesFromDatabase);
         buildPriceIndex();
     } catch (e) {
         console.error("Niepoprawny JSON w #prices-data", e);
@@ -1913,9 +1855,14 @@ function init() {
         if (e.target.matches('select[data-field="clientType"]')) {
             const selectedType = e.target.value;
             const sourceForm = e.target.closest('.quote-form');
-            
-            if (selectedType && sourceForm) {
+
+            // ✅ POPRAWKA: Synchronizuj TYLKO jeśli zmiana pochodzi od użytkownika
+            // NIE synchronizuj jeśli zmiana jest programowa (np. podczas addNewProduct)
+            if (selectedType && sourceForm && e.isTrusted) {
+                console.log(`[Event] Użytkownik zmienił grupę na ${selectedType} - synchronizuję`);
                 syncClientTypeAcrossProducts(selectedType, sourceForm);
+            } else if (!e.isTrusted) {
+                console.log(`[Event] Programowa zmiana grupy na ${selectedType} - pomijam synchronizację`);
             }
         }
     });
@@ -3559,8 +3506,6 @@ function removeProduct(index) {
     // Odśwież podsumowanie
     generateProductsSummary();
     updateGlobalSummary();
-
-    document.dispatchEvent(new CustomEvent('product-removed'));
 }
 
 /**
@@ -3698,8 +3643,9 @@ function addNewProduct() {
     console.log("[addNewProduct] Zapisane stany zaznaczonych wariantów:", selectedStates);
 
     // KROK 2: Pobierz aktualną grupę cenową
-    const currentClientType = firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
-    console.log(`[addNewProduct] Aktualna grupa cenowa: ${currentClientType}`);
+    const currentClientType = activeQuoteForm?.querySelector('select[data-field="clientType"]')?.value ||
+        firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
+    console.log(`[addNewProduct] Aktualna grupa cenowa z aktywnego formularza: ${currentClientType}`);
 
     const newIndex = allForms.length;
 
@@ -3716,6 +3662,15 @@ function addNewProduct() {
         if (select) {
             select.value = currentClientType;
             console.log(`[addNewProduct] Przywrócono grupę cenową: ${currentClientType}`);
+        }
+    }
+
+    // KROK 4.1: Przywróć grupę cenową TAKŻE w aktywnym formularzu
+    if (currentClientType && activeQuoteForm) {
+        const activeSelect = activeQuoteForm.querySelector('select[data-field="clientType"]');
+        if (activeSelect && activeSelect.value !== currentClientType) {
+            activeSelect.value = currentClientType;
+            console.log(`[addNewProduct] Skorygowano grupę cenową w aktywnym formularzu: ${currentClientType}`);
         }
     }
 
@@ -3755,8 +3710,6 @@ function addNewProduct() {
         // ✅ POPRAWKA: Upewnij się, że klasy 'selected' są prawidłowe we wszystkich formularzach
         fixSelectedClasses();
     }, 150);
-
-    document.dispatchEvent(new CustomEvent('product-added'));
 
     console.log(`[addNewProduct] ✅ Pomyślnie dodano produkt ${newIndex + 1}`);
 }
@@ -4379,715 +4332,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Dodaj globalną funkcję do debugowania
     window.debugRadioButtons = checkRadioButtonIntegrity;
 
-    // Inicjalizuj draft manager
-    initializeDraftManager();
-
     console.log("✅ Poprawki resetowania wariantów zostały zainicjalizowane!");
 });
 
 // ========== KONIEC POPRAWEK ==========
 
 console.log("✅ Poprawki resetowania wariantów zostały załadowane!");
-
-/**
- * Inicjalizacja systemu draft wyceny
- */
-function initializeDraftManager() {
-    // Pobierz ID użytkownika z sesji/DOM
-    const userId = getUserId(); // Musisz zaimplementować tę funkcję
-
-    // Utwórz menedżer
-    quoteDraftManager = new QuoteDraftManager(userId);
-
-    // Sprawdź czy istnieje draft do przywrócenia
-    const savedDraft = quoteDraftManager.cleanupEmptyDraft();
-
-    if (savedDraft) {
-        showDraftRestoreModal(savedDraft);
-    }
-
-    // Skonfiguruj autosave
-    setupAutosave();
-
-    console.log('[Calculator] Draft manager zainicjalizowany');
-}
-
-/**
- * Przywraca produkty z minimalnych danych - NOWA FUNKCJA
- */
-function restoreMinimalProductsFromDraft(products) {
-    console.log('[Calculator] Przywracam', products.length, 'produktów z draft');
-
-    products.forEach((product, productIndex) => {
-        try {
-            const existingForms = document.querySelectorAll('.quote-form');
-
-            if (productIndex < existingForms.length) {
-                // Użyj istniejącego formularza
-                const targetForm = existingForms[productIndex];
-                if (product.variants && product.variants.length > 0) {
-                    const variant = product.variants[0];
-                    restoreVariantDataToForm(targetForm, variant);
-                    console.log('[Calculator] Przywrócono dane do istniejącego formularza', productIndex + 1);
-                }
-            } else {
-                // Musimy dodać nowy formularz
-                console.log('[Calculator] Dodaję nowy formularz dla produktu', productIndex + 1);
-
-                const addProductBtn = document.getElementById('add-product-btn');
-                if (addProductBtn) {
-                    addProductBtn.click();
-
-                    // Poczekaj na utworzenie formularza i przywróć dane
-                    setTimeout(() => {
-                        const newForms = document.querySelectorAll('.quote-form');
-                        const newForm = newForms[newForms.length - 1];
-
-                        if (newForm && product.variants && product.variants.length > 0) {
-                            const variant = product.variants[0];
-                            restoreVariantDataToForm(newForm, variant);
-                            console.log('[Calculator] Przywrócono dane do nowego formularza', productIndex + 1);
-                        }
-                    }, 300 * (productIndex + 1)); // Zwiększ opóźnienie dla każdego kolejnego produktu
-                }
-            }
-
-        } catch (error) {
-            console.error('[Calculator] Błąd przy przywracaniu produktu', productIndex + 1, ':', error);
-        }
-    });
-}
-
-/**
- * Przywraca dane wariantu do formularza - NOWA FUNKCJA
- */
-function restoreVariantDataToForm(form, variant) {
-    console.log('[Calculator] Wypełniam formularz danymi:', variant);
-
-    // Przywróć wymiary
-    if (variant.length > 0) {
-        const lengthInput = form.querySelector('#length');
-        if (lengthInput) {
-            lengthInput.value = variant.length;
-            lengthInput.dispatchEvent(new Event('input', { bubbles: true }));
-            console.log('[Calculator] Ustawiono długość:', variant.length);
-        }
-    }
-
-    if (variant.width > 0) {
-        const widthInput = form.querySelector('#width');
-        if (widthInput) {
-            widthInput.value = variant.width;
-            widthInput.dispatchEvent(new Event('input', { bubbles: true }));
-            console.log('[Calculator] Ustawiono szerokość:', variant.width);
-        }
-    }
-
-    if (variant.thickness > 0) {
-        const thicknessInput = form.querySelector('#thickness');
-        if (thicknessInput) {
-            thicknessInput.value = variant.thickness;
-            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-            console.log('[Calculator] Ustawiono grubość:', variant.thickness);
-        }
-    }
-
-    if (variant.quantity > 1) {
-        const quantityInput = form.querySelector('#quantity');
-        if (quantityInput) {
-            quantityInput.value = variant.quantity;
-            quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
-            console.log('[Calculator] Ustawiono ilość:', variant.quantity);
-        }
-    }
-
-    // Przywróć wariant drewna - OPÓŹNIONE
-    if (variant.variant_key) {
-        setTimeout(() => {
-            const radioButton = form.querySelector(`input[type="radio"][value="${variant.variant_key}"]`);
-            if (radioButton) {
-                radioButton.checked = true;
-                radioButton.dispatchEvent(new Event('change', { bubbles: true }));
-                console.log('[Calculator] Zaznaczono wariant:', variant.variant_key);
-
-                // Wymuszaj przeliczenie po zaznaczeniu wariantu
-                setTimeout(() => {
-                    if (typeof updatePrices === 'function') {
-                        updatePrices();
-                    }
-                }, 100);
-            } else {
-                console.warn('[Calculator] Nie znaleziono radio button dla:', variant.variant_key);
-            }
-        }, 200);
-    }
-}
-
-/**
- * Przywraca grupę cenową - NOWA FUNKCJA  
- */
-function restoreClientGroup(clientType) {
-    console.log('[Calculator] Przywracanie grupy cenowej:', clientType);
-
-    // Najpierw ustaw zmienne globalne
-    if (typeof multiplierMapping !== 'undefined' && multiplierMapping[clientType]) {
-        currentClientType = clientType;
-        currentMultiplier = multiplierMapping[clientType];
-        userMultiplier = multiplierMapping[clientType];
-
-        console.log('[Calculator] Zaktualizowano zmienne globalne:', {
-            currentClientType,
-            currentMultiplier,
-            userMultiplier
-        });
-    }
-
-    // Następnie zaktualizuj wszystkie selecty w formularzach
-    const clientTypeSelects = document.querySelectorAll('#clientType, select[data-field="clientType"]');
-    clientTypeSelects.forEach(select => {
-        if (select && select.value !== clientType) {
-            select.value = clientType;
-            // NIE WYWOŁUJ event change - to może wywołać ponowny zapis draft
-            console.log('[Calculator] Zaktualizowano select grupa cenowa:', clientType);
-        }
-    });
-
-    // Opóźnij przeliczenie cen, żeby zmienne globalne się ustabilizowały
-    setTimeout(() => {
-        if (typeof updatePrices === 'function') {
-            updatePrices();
-        }
-    }, 100);
-}
-
-/**
- * Konfiguracja automatycznego zapisywania
- */
-function setupAutosave() {
-    if (!quoteDraftManager) return;
-
-    // Lista eventów, które powinny uruchomić zapis
-    const autosaveEvents = [
-        'product-added',
-        'product-removed',
-        'variant-changed',
-        'client-selected',
-        'delivery-calculated',
-        'form-changed'
-    ];
-
-    // Dodaj listenery dla eventów
-    autosaveEvents.forEach(eventName => {
-        document.addEventListener(eventName, () => {
-            // SPRAWDŹ czy przywracanie draft nie jest w toku
-            if (isDraftRestoreInProgress) {
-                console.log('[setupAutosave] Pominięto autosave - trwa przywracanie draft');
-                return;
-            }
-
-            // Opóźnij zapis, żeby DOM się zaktualizował
-            setTimeout(() => {
-                if (!isDraftRestoreInProgress) { // Sprawdź ponownie
-                    quoteDraftManager.saveDraft();
-                }
-            }, 300);
-        });
-    });
-
-    // Zapis przy zmianie inputów - z blokowaniem podczas restore
-    const inputSelectors = [
-        'input[data-field]',
-        'select[data-field]',
-        'input[name="client_name"]',
-        'input[name="client_email"]',
-        'input[name="client_phone"]',
-        'select[name="quote_source"]'
-    ];
-
-    inputSelectors.forEach(selector => {
-        document.addEventListener('input', (e) => {
-            if (e.target.matches(selector) && !isDraftRestoreInProgress) {
-                setTimeout(() => {
-                    if (!isDraftRestoreInProgress) {
-                        quoteDraftManager.saveDraft();
-                    }
-                }, 500);
-            }
-        });
-
-        document.addEventListener('change', (e) => {
-            if (e.target.matches(selector) && !isDraftRestoreInProgress) {
-                setTimeout(() => {
-                    if (!isDraftRestoreInProgress) {
-                        quoteDraftManager.saveDraft();
-                    }
-                }, 500);
-            }
-        });
-    });
-
-    console.log('[setupAutosave] Autosave skonfigurowany z blokowaniem podczas restore');
-}
-
-/**
- * Pokazuje modal przywracania draft
- */
-function showDraftRestoreModal(draftData) {
-    const modal = document.getElementById('draft-restore-modal');
-    if (!modal) {
-        console.error('[Calculator] Brak modala draft-restore-modal');
-        return;
-    }
-
-    const data = draftData.data;
-
-    // Wypełnij podstawowe informacje
-    document.getElementById('draft-time-ago').textContent = quoteDraftManager.formatTimeAgo(draftData.timestamp);
-
-    // Generuj listę produktów
-    const productsInfo = generateProductsList(data.products);
-
-    // Znajdź element gdzie wyświetlić produkty
-    const productCountElement = document.getElementById('draft-products-count');
-    if (productCountElement) {
-        productCountElement.innerHTML = productsInfo;
-    }
-
-    // Ukryj niepotrzebne informacje
-    const clientInfoElement = document.getElementById('draft-client-info');
-    const sourceInfoElement = document.getElementById('draft-source-info');
-    const totalValueElement = document.getElementById('draft-total-value');
-
-    if (clientInfoElement) clientInfoElement.parentElement.style.display = 'none';
-    if (sourceInfoElement) sourceInfoElement.parentElement.style.display = 'none';
-    if (totalValueElement) totalValueElement.parentElement.style.display = 'none';
-
-    // Pokaż ostrzeżenie o wygaśnięciu
-    showDraftExpiryWarning(draftData.timestamp);
-
-    // Event listenery dla przycisków
-    setupDraftModalButtons(data);
-
-    // Pokaż modal
-    modal.style.display = 'flex';
-
-    console.log('[Calculator] Pokazano modal przywracania draft z listą produktów');
-}
-
-/**
- * Generuje HTML z listą produktów
- */
-function generateProductsList(products) {
-    if (!products || products.length === 0) {
-        return '<div style="color: #666; font-style: italic;">Brak produktów</div>';
-    }
-
-    let html = '<div style="text-align: left; margin-top: 10px;">';
-
-    products.forEach((product, index) => {
-        if (product.variants && product.variants.length > 0) {
-            const variant = product.variants[0]; // Bierzemy pierwszy wariant
-
-            // Dekoduj wariant drewna
-            const woodInfo = decodeWoodVariant(variant.variant_key);
-
-            // Generuj opis produktu
-            let productDesc = `<strong>Produkt ${index + 1}</strong> - `;
-
-            if (woodInfo.species && woodInfo.technology && woodInfo.wood_class) {
-                productDesc += `${woodInfo.species} ${woodInfo.technology} ${woodInfo.wood_class}`;
-            } else if (variant.variant_key) {
-                productDesc += variant.variant_key;
-            } else {
-                productDesc += 'nieznany wariant';
-            }
-
-            // Dodaj wymiary jeśli są
-            if (variant.length > 0 && variant.width > 0 && variant.thickness > 0) {
-                productDesc += ` ${variant.length}×${variant.width}×${variant.thickness} cm`;
-            }
-
-            // Dodaj wykończenie
-            if (variant.finishing_type && variant.finishing_type !== 'Surowe') {
-                productDesc += ` ${variant.finishing_type.toLowerCase()}`;
-            } else {
-                productDesc += ' surowy';
-            }
-
-            // Dodaj ilość jeśli > 1
-            if (variant.quantity > 1) {
-                productDesc += ` (${variant.quantity} szt.)`;
-            }
-
-            html += `<div style="margin-bottom: 8px; padding: 5px 0; border-bottom: 1px solid #eee;">${productDesc}</div>`;
-        }
-    });
-
-    html += '</div>';
-    return html;
-}
-
-/**
- * Dekoduje klucz wariantu drewna na czytelne nazwy
- */
-function decodeWoodVariant(variantKey) {
-    const variantMapping = {
-        'dab-lity-ab': { species: 'Dąb', technology: 'lity', wood_class: 'A/B' },
-        'dab-lity-bb': { species: 'Dąb', technology: 'lity', wood_class: 'B/B' },
-        'dab-micro-ab': { species: 'Dąb', technology: 'mikrowczep', wood_class: 'A/B' },
-        'dab-micro-bb': { species: 'Dąb', technology: 'mikrowczep', wood_class: 'B/B' },
-        'jes-lity-ab': { species: 'Jesion', technology: 'lity', wood_class: 'A/B' },
-        'jes-micro-ab': { species: 'Jesion', technology: 'mikrowczep', wood_class: 'A/B' },
-        'buk-lity-ab': { species: 'Buk', technology: 'lity', wood_class: 'A/B' },
-        'buk-micro-ab': { species: 'Buk', technology: 'mikrowczep', wood_class: 'A/B' }
-    };
-
-    return variantMapping[variantKey] || { species: '', technology: '', wood_class: '' };
-}
-
-/**
- * Konfiguruje przyciski w modalu draft
- */
-function setupDraftModalButtons(draftData) {
-    const restoreBtn = document.getElementById('restore-draft-btn');
-    const newQuoteBtn = document.getElementById('new-quote-btn');
-    const modal = document.getElementById('draft-restore-modal');
-
-    // Przycisk przywracania
-    restoreBtn.onclick = () => {
-        restoreQuoteFromDraft(draftData);
-        modal.style.display = 'none';
-        quoteDraftManager.clearDraft();
-
-        // Pokaż powiadomienie o przywróceniu
-        showNotification('Wycena została przywrócona', 'success');
-
-        console.log('[Calculator] Przywrócono wycenę z draft');
-    };
-
-    // Przycisk nowej wyceny
-    newQuoteBtn.onclick = () => {
-        modal.style.display = 'none';
-        quoteDraftManager.clearDraft();
-
-        // Wyczyść formularz (opcjonalnie)
-        clearQuoteForm();
-
-        console.log('[Calculator] Rozpoczęto nową wycenę, draft usunięty');
-    };
-}
-
-/**
- * Przywraca wycenę z danych draft - ZMODYFIKOWANA WERSJA
- */
-function restoreQuoteFromDraft(draftData) {
-    try {
-        console.log('[Calculator] Rozpoczynam przywracanie draft...');
-
-        // ZABLOKUJ autosave podczas przywracania
-        isDraftRestoreInProgress = true;
-
-        // Przywróć dane klienta
-        if (draftData.client_name) {
-            setInputValue('[name="client_name"]', draftData.client_name);
-        }
-        if (draftData.client_email) {
-            setInputValue('[name="client_email"]', draftData.client_email);
-        }
-        if (draftData.client_phone) {
-            setInputValue('[name="client_phone"]', draftData.client_phone);
-        }
-        if (draftData.client_id) {
-            setInputValue('[name="client_id"]', draftData.client_id);
-        }
-        if (draftData.quote_source) {
-            setSelectValue('[name="quote_source"]', draftData.quote_source);
-        }
-
-        // Przywróć grupę cenową NAJPIERW
-        if (draftData.quote_client_type) {
-            restoreClientGroup(draftData.quote_client_type);
-        }
-
-        // Przywróć produkty po krótkiej przerwie
-        if (draftData.products && draftData.products.length > 0) {
-            setTimeout(() => {
-                restoreMinimalProductsFromDraft(draftData.products);
-            }, 500);
-        }
-
-        // ODBLOKUJ autosave i wykonaj finalne przeliczenie
-        setTimeout(() => {
-            isDraftRestoreInProgress = false;
-            console.log('[Calculator] Przywracanie draft zakończone, odblokowano autosave');
-
-            if (typeof updatePrices === 'function') {
-                updatePrices();
-            }
-        }, 2000);
-
-        console.log('[Calculator] Rozpoczęto przywracanie draft');
-
-    } catch (error) {
-        isDraftRestoreInProgress = false; // Odblokuj w przypadku błędu
-        console.error('[Calculator] Błąd przy przywracaniu draft:', error);
-        showNotification('Błąd przy przywracaniu wyceny', 'error');
-    }
-}
-
-/**
- * Funkcje pomocnicze
- */
-function getUserId() {
-    // Możesz pobrać z:
-    // 1. Meta tag w HTML
-    const metaUserId = document.querySelector('meta[name="user-id"]');
-    if (metaUserId) return metaUserId.content;
-
-    // 2. Zmiennej globalnej JavaScript
-    if (typeof currentUserId !== 'undefined') return currentUserId;
-
-    // 3. Z sesji lub localStorage
-    const sessionUserId = sessionStorage.getItem('user_id');
-    if (sessionUserId) return sessionUserId;
-
-    // Fallback
-    return 'anonymous';
-}
-
-function getClientDisplayInfo(data) {
-    if (data.client_name && data.client_name.trim()) {
-        return data.client_name.trim();
-    }
-    if (data.client_email && data.client_email.trim()) {
-        return data.client_email.trim();
-    }
-    if (data.client_phone && data.client_phone.trim()) {
-        return data.client_phone.trim();
-    }
-    return 'Brak danych';
-}
-
-function setInputValue(selector, value) {
-    const element = document.querySelector(selector);
-    if (element) {
-        element.value = value;
-        // Wywołaj event change
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-}
-
-function setSelectValue(selector, value) {
-    const element = document.querySelector(selector);
-    if (element) {
-        element.value = value;
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-}
-
-function showDraftExpiryWarning(draftTimestamp) {
-    const warningDiv = document.getElementById('draft-warning');
-    const expiresInSpan = document.getElementById('draft-expires-in');
-
-    if (!warningDiv || !expiresInSpan) return;
-
-    const now = Date.now();
-    const expiryTime = draftTimestamp + (3 * 60 * 1000); // 3 minuty
-    const timeLeft = expiryTime - now;
-
-    if (timeLeft > 0) {
-        const secondsLeft = Math.floor(timeLeft / 1000);
-        const minutesLeft = Math.floor(secondsLeft / 60);
-        const secondsRemainder = secondsLeft % 60;
-
-        let timeText;
-        if (minutesLeft > 0) {
-            timeText = `${minutesLeft}m ${secondsRemainder}s`;
-        } else {
-            timeText = `${secondsRemainder}s`;
-        }
-
-        expiresInSpan.textContent = timeText;
-        warningDiv.style.display = 'block';
-    }
-}
-
-function showNotification(message, type = 'info') {
-    // Prosty notification - możesz zastąpić swoim systemem
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        border-radius: 5px;
-        color: white;
-        font-weight: 500;
-        z-index: 10000;
-        animation: slideIn 0.3s ease-out;
-        max-width: 300px;
-    `;
-
-    if (type === 'success') {
-        notification.style.background = '#28a745';
-    } else if (type === 'error') {
-        notification.style.background = '#dc3545';
-    } else {
-        notification.style.background = '#17a2b8';
-    }
-
-    notification.textContent = message;
-    document.body.appendChild(notification);
-
-    // Usuń po 3 sekundach
-    setTimeout(() => {
-        notification.remove();
-    }, 3000);
-}
-
-function clearQuoteForm() {
-    // Wyczyść podstawowe pola
-    const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], textarea');
-    inputs.forEach(input => {
-        input.value = '';
-    });
-
-    // Resetuj select
-    const selects = document.querySelectorAll('select');
-    selects.forEach(select => {
-        select.selectedIndex = 0;
-    });
-
-    // Wyczyść produkty (jeśli masz taką funkcję)
-    if (typeof clearAllProducts === 'function') {
-        clearAllProducts();
-    }
-
-    console.log('[Calculator] Formularz wyczyszczony');
-}
-
-/**
-* Przywraca produkty z draft
-*/
-function restoreProductsFromDraft(products) {
-    if (!products || !Array.isArray(products)) return;
-
-    console.log('[Calculator] Przywracam', products.length, 'produktów z draft');
-
-    products.forEach((product, index) => {
-        try {
-            // Dodaj produkt do interfejsu
-            if (typeof addProductFromData === 'function') {
-                addProductFromData(product);
-            } else {
-                // Fallback - dodaj produkt podstawową metodą
-                addProductManually(product);
-            }
-
-        } catch (error) {
-            console.error('[Calculator] Błąd przy przywracaniu produktu', index, ':', error);
-        }
-    });
-
-    console.log('[Calculator] Produkty przywrócone z draft');
-}
-
-/**
- * Dodaje produkt ręcznie na podstawie danych
- */
-function addProductManually(productData) {
-    // Ta funkcja musi być dostosowana do Twojej struktury produktów
-    // Przykład - dostosuj do swojego interfejsu:
-
-    // 1. Kliknij przycisk dodaj produkt
-    const addProductBtn = document.getElementById('add-product-btn');
-    if (addProductBtn) {
-        addProductBtn.click();
-    }
-
-    // 2. Poczekaj na utworzenie nowego formularza produktu
-    setTimeout(() => {
-        const productForms = document.querySelectorAll('.quote-form');
-        const lastForm = productForms[productForms.length - 1];
-
-        if (lastForm && productData.variants) {
-            // Przywróć warianty produktu
-            productData.variants.forEach(variant => {
-                restoreVariantInForm(lastForm, variant);
-            });
-        }
-    }, 100);
-}
-
-/**
- * Przywraca wariant w formularzu produktu
- */
-function restoreVariantInForm(form, variantData) {
-    try {
-        // Znajdź pola w formularzu i wypełnij je
-        const lengthInput = form.querySelector('input[name*="length"]');
-        const widthInput = form.querySelector('input[name*="width"]');
-        const thicknessInput = form.querySelector('input[name*="thickness"]');
-        const quantityInput = form.querySelector('input[name*="quantity"]');
-        const variantSelect = form.querySelector('select[name*="variant"]');
-
-        if (lengthInput && variantData.length) {
-            lengthInput.value = variantData.length;
-        }
-        if (widthInput && variantData.width) {
-            widthInput.value = variantData.width;
-        }
-        if (thicknessInput && variantData.thickness) {
-            thicknessInput.value = variantData.thickness;
-        }
-        if (quantityInput && variantData.quantity) {
-            quantityInput.value = variantData.quantity;
-        }
-        if (variantSelect && variantData.variant_key) {
-            variantSelect.value = variantData.variant_key;
-        }
-
-        // Wywołaj przeliczenie dla tego wariantu
-        const recalcBtn = form.querySelector('.recalculate-btn');
-        if (recalcBtn) {
-            setTimeout(() => recalcBtn.click(), 50);
-        }
-
-    } catch (error) {
-        console.error('[Calculator] Błąd przy przywracaniu wariantu:', error);
-    }
-}
-
-/**
- * Przywraca wybór kuriera z draft
- */
-function restoreCourierFromDraft(draftData) {
-    try {
-        if (draftData.courier_name) {
-            // Znajdź i wybierz kuriera w interfejsie
-            const courierElements = document.querySelectorAll('[data-courier-name]');
-
-            courierElements.forEach(element => {
-                if (element.dataset.courierName === draftData.courier_name) {
-                    element.click();
-                }
-            });
-
-            // Lub ustaw wartości bezpośrednio jeśli są w hidden inputach
-            const courierNameInput = document.querySelector('input[name="courier_name"]');
-            const shippingCostInput = document.querySelector('input[name="shipping_cost"]');
-
-            if (courierNameInput && draftData.courier_name) {
-                courierNameInput.value = draftData.courier_name;
-            }
-
-            if (shippingCostInput && draftData.shipping_cost_brutto) {
-                shippingCostInput.value = draftData.shipping_cost_brutto;
-            }
-
-            console.log('[Calculator] Przywrócono kuriera:', draftData.courier_name);
-        }
-    } catch (error) {
-        console.error('[Calculator] Błąd przy przywracaniu kuriera:', error);
-    }
-}

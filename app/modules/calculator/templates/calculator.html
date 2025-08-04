@@ -15,7 +15,6 @@
     <script type="text/babel" src="{{ url_for('calculator.static', filename='js/components/Edge3DViewer.jsx') }}"></script>
     <script id="prices-data" type="application/json">{{ prices_json|safe }}</script>
     <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
-    <meta name="user-id" content="{{ session.get('user_id', 'anonymous') }}">
 </head>
 <body data-role="{{ user_role }}" data-multiplier="{{ user_multiplier }}">
     <div id="loadingOverlay"><!-- overlay text ustawiany dynamicznie --></div>
@@ -270,7 +269,7 @@
                                 <!-- Dynamicznie generowane karty produktów -->
                             </div>
                         </section>
-
+                        
                         <div class="quote-summary">
                             <div class="order-summary">
                                 <span class="input-txt-bold" style="padding-right: 110px;">Koszt surowego:</span>
@@ -334,57 +333,10 @@
             <div id="edge3d-table" class="edge3d-settings"></div>
         </div>
     </div>
-
-    <!-- Modal przywracania niedokończonej wyceny -->
-    <div id="draft-restore-modal" class="modal-overlay" style="display: none; z-index: 9999;">
-        <div class="modal-box" style="max-width: 600px; margin: auto;">
-            <div class="modal-header" style="border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 20px;">
-                <h3 style="margin: 0; color: #333; font-size: 1.4em;">
-                    <span style="color: #f39c12;">⚠️</span> Niedokończona wycena
-                </h3>
-            </div>
-
-            <div class="modal-content" style="margin-bottom: 25px;">
-                <p style="margin-bottom: 15px; color: #555; line-height: 1.5;">
-                    Znaleźliśmy niedokończoną wycenę z <strong><span id="draft-time-ago">przed chwilą</span></strong>.
-                </p>
-
-                <div class="draft-preview" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 15px 0;">
-                    <div style="margin-bottom: 10px;">
-                        <strong style="color: #333;">Produkty w wycenie:</strong>
-                    </div>
-                    <div id="draft-products-count" style="color: #666; max-height: 200px; overflow-y: auto;">
-                        <!-- Tu będzie lista produktów -->
-                    </div>
-                </div>
-
-                <p style="margin-top: 15px; color: #555; font-weight: 500;">
-                    Czy chcesz wznowić pracę nad tą wyceną?
-                </p>
-
-                <div id="draft-warning" style="display: none; background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 5px; margin-top: 10px;">
-                    <small style="color: #856404;">
-                        <strong>Uwaga:</strong> Niedokończona wycena zostanie automatycznie usunięta za <span id="draft-expires-in"></span>.
-                    </small>
-                </div>
-            </div>
-
-            <div class="modal-actions" style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button id="new-quote-btn" class="btn-secondary" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 0.95em;">
-                    Nowa wycena
-                </button>
-                <button id="restore-draft-btn" class="btn-primary" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 0.95em; font-weight: 500;">
-                    Wznów wycenę
-                </button>
-            </div>
-        </div>
-    </div>
-
     {% include 'save_modal.html' %}
     {% include 'download_quote_modal.html' %}
-    <!-- <script src="{{ url_for('calculator.static', filename='js/quote_draft_manager.js') }}"></script> -->
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/save_quote.js') }}"></script>
 </body>
-    </html>
+</html>
