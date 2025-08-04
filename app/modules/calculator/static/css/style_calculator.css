@@ -2835,6 +2835,7 @@ select.select-small option {
     background: #FFFFFF;
     border-radius: 6px;
     min-height: 120px;
+    padding-top: 3px;
 }
 
 /* Karta pojedynczego produktu */
