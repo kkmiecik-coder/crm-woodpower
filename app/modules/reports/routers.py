@@ -941,67 +941,119 @@ def api_export_excel():
         ws_details = workbook.active
         ws_details.title = "Dane szczegolowe"  # Bez polskich znaków w tytule
 
-        # NOWE: Oblicz TTL m³ dla każdego zamówienia
+        # NOWE: Oblicz TTL m³ dla każdego zamówienia I ŚLEDŹ PIERWSZY PRODUKT
         order_volumes = {}
-        for order in orders:
+        order_first_product = {}  # Śledzi pierwszy produkt w każdym zamówieniu
+        
+        for idx, order in enumerate(orders):
             # Identyfikator zamówienia (Baselinker ID lub manual ID)
             order_key = order.baselinker_order_id or f"manual_{order.id}"
 
             if order_key not in order_volumes:
                 order_volumes[order_key] = 0.0
+                order_first_product[order_key] = idx  # Zapisz indeks pierwszego produktu
 
             # Dodaj objętość tego produktu do sumy zamówienia
             order_volumes[order_key] += float(order.total_volume or 0)
 
         # Przygotuj dane do DataFrame
         excel_data = []
-        for order in orders:
-            # TUTAJ definiuj calculated_ttl_m3 dla każdego rekordu
+        for idx, order in enumerate(orders):
+            # KLUCZOWA POPRAWKA: Kolumny poziomu zamówienia tylko dla pierwszego produktu
             order_key = order.baselinker_order_id or f"manual_{order.id}"
-            calculated_ttl_m3 = order_volumes.get(order_key, 0.0)
+            is_first_product_in_order = order_first_product.get(order_key) == idx
+            
+            # Wartości pokazywane tylko raz na zamówienie (w pierwszym produkcie)
+            if is_first_product_in_order:
+                calculated_ttl_m3 = order_volumes.get(order_key, 0.0)
+                kwota_zamowien_netto = float(order.order_amount_net or 0)
+                nr_baselinker = safe_str(order.baselinker_order_id)
+                nr_wew = safe_str(order.internal_order_number)
+                nazwa_klienta = safe_str(order.customer_name)
+                kod_pocztowy = safe_str(order.delivery_postcode)
+                miejscowosc = safe_str(order.delivery_city)
+                ulica = safe_str(order.delivery_address)
+                wojewodztwo = safe_str(order.delivery_state)
+                telefon = safe_str(order.phone)
+                opiekun = safe_str(order.caretaker)
+                dostawa = safe_str(order.delivery_method)
+                zrodlo = safe_str(order.order_source)
+                koszt_kuriera = float(order.delivery_cost or 0)
+                koszt_dostawy_netto = float(order.delivery_cost or 0) / 1.23
+                sposob_platnosci = safe_str(order.payment_method)
+                zaplacono_netto = float(order.paid_amount_net or 0)
+                do_zaplaty_netto = float(order.balance_due or 0)
+            else:
+                # Pozostałe produkty w zamówieniu mają 0/pusty string dla kolumn poziomu zamówienia
+                calculated_ttl_m3 = 0.0
+                kwota_zamowien_netto = 0.0
+                nr_baselinker = ''
+                nr_wew = ''
+                nazwa_klienta = ''
+                kod_pocztowy = ''
+                miejscowosc = ''
+                ulica = ''
+                wojewodztwo = ''
+                telefon = ''
+                opiekun = ''
+                dostawa = ''
+                zrodlo = ''
+                koszt_kuriera = 0.0
+                koszt_dostawy_netto = 0.0
+                sposob_platnosci = ''
+                zaplacono_netto = 0.0
+                do_zaplaty_netto = 0.0
     
             excel_data.append({
+                # KOLUMNY POZIOMU ZAMÓWIENIA (tylko w pierwszym produkcie)
                 'Data': order.date_created.strftime('%d-%m-%Y') if order.date_created else '',
-                'TTL m3': calculated_ttl_m3,  # Zmieniono ³ na 3
-                'Kwota zamowien netto': float(order.order_amount_net or 0),  # Bez polskich znaków
-                'Nr Baselinker': safe_str(order.baselinker_order_id),
-                'Nr wew.': safe_str(order.internal_order_number),
-                'Imie i nazwisko': safe_str(order.customer_name),  # Bez polskich znaków
-                'Kod pocztowy': safe_str(order.delivery_postcode),
-                'Miejscowosc': safe_str(order.delivery_city),  # Bez ś
-                'Ulica': safe_str(order.delivery_address),
-                'Wojewodztwo': safe_str(order.delivery_state),  # Bez ó
-                'Telefon': safe_str(order.phone),
-                'Opiekun': safe_str(order.caretaker),
-                'Dostawa': safe_str(order.delivery_method),
-                'Zrodlo': safe_str(order.order_source),  # Bez ó
+                'TTL m3': calculated_ttl_m3,  # POPRAWIONE: używa zmiennej
+                'Kwota zamowien netto': kwota_zamowien_netto,  # POPRAWIONE: używa zmiennej
+                'Nr Baselinker': nr_baselinker,  # POPRAWIONE: używa zmiennej
+                'Nr wew.': nr_wew,  # POPRAWIONE: używa zmiennej
+                'Nazwa klienta': nazwa_klienta,  # POPRAWIONE: używa zmiennej
+                'Kod pocztowy': kod_pocztowy,  # POPRAWIONE: używa zmiennej
+                'Miejscowosc': miejscowosc,  # POPRAWIONE: używa zmiennej
+                'Ulica': ulica,  # POPRAWIONE: używa zmiennej
+                'Wojewodztwo': wojewodztwo,  # POPRAWIONE: używa zmiennej
+                'Telefon': telefon,  # POPRAWIONE: używa zmiennej
+                'Opiekun': opiekun,  # POPRAWIONE: używa zmiennej
+                'Dostawa': dostawa,  # POPRAWIONE: używa zmiennej
+                'Zrodlo': zrodlo,  # POPRAWIONE: używa zmiennej
+                
+                # KOLUMNY POZIOMU PRODUKTU (zawsze pokazywane)
                 'Grupa': safe_str(order.group_type),
                 'Rodzaj': safe_str(order.product_type),
-                'Wykonczenie': safe_str(order.finish_state),  # Bez ń
+                'Wykonczenie': safe_str(order.finish_state),
                 'Gatunek': safe_str(order.wood_species),
                 'Technologia': safe_str(order.technology),
                 'Klasa': safe_str(order.wood_class),
-                'Dlugosc': float(order.length_cm or 0),  # Bez ł
-                'Szerokosc': float(order.width_cm or 0),  # Bez ś
-                'Grubosc': float(order.thickness_cm or 0),  # Bez ś
-                'Ilosc': order.quantity or 0,  # Bez ś
+                'Dlugosc': float(order.length_cm or 0),
+                'Szerokosc': float(order.width_cm or 0),
+                'Grubosc': float(order.thickness_cm or 0),
+                'Ilosc': int(order.quantity or 0),
                 'Cena brutto': float(order.price_gross or 0),
                 'Cena netto': float(order.price_net or 0),
-                'Wartosc brutto': float(order.value_gross or 0),  # Bez ś
-                'Wartosc netto': float(order.value_net or 0),  # Bez ś
-                'Objetosc 1 szt.': float(order.volume_per_piece or 0),  # Bez ś
-                'Objetosc TTL': float(order.total_volume or 0),  # Bez ś
-                'Cena za m3': float(order.price_per_m3 or 0),  # Zmieniono ³ na 3
+                'Wartosc brutto': float(order.value_gross or 0),
+                'Wartosc netto': float(order.value_net or 0),
+                'Objetosc 1 szt.': float(order.volume_per_piece or 0),
+                'Objetosc TTL': float(order.total_volume or 0),
+                'Cena za m3': float(order.price_per_m3 or 0),
                 'Data realizacji': order.realization_date.strftime('%d-%m-%Y') if order.realization_date else '',
                 'Status': safe_str(order.current_status),
-                'Koszt kuriera': float(order.delivery_cost or 0),
-                'Koszt dostawy netto': float(order.delivery_cost or 0) / 1.23,
-                'Sposob platnosci': safe_str(order.payment_method),  # Bez ó, ł
-                'Zaplacono netto': float(order.paid_amount_net or 0),  # Bez ł
-                'Do zaplaty netto': float(order.balance_due or 0),
-                'Ilosc w produkcji': float(order.production_volume or 0),  # Bez ś
-                'Wartosc w produkcji': float(order.production_value_net or 0),  # Bez ś
-                'Gotowe do odbioru': float(order.ready_pickup_volume or 0)
+                
+                # KOLUMNY FINANSOWE POZIOMU ZAMÓWIENIA (tylko w pierwszym produkcie)
+                'Koszt kuriera': koszt_kuriera,  # POPRAWIONE: używa zmiennej
+                'Koszt dostawy netto': koszt_dostawy_netto,  # POPRAWIONE: używa zmiennej
+                'Sposob platnosci': sposob_platnosci,  # POPRAWIONE: używa zmiennej
+                'Zaplacono netto': zaplacono_netto,  # POPRAWIONE: używa zmiennej
+                'Do zaplaty netto': do_zaplaty_netto,  # POPRAWIONE: używa zmiennej
+                
+                # KOLUMNY PRODUKCJI (poziom produktu - zawsze pokazywane)
+                'Ilosc w produkcji': float(order.production_volume or 0),
+                'Wartosc w produkcji': float(order.production_value_net or 0),
+                'Wyprodukowano': float(order.ready_pickup_volume or 0),  # NOWA KOLUMNA
+                'Gotowe do odbioru': float(0.0)  # Dostosuj logikę według potrzeb
             })
         
         # POPRAWKA: Sprawdź czy excel_data nie jest puste
@@ -1050,7 +1102,7 @@ def api_export_excel():
             'Kwota zamowien netto': 'order_data',
             'Nr Baselinker': 'order_data',
             'Nr wew.': 'order_data',
-            'Imie i nazwisko': 'customer_data',
+            'Nazwa klienta': 'customer_data',  # POPRAWIONE: było 'Imie i nazwisko'
             'Kod pocztowy': 'customer_data',
             'Miejscowosc': 'customer_data',
             'Ulica': 'customer_data',
@@ -1085,6 +1137,7 @@ def api_export_excel():
             'Data realizacji': 'production_data',
             'Ilosc w produkcji': 'production_data',
             'Wartosc w produkcji': 'production_data',
+            'Wyprodukowano': 'production_data',  # NOWA KOLUMNA
             'Gotowe do odbioru': 'production_data'
         }
         
@@ -1109,6 +1162,7 @@ def api_export_excel():
             'Do zaplaty netto': 'SUM',
             'Ilosc w produkcji': 'SUM',
             'Wartosc w produkcji': 'SUM',
+            'Wyprodukowano': 'SUM',  # NOWA KOLUMNA
             'Gotowe do odbioru': 'SUM'
         }
         
@@ -1250,7 +1304,7 @@ def api_export_excel():
                         if isinstance(value, (int, float)) and value != 0:
                             if 'zl' in header or 'Kwota' in header or 'Wartosc' in header or 'Cena' in header or 'Koszt' in header or 'Zaplacono' in header or 'Saldo' in header:
                                 cell.number_format = '#,##0.00" zl"'
-                            elif 'm3' in header or 'Objetosc' in header or header in ['Ilosc w produkcji', 'Gotowe do odbioru']:  # ZMIANA: dodano kolumny produkcyjne
+                            elif 'm3' in header or 'Objetosc' in header or header in ['Ilosc w produkcji', 'Wyprodukowano', 'Gotowe do odbioru']:  # DODANO "Wyprodukowano"
                                 cell.number_format = '#,##0.0000'  # 4 miejsca po przecinku
                             elif header in ['Dlugosc', 'Szerokosc', 'Grubosc']:
                                 cell.number_format = '#,##0.00'
@@ -1278,7 +1332,7 @@ def api_export_excel():
                     columns_to_hide = [
                         'Nr Baselinker',
                         'Nr wew.',
-                        'Imie i nazwisko',
+                        'Nazwa klienta',  # POPRAWIONE: było 'Imie i nazwisko'
                         'Kod pocztowy',
                         'Miejscowosc',
                         'Ulica',
@@ -1324,10 +1378,7 @@ def api_export_excel():
             except:
                 pass
         
-        # Zastosuj formatowanie do arkusza głównego
-        format_details_sheet(ws_details, df)
-
-        # UPROSZCZONA FUNKCJA SCALANIA (bez skomplikowanych operacji)
+        # UPROSZCZONA FUNKCJA SCALANIA (wykonuj PRZED stylowaniem)
         def add_cell_merging():
             """Uproszczone scalanie komórek - tylko podstawowe"""
             try:
@@ -1342,8 +1393,8 @@ def api_export_excel():
                         orders_grouped[order_id] = []
                     orders_grouped[order_id].append(idx + 4)  # +4 bo dane zaczynają się od wiersza 4
         
-                # Uproszczone scalanie - tylko podstawowe kolumny
-                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'AI', 'AL']
+                # Uproszczone scalanie - podstawowe kolumny + finansowe
+                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'AI', 'AJ', 'AK', 'AL']
         
                 for order_id, row_indices in orders_grouped.items():
                     if len(row_indices) > 1:
@@ -1355,15 +1406,19 @@ def api_export_excel():
                                 merge_range = f'{col_letter}{start_row}:{col_letter}{end_row}'
                                 ws_details.merge_cells(merge_range)
                                 merged_cell = ws_details[f'{col_letter}{start_row}']
-                                merged_cell.alignment = Alignment(horizontal='left', vertical='top')
+                                # POPRAWKA: Wyśrodkowanie jak reszta komórek
+                                merged_cell.alignment = Alignment(horizontal='center', vertical='center')
                             except Exception:
                                 continue
             except Exception as e:
                 reports_logger.warning(f"Błąd scalania komórek: {e}")
                 pass
-        
-        # Wywołaj funkcję scalania
+
+        # WAŻNE: Wywołaj funkcję scalania PRZED formatowaniem
         add_cell_merging()
+
+        # Zastosuj formatowanie do arkusza głównego PO scalaniu
+        format_details_sheet(ws_details, df)
         
         # ===== UPROSZCZONY ARKUSZ PODSUMOWANIA =====
         try:
