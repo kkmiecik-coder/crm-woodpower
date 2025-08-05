@@ -56,7 +56,6 @@ class CustomFormatter(logging.Formatter):
         
         return formatted_message
 
-
 class TimedRotatingFileHandlerWithCleanup(logging.handlers.TimedRotatingFileHandler):
     """Handler z automatycznym czyszczeniem starych logów"""
     
@@ -92,7 +91,6 @@ class TimedRotatingFileHandlerWithCleanup(logging.handlers.TimedRotatingFileHand
                     
         except Exception as e:
             print(f"[LogCleanup] Błąd podczas czyszczenia logów: {e}")
-
 
 class AppLogger:
     """Główna klasa systemu logowania"""
@@ -158,7 +156,6 @@ class AppLogger:
             cls.setup()
         
         return logging.getLogger(f'app.{module_name}')
-
 
 # Pomocnicza funkcja dla łatwego dostępu
 def get_logger(module_name):

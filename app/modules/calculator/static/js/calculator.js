@@ -56,6 +56,9 @@ async function loadFinishingPrices() {
         };
     }
 }
+function toggleTheme() {
+    document.documentElement.toggleAttribute('data-theme', 'dark');
+}
 
 // Funkcja do pokazywania rotujących komunikatów
 function showRotatingMessages(overlay) {
