@@ -1881,6 +1881,28 @@ function init() {
     if (quoteFormsContainer.querySelector('.quote-form')) {
         activateProductCard(0);
     }
+
+    // Inicjalizacja systemu backup wycen
+    if (typeof QuoteDraftBackup !== 'undefined') {
+        const userId = document.body.dataset.userId;
+        if (userId) {
+            quoteDraftBackup = new QuoteDraftBackup();
+            quoteDraftBackup.init(parseInt(userId));
+            console.log('[Calculator] System backup wycen zainicjalizowany dla użytkownika:', userId);
+        } else {
+            console.warn('[Calculator] Brak user_id - system backup nie został uruchomiony');
+        }
+    } else {
+        console.warn('[Calculator] QuoteDraftBackup nie jest dostępny - sprawdź czy skrypt został załadowany');
+    }
+
+    // Aktywuj pierwszy produkt (istniejący kod)
+    if (quoteFormsContainer.querySelector('.quote-form')) {
+        activateProductCard(0);
+    }
+
+    console.log("Inicjalizacja calculator.js zakończona");
+
 }
 
 function safeAttachFormListeners(form) {
@@ -4338,3 +4360,16 @@ document.addEventListener('DOMContentLoaded', function() {
 // ========== KONIEC POPRAWEK ==========
 
 console.log("✅ Poprawki resetowania wariantów zostały załadowane!");
+
+/**
+* Zatrzymuje system backup przed opuszczeniem strony
+*/
+function cleanupBeforeUnload() {
+    if (quoteDraftBackup) {
+        quoteDraftBackup.stopAutoSave();
+        console.log('[Calculator] System backup zatrzymany przed opuszczeniem strony');
+    }
+}
+
+// Event listener dla czyszczenia przed opuszczeniem strony
+window.addEventListener('beforeunload', cleanupBeforeUnload);

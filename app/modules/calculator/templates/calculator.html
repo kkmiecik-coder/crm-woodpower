@@ -16,7 +16,9 @@
     <script id="prices-data" type="application/json">{{ prices_json|safe }}</script>
     <script id="multipliers-data" type="application/json">{{ multipliers_json|safe }}</script>
 </head>
-<body data-role="{{ user_role }}" data-multiplier="{{ user_multiplier }}">
+<body data-role="{{ user_role }}"
+      data-multiplier="{{ user_multiplier }}"
+      data-user-id="{{ user_id }}">
     <div id="loadingOverlay"><!-- overlay text ustawiany dynamicznie --></div>
     <div class="app-container" style="display: flex;">
         <!-- Sidebar – jest wstawiany w każdej podstronie -->
@@ -269,7 +271,7 @@
                                 <!-- Dynamicznie generowane karty produktów -->
                             </div>
                         </section>
-                        
+
                         <div class="quote-summary">
                             <div class="order-summary">
                                 <span class="input-txt-bold" style="padding-right: 110px;">Koszt surowego:</span>
@@ -333,9 +335,60 @@
             <div id="edge3d-table" class="edge3d-settings"></div>
         </div>
     </div>
+
+    <div id="autosave-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content autosave-modal-content">
+            <div class="modal-header">
+                <h3>Twoja ostatnia wycena nie została zapisana</h3>
+            </div>
+
+            <div class="modal-body">
+                <div class="draft-info">
+                    <p class="draft-timestamp">
+                        <strong>Wycena z:</strong> <span id="draft-timestamp">przed chwilą</span>
+                    </p>
+
+                    <div class="products-section">
+                        <h4>Lista produktów:</h4>
+                        <div id="products-list" class="products-list">
+                            <!-- Dynamicznie generowana lista produktów -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button id="restore-quote-btn" class="btn btn-primary restore-btn">
+                    <span class="btn-icon">↻</span>
+                    Przywróć wycenę
+                </button>
+                <button id="new-quote-btn" class="btn btn-secondary new-quote-btn">
+                    <span class="btn-icon">+</span>
+                    Nowa wycena
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlay ładowania podczas przywracania -->
+    <div id="restore-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-content">
+            <div class="spinner-container">
+                <div class="spinner"></div>
+            </div>
+            <p class="loading-text">Wczytuję wycenę...</p>
+            <div class="loading-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {% include 'save_modal.html' %}
     {% include 'download_quote_modal.html' %}
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('calculator.static', filename='js/qdraft_backup_cookies.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/calculator.js') }}"></script>
     <script src="{{ url_for('calculator.static', filename='js/save_quote.js') }}"></script>
 </body>
