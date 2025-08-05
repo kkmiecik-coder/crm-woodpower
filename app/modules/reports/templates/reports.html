@@ -350,7 +350,7 @@
                         <p class="days-selection-description">
                             Wybierz zakres dat dla pobierania zamówień z Baselinker:
                         </p>
-                        
+
                         <div class="days-dropdown-container">
                             <label for="daysSelect" class="days-dropdown-label">Ilość dni wstecz:</label>
                             <select id="daysSelect" class="days-dropdown">
@@ -369,7 +369,7 @@
 
                         <div class="date-preview" id="datePreview" style="display: none;">
                             <p class="date-preview-text">
-                                Zostanę pobrane zamówienia od <strong id="dateFromPreview"></strong> 
+                                Zostanę pobrane zamówienia od <strong id="dateFromPreview"></strong>
                                 do <strong id="dateToPreview"></strong>
                             </p>
                         </div>
@@ -443,36 +443,127 @@
         </div>
     </div>
 
-    <!-- KROK 3: Modal uzupełniania wymiarów -->
-    <div id="dimensionsModal" class="sync-modal" style="display: none;">
+    <!-- KROK 3: Modal uzupełniania objętości i atrybutów -->
+    <div id="volumeModal" class="sync-modal" style="display: none;">
         <div class="sync-modal-overlay">
             <div class="sync-modal-content sync-modal-extra-large">
                 <div class="sync-modal-header">
-                    <h3>Uzupełnij brakujące wymiary</h3>
-                    <button class="sync-modal-close" id="dimensionsModalClose">&times;</button>
+                    <h3>Uzupełnij objętości produktów</h3>
+                    <button class="sync-modal-close" id="volumeModalClose">&times;</button>
                 </div>
 
                 <div class="sync-modal-body">
-                    <div class="dimensions-info">
-                        <p class="dimensions-description">
-                            Niektóre produkty w wybranych zamówieniach nie mają kompletnych wymiarów. 
-                            Uzupełnij brakujące dane aby móc obliczyć objętość (m³):
-                        </p>
+                    <div class="volume-info">
+                        <div class="info-icon">📏</div>
+                        <div class="info-text">
+                            <p><strong>Niektóre produkty nie mają wymiarów ani objętości w nazwie.</strong></p>
+                            <p>Uzupełnij objętość (m³) oraz opcjonalnie gatunek, technologię i klasę dla każdego produktu.</p>
+                            <p class="info-note">Pola oznaczone * są wymagane dla prawidłowych statystyk.</p>
+                        </div>
                     </div>
 
-                    <div id="dimensionsList" class="dimensions-list">
-                        <!-- Formularz wymiarów będzie wstawiony tutaj dynamicznie -->
+                    <div id="volumeProductsList" class="volume-products-list">
+                        <!-- Produkty będą wstawiane tutaj dynamicznie -->
                     </div>
                 </div>
 
                 <div class="sync-modal-footer">
-                    <button id="dimensionsBack" class="btn btn-secondary">Wróć</button>
-                    <button id="dimensionsSkip" class="btn btn-warning">Pomiń i zapisz</button>
-                    <button id="dimensionsSave" class="btn btn-primary">Uzupełnij i zapisz</button>
+                    <button id="volumeBack" class="btn btn-secondary">Wstecz</button>
+                    <button id="volumeSkip" class="btn btn-warning">Pomiń (objętość = 0)</button>
+                    <button id="volumeSave" class="btn btn-primary">Zapisz z objętościami</button>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Template dla pojedynczego zamówienia z produktami do uzupełnienia -->
+    <template id="volumeOrderTemplate">
+        <div class="volume-order-item">
+            <div class="volume-order-header">
+                <h4>Zamówienie #<span class="order-number"></span></h4>
+                <div class="order-info">
+                    <span class="customer-name"></span> • <span class="order-date"></span>
+                </div>
+            </div>
+
+            <div class="volume-products-container">
+                <!-- Produkty będą dodane tutaj -->
+            </div>
+        </div>
+    </template>
+
+    <!-- Template dla pojedynczego produktu wymagającego objętości -->
+    <template id="volumeProductTemplate">
+        <div class="volume-product-item" data-product-key="">
+            <div class="volume-product-header">
+                <div class="product-name"></div>
+                <div class="product-quantity">Ilość: <span class="quantity-value"></span> szt.</div>
+            </div>
+
+            <div class="volume-inputs-grid">
+                <!-- Objętość - pole wymagane -->
+                <div class="volume-input-group required">
+                    <label for="">Objętość na 1 szt. (m³) *</label>
+                    <input type="number"
+                           class="volume-input volume-required"
+                           data-field="volume"
+                           step="0.001"
+                           min="0"
+                           placeholder="np. 0.048"
+                           required>
+                    <small class="input-help">Objętość jednej sztuki w metrach sześciennych</small>
+                </div>
+
+                <!-- Gatunek - pole opcjonalne -->
+                <div class="volume-input-group">
+                    <label for="">Gatunek</label>
+                    <select class="volume-select" data-field="wood_species">
+                        <option value="">-- Wybierz gatunek --</option>
+                        <option value="dąb">Dąb</option>
+                        <option value="buk">Buk</option>
+                        <option value="jesion">Jesion</option>
+                        <option value="sosna">Sosna</option>
+                        <option value="brzoza">Brzoza</option>
+                        <option value="wiąz">Wiąz</option>
+                        <option value="klon">Klon</option>
+                    </select>
+                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
+                </div>
+
+                <!-- Technologia - pole opcjonalne -->
+                <div class="volume-input-group">
+                    <label for="">Technologia</label>
+                    <select class="volume-select" data-field="technology">
+                        <option value="">-- Wybierz technologię --</option>
+                        <option value="lity">Lity</option>
+                        <option value="mikrowczep">Mikrowczep</option>
+                        <option value="klejony">Klejony</option>
+                        <option value="fornir">Fornir</option>
+                    </select>
+                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
+                </div>
+
+                <!-- Klasa - pole opcjonalne -->
+                <div class="volume-input-group">
+                    <label for="">Klasa</label>
+                    <select class="volume-select" data-field="wood_class">
+                        <option value="">-- Wybierz klasę --</option>
+                        <option value="A/B">A/B</option>
+                        <option value="B/B">B/B</option>
+                    </select>
+                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
+                </div>
+            </div>
+
+            <!-- Podsumowanie objętości -->
+            <div class="volume-summary">
+                <div class="summary-item">
+                    <span class="summary-label">Objętość całkowita:</span>
+                    <span class="summary-value total-volume">0.000 m³</span>
+                </div>
+            </div>
+        </div>
+    </template>
 
     <!-- Global loading overlay -->
     <div id="syncLoadingOverlay" class="sync-loading-overlay" style="display: none;">
@@ -500,6 +591,10 @@
             <div class="price-type-badge" style="display: none; position: absolute; top: 30px; right: 5px; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
                 <span class="price-type-icon">ℹ️</span>
                 <span class="price-type-text"></span>
+            </div>
+
+            <div class="volume-issue-badge" style="display: none; position: absolute; top: 35px; right: 5px; background: #ff9800; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
+                📏 Brak objętości
             </div>
 
             <!-- Reszta template pozostaje bez zmian -->
@@ -572,7 +667,7 @@
                     <span class="customer-name"></span> • <span class="order-date"></span>
                 </div>
             </div>
-            
+
             <div class="dimension-products-list">
                 <!-- Produkty będą dodane tutaj -->
             </div>
@@ -586,38 +681,38 @@
                 <div class="product-name"></div>
                 <div class="product-quantity">Ilość: <span></span></div>
             </div>
-            
+
             <div class="dimension-inputs-grid">
                 <div class="dimension-input-group">
                     <label>Długość (cm)</label>
-                    <input type="number" 
-                        class="dimension-input" 
-                        data-dimension="length_cm"
-                        step="0.1" 
-                        min="0"
-                        placeholder="np. 120">
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="length_cm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 120">
                 </div>
-                
+
                 <div class="dimension-input-group">
                     <label>Szerokość (cm)</label>
-                    <input type="number" 
-                        class="dimension-input" 
-                        data-dimension="width_cm"
-                        step="0.1" 
-                        min="0"
-                        placeholder="np. 60">
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="width_cm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 60">
                 </div>
-                
+
                 <div class="dimension-input-group">
                     <label>Grubość (mm)</label>
-                    <input type="number" 
-                        class="dimension-input" 
-                        data-dimension="thickness_mm"
-                        step="0.1" 
-                        min="0"
-                        placeholder="np. 18">
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="thickness_mm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 18">
                 </div>
-                
+
                 <div class="dimension-calculated">
                     <label for="volumeInput">Objętość m³</label>
                     <input type="number"
@@ -628,7 +723,7 @@
                            placeholder="np. 0.1234">
                 </div>
             </div>
-            
+
             <div class="missing-dimensions-info">
                 Brakuje: <span class="missing-list"></span>
             </div>
@@ -650,7 +745,7 @@
             <div class="order-checkbox">
                 <input type="checkbox" class="order-select" data-order-id="">
             </div>
-            
+
             <div class="order-content">
                 <div class="order-header">
                     <div class="order-id">
@@ -664,18 +759,18 @@
                         <span class="order-date-text"></span>
                     </div>
                 </div>
-                
+
                 <div class="order-details">
                     <div class="order-customer">
                         <span class="customer-icon">👤</span>
                         <span class="customer-name"></span>
                     </div>
-                    
+
                     <div class="order-products">
                         <span class="products-icon">📦</span>
                         <div class="products-list"></div>
                     </div>
-                    
+
                     <div class="order-amounts">
                         <div class="amount-item">
                             <span class="amount-label">Produkty:</span>
@@ -692,7 +787,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="order-status">
                 <div class="exists-badge" style="display: none;">
                     <span class="exists-icon">✓</span>
@@ -702,7 +797,7 @@
         </div>
     </template>
 
-    
+
 
     <!-- Modal dodawania/edycji ręcznego wiersza -->
     <div id="manualRowModal" class="modal">
@@ -1065,6 +1160,7 @@
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/reports.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/table_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/volume_manager.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/sync_manager.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/postcode_auto_fill.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/export_manager.js') }}"></script>

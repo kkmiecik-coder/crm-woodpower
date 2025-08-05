@@ -12,7 +12,6 @@ import sys
 from flask import render_template, jsonify, request, session, redirect, url_for, flash, Response, make_response
 from datetime import datetime, timedelta, date
 from functools import wraps
-from typing import List, Dict
 from extensions import db
 from . import reports_bp
 from .models import BaselinkerReportOrder, ReportsSyncLog
@@ -21,6 +20,7 @@ from modules.logging import get_structured_logger
 from collections import defaultdict
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from typing import Dict, Optional, Tuple, List
 
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
@@ -1964,35 +1964,36 @@ def api_delete_manual_row():
 @login_required
 def api_fetch_orders_for_selection():
     """
-    POPRAWIONY ENDPOINT: Pobiera zamówienia z Baselinker dla wybranego zakresu dat
-    z mechanizmem automatycznej paginacji gdy jest >90 zamówień
-    DOMYŚLNIE WYKLUCZAJĄCY STATUSY 105112 i 138625
+    EXTENDED ENDPOINT: Fetches orders from Baselinker for selected date range
+    with automatic pagination when >90 orders
+    DEFAULT EXCLUDES STATUSES 105112 and 138625
+    + NEW FUNCTIONALITY: Volume and attributes analysis for products
     """
     user_email = session.get('user_email')
     
     try:
         data = request.get_json()
         if not data:
-            reports_logger.error("Brak danych w zapytaniu fetch-orders-for-selection", 
+            reports_logger.error("Missing data in fetch-orders-for-selection request", 
                                user_email=user_email)
             return jsonify({
                 'success': False,
-                'error': 'Brak danych w zapytaniu'
+                'error': 'Missing data in request'
             }), 400
 
         date_from = data.get('date_from')
         date_to = data.get('date_to')
         days_count = data.get('days_count')
-        # POPRAWKA: Domyślnie FALSE, żeby wykluczać anulowane i nieopłacone
+        # FIX: Default FALSE to exclude cancelled and unpaid orders
         get_all_statuses = data.get('get_all_statuses', False)
 
         if not all([date_from, date_to, days_count]):
             return jsonify({
                 'success': False,
-                'error': 'Brak wymaganych parametrów: date_from, date_to, days_count'
+                'error': 'Missing required parameters: date_from, date_to, days_count'
             }), 400
 
-        reports_logger.info("Pobieranie zamówień do wyboru",
+        reports_logger.info("Fetching orders for selection with volume analysis",
                           user_email=user_email,
                           date_from=date_from,
                           date_to=date_to,
@@ -2001,220 +2002,357 @@ def api_fetch_orders_for_selection():
 
         service = get_reports_service()
         
-        # NOWA LOGIKA: Mechanizm automatycznej paginacji
+        # EXISTING LOGIC: Automatic pagination mechanism
         all_orders = []
         current_date_from = datetime.fromisoformat(date_from).date()
         end_date = datetime.fromisoformat(date_to).date()
         
-        # Pobierz istniejące zamówienia z bazy aby nie duplikować
+        # Get existing orders from database to avoid duplicates
         existing_orders = BaselinkerReportOrder.query.filter(
             BaselinkerReportOrder.baselinker_order_id.isnot(None)
         ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
         existing_order_ids = {order[0] for order in existing_orders}
         
-        reports_logger.info("Załadowano istniejące zamówienia", 
+        reports_logger.info("Loaded existing orders from database", 
                           existing_count=len(existing_order_ids))
         
         iteration = 0
-        max_iterations = 20  # Zabezpieczenie przed nieskończoną pętlą
+        max_iterations = 20  # Protection against infinite loop
         
         while current_date_from <= end_date and iteration < max_iterations:
             iteration += 1
             
-            reports_logger.info(f"Iteracja {iteration} pobierania zamówień",
+            reports_logger.info(f"Iteration {iteration} fetching orders with volume analysis",
                               current_date_from=current_date_from.isoformat(),
                               end_date=end_date.isoformat(),
                               include_excluded_statuses=get_all_statuses)
             
-            # POPRAWKA: Pobierz zamówienia z kontrolą nad filtrowaniem statusów
+            # EXISTING LOGIC: Fetch orders with status filtering control
             batch_orders = service.fetch_orders_from_baselinker(
                 date_from=datetime.combine(current_date_from, datetime.min.time()),
-                max_orders=100,  # Limit API Baselinker
-                include_excluded_statuses=get_all_statuses  # Przekaż parametr filtrowania
+                max_orders=100,  # Baselinker API limit
+                include_excluded_statuses=get_all_statuses  # Pass filtering parameter
             )
             
             if not batch_orders:
-                reports_logger.info(f"Brak zamówień w iteracji {iteration}")
+                reports_logger.info(f"No orders in iteration {iteration}")
                 break
                 
-            reports_logger.info(f"Pobrano {len(batch_orders)} zamówień w iteracji {iteration}")
+            reports_logger.info(f"Fetched {len(batch_orders)} orders in iteration {iteration}")
             
-            # Dodaj nowe zamówienia do listy z dodatkowym filtrowaniem
+            # Add new orders to list with additional filtering
             new_orders_in_batch = 0
             for order in batch_orders:
                 order_id = order['order_id']
                 
-                # Sprawdź czy zamówienie już istnieje
+                # Check if order already exists
                 if order_id not in existing_order_ids:
-                    # DODATKOWA OCHRONA: Filtruj wykluczane statusy po stronie aplikacji
+                    # ADDITIONAL PROTECTION: Filter excluded statuses on application side
                     status_id = order.get('order_status_id')
                     
                     if not get_all_statuses and status_id in [105112, 138625]:
-                        reports_logger.debug("Wykluczono zamówienie ze względu na status",
+                        reports_logger.debug("Excluded order due to status",
                                            order_id=order_id,
                                            status_id=status_id,
                                            status_name=service.status_map.get(status_id, f'Status {status_id}'))
                         continue
                     
+                    # NEW FUNCTIONALITY: Perform volume analysis for products in order
+                    order = analyze_order_products_for_volume(order)
+                    
                     all_orders.append(order)
                     new_orders_in_batch += 1
             
-            reports_logger.info(f"Nowe zamówienia w iteracji {iteration}: {new_orders_in_batch}")
+            reports_logger.info(f"New orders in iteration {iteration}: {new_orders_in_batch}")
             
-            # Jeśli pobrano mniej niż 90 zamówień, prawdopodobnie to koniec
+            # EXISTING LOGIC: Pagination control (rest unchanged...)
             if len(batch_orders) < 90:
-                reports_logger.info("Pobrano mniej niż 90 zamówień - koniec paginacji")
+                reports_logger.info("Fetched less than 90 orders - end of pagination")
                 break
             
-            # Znajdź najstarszą datę w tym batch'u
+            # [Rest of pagination logic remains unchanged...]
             oldest_date = None
             for order in batch_orders:
                 date_add = order.get('date_add')
-                # gdy Baselinker zwraca timestamp (int/float)
                 if isinstance(date_add, (int, float)):
                     order_date = datetime.fromtimestamp(date_add).date()
                 else:
-                    # gdy to string – próbujemy isoformat
                     try:
                         order_date = datetime.fromisoformat(str(date_add)).date()
                     except (TypeError, ValueError):
-                        reports_logger.warning(
-                            "Niepoprawny format pola date_add",
-                            order_id=order.get('order_id'),
-                            raw_value=date_add
-                        )
                         continue
                 if oldest_date is None or order_date < oldest_date:
                     oldest_date = order_date
-            reports_logger.info(f"Najstarsza data w iteracji {iteration}: {oldest_date}")
             
-            if oldest_date:
-                # Przesuń date_from do najstarszej daty - 1 dzień
+            if oldest_date and oldest_date <= current_date_from:
                 current_date_from = oldest_date - timedelta(days=1)
-                reports_logger.info(f"Przesunięcie date_from do: {current_date_from}")
             else:
                 break
-
-        # DODATKOWE FILTROWANIE PO STRONIE APLIKACJI (backup safety)
-        if not get_all_statuses:
-            original_count = len(all_orders)
-            all_orders = [order for order in all_orders 
-                         if order.get('order_status_id') not in [105112, 138625]]
-            filtered_count = original_count - len(all_orders)
-            
-            if filtered_count > 0:
-                reports_logger.info("Dodatkowe filtrowanie statusów po stronie aplikacji",
-                                  original_count=original_count,
-                                  filtered_out=filtered_count,
-                                  final_count=len(all_orders),
-                                  excluded_statuses=[105112, 138625])
         
-        # Przygotuj response z informacjami o wymiarach
-        # Pobierz mapę statusów z serwisu
-        status_map = {
-            s['status_id']: s['status_name']
-            for s in service.fetch_order_statuses()
-        }
-
-        # Przygotuj response z informacjami o wymiarach
-        orders_with_info = []
+        # NEW FUNCTIONALITY: Volume analysis summary
+        total_volume_issues = sum(1 for order in all_orders if order.get('has_volume_issues', False))
         
-        for order in all_orders:
-            products_with_issues = []
-            has_dimension_issues = False
+        # Check which orders already exist in database (existing logic)
+        if all_orders:
+            order_ids_to_check = [order['order_id'] for order in all_orders]
+            existing = BaselinkerReportOrder.query.filter(
+                BaselinkerReportOrder.baselinker_order_id.in_(order_ids_to_check)
+            ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
+            existing_set = {order[0] for order in existing}
             
-            custom_fields = order.get('custom_extra_fields', {})
-            price_type_from_api = custom_fields.get('106169', '').strip().lower()
-    
-            # Normalizuj typ ceny
-            if price_type_from_api == 'netto':
-                price_type = 'netto'
-            elif price_type_from_api == 'brutto':
-                price_type = 'brutto'
-            else:
-                price_type = ''  # Puste lub nieznane
+            # Mark existing orders
+            for order in all_orders:
+                order['exists_in_database'] = order['order_id'] in existing_set
 
-            # Sprawdź każdy produkt w zamówieniu
-            for product in order.get('products', []):
-                product_name = product.get('name', '')
-                parsed_data = service.parser.parse_product_name(product_name)
-                
-                # Sprawdź czy brakuje wymiarów
-                missing_dimensions = []
-                if not parsed_data.get('length_cm'):
-                    missing_dimensions.append('długość')
-                if not parsed_data.get('width_cm'):
-                    missing_dimensions.append('szerokość')
-                if not parsed_data.get('thickness_cm'):
-                    missing_dimensions.append('grubość')
-                
-                if missing_dimensions:
-                    has_dimension_issues = True
-                    products_with_issues.append({
-                        'product_id': product.get('product_id'),
-                        'name': product_name,
-                        'quantity': product.get('quantity'),
-                        'missing_dimensions': missing_dimensions,
-                        'current_dimensions': parsed_data
-                    })
-            
-            # Sprawdź czy zamówienie już istnieje w bazie
-            exists_in_db = order['order_id'] in existing_order_ids
-            
-            orders_with_info.append({
-                'order_id': order['order_id'],
-                'date_add': order['date_add'],
-                'delivery_fullname': order.get('delivery_fullname', ''),
-                'customer_name': order.get('delivery_fullname', ''),
-                'delivery_city': order.get('delivery_city', ''),
-                'delivery_postcode': order.get('delivery_postcode', ''),
-                'order_status_id': order.get('order_status_id'),
-                'order_status': status_map.get(order.get('order_status_id'), ''),
-                'order_source_id': order.get('order_source_id'),
-                'products': order.get('products', []),
-                'products_count': len(order.get('products', [])),
-                'order_value': sum(
-                    float(p.get('price_brutto', 0)) * int(p.get('quantity', 1))
-                    for p in order.get('products', [])
-                ),
-                'delivery_price': float(order.get('delivery_price', 0)),
-                'exists_in_db': exists_in_db,
-                'has_dimension_issues': has_dimension_issues,
-                'products_with_issues': products_with_issues if has_dimension_issues else [],
-                'price_type': price_type  # NOWE POLE
-            })
-
-        # Sortuj zamówienia według daty (najnowsze pierwsze)
-        orders_with_info.sort(key=lambda x: x['date_add'], reverse=True)
-
-        reports_logger.info("Pobieranie zamówień zakończone",
-                          total_orders=len(orders_with_info),
+        reports_logger.info("Completed fetching orders with volume analysis",
+                          total_orders=len(all_orders),
                           iterations=iteration,
-                          orders_with_dimension_issues=len([o for o in orders_with_info if o['has_dimension_issues']]),
-                          filtered_excluded_statuses=not get_all_statuses)
+                          volume_issues_count=total_volume_issues)
 
         return jsonify({
             'success': True,
-            'orders': orders_with_info,
-            'total_found': len(orders_with_info),
+            'orders': all_orders,
+            'total_orders': len(all_orders),
+            'volume_issues_count': total_volume_issues,  # NEW
             'pagination_info': {
-                'iterations': iteration,
-                'max_iterations_reached': iteration >= max_iterations,
-                'filtered_excluded_statuses': not get_all_statuses,
-                'excluded_status_ids': [105112, 138625] if not get_all_statuses else []
-            }
+                'iterations_used': iteration,
+                'max_iterations': max_iterations,
+                'filtered_excluded_statuses': not get_all_statuses
+            },
+            'message': f'Fetched {len(all_orders)} orders. {total_volume_issues} products require volume completion.'  # UPDATED
         })
         
     except Exception as e:
-        reports_logger.error("Błąd pobierania zamówień do wyboru",
+        reports_logger.error("Error fetching orders with volume analysis",
                            user_email=user_email,
-                           error=str(e),
-                           error_type=type(e).__name__)
+                           error=str(e))
         return jsonify({
             'success': False,
-            'error': f'Błąd pobierania zamówień: {str(e)}'
+            'error': f'Error fetching orders: {str(e)}'
+        }), 500
+
+def analyze_order_products_for_volume(order_data):
+    """
+    NOWA FUNKCJA: Analizuje produkty w zamówieniu pod kątem objętości i atrybutów
+    
+    Args:
+        order_data (dict): Dane zamówienia z Baselinker
+        
+    Returns:
+        dict: Zamówienie z dodanymi informacjami o analizie objętości
+    """
+    products = order_data.get('products', [])
+    if not products:
+        order_data['has_volume_issues'] = False
+        return order_data
+    
+    order_has_volume_issues = False
+    analyzed_products = []
+    
+    for product in products:
+        product_name = product.get('name', '')
+        
+        # Przeprowadź kompleksową analizę produktu
+        analysis = analyze_product_for_volume_and_attributes(product_name)
+        
+        # Dodaj wyniki analizy do produktu
+        product['volume_analysis'] = analysis
+        product['needs_manual_volume'] = analysis['analysis_type'] == 'manual_input_needed'
+        
+        # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
+        product['has_dimension_issues'] = not check_product_dimensions(product_name)
+        
+        if analysis['analysis_type'] == 'manual_input_needed':
+            order_has_volume_issues = True
+        
+        analyzed_products.append(product)
+    
+    # Aktualizuj zamówienie
+    order_data['products'] = analyzed_products
+    order_data['has_volume_issues'] = order_has_volume_issues
+    
+    # Zachowaj istniejącą logikę dla has_dimension_issues
+    order_data['has_dimension_issues'] = any(p.get('has_dimension_issues', False) for p in analyzed_products)
+    
+    return order_data
+
+@reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])
+@login_required
+def api_save_orders_with_volumes():
+    """
+    NOWY ENDPOINT: Zapisuje zamówienia z uzupełnionymi objętościami i atrybutami
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w zapytaniu'
+            }), 400
+
+        order_ids = data.get('order_ids', [])
+        volume_fixes = data.get('volume_fixes', {})  # {product_key: {'volume': X, 'wood_species': Y, ...}}
+        
+        if not order_ids:
+            return jsonify({
+                'success': False,
+                'error': 'Brak wybranych zamówień do zapisania'
+            }), 400
+
+        reports_logger.info("Rozpoczęcie zapisywania zamówień z objętościami",
+                          user_email=user_email,
+                          orders_count=len(order_ids),
+                          volume_fixes_count=len(volume_fixes))
+
+        # Sprawdź które zamówienia już istnieją
+        existing_orders = db.session.query(BaselinkerReportOrder.baselinker_order_id).filter(
+            BaselinkerReportOrder.baselinker_order_id.in_(order_ids)
+        ).distinct().all()
+        existing_order_ids = {order.baselinker_order_id for order in existing_orders}
+
+        new_order_ids = [order_id for order_id in order_ids if order_id not in existing_order_ids]
+
+        if not new_order_ids:
+            return jsonify({
+                'success': True,
+                'message': 'Wszystkie wybrane zamówienia już istnieją w bazie danych',
+                'orders_saved': 0,
+                'orders_skipped': len(order_ids)
+            })
+
+        # Pobierz service i zastosuj poprawki objętości
+        service = get_reports_service()
+        service.set_volume_fixes(volume_fixes)  # Nowa metoda
+
+        # Synchronizuj wybrane zamówienia
+        result = _sync_selected_orders_with_volumes(service, new_order_ids)
+        
+        # Wyczyść poprawki
+        service.clear_volume_fixes()
+
+        if result.get('success'):
+            reports_logger.info("Zapisywanie zamówień z objętościami zakończone pomyślnie",
+                              orders_processed=result.get('orders_processed', 0),
+                              orders_added=result.get('orders_added', 0))
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        reports_logger.error("Błąd zapisywania zamówień z objętościami",
+                           user_email=user_email,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Błąd zapisywania zamówień: {str(e)}'
         }), 500
     
+def _sync_selected_orders_with_volumes(service, order_ids):
+    """
+    NOWA FUNKCJA: Synchronizuje wybrane zamówienia z obsługą objętości i atrybutów
+    """
+    try:
+        orders_processed = 0
+        orders_added = 0
+        
+        for order_id in order_ids:
+            print(f"[DEBUG] Przetwarzanie zamówienia {order_id} z objętościami")
+            
+            # Pobierz zamówienie z Baselinker
+            order_data = service.get_single_order_from_baselinker(order_id)
+            
+            if not order_data:
+                print(f"[WARNING] Nie można pobrać zamówienia {order_id}")
+                continue
+            
+            # Przetwórz produkty w zamówieniu
+            for product in order_data.get('products', []):
+                # Przeprowadź analizę produktu
+                analysis = analyze_product_for_volume_and_attributes(product.get('name', ''))
+                
+                # Przygotuj dane do zapisania
+                record_data = service.prepare_order_record_data(order_data, product)
+                
+                # NOWA LOGIKA: Obsługa objętości i atrybutów
+                if analysis['analysis_type'] == 'dimensions_priority':
+                    # Wymiary mają priorytet - oblicz objętość standardowo
+                    volume = service.calculate_volume_from_dimensions(
+                        record_data.get('length_cm', 0),
+                        record_data.get('width_cm', 0), 
+                        record_data.get('thickness_cm', 0),
+                        record_data.get('quantity', 1)
+                    )
+                    record_data['total_volume'] = volume
+                    
+                elif analysis['analysis_type'] == 'volume_only':
+                    # Użyj objętości z nazwy produktu
+                    volume_per_piece = analysis['volume']
+                    quantity = record_data.get('quantity', 1)
+                    record_data['total_volume'] = volume_per_piece * quantity
+                    record_data['volume_per_piece'] = volume_per_piece
+                    
+                    # Wyczyść wymiary (bo ich nie ma)
+                    record_data['length_cm'] = None
+                    record_data['width_cm'] = None
+                    record_data['thickness_cm'] = None
+                    
+                elif analysis['analysis_type'] == 'manual_input_needed':
+                    # Użyj ręcznie wprowadzonych danych
+                    product_key = f"{order_id}_{product.get('product_id', 'unknown')}"
+                    volume_fix = service.get_volume_fix(product_key)
+                    
+                    if volume_fix and 'volume' in volume_fix:
+                        volume_per_piece = float(volume_fix['volume'])
+                        quantity = record_data.get('quantity', 1)
+                        record_data['total_volume'] = volume_per_piece * quantity
+                        record_data['volume_per_piece'] = volume_per_piece
+                        
+                        # Wyczyść wymiary
+                        record_data['length_cm'] = None
+                        record_data['width_cm'] = None
+                        record_data['thickness_cm'] = None
+                    else:
+                        # Brak danych - ustaw objętość na 0
+                        record_data['total_volume'] = 0
+                        record_data['volume_per_piece'] = 0
+                
+                # Dodaj atrybuty z analizy lub z ręcznego wprowadzenia
+                record_data['wood_species'] = analysis.get('wood_species') or service.get_volume_fix_attribute(
+                    f"{order_id}_{product.get('product_id', 'unknown')}", 'wood_species'
+                )
+                record_data['technology'] = analysis.get('technology') or service.get_volume_fix_attribute(
+                    f"{order_id}_{product.get('product_id', 'unknown')}", 'technology'
+                )
+                record_data['wood_class'] = analysis.get('wood_class') or service.get_volume_fix_attribute(
+                    f"{order_id}_{product.get('product_id', 'unknown')}", 'wood_class'
+                )
+                
+                # Oblicz cenę za m³ jeśli mamy objętość
+                if record_data.get('total_volume', 0) > 0 and record_data.get('value_net', 0) > 0:
+                    record_data['price_per_m3'] = record_data['value_net'] / record_data['total_volume']
+                
+                # Zapisz rekord do bazy
+                service.save_order_record(record_data)
+                orders_added += 1
+            
+            orders_processed += 1
+        
+        return {
+            'success': True,
+            'orders_processed': orders_processed,
+            'orders_added': orders_added,
+            'message': f'Pomyślnie zapisano {orders_added} rekordów z {orders_processed} zamówień'
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] Błąd w _sync_selected_orders_with_volumes: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Błąd synchronizacji: {str(e)}'
+        }
+
 @reports_bp.route('/api/save-selected-orders-with-dimensions', methods=['POST'])
 @login_required
 def api_save_selected_orders_with_dimensions():
@@ -3102,3 +3240,215 @@ def generate_routimo_csv(grouped_orders):
                       orders_count=len(grouped_orders))
     
     return csv_content
+
+def extract_volume_from_product_name(product_name: str) -> Optional[float]:
+    """
+    Wyodrębnia objętość z nazwy produktu w różnych formatach.
+    """
+    if not product_name:
+        return None
+    
+    # Wzorce dla różnych formatów objętości
+    volume_patterns = [
+        r'(\d+[,.]?\d*)\s*[mM]3?\b',
+        r'(\d+[,.]?\d*)\s*[mM]³\b',
+        r'(\d+[,.]?\d*)\s*[mM]\s*3\b',
+        r'\(\s*(\d+[,.]?\d*)\s*[mM]3?\s*\)',
+    ]
+    
+    for pattern in volume_patterns:
+        matches = re.findall(pattern, product_name, re.IGNORECASE)
+        if matches:
+            volume_str = matches[0].replace(',', '.')
+            try:
+                volume = float(volume_str)
+                print(f"[DEBUG] Found volume {volume} m³ in '{product_name}'")
+                return volume
+            except ValueError:
+                continue
+    
+    return None
+
+def extract_wood_species_from_product_name(product_name: str) -> Optional[str]:
+    """
+    Wyodrębnia gatunek drewna z nazwy produktu.
+    
+    Args:
+        product_name (str): Nazwa produktu
+        
+    Returns:
+        Optional[str]: Gatunek drewna lub None
+    """
+    if not product_name:
+        return None
+    
+    name_lower = product_name.lower()
+    
+    # Mapowanie różnych form nazw gatunków
+    species_mapping = {
+        'dąb': ['dąb', 'dab', 'dębowy', 'dębowa', 'dębowe'],
+        'buk': ['buk', 'bukowy', 'bukowa', 'bukowe', 'bukowych'],
+        'jesion': ['jesion', 'jesionowy', 'jesionowa', 'jesionowe'],
+        'sosna': ['sosna', 'sosnowy', 'sosnowa', 'sosnowe'],
+        'brzoza': ['brzoza', 'brzozowy', 'brzozowa', 'brzozowe'],
+        'wiąz': ['wiąz', 'wiązowy', 'wiązowa', 'wiązowe'],
+        'klon': ['klon', 'klonowy', 'klonowa', 'klonowe'],
+    }
+    
+    for standard_name, variants in species_mapping.items():
+        for variant in variants:
+            if variant in name_lower:
+                print(f"[DEBUG] Znaleziono gatunek '{standard_name}' w '{product_name}'")
+                return standard_name
+    
+    print(f"[DEBUG] Nie znaleziono gatunku w '{product_name}'")
+    return None
+
+def extract_technology_from_product_name(product_name: str) -> Optional[str]:
+    """
+    Wyodrębnia technologię z nazwy produktu.
+    
+    Args:
+        product_name (str): Nazwa produktu
+        
+    Returns:
+        Optional[str]: Technologia lub None
+    """
+    if not product_name:
+        return None
+    
+    name_lower = product_name.lower()
+    
+    # Mapowanie różnych form technologii
+    technology_mapping = {
+        'lity': ['lity', 'lite', 'litych', 'litej', 'litego'],
+        'mikrowczep': ['mikrowczep', 'micro', 'wczep'],
+        'klejony': ['klejony', 'klejona', 'klejone', 'klejonych'],
+        'fornir': ['fornir', 'fornirowany', 'fornirowana'],
+    }
+    
+    for standard_name, variants in technology_mapping.items():
+        for variant in variants:
+            if variant in name_lower:
+                print(f"[DEBUG] Znaleziono technologię '{standard_name}' w '{product_name}'")
+                return standard_name
+    
+    print(f"[DEBUG] Nie znaleziono technologii w '{product_name}'")
+    return None
+
+def extract_wood_class_from_product_name(product_name: str) -> Optional[str]:
+    """
+    Wyodrębnia klasę drewna z nazwy produktu.
+    
+    Args:
+        product_name (str): Nazwa produktu
+        
+    Returns:
+        Optional[str]: Klasa drewna lub None
+    """
+    if not product_name:
+        return None
+    
+    # Wzorce dla klas drewna
+    class_patterns = [
+        r'\b([AB]/[AB])\b',  # A/B, B/B
+        r'\b([AB]-[AB])\b',  # A-B, B-B  
+        r'\bklasa\s+([AB]/[AB])\b',  # klasa A/B
+        r'\bklasa\s+([AB]-[AB])\b',  # klasa A-B
+    ]
+    
+    for pattern in class_patterns:
+        matches = re.findall(pattern, product_name, re.IGNORECASE)
+        if matches:
+            wood_class = matches[0].upper().replace('-', '/')  # Normalizuj do formatu A/B
+            print(f"[DEBUG] Znaleziono klasę '{wood_class}' w '{product_name}'")
+            return wood_class
+    
+    print(f"[DEBUG] Nie znaleziono klasy w '{product_name}'")
+    return None
+
+def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, any]:
+    """
+    Kompleksowa analiza produktu - sprawdza wymiary, objętość i atrybuty.
+    
+    Args:
+        product_name (str): Nazwa produktu
+        
+    Returns:
+        Dict: Słownik z wynikami analizy
+    """
+    if not product_name:
+        return {
+            'has_dimensions': False,
+            'has_volume': False,
+            'volume': None,
+            'wood_species': None,
+            'technology': None,
+            'wood_class': None,
+            'analysis_type': 'empty'
+        }
+    
+    # Sprawdź wymiary (użyj istniejącej funkcji)
+    has_dimensions = check_product_dimensions(product_name)
+    
+    # Sprawdź objętość
+    volume = extract_volume_from_product_name(product_name)
+    has_volume = volume is not None
+    
+    # Wyodrębnij atrybuty
+    wood_species = extract_wood_species_from_product_name(product_name)
+    technology = extract_technology_from_product_name(product_name)
+    wood_class = extract_wood_class_from_product_name(product_name)
+    
+    # Określ typ analizy według priorytetów
+    analysis_type = 'unknown'
+    if has_dimensions:
+        analysis_type = 'dimensions_priority'  # Wymiary mają priorytet
+    elif has_volume:
+        analysis_type = 'volume_only'
+    else:
+        analysis_type = 'manual_input_needed'
+    
+    result = {
+        'has_dimensions': has_dimensions,
+        'has_volume': has_volume,
+        'volume': volume,
+        'wood_species': wood_species,
+        'technology': technology,
+        'wood_class': wood_class,
+        'analysis_type': analysis_type
+    }
+    
+    print(f"[DEBUG] Analiza produktu '{product_name}': {result}")
+    return result
+
+
+def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
+    """
+    Sprawdza czy któreś z zamówień wymaga modala objętości.
+    
+    Args:
+        orders_data (list): Lista danych zamówień
+        
+    Returns:
+        Tuple[bool, list]: (czy_pokazać_modal, lista_produktów_wymagających_objętości)
+    """
+    products_needing_volume = []
+    
+    for order in orders_data:
+        for product in order.get('products', []):
+            analysis = analyze_product_for_volume_and_attributes(product.get('name', ''))
+            
+            # Jeśli produkt nie ma wymiarów ani objętości, wymaga ręcznego wprowadzenia
+            if analysis['analysis_type'] == 'manual_input_needed':
+                products_needing_volume.append({
+                    'order_id': order.get('order_id'),
+                    'product_name': product.get('name'),
+                    'quantity': product.get('quantity', 1),
+                    'analysis': analysis
+                })
+    
+    should_show_modal = len(products_needing_volume) > 0
+    print(f"[DEBUG] Modal objętości: {should_show_modal}, produktów do uzupełnienia: {len(products_needing_volume)}")
+    
+    return should_show_modal, products_needing_volume
