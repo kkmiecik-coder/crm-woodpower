@@ -171,7 +171,12 @@ class SyncManager {
         this.globalLoadingText = document.getElementById('syncLoadingText');
 
         // Templates
-        this.orderTemplate = document.getElementById('orderTemplate');
+        this.orderTemplate = document.getElementById('modalBlSyncOrderTemplate');
+        if (!this.orderTemplate) {
+            console.error('[SyncManager] ❌ Brak template modalBlSyncOrderTemplate');
+            throw new Error('Brakujący template: modalBlSyncOrderTemplate');
+        }
+        console.log('[SyncManager] ✅ Template modalBlSyncOrderTemplate znaleziony');
         this.dimensionOrderTemplate = document.getElementById('dimensionOrderTemplate');
         this.dimensionProductTemplate = document.getElementById('dimensionProductTemplate');
 
@@ -186,7 +191,7 @@ class SyncManager {
             'daysModal', 'daysSelect', 'daysConfirmBtn',
             'ordersModal', 'ordersLoadingState', 'ordersListContainer', 'ordersList',
             'ordersCount', 'selectAllBtn', 'deselectAllBtn', 'ordersSaveBtn',
-            'globalLoading', 'orderTemplate'
+            'globalLoading'
         ];
 
         const missingElements = requiredElements.filter(element => !this[element]);
@@ -427,35 +432,74 @@ class SyncManager {
     // =====================================================
 
     showOrdersModal() {
+        console.log('[SyncManager] 📦 Pokazywanie nowego modala zamówień');
+
         const modal = document.getElementById('syncOrdersModal');
         if (modal) {
             modal.style.display = 'flex';
+            setTimeout(() => {
+                modal.classList.add('show');
+            }, 10);
+
+            // Aktualizuj zakres dat w headerze
+            this.updateModalDateRange();
         }
     }
 
     hideOrdersModal() {
+        console.log('[SyncManager] 📦 Ukrywanie nowego modala zamówień');
+
         const modal = document.getElementById('syncOrdersModal');
         if (modal) {
-            modal.style.display = 'none';
+            modal.classList.remove('show');
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 300);
+        }
+    }
+
+    updateModalDateRange() {
+        const dateRangeElement = document.getElementById('modalBlSyncDateRange');
+        if (dateRangeElement && this.dateFrom && this.dateTo) {
+            // Konwertuj format daty z YYYY-MM-DD na DD.MM.YYYY
+            const formatDisplayDate = (dateStr) => {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString('pl-PL');
+            };
+
+            const fromFormatted = formatDisplayDate(this.dateFrom);
+            const toFormatted = formatDisplayDate(this.dateTo);
+
+            dateRangeElement.textContent = `${fromFormatted} - ${toFormatted}`;
         }
     }
 
     showOrdersLoading() {
-        console.log('[SyncManager] ⏳ Pokazywanie loading state');
-        
-        this.ordersLoadingState.style.display = 'block';
-        this.ordersListContainer.style.display = 'none';
-        this.ordersEmptyState.style.display = 'none';
-        this.ordersErrorState.style.display = 'none';
+        console.log('[SyncManager] ⏳ Pokazywanie loading state (nowy styl)');
+
+        const loadingState = document.getElementById('ordersLoadingState');
+        const listContainer = document.getElementById('ordersListContainer');
+        const emptyState = document.getElementById('ordersEmptyState');
+        const errorState = document.getElementById('ordersErrorState');
+
+        if (loadingState) loadingState.style.display = 'block';
+        if (listContainer) listContainer.style.display = 'none';
+        if (emptyState) emptyState.style.display = 'none';
+        if (errorState) errorState.style.display = 'none';
     }
 
     showOrdersList() {
-        console.log('[SyncManager] 📋 Pokazywanie listy zamówień');
-        
-        this.ordersLoadingState.style.display = 'none';
-        this.ordersListContainer.style.display = 'block';
-        this.ordersEmptyState.style.display = 'none';
-        this.ordersErrorState.style.display = 'none';
+        console.log('[SyncManager] 📋 Pokazywanie listy zamówień (nowy styl)');
+
+        const loadingState = document.getElementById('ordersLoadingState');
+        const listContainer = document.getElementById('ordersListContainer');
+        const emptyState = document.getElementById('ordersEmptyState');
+        const errorState = document.getElementById('ordersErrorState');
+
+        if (loadingState) loadingState.style.display = 'none';
+        if (listContainer) listContainer.style.display = 'block';
+        if (emptyState) emptyState.style.display = 'none';
+        if (errorState) errorState.style.display = 'none';
     }
 
     showOrdersEmpty() {
@@ -468,17 +512,19 @@ class SyncManager {
     }
 
     showOrdersError(message) {
-        console.log('[SyncManager] ❌ Pokazywanie stanu błędu:', message);
-        
-        this.ordersLoadingState.style.display = 'none';
-        this.ordersListContainer.style.display = 'none';
-        this.ordersEmptyState.style.display = 'none';
-        this.ordersErrorState.style.display = 'block';
-        
-        const errorMessageEl = document.getElementById('errorMessage');
-        if (errorMessageEl) {
-            errorMessageEl.textContent = message;
-        }
+        console.log('[SyncManager] ❌ Pokazywanie error state (nowy styl):', message);
+
+        const loadingState = document.getElementById('ordersLoadingState');
+        const listContainer = document.getElementById('ordersListContainer');
+        const emptyState = document.getElementById('ordersEmptyState');
+        const errorState = document.getElementById('ordersErrorState');
+        const errorMessage = document.getElementById('errorMessage');
+
+        if (loadingState) loadingState.style.display = 'none';
+        if (listContainer) listContainer.style.display = 'none';
+        if (emptyState) emptyState.style.display = 'none';
+        if (errorState) errorState.style.display = 'block';
+        if (errorMessage) errorMessage.textContent = message;
     }
 
     async fetchOrders() {
@@ -584,14 +630,17 @@ class SyncManager {
     }
 
     renderOrdersList(orders) {
-        // POPRAWKA: Użyj parametru ALBO this.fetchedOrders jako fallback
         const ordersToRender = orders || this.fetchedOrders || [];
 
-        console.log('[SyncManager] 🎨 Renderowanie listy zamówień:', ordersToRender.length);
+        console.log(`[SyncManager] 🎨 Renderowanie listy zamówień (nowy styl): ${ordersToRender.length} zamówień`);
 
         const container = document.getElementById('ordersList');
-        if (!container) return;
+        if (!container) {
+            console.error('[SyncManager] ❌ Brak kontenera ordersList');
+            return;
+        }
 
+        // Wyczyść kontener
         container.innerHTML = '';
 
         if (ordersToRender.length === 0) {
@@ -599,135 +648,406 @@ class SyncManager {
             return;
         }
 
-        ordersToRender.forEach(order => {
-            const orderElement = this.createOrderElement(order);
-            container.appendChild(orderElement);
+        // Renderuj każde zamówienie w nowym stylu
+        ordersToRender.forEach((order, index) => {
+            try {
+                const orderElement = this.createNewOrderElement(order);
+                container.appendChild(orderElement);
+                console.log(`[SyncManager] ✅ Zamówienie ${order.order_id} wyrenderowane (${index + 1}/${ordersToRender.length})`);
+            } catch (error) {
+                console.error(`[SyncManager] ❌ Błąd renderowania zamówienia ${order.order_id}:`, error);
+            }
         });
 
+        // Aktualizuj liczniki PO renderowaniu
         this.updateOrdersCounter();
+
+        console.log('[SyncManager] 🎨 Renderowanie listy zamówień zakończone');
+    }
+
+    createNewOrderElement(order) {
+        console.log(`[SyncManager] 🏗️ Tworzenie nowego elementu zamówienia ${order.order_id}`);
+
+        const template = document.getElementById('modalBlSyncOrderTemplate');
+        if (!template) {
+            console.error('[SyncManager] ❌ Brak template modalBlSyncOrderTemplate');
+            return document.createElement('div');
+        }
+
+        const clone = template.content.cloneNode(true);
+        const orderCard = clone.querySelector('.modal-bl-sync-order-card');
+
+        if (!orderCard) {
+            console.error('[SyncManager] ❌ Brak .modal-bl-sync-order-card w template');
+            return clone;
+        }
+
+        // Ustaw ID zamówienia
+        orderCard.setAttribute('data-order-id', order.order_id);
+
+        // Ustaw checkbox
+        const checkbox = clone.querySelector('.modal-bl-sync-checkbox');
+        if (checkbox) {
+            checkbox.setAttribute('data-order-id', order.order_id);
+            checkbox.id = `order_${order.order_id}`;
+
+            // Event listener dla nowego checkboxa
+            checkbox.addEventListener('change', (e) => this.handleOrderSelection(e));
+        }
+
+        // Wypełnij dane zamówienia
+        this.setNewOrderElementData(clone, order);
+
+        // Wyłącz checkbox jeśli zamówienie już istnieje w bazie
+        if (order.exists_in_database && checkbox) {
+            checkbox.disabled = true;
+            orderCard.classList.add('disabled');
+        }
+
+        console.log(`[SyncManager] ✅ Nowy element zamówienia ${order.order_id} utworzony`);
+        return clone;
+    }
+
+    setNewOrderElementData(clone, order) {
+        console.log(`[SyncManager] 🎨 Wypełnianie danych nowego zamówienia ${order.order_id}`);
+
+        // Podstawowe elementy
+        const orderNumber = clone.querySelector('.order-number');
+        const customerName = clone.querySelector('.customer-name');
+        const deliveryInfo = clone.querySelector('.delivery-info');
+        const statusBadge = clone.querySelector('.order-status-badge');
+        const statusBadgeContainer = clone.querySelector('.modal-bl-sync-status-badge');
+        const baselinkerBtn = clone.querySelector('.baselinker-link');
+
+        // Elementy kwot
+        const paidAmount = clone.querySelector('.paid-amount');
+        const remainingAmount = clone.querySelector('.remaining-amount');
+        const productsAmount = clone.querySelector('.products-amount');
+        const deliveryAmount = clone.querySelector('.delivery-amount');
+        const totalAmount = clone.querySelector('.total-amount');
+
+        // Ustaw podstawowe dane
+        if (orderNumber) orderNumber.textContent = order.order_id || 'Brak ID';
+        if (customerName) customerName.textContent = order.customer_name || order.delivery_fullname || 'Nieznany klient';
+
+        // Informacje o dostawie  
+        if (deliveryInfo) {
+            const info = `${order.delivery_postcode || ''} ${order.delivery_city || ''}`.trim();
+            deliveryInfo.textContent = info || 'Brak danych dostawy';
+        }
+
+        // Status zamówienia z kolorami
+        if (statusBadge && statusBadgeContainer) {
+            const statusId = order.order_status_id;
+            const statusName = this.getStatusName(statusId);
+            statusBadge.textContent = statusName;
+
+            // Reset klas i dodaj odpowiednią
+            statusBadgeContainer.className = 'modal-bl-sync-status-badge';
+            if (statusId === 105112) {
+                statusBadgeContainer.classList.add('status-new-unpaid');
+            } else if (statusId === 155824) {
+                statusBadgeContainer.classList.add('status-new-paid');
+            } else if ([138619, 148832, 148831, 148830].includes(statusId)) {
+                statusBadgeContainer.classList.add('status-in-production');
+            } else if ([105113, 105114, 149763].includes(statusId)) {
+                statusBadgeContainer.classList.add('status-shipped');
+            } else if ([138624, 149778, 149779].includes(statusId)) {
+                statusBadgeContainer.classList.add('status-delivered');
+            } else if (statusId === 138625) {
+                statusBadgeContainer.classList.add('status-cancelled');
+            }
+        }
+
+        // Oblicz kwoty finansowe
+        const financialData = this.calculateOrderAmounts(order);
+
+        // Ustaw kwoty podsumowania
+        if (productsAmount) productsAmount.textContent = financialData.productsAmount;
+        if (deliveryAmount) deliveryAmount.textContent = financialData.deliveryAmount;
+        if (totalAmount) totalAmount.textContent = financialData.totalAmount;
+
+        // Ustaw kwoty płatności
+        if (paidAmount) paidAmount.textContent = financialData.paidAmount;
+        if (remainingAmount) {
+            remainingAmount.textContent = financialData.remainingAmount;
+
+            // Zmień kolor w zależności od kwoty
+            if (financialData.remainingAmountNum > 0) {
+                remainingAmount.classList.add('unpaid');
+                // Dodaj też klasę do labela "Do zapłaty"
+                const paymentLabel = remainingAmount.parentElement.querySelector('.modal-bl-sync-payment-label');
+                if (paymentLabel && paymentLabel.textContent.includes('Do zapłaty')) {
+                    paymentLabel.style.color = '#DC3545';
+                }
+            } else {
+                remainingAmount.classList.remove('unpaid');
+                remainingAmount.textContent = '0.00 PLN';
+            }
+        }
+
+        // POPRAWKA: Link do Baselinker - prawidłowy schemat URL
+        if (baselinkerBtn) {
+            const correctUrl = `https://panel-f.baselinker.com/orders.php#order:${order.order_id}`;
+            baselinkerBtn.href = correctUrl;
+            baselinkerBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                window.open(correctUrl, '_blank');
+                console.log(`[SyncManager] 🔗 Otwieranie Baselinker: ${correctUrl}`);
+            });
+        }
+
+        // Renderuj listę produktów w nowym stylu
+        this.renderNewProductsList(clone, order);
+    }
+
+    renderNewProductsList(clone, order) {
+        console.log(`[SyncManager] 📦 Renderowanie listy produktów (nowy styl) dla zamówienia ${order.order_id}`);
+
+        const productsList = clone.querySelector('.modal-bl-sync-products-list');
+
+        if (!order.products || !Array.isArray(order.products)) {
+            console.log(`[SyncManager] ⚠️ Brak produktów dla zamówienia ${order.order_id}`);
+            if (productsList) {
+                productsList.innerHTML = '<div class="modal-bl-sync-product-item"><span class="modal-bl-sync-product-name">Brak danych o produktach</span></div>';
+            }
+            return;
+        }
+
+        // Wyczyść listę produktów
+        if (productsList) {
+            productsList.innerHTML = '';
+
+            // Dodaj produkty do listy
+            order.products.forEach((product) => {
+                const productDiv = document.createElement('div');
+                productDiv.className = 'modal-bl-sync-product-item';
+
+                const productName = product.name || 'Nieznany produkt';
+                const quantity = parseInt(product.quantity) || 1;
+                const price = parseFloat(product.price_brutto) || 0;
+                const totalPrice = price * quantity;
+
+                // Dodaj ilość do nazwy produktu (np. "Dąb lity A/B 137×31×4 cm surowy x6")
+                const nameWithQuantity = `${productName} x${quantity}`;
+
+                productDiv.innerHTML = `
+                <span class="modal-bl-sync-product-name">${nameWithQuantity}</span>
+                <span class="modal-bl-sync-product-price">${totalPrice.toFixed(2)} PLN brutto</span>
+            `;
+
+                productsList.appendChild(productDiv);
+            });
+
+            console.log(`[SyncManager] 📦 Wyrenderowano ${order.products.length} produktów dla zamówienia ${order.order_id}`);
+        }
     }
 
     updateOrdersCounter() {
-        const selectedCount = this.selectedOrderIds.size;
+        console.log('[SyncManager] 🔄 Aktualizacja licznika zamówień (nowy styl)');
+
+        // Pobierz rzeczywisty stan checkboxów
+        const actuallySelectedOrderIds = this.getActuallySelectedOrderIds();
+        const selectedCount = actuallySelectedOrderIds.length;
         const totalCount = this.fetchedOrders.length;
 
-        // Zlicz zamówienia z problemami objętości wśród wybranych
-        const selectedOrdersWithVolumeIssues = this.fetchedOrders
-            .filter(order => this.selectedOrderIds.has(order.order_id.toString()) && order.has_volume_issues)
-            .length;
+        // Synchronizuj selectedOrderIds z rzeczywistym stanem
+        this.selectedOrderIds.clear();
+        actuallySelectedOrderIds.forEach(id => this.selectedOrderIds.add(id));
 
-        // Aktualizuj licznik
+        console.log(`[SyncManager] 📊 Rzeczywisty stan: ${selectedCount}/${totalCount} zamówień zaznaczonych`);
+
+        // Aktualizuj licznik znalezionych zamówień
         const counter = document.getElementById('ordersCount');
         if (counter) {
-            counter.textContent = `${totalCount} zamówień znalezionych`;
+            counter.textContent = `Znaleziono ${totalCount} ${totalCount === 1 ? 'zamówienie' : totalCount < 5 ? 'zamówienia' : 'zamówień'}`;
         }
 
-        // Aktualizuj przycisk zapisu
+        // Aktualizuj przycisk zapisu z prawidłową liczbą
         const saveBtn = document.getElementById('ordersSave');
         if (saveBtn) {
             saveBtn.disabled = selectedCount === 0;
+            saveBtn.textContent = `Zapisz rekordy (${selectedCount})`;
 
-            let buttonText = `Zapisz rekordy (${selectedCount})`;
-            if (selectedOrdersWithVolumeIssues > 0) {
-                buttonText += ` - ${selectedOrdersWithVolumeIssues} wymaga objętości`;
-            }
-
-            saveBtn.textContent = buttonText;
+            console.log(`[SyncManager] 💾 Przycisk zaktualizowany: "Zapisz rekordy (${selectedCount})"`);
         }
     }
 
     // ZAKTUALIZOWANA metoda tworzenia elementu zamówienia z oznaczeniem problemów objętości
     createOrderElement(order) {
+        console.log(`[SyncManager] 🏗️ Tworzenie elementu zamówienia ${order.order_id}`);
+
         const template = document.getElementById('orderTemplate');
         if (!template) {
-            console.error('[SyncManager] Brak template orderTemplate');
+            console.error('[SyncManager] ❌ Brak template orderTemplate');
             return document.createElement('div');
         }
 
         const clone = template.content.cloneNode(true);
         const orderItem = clone.querySelector('.order-item');
 
-        if (!orderItem) return clone;
+        if (!orderItem) {
+            console.error('[SyncManager] ❌ Brak .order-item w template');
+            return clone;
+        }
 
-        // Ustaw podstawowe dane
+        // Ustaw ID zamówienia
         orderItem.setAttribute('data-order-id', order.order_id);
 
-        const checkbox = clone.querySelector('.order-checkbox');
+        // Ustaw checkbox
+        const checkbox = clone.querySelector('.order-checkbox input[type="checkbox"]');
         if (checkbox) {
+            checkbox.setAttribute('data-order-id', order.order_id);
             checkbox.id = `order_${order.order_id}`;
+
+            // POPRAWKA: Użyj handleOrderSelection (teraz istnieje)
             checkbox.addEventListener('change', (e) => this.handleOrderSelection(e));
         }
 
-        // Ustaw dane zamówienia
+        // Wypełnij dane zamówienia
         this.setOrderElementData(clone, order);
 
-        // NOWA LOGIKA: Dodaj oznaczenie problemów z objętością
-        if (order.has_volume_issues) {
-            this.addVolumeIssueBadge(orderItem, order);
+        // Dodaj odpowiednie badge'y (unified system)
+        this.addOrderBadges(orderItem, order);
+
+        // Wyłącz checkbox jeśli zamówienie już istnieje w bazie
+        if (order.exists_in_database && checkbox) {
+            checkbox.disabled = true;
+            orderItem.classList.add('disabled');
         }
 
-        // Sprawdź czy zamówienie już istnieje w bazie
-        if (order.exists_in_database) {
-            this.addExistsBadge(orderItem);
-            if (checkbox) checkbox.disabled = true;
+        // Dodaj klasę CSS dla problemów
+        if (order.has_dimension_issues) {
+            orderItem.classList.add('has-dimension-issues');
+        } else if (order.has_volume_issues) {
+            orderItem.classList.add('has-volume-issues');
         }
 
+        console.log(`[SyncManager] ✅ Element zamówienia ${order.order_id} utworzony`);
         return clone;
     }
 
+    handleOrderSelection(event) {
+        console.log('[SyncManager] 🎯 handleOrderSelection wywołana');
+
+        const checkbox = event.target;
+        const orderId = checkbox.getAttribute('data-order-id');
+        const isChecked = checkbox.checked;
+
+        console.log(`[SyncManager] ☑️ Zmiana selection zamówienia ${orderId}: ${isChecked}`);
+
+        if (!orderId) {
+            console.error('[SyncManager] ❌ Brak order-id w checkbox');
+            return;
+        }
+
+        // Konwertuj na string dla spójności
+        const orderIdStr = String(orderId);
+
+        if (isChecked) {
+            this.selectedOrderIds.add(orderIdStr);
+            console.log(`[SyncManager] ✅ Dodano do zaznaczonych: ${orderIdStr}`);
+        } else {
+            this.selectedOrderIds.delete(orderIdStr);
+            console.log(`[SyncManager] ❌ Usunięto z zaznaczonych: ${orderIdStr}`);
+        }
+
+        // Aktualizuj licznik i przycisk
+        this.updateOrdersCounter();
+
+        console.log('[SyncManager] 📊 Aktualnie zaznaczone zamówienia:', Array.from(this.selectedOrderIds));
+    }
+
     setOrderElementData(clone, order) {
+        console.log(`[SyncManager] 🎨 Wypełnianie danych zamówienia ${order.order_id}`);
+
         // Podstawowe dane zamówienia
         const orderNumber = clone.querySelector('.order-number');
         const customerName = clone.querySelector('.customer-name');
         const orderDate = clone.querySelector('.order-date');
         const deliveryInfo = clone.querySelector('.delivery-info');
-        const totalAmount = clone.querySelector('.total-amount');
 
+        // Elementy statusu i kwot
+        const statusBadge = clone.querySelector('.order-status-badge');
+        const productsAmount = clone.querySelector('.products-amount');
+        const deliveryAmount = clone.querySelector('.delivery-amount');
+        const totalAmount = clone.querySelector('.total-amount');
+        const paidAmount = clone.querySelector('.paid-amount');
+        const remainingAmount = clone.querySelector('.remaining-amount');
+        const baselinkerLink = clone.querySelector('.baselinker-link');
+
+        // Ustaw podstawowe dane
         if (orderNumber) orderNumber.textContent = order.order_id || 'Brak ID';
         if (customerName) customerName.textContent = order.customer_name || order.delivery_fullname || 'Nieznany klient';
 
         // Data - konwersja timestamp
         if (orderDate) {
-            const date = order.date_add ? new Date(order.date_add * 1000).toLocaleDateString('pl-PL') : 'Brak daty';
+            const date = order.date_add ?
+                new Date(order.date_add * 1000).toLocaleDateString('pl-PL') : 'Brak daty';
             orderDate.textContent = date;
         }
 
-        // Informacje o dostawie
+        // Informacje o dostawie  
         if (deliveryInfo) {
             const info = `${order.delivery_postcode || ''} ${order.delivery_city || ''}`.trim();
-            deliveryInfo.textContent = info || 'Brak danych';
+            deliveryInfo.textContent = info || 'Brak danych dostawy';
         }
 
-        // Kwota
-        if (totalAmount) {
-            const amount = parseFloat(order.order_value || 0);
-            totalAmount.textContent = `${amount.toFixed(2)} PLN`;
+        // Status zamówienia
+        if (statusBadge) {
+            const statusId = order.order_status_id;
+            const statusName = this.getStatusName(statusId);
+            statusBadge.textContent = statusName;
+
+            // Reset klas i dodaj odpowiednią
+            statusBadge.className = 'order-status-badge';
+            if (statusId === 105112) {
+                statusBadge.classList.add('status-new-unpaid');
+            } else if (statusId === 155824) {
+                statusBadge.classList.add('status-new-paid');
+            } else if ([138619, 148832, 148831, 148830].includes(statusId)) {
+                statusBadge.classList.add('status-in-production');
+            } else if ([105113, 105114, 149763].includes(statusId)) {
+                statusBadge.classList.add('status-shipped');
+            } else if ([138624, 149778, 149779].includes(statusId)) {
+                statusBadge.classList.add('status-delivered');
+            } else if (statusId === 138625) {
+                statusBadge.classList.add('status-cancelled');
+            }
         }
+
+        // Kwoty finansowe
+        const financialData = this.calculateOrderAmounts(order);
+        if (productsAmount) productsAmount.textContent = financialData.productsAmount;
+        if (deliveryAmount) deliveryAmount.textContent = financialData.deliveryAmount;
+        if (totalAmount) totalAmount.textContent = financialData.totalAmount;
+        if (paidAmount) paidAmount.textContent = financialData.paidAmount;
+        if (remainingAmount) remainingAmount.textContent = financialData.remainingAmount;
+
+        // POPRAWKA: Link do Baselinker - prawidłowy schemat URL
+        if (baselinkerLink) {
+            const correctUrl = `https://panel-f.baselinker.com/orders.php#order:${order.order_id}`;
+            baselinkerLink.href = correctUrl;
+            baselinkerLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                window.open(correctUrl, '_blank');
+                console.log(`[SyncManager] 🔗 Otwieranie Baselinker: ${correctUrl}`);
+            });
+        }
+
+        // Renderuj listę produktów
+        this.renderProductsList(clone, order);
     }
 
     // NOWA metoda: dodaje oznaczenie problemów z objętością
     addVolumeIssueBadge(orderItem, order) {
-        const badge = document.createElement('div');
-        badge.className = 'volume-issue-badge';
-        badge.style.cssText = `
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: #ff9800;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 10px;
-            font-size: 10px;
-            z-index: 10;
-            cursor: help;
-        `;
-
-        const volumeProductsCount = order.products.filter(p => p.needs_manual_volume).length;
-        badge.textContent = `📏 ${volumeProductsCount} bez wymiarów`;
-        badge.title = `${volumeProductsCount} produktów wymaga uzupełnienia objętości`;
-
-        orderItem.style.position = 'relative';
-        orderItem.appendChild(badge);
+        const badge = orderItem.querySelector('.volume-issue-badge');
+        if (badge) {
+            const volumeProductsCount = order.products?.filter(p => p.needs_manual_volume)?.length || 0;
+            badge.textContent = `📏 Brak objętości (${volumeProductsCount})`;
+            badge.style.display = 'block';
+            badge.title = `${volumeProductsCount} produktów wymaga uzupełnienia objętości`;
+        }
     }
 
     // NOWA metoda: dodaje oznaczenie istniejącego zamówienia
@@ -1017,56 +1337,157 @@ class SyncManager {
         }
     }
 
-    renderProductsList(orderElement, order) {
-        const productsCountText = orderElement.querySelector('.products-count-text');
-        const productsToggle = orderElement.querySelector('.products-toggle');
-        const productsList = orderElement.querySelector('.products-list');
+    renderProductsList(clone, order) {
+        console.log(`[SyncManager] 📦 Renderowanie listy produktów dla zamówienia ${order.order_id}`);
+
+        const productsSection = clone.querySelector('.products-section');
+        const productsCountText = clone.querySelector('.products-count-text');
+        const productsList = clone.querySelector('.products-list');
 
         if (!order.products || !Array.isArray(order.products)) {
+            console.log(`[SyncManager] ⚠️ Brak produktów dla zamówienia ${order.order_id}`);
             if (productsCountText) {
                 productsCountText.textContent = 'Brak danych o produktach';
             }
-            if (productsToggle) {
-                productsToggle.style.display = 'none';
+            if (productsSection) {
+                productsSection.style.display = 'none';
             }
             return;
         }
 
         const productsCount = order.products.length;
-        const problemProducts = order.products_with_issues?.length || 0;
+        const problemProducts = order.products.filter(p =>
+            p.has_dimension_issues || p.needs_manual_volume
+        ).length;
 
         // Ustaw licznik produktów
         if (productsCountText) {
-            let countText = `${productsCount} ${productsCount === 1 ? 'produkt' : 'produktów'}`;
+            let countText = `${productsCount} ${productsCount === 1 ? 'produkt' :
+                productsCount < 5 ? 'produkty' : 'produktów'}`;
+
             if (problemProducts > 0) {
-                countText += ` (${problemProducts} bez wymiarów)`;
+                countText += ` (${problemProducts} wymaga uzupełnienia)`;
             }
+
             productsCountText.textContent = countText;
+            productsCountText.style.color = problemProducts > 0 ? '#dc3545' : '#495057';
+            productsCountText.style.fontWeight = problemProducts > 0 ? '600' : '500';
         }
 
-        // Ustaw toggle dla pokazywania/ukrywania produktów
-        if (productsToggle && productsList) {
-            productsToggle.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isExpanded = productsToggle.classList.contains('expanded');
+        // Wyczyść listę produktów
+        if (productsList) {
+            productsList.innerHTML = '';
 
-                if (isExpanded) {
-                    // Ukryj produkty
-                    productsList.style.display = 'none';
-                    productsToggle.classList.remove('expanded');
-                    productsToggle.querySelector('.toggle-text').textContent = 'Pokaż produkty';
-                } else {
-                    // Pokaż produkty
-                    productsList.style.display = 'block';
-                    productsToggle.classList.add('expanded');
-                    productsToggle.querySelector('.toggle-text').textContent = 'Ukryj produkty';
+            // Dodaj produkty do listy
+            order.products.forEach((product, index) => {
+                const productDiv = document.createElement('div');
+                productDiv.className = 'product-item';
+                productDiv.style.cssText = `
+                padding: 8px 12px;
+                border-bottom: 1px solid #f1f3f4;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 12px;
+            `;
 
-                    // Renderuj produkty jeśli jeszcze nie zostały wyrenderowane
-                    if (productsList.children.length === 0) {
-                        this.renderProductsInList(productsList, order);
-                    }
+                // Usuń border z ostatniego elementu
+                if (index === order.products.length - 1) {
+                    productDiv.style.borderBottom = 'none';
                 }
+
+                // Oznacz produkty z problemami
+                const hasDimensionIssues = product.has_dimension_issues;
+                const hasVolumeIssues = product.needs_manual_volume;
+
+                if (hasDimensionIssues || hasVolumeIssues) {
+                    productDiv.classList.add('has-dimension-issues');
+                    productDiv.style.backgroundColor = '#fff5f5';
+                    productDiv.style.borderLeft = '3px solid #dc3545';
+                    productDiv.style.paddingLeft = '8px';
+                }
+
+                const productName = product.name || 'Nieznany produkt';
+                const quantity = parseInt(product.quantity) || 1;
+                const price = parseFloat(product.price_brutto) || 0;
+                const totalPrice = price * quantity;
+
+                // Określ ikonę problemu
+                let problemIcon = '';
+                if (hasDimensionIssues && hasVolumeIssues) {
+                    problemIcon = '⚠️📏 ';
+                } else if (hasDimensionIssues) {
+                    problemIcon = '⚠️ ';
+                } else if (hasVolumeIssues) {
+                    problemIcon = '📏 ';
+                }
+
+                productDiv.innerHTML = `
+                <div class="product-name" style="flex: 1; color: ${hasDimensionIssues || hasVolumeIssues ? '#dc3545' : '#2c3e50'}; margin-right: 10px; line-height: 1.3; font-weight: ${hasDimensionIssues || hasVolumeIssues ? '500' : 'normal'};">
+                    ${problemIcon}${productName}
+                </div>
+                <div class="product-details" style="display: flex; gap: 12px; align-items: center; color: #6c757d; white-space: nowrap;">
+                    <span class="product-quantity" style="font-weight: 500;">${quantity} szt.</span>
+                    <span class="product-price" style="font-weight: 500;">${totalPrice.toFixed(2)} PLN</span>
+                </div>
+            `;
+
+                productsList.appendChild(productDiv);
             });
+
+            console.log(`[SyncManager] 📦 Wyrenderowano ${order.products.length} produktów dla zamówienia ${order.order_id}`);
+        }
+    }
+
+    updateRemainingAmount(clone, financialData) {
+        const remainingAmount = clone.querySelector('.remaining-amount');
+        if (remainingAmount) {
+            remainingAmount.textContent = financialData.remainingAmount;
+
+            // Zmień kolor w zależności od kwoty
+            if (financialData.remainingAmountNum > 0) {
+                remainingAmount.style.color = '#dc3545'; // Czerwony jeśli jest do zapłaty
+            } else {
+                remainingAmount.style.color = '#28a745'; // Zielony jeśli opłacone
+                remainingAmount.textContent = 'Opłacone';
+            }
+        }
+    }
+
+    addOrderBadges(orderItem, order) {
+        console.log(`[SyncManager] 🏷️ Dodawanie badge'ów dla zamówienia ${order.order_id}`);
+
+        // Priorytet badge'ów (tylko jeden na raz):
+        // 1. Zamówienie już w bazie (zielony)
+        // 2. Problemy z wymiarami (czerwony) 
+        // 3. Problemy z objętością (pomarańczowy)
+
+        if (order.exists_in_database) {
+            this.addExistsBadge(orderItem);
+            console.log(`[SyncManager] 🏷️ Zamówienie ${order.order_id}: badge "W bazie"`);
+            return;
+        }
+
+        if (order.has_dimension_issues) {
+            this.addDimensionIssueBadge(orderItem, order);
+            console.log(`[SyncManager] 🏷️ Zamówienie ${order.order_id}: badge "Brak wymiarów"`);
+            return;
+        }
+
+        if (order.has_volume_issues) {
+            this.addVolumeIssueBadge(orderItem, order);
+            console.log(`[SyncManager] 🏷️ Zamówienie ${order.order_id}: badge "Brak objętości"`);
+        }
+    }
+
+    addDimensionIssueBadge(orderItem, order) {
+        const badge = orderItem.querySelector('.dimensions-issue-badge');
+        if (badge) {
+            const issuesCount = order.products_with_issues?.length ||
+                order.products?.filter(p => p.has_dimension_issues)?.length || 0;
+            badge.textContent = `⚠️ Brak wymiarów (${issuesCount})`;
+            badge.style.display = 'block';
+            badge.title = `${issuesCount} produktów nie ma wymiarów w nazwie`;
         }
     }
 
@@ -1143,24 +1564,31 @@ class SyncManager {
 
     // Obliczanie kwot zamówienia
     calculateOrderAmounts(order) {
+        console.log(`[SyncManager] 💰 Obliczanie kwot dla zamówienia ${order.order_id}`);
+
         let productsTotal = 0;
         let deliveryPrice = parseFloat(order.delivery_price) || 0;
 
-        // Oblicz sumę produktów z order.products jeśli istnieje
+        // Oblicz sumę produktów z order.products jeśli istnieje (preferowane)
         if (order.products && Array.isArray(order.products)) {
             productsTotal = order.products.reduce((sum, product) => {
                 const price = parseFloat(product.price_brutto) || 0;
                 const quantity = parseInt(product.quantity) || 1;
                 return sum + (price * quantity);
             }, 0);
+            console.log(`[SyncManager] 📊 Suma z produktów: ${productsTotal} PLN`);
         } else {
-            // Jeśli nie ma szczegółów produktów, użyj order_value minus dostawa
+            // Fallback: jeśli nie ma szczegółów produktów, użyj order_value minus dostawa
             const orderValue = parseFloat(order.order_value) || 0;
-            productsTotal = orderValue - deliveryPrice;
-            if (productsTotal < 0) productsTotal = orderValue; // zabezpieczenie
+            productsTotal = Math.max(0, orderValue - deliveryPrice); // zabezpieczenie przed ujemną wartością
+            console.log(`[SyncManager] 📊 Suma fallback (order_value - delivery): ${productsTotal} PLN`);
         }
 
         const totalAmount = productsTotal + deliveryPrice;
+
+        // NOWE: Obsługa payment_done i obliczanie pozostałej kwoty
+        const paymentDone = parseFloat(order.payment_done) || 0;
+        const remainingAmount = Math.max(0, totalAmount - paymentDone);
 
         // Formatowanie kwot
         const formatCurrency = (amount) => {
@@ -1171,12 +1599,24 @@ class SyncManager {
             productsAmount: formatCurrency(productsTotal),
             deliveryAmount: formatCurrency(deliveryPrice),
             totalAmount: formatCurrency(totalAmount),
+            paidAmount: formatCurrency(paymentDone),
+            remainingAmount: formatCurrency(remainingAmount),
+
+            // Surowe wartości do obliczeń
             productsTotal: productsTotal,
             deliveryPrice: deliveryPrice,
-            totalAmountNum: totalAmount
+            totalAmountNum: totalAmount,
+            paidAmountNum: paymentDone,
+            remainingAmountNum: remainingAmount
         };
 
-        console.log(`[SyncManager] 💰 Kwoty zamówienia ${order.order_id}:`, result);
+        console.log(`[SyncManager] 💰 Kwoty zamówienia ${order.order_id}:`, {
+            produkty: productsTotal,
+            dostawa: deliveryPrice,
+            razem: totalAmount,
+            zapłacono: paymentDone,
+            pozostało: remainingAmount
+        });
 
         return result;
     }
@@ -1216,31 +1656,51 @@ class SyncManager {
     }
 
     selectAllOrders() {
-        console.log('[SyncManager] ☑️ Zaznaczanie wszystkich dostępnych zamówień');
+        console.log('[SyncManager] ☑️ Zaznaczanie wszystkich dostępnych zamówień (nowy styl)');
 
-        const availableCheckboxes = this.ordersList.querySelectorAll('.order-select:not(:disabled)');
-        
+        const availableCheckboxes = document.querySelectorAll('#ordersList .modal-bl-sync-checkbox:not(:disabled)');
+
+        // Wyczyść poprzedni stan
+        this.selectedOrderIds.clear();
+
         availableCheckboxes.forEach(checkbox => {
             checkbox.checked = true;
-            this.selectedOrderIds.add(checkbox.getAttribute('data-order-id'));
+            const orderId = checkbox.getAttribute('data-order-id');
+            if (orderId) {
+                this.selectedOrderIds.add(orderId);
+            }
         });
 
-        this.updateSaveButton();
-        console.log('[SyncManager] ✅ Zaznaczono wszystkie:', Array.from(this.selectedOrderIds));
+        this.updateOrdersCounter();
+        console.log('[SyncManager] ✅ Zaznaczono wszystkie dostępne:', Array.from(this.selectedOrderIds));
     }
 
     deselectAllOrders() {
-        console.log('[SyncManager] ☐ Odznaczanie wszystkich zamówień');
+        console.log('[SyncManager] ☐ Odznaczanie wszystkich zamówień (nowy styl)');
 
-        const allCheckboxes = this.ordersList.querySelectorAll('.order-select');
-        
+        const allCheckboxes = document.querySelectorAll('#ordersList .modal-bl-sync-checkbox');
+
         allCheckboxes.forEach(checkbox => {
             checkbox.checked = false;
         });
 
         this.selectedOrderIds.clear();
-        this.updateSaveButton();
+        this.updateOrdersCounter();
         console.log('[SyncManager] ✅ Odznaczono wszystkie zamówienia');
+    }
+
+    showEmptyState() {
+        console.log('[SyncManager] 📭 Pokazywanie empty state (nowy styl)');
+
+        const loadingState = document.getElementById('ordersLoadingState');
+        const listContainer = document.getElementById('ordersListContainer');
+        const emptyState = document.getElementById('ordersEmptyState');
+        const errorState = document.getElementById('ordersErrorState');
+
+        if (loadingState) loadingState.style.display = 'none';
+        if (listContainer) listContainer.style.display = 'none';
+        if (emptyState) emptyState.style.display = 'block';
+        if (errorState) errorState.style.display = 'none';
     }
 
     updateOrdersCount() {
@@ -1579,37 +2039,45 @@ class SyncManager {
     // =====================================================
 
     async handleOrdersSave() {
-        console.log('[SyncManager] 💾 Rozpoczęcie zapisu zamówień z obsługą objętości');
+        console.log('[SyncManager] 💾 Rozpoczęcie zapisu zamówień');
 
-        // Pobierz aktualnie zaznaczone zamówienia
+        // POPRAWKA: Sprawdź stan przed rozpoczęciem
+        if (this.isProcessing) {
+            console.warn('[SyncManager] ⚠️ Proces zapisywania już trwa - ignoruję');
+            return;
+        }
+
+        // Pobierz aktualnie zaznaczone zamówienia PRZED sprawdzeniem
         const actuallySelectedOrderIds = this.getActuallySelectedOrderIds();
 
+        console.log(`[SyncManager] 📊 Stan przed zapisem:`, {
+            selectedOrderIds: Array.from(this.selectedOrderIds),
+            actuallySelected: actuallySelectedOrderIds,
+            match: this.selectedOrderIds.size === actuallySelectedOrderIds.length
+        });
+
         if (actuallySelectedOrderIds.length === 0) {
-            console.warn('[SyncManager] ⚠️ Brak aktualnie zaznaczonych zamówień');
+            console.warn('[SyncManager] ⚠️ Brak zaznaczonych zamówień do zapisania');
             alert('Brak zaznaczonych zamówień do zapisania');
             return;
         }
 
-        if (this.isProcessing) {
-            console.warn('[SyncManager] ⚠️ Proces zapisywania już trwa');
-            return;
-        }
-
-        console.log('[SyncManager] 📊 Aktualnie zaznaczone zamówienia:', actuallySelectedOrderIds);
-
-        // Synchronizuj this.selectedOrderIds z rzeczywistym stanem checkboxów
-        this.selectedOrderIds.clear();
-        actuallySelectedOrderIds.forEach(id => this.selectedOrderIds.add(id));
+        // Ustaw flagę przetwarzania PRZED jakimikolwiek operacjami async
+        this.isProcessing = true;
 
         try {
+            // Synchronizuj selectedOrderIds z rzeczywistym stanem
+            this.selectedOrderIds.clear();
+            actuallySelectedOrderIds.forEach(id => this.selectedOrderIds.add(id));
+
             // Pobierz wybrane zamówienia
             const selectedOrders = this.fetchedOrders.filter(order =>
                 actuallySelectedOrderIds.includes(order.order_id.toString())
             );
 
-            console.log('[SyncManager] 📊 Wybrane zamówienia do zapisu:', selectedOrders.length);
+            console.log('[SyncManager] 📋 Zamówienia do zapisu:', selectedOrders.length);
 
-            // NOWA LOGIKA: Sprawdź czy są produkty wymagające objętości
+            // Sprawdź czy są produkty wymagające objętości
             const productsNeedingVolume = this.extractProductsNeedingVolume(selectedOrders);
 
             if (productsNeedingVolume.length > 0) {
@@ -1624,6 +2092,7 @@ class SyncManager {
             console.error('[SyncManager] ❌ Błąd podczas zapisu:', error);
             alert(`Wystąpił błąd: ${error.message}`);
         } finally {
+            // WAŻNE: Zawsze wyczyść flagę przetwarzania
             this.isProcessing = false;
         }
     }
@@ -1872,7 +2341,7 @@ class SyncManager {
 
     getActuallySelectedOrderIds() {
         const selectedIds = [];
-        const checkboxes = this.ordersList.querySelectorAll('.order-select:checked');
+        const checkboxes = document.querySelectorAll('#ordersList .modal-bl-sync-checkbox:checked');
 
         checkboxes.forEach(checkbox => {
             const orderId = checkbox.getAttribute('data-order-id');
@@ -1881,10 +2350,9 @@ class SyncManager {
             }
         });
 
-        console.log('[SyncManager] 🔍 Pobrano aktualnie zaznaczone ID:', selectedIds);
+        console.log('[SyncManager] 🔍 Rzeczywisty stan checkboxów:', selectedIds);
         return selectedIds;
     }
-
 
     showDimensionFixModal(ordersWithIssues, allSelectedOrders) {
         console.log('[SyncManager] 🔧 Tworzenie modala uzupełnienia wymiarów dla zamówień:', ordersWithIssues);
@@ -2413,6 +2881,40 @@ class SyncManager {
             dimensionModal.remove();
         }
     }
+
+    debugSelectionState() {
+        const checkboxes = document.querySelectorAll('#ordersList .order-select');
+        const checkedBoxes = document.querySelectorAll('#ordersList .order-select:checked');
+
+        console.log('[SyncManager] 🐛 DEBUG - Stan zaznaczenia:', {
+            totalCheckboxes: checkboxes.length,
+            checkedCheckboxes: checkedBoxes.length,
+            selectedOrderIds: Array.from(this.selectedOrderIds),
+            selectedOrderIdsSize: this.selectedOrderIds.size,
+            actuallyChecked: Array.from(checkedBoxes).map(cb => cb.getAttribute('data-order-id'))
+        });
+
+        // Sprawdź czy są rozbieżności
+        const actuallyChecked = Array.from(checkedBoxes).map(cb => cb.getAttribute('data-order-id'));
+        const selectedArray = Array.from(this.selectedOrderIds);
+
+        const mismatch = selectedArray.length !== actuallyChecked.length ||
+            !selectedArray.every(id => actuallyChecked.includes(id));
+
+        if (mismatch) {
+            console.warn('[SyncManager] ⚠️ ROZBIEŻNOŚĆ w stanie zaznaczenia!', {
+                selectedOrderIds: selectedArray,
+                actuallyChecked: actuallyChecked
+            });
+        }
+
+        return {
+            mismatch: mismatch,
+            selectedOrderIds: selectedArray,
+            actuallyChecked: actuallyChecked
+        };
+    }
+
 }
 
 // =====================================================

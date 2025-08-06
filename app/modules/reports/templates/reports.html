@@ -384,64 +384,396 @@
         </div>
     </div>
 
-    <!-- KROK 2: Modal z listą zamówień do wyboru -->
-    <div id="syncOrdersModal" class="sync-modal" style="display: none;">
-        <div class="sync-modal-overlay">
-            <div class="sync-modal-content sync-modal-large">
-                <div class="sync-modal-header">
-                    <h3>Wybierz zamówienia do zapisania</h3>
-                    <button class="sync-modal-close" id="syncOrdersModalClose">&times;</button>
+    <!-- PROGRESSIVE LOADING OVERLAY DO DODANIA W MODAL -->
+<div class="modal-bl-sync-progressive-loading" id="modalBlSyncProgressiveLoading" style="display: none;">
+    
+    <!-- Skeleton kafelków w tle -->
+    <div class="modal-bl-sync-skeleton-container">
+        <div class="modal-bl-sync-skeleton-grid">
+            
+            <!-- Skeleton kafelek 1 -->
+            <div class="modal-bl-sync-skeleton-card">
+                <div class="modal-bl-sync-skeleton-header">
+                    <div class="modal-bl-sync-skeleton-checkbox"></div>
+                    <div class="modal-bl-sync-skeleton-order-number"></div>
+                    <div class="modal-bl-sync-skeleton-status"></div>
+                    <div class="modal-bl-sync-skeleton-base-btn"></div>
                 </div>
-
-                <div class="sync-modal-body">
-                    <!-- Loading state -->
-                    <div id="ordersLoadingState" class="orders-loading" style="display: none;">
-                        <div class="loading-spinner"></div>
-                        <p>Pobieranie zamówień z Baselinker...</p>
+                <div class="modal-bl-sync-skeleton-info">
+                    <div class="modal-bl-sync-skeleton-client">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
                     </div>
-
-                    <!-- Orders list container -->
-                    <div id="ordersListContainer" class="orders-list-container" style="display: none;">
-                        <!-- Selection controls -->
-                        <div class="orders-selection-controls">
-                            <div class="selection-info">
-                                <span id="ordersCount">0</span> zamówień znalezionych
-                            </div>
-                            <div class="selection-actions">
-                                <button id="selectAllOrders" class="btn btn-sm btn-secondary">Zaznacz wszystkie</button>
-                                <button id="deselectAllOrders" class="btn btn-sm btn-secondary">Odznacz wszystkie</button>
-                            </div>
-                        </div>
-
-                        <!-- Orders list -->
-                        <div id="ordersList" class="orders-list">
-                            <!-- Zamówienia będą wstawiane tutaj dynamicznie -->
-                        </div>
-                    </div>
-
-                    <!-- Empty state -->
-                    <div id="ordersEmptyState" class="orders-empty" style="display: none;">
-                        <div class="empty-icon">📋</div>
-                        <h4>Brak nowych zamówień</h4>
-                        <p>Nie znaleziono nowych zamówień w wybranym zakresie dat.</p>
-                    </div>
-
-                    <!-- Error state -->
-                    <div id="ordersErrorState" class="orders-error" style="display: none;">
-                        <div class="error-icon">⚠️</div>
-                        <h4>Błąd pobierania zamówień</h4>
-                        <p id="errorMessage">Wystąpił błąd podczas pobierania zamówień z Baselinker.</p>
+                    <div class="modal-bl-sync-skeleton-delivery">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
                     </div>
                 </div>
+                <div class="modal-bl-sync-skeleton-products">
+                    <div class="modal-bl-sync-skeleton-products-header"></div>
+                    <div class="modal-bl-sync-skeleton-product-line">
+                        <div class="modal-bl-sync-skeleton-product-name"></div>
+                        <div class="modal-bl-sync-skeleton-product-price"></div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-product-line">
+                        <div class="modal-bl-sync-skeleton-product-name"></div>
+                        <div class="modal-bl-sync-skeleton-product-price"></div>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-skeleton-footer">
+                    <div class="modal-bl-sync-skeleton-payments">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-summary">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-                <div class="sync-modal-footer">
-                    <button id="ordersBack" class="btn btn-secondary">Wstecz</button>
-                    <button id="ordersCancel" class="btn btn-secondary">Anuluj</button>
-                    <button id="ordersSave" class="btn btn-primary" disabled>Zapisz rekordy (0)</button>
+            <!-- Skeleton kafelek 2 -->
+            <div class="modal-bl-sync-skeleton-card">
+                <div class="modal-bl-sync-skeleton-header">
+                    <div class="modal-bl-sync-skeleton-checkbox"></div>
+                    <div class="modal-bl-sync-skeleton-order-number"></div>
+                    <div class="modal-bl-sync-skeleton-status"></div>
+                    <div class="modal-bl-sync-skeleton-base-btn"></div>
+                </div>
+                <div class="modal-bl-sync-skeleton-info">
+                    <div class="modal-bl-sync-skeleton-client">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-delivery">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-skeleton-products">
+                    <div class="modal-bl-sync-skeleton-products-header"></div>
+                    <div class="modal-bl-sync-skeleton-product-line">
+                        <div class="modal-bl-sync-skeleton-product-name"></div>
+                        <div class="modal-bl-sync-skeleton-product-price"></div>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-skeleton-footer">
+                    <div class="modal-bl-sync-skeleton-payments">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-summary">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Skeleton kafelek 3 -->
+            <div class="modal-bl-sync-skeleton-card">
+                <div class="modal-bl-sync-skeleton-header">
+                    <div class="modal-bl-sync-skeleton-checkbox"></div>
+                    <div class="modal-bl-sync-skeleton-order-number"></div>
+                    <div class="modal-bl-sync-skeleton-status"></div>
+                    <div class="modal-bl-sync-skeleton-base-btn"></div>
+                </div>
+                <div class="modal-bl-sync-skeleton-info">
+                    <div class="modal-bl-sync-skeleton-client">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-delivery">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-skeleton-products">
+                    <div class="modal-bl-sync-skeleton-products-header"></div>
+                    <div class="modal-bl-sync-skeleton-product-line">
+                        <div class="modal-bl-sync-skeleton-product-name"></div>
+                        <div class="modal-bl-sync-skeleton-product-price"></div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-product-line">
+                        <div class="modal-bl-sync-skeleton-product-name"></div>
+                        <div class="modal-bl-sync-skeleton-product-price"></div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-product-line">
+                        <div class="modal-bl-sync-skeleton-product-name"></div>
+                        <div class="modal-bl-sync-skeleton-product-price"></div>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-skeleton-footer">
+                    <div class="modal-bl-sync-skeleton-payments">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-summary">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Skeleton kafelek 4 -->
+            <div class="modal-bl-sync-skeleton-card">
+                <div class="modal-bl-sync-skeleton-header">
+                    <div class="modal-bl-sync-skeleton-checkbox"></div>
+                    <div class="modal-bl-sync-skeleton-order-number"></div>
+                    <div class="modal-bl-sync-skeleton-status"></div>
+                    <div class="modal-bl-sync-skeleton-base-btn"></div>
+                </div>
+                <div class="modal-bl-sync-skeleton-info">
+                    <div class="modal-bl-sync-skeleton-client">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-delivery">
+                        <div class="modal-bl-sync-skeleton-label"></div>
+                        <div class="modal-bl-sync-skeleton-value"></div>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-skeleton-products">
+                    <div class="modal-bl-sync-skeleton-products-header"></div>
+                    <div class="modal-bl-sync-skeleton-product-line">
+                        <div class="modal-bl-sync-skeleton-product-name"></div>
+                        <div class="modal-bl-sync-skeleton-product-price"></div>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-skeleton-footer">
+                    <div class="modal-bl-sync-skeleton-payments">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
+                    <div class="modal-bl-sync-skeleton-summary">
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                        <div class="modal-bl-sync-skeleton-amount-line">
+                            <div class="modal-bl-sync-skeleton-amount-label"></div>
+                            <div class="modal-bl-sync-skeleton-amount-value"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Centralny spinner z progress -->
+    <div class="modal-bl-sync-loading-center">
+        <div class="modal-bl-sync-spinner"></div>
+        <div class="modal-bl-sync-loading-text" id="modalBlSyncLoadingText">Łączenie z Baselinker...</div>
+        <div class="modal-bl-sync-progress-dots" id="modalBlSyncProgressDots">
+            <div class="modal-bl-sync-progress-dot active" data-step="1"></div>
+            <div class="modal-bl-sync-progress-dot" data-step="2"></div>
+            <div class="modal-bl-sync-progress-dot" data-step="3"></div>
+            <div class="modal-bl-sync-progress-dot" data-step="4"></div>
+        </div>
+        <div class="modal-bl-sync-step-label" id="modalBlSyncStepLabel">Krok 1 z 4</div>
+    </div>
+</div>
+
+    <!-- NOWY MODAL Z PREFIKSEM modal-bl-sync- -->
+    <div id="syncOrdersModal" class="modal-bl-sync-wrapper" style="display: none;">
+        <div class="modal-bl-sync-overlay"></div>
+        <div class="modal-bl-sync-container">
+
+            <!-- SEKCJA 1: Header -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">Pobierz zamówienia z Base.</h2>
+                    <span class="modal-bl-sync-date-range" id="modalBlSyncDateRange">01.08.2028 - 06.08.2025</span>
+                </div>
+                <button class="modal-bl-sync-close" id="syncOrdersModalClose">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M1 1L11 11M11 1L1 11" stroke="#314254" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- SEKCJA 2: Content -->
+            <div class="modal-bl-sync-content">
+
+                <!-- Loading state -->
+                <div id="ordersLoadingState" class="modal-bl-sync-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Pobieranie zamówień z Baselinker...</p>
+                </div>
+
+                <!-- Controls -->
+                <div class="modal-bl-sync-controls" id="ordersListContainer" style="display: none;">
+                    <div class="modal-bl-sync-found-info">
+                        <span class="modal-bl-sync-found-text" id="ordersCount">Znaleziono 2 zamówienia</span>
+                    </div>
+                    <div class="modal-bl-sync-buttons-group">
+                        <button class="modal-bl-sync-btn-select-all" id="selectAllOrders">Zaznacz wszystkie</button>
+                        <button class="modal-bl-sync-btn-deselect-all" id="deselectAllOrders">Odznacz wszystkie</button>
+                    </div>
+                </div>
+
+                <!-- Orders Grid -->
+                <div class="modal-bl-sync-orders-grid" id="ordersList">
+                    <!-- Zamówienia będą wstawiane tutaj dynamicznie -->
+                </div>
+
+                <!-- Empty state -->
+                <div id="ordersEmptyState" class="modal-bl-sync-empty" style="display: none;">
+                    <div class="empty-icon">📋</div>
+                    <h4>Brak nowych zamówień</h4>
+                    <p>Nie znaleziono nowych zamówień w wybranym zakresie dat.</p>
+                </div>
+
+                <!-- Error state -->
+                <div id="ordersErrorState" class="modal-bl-sync-error" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <h4>Błąd pobierania zamówień</h4>
+                    <p id="errorMessage">Wystąpił błąd podczas pobierania zamówień z Baselinker.</p>
+                </div>
+            </div>
+
+            <!-- SEKCJA 3: Footer -->
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-back" id="ordersBack">Wstecz</button>
+                    <button class="modal-bl-sync-btn-cancel" id="ordersCancel">Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-save" id="ordersSave" disabled>Zapisz rekordy (0)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TEMPLATE NOWEGO KAFELKA ZAMÓWIENIA -->
+    <template id="modalBlSyncOrderTemplate">
+        <div class="modal-bl-sync-order-card" data-order-id="">
+
+            <!-- Górna część: checkbox, numer, status, base button -->
+            <div class="modal-bl-sync-order-header">
+                <div class="modal-bl-sync-checkbox-wrapper">
+                    <input type="checkbox" class="modal-bl-sync-checkbox order-select" data-order-id="">
+                    <svg class="modal-bl-sync-checkbox-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <rect width="16" height="16" rx="4" fill="#4285F4" />
+                        <path d="M3 7.98476L6.17305 11L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
+
+                <span class="modal-bl-sync-order-number">Zamówienie #<span class="order-number"></span></span>
+
+                <div class="modal-bl-sync-status-badge">
+                    <span class="order-status-badge"></span>
+                </div>
+
+                <button class="modal-bl-sync-base-btn baselinker-link">
+                    <svg width="31" height="10" viewBox="0 0 31 10" fill="none">
+                        <path d="M6.76183 6.10615C6.76183 7.97935 5.55906 9.47783 3.68825 9.47783C2.92651 9.47783 2.2717 9.11654 1.76388 8.60809V9.33066H0V0.5H1.76388V3.52382C2.24498 3.05565 2.88646 2.73447 3.68825 2.73447C5.65267 2.73447 6.76183 4.32659 6.76183 6.10615ZM5.11811 6.1731C5.11811 5.22318 4.35637 4.44707 3.44765 4.44707C2.53903 4.44707 1.76388 5.22318 1.76388 6.1731C1.76388 7.12304 2.53903 7.91238 3.44765 7.91238C4.35637 7.91238 5.11811 7.12304 5.11811 6.1731Z" fill="white" />
+                        <path d="M12.3871 2.91725H14.0975L14.0441 9.3396H12.3871V8.63046C11.8792 9.13891 11.2244 9.50019 10.4627 9.50019C8.59185 9.50019 7.38916 8.00171 7.38916 6.12851C7.38916 4.34896 8.49824 2.75684 10.4627 2.75684C11.2644 2.75684 11.9059 3.07784 12.3871 3.54619V2.91725ZM12.3871 6.18205C12.3871 5.23211 11.5986 4.46945 10.6765 4.46945C9.75448 4.46945 8.99274 5.23211 8.99274 6.19529C8.99274 7.17208 9.7678 7.93474 10.6765 7.93474C11.5852 7.93474 12.3871 7.13197 12.3871 6.18205Z" fill="white" />
+                        <path d="M16.5958 7.17703C16.6092 7.77911 17.0101 8.07343 17.9054 8.07343C18.4534 8.07343 18.8408 7.84606 18.8408 7.4581C18.8408 6.45464 14.912 7.0834 14.912 4.68851C14.912 3.27024 16.2484 2.72168 17.6648 2.72168C19.6293 2.72168 20.4846 3.97937 20.4846 4.84892H18.7206C18.6671 4.50106 18.3731 4.07301 17.6648 4.07301C17.2506 4.07301 16.7428 4.18007 16.7428 4.59469C16.7428 5.57149 20.6716 4.91587 20.6716 7.41782C20.6716 8.58188 19.9768 9.47845 17.9456 9.47845C16.0479 9.47845 14.9254 8.74246 14.8052 7.17703H16.5958Z" fill="white" />
+                        <path d="M22.9697 6.77607C23.1566 7.59227 23.718 8.06043 24.6935 8.06043C25.3615 8.06043 25.8561 7.83306 26.1501 7.41825L27.914 7.37815C27.5131 8.72946 26.4173 9.47871 24.7335 9.47871C22.582 9.47871 21.3794 8.2613 21.3794 6.10703C21.3794 4.32765 22.7691 2.73535 24.7335 2.73535C26.8048 2.73535 28.0877 4.23383 28.0877 6.10703C28.0877 6.33458 28.0744 6.5487 28.0477 6.74939L26.7781 6.77607H22.9697ZM23.0364 5.35778H26.3639C26.1367 4.66207 25.5755 4.16706 24.6935 4.16706C23.8783 4.16706 23.2903 4.68875 23.0364 5.35778Z" fill="white" />
+                        <path d="M28.5142 8.23742C28.5142 7.55514 29.0754 6.99316 29.7569 6.99316C30.4384 6.99316 30.9998 7.55514 30.9998 8.23742C30.9998 8.91989 30.4384 9.48186 29.7569 9.48186C29.0754 9.48186 28.5142 8.91989 28.5142 8.23742Z" fill="white" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Klient i Dostawa -->
+            <div class="modal-bl-sync-client-delivery">
+                <div class="modal-bl-sync-client-section">
+                    <div class="modal-bl-sync-section-header">🧑 Klient:</div>
+                    <div class="modal-bl-sync-section-content customer-name"></div>
+                </div>
+                <div class="modal-bl-sync-delivery-section">
+                    <div class="modal-bl-sync-section-header">📍 Dostawa:</div>
+                    <div class="modal-bl-sync-section-content delivery-info"></div>
+                </div>
+            </div>
+
+            <!-- Produkty -->
+            <div class="modal-bl-sync-products-section">
+                <div class="modal-bl-sync-products-header">Produkty:</div>
+                <div class="modal-bl-sync-products-list">
+                    <!-- Produkty będą dodane dynamicznie -->
+                </div>
+            </div>
+
+            <!-- Footer: Podsumowanie i Płatności -->
+            <div class="modal-bl-sync-order-footer">
+                <div class="modal-bl-sync-payment-section">
+                    <div class="modal-bl-sync-payment-item">
+                        <span class="modal-bl-sync-payment-label">Zapłacono:</span>
+                        <span class="modal-bl-sync-payment-amount paid-amount"></span>
+                    </div>
+                    <div class="modal-bl-sync-payment-item">
+                        <span class="modal-bl-sync-payment-label">Do zapłaty:</span>
+                        <span class="modal-bl-sync-payment-amount remaining-amount"></span>
+                    </div>
+                </div>
+                <div class="modal-bl-sync-summary-section">
+                    <div class="modal-bl-sync-summary-breakdown">
+                        <div class="modal-bl-sync-summary-item">
+                            <span class="modal-bl-sync-summary-label">Produkty:</span>
+                            <span class="modal-bl-sync-summary-amount products-amount"></span>
+                        </div>
+                        <div class="modal-bl-sync-summary-item">
+                            <span class="modal-bl-sync-summary-label">Dostawa:</span>
+                            <span class="modal-bl-sync-summary-amount delivery-amount"></span>
+                        </div>
+                    </div>
+                    <div class="modal-bl-sync-summary-total">
+                        <span class="modal-bl-sync-summary-label">Suma:</span>
+                        <span class="modal-bl-sync-summary-amount total-amount"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
 
     <!-- KROK 3: Modal uzupełniania objętości i atrybutów -->
     <div id="volumeModal" class="sync-modal" style="display: none;">
@@ -573,90 +905,6 @@
             <div class="sync-loading-text" id="syncLoadingText">Proszę czekać...</div>
         </div>
     </div>
-
-    <!-- Template dla pojedynczego zamówienia -->
-    <template id="orderTemplate">
-        <div class="order-item" data-order-id="">
-            <!-- Badge dla zamówień już istniejących w bazie -->
-            <div class="exists-badge" style="display: none; position: absolute; top: 5px; right: 5px; background: #28a745; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
-                ✓ W bazie
-            </div>
-
-            <!-- Badge dla problemów z wymiarami -->
-            <div class="dimensions-issue-badge" style="display: none; position: absolute; top: 5px; right: 80px; background: #dc3545; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
-                ⚠️ Problemy z wymiarami
-            </div>
-
-            <!-- NOWY: Badge dla typu ceny -->
-            <div class="price-type-badge" style="display: none; position: absolute; top: 30px; right: 5px; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
-                <span class="price-type-icon">ℹ️</span>
-                <span class="price-type-text"></span>
-            </div>
-
-            <div class="volume-issue-badge" style="display: none; position: absolute; top: 35px; right: 5px; background: #ff9800; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; z-index: 10;">
-                📏 Brak objętości
-            </div>
-
-            <!-- Reszta template pozostaje bez zmian -->
-            <div class="order-checkbox">
-                <input type="checkbox" class="order-select" data-order-id="">
-            </div>
-
-            <div class="order-content">
-                <div class="order-header">
-                    <div class="order-title">
-                        <strong>Zamówienie #<span class="order-number"></span></strong>
-                        <span class="order-status-badge"></span>
-                    </div>
-                    <div class="order-actions">
-                        <a href="#" class="baselinker-link">🔗 Baselinker</a>
-                        <span class="order-date"></span>
-                    </div>
-                </div>
-
-                <div class="order-info">
-                    <div class="customer-info">
-                        <strong>Klient:</strong> <span class="customer-name"></span>
-                    </div>
-                    <div class="delivery-info-container">
-                        <strong>Dostawa:</strong> <span class="delivery-info"></span>
-                    </div>
-                </div>
-
-                <!-- NOWA SEKCJA: Lista produktów -->
-                <div class="products-section" style="border: 1px solid #e9ecef; border-radius: 4px; background: #f8f9fa; margin-bottom: 8px;">
-                    <div class="products-header" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; cursor: pointer;">
-                        <span class="products-count-text" style="font-size: 12px; color: #6c757d; font-weight: 500;"></span>
-                        <button class="products-toggle" type="button" style="background: none; border: none; color: #007bff; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                            <span class="toggle-icon" style="transition: transform 0.2s ease;">▼</span>
-                            <span class="toggle-text">Pokaż produkty</span>
-                        </button>
-                    </div>
-                    <div class="products-list" style="display: none; border-top: 1px solid #e9ecef; background: white; max-height: 200px; overflow-y: auto;">
-                        <!-- Produkty będą dodane dynamicznie tutaj -->
-                    </div>
-                </div>
-
-                <!-- Szczegóły finansowe -->
-                <div class="order-summary" style="display: flex; justify-content: flex-end; padding-top: 8px; border-top: 1px solid #e9ecef;">
-                    <div class="financial-details" style="text-align: right; font-size: 12px;">
-                        <div class="amount-row" style="display: flex; justify-content: space-between; min-width: 140px; margin-bottom: 2px;">
-                            <span class="amount-label" style="color: #6c757d; margin-right: 8px;">Produkty:</span>
-                            <span class="products-amount"></span>
-                        </div>
-                        <div class="amount-row" style="display: flex; justify-content: space-between; min-width: 140px; margin-bottom: 2px;">
-                            <span class="amount-label" style="color: #6c757d; margin-right: 8px;">Dostawa:</span>
-                            <span class="delivery-amount"></span>
-                        </div>
-                        <div class="amount-row total-row" style="display: flex; justify-content: space-between; min-width: 140px; border-top: 1px solid #e9ecef; padding-top: 2px; margin-top: 2px;">
-                            <span class="amount-label" style="color: #2c3e50; font-weight: 600; margin-right: 8px;">Razem:</span>
-                            <strong class="total-amount" style="color: #28a745; font-weight: 600;"></strong>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </template>
 
     <!-- Template dla pojedynczego zamówienia z problemami wymiarów -->
     <template id="dimensionOrderTemplate">

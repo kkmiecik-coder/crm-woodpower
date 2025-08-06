@@ -3483,23 +3483,6 @@ body.fullscreen-mode {
     border-radius: 6px;
 }
 
-.orders-list {
-    overflow-y: auto;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    background: #ffffff;
-}
-
-/* Pojedyncze zamówienie */
-.order-item {
-    display: flex;
-    align-items: flex-start;
-    padding: 12px 16px; /* Zmniejszone z 16px */
-    border-bottom: 1px solid #e9ecef;
-    transition: all 0.2s ease;
-    position: relative;
-}
-
 .order-item:last-child {
     border-bottom: none;
 }
@@ -4130,12 +4113,6 @@ body.fullscreen-mode {
     font-weight: 500;
 }
 
-/* Style dla większych modalów */
-.sync-modal-large .sync-modal-content {
-    max-width: 800px;
-    width: 90%;
-}
-
 .sync-modal-extra-large .sync-modal-content {
     max-width: 1000px;
     width: 95%;
@@ -4161,37 +4138,6 @@ body.fullscreen-mode {
 .sync-modal.show .sync-modal-content {
     transform: scale(1);
 }
-
-.order-item {
-    position: relative;
-    border: 1px solid #e9ecef;
-    border-radius: 6px;
-    margin-bottom: 8px;
-    background: white;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: flex-start;
-    padding: 12px;
-}
-
-    .order-item:hover {
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-
-    .order-item.disabled {
-        opacity: 0.6;
-        background-color: #f8f9fa;
-    }
-
-    /* WAŻNE: Style dla zamówień z problemami wymiarów */
-    .order-item.has-dimension-issues {
-        border-left: 4px solid #dc3545;
-        background: linear-gradient(90deg, rgba(220, 53, 69, 0.05) 0%, rgba(255, 255, 255, 1) 100%);
-    }
-
-        .order-item.has-dimension-issues:hover {
-            background: linear-gradient(90deg, rgba(220, 53, 69, 0.08) 0%, rgba(248, 249, 250, 1) 100%);
-        }
 
 /* Badge'y */
 .exists-badge {
@@ -5199,4 +5145,1175 @@ body.fullscreen-mode {
         .volume-product-header .product-quantity {
             align-self: flex-start;
         }
+}
+/* ===========================================
+   NOWY MODAL ZAMÓWIEŃ - PREFIX: modal-bl-sync-
+   =========================================== */
+
+/* Import Poppins font */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
+/* Modal wrapper - overlay */
+.modal-bl-sync-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Poppins', sans-serif;
+}
+
+.modal-bl-sync-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+/* Modal container - główny box */
+.modal-bl-sync-container {
+    position: relative;
+    width: 820px;
+    max-height: 800px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    z-index: 1051;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    overflow: hidden;
+}
+
+/* ===========================================
+   SEKCJA 1: HEADER
+   =========================================== */
+
+.modal-bl-sync-header {
+    display: flex;
+    padding: 24px 30px;
+    justify-content: space-between;
+    align-items: center;
+    align-self: stretch;
+    border-bottom: 1px solid #E9ECEF;
+    background: #F8F9FA;
+}
+
+.modal-bl-sync-title-section {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.modal-bl-sync-title {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 18px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+    margin: 0;
+}
+
+.modal-bl-sync-date-range {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 300;
+    line-height: normal;
+    margin-top: 4px;
+}
+
+.modal-bl-sync-close {
+    width: 12px;
+    height: 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+    .modal-bl-sync-close:hover {
+        background-color: rgba(0, 0, 0, 0.1);
+    }
+
+/* ===========================================
+   SEKCJA 2: CONTENT
+   =========================================== */
+
+.modal-bl-sync-content {
+    display: flex;
+    padding: 0 30px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    align-self: stretch;
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Loading state */
+.modal-bl-sync-loading {
+    text-align: center;
+    padding: 40px 20px;
+    align-self: stretch;
+}
+
+    .modal-bl-sync-loading .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #e9ecef;
+        border-top: 4px solid #007bff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 16px auto;
+    }
+
+    .modal-bl-sync-loading p {
+        color: #6c757d;
+        margin: 0;
+        font-size: 15px;
+    }
+
+/* Controls section */
+.modal-bl-sync-controls {
+    display: flex;
+    padding: 16px;
+    justify-content: space-between;
+    align-items: center;
+    align-self: stretch;
+    border-radius: 16px;
+    border: 1px solid #E9ECEF;
+    background: #F8F9FA;
+}
+
+.modal-bl-sync-found-text {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+.modal-bl-sync-buttons-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.modal-bl-sync-btn-select-all {
+    display: flex;
+    padding: 8px 16px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 4px;
+    background: #6C757D;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    color: #FFF;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+    .modal-bl-sync-btn-select-all:hover {
+        background: #5a6268;
+    }
+
+.modal-bl-sync-btn-deselect-all {
+    display: flex;
+    padding: 8px 16px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 4px;
+    border: 2px solid #6C757D;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #6C757D;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+    .modal-bl-sync-btn-deselect-all:hover {
+        background: #6C757D;
+        color: white;
+    }
+
+/* ===========================================
+   GRID ZAMÓWIEŃ - CSS GRID 2 KOLUMNY
+   =========================================== */
+
+.modal-bl-sync-orders-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-self: stretch;
+    padding: 8px;
+    border-radius: 16px;
+    border: 1px solid #E9ECEF;
+    background: #F8F9FA;
+    grid-auto-rows: min-content; /* Każdy rząd dostosowuje się do najwyższego elementu */
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* ===========================================
+   KAFELEK ZAMÓWIENIA
+   =========================================== */
+
+.modal-bl-sync-order-card {
+    display: flex;
+    min-width: 360px;
+    padding: 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+    flex: 1 0 0;
+    border-radius: 8px;
+    border: 1px solid #E9ECEF;
+    background: #FFF;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+    .modal-bl-sync-order-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
+        border-color: #4285F4;
+    }
+
+    .modal-bl-sync-order-card.disabled {
+        opacity: 0.6;
+        pointer-events: none;
+        background: #f8f9fa;
+    }
+
+/* Header zamówienia */
+.modal-bl-sync-order-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    align-self: stretch;
+}
+
+/* Custom checkbox */
+.modal-bl-sync-checkbox-wrapper {
+    position: relative;
+    width: 16px;
+    height: 16px;
+}
+
+.modal-bl-sync-checkbox {
+    width: 16px;
+    height: 16px;
+    opacity: 0;
+    position: absolute;
+    cursor: pointer;
+}
+
+.modal-bl-sync-checkbox-icon {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+    transition: all 0.2s;
+}
+
+/* Domyślny stan checkbox - pusty */
+.modal-bl-sync-checkbox:not(:checked) + .modal-bl-sync-checkbox-icon rect {
+    fill: transparent;
+    stroke: #CCC;
+    stroke-width: 1.5;
+}
+
+.modal-bl-sync-checkbox:not(:checked) + .modal-bl-sync-checkbox-icon path {
+    opacity: 0;
+}
+
+/* Zaznaczony checkbox */
+.modal-bl-sync-checkbox:checked + .modal-bl-sync-checkbox-icon rect {
+    fill: #4285F4;
+    stroke: #4285F4;
+}
+
+.modal-bl-sync-checkbox:checked + .modal-bl-sync-checkbox-icon path {
+    opacity: 1;
+}
+
+/* Hover effect */
+.modal-bl-sync-checkbox:not(:checked):hover + .modal-bl-sync-checkbox-icon rect {
+    stroke: #4285F4;
+    fill: rgba(66, 133, 244, 0.1);
+}
+
+.modal-bl-sync-order-number {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+    flex: 1;
+}
+
+.modal-bl-sync-status-badge {
+    display: flex;
+    padding: 0 8px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 4px;
+    background: #D1ECF1;
+    height: 20px;
+}
+
+    .modal-bl-sync-status-badge .order-status-badge {
+        color: #2A6B76;
+        font-family: 'Poppins', sans-serif;
+        font-size: 8px;
+        font-style: normal;
+        font-weight: 600;
+        line-height: normal;
+        background: none;
+        padding: 0;
+        border-radius: 0;
+    }
+
+.modal-bl-sync-base-btn {
+    display: flex;
+    padding: 0 6px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 4px;
+    background: #2F7DFF;
+    border: none;
+    cursor: pointer;
+    height: 20px;
+    transition: background-color 0.2s;
+}
+
+    .modal-bl-sync-base-btn:hover {
+        background: #1c5db8;
+    }
+
+/* ===========================================
+   KLIENT I DOSTAWA
+   =========================================== */
+
+.modal-bl-sync-client-delivery {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    align-self: stretch;
+}
+
+.modal-bl-sync-client-section,
+.modal-bl-sync-delivery-section {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 6px;
+    flex: 1 0 0;
+}
+
+.modal-bl-sync-section-header {
+    align-self: stretch;
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: normal;
+}
+
+.modal-bl-sync-section-content {
+    align-self: stretch;
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+}
+
+/* ===========================================
+   SEKCJA PRODUKTÓW
+   =========================================== */
+
+.modal-bl-sync-products-section {
+    display: flex;
+    padding-bottom: 6px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 6px;
+    align-self: stretch;
+    border-bottom: 1px solid #CCC;
+}
+
+.modal-bl-sync-products-header {
+    align-self: stretch;
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: normal;
+}
+
+.modal-bl-sync-products-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-self: stretch;
+}
+
+.modal-bl-sync-product-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    align-self: stretch;
+}
+
+.modal-bl-sync-product-name {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+    flex: 1;
+    margin-right: 10px;
+}
+
+.modal-bl-sync-product-price {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: normal;
+}
+
+/* ===========================================
+   FOOTER ZAMÓWIENIA - PŁATNOŚCI I PODSUMOWANIE
+   =========================================== */
+
+.modal-bl-sync-order-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    align-self: stretch;
+}
+
+/* Sekcja płatności - lewa strona */
+.modal-bl-sync-payment-section {
+    display: flex;
+    width: 140px;
+    padding-bottom: 2px;
+    flex-direction: column;
+    align-items: flex-start;
+    align-self: stretch;
+}
+
+.modal-bl-sync-payment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    align-self: stretch;
+    margin-bottom: 2px;
+}
+
+.modal-bl-sync-payment-label {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+}
+
+.modal-bl-sync-payment-amount {
+    color: #409916;
+    font-family: 'Poppins', sans-serif;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: normal;
+}
+
+    /* Kolor czerwony dla niedopłaty */
+    .modal-bl-sync-payment-amount.unpaid {
+        color: #DC3545;
+    }
+
+/* Sekcja podsumowania - prawa strona */
+.modal-bl-sync-summary-section {
+    display: flex;
+    width: 130px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.modal-bl-sync-summary-breakdown {
+    display: flex;
+    padding-bottom: 2px;
+    flex-direction: column;
+    align-items: flex-start;
+    align-self: stretch;
+}
+
+.modal-bl-sync-summary-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    align-self: stretch;
+    margin-bottom: 2px;
+}
+
+.modal-bl-sync-summary-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    align-self: stretch;
+    border-top: 1px solid #CCC;
+    padding-top: 4px;
+}
+
+.modal-bl-sync-summary-label {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+}
+
+.modal-bl-sync-summary-amount {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 8px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: normal;
+}
+
+/* ===========================================
+   SEKCJA 3: FOOTER
+   =========================================== */
+
+.modal-bl-sync-footer {
+    display: flex;
+    padding: 24px 30px;
+    justify-content: space-between;
+    align-items: flex-start;
+    align-self: stretch;
+    border-top: 1px solid #E9ECEF;
+    background: #F8F9FA;
+}
+
+.modal-bl-sync-footer-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.modal-bl-sync-btn-back,
+.modal-bl-sync-btn-cancel {
+    display: flex;
+    padding: 8px 16px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 4px;
+    background: #6C757D;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    color: #FFF;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+    .modal-bl-sync-btn-back:hover,
+    .modal-bl-sync-btn-cancel:hover {
+        background: #5a6268;
+    }
+
+.modal-bl-sync-btn-save {
+    display: flex;
+    padding: 8px 16px;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    border-radius: 4px;
+    background: #4285F4;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    color: #FFF;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
+
+    .modal-bl-sync-btn-save:hover:not(:disabled) {
+        background: #3367d6;
+    }
+
+    .modal-bl-sync-btn-save:disabled {
+        background: #CCC;
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
+
+/* ===========================================
+   KOLORY STATUSÓW
+   =========================================== */
+
+/* Nowe - nieopłacone */
+.modal-bl-sync-status-badge.status-new-unpaid {
+    background: #f8d7da;
+}
+
+    .modal-bl-sync-status-badge.status-new-unpaid .order-status-badge {
+        color: #721c24;
+    }
+
+/* Nowe - opłacone */
+.modal-bl-sync-status-badge.status-new-paid {
+    background: #D1ECF1;
+}
+
+    .modal-bl-sync-status-badge.status-new-paid .order-status-badge {
+        color: #2A6B76;
+    }
+
+/* W produkcji */
+.modal-bl-sync-status-badge.status-in-production {
+    background: #fff3cd;
+}
+
+    .modal-bl-sync-status-badge.status-in-production .order-status-badge {
+        color: #856404;
+    }
+
+/* Wysłane */
+.modal-bl-sync-status-badge.status-shipped {
+    background: #d4edda;
+}
+
+    .modal-bl-sync-status-badge.status-shipped .order-status-badge {
+        color: #155724;
+    }
+
+/* Dostarczone */
+.modal-bl-sync-status-badge.status-delivered {
+    background: #cce5ff;
+}
+
+    .modal-bl-sync-status-badge.status-delivered .order-status-badge {
+        color: #004085;
+    }
+
+/* Anulowane */
+.modal-bl-sync-status-badge.status-cancelled {
+    background: #f8d7da;
+}
+
+    .modal-bl-sync-status-badge.status-cancelled .order-status-badge {
+        color: #721c24;
+    }
+
+/* ===========================================
+   EMPTY STATE I ERROR STATE
+   =========================================== */
+
+.modal-bl-sync-empty,
+.modal-bl-sync-error {
+    text-align: center;
+    padding: 40px 20px;
+    align-self: stretch;
+}
+
+    .modal-bl-sync-empty h4,
+    .modal-bl-sync-error h4 {
+        color: #314254;
+        font-family: 'Poppins', sans-serif;
+        font-size: 16px;
+        font-weight: 600;
+        margin: 10px 0 5px 0;
+    }
+
+    .modal-bl-sync-empty p,
+    .modal-bl-sync-error p {
+        color: #6c757d;
+        font-family: 'Poppins', sans-serif;
+        font-size: 14px;
+        margin: 0;
+    }
+
+.empty-icon,
+.error-icon {
+    font-size: 48px;
+    margin-bottom: 10px;
+}
+
+/* ===========================================
+   ANIMACJE
+   =========================================== */
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.modal-bl-sync-wrapper {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+    .modal-bl-sync-wrapper.show {
+        opacity: 1;
+    }
+
+.modal-bl-sync-container {
+    transform: scale(0.95);
+    transition: transform 0.3s ease;
+}
+
+.modal-bl-sync-wrapper.show .modal-bl-sync-container {
+    transform: scale(1);
+}
+
+/* ===========================================
+   RESPONSYWNOŚĆ
+   =========================================== */
+
+@media (max-width: 900px) {
+    .modal-bl-sync-container {
+        width: 95%;
+        max-width: 820px;
+        margin: 20px;
+    }
+
+    .modal-bl-sync-orders-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .modal-bl-sync-order-card {
+        min-width: unset;
+    }
+}
+
+@media (max-width: 576px) {
+    .modal-bl-sync-header,
+    .modal-bl-sync-content,
+    .modal-bl-sync-footer {
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+
+    .modal-bl-sync-header {
+        padding-top: 20px;
+        padding-bottom: 20px;
+    }
+
+    .modal-bl-sync-footer {
+        padding-top: 20px;
+        padding-bottom: 20px;
+    }
+
+    .modal-bl-sync-footer {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .modal-bl-sync-footer-left {
+        align-self: stretch;
+        justify-content: center;
+    }
+
+    .modal-bl-sync-btn-save {
+        align-self: stretch;
+    }
+}
+
+/* ===========================================
+   PROGRESSIVE LOADING - SKELETON + SPINNER
+   =========================================== */
+
+/* Loading overlay - ściemniony modal */
+.modal-bl-sync-progressive-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 1060;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    backdrop-filter: blur(2px);
+}
+
+/* Centralny loading box */
+.modal-bl-sync-loading-center {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    text-align: center;
+    min-width: 280px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Spinner */
+.modal-bl-sync-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #4285F4;
+    border-radius: 50%;
+    animation: modal-bl-sync-spin 1.2s linear infinite;
+    margin: 0 auto 20px auto;
+}
+
+/* Loading text */
+.modal-bl-sync-loading-text {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    min-height: 24px;
+    transition: all 0.3s ease;
+}
+
+/* Progress dots */
+.modal-bl-sync-progress-dots {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.modal-bl-sync-progress-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #E9ECEF;
+    transition: all 0.4s ease;
+    position: relative;
+}
+
+.modal-bl-sync-progress-dot.active {
+    background: #4285F4;
+    transform: scale(1.2);
+    box-shadow: 0 0 8px rgba(66, 133, 244, 0.5);
+}
+
+.modal-bl-sync-progress-dot.completed {
+    background: #28a745;
+    transform: scale(1);
+}
+
+/* Progress step labels */
+.modal-bl-sync-step-label {
+    color: #6c757d;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    margin-top: 8px;
+    opacity: 0.8;
+}
+
+/* ===========================================
+   SKELETON KAFELKÓW W TLE
+   =========================================== */
+
+/* Container skeleton */
+.modal-bl-sync-skeleton-container {
+    position: absolute;
+    top: 160px; /* Pod headerem */
+    left: 30px;
+    right: 30px;
+    bottom: 100px; /* Nad footerem */
+    z-index: 1;
+    opacity: 0.6;
+}
+
+/* Grid skeleton - dokładnie jak prawdziwe kafelki */
+.modal-bl-sync-skeleton-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 16px;
+    border: 1px solid #E9ECEF;
+    background: #F8F9FA;
+}
+
+/* Pojedynczy skeleton kafelek */
+.modal-bl-sync-skeleton-card {
+    min-width: 360px;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #E9ECEF;
+    background: #FFF;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    height: 180px; /* Standardowa wysokość kafelka */
+}
+
+/* Skeleton header */
+.modal-bl-sync-skeleton-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.modal-bl-sync-skeleton-checkbox {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: #E9ECEF;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+}
+
+.modal-bl-sync-skeleton-order-number {
+    height: 14px;
+    background: #E9ECEF;
+    border-radius: 4px;
+    flex: 1;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.1s;
+}
+
+.modal-bl-sync-skeleton-status {
+    width: 80px;
+    height: 20px;
+    background: #E9ECEF;
+    border-radius: 4px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.2s;
+}
+
+.modal-bl-sync-skeleton-base-btn {
+    width: 40px;
+    height: 20px;
+    background: #E9ECEF;
+    border-radius: 4px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.3s;
+}
+
+/* Skeleton client/delivery section */
+.modal-bl-sync-skeleton-info {
+    display: flex;
+    gap: 10px;
+}
+
+.modal-bl-sync-skeleton-client,
+.modal-bl-sync-skeleton-delivery {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modal-bl-sync-skeleton-label {
+    width: 60px;
+    height: 12px;
+    background: #E9ECEF;
+    border-radius: 3px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.4s;
+}
+
+.modal-bl-sync-skeleton-value {
+    width: 100%;
+    height: 8px;
+    background: #E9ECEF;
+    border-radius: 3px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.5s;
+}
+
+/* Skeleton products */
+.modal-bl-sync-skeleton-products {
+    border-bottom: 1px solid #CCC;
+    padding-bottom: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modal-bl-sync-skeleton-products-header {
+    width: 60px;
+    height: 12px;
+    background: #E9ECEF;
+    border-radius: 3px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.6s;
+}
+
+.modal-bl-sync-skeleton-product-line {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.modal-bl-sync-skeleton-product-name {
+    width: 70%;
+    height: 8px;
+    background: #E9ECEF;
+    border-radius: 3px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.7s;
+}
+
+.modal-bl-sync-skeleton-product-price {
+    width: 25%;
+    height: 8px;
+    background: #E9ECEF;
+    border-radius: 3px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.8s;
+}
+
+/* Skeleton footer */
+.modal-bl-sync-skeleton-footer {
+    display: flex;
+    justify-content: space-between;
+}
+
+.modal-bl-sync-skeleton-payments,
+.modal-bl-sync-skeleton-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.modal-bl-sync-skeleton-payments {
+    width: 140px;
+}
+
+.modal-bl-sync-skeleton-summary {
+    width: 130px;
+}
+
+.modal-bl-sync-skeleton-amount-line {
+    display: flex;
+    justify-content: space-between;
+    height: 8px;
+}
+
+.modal-bl-sync-skeleton-amount-label {
+    width: 40%;
+    background: #E9ECEF;
+    border-radius: 3px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 0.9s;
+}
+
+.modal-bl-sync-skeleton-amount-value {
+    width: 35%;
+    background: #E9ECEF;
+    border-radius: 3px;
+    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
+    animation-delay: 1s;
+}
+
+/* ===========================================
+   ANIMACJE
+   =========================================== */
+
+@keyframes modal-bl-sync-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes modal-bl-sync-pulse {
+    0% {
+        background-color: #E9ECEF;
+        opacity: 1;
+    }
+    50% {
+        background-color: #DEE2E6;
+        opacity: 0.7;
+    }
+    100% {
+        background-color: #E9ECEF;
+        opacity: 1;
+    }
+}
+
+/* Fade in effect dla skeleton */
+.modal-bl-sync-skeleton-container {
+    animation: modal-bl-sync-fadeIn 0.3s ease-in-out;
+}
+
+@keyframes modal-bl-sync-fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 0.6;
+        transform: translateY(0);
+    }
+}
+
+/* Responsywność skeleton */
+@media (max-width: 900px) {
+    .modal-bl-sync-skeleton-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .modal-bl-sync-skeleton-card {
+        min-width: unset;
+    }
 }
