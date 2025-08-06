@@ -67,30 +67,23 @@ class BaselinkerReportsService:
         reports_logger.info("Wyczyszczono poprawki objętości")
         
     def get_volume_fix(self, product_key):
-        """
-        NOWA METODA: Pobiera poprawki objętości dla konkretnego produktu.
-        
-        Args:
-            product_key (str): Klucz produktu w formacie "order_id_product_id"
-            
-        Returns:
-            dict or None: Słownik z poprawkami lub None
-        """
+        """Pobiera poprawki objętości dla konkretnego produktu"""
+        if not hasattr(self, 'volume_fixes'):
+            return None
         return self.volume_fixes.get(product_key)
         
     def get_volume_fix_attribute(self, product_key, attribute):
-        """
-        NOWA METODA: Pobiera konkretny atrybut z poprawek objętości.
-        
-        Args:
-            product_key (str): Klucz produktu
-            attribute (str): Nazwa atrybutu (np. 'wood_species', 'technology')
-            
-        Returns:
-            any or None: Wartość atrybutu lub None
-        """
+        """Pobiera konkretny atrybut z poprawek objętości"""
         fix = self.get_volume_fix(product_key)
         return fix.get(attribute) if fix else None
+    
+    def get_existing_order_ids(self, order_ids):
+        """Zwraca listę ID zamówień które już istnieją w bazie"""
+        existing = db.session.query(BaselinkerReportOrder.baselinker_order_id).filter(
+            BaselinkerReportOrder.baselinker_order_id.in_(order_ids)
+        ).distinct().all()
+        return [order.baselinker_order_id for order in existing]
+
 
     def calculate_volume_from_dimensions(self, length_cm, width_cm, thickness_cm, quantity):
         """
@@ -1759,6 +1752,144 @@ class BaselinkerReportsService:
                              paid_amount_net=paid_amount_net)
     
         return paid_amount_net
+    
+    def save_order_with_volume_analysis(self, order_data):
+        """
+        NOWA METODA: Zapisuje zamówienie z uwzględnieniem pełnej analizy objętości
+        """
+        try:
+            order_id = order_data.get('order_id')
+            products = order_data.get('products', [])
+            
+            if not products:
+                return {
+                    'success': False,
+                    'error': f'Zamówienie {order_id} nie zawiera produktów'
+                }
+            
+            reports_logger.info(f"Zapisywanie zamówienia {order_id} z analizą objętości",
+                            products_count=len(products))
+            
+            # Sprawdź czy zamówienie już istnieje
+            if self.order_exists(order_id):
+                return {
+                    'success': False,
+                    'error': f'Zamówienie {order_id} już istnieje w bazie danych'
+                }
+            
+            saved_records = []
+            processing_errors = []
+            
+            for product in products:
+                try:
+                    # Użyj ulepszonej metody przygotowania danych z analizą objętości
+                    record_data = self.prepare_order_record_data_with_volume_analysis(
+                        order_data, product
+                    )
+                    
+                    # Zapisz rekord
+                    record = self.create_report_record(record_data)
+                    saved_records.append(record)
+                    
+                    # Loguj szczegóły
+                    volume_info = f"objętość: {record_data.get('total_volume', 0):.4f}m³"
+                    if record_data.get('wood_species'):
+                        volume_info += f", gatunek: {record_data.get('wood_species')}"
+                    if record_data.get('technology'):
+                        volume_info += f", technologia: {record_data.get('technology')}"
+                    
+                    reports_logger.debug(f"Zapisano produkt z analizą: {product.get('name', 'unknown')} - {volume_info}")
+                    
+                except Exception as e:
+                    error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"
+                    processing_errors.append(error_msg)
+                    reports_logger.error(error_msg)
+                    continue
+            
+            if not saved_records:
+                return {
+                    'success': False,
+                    'error': f'Nie udało się zapisać żadnych produktów z zamówienia {order_id}',
+                    'details': processing_errors
+                }
+            
+            # Commit transakcji
+            db.session.commit()
+            
+            result = {
+                'success': True,
+                'order_id': order_id,
+                'products_saved': len(saved_records),
+                'message': f'Pomyślnie zapisano {len(saved_records)} produktów z zamówienia {order_id}'
+            }
+            
+            if processing_errors:
+                result['warnings'] = processing_errors
+                result['products_failed'] = len(processing_errors)
+            
+            reports_logger.info(f"Zamówienie {order_id} zapisane pomyślnie z analizą objętości",
+                            products_saved=len(saved_records),
+                            products_failed=len(processing_errors))
+            
+            return result
+            
+        except Exception as e:
+            db.session.rollback()
+            error_msg = f"Krytyczny błąd zapisywania zamówienia {order_data.get('order_id', 'unknown')} z analizą objętości: {str(e)}"
+            reports_logger.error(error_msg)
+            return {
+                'success': False,
+                'error': error_msg
+            }
+
+    def set_volume_fixes(self, volume_fixes):
+        """
+        NOWA METODA: Ustawia poprawki objętości dla produktów
+        """
+        self.volume_fixes = volume_fixes.copy()
+        reports_logger.info(f"Ustawiono poprawki objętości dla {len(volume_fixes)} produktów")
+        
+        # Debug log dla każdej poprawki
+        for product_key, fixes in volume_fixes.items():
+            volume = fixes.get('volume', 0)
+            attributes = []
+            if fixes.get('wood_species'):
+                attributes.append(f"gatunek: {fixes['wood_species']}")
+            if fixes.get('technology'):
+                attributes.append(f"technologia: {fixes['technology']}")
+            if fixes.get('wood_class'):
+                attributes.append(f"klasa: {fixes['wood_class']}")
+            
+            attr_str = ", " + ", ".join(attributes) if attributes else ""
+            reports_logger.debug(f"Poprawka {product_key}: {volume}m³{attr_str}")
+
+    def clear_volume_fixes(self):
+        """
+        NOWA METODA: Czyści poprawki objętości
+        """
+        fixes_count = len(self.volume_fixes) if hasattr(self, 'volume_fixes') else 0
+        self.volume_fixes = {}
+        reports_logger.info(f"Wyczyszczono {fixes_count} poprawek objętości")
+
+    def create_report_record(self, record_data):
+        """
+        NOWA METODA: Tworzy rekord raportu w bazie danych
+        """
+        try:
+            record = BaselinkerReportOrder(**record_data)
+            db.session.add(record)
+            return record
+        except Exception as e:
+            reports_logger.error(f"Błąd tworzenia rekordu: {str(e)}")
+            raise
+
+    def order_exists(self, order_id):
+        """
+        NOWA METODA: Sprawdza czy zamówienie już istnieje w bazie
+        """
+        return BaselinkerReportOrder.query.filter(
+            BaselinkerReportOrder.baselinker_order_id == order_id
+        ).first() is not None
 
 # ===== FUNKCJE POMOCNICZE =====
 

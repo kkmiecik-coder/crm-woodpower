@@ -627,39 +627,27 @@
     </template>
 
     <!-- KROK 3: Modal uzupełniania objętości i atrybutów -->
-    <div id="volumeModal" class="sync-modal" style="display: none;">
-        <div class="sync-modal-overlay">
-            <div class="sync-modal-content sync-modal-extra-large">
-                <div class="sync-modal-header">
-                    <h3>Uzupełnij objętości produktów</h3>
-                    <button class="sync-modal-close" id="volumeModalClose">&times;</button>
-                </div>
+    <!-- Modal uzupełniania objętości - ENHANCED VERSION -->
+    <div id="volumeModal" class="sync-modal-overlay" style="display: none;">
+        <div class="sync-modal-content sync-modal-extra-large">
+            <div class="sync-modal-header">
+                <h3>Uzupełnij objętości produktów</h3>
+                <button class="sync-modal-close" id="volumeModalClose">&times;</button>
+            </div>
 
-                <div class="sync-modal-body">
-                    <div class="volume-info">
-                        <div class="info-icon">📏</div>
-                        <div class="info-text">
-                            <p><strong>Niektóre produkty nie mają wymiarów ani objętości w nazwie.</strong></p>
-                            <p>Uzupełnij objętość (m³) oraz opcjonalnie gatunek, technologię i klasę dla każdego produktu.</p>
-                            <p class="info-note">Pola oznaczone * są wymagane dla prawidłowych statystyk.</p>
-                        </div>
-                    </div>
+            <div class="sync-modal-body">
+                <!-- Zawartość będzie dynamicznie generowana przez JavaScript -->
+            </div>
 
-                    <div id="volumeProductsList" class="volume-products-list">
-                        <!-- Produkty będą wstawiane tutaj dynamicznie -->
-                    </div>
-                </div>
-
-                <div class="sync-modal-footer">
-                    <button id="volumeBack" class="btn btn-secondary">Wstecz</button>
-                    <button id="volumeSkip" class="btn btn-warning">Pomiń (objętość = 0)</button>
-                    <button id="volumeSave" class="btn btn-primary">Zapisz z objętościami</button>
-                </div>
+            <div class="sync-modal-footer">
+                <!-- Przyciski będą dynamicznie generowane w zależności od trybu -->
             </div>
         </div>
     </div>
 
-    <!-- Template dla pojedynczego zamówienia z produktami do uzupełnienia -->
+    <!-- Templates dla różnych trybów -->
+
+    <!-- Template dla pojedynczego zamówienia (batch mode) -->
     <template id="volumeOrderTemplate">
         <div class="volume-order-item">
             <div class="volume-order-header">
@@ -675,7 +663,7 @@
         </div>
     </template>
 
-    <!-- Template dla pojedynczego produktu wymagającego objętości -->
+    <!-- Template dla pojedynczego produktu (używany w obu trybach) -->
     <template id="volumeProductTemplate">
         <div class="volume-product-item" data-product-key="">
             <div class="volume-product-header">
@@ -686,22 +674,21 @@
             <div class="volume-inputs-grid">
                 <!-- Objętość - pole wymagane -->
                 <div class="volume-input-group required">
-                    <label for="">Objętość na 1 szt. (m³) *</label>
-                    <input type="number"
-                           class="volume-input volume-required"
-                           data-field="volume"
-                           step="0.001"
-                           min="0"
-                           placeholder="np. 0.048"
-                           required>
-                    <small class="input-help">Objętość jednej sztuki w metrach sześciennych</small>
+                    <label>Objętość na 1 szt. (m³) *</label>
+                    <input type="text"
+                        class="volume-input volume-required"
+                        data-field="volume"
+                        step="0.0001"
+                        min="0"
+                        placeholder="np. 0.1234">
+                    <div class="validation-message"></div>
                 </div>
 
-                <!-- Gatunek - pole opcjonalne -->
+                <!-- Gatunek drewna -->
                 <div class="volume-input-group">
-                    <label for="">Gatunek</label>
+                    <label>Gatunek drewna</label>
                     <select class="volume-select" data-field="wood_species">
-                        <option value="">-- Wybierz gatunek --</option>
+                        <option value="">Wybierz gatunek...</option>
                         <option value="dąb">Dąb</option>
                         <option value="buk">Buk</option>
                         <option value="jesion">Jesion</option>
@@ -710,40 +697,33 @@
                         <option value="wiąz">Wiąz</option>
                         <option value="klon">Klon</option>
                     </select>
-                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
                 </div>
 
-                <!-- Technologia - pole opcjonalne -->
+                <!-- Technologia -->
                 <div class="volume-input-group">
-                    <label for="">Technologia</label>
+                    <label>Technologia</label>
                     <select class="volume-select" data-field="technology">
-                        <option value="">-- Wybierz technologię --</option>
+                        <option value="">Wybierz technologię...</option>
                         <option value="lity">Lity</option>
-                        <option value="mikrowczep">Mikrowczep</option>
                         <option value="klejony">Klejony</option>
+                        <option value="mikrowczep">Mikrowczep</option>
                         <option value="fornir">Fornir</option>
                     </select>
-                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
                 </div>
 
-                <!-- Klasa - pole opcjonalne -->
+                <!-- Klasa drewna -->
                 <div class="volume-input-group">
-                    <label for="">Klasa</label>
+                    <label>Klasa drewna</label>
                     <select class="volume-select" data-field="wood_class">
-                        <option value="">-- Wybierz klasę --</option>
+                        <option value="">Wybierz klasę...</option>
                         <option value="A/B">A/B</option>
                         <option value="B/B">B/B</option>
                     </select>
-                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
                 </div>
             </div>
 
-            <!-- Podsumowanie objętości -->
             <div class="volume-summary">
-                <div class="summary-item">
-                    <span class="summary-label">Objętość całkowita:</span>
-                    <span class="summary-value total-volume">0.000 m³</span>
-                </div>
+                <strong>Objętość całkowita: <span class="total-volume">0.000 m³</span></strong>
             </div>
         </div>
     </template>

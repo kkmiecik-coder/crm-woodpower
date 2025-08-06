@@ -2175,79 +2175,6 @@ def analyze_order_products_for_volume(order_data):
     order_data['has_dimension_issues'] = any(p.get('has_dimension_issues', False) for p in analyzed_products)
     
     return order_data
-
-@reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])
-@login_required
-def api_save_orders_with_volumes():
-    """
-    NOWY ENDPOINT: Zapisuje zamówienia z uzupełnionymi objętościami i atrybutami
-    """
-    user_email = session.get('user_email')
-    
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'success': False,
-                'error': 'Brak danych w zapytaniu'
-            }), 400
-
-        order_ids = data.get('order_ids', [])
-        volume_fixes = data.get('volume_fixes', {})  # {product_key: {'volume': X, 'wood_species': Y, ...}}
-        
-        if not order_ids:
-            return jsonify({
-                'success': False,
-                'error': 'Brak wybranych zamówień do zapisania'
-            }), 400
-
-        reports_logger.info("Rozpoczęcie zapisywania zamówień z objętościami",
-                          user_email=user_email,
-                          orders_count=len(order_ids),
-                          volume_fixes_count=len(volume_fixes))
-
-        # Sprawdź które zamówienia już istnieją
-        existing_orders = db.session.query(BaselinkerReportOrder.baselinker_order_id).filter(
-            BaselinkerReportOrder.baselinker_order_id.in_(order_ids)
-        ).distinct().all()
-        existing_order_ids = {order.baselinker_order_id for order in existing_orders}
-
-        new_order_ids = [order_id for order_id in order_ids if order_id not in existing_order_ids]
-
-        if not new_order_ids:
-            return jsonify({
-                'success': True,
-                'message': 'Wszystkie wybrane zamówienia już istnieją w bazie danych',
-                'orders_saved': 0,
-                'orders_skipped': len(order_ids)
-            })
-
-        # Pobierz service i zastosuj poprawki objętości
-        service = get_reports_service()
-        service.set_volume_fixes(volume_fixes)  # Nowa metoda
-
-        # Synchronizuj wybrane zamówienia
-        result = _sync_selected_orders_with_volumes(service, new_order_ids)
-        
-        # Wyczyść poprawki
-        service.clear_volume_fixes()
-
-        if result.get('success'):
-            reports_logger.info("Zapisywanie zamówień z objętościami zakończone pomyślnie",
-                              orders_processed=result.get('orders_processed', 0),
-                              orders_added=result.get('orders_added', 0))
-            return jsonify(result)
-        else:
-            return jsonify(result), 500
-            
-    except Exception as e:
-        reports_logger.error("Błąd zapisywania zamówień z objętościami",
-                           user_email=user_email,
-                           error=str(e))
-        return jsonify({
-            'success': False,
-            'error': f'Błąd zapisywania zamówień: {str(e)}'
-        }), 500
     
 def _sync_selected_orders_with_volumes(service, order_ids):
     """
@@ -3452,3 +3379,158 @@ def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
     print(f"[DEBUG] Modal objętości: {should_show_modal}, produktów do uzupełnienia: {len(products_needing_volume)}")
     
     return should_show_modal, products_needing_volume
+
+@reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])
+@login_required
+def api_save_orders_with_volumes():
+    """
+    NOWY ENDPOINT: Zapisuje zamówienia z uzupełnionymi objętościami i atrybutami
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w żądaniu'
+            }), 400
+
+        order_ids = data.get('order_ids', [])
+        volume_fixes = data.get('volume_fixes', {})
+
+        if not order_ids:
+            return jsonify({
+                'success': False,
+                'error': 'Brak ID zamówień do przetworzenia'
+            }), 400
+
+        reports_logger.info("Rozpoczęcie zapisywania zamówień z objętościami",
+                          user_email=user_email,
+                          order_ids_count=len(order_ids),
+                          volume_fixes_count=len(volume_fixes))
+
+        # Sprawdź czy wybrane zamówienia już istnieją w bazie
+        service = get_reports_service()
+        existing_order_ids = service.get_existing_order_ids(order_ids)
+        
+        # Filtruj tylko nowe zamówienia
+        new_order_ids = [order_id for order_id in order_ids if order_id not in existing_order_ids]
+
+        if not new_order_ids:
+            return jsonify({
+                'success': True,
+                'message': 'Wszystkie wybrane zamówienia już istnieją w bazie danych',
+                'orders_added': 0,
+                'orders_skipped': len(order_ids)
+            })
+
+        # Zastosuj poprawki objętości jeśli zostały podane
+        if volume_fixes:
+            service.set_volume_fixes(volume_fixes)
+            reports_logger.info("Zastosowano poprawki objętości", 
+                              fixes_count=len(volume_fixes))
+
+        # Synchronizuj wybrane zamówienia z analizą objętości
+        result = _sync_selected_orders_with_volume_analysis(service, new_order_ids)
+        
+        # Wyczyść poprawki objętości
+        if volume_fixes:
+            service.clear_volume_fixes()
+
+        if result.get('success'):
+            reports_logger.info("Zapisywanie zamówień z objętościami zakończone pomyślnie",
+                              orders_processed=result.get('orders_processed', 0),
+                              orders_added=result.get('orders_added', 0))
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        reports_logger.error("Błąd zapisywania zamówień z objętościami",
+                           user_email=user_email,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Błąd zapisywania zamówień: {str(e)}'
+        }), 500
+
+
+def _sync_selected_orders_with_volume_analysis(service, order_ids):
+    """
+    FUNKCJA POMOCNICZA: Synchronizuje wybrane zamówienia z uwzględnieniem analizy objętości
+    """
+    try:
+        reports_logger.info("Rozpoczęcie synchronizacji z analizą objętości", 
+                          orders_count=len(order_ids))
+
+        # Pobierz zamówienia z Baselinker
+        bl_api = get_baselinker_api()
+        orders_data = []
+
+        for order_id in order_ids:
+            try:
+                order_data = bl_api.get_order(order_id)
+                if order_data:
+                    orders_data.append(order_data)
+                else:
+                    reports_logger.warning(f"Nie znaleziono zamówienia {order_id} w Baselinker")
+            except Exception as e:
+                reports_logger.error(f"Błąd pobierania zamówienia {order_id}", error=str(e))
+                continue
+
+        if not orders_data:
+            return {
+                'success': False,
+                'error': 'Nie udało się pobrać żadnych zamówień z Baselinker'
+            }
+
+        # Przetwórz zamówienia z analizą objętości
+        orders_added = 0
+        orders_processed = 0
+        processing_errors = []
+
+        for order_data in orders_data:
+            try:
+                # Użyj nowej metody z analizą objętości
+                result = service.save_order_with_volume_analysis(order_data)
+                
+                if result.get('success'):
+                    orders_added += 1
+                else:
+                    processing_errors.append({
+                        'order_id': order_data.get('order_id'),
+                        'error': result.get('error', 'Nieznany błąd')
+                    })
+                
+                orders_processed += 1
+                
+            except Exception as e:
+                error_msg = f"Błąd przetwarzania zamówienia {order_data.get('order_id', 'unknown')}: {str(e)}"
+                processing_errors.append({
+                    'order_id': order_data.get('order_id', 'unknown'),
+                    'error': str(e)
+                })
+                reports_logger.error(error_msg)
+                continue
+
+        # Przygotuj wynik
+        result = {
+            'success': True,
+            'orders_processed': orders_processed,
+            'orders_added': orders_added,
+            'message': f'Pomyślnie przetworzono {orders_processed} zamówień. Dodano: {orders_added}.'
+        }
+
+        if processing_errors:
+            result['warnings'] = processing_errors
+            result['message'] += f' Błędów: {len(processing_errors)}.'
+
+        return result
+
+    except Exception as e:
+        reports_logger.error("Krytyczny błąd synchronizacji z analizą objętości", error=str(e))
+        return {
+            'success': False,
+            'error': f'Krytyczny błąd synchronizacji: {str(e)}'
+        }
