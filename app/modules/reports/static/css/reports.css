@@ -3286,6 +3286,7 @@ body.fullscreen-mode {
     height: 100%;
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(2px);
+    z-index: 99999; /* Wyższy z-index niż modal */
 }
 
 .sync-modal-content {

@@ -4,6 +4,119 @@
  * Obsługuje dwuetapowy proces: wybór dni -> wybór zamówień -> opcjonalne uzupełnienie wymiarów -> zapis
  */
 
+/**
+ * GLOBALNA FUNKCJA TOASTÓW - IMPLEMENTACJA
+ * Ta funkcja zastąpi wszystkie alert() w aplikacji
+ */
+window.showToast = function (message, type = 'info', duration = 5000) {
+    console.log(`[Toast] Pokazywanie toast: ${type.toUpperCase()} - ${message}`);
+
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = createToastContainer();
+    }
+
+    const toastElement = document.createElement('div');
+    toastElement.className = `toast ${type} show`;
+    toastElement.setAttribute('role', 'alert');
+
+    const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        warning: 'fa-exclamation-triangle',
+        info: 'fa-info-circle'
+    };
+
+    toastElement.innerHTML = `
+        <div class="toast-header">
+            <i class="fas ${icons[type] || icons.info} toast-icon"></i>
+            <strong class="toast-title">${getToastTitle(type)}</strong>
+            <button type="button" class="toast-close" aria-label="Zamknij">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="toast-body">${message}</div>
+    `;
+
+    const closeBtn = toastElement.querySelector('.toast-close');
+    closeBtn.addEventListener('click', () => removeToast(toastElement));
+
+    toastContainer.appendChild(toastElement);
+
+    setTimeout(() => toastElement.classList.add('toast-visible'), 10);
+
+    if (type !== 'error' && duration > 0) {
+        setTimeout(() => removeToast(toastElement), duration);
+    }
+};
+
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = `
+        position: fixed; top: 20px; right: 20px; z-index: 9999;
+        max-width: 400px; pointer-events: none;
+    `;
+    document.body.appendChild(container);
+    addToastStyles();
+    return container;
+}
+
+function addToastStyles() {
+    if (document.getElementById('toast-styles')) return;
+
+    const styleSheet = document.createElement('style');
+    styleSheet.id = 'toast-styles';
+    styleSheet.textContent = `
+        .toast {
+            pointer-events: auto; position: relative; margin-bottom: 12px;
+            background: white; border-radius: 8px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+            border-left: 4px solid #007bff; opacity: 0; transform: translateX(100%);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); overflow: hidden;
+            min-width: 300px; max-width: 400px;
+        }
+        .toast.toast-visible { opacity: 1; transform: translateX(0); }
+        .toast.success { border-left-color: #28a745; }
+        .toast.error { border-left-color: #dc3545; }
+        .toast.warning { border-left-color: #ffc107; }
+        .toast.info { border-left-color: #17a2b8; }
+        .toast-header {
+            display: flex; align-items: center; padding: 12px 16px 8px 16px;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.03) 0%, rgba(0, 0, 0, 0.01) 100%);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        .toast-icon { margin-right: 8px; font-size: 16px; }
+        .toast.success .toast-icon { color: #28a745; }
+        .toast.error .toast-icon { color: #dc3545; }
+        .toast.warning .toast-icon { color: #ffc107; }
+        .toast.info .toast-icon { color: #17a2b8; }
+        .toast-title { flex: 1; font-size: 14px; font-weight: 600; color: #333; }
+        .toast-close {
+            background: none; border: none; padding: 4px; cursor: pointer;
+            color: #666; font-size: 12px; border-radius: 4px; transition: all 0.2s ease;
+        }
+        .toast-close:hover { background: rgba(0, 0, 0, 0.05); color: #333; }
+        .toast-body { padding: 8px 16px 12px 16px; color: #555; font-size: 14px; line-height: 1.4; }
+        .toast.removing { opacity: 0; transform: translateX(100%); margin-bottom: 0; }
+    `;
+    document.head.appendChild(styleSheet);
+}
+
+function removeToast(toastElement) {
+    if (!toastElement || !toastElement.parentNode) return;
+    toastElement.classList.add('removing');
+    setTimeout(() => {
+        if (toastElement.parentNode) {
+            toastElement.parentNode.removeChild(toastElement);
+        }
+    }, 300);
+}
+
+function getToastTitle(type) {
+    const titles = { success: 'Sukces', error: 'Błąd', warning: 'Ostrzeżenie', info: 'Informacja' };
+    return titles[type] || titles.info;
+}
+
 class SyncManager {
     constructor() {
         console.log('[SyncManager] 🚀 Inicjalizacja nowego SyncManager z obsługą wymiarów');
@@ -101,6 +214,7 @@ class SyncManager {
         try {
             this.cacheElements();
             this.setupEventListeners();
+            this.addConfirmationModalStyles();
             console.log('[SyncManager] ✅ Inicjalizacja zakończona pomyślnie');
         } catch (error) {
             console.error('[SyncManager] ❌ Błąd podczas inicjalizacji:', error);
@@ -396,7 +510,7 @@ class SyncManager {
                 console.error('[SyncManager] ❌ syncDaysModal nadal nie istnieje w DOM');
                 console.log('[SyncManager] 🔍 Dostępne elementy:',
                     Array.from(document.querySelectorAll('[id*="sync"]')).map(el => el.id));
-                alert('Błąd: Modal synchronizacji nie został znaleziony. Odśwież stronę.');
+                this.showErrorMessage('Błąd: Modal synchronizacji nie został znaleziony. Odśwież stronę.');
                 return;
             }
 
@@ -2343,7 +2457,7 @@ class SyncManager {
 
         // Tu będzie logika przejścia do kroku 3 (modal wymiarów)
         // Na razie placeholder
-        alert('Przejście do uzupełnienia wymiarów - do implementacji w następnym kroku');
+        this.showInfoToast('Przejście do uzupełnienia wymiarów - do implementacji w następnym kroku');
     }
 
     // NOWA metoda: pokazuje modal objętości
@@ -2353,7 +2467,7 @@ class SyncManager {
         // Sprawdź czy modal objętości istnieje
         if (!this.dimensionsModal) {
             console.warn('[SyncManager] ⚠️ Modal objętości niedostępny - używam fallback');
-            alert(`Znaleziono ${productsNeedingVolume.length} produktów wymagających objętości. Modal objętości nie jest jeszcze zaimplementowany.`);
+            this.showWarningToast(`Znaleziono ${productsNeedingVolume.length} produktów wymagających objętości. Modal objętości nie jest jeszcze zaimplementowany.`);
             // Zapisz bez objętości
             const selectedOrders = this.fetchedOrders.filter(order =>
                 Array.from(this.selectedOrderIds).includes(order.order_id.toString())
@@ -2474,6 +2588,118 @@ class SyncManager {
             alert(message);
         }
         console.error('[SyncManager] ❌ Błąd:', message);
+    }
+
+    /**
+     * NOWA: Pokazuje toast ostrzeżenia
+     */
+    showWarningToast(message) {
+        if (window.showToast) {
+            window.showToast(message, 'warning');
+        } else {
+            alert(message);
+        }
+        console.warn('[SyncManager] ⚠️ Ostrzeżenie:', message);
+    }
+
+    /**
+     * NOWA: Pokazuje toast informacyjny
+     */
+    showInfoToast(message) {
+        if (window.showToast) {
+            window.showToast(message, 'info');
+        } else {
+            alert(message);
+        }
+        console.info('[SyncManager] ℹ️ Info:', message);
+    }
+
+    /**
+     * NOWA: Modal potwierdzenia zastępujący confirm()
+     */
+    showConfirmDialog(message, title = 'Potwierdzenie') {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'sync-modal-overlay';
+            modal.innerHTML = `
+                <div class="sync-modal-content confirmation-modal">
+                    <div class="sync-modal-header">
+                        <h5 class="sync-modal-title">${title}</h5>
+                        <button type="button" class="sync-modal-close" aria-label="Zamknij">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="sync-modal-body">
+                        <p>${message}</p>
+                    </div>
+                    <div class="sync-modal-footer">
+                        <button type="button" class="btn btn-secondary confirm-cancel">Anuluj</button>
+                        <button type="button" class="btn btn-primary confirm-ok">OK</button>
+                    </div>
+                </div>
+            `;
+
+            const closeModal = (result) => {
+                modal.remove();
+                resolve(result);
+            };
+
+            modal.querySelector('.sync-modal-close').addEventListener('click', () => closeModal(false));
+            modal.querySelector('.confirm-cancel').addEventListener('click', () => closeModal(false));
+            modal.querySelector('.confirm-ok').addEventListener('click', () => closeModal(true));
+
+            const handleKeydown = (e) => {
+                if (e.key === 'Escape') {
+                    closeModal(false);
+                    document.removeEventListener('keydown', handleKeydown);
+                }
+            };
+            document.addEventListener('keydown', handleKeydown);
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeModal(false);
+            });
+
+            document.body.appendChild(modal);
+            setTimeout(() => modal.querySelector('.confirm-ok').focus(), 100);
+        });
+    }
+
+    /**
+     * NOWA: Dodawanie stylów dla modala potwierdzenia
+     */
+    addConfirmationModalStyles() {
+        if (document.getElementById('confirmation-modal-styles')) return;
+
+        const styleSheet = document.createElement('style');
+        styleSheet.id = 'confirmation-modal-styles';
+        styleSheet.textContent = `
+            .confirmation-modal { max-width: 500px; width: 90%; z-index: 9999; }
+            .confirmation-modal .sync-modal-body {
+                padding: 20px; font-size: 16px; line-height: 1.5; color: #555;
+            }
+            .confirmation-modal .sync-modal-footer {
+                padding: 15px 20px; display: flex; gap: 10px; justify-content: flex-end;
+                background: #f8f9fa; border-top: 1px solid #dee2e6;
+            }
+            .confirmation-modal .btn {
+                padding: 8px 20px; border-radius: 6px; font-weight: 500;
+                transition: all 0.2s ease;
+            }
+            .confirmation-modal .btn-secondary {
+                background: #6c757d; border-color: #6c757d; color: white;
+            }
+            .confirmation-modal .btn-secondary:hover {
+                background: #5a6268; border-color: #545b62;
+            }
+            .confirmation-modal .btn-primary {
+                background: #007bff; border-color: #007bff; color: white;
+            }
+            .confirmation-modal .btn-primary:hover {
+                background: #0069d9; border-color: #0062cc;
+            }
+        `;
+        document.head.appendChild(styleSheet);
     }
 
     extractProductsNeedingVolume(selectedOrders) {

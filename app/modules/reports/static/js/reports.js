@@ -1750,7 +1750,7 @@ class ReportsManager {
      */
     showError(message) {
         console.error('[ReportsManager] Error:', message);
-        alert('Błąd: ' + message); // TODO: Lepszy system notyfikacji
+        this.showMessage(message, 'error'); // TODO: Lepszy system notyfikacji
     }
 
     /**
@@ -2132,6 +2132,81 @@ class ReportsManager {
     }
 
     /**
+     * Modal potwierdzenia zastępujący confirm()
+     */
+    showConfirmDialog(message, title = 'Potwierdzenie') {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0, 0, 0, 0.5); z-index: 9999;
+                display: flex; align-items: center; justify-content: center; border-radius: 8px;
+            `;
+
+            modal.innerHTML = `
+                <div style="
+                    background: white; border-radius: 8px; max-width: 500px; width: 90%;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+                ">
+                    <div style="
+                        padding: 20px; border-bottom: 1px solid #dee2e6;
+                        display: flex; justify-content: space-between; align-items: center;
+                    ">
+                        <h5 style="margin: 0; font-weight: 600;">${title}</h5>
+                        <button type="button" class="modal-close" style="
+                            background: none; border: none; font-size: 24px; cursor: pointer;
+                            color: #666; padding: 0; width: 30px; height: 30px;
+                        ">×</button>
+                    </div>
+                    <div style="
+                        padding: 20px; font-size: 16px; line-height: 1.5; color: #555;
+                        white-space: pre-line;
+                    ">${message}</div>
+                    <div style="
+                        padding: 15px 20px; display: flex; gap: 10px; justify-content: flex-end;
+                        background: #f8f9fa; border-top: 1px solid #dee2e6; border-radius: 0 0 8px 8px;
+                    ">
+                        <button type="button" class="confirm-cancel" style="
+                            padding: 8px 20px; border-radius: 6px; font-weight: 500;
+                            background: #6c757d; border: 1px solid #6c757d; color: white;
+                            cursor: pointer; transition: all 0.2s ease;
+                        ">Anuluj</button>
+                        <button type="button" class="confirm-ok" style="
+                            padding: 8px 20px; border-radius: 6px; font-weight: 500;
+                            background: #007bff; border: 1px solid #007bff; color: white;
+                            cursor: pointer; transition: all 0.2s ease;
+                        ">OK</button>
+                    </div>
+                </div>
+            `;
+
+            const closeModal = (result) => {
+                modal.remove();
+                resolve(result);
+            };
+
+            modal.querySelector('.modal-close').addEventListener('click', () => closeModal(false));
+            modal.querySelector('.confirm-cancel').addEventListener('click', () => closeModal(false));
+            modal.querySelector('.confirm-ok').addEventListener('click', () => closeModal(true));
+
+            const handleKeydown = (e) => {
+                if (e.key === 'Escape') {
+                    closeModal(false);
+                    document.removeEventListener('keydown', handleKeydown);
+                }
+            };
+            document.addEventListener('keydown', handleKeydown);
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeModal(false);
+            });
+
+            document.body.appendChild(modal);
+            setTimeout(() => modal.querySelector('.confirm-ok').focus(), 100);
+        });
+    }
+
+    /**
      * Obsługa synchronizacji statusów
      */
     async handleSyncStatusesClick() {
@@ -2142,8 +2217,13 @@ class ReportsManager {
             return;
         }
 
-        // Potwierdź akcję
-        if (!confirm('Czy na pewno chcesz zsynchronizować statusy zamówień z Baselinker?\n\nTo może potrwać kilka minut.')) {
+        // ZMIANA: Zastąpienie confirm() modalem
+        const confirmed = await this.showConfirmDialog(
+            'Czy na pewno chcesz zsynchronizować statusy zamówień z Baselinker?\n\nTo może potrwać kilka minut.',
+            'Potwierdzenie synchronizacji'
+        );
+
+        if (!confirmed) {
             return;
         }
 
@@ -2166,7 +2246,7 @@ class ReportsManager {
             if (result.success) {
                 console.log('[ReportsManager] Statuses sync completed successfully:', result);
 
-                // Pokaż komunikat sukcesu z detalami
+                // ZMIANA: Zastąpienie alert() systemem komunikatów
                 let message = `Synchronizacja statusów i płatności zakończona pomyślnie!\n\n`;
                 message += `Przetworzono: ${result.orders_processed} zamówień\n`;
                 message += `Zaktualizowano łącznie: ${result.orders_updated} rekordów\n`;
@@ -2181,18 +2261,24 @@ class ReportsManager {
 
                 message += `Unikalne zamówienia: ${result.unique_orders}`;
 
-                alert(message);
+                // Użyj istniejący system komunikatów Bootstrap zamiast alert()
+                this.showMessage(message, 'success');
 
                 // Odśwież dane
                 this.refreshData();
 
             } else {
-                throw new Error(result.error || 'Błąd synchronizacji statusów');
+                // ZMIANA: Zastąpienie alert() dla błędów
+                const errorMessage = result.error || 'Nieznany błąd podczas synchronizacji';
+                console.error('[ReportsManager] Sync statuses failed:', errorMessage);
+                this.showError(`Błąd podczas synchronizacji statusów: ${errorMessage}`);
             }
 
         } catch (error) {
             console.error('[ReportsManager] Sync statuses error:', error);
-            this.showError('Błąd synchronizacji statusów: ' + error.message);
+
+            // ZMIANA: Zastąpienie alert() dla błędów sieciowych
+            this.showError(`Błąd sieci podczas synchronizacji: ${error.message}`);
         } finally {
             this.hideLoading();
         }
