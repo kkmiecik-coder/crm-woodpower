@@ -561,12 +561,24 @@ document.addEventListener('DOMContentLoaded', function () {
                         // Przyciski modala sukcesu
                         const newQuoteBtn = document.getElementById('newQuoteBtn');
                         if (newQuoteBtn) {
-                            newQuoteBtn.onclick = () => window.location.reload();
+                            newQuoteBtn.onclick = () => {
+                                console.log('[save_quote.js] Kliknięto Nowa wycena');
+                                if (window.quoteDraftBackup && window.quoteDraftBackup.resetForNewQuote) {
+                                    window.quoteDraftBackup.resetForNewQuote();
+                                }
+                                window.location.reload();
+                            };
                         }
                         
                         const closeBtn = document.getElementById('closeModalBtn2');
                         if (closeBtn) {
-                            closeBtn.onclick = () => modal.style.display = 'none';
+                            closeBtn.onclick = () => {
+                                console.log('[save_quote.js] Kliknięto Zamknij modal');
+                                if (window.quoteDraftBackup && window.quoteDraftBackup.resetForNewQuote) {
+                                    window.quoteDraftBackup.resetForNewQuote();
+                                }
+                                modal.style.display = 'none';
+                            };
                         }
                         
                         const goToQuoteBtn = document.getElementById('goToQuoteBtn');
@@ -578,6 +590,9 @@ document.addEventListener('DOMContentLoaded', function () {
                         }
 
                         console.log("[save_quote.js] Wycena zapisana pomyślnie");
+                        if (window.quoteDraftBackup && window.quoteDraftBackup.markQuoteAsSaved) {
+                            window.quoteDraftBackup.markQuoteAsSaved();
+                        }
                     }
                 } catch (err) {
                     const errMsg = document.createElement('p');
@@ -788,6 +803,72 @@ function logVariantAvailability() {
         });
     });
 }
+
+/**
+ * Rozszerza istniejący system QuoteDraftBackup o mechanizm zatrzymania po zapisie
+ */
+function enhanceQuoteDraftBackupWithSaveDetection() {
+    if (window.quoteDraftBackup) {
+        const backup = window.quoteDraftBackup;
+        let isQuoteSaved = false;
+
+        // Zachowaj oryginalne metody
+        const originalSaveCurrentState = backup.saveCurrentState.bind(backup);
+
+        // Nadpisz metodę zapisywania
+        backup.saveCurrentState = function () {
+            if (isQuoteSaved) {
+                console.log('[QuoteDraftBackup] Pomijam zapis - wycena już zapisana');
+                backup.stopAutoSave();
+                return;
+            }
+            originalSaveCurrentState();
+        };
+
+        // Dodaj metodę oznaczania zapisu
+        backup.markQuoteAsSaved = function () {
+            console.log('[QuoteDraftBackup] Oznaczam wycenę jako zapisaną');
+            isQuoteSaved = true;
+            backup.stopAutoSave();
+
+            // Usuń cookies po krótkim opóźnieniu
+            setTimeout(() => {
+                backup.clearDraft();
+                console.log('[QuoteDraftBackup] Draft cookies usunięte');
+            }, 1000);
+        };
+
+        // Dodaj metodę resetowania dla nowej wyceny
+        backup.resetForNewQuote = function () {
+            console.log('[QuoteDraftBackup] Reset dla nowej wyceny');
+            isQuoteSaved = false;
+            backup.clearDraft();
+
+            // Restart po opóźnieniu
+            setTimeout(() => {
+                if (!isQuoteSaved) {
+                    backup.startAutoSave();
+                    console.log('[QuoteDraftBackup] System zrestartowany');
+                }
+            }, 2000);
+        };
+
+        return backup;
+    }
+    return null;
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    // Poczekaj chwilę, aż quoteDraftBackup zostanie zainicjalizowany w calculator.js
+    setTimeout(() => {
+        const enhanced = enhanceQuoteDraftBackupWithSaveDetection();
+        if (enhanced) {
+            console.log('[save_quote.js] System QuoteDraftBackup rozszerzony o mechanizm zatrzymania');
+        } else {
+            console.warn('[save_quote.js] Nie udało się rozszerzyć QuoteDraftBackup - może nie został jeszcze zainicjalizowany');
+        }
+    }, 1500);
+});
 
 // Eksportuj funkcję do debugowania
 window.logVariantAvailability = logVariantAvailability;

@@ -57,10 +57,26 @@
                     </button>
 
                     <!-- Przycisk eksportu -->
-                    <button id="exportExcelBtn" class="btn btn-info">
-                        <i class="fas fa-download"></i>
-                        Eksport Excel
-                    </button>
+                    <div class="dropdown export-dropdown">
+                        <button id="exportBtn" class="btn btn-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-download"></i>
+                            Export
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <a class="dropdown-item" href="#" id="exportExcelOption">
+                                    <i class="fas fa-file-excel"></i>
+                                    Excel
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="#" id="exportRoutimoOption">
+                                    <i class="fas fa-route"></i>
+                                    Routimo
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
             </div>
 
@@ -72,39 +88,24 @@
                     <div class="stat-comparison" id="compTotalM3"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Kwota zamówień netto</div>
+                    <div class="stat-label">Wartość produktów netto</div>
                     <div class="stat-value" id="statOrderAmountNet">0.00 zł</div>
                     <div class="stat-comparison" id="compOrderAmountNet"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Wartość netto <br><span style="font-size: 10px; font-weight: 400;">(bez kosztów kuriera)</span></div>
-                    <div class="stat-value" id="statValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compValueNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość brutto</div>
-                    <div class="stat-value" id="statValueGross">0.00 zł</div>
-                    <div class="stat-comparison" id="compValueGross"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Średnia cena za m³</div>
+                    <div class="stat-label">Średnia cena m³ netto</div>
                     <div class="stat-value" id="statPricePerM3">0.00 zł</div>
                     <div class="stat-comparison" id="compPricePerM3"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Koszt kuriera</div>
-                    <div class="stat-value" id="statDeliveryCost">0.00 zł</div>
-                    <div class="stat-comparison" id="compDeliveryCost"></div>
+                    <div class="stat-label">Koszt dostawy netto</div>
+                    <div class="stat-value" id="statDeliveryCostNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compDeliveryCostNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Zapłacono TTL netto</div>
                     <div class="stat-value" id="statPaidAmountNet">0.00 zł</div>
                     <div class="stat-comparison" id="compPaidAmountNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Saldo</div>
-                    <div class="stat-value" id="statBalanceDue">0.00 zł</div>
-                    <div class="stat-comparison" id="compBalanceDue"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Ilość m³ w produkcji</div>
@@ -117,10 +118,21 @@
                     <div class="stat-comparison" id="compProductionValueNet"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Gotowe do odbioru</div>
+                    <div class="stat-label">Wyprodukowane</div>
                     <div class="stat-value" id="statReadyPickupVolume">0.00</div>
                     <div class="stat-comparison" id="compReadyPickupVolume"></div>
                 </div>
+                <div class="stat-box">
+                    <div class="stat-label">Do odebrania</div>
+                    <div class="stat-value" id="statPickupReady">0.00</div>
+                    <div class="stat-comparison" id="compPickupReady"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Do zapłaty netto</div>
+                    <div class="stat-value" id="statBalanceDue">0.00 zł</div>
+                    <div class="stat-comparison" id="compBalanceDue"></div>
+                </div>
+                <!-- do usunięcia -->
             </div>
 
             <!-- Loading overlay -->
@@ -233,10 +245,26 @@
                         </button>
 
                         <!-- Przycisk eksportu dla fullscreen (widoczny tylko w fullscreen) -->
-                        <button id="fullscreenExportBtn" class="btn btn-info btn-sm fullscreen-export-btn">
-                            <i class="fas fa-download"></i>
-                            Eksport Excel
-                        </button>
+                        <div class="dropdown export-dropdown fullscreen-export-btn">
+                            <button id="fullscreenExportBtn" class="btn btn-info btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-download"></i>
+                                Export
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item" href="#" id="fullscreenExportExcelOption">
+                                        <i class="fas fa-file-excel"></i>
+                                        Excel
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" id="fullscreenExportRoutimoOption">
+                                        <i class="fas fa-route"></i>
+                                        Routimo
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
 
                     <!-- Aktywne filtry -->
@@ -283,16 +311,18 @@
                                 <th>Wartość netto</th>
                                 <th>Objętość 1 szt.</th>
                                 <th>Objętość TTL</th>
-                                <th>Cena za m³</th>
+                                <th>Cena netto za m³</th>
                                 <th>Data realizacji</th>
                                 <th>Status</th>
-                                <th>Koszt kuriera</th>
+                                <th>Koszt kuriera brutto</th>
+                                <th>Koszt kuriera netto</th>
                                 <th>Sposób płatności</th>
                                 <th>Zapłacono netto</th>
-                                <th>Saldo</th>
+                                <th>Do zapłaty</th>
                                 <th>Ilość w produkcji</th>
                                 <th>Wartość w produkcji</th>
-                                <th>Gotowe do odbioru</th>
+                                <th>Wyprodukowane</th>
+                                <th class="sortable" data-column="pickup_ready">Do odebrania</th>
                                 <th>Akcje</th>
                             </tr>
                         </thead>
@@ -320,7 +350,7 @@
                         <p class="days-selection-description">
                             Wybierz zakres dat dla pobierania zamówień z Baselinker:
                         </p>
-                        
+
                         <div class="days-dropdown-container">
                             <label for="daysSelect" class="days-dropdown-label">Ilość dni wstecz:</label>
                             <select id="daysSelect" class="days-dropdown">
@@ -339,7 +369,7 @@
 
                         <div class="date-preview" id="datePreview" style="display: none;">
                             <p class="date-preview-text">
-                                Zostanę pobrane zamówienia od <strong id="dateFromPreview"></strong> 
+                                Zostanę pobrane zamówienia od <strong id="dateFromPreview"></strong>
                                 do <strong id="dateToPreview"></strong>
                             </p>
                         </div>
@@ -354,95 +384,369 @@
         </div>
     </div>
 
-    <!-- KROK 2: Modal z listą zamówień do wyboru -->
-    <div id="syncOrdersModal" class="sync-modal" style="display: none;">
-        <div class="sync-modal-overlay">
-            <div class="sync-modal-content sync-modal-large">
-                <div class="sync-modal-header">
-                    <h3>Wybierz zamówienia do zapisania</h3>
-                    <button class="sync-modal-close" id="syncOrdersModalClose">&times;</button>
+    <!-- POPRAWIONA STRUKTURA MODALA -->
+    <div id="syncOrdersModal" class="modal-bl-sync-wrapper" style="display: none;">
+        <div class="modal-bl-sync-overlay"></div>
+        <div class="modal-bl-sync-container">
+
+            <!-- PROGRESSIVE LOADING OVERLAY - PRZENIESIONY TUTAJ WEWNĄTRZ KONTENERA -->
+            <div class="modal-bl-sync-progressive-loading" id="modalBlSyncProgressiveLoading" style="display: none;">
+
+                <!-- Centralny spinner z progress -->
+                <div class="modal-bl-sync-loading-center">
+                    <div class="modal-bl-sync-spinner"></div>
+                    <div class="modal-bl-sync-loading-text" id="modalBlSyncLoadingText">Łączenie z Baselinker...</div>
+                    <div class="modal-bl-sync-progress-dots" id="modalBlSyncProgressDots">
+                        <div class="modal-bl-sync-progress-dot active" data-step="1"></div>
+                        <div class="modal-bl-sync-progress-dot" data-step="2"></div>
+                        <div class="modal-bl-sync-progress-dot" data-step="3"></div>
+                        <div class="modal-bl-sync-progress-dot" data-step="4"></div>
+                    </div>
+                    <div class="modal-bl-sync-step-label" id="modalBlSyncStepLabel">Krok 1 z 4</div>
+                </div>
+            </div>
+
+            <!-- RESZTA MODALA (Header, Content, Footer) -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">Pobierz zamówienia z Base.</h2>
+                    <span class="modal-bl-sync-date-range" id="modalBlSyncDateRange">01.08.2028 - 06.08.2025</span>
+                </div>
+                <button class="modal-bl-sync-close" id="syncOrdersModalClose">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M1 1L11 11M11 1L1 11" stroke="#314254" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="modal-bl-sync-content">
+                <!-- Loading state -->
+                <div id="ordersLoadingState" class="modal-bl-sync-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Pobieranie zamówień z Baselinker...</p>
                 </div>
 
-                <div class="sync-modal-body">
-                    <!-- Loading state -->
-                    <div id="ordersLoadingState" class="orders-loading" style="display: none;">
-                        <div class="loading-spinner"></div>
-                        <p>Pobieranie zamówień z Baselinker...</p>
+                <!-- Controls -->
+                <div class="modal-bl-sync-controls" id="ordersListContainer" style="display: none;">
+                    <div class="modal-bl-sync-found-info">
+                        <span class="modal-bl-sync-found-text" id="ordersCount">Znaleziono 2 zamówienia</span>
                     </div>
-
-                    <!-- Orders list container -->
-                    <div id="ordersListContainer" class="orders-list-container" style="display: none;">
-                        <!-- Selection controls -->
-                        <div class="orders-selection-controls">
-                            <div class="selection-info">
-                                <span id="ordersCount">0</span> zamówień znalezionych
-                            </div>
-                            <div class="selection-actions">
-                                <button id="selectAllOrders" class="btn btn-sm btn-secondary">Zaznacz wszystkie</button>
-                                <button id="deselectAllOrders" class="btn btn-sm btn-secondary">Odznacz wszystkie</button>
-                            </div>
-                        </div>
-
-                        <!-- Orders list -->
-                        <div id="ordersList" class="orders-list">
-                            <!-- Zamówienia będą wstawiane tutaj dynamicznie -->
-                        </div>
-                    </div>
-
-                    <!-- Empty state -->
-                    <div id="ordersEmptyState" class="orders-empty" style="display: none;">
-                        <div class="empty-icon">📋</div>
-                        <h4>Brak nowych zamówień</h4>
-                        <p>Nie znaleziono nowych zamówień w wybranym zakresie dat.</p>
-                    </div>
-
-                    <!-- Error state -->
-                    <div id="ordersErrorState" class="orders-error" style="display: none;">
-                        <div class="error-icon">⚠️</div>
-                        <h4>Błąd pobierania zamówień</h4>
-                        <p id="errorMessage">Wystąpił błąd podczas pobierania zamówień z Baselinker.</p>
+                    <div class="modal-bl-sync-buttons-group">
+                        <button class="modal-bl-sync-btn-select-all" id="selectAllOrders">Zaznacz wszystkie</button>
+                        <button class="modal-bl-sync-btn-deselect-all" id="deselectAllOrders">Odznacz wszystkie</button>
                     </div>
                 </div>
 
-                <div class="sync-modal-footer">
-                    <button id="ordersBack" class="btn btn-secondary">Wstecz</button>
-                    <button id="ordersCancel" class="btn btn-secondary">Anuluj</button>
-                    <button id="ordersSave" class="btn btn-primary" disabled>Zapisz rekordy (0)</button>
+                <!-- Orders Grid -->
+                <div class="modal-bl-sync-orders-grid" id="ordersList">
+                    <!-- Zamówienia będą wstawiane tutaj dynamicznie -->
                 </div>
+            </div>
+
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-back" id="ordersBack">Wstecz</button>
+                    <button class="modal-bl-sync-btn-cancel" id="ordersCancel">Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-save" id="ordersSave" disabled>Zapisz rekordy (0)</button>
             </div>
         </div>
     </div>
 
-    <!-- KROK 3: Modal uzupełniania wymiarów -->
-    <div id="dimensionsModal" class="sync-modal" style="display: none;">
+    <!-- NOWY MODAL Z PREFIKSEM modal-bl-sync- -->
+    <div id="syncOrdersModal" class="modal-bl-sync-wrapper" style="display: none;">
+        <div class="modal-bl-sync-overlay"></div>
+        <div class="modal-bl-sync-container">
+
+
+            <!-- SEKCJA 1: Header -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">Pobierz zamówienia z Base.</h2>
+                    <span class="modal-bl-sync-date-range" id="modalBlSyncDateRange">01.08.2028 - 06.08.2025</span>
+                </div>
+                <button class="modal-bl-sync-close" id="syncOrdersModalClose">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M1 1L11 11M11 1L1 11" stroke="#314254" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- SEKCJA 2: Content -->
+            <div class="modal-bl-sync-content">
+
+                <!-- Loading state -->
+                <div id="ordersLoadingState" class="modal-bl-sync-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Pobieranie zamówień z Baselinker...</p>
+                </div>
+
+                <!-- Controls -->
+                <div class="modal-bl-sync-controls" id="ordersListContainer" style="display: none;">
+                    <div class="modal-bl-sync-found-info">
+                        <span class="modal-bl-sync-found-text" id="ordersCount">Znaleziono 2 zamówienia</span>
+                    </div>
+                    <div class="modal-bl-sync-buttons-group">
+                        <button class="modal-bl-sync-btn-select-all" id="selectAllOrders">Zaznacz wszystkie</button>
+                        <button class="modal-bl-sync-btn-deselect-all" id="deselectAllOrders">Odznacz wszystkie</button>
+                    </div>
+                </div>
+
+                <!-- Orders Grid -->
+                <div class="modal-bl-sync-orders-grid" id="ordersList">
+                    <!-- Zamówienia będą wstawiane tutaj dynamicznie -->
+                </div>
+
+                <!-- Empty state -->
+                <div id="ordersEmptyState" class="modal-bl-sync-empty" style="display: none;">
+                    <div class="empty-icon">📋</div>
+                    <h4>Brak nowych zamówień</h4>
+                    <p>Nie znaleziono nowych zamówień w wybranym zakresie dat.</p>
+                </div>
+
+                <!-- Error state -->
+                <div id="ordersErrorState" class="modal-bl-sync-error" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <h4>Błąd pobierania zamówień</h4>
+                    <p id="errorMessage">Wystąpił błąd podczas pobierania zamówień z Baselinker.</p>
+                </div>
+            </div>
+
+            <!-- SEKCJA 3: Footer -->
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-back" id="ordersBack">Wstecz</button>
+                    <button class="modal-bl-sync-btn-cancel" id="ordersCancel">Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-save" id="ordersSave" disabled>Zapisz rekordy (0)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TEMPLATE NOWEGO KAFELKA ZAMÓWIENIA -->
+    <template id="modalBlSyncOrderTemplate">
+        <div class="modal-bl-sync-order-card" data-order-id="">
+
+            <!-- Górna część: checkbox, numer, status, base button -->
+            <div class="modal-bl-sync-order-header">
+                <div class="modal-bl-sync-checkbox-wrapper">
+                    <input type="checkbox" class="modal-bl-sync-checkbox order-select" data-order-id="">
+                    <svg class="modal-bl-sync-checkbox-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <rect width="16" height="16" rx="4" fill="#4285F4" />
+                        <path d="M3 7.98476L6.17305 11L13 5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
+
+                <span class="modal-bl-sync-order-number">Zamówienie #<span class="order-number"></span></span>
+
+                <div class="modal-bl-sync-status-badge">
+                    <span class="order-status-badge"></span>
+                </div>
+
+                <div class="price-type-badge">
+                    <span class="price-type-text"></span>
+                </div>
+
+                <button class="modal-bl-sync-base-btn baselinker-link">
+                    <svg width="31" height="10" viewBox="0 0 31 10" fill="none">
+                        <path d="M6.76183 6.10615C6.76183 7.97935 5.55906 9.47783 3.68825 9.47783C2.92651 9.47783 2.2717 9.11654 1.76388 8.60809V9.33066H0V0.5H1.76388V3.52382C2.24498 3.05565 2.88646 2.73447 3.68825 2.73447C5.65267 2.73447 6.76183 4.32659 6.76183 6.10615ZM5.11811 6.1731C5.11811 5.22318 4.35637 4.44707 3.44765 4.44707C2.53903 4.44707 1.76388 5.22318 1.76388 6.1731C1.76388 7.12304 2.53903 7.91238 3.44765 7.91238C4.35637 7.91238 5.11811 7.12304 5.11811 6.1731Z" fill="white" />
+                        <path d="M12.3871 2.91725H14.0975L14.0441 9.3396H12.3871V8.63046C11.8792 9.13891 11.2244 9.50019 10.4627 9.50019C8.59185 9.50019 7.38916 8.00171 7.38916 6.12851C7.38916 4.34896 8.49824 2.75684 10.4627 2.75684C11.2644 2.75684 11.9059 3.07784 12.3871 3.54619V2.91725ZM12.3871 6.18205C12.3871 5.23211 11.5986 4.46945 10.6765 4.46945C9.75448 4.46945 8.99274 5.23211 8.99274 6.19529C8.99274 7.17208 9.7678 7.93474 10.6765 7.93474C11.5852 7.93474 12.3871 7.13197 12.3871 6.18205Z" fill="white" />
+                        <path d="M16.5958 7.17703C16.6092 7.77911 17.0101 8.07343 17.9054 8.07343C18.4534 8.07343 18.8408 7.84606 18.8408 7.4581C18.8408 6.45464 14.912 7.0834 14.912 4.68851C14.912 3.27024 16.2484 2.72168 17.6648 2.72168C19.6293 2.72168 20.4846 3.97937 20.4846 4.84892H18.7206C18.6671 4.50106 18.3731 4.07301 17.6648 4.07301C17.2506 4.07301 16.7428 4.18007 16.7428 4.59469C16.7428 5.57149 20.6716 4.91587 20.6716 7.41782C20.6716 8.58188 19.9768 9.47845 17.9456 9.47845C16.0479 9.47845 14.9254 8.74246 14.8052 7.17703H16.5958Z" fill="white" />
+                        <path d="M22.9697 6.77607C23.1566 7.59227 23.718 8.06043 24.6935 8.06043C25.3615 8.06043 25.8561 7.83306 26.1501 7.41825L27.914 7.37815C27.5131 8.72946 26.4173 9.47871 24.7335 9.47871C22.582 9.47871 21.3794 8.2613 21.3794 6.10703C21.3794 4.32765 22.7691 2.73535 24.7335 2.73535C26.8048 2.73535 28.0877 4.23383 28.0877 6.10703C28.0877 6.33458 28.0744 6.5487 28.0477 6.74939L26.7781 6.77607H22.9697ZM23.0364 5.35778H26.3639C26.1367 4.66207 25.5755 4.16706 24.6935 4.16706C23.8783 4.16706 23.2903 4.68875 23.0364 5.35778Z" fill="white" />
+                        <path d="M28.5142 8.23742C28.5142 7.55514 29.0754 6.99316 29.7569 6.99316C30.4384 6.99316 30.9998 7.55514 30.9998 8.23742C30.9998 8.91989 30.4384 9.48186 29.7569 9.48186C29.0754 9.48186 28.5142 8.91989 28.5142 8.23742Z" fill="white" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Klient i Dostawa -->
+            <div class="modal-bl-sync-client-delivery">
+                <div class="modal-bl-sync-client-section">
+                    <div class="modal-bl-sync-section-header">Klient:</div>
+                    <div class="modal-bl-sync-section-content customer-name"></div>
+                </div>
+                <div class="modal-bl-sync-delivery-section">
+                    <div class="modal-bl-sync-section-header">Dostawa:</div>
+                    <div class="modal-bl-sync-section-content delivery-info"></div>
+                </div>
+            </div>
+
+            <!-- Produkty -->
+            <div class="modal-bl-sync-products-section">
+                <div class="modal-bl-sync-products-header">Produkty:</div>
+                <div class="modal-bl-sync-products-list">
+                    <!-- Produkty będą dodane dynamicznie -->
+                </div>
+            </div>
+
+            <div class="modal-bl-sync-order-footer">
+                <!-- NOWA SEKCJA DAT - DODANA -->
+                <div class="modal-bl-sync-dates-section">
+                    <div class="modal-bl-sync-date-item">
+                        <span class="modal-bl-sync-date-label">Złożone:</span>
+                        <span class="modal-bl-sync-date-value date-add"></span>
+                    </div>
+                    <div class="modal-bl-sync-date-item">
+                        <span class="modal-bl-sync-date-label">Potwierdzone:</span>
+                        <span class="modal-bl-sync-date-value date-confirmed"></span>
+                    </div>
+                    <div class="modal-bl-sync-date-item">
+                        <span class="modal-bl-sync-date-label">Status:</span>
+                        <span class="modal-bl-sync-date-value date-status"></span>
+                    </div>
+                </div>
+
+                <div class="modal-bl-sync-payment-section">
+                    <div class="modal-bl-sync-payment-item">
+                        <span class="modal-bl-sync-payment-label">Zapłacono:</span>
+                        <span class="modal-bl-sync-payment-amount paid-amount"></span>
+                    </div>
+                    <div class="modal-bl-sync-payment-item">
+                        <span class="modal-bl-sync-payment-label">Do zapłaty:</span>
+                        <span class="modal-bl-sync-payment-amount remaining-amount"></span>
+                    </div>
+                </div>
+
+                <div class="modal-bl-sync-summary-section">
+                    <div class="modal-bl-sync-summary-breakdown">
+                        <div class="modal-bl-sync-summary-item">
+                            <span class="modal-bl-sync-summary-label">Produkty:</span>
+                            <span class="modal-bl-sync-summary-amount products-amount"></span>
+                        </div>
+                        <div class="modal-bl-sync-summary-item">
+                            <span class="modal-bl-sync-summary-label">Dostawa:</span>
+                            <span class="modal-bl-sync-summary-amount delivery-amount"></span>
+                        </div>
+                    </div>
+                    <div class="modal-bl-sync-summary-total">
+                        <span class="modal-bl-sync-summary-label">Suma:</span>
+                        <span class="modal-bl-sync-summary-amount total-amount"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- KROK 3: Modal uzupełniania objętości i atrybutów -->
+    <div id="volumeModal" class="sync-modal" style="display: none;">
         <div class="sync-modal-overlay">
             <div class="sync-modal-content sync-modal-extra-large">
                 <div class="sync-modal-header">
-                    <h3>Uzupełnij brakujące wymiary</h3>
-                    <button class="sync-modal-close" id="dimensionsModalClose">&times;</button>
+                    <h3>Uzupełnij objętości produktów</h3>
+                    <button class="sync-modal-close" id="volumeModalClose">&times;</button>
                 </div>
 
                 <div class="sync-modal-body">
-                    <div class="dimensions-info">
-                        <p class="dimensions-description">
-                            Niektóre produkty w wybranych zamówieniach nie mają kompletnych wymiarów. 
-                            Uzupełnij brakujące dane aby móc obliczyć objętość (m³):
-                        </p>
+                    <div class="volume-info">
+                        <div class="info-icon">📏</div>
+                        <div class="info-text">
+                            <p><strong>Niektóre produkty nie mają wymiarów ani objętości w nazwie.</strong></p>
+                            <p>Uzupełnij objętość (m³) oraz opcjonalnie gatunek, technologię i klasę dla każdego produktu.</p>
+                            <p class="info-note">Pola oznaczone * są wymagane dla prawidłowych statystyk.</p>
+                        </div>
                     </div>
 
-                    <div id="dimensionsList" class="dimensions-list">
-                        <!-- Formularz wymiarów będzie wstawiony tutaj dynamicznie -->
+                    <div id="volumeProductsList" class="volume-products-list">
+                        <!-- Produkty będą wstawiane tutaj dynamicznie -->
                     </div>
                 </div>
 
                 <div class="sync-modal-footer">
-                    <button id="dimensionsBack" class="btn btn-secondary">Wróć</button>
-                    <button id="dimensionsSkip" class="btn btn-warning">Pomiń i zapisz</button>
-                    <button id="dimensionsSave" class="btn btn-primary">Uzupełnij i zapisz</button>
+                    <button id="volumeBack" class="btn btn-secondary">Wstecz</button>
+                    <button id="volumeSkip" class="btn btn-warning">Pomiń (objętość = 0)</button>
+                    <button id="volumeSave" class="btn btn-primary">Zapisz z objętościami</button>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Template dla pojedynczego zamówienia z produktami do uzupełnienia -->
+    <template id="volumeOrderTemplate">
+        <div class="volume-order-item">
+            <div class="volume-order-header">
+                <h4>Zamówienie #<span class="order-number"></span></h4>
+                <div class="order-info">
+                    <span class="customer-name"></span> • <span class="order-date"></span>
+                </div>
+            </div>
+
+            <div class="volume-products-container">
+                <!-- Produkty będą dodane tutaj -->
+            </div>
+        </div>
+    </template>
+
+    <!-- Template dla pojedynczego produktu wymagającego objętości -->
+    <template id="volumeProductTemplate">
+        <div class="volume-product-item" data-product-key="">
+            <div class="volume-product-header">
+                <div class="product-name"></div>
+                <div class="product-quantity">Ilość: <span class="quantity-value"></span> szt.</div>
+            </div>
+
+            <div class="volume-inputs-grid">
+                <!-- Objętość - pole wymagane -->
+                <div class="volume-input-group required">
+                    <label for="">Objętość na 1 szt. (m³) *</label>
+                    <input type="number"
+                           class="volume-input volume-required"
+                           data-field="volume"
+                           step="0.001"
+                           min="0"
+                           placeholder="np. 0.048"
+                           required>
+                    <small class="input-help">Objętość jednej sztuki w metrach sześciennych</small>
+                </div>
+
+                <!-- Gatunek - pole opcjonalne -->
+                <div class="volume-input-group">
+                    <label for="">Gatunek</label>
+                    <select class="volume-select" data-field="wood_species">
+                        <option value="">-- Wybierz gatunek --</option>
+                        <option value="dąb">Dąb</option>
+                        <option value="buk">Buk</option>
+                        <option value="jesion">Jesion</option>
+                        <option value="sosna">Sosna</option>
+                        <option value="brzoza">Brzoza</option>
+                        <option value="wiąz">Wiąz</option>
+                        <option value="klon">Klon</option>
+                    </select>
+                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
+                </div>
+
+                <!-- Technologia - pole opcjonalne -->
+                <div class="volume-input-group">
+                    <label for="">Technologia</label>
+                    <select class="volume-select" data-field="technology">
+                        <option value="">-- Wybierz technologię --</option>
+                        <option value="lity">Lity</option>
+                        <option value="mikrowczep">Mikrowczep</option>
+                        <option value="klejony">Klejony</option>
+                        <option value="fornir">Fornir</option>
+                    </select>
+                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
+                </div>
+
+                <!-- Klasa - pole opcjonalne -->
+                <div class="volume-input-group">
+                    <label for="">Klasa</label>
+                    <select class="volume-select" data-field="wood_class">
+                        <option value="">-- Wybierz klasę --</option>
+                        <option value="A/B">A/B</option>
+                        <option value="B/B">B/B</option>
+                    </select>
+                    <small class="input-help auto-detected" style="display: none;">Wykryto automatycznie</small>
+                </div>
+            </div>
+
+            <!-- Podsumowanie objętości -->
+            <div class="volume-summary">
+                <div class="summary-item">
+                    <span class="summary-label">Objętość całkowita:</span>
+                    <span class="summary-value total-volume">0.000 m³</span>
+                </div>
+            </div>
+        </div>
+    </template>
 
     <!-- Global loading overlay -->
     <div id="syncLoadingOverlay" class="sync-loading-overlay" style="display: none;">
@@ -453,64 +757,6 @@
         </div>
     </div>
 
-    <!-- Template dla pojedynczego zamówienia -->
-    <template id="orderTemplate">
-        <div class="order-item" data-order-id="">
-            <div class="order-checkbox">
-                <input type="checkbox" class="order-select" data-order-id="">
-            </div>
-            
-            <div class="order-content">
-                <div class="order-header">
-                    <div class="order-id">
-                        <strong>Zamówienie #<span class="order-number"></span></strong>
-                        <span class="order-status-badge"></span>
-                    </div>
-                    <div class="order-actions">
-                        <button class="baselinker-btn" type="button" title="Otwórz w Baselinker">
-                            <i class="fas fa-external-link-alt"></i>
-                        </button>
-                        <span class="order-date-text"></span>
-                    </div>
-                </div>
-                
-                <div class="order-details">
-                    <div class="order-customer">
-                        <span class="customer-icon">👤</span>
-                        <span class="customer-name"></span>
-                    </div>
-                    
-                    <div class="order-products">
-                        <span class="products-icon">📦</span>
-                        <div class="products-list"></div>
-                    </div>
-                    
-                    <div class="order-amounts">
-                        <div class="amount-item">
-                            <span class="amount-label">Produkty:</span>
-                            <span class="amount-value products-amount"></span>
-                        </div>
-                        <div class="amount-item">
-                            <span class="amount-label">Dostawa:</span>
-                            <span class="amount-value delivery-amount"></span>
-                        </div>
-                        <div class="amount-item total">
-                            <span class="amount-label">Razem:</span>
-                            <span class="amount-value total-amount"></span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="order-status">
-                <div class="exists-badge" style="display: none;">
-                    <span class="exists-icon">✓</span>
-                    <span class="exists-text">Już w bazie</span>
-                </div>
-            </div>
-        </div>
-    </template>
-
     <!-- Template dla pojedynczego zamówienia z problemami wymiarów -->
     <template id="dimensionOrderTemplate">
         <div class="dimension-order-item">
@@ -520,7 +766,7 @@
                     <span class="customer-name"></span> • <span class="order-date"></span>
                 </div>
             </div>
-            
+
             <div class="dimension-products-list">
                 <!-- Produkty będą dodane tutaj -->
             </div>
@@ -534,44 +780,49 @@
                 <div class="product-name"></div>
                 <div class="product-quantity">Ilość: <span></span></div>
             </div>
-            
+
             <div class="dimension-inputs-grid">
                 <div class="dimension-input-group">
                     <label>Długość (cm)</label>
-                    <input type="number" 
-                        class="dimension-input" 
-                        data-dimension="length_cm"
-                        step="0.1" 
-                        min="0"
-                        placeholder="np. 120">
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="length_cm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 120">
                 </div>
-                
+
                 <div class="dimension-input-group">
                     <label>Szerokość (cm)</label>
-                    <input type="number" 
-                        class="dimension-input" 
-                        data-dimension="width_cm"
-                        step="0.1" 
-                        min="0"
-                        placeholder="np. 60">
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="width_cm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 60">
                 </div>
-                
+
                 <div class="dimension-input-group">
                     <label>Grubość (mm)</label>
-                    <input type="number" 
-                        class="dimension-input" 
-                        data-dimension="thickness_mm"
-                        step="0.1" 
-                        min="0"
-                        placeholder="np. 18">
+                    <input type="number"
+                           class="dimension-input"
+                           data-dimension="thickness_mm"
+                           step="0.1"
+                           min="0"
+                           placeholder="np. 18">
                 </div>
-                
+
                 <div class="dimension-calculated">
-                    <label>Objętość m³</label>
-                    <div class="calculated-volume">-</div>
+                    <label for="volumeInput">Objętość m³</label>
+                    <input type="number"
+                           class="calculated-volume"
+                           data-dimension="volume_m3"
+                           step="0.0001"
+                           min="0"
+                           placeholder="np. 0.1234">
                 </div>
             </div>
-            
+
             <div class="missing-dimensions-info">
                 Brakuje: <span class="missing-list"></span>
             </div>
@@ -593,7 +844,7 @@
             <div class="order-checkbox">
                 <input type="checkbox" class="order-select" data-order-id="">
             </div>
-            
+
             <div class="order-content">
                 <div class="order-header">
                     <div class="order-id">
@@ -607,18 +858,18 @@
                         <span class="order-date-text"></span>
                     </div>
                 </div>
-                
+
                 <div class="order-details">
                     <div class="order-customer">
                         <span class="customer-icon">👤</span>
                         <span class="customer-name"></span>
                     </div>
-                    
+
                     <div class="order-products">
                         <span class="products-icon">📦</span>
                         <div class="products-list"></div>
                     </div>
-                    
+
                     <div class="order-amounts">
                         <div class="amount-item">
                             <span class="amount-label">Produkty:</span>
@@ -635,7 +886,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="order-status">
                 <div class="exists-badge" style="display: none;">
                     <span class="exists-icon">✓</span>
@@ -645,7 +896,7 @@
         </div>
     </template>
 
-    
+
 
     <!-- Modal dodawania/edycji ręcznego wiersza -->
     <div id="manualRowModal" class="modal">
@@ -1004,10 +1255,10 @@
     </div>
 
     <!-- Scripts -->
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/reports.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/table_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/volume_manager.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/sync_manager.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/postcode_auto_fill.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/export_manager.js') }}"></script>
@@ -1042,11 +1293,6 @@
         if (typeof TableManager !== 'undefined') {
             window.tableManager = new TableManager();
             window.tableManager.init();
-        }
-
-        if (typeof SyncManager !== 'undefined') {
-            window.syncManager = new SyncManager();
-            window.syncManager.init();
         }
 
         if (typeof ExportManager !== 'undefined') {

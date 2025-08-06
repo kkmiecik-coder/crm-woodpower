@@ -1300,8 +1300,6 @@ class TableManager {
                 this.updateDropdownOptions(field);
             });
 
-            console.log('[TableManager] Dropdown data loaded successfully');
-
         } catch (error) {
             console.error('[TableManager] Error loading dropdown data:', error);
 
@@ -1391,8 +1389,6 @@ class TableManager {
 
         // Aktualizuj label dropdown'a
         this.updateDropdownLabel(fieldName);
-
-        console.log(`[TableManager] Updated dropdown ${fieldName} with ${displayValues.length} options`);
     }
 
     /**

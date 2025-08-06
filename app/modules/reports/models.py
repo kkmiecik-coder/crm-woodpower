@@ -7,6 +7,8 @@ from extensions import db
 from datetime import datetime, timedelta
 from sqlalchemy import Index
 import re
+from .utils import PostcodeToStateMapper
+
 
 class BaselinkerReportOrder(db.Model):
     """
@@ -37,6 +39,10 @@ class BaselinkerReportOrder(db.Model):
     delivery_method = db.Column(db.String(100), nullable=True, comment="13. Metoda dostawy")
     order_source = db.Column(db.String(50), nullable=True, comment="14. Źródło zamówienia")
     
+    # === NOWE POLA DLA OBSŁUGI NETTO/BRUTTO ===
+    price_type = db.Column(db.Enum('netto', 'brutto', '', name='price_type_enum'), nullable=True, default='', comment="Typ ceny z extra_field_106169: netto/brutto/puste")
+    original_amount_from_baselinker = db.Column(db.Numeric(10, 2), nullable=True, comment="Oryginalna kwota pobrana z Baselinker przed konwersją")
+
     # === DANE PRODUKTU (kolumny 15-24) ===
     group_type = db.Column(db.Enum('towar', 'usługa', name='group_type_enum'), nullable=True, comment="15. Grupa")
     product_type = db.Column(db.Enum('klejonka', 'deska', name='product_type_enum'), nullable=True, comment="16. Rodzaj")
@@ -165,16 +171,17 @@ class BaselinkerReportOrder(db.Model):
         """
         Oblicza statystyki dla widocznych (przefiltrowanych) zamówień
         NAPRAWKA: Poprawione grupowanie zamówień i obliczenia
-    
+        NOWE: Dodana kolumna "Do odebrania" (pickup_ready_volume)
+
         Args:
             filtered_query: Query object z filtrami
-    
+
         Returns:
             dict: Słownik ze statystykami
         """
         if filtered_query is None:
             filtered_query = cls.query
-    
+
         orders = filtered_query.all()
 
         stats = {
@@ -184,11 +191,13 @@ class BaselinkerReportOrder(db.Model):
             'value_gross': 0.0,
             'avg_price_per_m3': 0.0,
             'delivery_cost': 0.0,
+            'delivery_cost_net': 0.0,
             'paid_amount_net': 0.0,
             'balance_due': 0.0,
             'production_volume': 0.0,
             'production_value_net': 0.0,
-            'ready_pickup_volume': 0.0
+            'ready_pickup_volume': 0.0,
+            'pickup_ready_volume': 0.0  # NOWA KOLUMNA: Do odebrania
         }
 
         if not orders:
@@ -203,7 +212,7 @@ class BaselinkerReportOrder(db.Model):
                 unique_id = f"bl_{order.baselinker_order_id}"
             else:
                 unique_id = f"manual_{order.id}"
-            
+        
             if unique_id not in orders_by_unique_id:
                 orders_by_unique_id[unique_id] = {
                     'products': [],
@@ -218,9 +227,10 @@ class BaselinkerReportOrder(db.Model):
             'value_gross': 0.0,
             'production_volume': 0.0,
             'production_value_net': 0.0,
-            'ready_pickup_volume': 0.0
+            'ready_pickup_volume': 0.0,
+            'pickup_ready_volume': 0.0  # NOWA KOLUMNA
         }
-    
+
         for order in orders:
             product_level_stats['total_m3'] += float(order.total_volume or 0)
             product_level_stats['value_net'] += float(order.value_net or 0)
@@ -228,37 +238,45 @@ class BaselinkerReportOrder(db.Model):
             product_level_stats['production_volume'] += float(order.production_volume or 0)
             product_level_stats['production_value_net'] += float(order.production_value_net or 0)
             product_level_stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
+        
+            # NOWA LOGIKA: Suma objętości tylko dla statusu "Czeka na odbiór osobisty"
+            if (order.current_status and 
+                order.current_status.lower() == 'czeka na odbiór osobisty'):
+                product_level_stats['pickup_ready_volume'] += float(order.total_volume or 0)
 
         # NAPRAWKA: Sumuj wartości NA POZIOMIE ZAMÓWIENIA (raz na zamówienie)
         order_level_stats = {
             'order_amount_net': 0.0,
             'delivery_cost': 0.0,
+            'delivery_cost_net': 0.0,
             'paid_amount_net': 0.0,
             'balance_due': 0.0
         }
-    
+
         for unique_id, order_group in orders_by_unique_id.items():
             products = order_group['products']
             is_manual = order_group['is_manual']
-        
+    
             if not products:
                 continue
-            
+        
             # Weź pierwszy produkt jako reprezentanta zamówienia
             representative_product = products[0]
-        
+    
             # NAPRAWKA: Dla ręcznych wpisów każdy jest osobnym "zamówieniem"
             if is_manual:
                 # Dla ręcznych wpisów sumujemy wszystkie wartości
                 for product in products:
                     order_level_stats['order_amount_net'] += float(product.order_amount_net or 0)
                     order_level_stats['delivery_cost'] += float(product.delivery_cost or 0)
+                    order_level_stats['delivery_cost_net'] += float(product.delivery_cost or 0) / 1.23
                     order_level_stats['paid_amount_net'] += float(product.paid_amount_net or 0)
                     order_level_stats['balance_due'] += float(product.balance_due or 0)
             else:
                 # Dla zamówień Baselinker - raz na zamówienie (z pierwszego produktu)
                 order_level_stats['order_amount_net'] += float(representative_product.order_amount_net or 0)
                 order_level_stats['delivery_cost'] += float(representative_product.delivery_cost or 0)
+                order_level_stats['delivery_cost_net'] += float(representative_product.delivery_cost or 0) / 1.23
                 order_level_stats['paid_amount_net'] += float(representative_product.paid_amount_net or 0)
                 order_level_stats['balance_due'] += float(representative_product.balance_due or 0)
 
@@ -266,9 +284,19 @@ class BaselinkerReportOrder(db.Model):
         stats.update(product_level_stats)
         stats.update(order_level_stats)
 
-        # Oblicz średnią cenę za m3
-        if stats['total_m3'] > 0:
-            stats['avg_price_per_m3'] = stats['value_net'] / stats['total_m3']
+        # POPRAWKA: Oblicz średnią cenę za m³ jako średnią arytmetyczną (jak w Excel)
+        # Zamiast dzielić łączną wartość przez łączną objętość
+    
+        # Zbierz wszystkie ceny za m³ z produktów (pomijając 0 i None)
+        price_per_m3_values = []
+        for order in orders:
+            price_per_m3 = float(order.price_per_m3 or 0)
+            if price_per_m3 > 0:  # Pomiń produkty bez ceny za m³
+                price_per_m3_values.append(price_per_m3)
+    
+        # Oblicz średnią arytmetyczną (jak Excel AVERAGE)
+        if price_per_m3_values:
+            stats['avg_price_per_m3'] = sum(price_per_m3_values) / len(price_per_m3_values)
         else:
             stats['avg_price_per_m3'] = 0.0
 
@@ -375,19 +403,63 @@ class BaselinkerReportOrder(db.Model):
             self.realization_date = target_date
             
         # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
-        # POPRAWKA: Saldo obliczane na podstawie order_amount_net (całe zamówienie netto)
-        if self.order_amount_net is not None and self.paid_amount_net is not None:
-            self.balance_due = float(self.order_amount_net) - float(self.paid_amount_net)
+        if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
+            # POPRAWKA: Logika zależna od typu ceny zamówienia
             
+            # Sprawdź typ ceny zamówienia
+            price_type = (self.price_type or '').strip().lower()
+            
+            if price_type == 'netto':
+                # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
+                total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
+            else:
+                # Zamówienia BRUTTO: porównujemy wszystko na netto
+                delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+                total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
+        
+            # Saldo = całkowita kwota do zapłaty - zapłacono netto
+            self.balance_due = total_order_to_pay - float(self.paid_amount_net)
+            
+        # NOWE: Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
+        self.auto_fill_delivery_state()
+        
         # Oblicz produkcję i odbiór na podstawie statusu
         self.update_production_fields()
-        
+    
         # Normalizuj województwo
         self.normalize_delivery_state()
         
         # Ustaw domyślny product_type na 'deska' jeśli nie ma
         if not self.product_type:
             self.product_type = 'klejonka'
+
+    def auto_fill_delivery_state(self):
+        """
+        Automatycznie uzupełnia województwo na podstawie kodu pocztowego
+        Logika zgodna z wymaganiami:
+        1. Jeśli województwo jest wpisane - puszczamy dalej
+        2. Jeśli nie ma województwa, sprawdzamy kod pocztowy i uzupełniamy
+        3. Jeśli nie ma województwa ani kodu pocztowego - puszczamy dalej
+        """
+        # KROK 1: Jeśli mamy województwo, nie robimy nic
+        if self.delivery_state and self.delivery_state.strip():
+            return
+    
+        # KROK 2: Jeśli nie ma województwa, ale mamy kod pocztowy - uzupełniamy
+        if self.delivery_postcode and self.delivery_postcode.strip():
+        
+            auto_state = PostcodeToStateMapper.get_state_from_postcode(self.delivery_postcode)
+            if auto_state:
+                self.delivery_state = auto_state
+                # Loguj automatyczne uzupełnienie (nie print, tylko strukturalny log)
+                from modules.logging import get_structured_logger
+                logger = get_structured_logger('reports.auto_fill')
+                logger.info("Automatyczne uzupełnienie województwa",
+                           record_id=getattr(self, 'id', 'NEW'),
+                           postcode=self.delivery_postcode,
+                           auto_filled_state=auto_state)
+    
+        # KROK 3: Jeśli nie ma województwa ani kodu pocztowego - nie robimy nic (puszczamy dalej)
     
     def normalize_delivery_state(self):
         """
@@ -440,21 +512,37 @@ class BaselinkerReportOrder(db.Model):
         """
         if not self.current_status:
             return
-            
+    
         status_lower = self.current_status.lower()
-        
+
         # Reset wartości
         self.production_volume = 0.0
         self.production_value_net = 0.0
         self.ready_pickup_volume = 0.0
-        
-        # Jeśli status zawiera "w produkcji"
-        if 'w produkcji' in status_lower:
+
+        # Jeśli status zawiera "w produkcji" LUB to "Nowe - opłacone"
+        if 'w produkcji' in status_lower or 'nowe - opłacone' in status_lower:
             self.production_volume = float(self.total_volume or 0.0)
             self.production_value_net = float(self.value_net or 0.0)
-            
-        # Jeśli status to "Czeka na odbiór osobisty"
-        elif 'czeka na odbiór osobisty' in status_lower:
+    
+        # NOWA LOGIKA: Statusy dla "Wyprodukowane" (zamiast tylko "Czeka na odbiór osobisty")
+        # ID statusów: 138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779
+        elif (self.baselinker_status_id and 
+              self.baselinker_status_id in [138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779]):
+            self.ready_pickup_volume = float(self.total_volume or 0.0)
+    
+        # FALLBACK: Sprawdź także po nazwie statusu (dla ręcznych wpisów lub starych rekordów bez baselinker_status_id)
+        elif any(status_name in status_lower for status_name in [
+            'produkcja zakończona',           # 138620
+            'zamówienie spakowane',           # 138623  
+            'paczka zgłoszona do wysyłki',    # 105113
+            'wysłane - kurier',               # 105114
+            'wysłane - transport woodpower',  # 149763
+            'czeka na odbiór osobisty',       # 149777
+            'dostarczona - kurier',           # 138624
+            'dostarczona - transport woodpower', # 149778
+            'odebrane'                        # 149779
+        ]):
             self.ready_pickup_volume = float(self.total_volume or 0.0)
     
     def to_dict(self):
@@ -505,6 +593,39 @@ class BaselinkerReportOrder(db.Model):
             'production_value_net': float(self.production_value_net or 0),
             'ready_pickup_volume': float(self.ready_pickup_volume or 0)
         }
+
+    def process_baselinker_amount(self, baselinker_amount: float, price_type_from_api: str) -> tuple:
+        """
+        Przetwarza kwotę z Baselinker na podstawie typu ceny
+    
+        Args:
+            baselinker_amount: kwota z Baselinker
+            price_type_from_api: typ ceny z extra_field_106169
+        
+        Returns:
+            tuple: (processed_amount, price_type) - przetworzona kwota i typ
+        """
+        # Zapisz oryginalną kwotę
+        self.original_amount_from_baselinker = baselinker_amount
+
+        # Normalizuj wartość z API
+        price_type = (price_type_from_api or '').strip().lower()
+
+        if price_type == 'netto':
+            # Kwota z Baselinker jest NETTO - zostaw bez zmian
+            # System dalej sam przeliczy brutto gdy będzie potrzebował
+            processed_amount = float(baselinker_amount)
+            self.price_type = 'netto'
+        elif price_type == 'brutto':
+            # Kwota z Baselinker jest BRUTTO - zostaw bez zmian  
+            processed_amount = float(baselinker_amount)
+            self.price_type = 'brutto'
+        else:
+            # Puste lub nieznane - traktuj jako brutto (domyślnie)
+            processed_amount = float(baselinker_amount)
+            self.price_type = ''
+
+        return processed_amount, self.price_type
 
 
 class ReportsSyncLog(db.Model):

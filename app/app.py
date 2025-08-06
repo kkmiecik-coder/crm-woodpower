@@ -20,6 +20,7 @@ from modules.preview3d_ar import preview3d_ar_bp
 from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 from modules.reports import reports_bp
+os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
 
 def create_admin():
     """Tworzy użytkownika admina, jeśli nie istnieje."""

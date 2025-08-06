@@ -111,23 +111,17 @@ const utils = {
      * @returns {string} Nazwa wariantu
      */
     translateVariantCode(code) {
-        const translations = {
-            // Dąb
-            'dab-lity-ab': 'Dąb lity A/B',
-            'dab-lity-bb': 'Dąb lity B/B',
-            'dab-micro-ab': 'Dąb mikrowczep A/B',
-            'dab-micro-bb': 'Dąb mikrowczep B/B',
-
-            // Jesion
-            'jes-lity-ab': 'Jesion lity A/B',
-            'jes-micro-ab': 'Jesion mikrowczep A/B',
-
-            // Buk
-            'buk-lity-ab': 'Buk lity A/B',
-            'buk-micro-ab': 'Buk mikrowczep A/B',
+        const dict = {
+            'dab-lity-ab': 'Klejonka dębowa lita A/B',
+            'dab-lity-bb': 'Klejonka dębowa lita B/B',
+            'dab-micro-ab': 'Klejonka dębowa mikrowczep A/B',
+            'dab-micro-bb': 'Klejonka dębowa mikrowczep B/B',
+            'jes-lity-ab': 'Klejonka jesionowa lita A/B',
+            'jes-micro-ab': 'Klejonka jesionowa mikrowczep A/B',
+            'buk-lity-ab': 'Klejonka bukowa lita A/B',
+            'buk-micro-ab': 'Klejonka bukowa mikrowczep A/B'
         };
-
-        return translations[code] || code;
+        return dict[code] || code || 'Nieznany wariant';
     },
 
     /**

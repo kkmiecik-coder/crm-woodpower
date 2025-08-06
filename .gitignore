@@ -193,3 +193,5 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 core.json
+app/modules/.DS_Store
+app/.DS_Store

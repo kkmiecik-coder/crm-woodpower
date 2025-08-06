@@ -519,14 +519,14 @@ function translateVariantCode(variantCode) {
     if (!variantCode) return 'Nieznany wariant';
 
     const translations = {
-        'dab-lity-ab': 'Dąb lity A/B',
-        'dab-lity-bb': 'Dąb lity B/B',
-        'dab-mikrowzor-ab': 'Dąb mikrowzór A/B',
-        'dab-mikrowzor-bb': 'Dąb mikrowzór B/B',
-        'jesion-lity-ab': 'Jesion lity A/B',
-        'jesion-mikrowzor-ab': 'Jesion mikrowzór A/B',
-        'buk-lity-ab': 'Buk lity A/B',
-        'buk-mikrowzor-ab': 'Buk mikrowzór A/B'
+        'dab-lity-ab': 'Klejonka dębowa lita A/B',
+        'dab-lity-bb': 'Klejonka dębowa lita B/B',
+        'dab-micro-ab': 'Klejonka dębowa mikrowczep A/B', // Poprawka: micro -> mikrowczep
+        'dab-micro-bb': 'Klejonka dębowa mikrowczep B/B',
+        'jes-lity-ab': 'Klejonka jesionowa lita A/B', // Poprawka: jesion -> jesionowa
+        'jes-micro-ab': 'Klejonka jesionowa mikrowczep A/B',
+        'buk-lity-ab': 'Klejonka bukowa lita A/B',
+        'buk-micro-ab': 'Klejonka bukowa mikrowczep A/B'
     };
 
     return translations[variantCode] || variantCode;
@@ -668,7 +668,6 @@ function attachRemoveProductListeners() {
 }
 
 /**
-<<<<<<< HEAD
  * POPRAWIONA WERSJA addVariantsToCalculatorForm - z poprawnym tabIndex
  */
 function addVariantsToCalculatorForm() {
@@ -738,14 +737,11 @@ function addVariantsToCalculatorForm() {
 }
 
 /**
-=======
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
  * Obsługa zmiany danych formularza
  */
 function onFormDataChange() {
     console.log('[QUOTE EDITOR] Dane formularza zostały zmienione');
 
-<<<<<<< HEAD
     // Sprawdź czy calculator.js jest gotowy
     if (!checkCalculatorReadiness()) {
         console.warn('[QUOTE EDITOR] Calculator.js nie jest gotowy - używam fallback');
@@ -802,39 +798,12 @@ function onFormDataChange() {
         // Fallback w przypadku błędu
         console.log('[QUOTE EDITOR] Używam funkcji fallback...');
         calculateEditorPrices();
-=======
-    // Pobierz dane formularza
-    const formData = collectFormData();
-    if (!formData) {
-        console.warn('[QUOTE EDITOR] Nie udało się pobrać danych formularza');
-        return;
-    }
-
-    // Sprawdź czy calculator.js jest dostępny i zainicjalizowany
-    if (calculatorScriptLoaded && calculatorInitialized && typeof updatePrices === 'function') {
-        console.log('[QUOTE EDITOR] Używam funkcji updatePrices z calculator.js');
-
-        // Przygotuj środowisko dla calculator.js
-        setupCalculatorForEditor();
-
-        // Wywołaj funkcję obliczeń z calculator.js
-        updatePrices();
-
-        // Skopiuj wyniki z powrotem do edytora
-        copyCalculationResults();
-
-    } else {
-        console.warn('[QUOTE EDITOR] Calculator.js nie jest gotowy - używam fallback');
-        // Fallback - wywołaj własną funkcję obliczeń
-        calculateEditorPrices(formData);
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     }
 }
 
 // Eksportuj funkcję do globalnego scope dla debugowania
 window.checkCalculatorReadiness = checkCalculatorReadiness;
 
-<<<<<<< HEAD
 function restoreOriginalUpdatePrices() {
     if (typeof window.originalUpdatePrices === 'function') {
         window.updatePrices = window.originalUpdatePrices;
@@ -868,8 +837,6 @@ function callUpdatePricesSecurely() {
     console.log('[QUOTE EDITOR] activeQuoteForm po updatePrices:', window.activeQuoteForm);
 }
 
-=======
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 /**
  * Funkcja do sprawdzania czy calculator.js jest ready
  */
@@ -891,7 +858,6 @@ function checkCalculatorReadiness() {
 
     return isReady;
 }
-<<<<<<< HEAD
 function setupCalculatorForEditor() {
     console.log('[QUOTE EDITOR] Konfiguracja calculator.js dla edytora...');
 
@@ -1034,183 +1000,11 @@ function syncSelectedVariant() {
         console.log('[QUOTE EDITOR] Zsynchronizowano wybrany wariant:', selectedEditorRadio.value);
     } else {
         console.warn('[QUOTE EDITOR] Nie znaleziono wariantu w formularzu calculator.js:', selectedEditorRadio.value);
-=======
-
-function setupCalculatorForEditor() {
-    console.log('[QUOTE EDITOR] Konfiguracja calculator.js dla edytora...');
-
-    // Znajdź lub stwórz kontener formularzy jak w calculator.js
-    let editorQuoteFormsContainer = document.querySelector('#quote-editor-modal .quote-forms-container');
-    if (!editorQuoteFormsContainer) {
-        // Stwórz kontener formularzy w edytorze
-        editorQuoteFormsContainer = document.createElement('div');
-        editorQuoteFormsContainer.className = 'quote-forms-container';
-        editorQuoteFormsContainer.style.display = 'none'; // Ukryj, to tylko dla obliczeń
-
-        // Dodaj do modalu
-        const modal = document.getElementById('quote-editor-modal');
-        modal.appendChild(editorQuoteFormsContainer);
-    }
-
-    // Stwórz prawdziwy formularz zgodny z calculator.js
-    const mockQuoteForm = document.createElement('div');
-    mockQuoteForm.className = 'quote-form';
-    mockQuoteForm.style.display = 'none'; // Ukryj, to tylko dla obliczeń
-
-    // Dodaj wszystkie wymagane inputy zgodnie ze strukturą calculator.js
-    mockQuoteForm.innerHTML = `
-        <div class="product-inputs">
-            <select data-field="clientType" style="display: none;">
-                <option value="">Wybierz grupę</option>
-                <option value="Florek">Florek</option>
-                <option value="Hurt">Hurt</option>
-                <option value="Detal">Detal</option>
-                <option value="Detal+">Detal+</option>
-            </select>
-            <input type="number" data-field="length" style="display: none;">
-            <input type="number" data-field="width" style="display: none;">
-            <input type="number" data-field="thickness" style="display: none;">
-            <input type="number" data-field="quantity" style="display: none;">
-        </div>
-        <div class="variants">
-            <div class="dab-lity-ab-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-lity-ab" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-dab-lity-ab" value="dab-lity-ab">
-                <label for="mock-dab-lity-ab" class="option-title">Dąb lity A/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-            <div class="dab-lity-bb-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-lity-bb" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-dab-lity-bb" value="dab-lity-bb">
-                <label for="mock-dab-lity-bb" class="option-title">Dąb lity B/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-            <div class="dab-micro-ab-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-micro-ab" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-dab-micro-ab" value="dab-micro-ab">
-                <label for="mock-dab-micro-ab" class="option-title">Dąb mikrowczep A/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-            <div class="dab-micro-bb-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="dab-micro-bb" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-dab-micro-bb" value="dab-micro-bb">
-                <label for="mock-dab-micro-bb" class="option-title">Dąb mikrowczep B/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-            <div class="jes-lity-ab-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="jes-lity-ab" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-jes-lity-ab" value="jes-lity-ab">
-                <label for="mock-jes-lity-ab" class="option-title">Jesion lity A/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-            <div class="jes-micro-ab-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="jes-micro-ab" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-jes-micro-ab" value="jes-micro-ab">
-                <label for="mock-jes-micro-ab" class="option-title">Jesion mikrowczep A/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-            <div class="buk-lity-ab-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="buk-lity-ab" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-buk-lity-ab" value="buk-lity-ab">
-                <label for="mock-buk-lity-ab" class="option-title">Buk lity A/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-            <div class="buk-micro-ab-option variant-option">
-                <input type="checkbox" class="variant-availability-checkbox" data-variant="buk-micro-ab" checked>
-                <input type="radio" name="variant-product-0-selected" id="mock-buk-micro-ab" value="buk-micro-ab">
-                <label for="mock-buk-micro-ab" class="option-title">Buk mikrowczep A/B</label>
-                <span class="unit-brutto">---.-- PLN</span>
-                <span class="unit-netto">---.-- PLN</span>
-                <span class="total-brutto">---.-- PLN</span>
-                <span class="total-netto">---.-- PLN</span>
-            </div>
-        </div>
-    `;
-
-    // Wyczyść poprzednie formularze i dodaj nowy
-    editorQuoteFormsContainer.innerHTML = '';
-    editorQuoteFormsContainer.appendChild(mockQuoteForm);
-
-    // Skopiuj wartości z edytora do mock formularza
-    const editorInputs = {
-        'edit-clientType': 'clientType',
-        'edit-length': 'length',
-        'edit-width': 'width',
-        'edit-thickness': 'thickness',
-        'edit-quantity': 'quantity'
-    };
-
-    Object.entries(editorInputs).forEach(([editorId, calculatorField]) => {
-        const editorInput = document.getElementById(editorId);
-        const mockInput = mockQuoteForm.querySelector(`[data-field="${calculatorField}"]`);
-
-        if (editorInput && mockInput) {
-            mockInput.value = editorInput.value;
-            console.log(`[QUOTE EDITOR] Skopiowano ${calculatorField}: ${editorInput.value}`);
-        }
-    });
-
-    // Synchronizuj wybrany wariant
-    const selectedEditorRadio = document.querySelector('#quote-editor-modal input[name="edit-variantOption"]:checked');
-    if (selectedEditorRadio) {
-        const variantValue = selectedEditorRadio.value;
-        const mockRadio = mockQuoteForm.querySelector(`input[value="${variantValue}"]`);
-
-        if (mockRadio) {
-            mockRadio.checked = true;
-            console.log(`[QUOTE EDITOR] Zsynchronizowano wybrany wariant: ${variantValue}`);
-        }
-    }
-
-    // Ustaw globalne zmienne dla calculator.js
-    window.originalQuoteFormsContainer = window.quoteFormsContainer;
-    window.originalActiveQuoteForm = window.activeQuoteForm;
-
-    window.quoteFormsContainer = editorQuoteFormsContainer;
-    window.activeQuoteForm = mockQuoteForm;
-
-    console.log('[QUOTE EDITOR] ✅ Calculator.js skonfigurowany z prawdziwym formularzem');
-}
-
-function syncSelectedVariant(mockForm) {
-    const selectedEditorRadio = document.querySelector('#quote-editor-modal input[name="edit-variantOption"]:checked');
-
-    if (selectedEditorRadio) {
-        const variantValue = selectedEditorRadio.value;
-        const mockRadio = mockForm.querySelector(`input[value="${variantValue}"]`);
-
-        if (mockRadio && !mockRadio.disabled) {
-            mockRadio.checked = true;
-            console.log(`[QUOTE EDITOR] Zsynchronizowano wybrany wariant: ${variantValue}`);
-        }
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     }
 }
 
 function copyCalculationResults() {
     if (!window.activeQuoteForm) {
-<<<<<<< HEAD
         console.warn('[QUOTE EDITOR] Brak activeQuoteForm do kopiowania wyników');
         return;
     }
@@ -1263,33 +1057,6 @@ function copyCalculationResults() {
         }
     }
 
-=======
-        console.warn('[QUOTE EDITOR] Brak activeQuoteForm do skopiowania wyników');
-        return;
-    }
-
-    // Skopiuj wyniki z mock formularza do edytora
-    const mockVariants = window.activeQuoteForm.querySelectorAll('.variant-option');
-    const editorVariants = document.querySelectorAll('#quote-editor-modal .variant-option');
-
-    mockVariants.forEach((mockVariant, index) => {
-        const editorVariant = editorVariants[index];
-        if (!editorVariant) return;
-
-        // Skopiuj ceny
-        const priceFields = ['unit-brutto', 'unit-netto', 'total-brutto', 'total-netto'];
-
-        priceFields.forEach(fieldClass => {
-            const mockElement = mockVariant.querySelector(`.${fieldClass}`);
-            const editorElement = editorVariant.querySelector(`.${fieldClass}`);
-
-            if (mockElement && editorElement) {
-                editorElement.textContent = mockElement.textContent;
-            }
-        });
-    });
-
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     console.log('[QUOTE EDITOR] ✅ Skopiowano wyniki obliczeń do edytora');
 }
 
@@ -2244,7 +2011,6 @@ function collectFormData() {
  * Fallback funkcja do obliczeń jeśli calculator.js nie jest dostępny
  * @param {Object} formData - Dane formularza
  */
-<<<<<<< HEAD
 function calculateEditorPrices() {
     console.log('[QUOTE EDITOR] Wykonuję obliczenia fallback...');
 
@@ -2276,33 +2042,6 @@ function calculateEditorPrices() {
     });
 
     console.log('[QUOTE EDITOR] ✅ Wykonano obliczenia fallback dla objętości:', volume);
-=======
-function calculateEditorPrices(formData) {
-    console.log('[QUOTE EDITOR] Wykonuję obliczenia fallback:', formData);
-
-    if (!formData.clientType) {
-        showVariantErrors('Wybierz grupę cenową');
-        return;
-    }
-
-    if (!formData.length || !formData.width || !formData.thickness || !formData.quantity) {
-        showVariantErrors('Podaj wszystkie wymiary');
-        return;
-    }
-
-    // Pokaż komunikat o obliczeniach fallback
-    document.querySelectorAll('.variant-option').forEach(option => {
-        const bruttoSpan = option.querySelector('.unit-brutto');
-        const nettoSpan = option.querySelector('.unit-netto');
-        const totalBruttoSpan = option.querySelector('.total-brutto');
-        const totalNettoSpan = option.querySelector('.total-netto');
-
-        if (bruttoSpan) bruttoSpan.textContent = 'Brak cennika';
-        if (nettoSpan) nettoSpan.textContent = 'Brak cennika';
-        if (totalBruttoSpan) totalBruttoSpan.textContent = 'Brak cennika';
-        if (totalNettoSpan) totalNettoSpan.textContent = 'Brak cennika';
-    });
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
 }
 
 function syncEditorToMockForm() {
@@ -2337,12 +2076,9 @@ function syncEditorToMockForm() {
 function resetCalculatorAfterEditor() {
     console.log('[QUOTE EDITOR] Resetowanie konfiguracji calculator.js...');
 
-<<<<<<< HEAD
     // NOWE: Przywróć oryginalną funkcję updatePrices
     restoreOriginalUpdatePrices();
 
-=======
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     // Przywróć oryginalne zmienne globalne
     if (window.originalQuoteFormsContainer) {
         window.quoteFormsContainer = window.originalQuoteFormsContainer;
@@ -2502,14 +2238,8 @@ function initializeCalculatorForEditor() {
 
     console.log('[QUOTE EDITOR] Inicjalizuję calculator.js dla edytora...');
 
-<<<<<<< HEAD
     // Wyłącz automatyczną inicjalizację calculator.js
     if (typeof window.init === 'function') {
-=======
-    // Zastąp problematyczne funkcje calculator.js pustymi wersjami
-    if (typeof window.init === 'function') {
-        // Wyłącz automatyczną inicjalizację calculator.js
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
         console.log('[QUOTE EDITOR] Wyłączam automatyczną inicjalizację calculator.js');
     }
 
@@ -2517,12 +2247,9 @@ function initializeCalculatorForEditor() {
     window.quoteFormsContainer = null;
     window.activeQuoteForm = null;
 
-<<<<<<< HEAD
     // ✅ DODAJ: Skopiuj variantMapping
     copyVariantMappingToEditor();
 
-=======
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec
     // Zainicjalizuj tylko potrzebne części calculator.js
     if (typeof window.buildPriceIndex === 'function') {
         try {
@@ -2567,7 +2294,6 @@ document.addEventListener('DOMContentLoaded', function () {
     initQuoteEditor();
     initFinishingButtons();
 });
-<<<<<<< HEAD
 
 /**
  * KROK 1: Dodaj tę funkcję na KOŃCU pliku quote_editor.js
@@ -2971,5 +2697,3 @@ function debugCalculatorComponents() {
 
 // Eksportuj funkcję debugową
 window.debugCalculatorComponents = debugCalculatorComponents;
-=======
->>>>>>> 166e863136da7c6e0d3bd01b24323165130653ec

@@ -20,8 +20,6 @@ class ReportsManager {
 
         this.quotesCache = new Map();
 
-        this.init();
-
         console.log('[ReportsManager] Initialized');
     }
 
@@ -64,9 +62,8 @@ class ReportsManager {
             statTotalM3: document.getElementById('statTotalM3'),
             statOrderAmountNet: document.getElementById('statOrderAmountNet'),
             statValueNet: document.getElementById('statValueNet'),
-            statValueGross: document.getElementById('statValueGross'),
             statPricePerM3: document.getElementById('statPricePerM3'),
-            statDeliveryCost: document.getElementById('statDeliveryCost'),
+            statDeliveryCostNet: document.getElementById('statDeliveryCostNet'),
             statPaidAmountNet: document.getElementById('statPaidAmountNet'),
             statBalanceDue: document.getElementById('statBalanceDue'),
             statProductionVolume: document.getElementById('statProductionVolume'),
@@ -76,10 +73,8 @@ class ReportsManager {
             // Statystyki porównawcze
             compTotalM3: document.getElementById('compTotalM3'),
             compOrderAmountNet: document.getElementById('compOrderAmountNet'),
-            compValueNet: document.getElementById('compValueNet'),
-            compValueGross: document.getElementById('compValueGross'),
             compPricePerM3: document.getElementById('compPricePerM3'),
-            compDeliveryCost: document.getElementById('compDeliveryCost'),
+            compDeliveryCostNet: document.getElementById('compDeliveryCostNet'),
             compPaidAmountNet: document.getElementById('compPaidAmountNet'),
             compBalanceDue: document.getElementById('compBalanceDue'),
             compProductionVolume: document.getElementById('compProductionVolume'),
@@ -159,6 +154,42 @@ class ReportsManager {
             });
         }
 
+        // Excel export - normalny tryb
+        const exportExcelOption = document.getElementById('exportExcelOption');
+        if (exportExcelOption) {
+            exportExcelOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportExcel();
+            });
+        }
+
+        // Excel export - fullscreen
+        const fullscreenExportExcelOption = document.getElementById('fullscreenExportExcelOption');
+        if (fullscreenExportExcelOption) {
+            fullscreenExportExcelOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportExcel();
+            });
+        }
+
+        // Routimo export - normalny tryb
+        const exportRoutimoOption = document.getElementById('exportRoutimoOption');
+        if (exportRoutimoOption) {
+            exportRoutimoOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportRoutimo();
+            });
+        }
+
+        // Routimo export - fullscreen
+        const fullscreenExportRoutimoOption = document.getElementById('fullscreenExportRoutimoOption');
+        if (fullscreenExportRoutimoOption) {
+            fullscreenExportRoutimoOption.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.handleExportRoutimo();
+            });
+        }
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             this.handleKeyboardShortcuts(e);
@@ -235,7 +266,6 @@ class ReportsManager {
                 }
             }
 
-            console.log('[ReportsManager] Initial data loaded');
         } catch (error) {
             console.error('[ReportsManager] Error loading initial data:', error);
             // W przypadku błędu wyczyść wszystko
@@ -254,9 +284,8 @@ class ReportsManager {
             total_m3: 0,
             order_amount_net: 0,
             value_net: 0,
-            value_gross: 0,
             avg_price_per_m3: 0,
-            delivery_cost: 0,
+            delivery_cost_net: 0,
             paid_amount_net: 0,
             balance_due: 0,
             production_volume: 0,
@@ -276,10 +305,8 @@ class ReportsManager {
         const elementMap = {
             'total_m3': 'compTotalM3',
             'order_amount_net': 'compOrderAmountNet',
-            'value_net': 'compValueNet',
-            'value_gross': 'compValueGross',
             'avg_price_per_m3': 'compPricePerM3',
-            'delivery_cost': 'compDeliveryCost',
+            'delivery_cost_net': 'compDeliveryCostNet',
             'paid_amount_net': 'compPaidAmountNet',
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
@@ -389,12 +416,9 @@ class ReportsManager {
             return;
         }
 
-        console.log('[ReportsManager] Updating table with', this.currentData.length, 'records');
-
         // DEBUG: Sprawdź dane przed grupowaniem
         const manualRecords = this.currentData.filter(r => r.is_manual);
         this.currentData.slice(0, 10).forEach((record, i) => {
-            console.log(`  ${i + 1}. ID: ${record.id}, data: ${record.date_created}, klient: ${record.customer_name}`);
         });
 
         if (this.currentData.length === 0) {
@@ -414,7 +438,6 @@ class ReportsManager {
         ordersOrder.slice(0, 10).forEach((key, i) => {
             const orders = grouped.get(key);
             const firstOrder = orders[0];
-            console.log(`  Grupa ${i + 1}: ${key} - ${firstOrder.date_created} - ID: ${firstOrder.id} - manual: ${firstOrder.is_manual} - klient: ${firstOrder.customer_name}`);
         });
 
         // POPRAWKA: Iteruj przez ordersOrder zamiast Object.entries
@@ -529,12 +552,14 @@ class ReportsManager {
             <td class="cell-date">${order.realization_date || ''}</td>
             <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
             ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
+            ${this.renderMergedCell(this.formatCurrency(order.delivery_cost / 1.23), orderCount, isFirst, 'cell-currency')}
             ${this.renderMergedCell(order.payment_method || '', orderCount, isFirst, 'cell-text')}
             ${this.renderMergedCell(this.formatCurrency(order.paid_amount_net), orderCount, isFirst, 'cell-currency')}
             ${this.renderMergedCell(this.formatCurrencyWithSign(order.balance_due), orderCount, isFirst, 'cell-currency')}
             <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
             <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
             <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
+            <td class="cell-number">${order.current_status && order.current_status.toLowerCase() === 'czeka na odbiór osobisty' ? this.formatNumber(order.total_volume, 4) : '0.00'}</td>
             ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
         </tr>
     `;
@@ -1097,8 +1122,6 @@ class ReportsManager {
         }
 
         try {
-            console.log(`[checkIfOrderHasQuote] Sprawdzanie wyceny dla zamówienia: ${orderID}`);
-
             // Wywołaj endpoint API do sprawdzenia czy istnieje wycena z tym base_linker_order_id
             const response = await fetch(`/quotes/api/check-quote-by-order/${orderID}`);
 
@@ -1108,7 +1131,6 @@ class ReportsManager {
             }
 
             const data = await response.json();
-            console.log(`[checkIfOrderHasQuote] Response dla ${orderID}:`, data);
 
             // Zapisz w cache wynik
             this.quotesCache.set(orderID, {
@@ -1214,20 +1236,18 @@ class ReportsManager {
     updateStatistics(stats) {
         if (!stats) return;
 
-        console.log('[ReportsManager] Updating statistics:', stats);
-
         // Aktualizuj wszystkie statystyki
-        this.updateStat('statTotalM3', stats.total_m3, 2, ' M³');
+        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');              // ZMIANA: 4 zamiast 2
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
         this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
-        this.updateStat('statValueGross', stats.value_gross, 2, ' PLN');
         this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
-        this.updateStat('statDeliveryCost', stats.delivery_cost, 2, ' PLN');
+        this.updateStat('statDeliveryCostNet', stats.delivery_cost_net, 2, ' PLN');
         this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' PLN');
         this.updateStat('statBalanceDue', stats.balance_due, 2, ' PLN');
-        this.updateStat('statProductionVolume', stats.production_volume, 2, '');
+        this.updateStat('statProductionVolume', stats.production_volume, 4, ' m³');     // ZMIANA: 4 zamiast 2
         this.updateStat('statProductionValueNet', stats.production_value_net, 2, ' PLN');
-        this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 2, '');
+        this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 4, ' m³');  // ZMIANA: 4 zamiast 2
+        this.updateStat('statPickupReady', stats.pickup_ready_volume, 4, ' m³');        // ZMIANA: 4 zamiast 2
     }
 
     /**
@@ -1264,26 +1284,21 @@ class ReportsManager {
      */
     updateComparisons(comparison) {
         if (!comparison || Object.keys(comparison).length === 0) {
-            console.log('[ReportsManager] No comparison data, clearing comparisons');
             this.clearComparisons();
             return;
         }
 
-        console.log('[ReportsManager] Updating comparisons:', comparison);
-
         const fields = [
-            'total_m3', 'order_amount_net', 'value_net', 'value_gross',
-            'avg_price_per_m3', 'delivery_cost', 'paid_amount_net', 'balance_due',
+            'total_m3', 'order_amount_net', 'value_net',
+            'avg_price_per_m3', 'delivery_cost_net', 'paid_amount_net', 'balance_due',
             'production_volume', 'production_value_net', 'ready_pickup_volume'
         ];
 
         const elementMap = {
             'total_m3': 'compTotalM3',
             'order_amount_net': 'compOrderAmountNet',
-            'value_net': 'compValueNet',
-            'value_gross': 'compValueGross',
             'avg_price_per_m3': 'compPricePerM3',
-            'delivery_cost': 'compDeliveryCost',
+            'delivery_cost_net': 'compDeliveryCostNet',
             'paid_amount_net': 'compPaidAmountNet',
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
@@ -1584,7 +1599,7 @@ class ReportsManager {
     }
 
     /**
-     * Obsługa eksportu Excel
+     * Obsługa eksportu Excel - ZAKTUALIZOWANE dla dropdown
      */
     handleExportExcel() {
         console.log('[ReportsManager] Export Excel clicked');
@@ -1594,6 +1609,45 @@ class ReportsManager {
         } else {
             console.error('[ReportsManager] ExportManager not available');
             this.showError('ExportManager nie jest dostępny');
+        }
+    }
+
+    /**
+     * NOWA METODA - Obsługa eksportu Routimo
+     */
+    handleExportRoutimo() {
+        console.log('[ReportsManager] Export Routimo clicked');
+
+        if (window.exportManager) {
+            window.exportManager.exportToRoutimo();
+        } else {
+            console.error('[ReportsManager] ExportManager not available');
+            this.showError('ExportManager nie jest dostępny');
+        }
+    }
+
+    /**
+     * NOWA METODA - Generyczna obsługa eksportu
+     */
+    handleExport(type) {
+        console.log('[ReportsManager] Export requested:', type);
+
+        if (!window.exportManager) {
+            console.error('[ReportsManager] ExportManager not available');
+            this.showError('ExportManager nie jest dostępny');
+            return;
+        }
+
+        switch (type) {
+            case 'excel':
+                window.exportManager.exportToExcel();
+                break;
+            case 'routimo':
+                window.exportManager.exportToRoutimo();
+                break;
+            default:
+                console.error('[ReportsManager] Unknown export type:', type);
+                this.showError(`Nieznany typ eksportu: ${type}`);
         }
     }
 
@@ -1696,7 +1750,7 @@ class ReportsManager {
      */
     showError(message) {
         console.error('[ReportsManager] Error:', message);
-        alert('Błąd: ' + message); // TODO: Lepszy system notyfikacji
+        this.showMessage(message, 'error'); // TODO: Lepszy system notyfikacji
     }
 
     /**
@@ -1704,22 +1758,21 @@ class ReportsManager {
      */
     formatNumber(value, decimals = 2) {
         if (value === null || value === undefined || value === '') {
-            return '0' + (decimals > 0 ? '.' + '0'.repeat(decimals) : '');
+            return '0' + ',0000'.substring(0, decimals + 1);
         }
 
         const num = parseFloat(value);
         if (isNaN(num)) {
-            return '0' + (decimals > 0 ? '.' + '0'.repeat(decimals) : '');
+            return '0' + ',0000'.substring(0, decimals + 1);
         }
 
-        // NOWE: Dodaj separatory tysięcy (spacje)
-        const formatted = num.toFixed(decimals);
-        const parts = formatted.split('.');
+        // Dla pól objętości zawsze używaj 4 miejsca po przecinku
+        const fixedDecimals = decimals === 4 ? 4 : decimals;
 
-        // Dodaj spacje co 3 cyfry od prawej strony
-        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-
-        return parts.join('.');
+        return num.toLocaleString('pl-PL', {
+            minimumFractionDigits: fixedDecimals,
+            maximumFractionDigits: fixedDecimals
+        });
     }
 
     /**
@@ -1955,6 +2008,31 @@ class ReportsManager {
     }
 
     /**
+     * NOWA METODA - Sprawdzenie dostępności opcji eksportu
+     */
+    getAvailableExportOptions() {
+        if (window.exportManager && typeof window.exportManager.getExportOptions === 'function') {
+            return window.exportManager.getExportOptions();
+        }
+
+        return {
+            excel: { available: true, label: 'Excel' },
+            routimo: { available: false, label: 'Routimo' }
+        };
+    }
+
+    /**
+     * NOWA METODA - Sprawdzenie czy eksport jest w toku
+     */
+    isExportInProgress() {
+        if (window.exportManager && typeof window.exportManager.isExportInProgress === 'function') {
+            return window.exportManager.isExportInProgress();
+        }
+
+        return false;
+    }
+
+    /**
      * NOWA METODA - Weryfikacja stanu managera
      */
     validateState() {
@@ -2054,6 +2132,81 @@ class ReportsManager {
     }
 
     /**
+     * Modal potwierdzenia zastępujący confirm()
+     */
+    showConfirmDialog(message, title = 'Potwierdzenie') {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0, 0, 0, 0.5); z-index: 9999;
+                display: flex; align-items: center; justify-content: center; border-radius: 8px;
+            `;
+
+            modal.innerHTML = `
+                <div style="
+                    background: white; border-radius: 8px; max-width: 500px; width: 90%;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+                ">
+                    <div style="
+                        padding: 20px; border-bottom: 1px solid #dee2e6;
+                        display: flex; justify-content: space-between; align-items: center;
+                    ">
+                        <h5 style="margin: 0; font-weight: 600;">${title}</h5>
+                        <button type="button" class="modal-close" style="
+                            background: none; border: none; font-size: 24px; cursor: pointer;
+                            color: #666; padding: 0; width: 30px; height: 30px;
+                        ">×</button>
+                    </div>
+                    <div style="
+                        padding: 20px; font-size: 16px; line-height: 1.5; color: #555;
+                        white-space: pre-line;
+                    ">${message}</div>
+                    <div style="
+                        padding: 15px 20px; display: flex; gap: 10px; justify-content: flex-end;
+                        background: #f8f9fa; border-top: 1px solid #dee2e6; border-radius: 0 0 8px 8px;
+                    ">
+                        <button type="button" class="confirm-cancel" style="
+                            padding: 8px 20px; border-radius: 6px; font-weight: 500;
+                            background: #6c757d; border: 1px solid #6c757d; color: white;
+                            cursor: pointer; transition: all 0.2s ease;
+                        ">Anuluj</button>
+                        <button type="button" class="confirm-ok" style="
+                            padding: 8px 20px; border-radius: 6px; font-weight: 500;
+                            background: #007bff; border: 1px solid #007bff; color: white;
+                            cursor: pointer; transition: all 0.2s ease;
+                        ">OK</button>
+                    </div>
+                </div>
+            `;
+
+            const closeModal = (result) => {
+                modal.remove();
+                resolve(result);
+            };
+
+            modal.querySelector('.modal-close').addEventListener('click', () => closeModal(false));
+            modal.querySelector('.confirm-cancel').addEventListener('click', () => closeModal(false));
+            modal.querySelector('.confirm-ok').addEventListener('click', () => closeModal(true));
+
+            const handleKeydown = (e) => {
+                if (e.key === 'Escape') {
+                    closeModal(false);
+                    document.removeEventListener('keydown', handleKeydown);
+                }
+            };
+            document.addEventListener('keydown', handleKeydown);
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeModal(false);
+            });
+
+            document.body.appendChild(modal);
+            setTimeout(() => modal.querySelector('.confirm-ok').focus(), 100);
+        });
+    }
+
+    /**
      * Obsługa synchronizacji statusów
      */
     async handleSyncStatusesClick() {
@@ -2064,8 +2217,13 @@ class ReportsManager {
             return;
         }
 
-        // Potwierdź akcję
-        if (!confirm('Czy na pewno chcesz zsynchronizować statusy zamówień z Baselinker?\n\nTo może potrwać kilka minut.')) {
+        // ZMIANA: Zastąpienie confirm() modalem
+        const confirmed = await this.showConfirmDialog(
+            'Czy na pewno chcesz zsynchronizować statusy zamówień z Baselinker?\n\nTo może potrwać kilka minut.',
+            'Potwierdzenie synchronizacji'
+        );
+
+        if (!confirmed) {
             return;
         }
 
@@ -2088,7 +2246,7 @@ class ReportsManager {
             if (result.success) {
                 console.log('[ReportsManager] Statuses sync completed successfully:', result);
 
-                // Pokaż komunikat sukcesu z detalami
+                // ZMIANA: Zastąpienie alert() systemem komunikatów
                 let message = `Synchronizacja statusów i płatności zakończona pomyślnie!\n\n`;
                 message += `Przetworzono: ${result.orders_processed} zamówień\n`;
                 message += `Zaktualizowano łącznie: ${result.orders_updated} rekordów\n`;
@@ -2103,18 +2261,24 @@ class ReportsManager {
 
                 message += `Unikalne zamówienia: ${result.unique_orders}`;
 
-                alert(message);
+                // Użyj istniejący system komunikatów Bootstrap zamiast alert()
+                this.showMessage(message, 'success');
 
                 // Odśwież dane
                 this.refreshData();
 
             } else {
-                throw new Error(result.error || 'Błąd synchronizacji statusów');
+                // ZMIANA: Zastąpienie alert() dla błędów
+                const errorMessage = result.error || 'Nieznany błąd podczas synchronizacji';
+                console.error('[ReportsManager] Sync statuses failed:', errorMessage);
+                this.showError(`Błąd podczas synchronizacji statusów: ${errorMessage}`);
             }
 
         } catch (error) {
             console.error('[ReportsManager] Sync statuses error:', error);
-            this.showError('Błąd synchronizacji statusów: ' + error.message);
+
+            // ZMIANA: Zastąpienie alert() dla błędów sieciowych
+            this.showError(`Błąd sieci podczas synchronizacji: ${error.message}`);
         } finally {
             this.hideLoading();
         }

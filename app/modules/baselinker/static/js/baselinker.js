@@ -1554,29 +1554,45 @@ class BaselinkerModal {
 
     // Utility methods
     buildProductName(product) {
-        // Jeśli API już dało w pełni sformatowaną nazwę → użyj jej
-        if (product.name && !product.variant_code) {
-            return product.name;
+        console.log('[Baselinker] buildProductName - dane produktu:', product);
+
+        // ZAWSZE używaj tłumaczenia na podstawie variant_code, niezależnie od tego co przysłał backend
+        if (!product.variant_code) {
+            console.warn('[Baselinker] Brak variant_code w produkcie:', product);
+            return product.name || 'Nieznany produkt';
         }
 
-        // Parsujemy kod wariantu na poszczególne składowe
-        const { species, technology, woodClass } = this.parseVariantCode(product.variant_code);
+        // Tłumacz kod wariantu na pełną nazwę
+        const baseName = this.translateVariantCode(product.variant_code);
 
-        // Wymiary są już w formacie "150.0×40.0×4.0 cm"
-        const dimensions = product.dimensions;
+        // Formatuj wymiary - upewnij się że mają odstęp przed "cm"
+        let dimensions = product.dimensions || '';
+        if (dimensions && !dimensions.includes(' cm')) {
+            dimensions = `${dimensions} cm`;
+        }
 
-        // Jeśli jest wykończenie różne od "brak", dokładamy je na końcu
-        const finishingDisplay = product.finishing && product.finishing !== 'brak'
-            ? ` ${this.getFinishingDisplay(product.finishing)}`
-            : '';
+        // Formatuj wykończenie na podstawie obiektu finishing
+        let finishingText = ' surowa'; // Domyślnie surowa
 
-        // Składamy całość:
-        // "Klejonka [gatunek]owa [technologia] [klasa] [wymiary] cm [wykończenie]"
-        return `Klejonka ${species}owa ${technology} ${woodClass} ${dimensions}${finishingDisplay}`.trim();
+        if (product.finishing && product.finishing.type && product.finishing.type !== '' && product.finishing.type !== 'Surowe') {
+            let finishingParts = [product.finishing.type.toLowerCase()];
+
+            // Dodaj kolor jeśli istnieje i nie jest "Brak"
+            if (product.finishing.color && product.finishing.color !== '' && product.finishing.color !== null) {
+                finishingParts.push(product.finishing.color);
+            }
+
+            finishingText = ` ${finishingParts.join(' ')}`;
+        }
+
+        // Składamy całość: "Klejonka [gatunek] [technologia] [klasa] [wymiary] cm [wykończenie]"
+        const result = `${baseName} ${dimensions}${finishingText}`.trim();
+        console.log('[Baselinker] buildProductName - wynik:', result);
+
+        return result;
     }
 
     parseVariantCode(code) {
-        // Parsuj kod wariantu na komponenty
         const translations = {
             'dab': 'dęb',
             'jes': 'jesion',
@@ -1584,7 +1600,7 @@ class BaselinkerModal {
         };
 
         const techTranslations = {
-            'lity': 'lity',
+            'lity': 'lita',        // POPRAWKA: lity -> lita (rodzaj żeński dla klejonki)
             'micro': 'mikrowczep'
         };
 
@@ -1600,29 +1616,53 @@ class BaselinkerModal {
         const technology = techTranslations[parts[1]] || parts[1];
         const woodClass = classTranslations[parts[2]] || parts[2];
 
+        console.log(`[Baselinker] parseVariantCode("${code}"):`, { species, technology, woodClass });
+
         return { species, technology, woodClass };
     }
 
     getFinishingDisplay(finishing) {
-        // 🔧 POPRAWKA: Sprawdź typ danych i konwertuj na string
+        console.log('[Baselinker] getFinishingDisplay - dane wykończenia:', finishing);
+
+        // Sprawdź typ danych i konwertuj na string
         if (!finishing || finishing === null || finishing === undefined) {
-            return 'bez wykończenia';
+            return 'surowa';
         }
-        
+
         // Konwertuj na string i sprawdź czy pusty
-        const finishingStr = String(finishing);
-        
-        if (finishingStr === 'Brak' || finishingStr.trim() === '') {
-            return 'bez wykończenia';
+        const finishingStr = String(finishing).trim();
+
+        if (finishingStr === 'Brak' || finishingStr === '' || finishingStr === 'brak') {
+            return 'surowa';
         }
-        
+
         // Sprawdź czy to liczba (może być ID wykończenia)
         if (!isNaN(finishing) && finishing !== '') {
-            // Jeśli to liczba, możesz dodać logikę mapowania ID na nazwy
-            return `wykończenie (ID: ${finishing})`;
+            // Jeśli to liczba, prawdopodobnie to ID wykończenia - zwróć surowa jako fallback
+            console.warn('[Baselinker] getFinishingDisplay: otrzymano ID wykończenia zamiast nazwy:', finishing);
+            return 'surowa';
         }
-        
-        return finishingStr.trim();
+
+        // Mapowanie nazw wykończeń na standardowe formy (żeński rodzaj)
+        const finishingMapping = {
+            'Lakier': 'lakierowana',
+            'lakier': 'lakierowana',
+            'Lakierowane': 'lakierowana',
+            'lakierowane': 'lakierowana',
+            'Olejowane': 'olejowana',
+            'olejowane': 'olejowana',
+            'Olej': 'olejowana',
+            'olej': 'olejowana',
+            'Surowe': 'surowa',
+            'surowe': 'surowa',
+            'Surowa': 'surowa',
+            'surowa': 'surowa'
+        };
+
+        const result = finishingMapping[finishingStr] || finishingStr.toLowerCase();
+        console.log('[Baselinker] getFinishingDisplay - wynik:', result);
+
+        return result;
     }
 
     setInputValue(inputId, value) {

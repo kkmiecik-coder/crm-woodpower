@@ -7,13 +7,14 @@ import logging
 import logging.handlers
 import os
 import glob
+import sys
 from datetime import datetime, timedelta
 from flask import request, session, has_request_context
 from .config import LogConfig
 
 
 class CustomFormatter(logging.Formatter):
-    """Custom formatter z kontekstem Flask"""
+    """Custom formatter z kontekstem Flask - POPRAWKA ENKODOWANIA"""
     
     def format(self, record):
         # Pobierz kontekst z Flask (jeśli dostępny)
@@ -44,18 +45,29 @@ class CustomFormatter(logging.Formatter):
         # Formatuj timestamp
         timestamp = datetime.fromtimestamp(record.created).strftime(LogConfig.TIMESTAMP_FORMAT)
         
-        # Buduj sformatowany komunikat
-        formatted_message = LogConfig.LOG_FORMAT.format(
-            timestamp=timestamp,
-            level=record.levelname,
-            module=module,
-            user=user,
-            endpoint=endpoint,
-            message=record.getMessage()
-        )
+        # POPRAWKA: Bezpieczne formatowanie message
+        try:
+            message = record.getMessage()
+            # Usuń polskie znaki jeśli są problematyczne
+            safe_message = message.encode('ascii', errors='replace').decode('ascii')
+        except Exception as e:
+            safe_message = f"<message_encoding_error: {type(record.msg).__name__}>"
+        
+        # Buduj sformatowany komunikat - BEZPIECZNIE
+        try:
+            formatted_message = LogConfig.LOG_FORMAT.format(
+                timestamp=timestamp,
+                level=record.levelname,
+                module=module,
+                user=user,
+                endpoint=endpoint,
+                message=safe_message
+            )
+        except Exception as e:
+            # Fallback format
+            formatted_message = f"[{timestamp}] [{record.levelname}] [{module}] <formatting_error>"
         
         return formatted_message
-
 
 class TimedRotatingFileHandlerWithCleanup(logging.handlers.TimedRotatingFileHandler):
     """Handler z automatycznym czyszczeniem starych logów"""
@@ -93,7 +105,6 @@ class TimedRotatingFileHandlerWithCleanup(logging.handlers.TimedRotatingFileHand
         except Exception as e:
             print(f"[LogCleanup] Błąd podczas czyszczenia logów: {e}")
 
-
 class AppLogger:
     """Główna klasa systemu logowania"""
     
@@ -107,9 +118,22 @@ class AppLogger:
     
     @classmethod
     def setup(cls):
-        """Konfiguruje system logowania dla całej aplikacji"""
+        """Konfiguruje system logowania dla całej aplikacji - POPRAWKA ENKODOWANIA"""
         if cls._configured:
             return
+        
+        # POPRAWKA: Ustaw kodowanie dla całego środowiska Python
+        try:
+            # Upewnij się, że stdout i stderr używają UTF-8
+            if hasattr(sys.stdout, 'reconfigure'):
+                sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+                sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+            
+            # Ustaw zmienne środowiskowe dla kodowania
+            os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
+            
+        except Exception as e:
+            print(f"[Logger] Nie można ustawić kodowania UTF-8: {e}")
         
         # Upewnij się, że katalog logów istnieje
         LogConfig.ensure_log_dir()
@@ -122,15 +146,26 @@ class AppLogger:
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
         
-        # Utwórz handler z rotacją dzienną
+        # Utwórz handler z rotacją dzienną - Z BEZPIECZNYM ENCODING
         log_file = LogConfig.get_log_filepath()
-        handler = TimedRotatingFileHandlerWithCleanup(
-            filename=log_file,
-            when=LogConfig.ROTATION_TIME,
-            interval=LogConfig.ROTATION_INTERVAL,
-            backupCount=LogConfig.RETENTION_DAYS,
-            encoding='utf-8'
-        )
+        try:
+            handler = TimedRotatingFileHandlerWithCleanup(
+                filename=log_file,
+                when=LogConfig.ROTATION_TIME,
+                interval=LogConfig.ROTATION_INTERVAL,
+                backupCount=LogConfig.RETENTION_DAYS,
+                encoding='utf-8',
+                errors='replace'  # POPRAWKA: Dodane errors='replace'
+            )
+        except Exception as e:
+            # Fallback - handler bez encoding
+            print(f"[Logger] Nie można utworzyć file handler z UTF-8: {e}")
+            handler = TimedRotatingFileHandlerWithCleanup(
+                filename=log_file,
+                when=LogConfig.ROTATION_TIME,
+                interval=LogConfig.ROTATION_INTERVAL,
+                backupCount=LogConfig.RETENTION_DAYS
+            )
         
         # Ustaw formatter
         formatter = CustomFormatter()
@@ -139,17 +174,45 @@ class AppLogger:
         # Dodaj handler do root loggera
         root_logger.addHandler(handler)
         
-        # Dodaj console handler dla development
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        console_handler.setLevel(logging.INFO)
-        root_logger.addHandler(console_handler)
+        # POPRAWKA: Console handler z bezpiecznym encoding
+        try:
+            # Spróbuj utworzyć console handler z UTF-8
+            console_handler = logging.StreamHandler(stream=sys.stdout)
+            console_handler.setFormatter(formatter)
+            console_handler.setLevel(logging.INFO)
+            
+            # Test czy console handler działa z polskimi znakami
+            test_message = "Test polskich znakow: ąćęłńóśźż"
+            test_record = logging.LogRecord(
+                name='test', level=logging.INFO, pathname='', lineno=0,
+                msg=test_message, args=(), exc_info=None
+            )
+            
+            try:
+                # Spróbuj sformatować i zapisać testową wiadomość
+                formatted = formatter.format(test_record)
+                console_handler.stream.write(formatted + '\n')
+                console_handler.stream.flush()
+                # Jeśli się udało, dodaj handler
+                root_logger.addHandler(console_handler)
+                print("[Logger] Console handler z UTF-8 działa poprawnie")
+                
+            except UnicodeEncodeError:
+                # Console nie obsługuje UTF-8, wyłącz console logging
+                print("[Logger] Console nie obsługuje UTF-8 - wyłączono console logging")
+                pass
+                
+        except Exception as e:
+            print(f"[Logger] Nie można utworzyć console handler: {e}")
         
         cls._configured = True
         
-        # Log pierwszej wiadomości
-        logger = logging.getLogger('app.logging')
-        logger.info("System logowania uruchomiony")
+        # Log pierwszej wiadomości - BEZPIECZNIE
+        try:
+            logger = logging.getLogger('app.logging')
+            logger.info("System logowania uruchomiony")
+        except Exception as e:
+            print(f"[Logger] Błąd pierwszego loga: {e}")
     
     @classmethod
     def get_logger(cls, module_name):
@@ -158,7 +221,6 @@ class AppLogger:
             cls.setup()
         
         return logging.getLogger(f'app.{module_name}')
-
 
 # Pomocnicza funkcja dla łatwego dostępu
 def get_logger(module_name):

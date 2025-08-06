@@ -500,7 +500,7 @@ class BaselinkerService:
             sku = self._generate_sku(item, finishing_details)
 
             # Nazwa produktu z wymiarami
-            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm}cm"
+            base_name = f"{self._translate_variant_code(item.variant_code)} {item.length_cm}×{item.width_cm}×{item.thickness_cm} cm"
 
             # NOWE: Używamy cen jednostkowych bezpośrednio z bazy (już nie trzeba dzielić!)
             unit_price_netto = float(item.price_netto or 0)
@@ -513,16 +513,24 @@ class BaselinkerService:
 
             # Dodaj cenę wykończenia do ceny jednostkowej (jeśli istnieje)
             if finishing_details and finishing_details.finishing_price_netto:
-                finishing_unit_netto = float(finishing_details.finishing_price_netto or 0)
-                finishing_unit_brutto = float(finishing_details.finishing_price_brutto or 0)
-        
+                # finishing_details.finishing_price_netto to CAŁKOWITY koszt wykończenia
+                # Dzielimy przez quantity, żeby otrzymać koszt za 1 sztukę
+                finishing_total_netto = float(finishing_details.finishing_price_netto or 0)
+                finishing_total_brutto = float(finishing_details.finishing_price_brutto or 0)
+    
+                finishing_unit_netto = finishing_total_netto / quantity if quantity > 0 else 0
+                finishing_unit_brutto = finishing_total_brutto / quantity if quantity > 0 else 0
+
                 unit_price_netto += finishing_unit_netto
                 unit_price_brutto += finishing_unit_brutto
-        
-                self.logger.debug("Dodano cenę wykończenia",
+
+                self.logger.debug("Dodano cenę wykończenia jednostkową",
                                 product_index=item.product_index,
-                                finishing_netto=finishing_unit_netto,
-                                finishing_brutto=finishing_unit_brutto)
+                                finishing_total_netto=finishing_total_netto,
+                                finishing_total_brutto=finishing_total_brutto,
+                                quantity=quantity,
+                                finishing_unit_netto=finishing_unit_netto,
+                                finishing_unit_brutto=finishing_unit_brutto)
 
             self.logger.debug("Finalne ceny produktu",
                             product_index=item.product_index,
@@ -542,10 +550,12 @@ class BaselinkerService:
 
             # Dodaj wykończenie do nazwy jeśli istnieje
             product_name = base_name
-            if finishing_details and finishing_details.finishing_type:
-                finishing_desc = self._translate_finishing(finishing_details)
+            if finishing_details and finishing_details.finishing_type and finishing_details.finishing_type != 'Brak' and finishing_details.finishing_type != 'Surowe':
+                finishing_desc = self._translate_finishing_to_adjective(finishing_details)
                 if finishing_desc:
-                    product_name += f" ({finishing_desc})"
+                    product_name += f" {finishing_desc}"
+            else:
+                product_name += " surowa"
 
             products.append({
                 'name': product_name,
@@ -663,8 +673,8 @@ class BaselinkerService:
             'payment_method': payment_method,
             'payment_method_cod': 'false',
             'paid': '0',
-            'user_comments': f"Zamówienie z wyceny {quote.quote_number}",
-            'admin_comments': f"Automatycznie utworzone z wyceny {quote.quote_number} przez system Wood Power CRM",
+            'user_comments': '',
+            'admin_comments': f"Zamówienie z wyceny {quote.quote_number}",
             'phone': client_data.get('phone', ''),
             'email': client_data.get('email', ''),
             'user_login': client_data.get('name', ''),
@@ -828,6 +838,58 @@ class BaselinkerService:
             parts.append(f"połysk {finishing_details.finishing_gloss_level}")
         
         return ' - '.join(parts) if parts else None
+
+    def _translate_finishing_to_adjective(self, finishing_details):
+        """Tłumaczy szczegóły wykończenia na przymiotnik w rodzaju żeńskim (dla klejonki)"""
+        if not finishing_details or not finishing_details.finishing_type or finishing_details.finishing_type == 'Brak':
+            return None
+    
+        finishing_type = finishing_details.finishing_type.lower()
+    
+        # Mapowanie na przymiotniki w rodzaju żeńskim
+        if 'lakier' in finishing_type:
+            result = 'lakierowana'
+        
+            # Dodaj wariant lakieru jeśli istnieje
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                if finishing_details.finishing_color.lower() == 'bezbarwny' or 'bezbarwn' in finishing_details.finishing_color.lower():
+                    result += ' bezbarwnie'
+                else:
+                    result += f' {finishing_details.finishing_color}'
+            else:
+                result += ' bezbarwnie'  # Domyślnie bezbarwnie
+            
+        elif 'olej' in finishing_type or 'olejow' in finishing_type:
+            result = 'olejowana'
+        
+            # Dodaj kolor oleju jeśli istnieje
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                result += f' {finishing_details.finishing_color}'
+            
+        elif 'wosk' in finishing_type:
+            result = 'woskowana'
+        
+        elif 'bejc' in finishing_type:
+            result = 'bejcowana'
+        
+            # Dla bejcy kolor jest zwykle ważny
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                result += f' {finishing_details.finishing_color}'
+            
+        else:
+            # Fallback - spróbuj przekształcić automatycznie
+            result = finishing_type.replace('owanie', 'owana').replace('enie', 'ona')
+        
+            # Dodaj kolor jeśli istnieje
+            if finishing_details.finishing_color and finishing_details.finishing_color != 'Brak':
+                result += f' {finishing_details.finishing_color}'
+    
+        self.logger.debug("Przetłumaczono wykończenie na przymiotnik",
+                         finishing_type=finishing_details.finishing_type,
+                         finishing_color=finishing_details.finishing_color,
+                         result=result)
+    
+        return result
     
     def _calculate_item_weight(self, item) -> float:
         """Oblicza wagę produktu na podstawie objętości (przyjmując gęstość drewna 800kg/m³)"""

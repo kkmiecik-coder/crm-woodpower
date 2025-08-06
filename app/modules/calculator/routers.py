@@ -21,6 +21,7 @@ calculator_bp = Blueprint('calculator', __name__, template_folder='templates', s
 @calculator_bp.route('/', methods=['GET', 'POST'])
 def calculator_home():
     user_email = session.get('user_email')
+    user_id = session.get('user_id')
     if not user_email:
         return redirect(url_for('login'))
 
@@ -50,7 +51,7 @@ def calculator_home():
     ]
     multipliers_json = json.dumps(multipliers_list)
 
-    return render_template("calculator.html", user_email=user_email, prices_json=prices_json, multipliers_json=multipliers_json, user_role=user_role, user_multiplier=user_multiplier)
+    return render_template("calculator.html", user_email=user_email, user_id=user_id, prices_json=prices_json, multipliers_json=multipliers_json, user_role=user_role, user_multiplier=user_multiplier)
 
 @calculator_bp.route('/shipping_quote', methods=['POST'])
 def shipping_quote():

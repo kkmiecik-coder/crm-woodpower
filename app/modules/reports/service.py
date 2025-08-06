@@ -47,8 +47,326 @@ class BaselinkerReportsService:
             155824: "Nowe - opłacone"
         }
 
+        # NOWE właściwości dla obsługi objętości
+        self.volume_fixes = {}  # {product_key: {'volume': X, 'wood_species': Y, ...}}
+
+    def set_volume_fixes(self, volume_fixes_dict):
+        """
+        NOWA METODA: Ustawia poprawki objętości dla produktów.
+        
+        Args:
+            volume_fixes_dict (dict): Słownik z poprawkami w formacie:
+                {product_key: {'volume': float, 'wood_species': str, ...}}
+        """
+        self.volume_fixes = volume_fixes_dict or {}
+        reports_logger.info(f"Ustawiono poprawki objętości dla {len(self.volume_fixes)} produktów")
+        
+    def clear_volume_fixes(self):
+        """NOWA METODA: Czyści poprawki objętości."""
+        self.volume_fixes = {}
+        reports_logger.info("Wyczyszczono poprawki objętości")
+        
+    def get_volume_fix(self, product_key):
+        """
+        NOWA METODA: Pobiera poprawki objętości dla konkretnego produktu.
+        
+        Args:
+            product_key (str): Klucz produktu w formacie "order_id_product_id"
+            
+        Returns:
+            dict or None: Słownik z poprawkami lub None
+        """
+        return self.volume_fixes.get(product_key)
+        
+    def get_volume_fix_attribute(self, product_key, attribute):
+        """
+        NOWA METODA: Pobiera konkretny atrybut z poprawek objętości.
+        
+        Args:
+            product_key (str): Klucz produktu
+            attribute (str): Nazwa atrybutu (np. 'wood_species', 'technology')
+            
+        Returns:
+            any or None: Wartość atrybutu lub None
+        """
+        fix = self.get_volume_fix(product_key)
+        return fix.get(attribute) if fix else None
+
+    def calculate_volume_from_dimensions(self, length_cm, width_cm, thickness_cm, quantity):
+        """
+        ULEPSZONA METODA: Oblicza objętość z wymiarów z lepszą obsługą błędów.
+        
+        Args:
+            length_cm (float): Długość w cm
+            width_cm (float): Szerokość w cm  
+            thickness_cm (float): Grubość w cm
+            quantity (int): Ilość sztuk
+            
+        Returns:
+            float: Objętość w m³
+        """
+        try:
+            length_cm = float(length_cm or 0)
+            width_cm = float(width_cm or 0)
+            thickness_cm = float(thickness_cm or 0)
+            quantity = int(quantity or 0)
+            
+            if length_cm <= 0 or width_cm <= 0 or thickness_cm <= 0 or quantity <= 0:
+                return 0.0
+                
+            # Konwersja z cm na m i obliczenie objętości
+            length_m = length_cm / 100
+            width_m = width_cm / 100
+            thickness_m = thickness_cm / 100
+            
+            volume_per_piece = length_m * width_m * thickness_m
+            total_volume = volume_per_piece * quantity
+            
+            return round(total_volume, 4)
+            
+        except (ValueError, TypeError) as e:
+            reports_logger.warning(f"Błąd obliczania objętości z wymiarów: {e}")
+            return 0.0
+
+    def extract_product_attributes_from_name(self, product_name):
+        """
+        NOWA METODA: Wyodrębnia atrybuty produktu z nazwy (gatunek, technologia, klasa).
+        
+        Args:
+            product_name (str): Nazwa produktu
+            
+        Returns:
+            dict: Słownik z atrybutami {'wood_species': str, 'technology': str, 'wood_class': str}
+        """
+        # Importuj funkcje z routera (lub przenieś je do utils)
+        from .routers import (
+            extract_wood_species_from_product_name,
+            extract_technology_from_product_name, 
+            extract_wood_class_from_product_name
+        )
+        
+        return {
+            'wood_species': extract_wood_species_from_product_name(product_name),
+            'technology': extract_technology_from_product_name(product_name),
+            'wood_class': extract_wood_class_from_product_name(product_name)
+        }
+
+    def prepare_order_record_data_with_volume_analysis(self, order_data, product_data):
+        """
+        ULEPSZONA METODA: Przygotowuje dane rekordu zamówienia z analizą objętości.
+        
+        Args:
+            order_data (dict): Dane zamówienia z Baselinker
+            product_data (dict): Dane produktu z zamówienia
+            
+        Returns:
+            dict: Przygotowane dane do zapisu w bazie
+        """
+        # Rozpocznij od standardowych danych
+        record_data = self.prepare_order_record_data(order_data, product_data)
+        
+        product_name = product_data.get('name', '')
+        product_key = f"{order_data.get('order_id')}_{product_data.get('product_id', 'unknown')}"
+        
+        # Przeprowadź analizę produktu
+        from .routers import analyze_product_for_volume_and_attributes
+        analysis = analyze_product_for_volume_and_attributes(product_name)
+        
+        # Obsługa objętości według priorytetu
+        if analysis['analysis_type'] == 'dimensions_priority':
+            # Wymiary mają priorytet - oblicz objętość standardowo
+            volume = self.calculate_volume_from_dimensions(
+                record_data.get('length_cm', 0),
+                record_data.get('width_cm', 0),
+                record_data.get('thickness_cm', 0),
+                record_data.get('quantity', 1)
+            )
+            record_data['total_volume'] = volume
+            record_data['volume_per_piece'] = volume / max(record_data.get('quantity', 1), 1)
+            
+        elif analysis['analysis_type'] == 'volume_only':
+            # Użyj objętości z nazwy produktu
+            volume_per_piece = analysis.get('volume', 0)
+            quantity = record_data.get('quantity', 1)
+            
+            record_data['total_volume'] = volume_per_piece * quantity
+            record_data['volume_per_piece'] = volume_per_piece
+            
+            # Wyczyść wymiary (bo ich nie ma)
+            record_data['length_cm'] = None
+            record_data['width_cm'] = None
+            record_data['thickness_cm'] = None
+            
+        elif analysis['analysis_type'] == 'manual_input_needed':
+            # Użyj ręcznie wprowadzonych danych
+            volume_fix = self.get_volume_fix(product_key)
+            
+            if volume_fix and volume_fix.get('volume'):
+                volume_per_piece = float(volume_fix['volume'])
+                quantity = record_data.get('quantity', 1)
+                
+                record_data['total_volume'] = volume_per_piece * quantity
+                record_data['volume_per_piece'] = volume_per_piece
+                
+                # Wyczyść wymiary
+                record_data['length_cm'] = None
+                record_data['width_cm'] = None  
+                record_data['thickness_cm'] = None
+            else:
+                # Brak danych - ustaw objętość na 0
+                record_data['total_volume'] = 0
+                record_data['volume_per_piece'] = 0
+        
+        # Dodaj atrybuty z analizy lub z ręcznego wprowadzenia
+        record_data['wood_species'] = (
+            analysis.get('wood_species') or 
+            self.get_volume_fix_attribute(product_key, 'wood_species')
+        )
+        record_data['technology'] = (
+            analysis.get('technology') or 
+            self.get_volume_fix_attribute(product_key, 'technology')
+        )
+        record_data['wood_class'] = (
+            analysis.get('wood_class') or 
+            self.get_volume_fix_attribute(product_key, 'wood_class')
+        )
+        
+        # Oblicz cenę za m³ jeśli mamy objętość
+        total_volume = record_data.get('total_volume', 0)
+        value_net = record_data.get('value_net', 0)
+        
+        if total_volume > 0 and value_net > 0:
+            record_data['price_per_m3'] = round(value_net / total_volume, 2)
+        else:
+            record_data['price_per_m3'] = 0
+            
+        return record_data
+
+    def get_single_order_from_baselinker(self, order_id):
+        """
+        NOWA METODA: Pobiera pojedyncze zamówienie z Baselinker.
+        
+        Args:
+            order_id (int): ID zamówienia
+            
+        Returns:
+            dict or None: Dane zamówienia lub None w przypadku błędu
+        """
+        try:
+            # Wykorzystaj istniejącą metodę fetch_orders_from_baselinker
+            # ale z filtrem dla konkretnego zamówienia
+            date_from = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            date_to = datetime.now().strftime('%Y-%m-%d')
+            
+            # Pobierz wszystkie zamówienia i znajdź konkretne
+            result = self.fetch_orders_from_baselinker(date_from, date_to)
+            
+            if not result.get('success'):
+                return None
+                
+            orders = result.get('orders', [])
+            target_order = None
+            
+            for order in orders:
+                if order.get('order_id') == order_id:
+                    target_order = order
+                    break
+                    
+            return target_order
+            
+        except Exception as e:
+            reports_logger.error(f"Błąd pobierania zamówienia {order_id}: {e}")
+            return None
+
+    def save_order_record(self, record_data):
+        """
+        ULEPSZONA METODA: Zapisuje rekord zamówienia do bazy z obsługą objętości.
+        
+        Args:
+            record_data (dict): Dane rekordu do zapisu
+            
+        Returns:
+            BaselinkerReportOrder: Zapisany rekord
+        """
+        try:
+            # Utwórz nowy rekord
+            record = BaselinkerReportOrder()
+            
+            # Podstawowe pola
+            record.date_created = record_data.get('date_created')
+            record.baselinker_order_id = record_data.get('baselinker_order_id')
+            record.internal_order_number = record_data.get('internal_order_number')
+            record.customer_name = record_data.get('customer_name')
+            record.delivery_postcode = record_data.get('delivery_postcode')
+            record.delivery_city = record_data.get('delivery_city')
+            record.delivery_address = record_data.get('delivery_address')
+            record.delivery_state = record_data.get('delivery_state')
+            record.phone = record_data.get('phone')
+            record.caretaker = record_data.get('caretaker')
+            record.delivery_method = record_data.get('delivery_method')
+            record.order_source = record_data.get('order_source')
+            
+            # Dane produktu
+            record.group_type = record_data.get('group_type')
+            record.product_type = record_data.get('product_type')
+            record.finish_state = record_data.get('finish_state')
+            
+            # NOWE: Atrybuty z analizy objętości
+            record.wood_species = record_data.get('wood_species')
+            record.technology = record_data.get('technology')
+            record.wood_class = record_data.get('wood_class')
+            
+            # Wymiary (mogą być None dla produktów z objętością)
+            record.length_cm = record_data.get('length_cm')
+            record.width_cm = record_data.get('width_cm')
+            record.thickness_cm = record_data.get('thickness_cm')
+            record.quantity = record_data.get('quantity')
+            
+            # Ceny i wartości
+            record.price_gross = record_data.get('price_gross')
+            record.price_net = record_data.get('price_net')
+            record.value_gross = record_data.get('value_gross')  
+            record.value_net = record_data.get('value_net')
+            
+            # WAŻNE: Objętości
+            record.volume_per_piece = record_data.get('volume_per_piece')
+            record.total_volume = record_data.get('total_volume')  # To trafia do kolumny używanej w statystykach
+            record.price_per_m3 = record_data.get('price_per_m3')
+            
+            # Pozostałe pola
+            record.realization_date = record_data.get('realization_date')
+            record.current_status = record_data.get('current_status')
+            record.delivery_cost = record_data.get('delivery_cost')
+            record.payment_method = record_data.get('payment_method')
+            record.paid_amount_net = record_data.get('paid_amount_net', 0)
+            record.balance_due = record_data.get('balance_due')
+            record.production_volume = record_data.get('production_volume', 0)
+            record.production_value_net = record_data.get('production_value_net', 0)
+            record.ready_pickup_volume = record_data.get('ready_pickup_volume', 0)
+            
+            # Pola techniczne
+            record.baselinker_status_id = record_data.get('baselinker_status_id')
+            record.raw_product_name = record_data.get('raw_product_name')
+            record.email = record_data.get('email')
+            
+            # Oblicz total_m3 na poziomie zamówienia
+            record.total_m3 = record_data.get('total_volume', 0)
+            record.order_amount_net = record_data.get('value_net', 0)
+            
+            # Zapisz do bazy
+            db.session.add(record)
+            db.session.commit()
+            
+            reports_logger.info(f"Zapisano rekord zamówienia {record.baselinker_order_id} z objętością {record.total_volume} m³")
+            return record
+            
+        except Exception as e:
+            db.session.rollback()
+            reports_logger.error(f"Błąd zapisu rekordu zamówienia: {e}")
+            raise
+
     def _create_order_record(self, order: Dict, product: Dict, parsed_product: Dict, 
-                           total_m3_all_products: float, total_order_value_net: float) -> BaselinkerReportOrder:
+                       total_m3_all_products: float, total_order_value_net: float) -> BaselinkerReportOrder:
         """
         Tworzy rekord zamówienia z automatycznym uzupełnianiem województwa
         """
@@ -56,32 +374,51 @@ class BaselinkerReportsService:
             # Pobierz dane adresowe
             postcode = order.get('delivery_postcode', '').strip()
             current_state = order.get('delivery_state', '').strip()
+        
+            # NOWA LOGIKA: Automatyczne uzupełnianie województwa zgodnie z wymaganiami
+            final_state = self._auto_fill_state_for_order(postcode, current_state)
             
-            # NOWE: Automatycznie uzupełnij województwo
-            auto_state = self.postcode_mapper.auto_fill_state(postcode, current_state)
+            # NOWE: Pobierz typ ceny z custom_extra_fields
+            custom_fields = order.get('custom_extra_fields', {})
+            price_type_from_api = custom_fields.get('106169', '').strip()
             
-            # Loguj jeśli dokonano auto-uzupełnienia
-            if auto_state and auto_state != current_state:
-                self.logger.info("Automatyczne uzupełnienie województwa",
-                               order_id=order.get('order_id'),
-                               postcode=postcode,
-                               original_state=current_state or 'BRAK',
-                               auto_filled_state=auto_state)
-            
-            # Oblicz wartości produktu
+            # Pobierz opiekuna z custom_extra_fields (pole 105623)
+            caretaker_name = custom_fields.get('105623') or order.get('user_comments') or "Brak danych"
+        
+            # Oblicz wartości produktu z uwzględnieniem typu ceny
             quantity = product.get('quantity', 1)
-            price_gross = safe_float_convert(product.get('price_brutto', 0))
-            price_net = price_gross / 1.23 if price_gross else 0
+            original_price_from_baselinker = safe_float_convert(product.get('price_brutto', 0))
+            
+            # POPRAWIONA LOGIKA: Rozróżnianie typu ceny
+            if price_type_from_api == 'netto':
+                # PRZYPADEK 1: Zamówienie ma oznaczenie "Netto"
+                # Kwota z Baselinker jest rzeczywiście NETTO
+                price_net = original_price_from_baselinker
+                price_gross = price_net * 1.23
+                price_type_to_save = 'netto'
+            elif price_type_from_api == 'brutto':
+                # PRZYPADEK 2: Zamówienie ma oznaczenie "Brutto"
+                # Kwota z Baselinker jest rzeczywiście BRUTTO
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+                price_type_to_save = 'brutto'
+            else:
+                # PRZYPADEK 3: Zamówienie bez oznaczenia (domyślnie BRUTTO)
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+                price_type_to_save = ''
+                
+            # Oblicz pozostałe wartości
             value_gross = price_gross * quantity
             value_net = price_net * quantity
             volume_per_piece = parsed_product.get('volume_per_piece') or Decimal('0')
             total_volume = float(volume_per_piece) * quantity
             price_per_m3 = (price_net / float(volume_per_piece)) if volume_per_piece > 0 else 0
-            
+        
             record = BaselinkerReportOrder(
                 # Dane zamówienia
                 date_created=datetime.strptime(order['date_add'], '%Y-%m-%d %H:%M:%S').date(),
-                total_m3=total_m3_all_products,  # Łączna objętość całego zamówienia
+                total_m3=total_m3_all_products,
                 order_amount_net=total_order_value_net,
                 baselinker_order_id=order.get('order_id'),
                 internal_order_number=order.get('extra_field_1'),
@@ -89,25 +426,29 @@ class BaselinkerReportsService:
                 delivery_postcode=postcode,
                 delivery_city=order.get('delivery_city'),
                 delivery_address=order.get('delivery_address'),
-                delivery_state=auto_state,  # ZMIANA: Użyj auto-uzupełnionego województwa
+                delivery_state=final_state,  # ZMIANA: Użyj przetworzonego województwa
                 phone=order.get('phone'),
-                caretaker=order.get('user_comments'),
+                caretaker=caretaker_name,  # ZMIANA: Użyj opiekuna z custom_fields
                 delivery_method=order.get('delivery_method'),
                 order_source=order.get('order_source'),
                 
-                # Dane produktu z Baselinker
+                # NOWE POLA: Informacje o typie ceny
+                price_type=price_type_to_save,
+                original_amount_from_baselinker=original_price_from_baselinker,
+            
+                # Dane produktu z Baselinker - POPRAWIONE CENY
                 raw_product_name=product.get('name'),
                 quantity=quantity,
-                price_gross=price_gross,
-                price_net=price_net,
-                value_gross=value_gross,
-                value_net=value_net,
+                price_gross=price_gross,      # POPRAWIONA: uwzględnia typ ceny
+                price_net=price_net,          # POPRAWIONA: uwzględnia typ ceny
+                value_gross=value_gross,      # POPRAWIONA: uwzględnia typ ceny
+                value_net=value_net,          # POPRAWIONA: uwzględnia typ ceny
                 volume_per_piece=float(volume_per_piece),
                 total_volume=total_volume,
                 price_per_m3=price_per_m3,
-                
+            
                 # Dane z parsera
-                group_type='towar',  # Domyślnie towar
+                group_type='towar',
                 product_type=parsed_product.get('product_type') or 'klejonka',
                 finish_state=parsed_product.get('finish_state') or 'surowy',
                 wood_species=parsed_product.get('wood_species'),
@@ -116,25 +457,38 @@ class BaselinkerReportsService:
                 length_cm=float(parsed_product.get('length_cm') or 0),
                 width_cm=float(parsed_product.get('width_cm') or 0),
                 thickness_cm=float(parsed_product.get('thickness_cm') or 0),
-                
+            
                 # Status i pozostałe
                 current_status=self.status_map.get(order.get('order_status_id'), 'Nieznany'),
                 delivery_cost=safe_float_convert(order.get('delivery_price', 0)),
                 payment_method=order.get('payment_method'),
-                paid_amount_net=safe_float_convert(order.get('paid', 0)) / 1.23,
+                paid_amount_net=self._calculate_paid_amount_net(
+                    order.get('payment_done', 0), 
+                    price_type_from_api
+                ),
                 balance_due=max(0, value_net - (safe_float_convert(order.get('paid', 0)) / 1.23)),
-                
+            
                 # Dane produkcji (zostaną zaktualizowane przez metodę update_production_fields)
                 production_volume=0,
                 production_value_net=0,
                 ready_pickup_volume=0
             )
             
+            # Debug log - pokaż co się dzieje z cenami
+            self.logger.debug("Przetworzono ceny produktu",
+                            order_id=order.get('order_id'),
+                            product_name=product.get('name'),
+                            price_type_from_api=price_type_from_api,
+                            original_price=original_price_from_baselinker,
+                            final_price_net=price_net,
+                            final_price_gross=price_gross,
+                            price_type_saved=price_type_to_save)
+        
             # Aktualizuj pola produkcji na podstawie statusu
             record.update_production_fields()
-            
+        
             return record
-            
+        
         except Exception as e:
             self.logger.error("Błąd tworzenia rekordu zamówienia",
                             order_id=order.get('order_id'),
@@ -142,22 +496,51 @@ class BaselinkerReportsService:
                             error=str(e),
                             error_type=type(e).__name__)
             raise
+
+    def _auto_fill_state_for_order(self, postcode: str, current_state: str) -> str:
+        """
+        Automatyczne uzupełnianie województwa zgodnie z wymaganiami:
+        """
+        # KROK 1: Jeśli województwo jest wpisane - puszczamy dalej
+        if current_state and current_state.strip():
+            self.logger.debug("Województwo już wpisane, pomijamy auto-fill",
+                             current_state=current_state,
+                             postcode=postcode)
+            return current_state.strip()
     
+        # KROK 2: Jeśli nie ma województwa, sprawdzamy kod pocztowy i uzupełniamy
+        if postcode and postcode.strip():
+            auto_state = PostcodeToStateMapper.get_state_from_postcode(postcode)
+            if auto_state:
+                self.logger.info("Automatyczne uzupełnienie województwa z kodu pocztowego",
+                               postcode=postcode,
+                               auto_filled_state=auto_state)
+                return auto_state
+            else:
+                self.logger.debug("Nie rozpoznano województwa z kodu pocztowego",
+                                postcode=postcode)
+    
+        # KROK 3: Jeśli nie ma województwa ani kodu pocztowego - puszczamy dalej
+        self.logger.debug("Brak danych do auto-fill województwa",
+                         postcode=postcode or 'BRAK',
+                         current_state=current_state or 'BRAK')
+        return current_state or ''
+
     def update_existing_record(self, record: BaselinkerReportOrder, order: Dict, 
-                             product: Dict, parsed_product: Dict) -> bool:
+                         product: Dict, parsed_product: Dict) -> bool:
         """
         Aktualizuje istniejący rekord z automatycznym uzupełnianiem województwa
         """
         try:
             changes_made = False
-            
+        
             # Pobierz dane adresowe
             postcode = order.get('delivery_postcode', '').strip()
             current_state = order.get('delivery_state', '').strip()
-            
-            # NOWE: Automatycznie uzupełnij województwo
-            auto_state = self.postcode_mapper.auto_fill_state(postcode, current_state)
-            
+        
+            # NOWA LOGIKA: Automatyczne uzupełnianie województwa
+            auto_state = self._auto_fill_state_for_order(postcode, current_state or record.delivery_state)
+        
             # Sprawdź czy województwo się zmieniło
             if record.delivery_state != auto_state:
                 self.logger.info("Aktualizacja województwa w istniejącym rekordzie",
@@ -168,43 +551,43 @@ class BaselinkerReportsService:
                                new_state=auto_state)
                 record.delivery_state = auto_state
                 changes_made = True
-            
+        
             # Sprawdź inne pola, które mogły się zmienić
             new_status = self.status_map.get(order.get('order_status_id'), 'Nieznany')
             if record.current_status != new_status:
                 record.current_status = new_status
                 changes_made = True
-            
+        
             # Sprawdź dane kontaktowe
             new_phone = order.get('phone', '').strip()
             if record.phone != new_phone:
                 record.phone = new_phone
                 changes_made = True
-            
+        
             # Sprawdź kod pocztowy
             if record.delivery_postcode != postcode:
                 record.delivery_postcode = postcode
                 changes_made = True
-            
+        
             # Sprawdź miasto
             new_city = order.get('delivery_city', '').strip()
             if record.delivery_city != new_city:
                 record.delivery_city = new_city
                 changes_made = True
-            
+        
             # Sprawdź adres
             new_address = order.get('delivery_address', '').strip()
             if record.delivery_address != new_address:
                 record.delivery_address = new_address
                 changes_made = True
-            
-            # Jeśli status się zmienił, zaktualizuj pola produkcji
+        
+            # Jeśli zaszły zmiany, zaktualizuj pola produkcji
             if changes_made:
                 record.update_production_fields()
                 record.updated_at = datetime.utcnow()
-            
+        
             return changes_made
-            
+        
         except Exception as e:
             self.logger.error("Błąd aktualizacji rekordu",
                             record_id=record.id,
@@ -212,9 +595,7 @@ class BaselinkerReportsService:
                             error=str(e))
             return False
     
-    def fetch_orders_from_baselinker(self, date_from: Optional[datetime] = None, 
-                                    order_id: Optional[int] = None,
-                                    max_orders: int = 500) -> List[Dict]:
+    def fetch_orders_from_baselinker(self, date_from: Optional[datetime] = None, order_id: Optional[int] = None, max_orders: int = 500, include_excluded_statuses: bool = False) -> List[Dict]:
         """
         Pobiera zamówienia z Baselinker API z prawidłową paginacją
     
@@ -222,6 +603,7 @@ class BaselinkerReportsService:
             date_from (datetime): Data od której pobierać zamówienia (opcjonalne)
             order_id (int): Konkretny numer zamówienia (jeśli podany, date_from ignorowane)
             max_orders (int): Maksymalna liczba zamówień do pobrania (domyślnie 500)
+            include_excluded_statuses (bool): Czy dołączyć anulowane i nieopłacone (domyślnie False)
     
         Returns:
             List[Dict]: Lista zamówień z Baselinker (bez duplikatów)
@@ -241,24 +623,32 @@ class BaselinkerReportsService:
                 "order_id": order_id,
                 "include_custom_extra_fields": True
             }
-            self.logger.info("Pobieranie pojedynczego zamówienia", order_id=order_id)
         
+            # POPRAWKA: Dodaj filtr statusów także dla pojedynczego zamówienia
+            if not include_excluded_statuses:
+                parameters["filter_order_status_id"] = "!105112,!138625"  # Wykluczamy nieopłacone i anulowane
+        
+            self.logger.info("Pobieranie pojedynczego zamówienia", 
+                            order_id=order_id,
+                            include_excluded_statuses=include_excluded_statuses)
+    
             data = {
                 'method': 'getOrders',
                 'parameters': json.dumps(parameters)
             }
-        
+    
             try:
                 response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
                 response.raise_for_status()
                 result = response.json()
-            
+        
                 if result.get('status') == 'SUCCESS':
                     orders = result.get('orders', [])
                     self.logger.info("Pomyślnie pobrano zamówienia", 
                                    orders_count=len(orders),
                                    has_date_filter=False,
-                                   single_order=True)
+                                   single_order=True,
+                                   filtered_excluded_statuses=not include_excluded_statuses)
                     return orders
                 else:
                     error_msg = result.get('error_message', 'Nieznany błąd API')
@@ -274,179 +664,187 @@ class BaselinkerReportsService:
         all_orders = []
         seen_order_ids = set()  # Przechowuje ID zamówień które już mamy
         page = 0
-    
-        # 1. Sprawdź najnowsze zamówienie w bazie (jeśli nie podano date_from)
-        if date_from is None:
-            try:
-                from .models import BaselinkerReportOrder
-                latest_order = BaselinkerReportOrder.query.filter(
-                    BaselinkerReportOrder.baselinker_order_id.isnot(None)
-                ).order_by(BaselinkerReportOrder.baselinker_order_id.desc()).first()
-            
-                if latest_order:
-                    # Pobieraj od najnowszego zamówienia w bazie + 1 dzień wstecz (żeby łapać aktualizacje)
-                    date_from = latest_order.date_created - timedelta(days=1)
-                    self.logger.info("Znaleziono najnowsze zamówienie w bazie",
-                                   latest_order_id=latest_order.baselinker_order_id,
-                                   latest_date=latest_order.date_created,
-                                   date_from=date_from.isoformat())
-                
-                    # Pobierz wszystkie ID zamówień które już mamy w bazie
-                    existing_orders = BaselinkerReportOrder.query.filter(
-                        BaselinkerReportOrder.baselinker_order_id.isnot(None)
-                    ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
-                
-                    seen_order_ids = {order[0] for order in existing_orders}
-                    self.logger.info("Załadowano istniejące zamówienia z bazy", 
-                                   existing_count=len(seen_order_ids))
-                else:
-                    # Brak zamówień w bazie - pobierz z ostatnich 6 miesięcy
-                    date_from = datetime.now() - timedelta(days=180)
-                    self.logger.info("Brak zamówień w bazie - pobieranie z ostatnich 6 miesięcy",
-                                   date_from=date_from.isoformat())
-            except Exception as e:
-                # Jeśli błąd sprawdzania bazy, użyj domyślnej daty
-                date_from = datetime.now() - timedelta(days=180)
-                self.logger.warning("Błąd sprawdzania najnowszego zamówienia - używam domyślnej daty",
-                                  error=str(e), date_from=date_from.isoformat())
-    
-        # 2. Pobieranie w pętli z PRAWIDŁOWĄ paginacją według dokumentacji Baselinker
+
+        # Pobieranie w pętli z PRAWIDŁOWĄ paginacją według dokumentacji Baselinker
         current_date_from = date_from  # Startuj od podanej daty
         current_time = datetime.now()
-    
+
         self.logger.info("Rozpoczęcie pobierania zamówień z prawidłową paginacją Baselinker",
-                        date_from=current_date_from.isoformat(),
+                        date_from=current_date_from.isoformat() if current_date_from else None,
                         current_time=current_time.isoformat(),
                         max_orders=max_orders,
-                        existing_orders_count=len(seen_order_ids))
-    
+                        existing_orders_count=len(seen_order_ids),
+                        include_excluded_statuses=include_excluded_statuses)
+
         while len(all_orders) < max_orders:
             page += 1
-        
+    
             # Parametry dla tego zapytania - zgodnie z dokumentacją Baselinker
             parameters = {
                 "include_custom_extra_fields": True,
-                "filter_order_status_id": "!105112,!138625",  # Wykluczamy nieopłacone i anulowane
                 "get_unconfirmed_orders": True,  # WAŻNE: żeby łapać niepotwierdzone
             }
         
+            # POPRAWKA: Zawsze dodawaj filtr statusów (chyba że explicite żądamy wszystkich)
+            if not include_excluded_statuses:
+                parameters["filter_order_status_id"] = "!105112,!138625"  # Wykluczamy nieopłacone i anulowane
+    
             # KLUCZOWA ZMIANA: Używaj date_confirmed_from zamiast date_add_from/to
             if current_date_from:
                 # Upewnij się, że to datetime, nie date
                 if isinstance(current_date_from, date) and not isinstance(current_date_from, datetime):
                     current_date_from = datetime.combine(current_date_from, datetime.min.time())
-    
+
                 timestamp_from = int(current_date_from.timestamp())
                 parameters["date_confirmed_from"] = timestamp_from
-            
+        
             self.logger.debug("Pobieranie partii zamówień - paginacja Baselinker",
                              page=page,
                              date_confirmed_from=current_date_from.isoformat() if current_date_from else None,
-                             current_count=len(all_orders))
-        
+                             current_count=len(all_orders),
+                             filtered_excluded_statuses=not include_excluded_statuses)
+    
             data = {
                 'method': 'getOrders',
                 'parameters': json.dumps(parameters)
             }
-        
+    
             try:
                 response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
                 response.raise_for_status()
                 result = response.json()
-            
+        
                 if result.get('status') == 'SUCCESS':
                     batch_orders = result.get('orders', [])
-                
+            
                     if not batch_orders:
                         self.logger.info("Brak zamówień w tym zakresie dat - kończę pobieranie",
                                        page=page, total_collected=len(all_orders))
                         break
-                
+            
                     # Filtruj duplikaty i śledź najnowsze date_confirmed
                     new_orders_in_batch = 0
                     latest_date_confirmed = None
-                
+            
                     for order in batch_orders:
                         order_id_val = order.get('order_id')
-                    
-                        # Pomiń jeśli już mamy to zamówienie
-                        if order_id_val in seen_order_ids:
-                            continue
-                        
-                        # Dodaj zamówienie
-                        all_orders.append(order)
-                        seen_order_ids.add(order_id_val)
-                        new_orders_in_batch += 1
-                    
-                        # KLUCZOWE: Śledź najnowsze date_confirmed dla następnej partii
-                        order_date_confirmed = order.get('date_confirmed')
-                        if order_date_confirmed:
-                            order_datetime = datetime.fromtimestamp(order_date_confirmed)
-                            if latest_date_confirmed is None or order_datetime > latest_date_confirmed:
-                                latest_date_confirmed = order_datetime
                 
-                    self.logger.info("Pobrano partię zamówień - Baselinker API",
-                                   page=page,
-                                   batch_size=len(batch_orders),
-                                   new_orders_in_batch=new_orders_in_batch,
-                                   duplicates_skipped=len(batch_orders) - new_orders_in_batch,
-                                   total_collected=len(all_orders),
-                                   latest_confirmed=latest_date_confirmed.isoformat() if latest_date_confirmed else None)
+                        if order_id_val not in seen_order_ids:
+                            all_orders.append(order)
+                            seen_order_ids.add(order_id_val)
+                            new_orders_in_batch += 1
+                    
+                            # Śledzenie najnowszej daty
+                            date_confirmed = order.get('date_confirmed')
+                            if date_confirmed:
+                                if latest_date_confirmed is None or date_confirmed > latest_date_confirmed:
+                                    latest_date_confirmed = date_confirmed
+            
+                    self.logger.debug("Przetworzona partia zamówień",
+                                    page=page,
+                                    batch_total=len(batch_orders),
+                                    new_orders=new_orders_in_batch,
+                                    duplicates=len(batch_orders) - new_orders_in_batch,
+                                    total_collected=len(all_orders))
+            
+                    # Jeśli mamy mniej niż 100 zamówień w partii, prawdopodobnie to koniec
+                    if len(batch_orders) < 100:
+                        self.logger.info("Partia zawiera mniej niż 100 zamówień - kończę pobieranie",
+                                       page=page, batch_size=len(batch_orders))
+                        break
                 
-                    # PAGINACJA BASELINKER: Przygotuj następną partię
+                    # Aktualizuj date_from dla następnej iteracji
                     if latest_date_confirmed:
-                        # Zgodnie z dokumentacją: dodaj 1 sekundę do ostatniej daty
-                        next_date_from = latest_date_confirmed + timedelta(seconds=1)
-                    
-                        # JEDYNY WARUNEK ZATRZYMANIA: Czy nie przekroczyliśmy obecnej daty
-                        if next_date_from >= current_time:
-                            self.logger.info("Osiągnięto obecną datę - kończę pobieranie",
-                                           next_date_from=next_date_from.isoformat(),
-                                           current_time=current_time.isoformat(),
-                                           total_collected=len(all_orders))
-                            break
-                    
-                        # Kontynuuj z następnym zakresem dat
-                        current_date_from = next_date_from
-                    
-                        self.logger.debug("Przygotowano następną partię - paginacja Baselinker",
-                                        next_date_confirmed_from=current_date_from.isoformat(),
+                        current_date_from = datetime.fromtimestamp(latest_date_confirmed)
+                        self.logger.debug("Aktualizacja date_from dla następnej iteracji",
+                                        new_date_from=current_date_from.isoformat(),
                                         batch_size=len(batch_orders))
                     else:
                         # Brak date_confirmed w zamówieniach - nie można kontynuować
                         self.logger.warning("Brak date_confirmed w zamówieniach - kończę pobieranie",
                                           page=page, batch_size=len(batch_orders))
                         break
-                    
+                
                 else:
                     error_msg = result.get('error_message', 'Nieznany błąd API')
                     error_code = result.get('error_code', 'Brak kodu błędu')
                     self.logger.error("Błąd API Baselinker",
                                      page=page, error_message=error_msg, error_code=error_code)
                     break
-                
+            
             except requests.exceptions.Timeout:
                 self.logger.error("Timeout przy pobieraniu partii", page=page)
                 continue
-            
+        
             except requests.exceptions.RequestException as e:
                 self.logger.error("Błąd połączenia", page=page, error=str(e))
                 continue
-            
+        
             # Bezpieczeństwo - maksymalnie 20 stron (żeby nie było nieskończonej pętli)
             if page >= 20:
                 self.logger.warning("Osiągnięto maksymalną liczbę stron", max_pages=20, total_collected=len(all_orders))
                 break
-    
+
         self.logger.info("Zakończono pobieranie zamówień z prawidłową paginacją Baselinker",
                         total_orders=len(all_orders),
                         pages_processed=page,
                         date_from=date_from.isoformat() if date_from else None,
                         max_orders=max_orders,
-                        unique_orders=len(seen_order_ids))
-    
+                        unique_orders=len(seen_order_ids),
+                        filtered_excluded_statuses=not include_excluded_statuses)
+
         return all_orders
     
+    def fetch_order_statuses(self) -> List[Dict]:
+        """
+        Pobiera listę statusów zamówień z API Baselinker i zwraca
+        listę słowników: {'status_id': int, 'status_name': str}
+        """
+        if not self.api_key or not self.endpoint:
+            self.logger.error("Brak konfiguracji API Baselinker")
+            raise ValueError("Brak konfiguracji API Baselinker")
+
+        headers = {
+            'X-BLToken': self.api_key,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+
+        # Przygotuj payload
+        data = {
+            'method': 'getOrderStatusList',
+            'parameters': json.dumps({})  # brak dodatkowych parametrów
+        }
+
+        try:
+            self.logger.info("Pobieram statusy zamówień z Baselinker")
+            response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+
+            if result.get('status') != 'SUCCESS':
+                msg = result.get('error_message', 'Nieznany błąd API')
+                code = result.get('error_code', '')
+                self.logger.error("Błąd API przy pobieraniu statusów",
+                                  status=msg, code=code)
+                return []
+
+            raw_statuses = result.get('orders_statuses', [])
+            statuses = []
+            for s in raw_statuses:
+                try:
+                    sid = int(s.get('orders_status_id', 0))
+                    name = s.get('name', '').strip()
+                    statuses.append({'status_id': sid, 'status_name': name})
+                except Exception:
+                    self.logger.warning("Nieprawidłowy wpis statusu", raw=s)
+
+            self.logger.info("Pobrano statusy zamówień", count=len(statuses))
+            return statuses
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error("Błąd HTTP przy pobieraniu statusów", error=str(e))
+            return []
+
     def sync_orders(self, date_from: Optional[datetime] = None, 
                    sync_type: str = 'manual', orders_list: Optional[List[Dict]] = None) -> Dict[str, any]:
         """
@@ -625,28 +1023,54 @@ class BaselinkerReportsService:
         """
         records = []
         products = order.get('products', [])
-    
+
         if not products:
             self.logger.warning("Zamówienie bez produktów",
-                              order_id=order.get('order_id'))
+                            order_id=order.get('order_id'))
             return records
-    
+
+        # NOWE: Pobierz informację o typie ceny z custom_extra_fields
+        custom_fields = order.get('custom_extra_fields', {})
+        price_type_from_api = custom_fields.get('106169', '').strip()
+        
+        self.logger.debug("Pobrano typ ceny z custom_extra_fields",
+                        order_id=order.get('order_id'),
+                        price_type_from_api=price_type_from_api)
+
         # Podstawowe dane zamówienia (wspólne dla wszystkich produktów)
         base_data = self._extract_base_order_data(order)
-    
-        # Oblicz łączną wartość zamówienia netto (dla order_amount_net)
+
+        # POPRAWIONA LOGIKA: Oblicz łączną wartość zamówienia netto (dla order_amount_net)
         total_order_value_gross = 0
+        total_order_value_net = 0 
         for product in products:
-            product_value = float(product.get('price_brutto', 0)) * int(product.get('quantity', 1))
-            total_order_value_gross += product_value
+            original_price_from_baselinker = float(product.get('price_brutto', 0))
+            
+            # POPRAWIONA LOGIKA: Rozróżnianie typu ceny (zamiast process_baselinker_amount)
+            if price_type_from_api.lower() == 'netto':
+                # PRZYPADEK 1: Zamówienie ma oznaczenie "Netto"
+                # Kwota z Baselinker jest rzeczywiście NETTO
+                price_net = original_price_from_baselinker
+                price_gross = price_net * 1.23
+            elif price_type_from_api.lower() == 'brutto':
+                # PRZYPADEK 2: Zamówienie ma oznaczenie "Brutto"
+                # Kwota z Baselinker jest rzeczywiście BRUTTO
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+            else:
+                # PRZYPADEK 3: Zamówienie bez oznaczenia (domyślnie BRUTTO)
+                price_gross = original_price_from_baselinker
+                price_net = price_gross / 1.23
+            
+            quantity = int(product.get('quantity', 1))
     
-        # Dodaj koszt dostawy
-        delivery_cost_gross = float(order.get('delivery_price', 0))
-        total_order_value_gross += delivery_cost_gross
-    
-        # Przelicz na netto (VAT 23%)
-        total_order_value_net = total_order_value_gross / 1.23
-    
+            # POPRAWIONE: Dodaj do obu sum
+            product_value_gross = price_gross * quantity
+            product_value_net = price_net * quantity
+            
+            total_order_value_gross += product_value_gross
+            total_order_value_net += product_value_net
+
         # NOWA LOGIKA: Oblicz łączną objętość wszystkich produktów w zamówieniu
         total_m3_all_products = 0.0
         for product in products:
@@ -715,22 +1139,78 @@ class BaselinkerReportsService:
                 # Parsuj nazwę produktu
                 parsed_product = self.parser.parse_product_name(product.get('name', ''))
             
+                # POPRAWIONA LOGIKA: Przetwórz cenę produktu (zamiast process_baselinker_amount)
+                original_price_from_baselinker = float(product.get('price_brutto', 0))
+                
+                # Rozróżnianie typu ceny - TAKA SAMA LOGIKA jak wyżej
+                if price_type_from_api.lower() == 'netto':
+                    # Kwota z Baselinker jest NETTO
+                    price_net = original_price_from_baselinker
+                    price_gross = price_net * 1.23
+                    price_type_to_save = 'netto'
+                elif price_type_from_api.lower() == 'brutto':
+                    # Kwota z Baselinker jest BRUTTO
+                    price_gross = original_price_from_baselinker
+                    price_net = price_gross / 1.23
+                    price_type_to_save = 'brutto'
+                else:
+                    # Domyślnie BRUTTO
+                    price_gross = original_price_from_baselinker
+                    price_net = price_gross / 1.23
+                    price_type_to_save = ''
+
+                # Debug log
+                self.logger.debug("Przetworzono ceny produktu w _convert_order_to_records",
+                                order_id=order.get('order_id'),
+                                product_name=product.get('name'),
+                                price_type_from_api=price_type_from_api,
+                                original_price=original_price_from_baselinker,
+                                final_price_net=price_net,
+                                final_price_gross=price_gross,
+                                price_type_saved=price_type_to_save)
+                
                 # Utwórz rekord
                 record = BaselinkerReportOrder(
-                    # Dane zamówienia
-                    **base_data,
+                    # Dane zamówienia - EXPLICITE BEZ KOPIOWANIA base_data
+                    date_created=datetime.fromtimestamp(order.get('date_add')).date() if order.get('date_add') else datetime.now().date(),
+                    baselinker_order_id=order.get('order_id'),
+                    internal_order_number=order.get('extra_field_1'),
+                    customer_name=order.get('delivery_fullname') or order.get('delivery_company') or order.get('user_login') or 'Nieznany klient',
+                    delivery_postcode=order.get('delivery_postcode'),
+                    delivery_city=order.get('delivery_city'),
+                    delivery_address=order.get('delivery_address'),
+                    delivery_state=order.get('delivery_state'),
+                    phone=order.get('phone'),
+                    caretaker=(order.get('custom_extra_fields', {}).get('105623') or "Brak danych"),
+                    delivery_method=order.get('delivery_method'),
+                    order_source=order.get('order_source'),
+                    current_status=self.status_map.get(order.get('order_status_id'), f'Status {order.get("order_status_id")}'),
+                    baselinker_status_id=order.get('order_status_id'),
                 
-                    # ZMIANA: Każdy rekord ma tę samą łączną objętość całego zamówienia
-                    total_m3=total_m3_all_products,
+                    # FINANSE - POPRAWNIE OBLICZONE
                     order_amount_net=total_order_value_net,
-                    
-                    # Dane produktu z Baselinker
+                    delivery_cost=float(order.get('delivery_price', 0)),
+                    paid_amount_net=self._calculate_paid_amount_net(
+                        order.get('payment_done', 0), 
+                        price_type_from_api
+                    ),
+                    payment_method=order.get('payment_method'),
+                
+                    # DANE PRODUKTU - POPRAWIONE CENY
+                    total_m3=total_m3_all_products,
                     raw_product_name=product.get('name'),
                     quantity=product.get('quantity', 1),
-                    price_gross=product.get('price_brutto', 0),
+                    price_gross=price_gross,                           # POPRAWIONE: używa obliczonej ceny
+                    price_net=price_net,                               # DODANE: cena netto
+                    price_type=price_type_to_save,                     # POPRAWIONE: używa obliczonego typu
+                    original_amount_from_baselinker=original_price_from_baselinker,  # POPRAWIONE: oryginalna cena
                     
+                    # Oblicz wartości
+                    value_gross=price_gross * product.get('quantity', 1),
+                    value_net=price_net * product.get('quantity', 1),
+                
                     # Dane z parsera
-                    product_type=parsed_product.get('product_type') or 'deska',  # Domyślnie deska
+                    product_type=parsed_product.get('product_type') or 'deska',
                     wood_species=parsed_product.get('wood_species'),
                     technology=parsed_product.get('technology'),
                     wood_class=parsed_product.get('wood_class'),
@@ -738,26 +1218,27 @@ class BaselinkerReportsService:
                     length_cm=parsed_product.get('length_cm'),
                     width_cm=parsed_product.get('width_cm'),
                     thickness_cm=parsed_product.get('thickness_cm'),
-                    
+                
                     # Grupa - domyślnie 'towar' dla produktów z Baselinker
                     group_type='towar',
-                    
-                    # Pola techniczne
-                    is_manual=False
-                )
                 
+                    # Pola techniczne
+                    is_manual=False,
+                    email=order.get('email')
+                )
+            
                 # Oblicz pola pochodne
                 record.calculate_fields()
-                
+            
                 records.append(record)
-                
+            
             except Exception as e:
                 self.logger.error("Błąd przetwarzania produktu",
                                 order_id=order.get('order_id'),
                                 product_name=product.get('name'),
                                 error=str(e))
                 continue
-        
+    
         return records
     
     def _extract_base_order_data(self, order: Dict) -> Dict:
@@ -784,12 +1265,15 @@ class BaselinkerReportsService:
         current_status = self.status_map.get(status_id, f'Status {status_id}')
         
         # Oblicz zapłaconą kwotę netto z brutto
-        payment_done_gross = order.get('payment_done', 0)
-        paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
+        payment_done = order.get('payment_done', 0)
+        custom_fields = order.get('custom_extra_fields', {})
+        price_type_from_api = custom_fields.get('106169', '').strip()
+        
+        paid_amount_net = self._calculate_paid_amount_net(payment_done, price_type_from_api)
         
         # Oblicz koszt dostawy netto
         delivery_price_gross = order.get('delivery_price', 0)
-        delivery_cost_net = float(delivery_price_gross) / 1.23 if delivery_price_gross else 0
+        delivery_cost_original = float(delivery_price_gross) if delivery_price_gross else 0
 
         # Pobieramy custom fields i wyciągamy opiekuna
         custom_fields = order.get('custom_extra_fields') or {}
@@ -810,7 +1294,7 @@ class BaselinkerReportsService:
             'order_source': order.get('order_source'),
             'current_status': current_status,
             'baselinker_status_id': status_id,
-            'delivery_cost': delivery_cost_net,  # Koszt dostawy netto
+            'delivery_cost': float(order.get('delivery_price', 0)),
             'payment_method': order.get('payment_method'),
             'paid_amount_net': paid_amount_net,  # Zapłacono netto
             'email': order.get('email')
@@ -843,12 +1327,19 @@ class BaselinkerReportsService:
                 new_status = self.status_map.get(status_id, f'Status {status_id}')
                 
                 # Oblicz zapłaconą kwotę netto z brutto
-                payment_done_gross = order.get('payment_done', 0)
-                paid_amount_net = float(payment_done_gross) / 1.23 if payment_done_gross else 0
+                payment_done = order.get('payment_done', 0)
+                custom_fields = order.get('custom_extra_fields', {})
+                price_type_from_api = custom_fields.get('106169', '').strip()
+                
+                paid_amount_net = self._calculate_paid_amount_net(payment_done, price_type_from_api)
                 
                 # Aktualizuj wszystkie rekordy tego zamówienia
                 records = BaselinkerReportOrder.query.filter_by(baselinker_order_id=order_id).all()
                 
+                # NOWE: Sprawdź czy trzeba zaktualizować pola price_type
+                custom_fields = order.get('custom_extra_fields', {})
+                price_type_from_api = custom_fields.get('106169', '').strip()
+
                 for record in records:
                     if record.current_status != new_status or record.paid_amount_net != paid_amount_net:
                         record.current_status = new_status
@@ -864,6 +1355,16 @@ class BaselinkerReportsService:
                             record.balance_due = float(record.order_amount_net) - paid_amount_net
                         
                         updated_count += 1
+
+                    if not record.price_type and price_type_from_api:
+                        # Zaktualizuj price_type dla starych rekordów
+                        normalized_type = 'netto' if price_type_from_api.lower() == 'netto' else 'brutto' if price_type_from_api.lower() == 'brutto' else ''
+                        if normalized_type != record.price_type:
+                            record.price_type = normalized_type
+                            self.logger.info("Zaktualizowano price_type dla istniejącego rekordu",
+                                           record_id=record.id,
+                                           order_id=order_id,
+                                           new_price_type=normalized_type)
                 
             except Exception as e:
                 self.logger.error("Błąd aktualizacji zamówienia",
@@ -882,19 +1383,66 @@ class BaselinkerReportsService:
         
         return updated_count
     
-    def get_order_details(self, order_id: int) -> Optional[Dict]:
+    def get_order_details(self, order_id: int, include_excluded_statuses: bool = False) -> Optional[Dict]:
         """
         Pobiera szczegóły pojedynczego zamówienia z Baselinker
         """
         try:
-            orders = self.fetch_orders_from_baselinker(order_id=order_id)
-            return orders[0] if orders else None
+            # POPRAWKA: Używaj nowej metody z filtrowaniem statusów
+            orders = self.fetch_orders_from_baselinker(
+                order_id=order_id, 
+                include_excluded_statuses=include_excluded_statuses
+            )
+        
+            if orders and len(orders) > 0:
+                order = orders[0]
+            
+                # Sprawdź czy zamówienie nie ma wykluczanego statusu (dodatkowa walidacja)
+                if not include_excluded_statuses:
+                    status_id = order.get('order_status_id')
+                    if status_id in [105112, 138625]:  # Nowe - nieopłacone, Anulowane
+                        self.logger.info("Zamówienie wykluczono ze względu na status",
+                                       order_id=order_id,
+                                       status_id=status_id,
+                                       status_name=self.status_map.get(status_id, f'Status {status_id}'))
+                        return None
+            
+                # NOWE: Przetwórz ceny produktów w pojedynczym zamówieniu
+                custom_fields = order.get('custom_extra_fields', {})
+                price_type_from_api = custom_fields.get('106169', '').strip()
+            
+                # Jeśli zamówienie ma produkty, przetworz ich ceny
+                if 'products' in order and order['products']:
+                    for product in order['products']:
+                        original_price = float(product.get('price_brutto', 0))
+                    
+                        # Utwórz tymczasowy rekord do przetworzenia
+                        temp_record = BaselinkerReportOrder()
+                        processed_price, _ = temp_record.process_baselinker_amount(
+                            original_price, price_type_from_api
+                        )
+                    
+                        # Zaktualizuj cenę w produkcie
+                        product['price_brutto'] = processed_price
+                    
+                        self.logger.debug("Przetworzono cenę produktu w get_order_details",
+                                        order_id=order.get('order_id'),
+                                        product_name=product.get('name'),
+                                        original_price=original_price,
+                                        processed_price=processed_price,
+                                        price_type=price_type_from_api)
+            
+                return order
+        
+            return None
+        
         except Exception as e:
             self.logger.error("Błąd pobierania szczegółów zamówienia",
-                            order_id=order_id,
-                            error=str(e))
+                             order_id=order_id,
+                             include_excluded_statuses=include_excluded_statuses,
+                             error=str(e))
             return None
-    
+        
     def check_for_new_orders(self, hours_back: int = 24) -> Tuple[bool, int]:
         """
         Sprawdza czy są nowe zamówienia w Baselinker (dla automatycznego sprawdzania)
@@ -938,20 +1486,11 @@ class BaselinkerReportsService:
                              error_type=type(e).__name__,
                              hours_back=hours_back)
             return False, 0
-        
-    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, 
-                                 get_all_statuses: bool = True) -> Dict[str, any]:
+
+    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False) -> Dict[str, any]:
         """
         NOWA METODA: Pobiera zamówienia z Baselinker dla konkretnego zakresu dat
         Używana przez nowy system wyboru zamówień
-        
-        Args:
-            date_from (datetime): Data początkowa
-            date_to (datetime): Data końcowa  
-            get_all_statuses (bool): Czy pobierać wszystkie statusy (ignoruj filtry)
-            
-        Returns:
-            Dict: {'success': bool, 'orders': List, 'error': str}
         """
         try:
             self.logger.info("Pobieranie zamówień dla zakresu dat",
@@ -968,7 +1507,7 @@ class BaselinkerReportsService:
             seen_order_ids = set()
             page = 0
             max_pages = 10  # Bezpiecznik - maksymalnie 10 stron dla zakresu dat
-            
+        
             # Konwertuj daty na timestampy
             date_from_timestamp = int(date_from.timestamp())
             date_to_timestamp = int(date_to.timestamp()) + 86399  # Dodaj 23:59:59 do daty końcowej
@@ -979,7 +1518,7 @@ class BaselinkerReportsService:
 
             while page < max_pages:
                 page += 1
-                
+            
                 # Parametry zapytania zgodne z API Baselinker
                 parameters = {
                     "include_custom_extra_fields": True,
@@ -988,13 +1527,14 @@ class BaselinkerReportsService:
                     "date_confirmed_to": date_to_timestamp
                 }
 
-                # Jeśli nie chcemy wszystkich statusów, dodaj filtry
+                # POPRAWKA: Domyślnie wykluczamy anulowane i nieopłacone (chyba że explicite żądamy wszystkich)
                 if not get_all_statuses:
                     parameters["filter_order_status_id"] = "!105112,!138625"  # Wykluczamy nieopłacone i anulowane
 
                 self.logger.debug("Pobieranie partii zamówień dla zakresu dat",
                                 page=page,
-                                parameters=parameters)
+                                parameters=parameters,
+                                filtered_excluded_statuses=not get_all_statuses)
 
                 data = {
                     'method': 'getOrders',
@@ -1008,7 +1548,7 @@ class BaselinkerReportsService:
 
                     if result.get('status') == 'SUCCESS':
                         batch_orders = result.get('orders', [])
-                        
+                    
                         if not batch_orders:
                             self.logger.info("Brak więcej zamówień - kończę pobieranie",
                                         page=page, total_collected=len(all_orders))
@@ -1018,79 +1558,71 @@ class BaselinkerReportsService:
                         new_orders_in_batch = 0
                         for order in batch_orders:
                             order_id_val = order.get('order_id')
-                            
+                        
                             if order_id_val not in seen_order_ids:
                                 all_orders.append(order)
                                 seen_order_ids.add(order_id_val)
                                 new_orders_in_batch += 1
 
-                        self.logger.info("Pobrano partię zamówień",
-                                    page=page,
-                                    batch_size=len(batch_orders),
-                                    new_orders_in_batch=new_orders_in_batch,
-                                    total_collected=len(all_orders))
+                        self.logger.debug("Przetworzona partia dla zakresu dat",
+                                        page=page,
+                                        batch_total=len(batch_orders),
+                                        new_orders=new_orders_in_batch,
+                                        duplicates=len(batch_orders) - new_orders_in_batch,
+                                        total_collected=len(all_orders))
 
-                        # Jeśli batch był mniejszy niż typowy rozmiar, prawdopodobnie to koniec
-                        if len(batch_orders) < 100:  # Baselinker zwykle zwraca max 100 na stronę
-                            self.logger.info("Mała partia - prawdopodobnie koniec danych",
-                                        batch_size=len(batch_orders))
+                        # Jeśli mamy mniej niż 100 zamówień w partii, prawdopodobnie to koniec
+                        if len(batch_orders) < 100:
+                            self.logger.info("Partia zawiera mniej niż 100 zamówień - kończę pobieranie zakresu",
+                                           page=page, batch_size=len(batch_orders))
                             break
 
                     else:
                         error_msg = result.get('error_message', 'Nieznany błąd API')
-                        self.logger.error("Błąd API Baselinker przy pobieraniu zakresu dat",
-                                        page=page, error_message=error_msg)
+                        error_code = result.get('error_code', 'Brak kodu błędu')
+                        self.logger.error("Błąd API Baselinker podczas pobierania zakresu dat",
+                                         page=page, error_message=error_msg, error_code=error_code)
                         return {
                             'success': False,
-                            'error': f'Błąd API Baselinker: {error_msg}',
-                            'orders': []
+                            'orders': [],
+                            'error': f'Błąd API: {error_msg} (kod: {error_code})'
                         }
 
                 except requests.exceptions.Timeout:
-                    self.logger.error("Timeout przy pobieraniu zakresu dat", page=page)
-                    return {
-                        'success': False,
-                        'error': 'Timeout połączenia z Baselinker',
-                        'orders': []
-                    }
-                    
+                    self.logger.error("Timeout przy pobieraniu partii zakresu dat", page=page)
+                    continue
+                
                 except requests.exceptions.RequestException as e:
-                    self.logger.error("Błąd połączenia przy pobieraniu zakresu dat", 
-                                    page=page, error=str(e))
-                    return {
-                        'success': False,
-                        'error': f'Błąd połączenia: {str(e)}',
-                        'orders': []
-                    }
-
-            # Sortuj zamówienia według daty dodania (najnowsze pierwsze)
-            all_orders.sort(key=lambda x: x.get('date_add', 0), reverse=True)
+                    self.logger.error("Błąd połączenia podczas pobierania zakresu dat", page=page, error=str(e))
+                    continue
 
             self.logger.info("Zakończono pobieranie zamówień dla zakresu dat",
                             total_orders=len(all_orders),
                             pages_processed=page,
-                            unique_orders=len(seen_order_ids),
                             date_from=date_from.isoformat(),
-                            date_to=date_to.isoformat())
+                            date_to=date_to.isoformat(),
+                            unique_orders=len(seen_order_ids),
+                            get_all_statuses=get_all_statuses,
+                            filtered_excluded_statuses=not get_all_statuses)
 
             return {
                 'success': True,
                 'orders': all_orders,
-                'total_count': len(all_orders),
-                'pages_processed': page
+                'error': None
             }
 
         except Exception as e:
-            self.logger.error("Błąd pobierania zamówień dla zakresu dat",
-                            error=str(e),
-                            error_type=type(e).__name__,
-                            date_from=date_from.isoformat(),
-                            date_to=date_to.isoformat())
+            self.logger.error("Nieoczekiwany błąd podczas pobierania zamówień dla zakresu dat",
+                             error=str(e),
+                             error_type=type(e).__name__,
+                             date_from=date_from.isoformat(),
+                             date_to=date_to.isoformat())
             return {
                 'success': False,
-                'error': f'Błąd serwera: {str(e)}',
-                'orders': []
+                'orders': [],
+                'error': f'Błąd serwera: {str(e)}'
             }
+
     def set_dimension_fixes(self, fixes: Dict):
         """
         Ustawia poprawki wymiarów dla produktów
@@ -1132,6 +1664,9 @@ class BaselinkerReportsService:
                 parsed_data['width_cm'] = float(product_fixes['width_cm'])
             if 'thickness_mm' in product_fixes:
                 parsed_data['thickness_mm'] = float(product_fixes['thickness_mm'])
+            # NOWE: nadpisanie objętości per sztuka
+            if 'volume_m3' in product_fixes:
+                parsed_data['volume_override_m3'] = float(product_fixes['volume_m3'])
                 
             self.logger.info("Zastosowano poprawki wymiarów",
                            order_id=order_id,
@@ -1140,54 +1675,90 @@ class BaselinkerReportsService:
         
         return parsed_data
     
-    # POPRAWKA w metodzie _create_report_record - dodaj zastosowanie poprawek
     def _create_report_record(self, order: Dict, product: Dict) -> BaselinkerReportOrder:
         """
-        POPRAWIONA METODA: Tworzy rekord raportu z zastosowaniem poprawek wymiarów
+        Tworzy rekord raportu z zastosowaniem poprawek wymiarów.
         """
         try:
             # Parsuj nazwę produktu
             product_name = product.get('name', '')
             parsed_data = self.parser.parse_product_name(product_name)
-            
-            # NOWE: Zastosuj poprawki wymiarów jeśli są dostępne
+
+            # Zastosuj poprawki wymiarów jeśli są dostępne
             order_id = order.get('order_id')
             product_id = product.get('product_id')
             if order_id and product_id:
                 parsed_data = self._apply_dimension_fixes(order_id, product_id, parsed_data)
-            
-            # Pozostała część metody bez zmian...
-            # [kod kontynuowany jak w oryginalnej metodzie]
-            
-            # Oblicz m3 (tylko jeśli mamy wszystkie wymiary)
+
+            # Oblicz objętość (m³) z priorytetem nadpisania ręcznego
+            quantity = float(product.get('quantity', 0))
             total_m3 = None
-            if all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_mm']):
-                quantity = float(product.get('quantity', 0))
-                if quantity > 0:
-                    length_m = parsed_data['length_cm'] / 100
-                    width_m = parsed_data['width_cm'] / 100
-                    thickness_m = parsed_data['thickness_mm'] / 1000
-                    total_m3 = quantity * length_m * width_m * thickness_m
-            
-            # Reszta kodu tworzenia rekordu...
+            # Ręczne nadpisanie objętości per sztuka
+            if parsed_data.get('volume_override_m3') is not None:
+                total_m3 = quantity * parsed_data['volume_override_m3']
+            # Automatyczne obliczenie z wymiarów jeśli brak nadpisania
+            elif all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_mm']):
+                length_m = parsed_data['length_cm'] / 100
+                width_m = parsed_data['width_cm'] / 100
+                thickness_m = parsed_data['thickness_mm'] / 1000
+                total_m3 = quantity * length_m * width_m * thickness_m
+
+            # Budowanie rekordu raportu
             record = BaselinkerReportOrder(
-                # ... wszystkie pola jak w oryginalnej metodzie ...
-                total_m3=total_m3,
+                order_id=order_id,
+                product_id=product_id,
+                product_name=product_name,
+                quantity=quantity,
                 length_cm=parsed_data.get('length_cm'),
-                width_cm=parsed_data.get('width_cm'), 
+                width_cm=parsed_data.get('width_cm'),
                 thickness_mm=parsed_data.get('thickness_mm'),
-                # ... pozostałe pola ...
+                # Zapisz objętość do kolumny total_m3 w bazie i ttl m3 w UI
+                total_volume=total_m3,
+                # ... inne pola zgodnie z modelem BaselinkerReportOrder
             )
-            
+
             return record
-            
+
         except Exception as e:
-            self.logger.error("Błąd tworzenia rekordu z poprawkami wymiarów",
-                            order_id=order.get('order_id'),
-                            product_id=product.get('product_id'),
-                            error=str(e))
+            self.logger.error(
+                "Błąd tworzenia rekordu z poprawkami wymiarów",
+                order_id=order.get('order_id'),
+                product_id=order.get('product_id'),
+                error=str(e)
+            )
             raise
     
+    def _calculate_paid_amount_net(self, payment_done, price_type_from_api):
+        """
+        Oblicza paid_amount_net na podstawie typu ceny z custom_extra_fields
+    
+        Args:
+            payment_done (float): Kwota zapłacona z Baselinker (payment_done)
+            price_type_from_api (str): Typ ceny z extra_field_106169
+        
+        Returns:
+            float: Przeliczona kwota netto
+        """
+        if not payment_done:
+            return 0.0
+        
+        # Normalizuj wartość z API
+        price_type = (price_type_from_api or '').strip().lower()
+    
+        if price_type == 'netto':
+            # Dla zamówień netto: payment_done jest już kwotą netto, nie dziel przez 1.23
+            paid_amount_net = float(payment_done)
+            self.logger.debug("Obliczono paid_amount_net dla zamówienia NETTO",
+                             payment_done=payment_done,
+                             paid_amount_net=paid_amount_net)
+        else:
+            # Dla zamówień brutto lub pustych: payment_done to brutto, podziel przez 1.23
+            paid_amount_net = float(payment_done) / 1.23
+            self.logger.debug("Obliczono paid_amount_net dla zamówienia BRUTTO",
+                             payment_done=payment_done,
+                             paid_amount_net=paid_amount_net)
+    
+        return paid_amount_net
 
 # ===== FUNKCJE POMOCNICZE =====
 
