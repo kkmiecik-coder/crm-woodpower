@@ -1,5 +1,8 @@
 /* modules/reports/static/css/reports.css */
 
+/* Import Poppins font */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
 /* ===================================
    VARIABLES & GLOBALS
    =================================== */
@@ -5150,9 +5153,6 @@ body.fullscreen-mode {
    NOWY MODAL ZAMÓWIEŃ - PREFIX: modal-bl-sync-
    =========================================== */
 
-/* Import Poppins font */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
-
 /* Modal wrapper - overlay */
 .modal-bl-sync-wrapper {
     position: fixed;
@@ -5179,8 +5179,9 @@ body.fullscreen-mode {
 /* Modal container - główny box */
 .modal-bl-sync-container {
     position: relative;
-    width: 1020px;
-    max-height: 800px;
+    width: 90vh;
+    min-height: 600px;
+    max-height: 80vh;
     background: white;
     border-radius: 12px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
@@ -5477,6 +5478,10 @@ body.fullscreen-mode {
     flex: 1;
 }
 
+.order-number {
+    font-weight: 600;
+}
+
 .modal-bl-sync-status-badge {
     display: flex;
     padding: 11px 8px;
@@ -5603,7 +5608,7 @@ body.fullscreen-mode {
     font-family: 'Poppins', sans-serif;
     font-size: 12px;
     font-style: normal;
-    font-weight: 600;
+    font-weight: 400;
     line-height: normal;
     flex: 1;
     margin-right: 10px;
@@ -5614,7 +5619,7 @@ body.fullscreen-mode {
     font-family: 'Poppins', sans-serif;
     font-size: 12px;
     font-style: normal;
-    font-weight: 600;
+    font-weight: 400;
     line-height: normal;
 }
 
@@ -5975,109 +5980,37 @@ body.fullscreen-mode {
    PROGRESSIVE LOADING - SKELETON + SPINNER
    =========================================== */
 
-/* Loading overlay - ściemniony modal */
+/* POPRAWKA: Loading overlay musi być pozycjonowany względem kontenera modala */
 .modal-bl-sync-progressive-loading {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.75);
     z-index: 1060;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    border-radius: 12px;
-    backdrop-filter: blur(2px);
-}
-
-/* Centralny loading box */
-.modal-bl-sync-loading-center {
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 12px;
-    padding: 32px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    text-align: center;
-    min-width: 280px;
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    /* DODANE: Zapobieganie rozciąganiu */
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
-/* Spinner */
-.modal-bl-sync-spinner {
-    width: 48px;
-    height: 48px;
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #4285F4;
-    border-radius: 50%;
-    animation: modal-bl-sync-spin 1.2s linear infinite;
-    margin: 0 auto 20px auto;
-}
-
-/* Loading text */
-.modal-bl-sync-loading-text {
-    color: #314254;
-    font-family: 'Poppins', sans-serif;
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 16px;
-    min-height: 24px;
-    transition: all 0.3s ease;
-}
-
-/* Progress dots */
-.modal-bl-sync-progress-dots {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
-}
-
-.modal-bl-sync-progress-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #E9ECEF;
-    transition: all 0.4s ease;
-    position: relative;
-}
-
-.modal-bl-sync-progress-dot.active {
-    background: #4285F4;
-    transform: scale(1.2);
-    box-shadow: 0 0 8px rgba(66, 133, 244, 0.5);
-}
-
-.modal-bl-sync-progress-dot.completed {
-    background: #28a745;
-    transform: scale(1);
-}
-
-/* Progress step labels */
-.modal-bl-sync-step-label {
-    color: #6c757d;
-    font-family: 'Poppins', sans-serif;
-    font-size: 12px;
-    font-weight: 400;
-    margin-top: 8px;
-    opacity: 0.8;
-}
-
-/* ===========================================
-   SKELETON KAFELKÓW W TLE
-   =========================================== */
-
-/* Container skeleton */
+/* POPRAWKA: Skeleton container - lepsze pozycjonowanie */
 .modal-bl-sync-skeleton-container {
     position: absolute;
-    top: 160px; /* Pod headerem */
+    top: 80px; /* Pod headerem modala - dostosuj do faktycznej wysokości headera */
     left: 30px;
     right: 30px;
-    bottom: 100px; /* Nad footerem */
+    bottom: 80px; /* Nad footerem modala - dostosuj do faktycznej wysokości footera */
     z-index: 1;
-    opacity: 0.6;
+    opacity: 0.4;
+    overflow: hidden;
+    /* DODANE: Zapobieganie przepełnieniu */
+    max-height: calc(100% - 160px);
 }
 
 /* Grid skeleton - dokładnie jak prawdziwe kafelki */
@@ -6089,178 +6022,104 @@ body.fullscreen-mode {
     border-radius: 16px;
     border: 1px solid #E9ECEF;
     background: #F8F9FA;
+    height: 100%;
+    overflow: hidden;
 }
 
-/* Pojedynczy skeleton kafelek */
+/* POPRAWKA: Pojedynczy skeleton kafelek - ustaw stałą wysokość */
 .modal-bl-sync-skeleton-card {
     min-width: 360px;
+    max-width: 480px;
+    height: 200px; /* STAŁA WYSOKOŚĆ - zapobiega rozciąganiu */
     padding: 16px;
     border-radius: 8px;
     border: 1px solid #E9ECEF;
     background: #FFF;
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    height: 180px; /* Standardowa wysokość kafelka */
+    gap: 12px;
+    /* DODANE: Zapobieganie rozciąganiu */
+    flex-shrink: 0;
+    overflow: hidden;
 }
 
-/* Skeleton header */
-.modal-bl-sync-skeleton-header {
+/* Centralny loading box - POPRAWIONY */
+.modal-bl-sync-loading-center {
+    background: rgba(255, 255, 255, 0.98);
+    border-radius: 16px;
+    padding: 40px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    text-align: center;
+    min-width: 320px;
+    max-width: 400px;
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    z-index: 1070; /* Wyższy z-index niż skeleton */
+    position: relative;
+    /* DODANE: Zapobieganie rozciąganiu */
+    flex-shrink: 0;
+}
+
+/* Spinner */
+.modal-bl-sync-spinner {
+    width: 56px;
+    height: 56px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #4285F4;
+    border-radius: 50%;
+    animation: modal-bl-sync-spin 1.2s linear infinite;
+    margin: 0 auto 24px auto;
+}
+
+/* Loading text */
+.modal-bl-sync-loading-text {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    min-height: 28px;
+    transition: all 0.3s ease;
+}
+
+/* Progress dots */
+.modal-bl-sync-progress-dots {
     display: flex;
+    justify-content: center;
     align-items: center;
     gap: 10px;
+    margin-bottom: 20px;
 }
 
-.modal-bl-sync-skeleton-checkbox {
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
-    background: #E9ECEF;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-}
-
-.modal-bl-sync-skeleton-order-number {
-    height: 14px;
-    background: #E9ECEF;
-    border-radius: 4px;
-    flex: 1;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.1s;
-}
-
-.modal-bl-sync-skeleton-status {
-    width: 80px;
-    height: 20px;
-    background: #E9ECEF;
-    border-radius: 4px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.2s;
-}
-
-.modal-bl-sync-skeleton-base-btn {
-    width: 40px;
-    height: 20px;
-    background: #E9ECEF;
-    border-radius: 4px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.3s;
-}
-
-/* Skeleton client/delivery section */
-.modal-bl-sync-skeleton-info {
-    display: flex;
-    gap: 10px;
-}
-
-.modal-bl-sync-skeleton-client,
-.modal-bl-sync-skeleton-delivery {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.modal-bl-sync-skeleton-label {
-    width: 60px;
+.modal-bl-sync-progress-dot {
+    width: 12px;
     height: 12px;
+    border-radius: 50%;
     background: #E9ECEF;
-    border-radius: 3px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.4s;
+    transition: all 0.4s ease;
+    position: relative;
 }
 
-.modal-bl-sync-skeleton-value {
-    width: 100%;
-    height: 8px;
-    background: #E9ECEF;
-    border-radius: 3px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.5s;
-}
+    .modal-bl-sync-progress-dot.active {
+        background: #4285F4;
+        transform: scale(1.3);
+        box-shadow: 0 0 12px rgba(66, 133, 244, 0.6);
+    }
 
-/* Skeleton products */
-.modal-bl-sync-skeleton-products {
-    border-bottom: 1px solid #CCC;
-    padding-bottom: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
+    .modal-bl-sync-progress-dot.completed {
+        background: #28a745;
+        transform: scale(1.1);
+        box-shadow: 0 0 8px rgba(40, 167, 69, 0.4);
+    }
 
-.modal-bl-sync-skeleton-products-header {
-    width: 60px;
-    height: 12px;
-    background: #E9ECEF;
-    border-radius: 3px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.6s;
-}
-
-.modal-bl-sync-skeleton-product-line {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 4px;
-}
-
-.modal-bl-sync-skeleton-product-name {
-    width: 70%;
-    height: 8px;
-    background: #E9ECEF;
-    border-radius: 3px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.7s;
-}
-
-.modal-bl-sync-skeleton-product-price {
-    width: 25%;
-    height: 8px;
-    background: #E9ECEF;
-    border-radius: 3px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.8s;
-}
-
-/* Skeleton footer */
-.modal-bl-sync-skeleton-footer {
-    display: flex;
-    justify-content: space-between;
-}
-
-.modal-bl-sync-skeleton-payments,
-.modal-bl-sync-skeleton-summary {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.modal-bl-sync-skeleton-payments {
-    width: 140px;
-}
-
-.modal-bl-sync-skeleton-summary {
-    width: 130px;
-}
-
-.modal-bl-sync-skeleton-amount-line {
-    display: flex;
-    justify-content: space-between;
-    height: 8px;
-}
-
-.modal-bl-sync-skeleton-amount-label {
-    width: 40%;
-    background: #E9ECEF;
-    border-radius: 3px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 0.9s;
-}
-
-.modal-bl-sync-skeleton-amount-value {
-    width: 35%;
-    background: #E9ECEF;
-    border-radius: 3px;
-    animation: modal-bl-sync-pulse 2s ease-in-out infinite;
-    animation-delay: 1s;
+/* Progress step labels */
+.modal-bl-sync-step-label {
+    color: #6c757d;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 12px;
+    opacity: 0.9;
 }
 
 /* ===========================================
@@ -6268,8 +6127,13 @@ body.fullscreen-mode {
    =========================================== */
 
 @keyframes modal-bl-sync-spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
 }
 
 @keyframes modal-bl-sync-pulse {
@@ -6277,39 +6141,62 @@ body.fullscreen-mode {
         background-color: #E9ECEF;
         opacity: 1;
     }
+
     50% {
         background-color: #DEE2E6;
         opacity: 0.7;
     }
+
     100% {
         background-color: #E9ECEF;
         opacity: 1;
     }
 }
 
-/* Fade in effect dla skeleton */
-.modal-bl-sync-skeleton-container {
-    animation: modal-bl-sync-fadeIn 0.3s ease-in-out;
-}
+/* ===========================================
+   RESPONSYWNOŚĆ OVERLAY'A
+   =========================================== */
 
-@keyframes modal-bl-sync-fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    to {
-        opacity: 0.6;
-        transform: translateY(0);
-    }
-}
-
-/* Responsywność skeleton */
 @media (max-width: 900px) {
     .modal-bl-sync-skeleton-grid {
         grid-template-columns: 1fr;
+        gap: 12px;
     }
-    
+
     .modal-bl-sync-skeleton-card {
         min-width: unset;
+        max-width: unset;
+        height: 180px;
+    }
+
+    .modal-bl-sync-loading-center {
+        min-width: 280px;
+        padding: 32px;
+    }
+
+    .modal-bl-sync-skeleton-container {
+        left: 20px;
+        right: 20px;
+    }
+}
+
+@media (max-width: 576px) {
+    .modal-bl-sync-loading-center {
+        min-width: 250px;
+        padding: 24px;
+    }
+
+    .modal-bl-sync-loading-text {
+        font-size: 16px;
+    }
+
+    .modal-bl-sync-spinner {
+        width: 48px;
+        height: 48px;
+    }
+
+    .modal-bl-sync-skeleton-container {
+        top: 60px;
+        bottom: 60px;
     }
 }

@@ -945,12 +945,11 @@ class SyncManager {
                 const price = parseFloat(product.price_brutto) || 0;
                 const totalPrice = price * quantity;
 
-                // Dodaj ilość do nazwy produktu (np. "Dąb lity A/B 137×31×4 cm surowy x6")
-                const nameWithQuantity = `${productName} x${quantity}`;
+                const nameWithQuantity = `${productName} <span style="padding: 1px 5px; background-color: #EEEEEE; border-radius: 6px; font-size: 10px;">${quantity} szt.</span>`;
 
                 productDiv.innerHTML = `
                 <span class="modal-bl-sync-product-name">${nameWithQuantity}</span>
-                <span class="modal-bl-sync-product-price">${totalPrice.toFixed(2)} PLN brutto</span>
+                <span class="modal-bl-sync-product-price">${totalPrice.toFixed(2)} PLN</span>
             `;
 
                 productsList.appendChild(productDiv);
@@ -960,7 +959,7 @@ class SyncManager {
         }
     }
 
-    updateOrdersCounter() {
+    updateOrdersCount() {
         console.log('[SyncManager] 🔄 Aktualizacja licznika zamówień (nowy styl)');
 
         // Pobierz rzeczywisty stan checkboxów
@@ -984,27 +983,9 @@ class SyncManager {
         const saveBtn = document.getElementById('ordersSave');
         if (saveBtn) {
             saveBtn.disabled = selectedCount === 0;
-            saveBtn.textContent = `Zapisz rekordy (${selectedCount})`;
+            saveBtn.textContent = `Wybierz zamówienia`;
 
-            console.log(`[SyncManager] 💾 Przycisk zaktualizowany: "Zapisz rekordy (${selectedCount})"`);
-        }
-    }
-
-    updateOrdersCount() {
-        if (this.ordersCount) {
-            const totalOrders = this.fetchedOrders.length;
-            const selectedCount = this.selectedOrderIds.size;
-            const problemsCount = this.ordersWithDimensionIssues.size;
-
-            let countText = `Znaleziono ${totalOrders} zamówień`;
-            if (selectedCount > 0) {
-                countText += ` (zaznaczono: ${selectedCount})`;
-            }
-            if (problemsCount > 0) {
-                countText += ` ⚠️ ${problemsCount} wymaga uzupełnienia wymiarów`;
-            }
-
-            this.ordersCount.textContent = countText;
+            console.log(`[SyncManager] 💾 Przycisk zaktualizowany: "Zapisz zamówienia (${selectedCount})"`);
         }
     }
 
@@ -1896,18 +1877,12 @@ class SyncManager {
         if (errorState) errorState.style.display = 'none';
     }
 
-    updateOrdersCount() {
-        if (this.ordersCount) {
-            this.ordersCount.textContent = this.fetchedOrders.length;
-        }
-    }
-
     updateSaveButton() {
         const selectedCount = this.selectedOrderIds.size;
         
         if (this.ordersSaveBtn) {
             this.ordersSaveBtn.disabled = selectedCount === 0;
-            this.ordersSaveBtn.textContent = `Zapisz rekordy (${selectedCount})`;
+            this.ordersSaveBtn.textContent = `Zapisz zamówienia (${selectedCount})`;
         }
 
         console.log('[SyncManager] 🔄 Przycisk zapisz zaktualizowany:', selectedCount);
