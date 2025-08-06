@@ -20,8 +20,6 @@ class ReportsManager {
 
         this.quotesCache = new Map();
 
-        this.init();
-
         console.log('[ReportsManager] Initialized');
     }
 

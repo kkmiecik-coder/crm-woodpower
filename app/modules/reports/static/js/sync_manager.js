@@ -88,8 +88,6 @@ class SyncManager {
         this.productsNeedingVolume = [];
         this.volumeModal = null;
 
-        this.init();
-
         console.log('[SyncManager] ✅ Konstruktor zakończony');
     }
 
@@ -141,7 +139,29 @@ class SyncManager {
         this.daysCancelBtn = document.getElementById('syncDaysCancel');
         this.daysCloseBtn = document.getElementById('syncDaysModalClose');
 
-        // KROK 2 - Modal zamówień
+        // DEBUG: Sprawdź które elementy nie zostały znalezione
+        const step1Elements = {
+            'daysModal': this.daysModal,
+            'daysSelect': this.daysSelect,
+            'datePreview': this.datePreview,
+            'dateFromPreview': this.dateFromPreview,
+            'dateToPreview': this.dateToPreview,
+            'daysConfirmBtn': this.daysConfirmBtn,
+            'daysCancelBtn': this.daysCancelBtn,
+            'daysCloseBtn': this.daysCloseBtn
+        };
+
+        const missingStep1 = Object.entries(step1Elements)
+            .filter(([name, element]) => !element)
+            .map(([name]) => name);
+
+        if (missingStep1.length > 0) {
+            console.error('[SyncManager] ❌ BRAKUJĄCE ELEMENTY KROK 1:', missingStep1);
+            console.log('[SyncManager] 🔍 Wszystkie elementy z id="sync*":',
+                Array.from(document.querySelectorAll('[id*="sync"]')).map(el => el.id));
+        }
+
+        // KROK 2 - Modal zamówień (reszta kodu bez zmian)
         this.ordersModal = document.getElementById('syncOrdersModal');
         this.ordersLoadingState = document.getElementById('ordersLoadingState');
         this.ordersListContainer = document.getElementById('ordersListContainer');
@@ -156,34 +176,40 @@ class SyncManager {
         this.ordersSaveBtn = document.getElementById('ordersSave');
         this.ordersCloseBtn = document.getElementById('syncOrdersModalClose');
 
-        // KROK 3 - Modal wymiarów
-        this.dimensionsModal = document.getElementById('dimensionsModal');
-        this.dimensionsList = document.getElementById('dimensionsList');
-        this.dimensionsBackBtn = document.getElementById('dimensionsBack');
-        this.dimensionsSkipBtn = document.getElementById('dimensionsSkip');
-        this.dimensionsSaveBtn = document.getElementById('dimensionsSave');
-        this.dimensionsCloseBtn = document.getElementById('dimensionsModalClose');
+        // DEBUG: Sprawdź elementy KROK 2
+        const step2Elements = {
+            'ordersModal': this.ordersModal,
+            'ordersLoadingState': this.ordersLoadingState,
+            'ordersListContainer': this.ordersListContainer,
+            'ordersList': this.ordersList,
+            'ordersCount': this.ordersCount,
+            'selectAllBtn': this.selectAllBtn,
+            'deselectAllBtn': this.deselectAllBtn,
+            'ordersBackBtn': this.ordersBackBtn,
+            'ordersCancelBtn': this.ordersCancelBtn,
+            'ordersSaveBtn': this.ordersSaveBtn,
+            'ordersCloseBtn': this.ordersCloseBtn
+        };
 
-        // POPRAWKA: Loading overlay - dodaj brakujące elementy
+        const missingStep2 = Object.entries(step2Elements)
+            .filter(([name, element]) => !element)
+            .map(([name]) => name);
+
+        if (missingStep2.length > 0) {
+            console.error('[SyncManager] ❌ BRAKUJĄCE ELEMENTY KROK 2:', missingStep2);
+        }
+
+        // Reszta elementów...
         this.globalLoading = document.getElementById('syncLoadingOverlay');
         this.globalLoadingTitle = document.getElementById('syncLoadingTitle');
         this.globalLoadingText = document.getElementById('syncLoadingText');
 
-        // Templates
         this.orderTemplate = document.getElementById('modalBlSyncOrderTemplate');
         if (!this.orderTemplate) {
             console.error('[SyncManager] ❌ Brak template modalBlSyncOrderTemplate');
             throw new Error('Brakujący template: modalBlSyncOrderTemplate');
         }
         console.log('[SyncManager] ✅ Template modalBlSyncOrderTemplate znaleziony');
-        this.dimensionOrderTemplate = document.getElementById('dimensionOrderTemplate');
-        this.dimensionProductTemplate = document.getElementById('dimensionProductTemplate');
-
-        if (this.dimensionsModal) {
-            console.log('[SyncManager] ✅ Modal objętości dostępny');
-        } else {
-            console.log('[SyncManager] ⚠️ Modal objętości niedostępny - funkcja będzie wyłączona');
-        }
 
         // Walidacja podstawowych elementów
         const requiredElements = [
@@ -195,7 +221,15 @@ class SyncManager {
 
         const missingElements = requiredElements.filter(element => !this[element]);
         if (missingElements.length > 0) {
-            console.error('[SyncManager] ❌ Brakujące wymagane elementy DOM:', missingElements);
+            console.error('[SyncManager] ❌ BRAKUJĄCE WYMAGANE ELEMENTY DOM:', missingElements);
+
+            // Dodatkowy debug - sprawdź cały DOM
+            console.log('[SyncManager] 🔍 PEŁNY DEBUG DOM:');
+            requiredElements.forEach(elementName => {
+                const element = this[elementName];
+                console.log(`  ${elementName}: ${element ? '✅ znaleziony' : '❌ BRAK'}`);
+            });
+
             throw new Error(`Brakujące elementy DOM: ${missingElements.join(', ')}`);
         }
 
@@ -350,6 +384,24 @@ class SyncManager {
 
     showDaysModal() {
         console.log('[SyncManager] 📅 Pokazywanie modala wyboru dni');
+
+        // WALIDACJA: Sprawdź czy element istnieje
+        if (!this.daysModal) {
+            console.error('[SyncManager] ❌ Element daysModal nie istnieje! Sprawdzam DOM...');
+
+            // Spróbuj ponownie znaleźć element
+            this.daysModal = document.getElementById('syncDaysModal');
+
+            if (!this.daysModal) {
+                console.error('[SyncManager] ❌ syncDaysModal nadal nie istnieje w DOM');
+                console.log('[SyncManager] 🔍 Dostępne elementy:',
+                    Array.from(document.querySelectorAll('[id*="sync"]')).map(el => el.id));
+                alert('Błąd: Modal synchronizacji nie został znaleziony. Odśwież stronę.');
+                return;
+            }
+
+            console.log('[SyncManager] ✅ Element daysModal znaleziony ponownie');
+        }
 
         // POPRAWKA: Usuń konfliktujące klasy i ustaw wszystkie style na raz
         this.daysModal.className = 'sync-modal'; // Reset klas
@@ -2209,31 +2261,51 @@ class SyncManager {
 
     handleSaveSuccess(result) {
         console.log('[SyncManager] ✅ Zamówienia zapisane pomyślnie');
-        
-        let message = 'Synchronizacja zakończona pomyślnie!\n\n';
-        message += `Zapisano: ${result.orders_added || 0} produktów\n`;
-        message += `Zaktualizowano: ${result.orders_updated || 0} zamówień\n`;
-        message += `Przetworzono łącznie: ${result.orders_processed || 0} zamówień`;
-        
-        alert(message);
-        
-        // Zamknij wszystkie modale i odśwież stronę
-        this.resetState();
-        this.hideDaysModal();
-        this.hideOrdersModal();
-        this.hideDimensionsModal();
-        
-        // Odśwież dane na stronie
-        if (window.reportsManager && typeof window.reportsManager.refreshData === 'function') {
-            window.reportsManager.refreshData();
-        } else {
-            window.location.reload();
+
+        // Przygotuj wiadomość dla toast'a
+        let message = '🎉 Synchronizacja zakończona pomyślnie!';
+
+        // Dodaj szczegóły jeśli są dostępne
+        const details = [];
+        if (result.orders_added > 0) {
+            details.push(`✅ Zapisano ${result.orders_added} produktów`);
         }
+        if (result.orders_updated > 0) {
+            details.push(`🔄 Zaktualizowano ${result.orders_updated} zamówień`);
+        }
+        if (result.orders_processed > 0) {
+            details.push(`📊 Przetworzono ${result.orders_processed} zamówień`);
+        }
+
+        // Połącz wiadomość główną ze szczegółami
+        if (details.length > 0) {
+            message += ' ' + details.join(', ');
+        }
+
+        // Użyj toast zamiast alert
+        this.showSuccessMessage({ message: message });
+
+        // Zamknij wszystkie modale po krótkim opóźnieniu (żeby toast był widoczny)
+        setTimeout(() => {
+            this.resetState();
+            this.hideDaysModal();
+            this.hideOrdersModal();
+            this.hideDimensionsModal();
+
+            // Odśwież dane na stronie
+            if (window.reportsManager && typeof window.reportsManager.refreshData === 'function') {
+                window.reportsManager.refreshData();
+            } else {
+                window.location.reload();
+            }
+        }, 1000); // 1 sekunda żeby toast był widoczny
     }
 
     handleSaveError(error) {
         console.error('[SyncManager] ❌ Błąd zapisywania:', error);
-        alert(`Błąd podczas zapisywania zamówień:\n${error.message}`);
+
+        // Użyj toast zamiast alert dla błędów
+        this.showErrorMessage(`Błąd podczas zapisywania zamówień: ${error.message}`);
     }
 
     // =====================================================
@@ -3188,10 +3260,12 @@ class SyncManager {
 
 // Aktualizacja inicializacji - sprawdź czy VolumeManager jest załadowany
 document.addEventListener('DOMContentLoaded', function () {
+    if (window.syncManager) return;
     // Poczekaj na załadowanie wszystkich zależności
     const initSyncManager = () => {
         if (window.volumeManager || document.getElementById('volumeModal')) {
             window.syncManager = new SyncManager();
+            window.syncManager.init();
             console.log('[SyncManager] Inicjalizacja zakończona z obsługą objętości');
         } else {
             setTimeout(initSyncManager, 100);
