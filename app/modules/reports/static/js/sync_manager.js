@@ -2058,30 +2058,30 @@ class SyncManager {
 
     async saveSelectedOrders() {
         console.log('[SyncManager] 💾 Zapisywanie zaznaczonych zamówień');
-
         try {
             // Pokaż globalny loading
             this.showGlobalLoading('Zapisywanie zamówień...');
 
-            // POPRAWKA: Filtruj po order.order_id (string z API)
-            const ordersToSave = this.fetchedOrders.filter(order => {
-                const orderId = String(order.order_id); // order_id z API
-                return this.selectedOrderIds.has(orderId);
-            });
+            // POPRAWKA: Przygotuj order_ids zamiast całych obiektów
+            const orderIds = Array.from(this.selectedOrderIds);
 
-            console.log('[SyncManager] 📦 Zamówienia do zapisania:', ordersToSave.length);
+            console.log('[SyncManager] 📦 Zamówienia do zapisania:', orderIds.length);
 
-            // Wywołaj API zapisywania
-            const response = await fetch('/reports/api/save-orders', {
+            // POPRAWKA: Używaj tego samego endpointu co performSaveOrders()
+            const response = await fetch('/reports/api/save-selected-orders-with-dimensions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    orders: ordersToSave,
-                    dimension_fixes: this.dimensionFixes
+                    order_ids: orderIds,                    // tablica ID zamówień
+                    dimension_fixes: this.dimensionFixes || {}   // poprawki wymiarów (może być puste)
                 })
             });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
 
             const result = await response.json();
 
@@ -2098,13 +2098,11 @@ class SyncManager {
 
                 // Pokaż komunikat sukcesu
                 this.showSuccessMessage({
-                    message: `Zapisano ${ordersToSave.length} zamówień`
+                    message: result.message || `Zapisano ${orderIds.length} zamówień`
                 });
-
             } else {
-                throw new Error(result.message || 'Błąd zapisu zamówień');
+                throw new Error(result.error || 'Błąd zapisu zamówień');
             }
-
         } catch (error) {
             console.error('[SyncManager] ❌ Błąd zapisywania:', error);
             this.showErrorMessage(`Błąd zapisu: ${error.message}`);
