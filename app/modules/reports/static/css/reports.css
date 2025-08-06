@@ -5190,6 +5190,7 @@ body.fullscreen-mode {
     flex-direction: column;
     gap: 18px;
     overflow: hidden;
+    margin: auto;
 }
 
 /* ===========================================
@@ -5254,7 +5255,7 @@ body.fullscreen-mode {
 
 .modal-bl-sync-content {
     display: flex;
-    padding: 0 30px;
+    padding: 0 10px;
     flex-direction: column;
     align-items: flex-start;
     gap: 18px;
@@ -5676,7 +5677,7 @@ body.fullscreen-mode {
 /* Sekcja podsumowania - prawa strona */
 .modal-bl-sync-summary-section {
     display: flex;
-    width: 170px;
+    width: 150px;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
@@ -5798,6 +5799,41 @@ body.fullscreen-mode {
         cursor: not-allowed;
         opacity: 0.6;
     }
+
+/* Sekcja dat - lewa strona */
+.modal-bl-sync-dates-section {
+    display: flex;
+    width: 190px;
+    flex-direction: column;
+    align-items: flex-start;
+    align-self: stretch;
+    gap: 2px;
+}
+
+.modal-bl-sync-date-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    align-self: stretch;
+}
+
+.modal-bl-sync-date-label {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: normal;
+}
+
+.modal-bl-sync-date-value {
+    color: #314254;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 600;
+    line-height: normal;
+}
 
 /* ===========================================
    KOLORY STATUSÓW

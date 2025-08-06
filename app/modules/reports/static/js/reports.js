@@ -268,7 +268,6 @@ class ReportsManager {
                 }
             }
 
-            console.log('[ReportsManager] Initial data loaded');
         } catch (error) {
             console.error('[ReportsManager] Error loading initial data:', error);
             // W przypadku błędu wyczyść wszystko
@@ -419,12 +418,9 @@ class ReportsManager {
             return;
         }
 
-        console.log('[ReportsManager] Updating table with', this.currentData.length, 'records');
-
         // DEBUG: Sprawdź dane przed grupowaniem
         const manualRecords = this.currentData.filter(r => r.is_manual);
         this.currentData.slice(0, 10).forEach((record, i) => {
-            console.log(`  ${i + 1}. ID: ${record.id}, data: ${record.date_created}, klient: ${record.customer_name}`);
         });
 
         if (this.currentData.length === 0) {
@@ -444,7 +440,6 @@ class ReportsManager {
         ordersOrder.slice(0, 10).forEach((key, i) => {
             const orders = grouped.get(key);
             const firstOrder = orders[0];
-            console.log(`  Grupa ${i + 1}: ${key} - ${firstOrder.date_created} - ID: ${firstOrder.id} - manual: ${firstOrder.is_manual} - klient: ${firstOrder.customer_name}`);
         });
 
         // POPRAWKA: Iteruj przez ordersOrder zamiast Object.entries
@@ -1129,8 +1124,6 @@ class ReportsManager {
         }
 
         try {
-            console.log(`[checkIfOrderHasQuote] Sprawdzanie wyceny dla zamówienia: ${orderID}`);
-
             // Wywołaj endpoint API do sprawdzenia czy istnieje wycena z tym base_linker_order_id
             const response = await fetch(`/quotes/api/check-quote-by-order/${orderID}`);
 
@@ -1140,7 +1133,6 @@ class ReportsManager {
             }
 
             const data = await response.json();
-            console.log(`[checkIfOrderHasQuote] Response dla ${orderID}:`, data);
 
             // Zapisz w cache wynik
             this.quotesCache.set(orderID, {
@@ -1246,8 +1238,6 @@ class ReportsManager {
     updateStatistics(stats) {
         if (!stats) return;
 
-        console.log('[ReportsManager] Updating statistics:', stats);
-
         // Aktualizuj wszystkie statystyki
         this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');              // ZMIANA: 4 zamiast 2
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
@@ -1296,12 +1286,9 @@ class ReportsManager {
      */
     updateComparisons(comparison) {
         if (!comparison || Object.keys(comparison).length === 0) {
-            console.log('[ReportsManager] No comparison data, clearing comparisons');
             this.clearComparisons();
             return;
         }
-
-        console.log('[ReportsManager] Updating comparisons:', comparison);
 
         const fields = [
             'total_m3', 'order_amount_net', 'value_net',

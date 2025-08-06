@@ -779,6 +779,10 @@ class SyncManager {
             this.ordersList.appendChild(orderElement);
         });
 
+        setTimeout(() => {
+            this.selectAllOrders();
+        }, 100);
+
         console.log(`[SyncManager] ✅ Wyrenderowano ${this.fetchedOrders.length} zamówień`);
     }
 
@@ -842,6 +846,11 @@ class SyncManager {
         const productsAmount = clone.querySelector('.products-amount');
         const deliveryAmount = clone.querySelector('.delivery-amount');
         const totalAmount = clone.querySelector('.total-amount');
+
+        // Daty zamówienia
+        const dateAdd = clone.querySelector('.date-add');
+        const dateConfirmed = clone.querySelector('.date-confirmed');
+        const dateStatus = clone.querySelector('.date-status');
 
         // Ustaw podstawowe dane
         if (orderNumber) orderNumber.textContent = order.order_id || 'Brak ID';
@@ -912,6 +921,17 @@ class SyncManager {
                 window.open(correctUrl, '_blank');
                 console.log(`[SyncManager] 🔗 Otwieranie Baselinker: ${correctUrl}`);
             });
+        }
+
+        // Ustaw daty - NOWE
+        if (dateAdd) {
+            dateAdd.textContent = order.date_add ? this.formatDateTime(order.date_add) : 'Brak';
+        }
+        if (dateConfirmed) {
+            dateConfirmed.textContent = order.date_confirmed ? this.formatDateTime(order.date_confirmed) : 'Brak';
+        }
+        if (dateStatus) {
+            dateStatus.textContent = order.date_in_status ? this.formatDateTime(order.date_in_status) : 'Brak';
         }
 
         // Renderuj listę produktów w nowym stylu
@@ -1209,6 +1229,7 @@ class SyncManager {
 
         // Renderuj listę produktów
         this.renderProductsList(clone, order);
+
     }
 
     // NOWA metoda: dodaje oznaczenie problemów z objętością
