@@ -2190,19 +2190,19 @@ def _sync_selected_orders_with_volumes(service, order_ids):
                     record_data['total_volume'] = volume
                     
                 elif analysis['analysis_type'] == 'volume_only':
-                    # Użyj objętości z nazwy produktu
-                    volume_per_piece = float(analysis.get('volume', 0))
+                    # ✅ POPRAWKA: objętość z nazwy to już total_volume całej pozycji
+                    total_volume = float(analysis.get('volume', 0))
                     quantity = int(record_data.get('quantity', 1))
-                    
-                    record_data['total_volume'] = round(volume_per_piece * quantity, 4)
-                    record_data['volume_per_piece'] = round(volume_per_piece, 4)
+    
+                    record_data['total_volume'] = round(total_volume, 4)  # NIE MNÓŻ!
+                    record_data['volume_per_piece'] = round(total_volume / quantity, 4)  # PODZIEL!
                     
                     # Wyczyść wymiary (bo ich nie ma)
                     record_data['length_cm'] = None
                     record_data['width_cm'] = None
                     record_data['thickness_cm'] = None
                     
-                    print(f"[DEBUG] volume_only: {volume_per_piece} m³ * {quantity} = {record_data['total_volume']} m³")
+                    print(f"[DEBUG] volume_only: {total_volume} m³ (całość) / {quantity} = {record_data['volume_per_piece']} m³/szt")
                     
                 elif analysis['analysis_type'] == 'manual_input_needed':
                     # Użyj ręcznie wprowadzonych danych
@@ -2212,8 +2212,10 @@ def _sync_selected_orders_with_volumes(service, order_ids):
                     if volume_fix and 'volume' in volume_fix:
                         volume_per_piece = float(volume_fix['volume'])
                         quantity = record_data.get('quantity', 1)
-                        record_data['total_volume'] = volume_per_piece * quantity
-                        record_data['volume_per_piece'] = volume_per_piece
+                        total_volume = float(volume_fix['volume'])
+
+                        record_data['total_volume'] = total_volume  # NIE MNÓŻ przez quantity!
+                        record_data['volume_per_piece'] = total_volume / quantity  # Podziel przez quantity
                         
                         # Wyczyść wymiary
                         record_data['length_cm'] = None

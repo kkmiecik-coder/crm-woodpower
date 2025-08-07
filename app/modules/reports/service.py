@@ -208,7 +208,15 @@ class BaselinkerReportsService:
                 'value_net': record.value_net,
                 'price_type': record.price_type,
                 'original_amount_from_baselinker': record.original_amount_from_baselinker,
+                'payment_method': record.payment_method,
+                'paid_amount_net': record.paid_amount_net,
+                'balance_due': record.balance_due,
             
+                # ✅ DODAJ ATRYBUTY DREWNA
+                'wood_species': record.wood_species,
+                'technology': record.technology,
+                'wood_class': record.wood_class,
+
                 # Objętości (z istniejącej logiki)
                 'volume_per_piece': record.volume_per_piece,
                 'total_volume': record.total_volume,
@@ -270,12 +278,12 @@ class BaselinkerReportsService:
         
             # Nadpisz objętość według nowej analizy
             if analysis['analysis_type'] == 'volume_only':
-                # Użyj objętości z nazwy produktu
-                volume_per_piece = analysis.get('volume', 0)
+                # ✅ POPRAWKA: objętość z nazwy to już total_volume całej pozycji
+                total_volume = float(analysis.get('volume', 0))
                 quantity = record_data.get('quantity', 1)
-            
-                record_data['total_volume'] = volume_per_piece * quantity
-                record_data['volume_per_piece'] = volume_per_piece
+
+                record_data['total_volume'] = total_volume  # NIE MNÓŻ!
+                record_data['volume_per_piece'] = total_volume / quantity  # PODZIEL!
             
                 # Wyczyść wymiary (bo ich nie ma)
                 record_data['length_cm'] = None
@@ -285,13 +293,12 @@ class BaselinkerReportsService:
             elif analysis['analysis_type'] == 'manual_input_needed':
                 # Użyj ręcznie wprowadzonych danych
                 volume_fix = self.get_volume_fix(product_key)
-            
                 if volume_fix and volume_fix.get('volume'):
-                    volume_per_piece = float(volume_fix['volume'])
+                    total_volume = float(volume_fix['volume'])
                     quantity = record_data.get('quantity', 1)
-                
-                    record_data['total_volume'] = volume_per_piece * quantity
-                    record_data['volume_per_piece'] = volume_per_piece
+    
+                    record_data['total_volume'] = total_volume  # NIE MNÓŻ!
+                    record_data['volume_per_piece'] = total_volume / quantity  # PODZIEL!
                 
                     # Wyczyść wymiary
                     record_data['length_cm'] = None
