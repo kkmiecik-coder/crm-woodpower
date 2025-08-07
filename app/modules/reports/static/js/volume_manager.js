@@ -295,7 +295,6 @@ class VolumeManager {
                 <div class="volume-form-grid">
                     <div class="volume-input-group required">
                         <label>Objętość na 1 szt. (m³) *</label>
-                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
                         <input type="text"
                                class="volume-input volume-required"
                                data-field="volume"
@@ -304,12 +303,12 @@ class VolumeManager {
                                step="0.0001"
                                min="0"
                                placeholder="np. 0.1234">
+                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
                         <div class="validation-message"></div>
                     </div>
 
                     <div class="volume-input-group">
                         <label>Gatunek drewna</label>
-                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                         <select class="volume-select" data-field="wood_species" data-product-key="${productKey}">
                             <option value="">Wybierz gatunek...</option>
                             <option value="dąb" ${savedData.wood_species === 'dąb' ? 'selected' : ''}>Dąb</option>
@@ -318,11 +317,11 @@ class VolumeManager {
                             <option value="sosna" ${savedData.wood_species === 'sosna' ? 'selected' : ''}>Sosna</option>
                             <option value="brzoza" ${savedData.wood_species === 'brzoza' ? 'selected' : ''}>Brzoza</option>
                         </select>
+                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
 
                     <div class="volume-input-group">
                         <label>Technologia</label>
-                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                         <select class="volume-select" data-field="technology" data-product-key="${productKey}">
                             <option value="">Wybierz technologię...</option>
                             <option value="lity" ${savedData.technology === 'lity' ? 'selected' : ''}>Lity</option>
@@ -330,16 +329,17 @@ class VolumeManager {
                             <option value="mikrowczep" ${savedData.technology === 'mikrowczep' ? 'selected' : ''}>Mikrowczep</option>
                             <option value="fornir" ${savedData.technology === 'fornir' ? 'selected' : ''}>Fornir</option>
                         </select>
+                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
 
                     <div class="volume-input-group">
                         <label>Klasa drewna</label>
-                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                         <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
                             <option value="">Wybierz klasę...</option>
                             <option value="A/B" ${savedData.wood_class === 'A/B' ? 'selected' : ''}>A/B</option>
                             <option value="B/B" ${savedData.wood_class === 'B/B' ? 'selected' : ''}>B/B</option>
                         </select>
+                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
                 </div>
 
@@ -767,7 +767,6 @@ class VolumeManager {
                     <!-- Objętość - pole wymagane -->
                     <div class="volume-input-group required">
                         <label>Objętość na 1 szt. (m³) *</label>
-                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
                         <input type="text"
                                class="volume-input volume-required"
                                data-field="volume"
@@ -777,12 +776,12 @@ class VolumeManager {
                                min="0"
                                placeholder="np. 0.1234">
                         <div class="validation-message"></div>
+                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
                     </div>
 
                     <!-- Gatunek drewna -->
                     <div class="volume-input-group">
                         <label>Gatunek drewna</label>
-                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                         <select class="volume-select" data-field="wood_species" data-product-key="${productKey}">
                             <option value="">Wybierz gatunek...</option>
                             <option value="dąb" ${savedData.wood_species === 'dąb' ? 'selected' : ''}>Dąb</option>
@@ -791,12 +790,12 @@ class VolumeManager {
                             <option value="sosna" ${savedData.wood_species === 'sosna' ? 'selected' : ''}>Sosna</option>
                             <option value="brzoza" ${savedData.wood_species === 'brzoza' ? 'selected' : ''}>Brzoza</option>
                         </select>
+                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
 
                     <!-- Technologia -->
                     <div class="volume-input-group">
                         <label>Technologia</label>
-                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                         <select class="volume-select" data-field="technology" data-product-key="${productKey}">
                             <option value="">Wybierz technologię...</option>
                             <option value="lity" ${savedData.technology === 'lity' ? 'selected' : ''}>Lity</option>
@@ -804,17 +803,18 @@ class VolumeManager {
                             <option value="mikrowczep" ${savedData.technology === 'mikrowczep' ? 'selected' : ''}>Mikrowczep</option>
                             <option value="fornir" ${savedData.technology === 'fornir' ? 'selected' : ''}>Fornir</option>
                         </select>
+                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
 
                     <!-- Klasa drewna -->
                     <div class="volume-input-group">
                         <label>Klasa drewna</label>
-                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                         <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
                             <option value="">Wybierz klasę...</option>
                             <option value="A/B" ${savedData.wood_class === 'A/B' ? 'selected' : ''}>A/B</option>
                             <option value="B/B" ${savedData.wood_class === 'B/B' ? 'selected' : ''}>B/B</option>
                         </select>
+                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
                 </div>
 

@@ -24,6 +24,7 @@ from typing import Dict, Optional, Tuple, List
 
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
+reports_logger.info("✅ reports_logger zainicjowany poprawnie w routers.py")
 
 def login_required(func):
     """Dekorator wymagający zalogowania"""
@@ -2162,11 +2163,13 @@ def analyze_order_products_for_volume(order_data):
         # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
         product['has_dimension_issues'] = not check_product_dimensions(product_name)
         
-        if analysis['analysis_type'] == 'manual_input_needed':
+        if analysis['analysis_type'] == 'manual_input_needed' or analysis['analysis_type'] == 'volume_only':
             order_has_volume_issues = True
         
         analyzed_products.append(product)
     
+    print(f"[DEBUG] Zamówienie {order_data.get('order_id')}: has_volume_issues={order_has_volume_issues}, produkty_z_analizą={len(analyzed_products)}")
+
     # Aktualizuj zamówienie
     order_data['products'] = analyzed_products
     order_data['has_volume_issues'] = order_has_volume_issues
@@ -2215,15 +2218,18 @@ def _sync_selected_orders_with_volumes(service, order_ids):
                     
                 elif analysis['analysis_type'] == 'volume_only':
                     # Użyj objętości z nazwy produktu
-                    volume_per_piece = analysis['volume']
-                    quantity = record_data.get('quantity', 1)
-                    record_data['total_volume'] = volume_per_piece * quantity
-                    record_data['volume_per_piece'] = volume_per_piece
+                    volume_per_piece = float(analysis.get('volume', 0))
+                    quantity = int(record_data.get('quantity', 1))
+                    
+                    record_data['total_volume'] = round(volume_per_piece * quantity, 4)
+                    record_data['volume_per_piece'] = round(volume_per_piece, 4)
                     
                     # Wyczyść wymiary (bo ich nie ma)
                     record_data['length_cm'] = None
                     record_data['width_cm'] = None
                     record_data['thickness_cm'] = None
+                    
+                    print(f"[DEBUG] volume_only: {volume_per_piece} m³ * {quantity} = {record_data['total_volume']} m³")
                     
                 elif analysis['analysis_type'] == 'manual_input_needed':
                     # Użyj ręcznie wprowadzonych danych
@@ -3294,16 +3300,10 @@ def extract_wood_class_from_product_name(product_name: str) -> Optional[str]:
     print(f"[DEBUG] Nie znaleziono klasy w '{product_name}'")
     return None
 
-def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, any]:
-    """
-    Kompleksowa analiza produktu - sprawdza wymiary, objętość i atrybuty.
+def analyze_product_for_volume_and_attributes(product_name):
+    print(f"[DEBUG] === ANALIZA PRODUKTU START ===")
+    print(f"[DEBUG] Nazwa produktu: '{product_name}'")
     
-    Args:
-        product_name (str): Nazwa produktu
-        
-    Returns:
-        Dict: Słownik z wynikami analizy
-    """
     if not product_name:
         return {
             'has_dimensions': False,
@@ -3315,26 +3315,58 @@ def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, an
             'analysis_type': 'empty'
         }
     
-    # Sprawdź wymiary (użyj istniejącej funkcji)
+    # Sprawdź wymiary
     has_dimensions = check_product_dimensions(product_name)
+    print(f"[DEBUG] has_dimensions: {has_dimensions}")
     
     # Sprawdź objętość
     volume = extract_volume_from_product_name(product_name)
     has_volume = volume is not None
+    print(f"[DEBUG] volume: {volume}, has_volume: {has_volume}")
     
     # Wyodrębnij atrybuty
     wood_species = extract_wood_species_from_product_name(product_name)
     technology = extract_technology_from_product_name(product_name)
     wood_class = extract_wood_class_from_product_name(product_name)
     
-    # Określ typ analizy według priorytetów
+    # NOWA LOGIKA PRIORYTETU - OBJĘTOŚĆ WYGRYWA Z HEURYSTYKĄ WYMIARÓW
     analysis_type = 'unknown'
+    
+    # SPRAWDŹ CZY WYMIARY TO RZECZYWISTE WYMIARY (nie heurystyka)
+    has_real_dimensions = False
     if has_dimensions:
-        analysis_type = 'dimensions_priority'  # Wymiary mają priorytet
-    elif has_volume:
-        analysis_type = 'volume_only'
+        # Sprawdź czy nazwa zawiera rzeczywiste wzorce wymiarów (np. 50x30x2)
+        import re
+        real_dimension_patterns = [
+            r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*\s*x\s*\d+[,.]?\d*',  # 200,4x89x4.5 (3 wymiary)
+            r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*\s*×\s*\d+[,.]?\d*',  # 200,4×89×4.5
+            r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*(?!\s*x)',  # 200,4x89 (2 wymiary)
+            r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*(?!\s*×)',  # 200,4×89
+        ]
+        
+        for pattern in real_dimension_patterns:
+            if re.search(pattern, product_name):
+                has_real_dimensions = True
+                break
+                
+    print(f"[DEBUG] has_real_dimensions: {has_real_dimensions}")
+    
+    # LOGIKA PRIORYTETU:
+    if has_real_dimensions and not has_volume:
+        analysis_type = 'dimensions_priority'
+        print(f"[DEBUG] Tylko rzeczywiste wymiary -> dimensions_priority")
+    elif has_real_dimensions and has_volume:
+        analysis_type = 'dimensions_priority'  # Rzeczywiste wymiary wygrywają z objętością
+        print(f"[DEBUG] Rzeczywiste wymiary + objętość -> dimensions_priority (wymiary wygrywają)")
+    elif not has_real_dimensions and has_volume:
+        analysis_type = 'volume_only'  # Objętość wygrywa z heurystyką wymiarów
+        print(f"[DEBUG] Objętość + heurystyka wymiarów -> volume_only (objętość wygrywa)")
+    elif not has_real_dimensions and not has_volume and has_dimensions:
+        analysis_type = 'manual_input_needed'  # Tylko heurystyka wymiarów - lepiej zapytać użytkownika
+        print(f"[DEBUG] Tylko heurystyka wymiarów -> manual_input_needed (lepiej zapytać)")
     else:
         analysis_type = 'manual_input_needed'
+        print(f"[DEBUG] Brak wymiarów i objętości -> manual_input_needed")
     
     result = {
         'has_dimensions': has_dimensions,
@@ -3346,9 +3378,9 @@ def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, an
         'analysis_type': analysis_type
     }
     
-    print(f"[DEBUG] Analiza produktu '{product_name}': {result}")
+    print(f"[DEBUG] Wynik analizy: {result}")
+    print(f"[DEBUG] === ANALIZA PRODUKTU KONIEC ===")
     return result
-
 
 def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
     """
