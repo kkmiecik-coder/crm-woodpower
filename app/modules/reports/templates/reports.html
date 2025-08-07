@@ -338,48 +338,46 @@
     <!-- Modal synchronizacji -->
     <!-- KROK 1: Modal wyboru ilości dni -->
     <div id="syncDaysModal" class="sync-modal" style="display: none;">
-        <div class="sync-modal-overlay">
-            <div class="sync-modal-content">
-                <div class="sync-modal-header">
-                    <h3>Pobierz zamówienia z Baselinker</h3>
-                    <button class="sync-modal-close" id="syncDaysModalClose">&times;</button>
-                </div>
+        <div class="sync-modal-content">
+            <div class="sync-modal-header">
+                <h3>Pobierz zamówienia z Baselinker</h3>
+                <button class="sync-modal-close" id="syncDaysModalClose">&times;</button>
+            </div>
 
-                <div class="sync-modal-body">
-                    <div class="days-selection-container">
-                        <p class="days-selection-description">
-                            Wybierz zakres dat dla pobierania zamówień z Baselinker:
+            <div class="sync-modal-body">
+                <div class="days-selection-container">
+                    <p class="days-selection-description">
+                        Wybierz zakres dat dla pobierania zamówień z Baselinker:
+                    </p>
+
+                    <div class="days-dropdown-container">
+                        <label for="daysSelect" class="days-dropdown-label">Ilość dni wstecz:</label>
+                        <select id="daysSelect" class="days-dropdown">
+                            <option value="">-- Wybierz zakres --</option>
+                            <option value="1">1 dzień</option>
+                            <option value="2">2 dni</option>
+                            <option value="3">3 dni</option>
+                            <option value="4">4 dni</option>
+                            <option value="5">5 dni</option>
+                            <option value="6">6 dni</option>
+                            <option value="7">7 dni</option>
+                            <option value="14">14 dni</option>
+                            <option value="30">30 dni</option>
+                        </select>
+                    </div>
+
+                    <div class="date-preview" id="datePreview" style="display: none;">
+                        <p class="date-preview-text">
+                            Zostanę pobrane zamówienia od <strong id="dateFromPreview"></strong>
+                            do <strong id="dateToPreview"></strong>
                         </p>
-
-                        <div class="days-dropdown-container">
-                            <label for="daysSelect" class="days-dropdown-label">Ilość dni wstecz:</label>
-                            <select id="daysSelect" class="days-dropdown">
-                                <option value="">-- Wybierz zakres --</option>
-                                <option value="1">1 dzień</option>
-                                <option value="2">2 dni</option>
-                                <option value="3">3 dni</option>
-                                <option value="4">4 dni</option>
-                                <option value="5">5 dni</option>
-                                <option value="6">6 dni</option>
-                                <option value="7">7 dni</option>
-                                <option value="14">14 dni</option>
-                                <option value="30">30 dni</option>
-                            </select>
-                        </div>
-
-                        <div class="date-preview" id="datePreview" style="display: none;">
-                            <p class="date-preview-text">
-                                Zostanę pobrane zamówienia od <strong id="dateFromPreview"></strong>
-                                do <strong id="dateToPreview"></strong>
-                            </p>
-                        </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="sync-modal-footer">
-                    <button id="syncDaysCancel" class="btn btn-secondary">Anuluj</button>
-                    <button id="syncDaysConfirm" class="btn btn-primary" disabled>Pobierz zamówienia</button>
-                </div>
+            <div class="sync-modal-footer">
+                <button id="syncDaysCancel" class="btn btn-secondary">Anuluj</button>
+                <button id="syncDaysConfirm" class="btn btn-primary" disabled>Pobierz zamówienia</button>
             </div>
         </div>
     </div>
