@@ -154,6 +154,9 @@ class SyncManager {
         // === Template ===
         this.orderTemplate = null;
 
+        // Referencja do VolumeManager dla dwukierunkowej komunikacji
+        this.volumeManager = null;
+
         // === STAN APLIKACJI ===
         this.selectedDays = null;
         this.dateFrom = null;
@@ -735,12 +738,53 @@ class SyncManager {
             // KROK 1: Łączenie z Baselinker
             this.showProgressiveLoading('Łączenie z Baselinker...', 1);
 
-            // POPRAWKA: Używaj tej samej struktury danych co w działającej wersji
+            // DODAJ: Walidację danych przed wysłaniem
+            console.log('[SyncManager] 🔍 Walidacja danych przed wysłaniem:', {
+                dateFrom: this.dateFrom,
+                dateTo: this.dateTo,
+                selectedDays: this.selectedDays,
+                dateFromType: typeof this.dateFrom,
+                dateToType: typeof this.dateTo,
+                selectedDaysType: typeof this.selectedDays
+            });
+
+            // POPRAWKA 1: Upewnij się że days_count to liczba
+            const selectedDaysNumber = parseInt(this.selectedDays, 10);
+            if (isNaN(selectedDaysNumber)) {
+                throw new Error(`Nieprawidłowa wartość selectedDays: ${this.selectedDays}`);
+            }
+
+            // POPRAWKA 2: Konwertuj daty z polskiego formatu DD.MM.YYYY na ISO YYYY-MM-DD
+            const convertPolishDateToISO = (polishDate) => {
+                // Sprawdź czy to już format ISO
+                if (/^\d{4}-\d{2}-\d{2}$/.test(polishDate)) {
+                    return polishDate;
+                }
+                
+                // Konwertuj z DD.MM.YYYY na YYYY-MM-DD
+                const match = polishDate.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+                if (match) {
+                    const [, day, month, year] = match;
+                    return `${year}-${month}-${day}`;
+                }
+                
+                throw new Error(`Nieprawidłowy format daty: ${polishDate}`);
+            };
+
+            // Konwertuj daty na format ISO jeśli potrzeba
+            const isoDateFrom = convertPolishDateToISO(this.dateFrom);
+            const isoDateTo = convertPolishDateToISO(this.dateTo);
+            
+            console.log('[SyncManager] 🔄 Konwersja dat:', {
+                original: { from: this.dateFrom, to: this.dateTo },
+                converted: { from: isoDateFrom, to: isoDateTo }
+            });
+
             const requestData = {
-                date_from: this.dateFrom,
-                date_to: this.dateTo,
-                days_count: this.selectedDays,           // DODANE - brakował ten parametr!
-                get_all_statuses: false                  // DODANE - wykluczamy anulowane i nieopłacone
+                date_from: isoDateFrom,
+                date_to: isoDateTo,
+                days_count: selectedDaysNumber,           // POPRAWKA: Używaj liczby, nie stringa
+                get_all_statuses: false                   // DODANE - wykluczamy anulowane i nieopłacone
             };
 
             console.log('[SyncManager] 📤 Wysyłanie zapytania z analizą objętości:', requestData);
@@ -759,8 +803,16 @@ class SyncManager {
 
             console.log('[SyncManager] 📥 Odpowiedź z serwera - status:', response.status);
 
+            // DODAJ: Logowanie szczegółów odpowiedzi w przypadku błędu
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                let errorBody = '';
+                try {
+                    errorBody = await response.text();
+                    console.error('[SyncManager] ❌ Błąd serwera - treść odpowiedzi:', errorBody);
+                } catch (e) {
+                    console.error('[SyncManager] ❌ Nie można odczytać treści błędu:', e);
+                }
+                throw new Error(`HTTP ${response.status}: ${response.statusText}. Body: ${errorBody}`);
             }
 
             const result = await response.json();
@@ -1100,6 +1152,48 @@ class SyncManager {
             dateStatus.textContent = order.date_in_status ? this.formatDateTime(order.date_in_status) : 'Brak';
         }
 
+        // === NOWY KOD: Obsługa price type badge ===
+        const priceTypeBadge = clone.querySelector('.price-type-badge');
+        const priceTypeText = clone.querySelector('.price-type-text');
+
+        if (priceTypeBadge && priceTypeText) {
+            // Pobierz typ ceny z custom_extra_fields
+            const priceType = order.custom_extra_fields && order.custom_extra_fields["106169"];
+
+            if (priceType) {
+                priceTypeBadge.style.display = 'block';
+
+                // Usuń poprzednie klasy
+                priceTypeBadge.classList.remove('netto', 'brutto', 'unknown');
+
+                if (priceType.toLowerCase() === 'netto') {
+                    priceTypeBadge.classList.add('netto');
+                    priceTypeText.textContent = 'Netto';
+                } else if (priceType.toLowerCase() === 'brutto') {
+                    priceTypeBadge.classList.add('brutto');
+                    priceTypeText.textContent = 'Brutto';
+                } else {
+                    priceTypeBadge.classList.add('unknown');
+                    priceTypeText.textContent = 'Nieznane';
+                }
+
+                console.log(`[SyncManager] ℹ️ Zamówienie ${order.order_id} ma typ ceny: ${priceType}`);
+            } else {
+                // Brak informacji o price_type - ukryj badge
+                priceTypeBadge.style.display = 'none';
+            }
+        }
+
+        // === NOWY KOD: Stylowanie kafelka z problemami wymiarów ===
+        const orderCard = clone.querySelector('.modal-bl-sync-order-card');
+        if (orderCard && order.has_dimension_issues) {
+            // Ustaw specjalne tło i obramowanie dla zamówień z problemami wymiarów
+            orderCard.style.backgroundColor = '#FFFAF5';
+            orderCard.style.border = '2px solid #F48313';
+
+            console.log(`[SyncManager] 🎨 Zamówienie ${order.order_id} ma problemy z wymiarami - zastosowano specjalne stylowanie`);
+        }
+
         // Renderuj listę produktów w nowym stylu
         this.renderNewProductsList(clone, order);
     }
@@ -1131,10 +1225,25 @@ class SyncManager {
                 const price = parseFloat(product.price_brutto) || 0;
                 const totalPrice = price * quantity;
 
-                const nameWithQuantity = `${productName} <span style="padding: 1px 5px; background-color: #EEEEEE; border-radius: 6px; font-size: 10px;">${quantity} szt.</span>`;
+                // === NOWY KOD: Sprawdź problemy z wymiarami ===
+                const hasDimensionIssues = product.has_dimension_issues;
+                const hasVolumeIssues = product.needs_manual_volume;
+                const hasProblems = hasDimensionIssues || hasVolumeIssues;
+
+                // === NOWY KOD: Ikona problemu ===
+                let problemIcon = '';
+                if (hasDimensionIssues && hasVolumeIssues) {
+                    problemIcon = '⚠️📏 ';
+                } else if (hasDimensionIssues) {
+                    problemIcon = '⚠️ ';
+                } else if (hasVolumeIssues) {
+                    problemIcon = '📏 ';
+                }
+
+                const nameWithQuantity = `${problemIcon}${productName} <span style="padding: 1px 5px; background-color: #EEEEEE; border-radius: 6px; font-size: 10px;">${quantity} szt.</span>`;
 
                 productDiv.innerHTML = `
-                <span class="modal-bl-sync-product-name">${nameWithQuantity}</span>
+                <span class="modal-bl-sync-product-name" style="color: ${hasProblems ? '#F48313' : '#314254'}; font-weight: ${hasProblems ? '600' : '400'};">${nameWithQuantity}</span>
                 <span class="modal-bl-sync-product-price">${totalPrice.toFixed(2)} PLN</span>
             `;
 
@@ -1782,7 +1891,7 @@ class SyncManager {
                 }
 
                 productDiv.innerHTML = `
-                <div class="product-name" style="flex: 1; color: ${hasDimensionIssues || hasVolumeIssues ? '#dc3545' : '#2c3e50'}; margin-right: 10px; line-height: 1.3; font-weight: ${hasDimensionIssues || hasVolumeIssues ? '500' : 'normal'};">
+                <div class="product-name" style="flex: 1; color: ${hasDimensionIssues || hasVolumeIssues ? '#F48313' : '#2c3e50'}; margin-right: 10px; line-height: 1.3; font-weight: ${hasDimensionIssues || hasVolumeIssues ? '600' : 'normal'};">
                     ${problemIcon}${productName}
                 </div>
                 <div class="product-details" style="display: flex; gap: 12px; align-items: center; color: #6c757d; white-space: nowrap;">
@@ -2426,6 +2535,103 @@ class SyncManager {
     // ZAPISYWANIE ZAMÓWIEŃ Z OBSŁUGĄ PROBLEMÓW WYMIARÓW
     // =====================================================
 
+    async checkOrdersForVolumeProblems() {
+        console.log('[SyncManager] 🔍 Sprawdzanie problemów z objętością');
+
+        try {
+            if (!this.fetchedOrders || this.fetchedOrders.length === 0) {
+                console.log('[SyncManager] ⚠️ Brak pobranych zamówień do sprawdzenia');
+                this.showErrorMessage('Nie pobrano zamówień do sprawdzenia problemów z objętością.');
+                this.showOrdersModal();
+                return;
+            }
+
+            const selectedOrders = this.fetchedOrders.filter(order => 
+                this.selectedOrderIds.has(order.order_id.toString())
+            );
+
+            console.log(`[SyncManager] 📊 Sprawdzanie ${selectedOrders.length} zaznaczonych zamówień`);
+
+            // DODAJ DEBUGGING - sprawdź co mają zamówienia
+            selectedOrders.forEach(order => {
+                console.log(`[DEBUG] Zamówienie ${order.order_id}:`, {
+                    has_volume_issues: order.has_volume_issues,
+                    products: order.products?.length || 0,
+                    produkty_details: order.products?.map(p => ({
+                        name: p.name,
+                        analysis_type: p.volume_analysis?.analysis_type,
+                        volume: p.volume_analysis?.volume,
+                        has_dimension_issues: p.has_dimension_issues
+                    }))
+                });
+            });
+
+            const productsNeedingVolume = [];
+            
+            selectedOrders.forEach(order => {
+                console.log(`[DEBUG] Sprawdzam zamówienie ${order.order_id}, has_volume_issues: ${order.has_volume_issues}`);
+                
+                if (order.products) {
+                    order.products.forEach(product => {
+                        const analysis = product.volume_analysis;
+                        console.log(`[DEBUG] Produkt ${product.name}:`, {
+                            analysis_type: analysis?.analysis_type,
+                            volume: analysis?.volume,
+                            will_include: analysis && (
+                                analysis.analysis_type === 'manual_input_needed' ||
+                                analysis.analysis_type === 'volume_only'
+                            )
+                        });
+                        
+                        if (analysis && (
+                            analysis.analysis_type === 'manual_input_needed' ||
+                            analysis.analysis_type === 'volume_only'
+                        )) {
+                            productsNeedingVolume.push({
+                                order_id: order.order_id,
+                                product_id: product.id || product.product_id,
+                                product_name: product.name,
+                                quantity: product.quantity || 1,
+                                analysis: product.volume_analysis,
+                                order_info: {
+                                    // POPRAWKA: Lepsze mapowanie danych klienta
+                                    customer_name: order.customer_name || order.delivery_fullname || order.invoice_fullname || 'Nieznany klient',
+                                    order_date: order.date_add || order.order_date,
+                                    
+                                    // DODAJ WSZYSTKIE 3 DATY:
+                                    date_add: order.date_add,           // Data złożenia
+                                    payment_date: order.payment_date,   // Data płatności  
+                                    delivery_date: order.delivery_date, // Data dostawy
+                                    
+                                    // DODATKOWE INFORMACJE:
+                                    order_status: order.order_status_name || order.current_status || 'Nieznany status',
+                                    total_value: order.total_value || order.value_net || 0
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+            console.log(`[SyncManager] 📊 Produkty wymagające objętości: ${productsNeedingVolume.length}`);
+            console.log('[DEBUG] Lista produktów:', productsNeedingVolume);
+
+            if (productsNeedingVolume.length > 0) {
+                console.log('[SyncManager] ✅ Pokazuję modal objętości');
+                this.productsNeedingVolume = productsNeedingVolume;
+                this.volumeManager.showModal(productsNeedingVolume);
+            } else {
+                console.log('[SyncManager] ✅ Brak problemów z objętością, przechodzę do zapisu');
+                await this.saveOrdersDirectly(selectedOrders);
+            }
+
+        } catch (error) {
+            console.error('[SyncManager] ❌ Błąd sprawdzania problemów z objętością:', error);
+            this.showErrorMessage('Wystąpił błąd podczas sprawdzania problemów z objętością. Odśwież stronę i spróbuj ponownie.');
+            this.showOrdersModal();
+        }
+    }
+    
     async handleOrdersSave() {
         console.log('[SyncManager] 💾 Obsługa zapisywania zamówień');
 
@@ -2434,22 +2640,8 @@ class SyncManager {
             return;
         }
 
-        // POPRAWKA: Sprawdź problemy używając order.order_id (string)
-        const selectedWithProblems = Array.from(this.selectedOrderIds).filter(id =>
-            this.ordersWithDimensionIssues.has(id) // id już jest stringiem z API
-        );
-
-        if (selectedWithProblems.length > 0) {
-            console.log(`[SyncManager] ⚠️ ${selectedWithProblems.length} zaznaczonych zamówień ma problemy z wymiarami`);
-
-            // Przejdź do kroku wymiarów
-            this.proceedToDimensionsStep();
-        } else {
-            console.log('[SyncManager] ✅ Wszystkie zaznaczone zamówienia mają poprawne wymiary, zapisuję');
-
-            // Zapisz bezpośrednio
-            await this.saveSelectedOrders();
-        }
+        // NOWA LOGIKA: Sprawdź problemy z objętością ZAMIAST wymiarów
+        await this.checkOrdersForVolumeProblems();
     }
 
     proceedToDimensionsStep() {
@@ -2461,55 +2653,74 @@ class SyncManager {
     }
 
     // NOWA metoda: pokazuje modal objętości
-    async showVolumeModal(productsNeedingVolume) {
-        console.log('[SyncManager] 📏 Pokazywanie modala objętości');
+    async showVolumeModal(ordersData) {
+        console.log('[SyncManager] 📏 Pokazywanie modala objętości z analizą', ordersData);
 
-        // Sprawdź czy modal objętości istnieje
-        if (!this.dimensionsModal) {
-            console.warn('[SyncManager] ⚠️ Modal objętości niedostępny - używam fallback');
-            this.showWarningToast(`Znaleziono ${productsNeedingVolume.length} produktów wymagających objętości. Modal objętości nie jest jeszcze zaimplementowany.`);
-            // Zapisz bez objętości
-            const selectedOrders = this.fetchedOrders.filter(order =>
-                Array.from(this.selectedOrderIds).includes(order.order_id.toString())
-            );
-            await this.saveOrdersDirectly(selectedOrders);
+        // Przygotuj dane produktów wymagających objętości
+        const productsNeedingVolume = [];
+
+        ordersData.forEach(order => {
+            if (order.products && Array.isArray(order.products)) {
+                order.products.forEach(product => {
+                    // Sprawdź czy produkt wymaga ręcznego wprowadzenia objętości
+                    if (product.volume_analysis && 
+                        (product.volume_analysis.analysis_type === 'manual_input_needed' || 
+                        product.volume_analysis.analysis_type === 'volume_only')) {
+                        
+                        productsNeedingVolume.push({
+                            order_id: order.order_id,
+                            product_id: product.product_id || 'unknown',
+                            product_name: product.name,
+                            quantity: product.quantity,
+                            analysis: product.volume_analysis,
+                            order_info: {
+                                customer_name: order.delivery_fullname || order.buyer_company || 'Nieznany klient',
+                                date: order.date_add ? this.formatDate(new Date(order.date_add * 1000)) : 'Brak daty'
+                            }
+                        });
+                    }
+                });
+            }
+        });
+
+        console.log(`[SyncManager] Produkty wymagające uzupełnienia objętości: ${productsNeedingVolume.length}`);
+
+        if (productsNeedingVolume.length === 0) {
+            // Brak produktów wymagających objętości - przejdź do zapisu
+            this.saveSelectedOrders();
             return;
         }
 
         // Ukryj modal zamówień
         this.hideOrdersModal();
 
-        // Sprawdź dostępność VolumeManager
-        if (!this.volumeManager) {
+        // Pokaż modal objętości z przygotowanymi danymi
+        if (window.volumeManager) {
+            window.volumeManager.showModal(productsNeedingVolume);
+        } else {
             console.error('[SyncManager] VolumeManager nie jest dostępny');
-            alert('Błąd: moduł obsługi objętości nie jest dostępny. Odśwież stronę i spróbuj ponownie.');
-            this.showOrdersModal();
-            return;
+            alert('Błąd: Moduł zarządzania objętościami nie jest dostępny.');
         }
-
-        // Zapisz produkty do późniejszego użycia
-        this.productsNeedingVolume = productsNeedingVolume;
-
-        // Pokaż modal objętości
-        this.volumeManager.showModal(productsNeedingVolume);
     }
 
     // NOWA metoda: bezpośredni zapis zamówień (bez problemów z objętością)
     async saveOrdersDirectly(selectedOrders) {
-        console.log('[SyncManager] 💾 Bezpośredni zapis zamówień bez problemów z objętością');
+        console.log('[SyncManager] 💾 Bezpośredni zapis zamówień');
 
         try {
             this.showSaveProgress('Zapisywanie zamówień...');
 
             const orderIds = selectedOrders.map(order => order.order_id);
 
-            const response = await fetch('/reports/api/save-selected-orders', {
+            // UŻYWAJ ENDPOINTU Z OBSŁUGĄ ANALIZY OBJĘTOŚCI zamiast save-selected-orders
+            const response = await fetch('/reports/api/save-orders-with-volumes', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    order_ids: orderIds
+                    order_ids: orderIds,
+                    volume_fixes: {} // Pusty obiekt - użyj danych z analizy automatycznej
                 })
             });
 
@@ -2519,9 +2730,13 @@ class SyncManager {
                 this.showSuccessMessage(result);
                 this.hideOrdersModal();
 
-                // Odśwież tabelę raportów
-                if (window.reportsManager) {
-                    window.reportsManager.refreshData();
+                // Odśwież tabelę raportów TYLKO jeśli funkcja istnieje
+                if (window.reportsManager && typeof window.reportsManager.refreshTable === 'function') {
+                    window.reportsManager.refreshTable();
+                } else {
+                    console.log('[SyncManager] ⚠️ reportsManager.refreshTable nie jest dostępne');
+                    // Opcjonalnie odśwież stronę
+                    // window.location.reload();
                 }
             } else {
                 throw new Error(result.error || 'Nieznany błąd');
@@ -2750,20 +2965,22 @@ class SyncManager {
 
     // NOWA metoda: bezpośredni zapis zamówień (bez problemów z objętością)
     async saveOrdersDirectly(selectedOrders) {
-        console.log('[SyncManager] 💾 Bezpośredni zapis zamówień bez problemów z objętością');
+        console.log('[SyncManager] 💾 Bezpośredni zapis zamówień z analizą objętości');
 
         try {
             this.showSaveProgress('Zapisywanie zamówień...');
 
             const orderIds = selectedOrders.map(order => order.order_id);
 
-            const response = await fetch('/reports/api/save-selected-orders', {
+            // KLUCZOWA ZMIANA: Używaj endpointu z obsługą analizy objętości
+            const response = await fetch('/reports/api/save-orders-with-volumes', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    order_ids: orderIds
+                    order_ids: orderIds,
+                    volume_fixes: {} // Pusty obiekt - system użyje automatycznej analizy objętości
                 })
             });
 
@@ -2773,9 +2990,13 @@ class SyncManager {
                 this.showSuccessMessage(result);
                 this.hideOrdersModal();
 
-                // Odśwież tabelę raportów
-                if (window.reportsManager) {
+                // POPRAWKA: Bezpieczne wywołanie refreshTable
+                if (window.reportsManager && typeof window.reportsManager.refreshTable === 'function') {
                     window.reportsManager.refreshTable();
+                } else {
+                    console.log('[SyncManager] ⚠️ reportsManager.refreshTable nie jest dostępne - pomijam odświeżanie');
+                    // Opcjonalnie możesz odświeżyć całą stronę:
+                    // setTimeout(() => window.location.reload(), 1000);
                 }
             } else {
                 throw new Error(result.error || 'Nieznany błąd');
@@ -2968,11 +3189,13 @@ class SyncManager {
 
     // NOWA metoda: pokazuje informację o problemach z objętością
     showVolumeIssuesInfo(count) {
-        const container = document.getElementById('ordersListContainer');
-        if (!container) return;
+        const content = document.querySelector('.modal-bl-sync-content');
+        const ordersListContainer = document.getElementById('ordersListContainer');
+
+        if (!content || !ordersListContainer) return;
 
         // Usuń poprzednie powiadomienie jeśli istnieje
-        const existingAlert = container.querySelector('.volume-issues-alert');
+        const existingAlert = content.querySelector('.volume-issues-alert');
         if (existingAlert) {
             existingAlert.remove();
         }
@@ -2980,20 +3203,31 @@ class SyncManager {
         // Utwórz nowe powiadomienie
         const alert = document.createElement('div');
         alert.className = 'volume-issues-alert';
-        alert.innerHTML = `
-            <div class="alert alert-warning" style="margin-bottom: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">
-                <div class="alert-content" style="display: flex; align-items: flex-start; gap: 12px;">
-                    <div class="alert-icon" style="font-size: 20px;">⚠️</div>
-                    <div class="alert-text">
-                        <strong>Uwaga:</strong> ${count} produktów wymaga uzupełnienia objętości.
-                        <br><small style="color: #856404;">Po wybraniu zamówień zostaniesz poproszony o wprowadzenie objętości dla produktów bez wymiarów.</small>
-                    </div>
-                </div>
-            </div>
-        `;
+        alert.style.cssText = `
+        padding: 8px 10px;
+        background: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 8px;
+        width: 100%;
+    `;
 
-        // Wstaw na początku kontenera
-        container.insertBefore(alert, container.firstChild);
+        alert.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 20px;">⚠️</div>
+            <div>
+                <strong style="color: #856404;">Uwaga:</strong> <span style="color: #856404;">${count} produktów wymaga uzupełnienia objętości.</span>
+            </div>
+        </div>
+    `;
+
+        // ZMIANA: Wstaw PO ordersListContainer, ale przed ordersList
+        const ordersList = document.getElementById('ordersList');
+        if (ordersList) {
+            content.insertBefore(alert, ordersList);
+        } else {
+            // Fallback - dodaj na koniec content
+            content.appendChild(alert);
+        }
     }
 
     setupDimensionFixModalEvents(modal, allSelectedOrders) {
@@ -3478,6 +3712,182 @@ class SyncManager {
         }
     }
 
+    // ============ NOWE METODY DO OBSŁUGI OBJĘTOŚCI ============
+
+    async saveOrdersWithVolumes(volumeData) {
+        console.log('[SyncManager] 💾 Zapisywanie zamówień z objętościami');
+
+        try {
+            this.showSaveProgress('Zapisywanie zamówień z objętościami...');
+
+            const orderIds = Array.from(this.selectedOrderIds);
+
+            // 🔍 DODAJ SZCZEGÓŁOWE DEBUGOWANIE
+            console.log('[SyncManager] 🔍 DEBUGGING DANYCH:');
+            console.log('1. selectedOrderIds:', orderIds);
+            console.log('2. fetchedOrders length:', this.fetchedOrders?.length || 0);
+            console.log('3. fetchedOrders sample:', this.fetchedOrders?.[0] || 'BRAK');
+            console.log('4. volumeData:', volumeData);
+
+            // ✅ Filtruj dane zamówień do tylko wybranych
+            const selectedOrdersData = this.fetchedOrders.filter(order => {
+                const orderId = order.order_id?.toString();
+                const isSelected = orderIds.includes(orderId);
+                console.log(`[DEBUG] Order ${order.order_id}: selected=${isSelected}, orderIds includes ${orderId}=${orderIds.includes(orderId)}`);
+                return isSelected;
+            });
+
+            console.log('[SyncManager] 🔍 PO FILTROWANIU:');
+            console.log('selectedOrdersData length:', selectedOrdersData.length);
+            console.log('selectedOrdersData sample:', selectedOrdersData[0] || 'BRAK PO FILTROWANIU');
+
+            // 🔍 SPRAWDŹ STRUKTURĘ PIERWSZEGO ZAMÓWIENIA
+            if (selectedOrdersData.length > 0) {
+                const firstOrder = selectedOrdersData[0];
+                console.log('[SyncManager] 🔍 STRUKTURA PIERWSZEGO ZAMÓWIENIA:');
+                console.log('- order_id:', firstOrder.order_id);
+                console.log('- customer_name:', firstOrder.customer_name || firstOrder.delivery_fullname);
+                console.log('- products:', firstOrder.products?.length || 0);
+                console.log('- products sample:', firstOrder.products?.[0]?.name || 'BRAK');
+                console.log('- cały obiekt:', firstOrder);
+            }
+
+            console.log('[SyncManager] 📤 Przesyłanie danych:', {
+                orderIds: orderIds.length,
+                ordersData: selectedOrdersData.length,
+                volumeFixes: Object.keys(volumeData).length,
+                selectedOrdersDataSample: selectedOrdersData.length > 0 ? {
+                    order_id: selectedOrdersData[0].order_id,
+                    hasProducts: !!selectedOrdersData[0].products,
+                    productsCount: selectedOrdersData[0].products?.length || 0
+                } : 'BRAK'
+            });
+
+            // UŻYWAJ ISTNIEJĄCEGO ENDPOINTU save-orders-with-volumes
+            const response = await fetch('/reports/api/save-orders-with-volumes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    order_ids: orderIds,
+                    volume_fixes: volumeData,
+                    orders_data: selectedOrdersData  // ✅ PRZESYŁAJ PEŁNE DANE
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[SyncManager] ❌ HTTP Error:', response.status, errorText);
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log('[SyncManager] 📥 Wynik zapisu z objętościami:', result);
+
+            if (result.success) {
+                this.showSuccessMessage(result);
+                this.hideOrdersModal();
+
+                // Odśwież tabelę jeśli możliwe
+                if (window.reportsManager && typeof window.reportsManager.refreshTable === 'function') {
+                    window.reportsManager.refreshTable();
+                }
+            } else {
+                throw new Error(result.error || 'Nieznany błąd zapisu');
+            }
+
+        } catch (error) {
+            console.error('[SyncManager] ❌ Błąd zapisu z objętościami:', error);
+            this.showErrorMessage(`Błąd zapisywania zamówień: ${error.message}`);
+            throw error;
+        } finally {
+            this.hideSaveProgress();
+        }
+    }
+
+    convertVolumeDataToFixes(volumeData) {
+        const fixes = {};
+        
+        Object.entries(volumeData).forEach(([productKey, data]) => {
+            // productKey format: "order_id_product_id"
+            fixes[productKey] = {
+                volume: parseFloat(data.volume) || 0,
+                wood_species: data.wood_species || null,
+                technology: data.technology || null,
+                wood_class: data.wood_class || null
+            };
+        });
+        
+        return fixes;
+    }
+
+    showSyncSuccess(result) {
+        const loadingOverlay = document.getElementById('syncLoadingOverlay');
+        const loadingText = document.getElementById('syncLoadingText');
+
+        if (loadingText) {
+            loadingText.innerHTML = `
+                <div style="text-align: center;">
+                    <div style="font-size: 24px; margin-bottom: 10px;">✅</div>
+                    <div style="font-weight: bold; margin-bottom: 5px;">Synchronizacja zakończona!</div>
+                    <div>Zapisano: ${result.orders_added || 0} zamówień</div>
+                    ${result.orders_updated ? `<div>Zaktualizowano: ${result.orders_updated} zamówień</div>` : ''}
+                    <div style="margin-top: 10px; font-size: 12px; opacity: 0.7;">
+                        Zamykanie automatyczne za 3 sekundy...
+                    </div>
+                </div>
+            `;
+        }
+
+        // Automatyczne zamknięcie po 3 sekundach
+        setTimeout(() => {
+            if (loadingOverlay) {
+                loadingOverlay.classList.add('hidden');
+            }
+            this.clearSelectedOrders();
+        }, 3000);
+    }
+
+    updateSyncStatus() {
+        // Odśwież informacje o nowych zamówieniach
+        this.fetchNewOrdersInfo();
+        
+        // Odśwież ostatnią synchronizację
+        if (window.reportsConfig) {
+            window.reportsConfig.lastSync = new Date().toISOString();
+        }
+    }
+
+    clearSelectedOrders() {
+        this.selectedOrderIds = new Set();
+        
+        // Wyczyść checkboxy w modalu zamówień jeśli jest otwarty
+        const checkboxes = document.querySelectorAll('.order-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        
+        // Aktualizuj licznik wybranych
+        this.updateSelectedCount();
+    }
+
+    formatDate(dateString) {
+        if (!dateString) return 'Brak daty';
+        
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('pl-PL', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+        } catch (error) {
+            console.warn('[SyncManager] Błąd formatowania daty:', dateString);
+            return 'Nieprawidłowa data';
+        }
+    }
+
 }
 
 // =====================================================
@@ -3499,6 +3909,14 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     initSyncManager();
+
+    // Inicjalizuj po załadowaniu DOM
+    setTimeout(() => {
+        this.volumeManager = window.volumeManager;
+        if (this.volumeManager) {
+            console.log('[SyncManager] VolumeManager połączony');
+        }
+    }, 100);
 });
 
 console.log('[SyncManager] 🌟 Kompletny nowy SyncManager z obsługą wymiarów załadowany - gotowy do użycia');

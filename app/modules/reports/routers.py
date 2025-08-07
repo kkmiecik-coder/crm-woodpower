@@ -24,6 +24,7 @@ from typing import Dict, Optional, Tuple, List
 
 # Inicjalizacja loggera
 reports_logger = get_structured_logger('reports.routers')
+reports_logger.info("✅ reports_logger zainicjowany poprawnie w routers.py")
 
 def login_required(func):
     """Dekorator wymagający zalogowania"""
@@ -290,29 +291,11 @@ def api_get_data():
                 date_to=date_to
             )
 
-            # DEBUGOWANIE SORTOWANIA - DODAJ TO:
-            print(f"DEBUG SORTOWANIE: Sprawdzenie SQL query:")
-            print(str(query))
-
             orders = query.all()
-
-            print(f"DEBUG SORTOWANIE: Pierwsze 10 rekordów z bazy:")
-            for i, order in enumerate(orders[:10]):
-                print(f"  {i+1}. ID: {order.id}, is_manual: {order.is_manual}, data: {order.date_created}, baselinker_id: {order.baselinker_order_id}")
 
             # DEBUG: Dodane rozszerzone logowanie
             manual_orders = [o for o in orders if o.is_manual]
             all_manual_in_db = BaselinkerReportOrder.query.filter(BaselinkerReportOrder.is_manual == True).all()
-            print(f"DEBUG: Zapytanie zwróciło {len(orders)} rekordów, z czego {len(manual_orders)} ręcznych")
-            print(f"DEBUG: W całej bazie jest {len(all_manual_in_db)} rekordów ręcznych")
-            print(f"DEBUG: Sortowanie - pierwsze 5 rekordów:")
-            for i, order in enumerate(orders[:5]):
-                print(f"  {i+1}. ID: {order.id}, is_manual: {order.is_manual}, status: {order.current_status}, data: {order.date_created}, klient: {order.customer_name}")
-
-            if all_manual_in_db:
-                print(f"DEBUG: Wszystkie rekordy ręczne w bazie:")
-                for order in all_manual_in_db[-3:]:  # Ostatnie 3
-                    print(f"  - ID: {order.id}, status: {order.current_status}, data: {order.date_created}")
             
         except Exception as db_error:
             # Jeśli błąd bazy danych, spróbuj ponownie
@@ -352,11 +335,6 @@ def api_get_data():
             except Exception as comp_error:
                 reports_logger.warning("Błąd obliczania porównań", error=str(comp_error))
                 comparison = {}
-        
-        reports_logger.info("Pobrano dane tabeli",
-                          orders_count=len(data),
-                          date_from=date_from.isoformat() if date_from else None,
-                          date_to=date_to.isoformat() if date_to else None)
         
         return jsonify({
             'success': True,
@@ -512,8 +490,6 @@ def api_add_manual_row():
 
             # DEBUG: Sprawdź zapisany rekord
             created_records = [record]
-            for record in created_records:
-                print(f"  - ID: {record.id}, is_manual: {record.is_manual}, status: {record.current_status}, data: {record.date_created}")
 
             # Sprawdź czy rekordy są w bazie
             fresh_records = BaselinkerReportOrder.query.filter(
@@ -2162,7 +2138,7 @@ def analyze_order_products_for_volume(order_data):
         # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
         product['has_dimension_issues'] = not check_product_dimensions(product_name)
         
-        if analysis['analysis_type'] == 'manual_input_needed':
+        if analysis['analysis_type'] == 'manual_input_needed' or analysis['analysis_type'] == 'volume_only':
             order_has_volume_issues = True
         
         analyzed_products.append(product)
@@ -2175,79 +2151,6 @@ def analyze_order_products_for_volume(order_data):
     order_data['has_dimension_issues'] = any(p.get('has_dimension_issues', False) for p in analyzed_products)
     
     return order_data
-
-@reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])
-@login_required
-def api_save_orders_with_volumes():
-    """
-    NOWY ENDPOINT: Zapisuje zamówienia z uzupełnionymi objętościami i atrybutami
-    """
-    user_email = session.get('user_email')
-    
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'success': False,
-                'error': 'Brak danych w zapytaniu'
-            }), 400
-
-        order_ids = data.get('order_ids', [])
-        volume_fixes = data.get('volume_fixes', {})  # {product_key: {'volume': X, 'wood_species': Y, ...}}
-        
-        if not order_ids:
-            return jsonify({
-                'success': False,
-                'error': 'Brak wybranych zamówień do zapisania'
-            }), 400
-
-        reports_logger.info("Rozpoczęcie zapisywania zamówień z objętościami",
-                          user_email=user_email,
-                          orders_count=len(order_ids),
-                          volume_fixes_count=len(volume_fixes))
-
-        # Sprawdź które zamówienia już istnieją
-        existing_orders = db.session.query(BaselinkerReportOrder.baselinker_order_id).filter(
-            BaselinkerReportOrder.baselinker_order_id.in_(order_ids)
-        ).distinct().all()
-        existing_order_ids = {order.baselinker_order_id for order in existing_orders}
-
-        new_order_ids = [order_id for order_id in order_ids if order_id not in existing_order_ids]
-
-        if not new_order_ids:
-            return jsonify({
-                'success': True,
-                'message': 'Wszystkie wybrane zamówienia już istnieją w bazie danych',
-                'orders_saved': 0,
-                'orders_skipped': len(order_ids)
-            })
-
-        # Pobierz service i zastosuj poprawki objętości
-        service = get_reports_service()
-        service.set_volume_fixes(volume_fixes)  # Nowa metoda
-
-        # Synchronizuj wybrane zamówienia
-        result = _sync_selected_orders_with_volumes(service, new_order_ids)
-        
-        # Wyczyść poprawki
-        service.clear_volume_fixes()
-
-        if result.get('success'):
-            reports_logger.info("Zapisywanie zamówień z objętościami zakończone pomyślnie",
-                              orders_processed=result.get('orders_processed', 0),
-                              orders_added=result.get('orders_added', 0))
-            return jsonify(result)
-        else:
-            return jsonify(result), 500
-            
-    except Exception as e:
-        reports_logger.error("Błąd zapisywania zamówień z objętościami",
-                           user_email=user_email,
-                           error=str(e))
-        return jsonify({
-            'success': False,
-            'error': f'Błąd zapisywania zamówień: {str(e)}'
-        }), 500
     
 def _sync_selected_orders_with_volumes(service, order_ids):
     """
@@ -2288,15 +2191,18 @@ def _sync_selected_orders_with_volumes(service, order_ids):
                     
                 elif analysis['analysis_type'] == 'volume_only':
                     # Użyj objętości z nazwy produktu
-                    volume_per_piece = analysis['volume']
-                    quantity = record_data.get('quantity', 1)
-                    record_data['total_volume'] = volume_per_piece * quantity
-                    record_data['volume_per_piece'] = volume_per_piece
+                    volume_per_piece = float(analysis.get('volume', 0))
+                    quantity = int(record_data.get('quantity', 1))
+                    
+                    record_data['total_volume'] = round(volume_per_piece * quantity, 4)
+                    record_data['volume_per_piece'] = round(volume_per_piece, 4)
                     
                     # Wyczyść wymiary (bo ich nie ma)
                     record_data['length_cm'] = None
                     record_data['width_cm'] = None
                     record_data['thickness_cm'] = None
+                    
+                    print(f"[DEBUG] volume_only: {volume_per_piece} m³ * {quantity} = {record_data['total_volume']} m³")
                     
                 elif analysis['analysis_type'] == 'manual_input_needed':
                     # Użyj ręcznie wprowadzonych danych
@@ -2492,7 +2398,6 @@ def check_product_dimensions(product_name):
     import re
     for pattern in dimension_patterns:
         if re.search(pattern, name_lower):
-            print(f"[DEBUG] Znaleziono wymiary w '{product_name}' przy użyciu wzorca: {pattern}")
             return True
     
     # Dodatkowe sprawdzenia heurystyczne
@@ -2511,7 +2416,6 @@ def check_product_dimensions(product_name):
         is_probably_date_or_id = any(re.search(pattern, product_name) for pattern in date_patterns)
         
         if not is_probably_date_or_id:
-            print(f"[DEBUG] Prawdopodobnie wymiary w '{product_name}' (heurystyka)")
             return True
     
     print(f"[DEBUG] Brak wymiarów w '{product_name}'")
@@ -3298,7 +3202,6 @@ def extract_wood_species_from_product_name(product_name: str) -> Optional[str]:
     for standard_name, variants in species_mapping.items():
         for variant in variants:
             if variant in name_lower:
-                print(f"[DEBUG] Znaleziono gatunek '{standard_name}' w '{product_name}'")
                 return standard_name
     
     print(f"[DEBUG] Nie znaleziono gatunku w '{product_name}'")
@@ -3330,10 +3233,8 @@ def extract_technology_from_product_name(product_name: str) -> Optional[str]:
     for standard_name, variants in technology_mapping.items():
         for variant in variants:
             if variant in name_lower:
-                print(f"[DEBUG] Znaleziono technologię '{standard_name}' w '{product_name}'")
                 return standard_name
     
-    print(f"[DEBUG] Nie znaleziono technologii w '{product_name}'")
     return None
 
 def extract_wood_class_from_product_name(product_name: str) -> Optional[str]:
@@ -3361,22 +3262,12 @@ def extract_wood_class_from_product_name(product_name: str) -> Optional[str]:
         matches = re.findall(pattern, product_name, re.IGNORECASE)
         if matches:
             wood_class = matches[0].upper().replace('-', '/')  # Normalizuj do formatu A/B
-            print(f"[DEBUG] Znaleziono klasę '{wood_class}' w '{product_name}'")
             return wood_class
     
     print(f"[DEBUG] Nie znaleziono klasy w '{product_name}'")
     return None
 
-def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, any]:
-    """
-    Kompleksowa analiza produktu - sprawdza wymiary, objętość i atrybuty.
-    
-    Args:
-        product_name (str): Nazwa produktu
-        
-    Returns:
-        Dict: Słownik z wynikami analizy
-    """
+def analyze_product_for_volume_and_attributes(product_name):
     if not product_name:
         return {
             'has_dimensions': False,
@@ -3388,7 +3279,7 @@ def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, an
             'analysis_type': 'empty'
         }
     
-    # Sprawdź wymiary (użyj istniejącej funkcji)
+    # Sprawdź wymiary
     has_dimensions = check_product_dimensions(product_name)
     
     # Sprawdź objętość
@@ -3400,12 +3291,35 @@ def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, an
     technology = extract_technology_from_product_name(product_name)
     wood_class = extract_wood_class_from_product_name(product_name)
     
-    # Określ typ analizy według priorytetów
+    # NOWA LOGIKA PRIORYTETU - OBJĘTOŚĆ WYGRYWA Z HEURYSTYKĄ WYMIARÓW
     analysis_type = 'unknown'
+    
+    # SPRAWDŹ CZY WYMIARY TO RZECZYWISTE WYMIARY (nie heurystyka)
+    has_real_dimensions = False
     if has_dimensions:
-        analysis_type = 'dimensions_priority'  # Wymiary mają priorytet
-    elif has_volume:
-        analysis_type = 'volume_only'
+        # Sprawdź czy nazwa zawiera rzeczywiste wzorce wymiarów (np. 50x30x2)
+        import re
+        real_dimension_patterns = [
+            r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*\s*x\s*\d+[,.]?\d*',  # 200,4x89x4.5 (3 wymiary)
+            r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*\s*×\s*\d+[,.]?\d*',  # 200,4×89×4.5
+            r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*(?!\s*x)',  # 200,4x89 (2 wymiary)
+            r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*(?!\s*×)',  # 200,4×89
+        ]
+        
+        for pattern in real_dimension_patterns:
+            if re.search(pattern, product_name):
+                has_real_dimensions = True
+                break
+                    
+    # LOGIKA PRIORYTETU:
+    if has_real_dimensions and not has_volume:
+        analysis_type = 'dimensions_priority'
+    elif has_real_dimensions and has_volume:
+        analysis_type = 'dimensions_priority'  # Rzeczywiste wymiary wygrywają z objętością
+    elif not has_real_dimensions and has_volume:
+        analysis_type = 'volume_only'  # Objętość wygrywa z heurystyką wymiarów
+    elif not has_real_dimensions and not has_volume and has_dimensions:
+        analysis_type = 'manual_input_needed'  # Tylko heurystyka wymiarów - lepiej zapytać użytkownika
     else:
         analysis_type = 'manual_input_needed'
     
@@ -3418,10 +3332,7 @@ def analyze_product_for_volume_and_attributes(product_name: str) -> Dict[str, an
         'wood_class': wood_class,
         'analysis_type': analysis_type
     }
-    
-    print(f"[DEBUG] Analiza produktu '{product_name}': {result}")
     return result
-
 
 def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
     """
@@ -3452,3 +3363,188 @@ def should_show_volume_modal_for_orders(orders_data: list) -> Tuple[bool, list]:
     print(f"[DEBUG] Modal objętości: {should_show_modal}, produktów do uzupełnienia: {len(products_needing_volume)}")
     
     return should_show_modal, products_needing_volume
+
+@reports_bp.route('/api/save-orders-with-volumes', methods=['POST'])
+@login_required
+def api_save_orders_with_volumes():
+    """
+    NOWY ENDPOINT: Zapisuje zamówienia z uzupełnionymi objętościami i atrybutami
+    """
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych w żądaniu'
+            }), 400
+
+        order_ids = data.get('order_ids', [])
+        volume_fixes = data.get('volume_fixes', {})
+        orders_data = data.get('orders_data', [])
+
+        if not order_ids:
+            return jsonify({
+                'success': False,
+                'error': 'Brak ID zamówień do przetworzenia'
+            }), 400
+
+        # ✅ KONWERSJA: Przekonwertuj order_ids na integery dla spójności
+        try:
+            order_ids_int = [int(order_id) for order_id in order_ids]
+        except (ValueError, TypeError) as e:
+            return jsonify({
+                'success': False,
+                'error': 'Błędny format ID zamówień'
+            }), 400
+
+        reports_logger.info("Rozpoczęcie zapisywania zamówień z objętościami",
+                          user_email=user_email,
+                          order_ids_count=len(order_ids_int),
+                          orders_data_count=len(orders_data),
+                          volume_fixes_count=len(volume_fixes))
+
+        # Sprawdź czy wybrane zamówienia już istnieją w bazie
+        service = get_reports_service()
+        existing_order_ids = service.get_existing_order_ids(order_ids_int)  # ✅ Użyj int wersji
+        
+        # Filtruj tylko nowe zamówienia
+        new_order_ids = [order_id for order_id in order_ids_int if order_id not in existing_order_ids]
+
+        if not new_order_ids:
+            return jsonify({
+                'success': True,
+                'message': 'Wszystkie wybrane zamówienia już istnieją w bazie danych',
+                'orders_added': 0,
+                'orders_skipped': len(order_ids)
+            })
+
+        # ✅ POPRAWKA: Filtruj orders_data porównując integery z integerami
+        filtered_orders_data = [
+            order for order in orders_data 
+            if order.get('order_id') in new_order_ids  # Teraz oba są integerami!
+        ]
+
+        if not filtered_orders_data:
+            reports_logger.warning("Brak danych zamówień po filtrowaniu",
+                                 user_email=user_email,
+                                 original_orders_data_count=len(orders_data),
+                                 new_order_ids=new_order_ids,
+                                 existing_order_ids=list(existing_order_ids))
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych zamówień do przetworzenia'
+            }), 400
+
+        # Zastosuj poprawki objętości jeśli zostały podane
+        if volume_fixes:
+            service.set_volume_fixes(volume_fixes)
+            reports_logger.info("Ustawiono poprawki objętości dla {} produktów".format(len(volume_fixes)))
+
+        # Przekaż przefiltrowane dane zamówień
+        result = _sync_selected_orders_with_volume_analysis(service, new_order_ids, filtered_orders_data)
+        
+        # Wyczyść poprawki objętości
+        if volume_fixes:
+            service.clear_volume_fixes()
+
+        if result.get('success'):
+            reports_logger.info("Zapisywanie zamówień z objętościami zakończone pomyślnie",
+                              orders_processed=result.get('orders_processed', 0),
+                              orders_added=result.get('orders_added', 0))
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        reports_logger.error("Błąd zapisywania zamówień z objętościami",
+                           user_email=user_email,
+                           error=str(e))
+        return jsonify({
+            'success': False,
+            'error': f'Błąd zapisywania zamówień: {str(e)}'
+        }), 500
+
+def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
+    """
+    FUNKCJA POMOCNICZA: Synchronizuje wybrane zamówienia z uwzględnieniem analizy objętości
+    """
+    try:
+        reports_logger.info("Rozpoczęcie synchronizacji z analizą objętości", 
+                          orders_count=len(order_ids))
+
+        # NIE POBIERAJ Z API - użyj przesłanych danych
+        if not orders_data:
+            return {
+                'success': False,
+                'error': 'Brak danych zamówień do przetworzenia'
+            }
+
+        # Przetwórz zamówienia z analizą objętości
+        orders_added = 0
+        orders_processed = 0
+        processing_errors = []
+
+        for order_data in orders_data:
+            try:
+                reports_logger.info("Zapisywanie zamówienia z analizą objętości",
+                                  order_id=order_data.get('order_id'),
+                                  products_count=len(order_data.get('products', [])))
+                
+                # ✅ POPRAWKA: Przetwórz każdy produkt osobno
+                for product in order_data.get('products', []):
+                    try:
+                        # Użyj właściwej metody z analizą objętości
+                        record_data = service.prepare_order_record_data_with_volume_analysis(order_data, product)
+                        
+                        # Zapisz rekord
+                        service.save_order_record(record_data)
+                        orders_added += 1
+                        
+                        reports_logger.debug("Zapisano produkt z analizą objętości",
+                                           order_id=order_data.get('order_id'),
+                                           product_name=product.get('name'),
+                                           total_volume=record_data.get('total_volume', 0))
+                        
+                    except Exception as e:
+                        error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"
+                        processing_errors.append({
+                            'order_id': order_data.get('order_id'),
+                            'product_name': product.get('name', 'unknown'),
+                            'error': str(e)
+                        })
+                        reports_logger.error(error_msg)
+                        continue
+
+                orders_processed += 1
+                
+            except Exception as e:
+                error_msg = f"Błąd przetwarzania zamówienia {order_data.get('order_id', 'unknown')}: {str(e)}"
+                processing_errors.append({
+                    'order_id': order_data.get('order_id', 'unknown'),
+                    'error': str(e)
+                })
+                reports_logger.error(error_msg)
+                continue
+
+        # Przygotuj wynik
+        result = {
+            'success': True,
+            'orders_processed': orders_processed,
+            'orders_added': orders_added,
+            'message': f'Pomyślnie przetworzono {orders_processed} zamówień. Dodano: {orders_added}.'
+        }
+
+        if processing_errors:
+            result['warnings'] = processing_errors
+            result['message'] += f' Błędów: {len(processing_errors)}.'
+
+        return result
+
+    except Exception as e:
+        reports_logger.error("Krytyczny błąd synchronizacji z analizą objętości", error=str(e))
+        return {
+            'success': False,
+            'error': f'Krytyczny błąd synchronizacji: {str(e)}'
+        }

@@ -6,6 +6,10 @@ Zawiera mapowanie kodów pocztowych na województwa
 
 import re
 from typing import Optional
+from modules.logging import get_structured_logger
+# Inicjalizacja loggera
+reports_logger = get_structured_logger('reports.routers')
+reports_logger.info("✅ reports_logger zainicjowany poprawnie w utils.py")
 
 
 class PostcodeToStateMapper:

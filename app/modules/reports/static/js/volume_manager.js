@@ -1,11 +1,13 @@
 // app/modules/reports/static/js/volume_manager.js
-// Nowy moduł do zarządzania modalem objętości
+// Ulepszona wersja z step-by-step workflow i auto-wypełnianiem
 
 class VolumeManager {
     constructor() {
         this.volumeModal = null;
         this.productsNeedingVolume = [];
         this.volumeData = {};
+        this.currentProductIndex = 0;
+        this.isStepByStepMode = false; // true = step-by-step, false = wszystkie w jednym modalu
         this.isInitialized = false;
 
         this.init();
@@ -33,21 +35,8 @@ class VolumeManager {
             closeBtn.addEventListener('click', () => this.hideModal());
         }
 
-        // Przyciski w stopce
-        const backBtn = document.getElementById('volumeBack');
-        if (backBtn) {
-            backBtn.addEventListener('click', () => this.handleBack());
-        }
-
-        const skipBtn = document.getElementById('volumeSkip');
-        if (skipBtn) {
-            skipBtn.addEventListener('click', () => this.handleSkip());
-        }
-
-        const saveBtn = document.getElementById('volumeSave');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', () => this.handleSave());
-        }
+        // Przyciski w stopce - będą dynamicznie zmieniane w zależności od trybu
+        this.bindFooterEvents();
 
         // Zamknięcie modala przy kliknięciu na overlay
         this.volumeModal.addEventListener('click', (e) => {
@@ -55,6 +44,33 @@ class VolumeManager {
                 this.hideModal();
             }
         });
+    }
+
+    bindFooterEvents() {
+        const footer = this.volumeModal.querySelector('.sync-modal-footer');
+        if (!footer) return;
+
+        // Usuń poprzednie event listenery poprzez klonowanie
+        const newFooter = footer.cloneNode(true);
+        footer.parentNode.replaceChild(newFooter, footer);
+
+        // Przyciski dla step-by-step mode
+        const prevBtn = newFooter.querySelector('#volumePrev');
+        const nextBtn = newFooter.querySelector('#volumeNext');
+        const finishBtn = newFooter.querySelector('#volumeFinish');
+
+        // Przyciski dla batch mode  
+        const backBtn = newFooter.querySelector('#volumeBack');
+        const skipBtn = newFooter.querySelector('#volumeSkip');
+        const saveBtn = newFooter.querySelector('#volumeSave');
+
+        if (prevBtn) prevBtn.addEventListener('click', () => this.handlePrevious());
+        if (nextBtn) nextBtn.addEventListener('click', () => this.handleNext());
+        if (finishBtn) finishBtn.addEventListener('click', () => this.handleFinish());
+
+        if (backBtn) backBtn.addEventListener('click', () => this.handleBack());
+        if (skipBtn) skipBtn.addEventListener('click', () => this.handleSkip());
+        if (saveBtn) saveBtn.addEventListener('click', () => this.handleSave());
     }
 
     /**
@@ -66,8 +82,22 @@ class VolumeManager {
 
         this.productsNeedingVolume = productsData;
         this.volumeData = {};
+        this.currentProductIndex = 0;
 
-        this.renderProducts();
+        // Określ tryb pracy na podstawie struktury danych
+        this.determineWorkflowMode();
+        
+        // Auto-wypełnij wykryte objętości
+        this.prePopulateDetectedVolumes();
+
+        // Renderuj modal w odpowiednim trybie
+        if (this.isStepByStepMode) {
+            this.renderStepByStepMode();
+        } else {
+            this.renderBatchMode();
+        }
+
+        this.updateFooterButtons();
         this.volumeModal.style.display = 'flex';
 
         // Focus na pierwszy input
@@ -77,209 +107,579 @@ class VolumeManager {
         }, 100);
     }
 
-    hideModal() {
-        console.log('[VolumeManager] Ukrywanie modala objętości');
-        this.volumeModal.style.display = 'none';
-        this.clearData();
-    }
-
-    renderProducts() {
-        const container = document.getElementById('volumeProductsList');
-        if (!container) return;
-
-        container.innerHTML = '';
-
+    /**
+     * Określa tryb pracy na podstawie struktury produktów
+     */
+    determineWorkflowMode() {
         // Grupuj produkty według zamówień
-        const orderGroups = this.groupProductsByOrder();
-
-        Object.entries(orderGroups).forEach(([orderId, orderData]) => {
-            const orderElement = this.createOrderElement(orderId, orderData);
-            container.appendChild(orderElement);
-        });
-
-        // Bind events dla inputów
-        this.bindInputEvents();
-    }
-
-    groupProductsByOrder() {
-        const groups = {};
-
+        const orderGroups = {};
         this.productsNeedingVolume.forEach(product => {
             const orderId = product.order_id;
-
-            if (!groups[orderId]) {
-                groups[orderId] = {
-                    order_info: product.order_info || {},
-                    products: []
-                };
+            if (!orderGroups[orderId]) {
+                orderGroups[orderId] = [];
             }
-
-            groups[orderId].products.push(product);
+            orderGroups[orderId].push(product);
         });
 
-        return groups;
+        const orderIds = Object.keys(orderGroups);
+        
+        // Step-by-step gdy produkty z różnych zamówień
+        // Batch mode gdy wszystkie produkty z tego samego zamówienia
+        this.isStepByStepMode = orderIds.length > 1;
+        
+        console.log(`[VolumeManager] Tryb pracy: ${this.isStepByStepMode ? 'step-by-step' : 'batch'}`);
+        console.log(`[VolumeManager] Zamówienia: ${orderIds.length}, Produkty: ${this.productsNeedingVolume.length}`);
     }
 
-    createOrderElement(orderId, orderData) {
-        const template = document.getElementById('volumeOrderTemplate');
-        const clone = template.content.cloneNode(true);
+    /**
+     * Auto-wypełnia wykryte objętości z analizy nazw produktów
+     */
+    prePopulateDetectedVolumes() {
+        this.productsNeedingVolume.forEach(product => {
+            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+            const analysis = product.analysis || {};
 
-        // Ustaw dane zamówienia
-        const orderNumber = clone.querySelector('.order-number');
-        const customerName = clone.querySelector('.customer-name');
-        const orderDate = clone.querySelector('.order-date');
+            // Jeśli wykryto objętość w nazwie produktu
+            if (analysis.analysis_type === 'volume_only' && analysis.volume) {
+                let volume = parseFloat(analysis.volume);
+                
+                // Zaokrąglij do 4 miejsc po przecinku
+                volume = Math.round(volume * 10000) / 10000;
+                
+                // Zapisz auto-wykrytą objętość
+                this.volumeData[productKey] = {
+                    volume: volume,
+                    wood_species: analysis.wood_species || '',
+                    technology: analysis.technology || '',
+                    wood_class: analysis.wood_class || '',
+                    auto_detected: true // flaga oznaczająca auto-wykrycie
+                };
 
-        if (orderNumber) orderNumber.textContent = orderId;
-        if (customerName) customerName.textContent = orderData.order_info.customer_name || 'Nieznany klient';
-        if (orderDate) orderDate.textContent = orderData.order_info.date || 'Brak daty';
-
-        // Dodaj produkty
-        const productsContainer = clone.querySelector('.volume-products-container');
-        orderData.products.forEach(product => {
-            const productElement = this.createProductElement(product);
-            productsContainer.appendChild(productElement);
+                console.log(`[VolumeManager] Auto-wypełniono objętość ${volume} m³ dla produktu: ${product.product_name}`);
+            }
         });
-
-        return clone;
     }
 
-    createProductElement(product) {
-        const template = document.getElementById('volumeProductTemplate');
-        const clone = template.content.cloneNode(true);
+    /**
+     * Renderuje modal w trybie step-by-step (produkt po produkcie)
+     */
+    renderStepByStepMode() {
+        const modalHeader = this.volumeModal.querySelector('.sync-modal-header h3');
+        const modalBody = this.volumeModal.querySelector('.sync-modal-body');
+
+        // Nagłówek z progress barem
+        modalHeader.innerHTML = this.createStepByStepHeader();
+
+        // Lista produktów po lewej + aktualny produkt po prawej
+        modalBody.innerHTML = this.createStepByStepBody();
+
+        // Bind events dla nawigacji i inputów
+        this.bindStepByStepEvents();
+        this.showCurrentProduct();
+    }
+
+    /**
+     * Renderuje modal w trybie batch (wszystkie produkty naraz)
+     */
+    renderBatchMode() {
+        const modalHeader = this.volumeModal.querySelector('.sync-modal-header h3');
+        const modalBody = this.volumeModal.querySelector('.sync-modal-body');
+
+        modalHeader.innerHTML = 'Uzupełnij objętości produktów';
+        modalBody.innerHTML = this.createBatchBody();
+
+        this.bindBatchEvents();
+    }
+
+    createStepByStepHeader() {
+        const current = this.currentProductIndex + 1;
+        const total = this.productsNeedingVolume.length;
+        const progress = (current / total) * 100;
+
+        return `
+            <div class="step-progress-container">
+                <div class="step-progress-header">
+                    <span>Uzupełnianie objętości</span>
+                    <span class="progress-counter">Produkt ${current} z ${total}</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${progress}%"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    createStepByStepBody() {
+        return `
+            <div class="step-by-step-container">
+                <!-- Lista produktów po lewej -->
+                <div class="products-checklist">
+                    <h4>Lista produktów:</h4>
+                    <div id="productsChecklistContainer">
+                        ${this.createProductsChecklist()}
+                    </div>
+                </div>
+
+                <!-- Aktualny produkt po prawej -->
+                <div class="current-product-container">
+                    <div id="currentProductForm">
+                        <!-- Zostanie wypełnione dynamicznie -->
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    createProductsChecklist() {
+        return this.productsNeedingVolume.map((product, index) => {
+            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+            const isCompleted = this.volumeData[productKey] && this.volumeData[productKey].volume > 0;
+            const isCurrent = index === this.currentProductIndex;
+            
+            return `
+                <div class="checklist-item ${isCurrent ? 'current' : ''} ${isCompleted ? 'completed' : ''}" 
+                     data-product-index="${index}">
+                    <div class="checklist-icon">
+                        ${isCompleted ? '✅' : (isCurrent ? '▶️' : '⏸️')}
+                    </div>
+                    <div class="checklist-content">
+                        <div class="product-name-short">${this.truncateText(product.product_name, 40)}</div>
+                        <div class="order-info-small">Zamówienie #${product.order_id}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    createBatchBody() {
+        const orderGroups = this.groupProductsByOrder();
+        
+        return `
+            <div class="volume-info">
+                <div class="info-icon">📏</div>
+                <div class="info-text">
+                    <p><strong>Produkty wymagają uzupełnienia objętości.</strong></p>
+                    <p>Niektóre objętości zostały automatycznie wykryte i wypełnione - możesz je skorygować.</p>
+                </div>
+            </div>
+            <div id="volumeProductsList" class="volume-products-list">
+                ${Object.entries(orderGroups).map(([orderId, orderData]) => 
+                    this.createOrderElement(orderId, orderData)
+                ).join('')}
+            </div>
+        `;
+    }
+
+    showCurrentProduct() {
+        if (!this.isStepByStepMode) return;
+
+        const product = this.productsNeedingVolume[this.currentProductIndex];
+        if (!product) return;
+
+        const container = document.getElementById('currentProductForm');
+        if (!container) return;
 
         const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        const savedData = this.volumeData[productKey] || {};
 
-        // Ustaw klucz produktu
-        const productItem = clone.querySelector('.volume-product-item');
-        productItem.setAttribute('data-product-key', productKey);
+        container.innerHTML = `
+            <div class="current-product-card">
+                <div class="product-header">
+                    <h4>${product.product_name}</h4>
+                    <div class="product-meta">
+                        <span>Zamówienie #${product.order_id}</span>
+                        <span>Ilość: ${product.quantity} szt.</span>
+                    </div>
+                </div>
 
-        // Ustaw dane produktu
-        const productName = clone.querySelector('.product-name');
-        const quantityValue = clone.querySelector('.quantity-value');
+                <div class="volume-form-grid">
+                    <div class="volume-input-group required">
+                        <label>Objętość na 1 szt. (m³) *</label>
+                        <input type="text"
+                               class="volume-input volume-required"
+                               data-field="volume"
+                               data-product-key="${productKey}"
+                               value="${savedData.volume || ''}"
+                               step="0.0001"
+                               min="0"
+                               placeholder="np. 0.1234">
+                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
+                        <div class="validation-message"></div>
+                    </div>
 
-        if (productName) productName.textContent = product.product_name || 'Nieznany produkt';
-        if (quantityValue) quantityValue.textContent = product.quantity || 1;
+                    <div class="volume-input-group">
+                        <label>Gatunek drewna</label>
+                        <select class="volume-select" data-field="wood_species" data-product-key="${productKey}">
+                            <option value="">Wybierz gatunek...</option>
+                            <option value="dąb" ${savedData.wood_species === 'dąb' ? 'selected' : ''}>Dąb</option>
+                            <option value="buk" ${savedData.wood_species === 'buk' ? 'selected' : ''}>Buk</option>
+                            <option value="jesion" ${savedData.wood_species === 'jesion' ? 'selected' : ''}>Jesion</option>
+                            <option value="sosna" ${savedData.wood_species === 'sosna' ? 'selected' : ''}>Sosna</option>
+                            <option value="brzoza" ${savedData.wood_species === 'brzoza' ? 'selected' : ''}>Brzoza</option>
+                        </select>
+                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
+                    </div>
 
-        // Ustaw ID dla inputów
-        const inputs = clone.querySelectorAll('.volume-input, .volume-select');
-        inputs.forEach((input, index) => {
-            const field = input.getAttribute('data-field');
-            input.id = `${productKey}_${field}`;
+                    <div class="volume-input-group">
+                        <label>Technologia</label>
+                        <select class="volume-select" data-field="technology" data-product-key="${productKey}">
+                            <option value="">Wybierz technologię...</option>
+                            <option value="lity" ${savedData.technology === 'lity' ? 'selected' : ''}>Lity</option>
+                            <option value="klejony" ${savedData.technology === 'klejony' ? 'selected' : ''}>Klejony</option>
+                            <option value="mikrowczep" ${savedData.technology === 'mikrowczep' ? 'selected' : ''}>Mikrowczep</option>
+                            <option value="fornir" ${savedData.technology === 'fornir' ? 'selected' : ''}>Fornir</option>
+                        </select>
+                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
+                    </div>
 
-            // Ustaw label for
-            const label = input.closest('.volume-input-group').querySelector('label');
-            if (label) label.setAttribute('for', input.id);
-        });
+                    <div class="volume-input-group">
+                        <label>Klasa drewna</label>
+                        <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
+                            <option value="">Wybierz klasę...</option>
+                            <option value="A/B" ${savedData.wood_class === 'A/B' ? 'selected' : ''}>A/B</option>
+                            <option value="B/B" ${savedData.wood_class === 'B/B' ? 'selected' : ''}>B/B</option>
+                        </select>
+                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
+                    </div>
+                </div>
 
-        // Jeśli są automatycznie wykryte atrybuty, ustaw je
-        if (product.analysis) {
-            this.setAutoDetectedValues(clone, product.analysis);
-        }
+                <div class="volume-summary">
+                    <strong>Objętość całkowita: <span id="totalVolumeDisplay">0.000 m³</span></strong>
+                </div>
+            </div>
+        `;
 
-        return clone;
+        // Bind events dla tego produktu
+        this.bindCurrentProductEvents();
+        this.updateTotalVolume(productKey);
+        this.updateChecklist();
     }
 
-    setAutoDetectedValues(element, analysis) {
-        // Ustaw automatycznie wykryte wartości
-        const fields = ['wood_species', 'technology', 'wood_class'];
+    bindStepByStepEvents() {
+        // Kliknięcie w element listy - przejdź do tego produktu
+        const checklistItems = this.volumeModal.querySelectorAll('.checklist-item');
+        checklistItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const index = parseInt(item.dataset.productIndex);
+                this.saveCurrentProductData();
+                this.currentProductIndex = index;
+                this.showCurrentProduct();
+                this.updateFooterButtons();
+            });
+        });
+    }
 
-        fields.forEach(field => {
-            if (analysis[field]) {
-                const select = element.querySelector(`[data-field="${field}"]`);
-                const helpText = select?.closest('.volume-input-group').querySelector('.auto-detected');
-
-                if (select) {
-                    select.value = analysis[field];
-                    if (helpText) {
-                        helpText.textContent = `Wykryto automatycznie: ${analysis[field]}`;
-                        helpText.style.display = 'block';
-                    }
+    bindCurrentProductEvents() {
+        const inputs = this.volumeModal.querySelectorAll('.volume-input, .volume-select');
+        
+        inputs.forEach(input => {
+            input.addEventListener('input', (e) => {
+                this.handleInputChange(e);
+            });
+            
+            input.addEventListener('blur', (e) => {
+                if (e.target.classList.contains('volume-input')) {
+                    this.formatAndValidateVolumeInput(e.target);
                 }
-            }
+            });
         });
     }
 
-    bindInputEvents() {
-        // Event listenery dla inputów objętości
-        const volumeInputs = this.volumeModal.querySelectorAll('.volume-input[data-field="volume"]');
-        volumeInputs.forEach(input => {
-            input.addEventListener('input', (e) => this.handleVolumeInput(e));
-            input.addEventListener('blur', (e) => this.validateVolumeInput(e));
+    bindBatchEvents() {
+        const inputs = this.volumeModal.querySelectorAll('.volume-input, .volume-select');
+        
+        inputs.forEach(input => {
+            input.addEventListener('input', (e) => {
+                this.handleInputChange(e);
+            });
+            
+            input.addEventListener('blur', (e) => {
+                if (e.target.classList.contains('volume-input')) {
+                    this.formatAndValidateVolumeInput(e.target);
+                }
+            });
         });
-
-        // Event listenery dla selectów
-        const selects = this.volumeModal.querySelectorAll('.volume-select');
-        selects.forEach(select => {
-            select.addEventListener('change', (e) => this.handleSelectChange(e));
-        });
-    }
-
-    handleVolumeInput(event) {
-        const input = event.target;
-        const productKey = input.closest('.volume-product-item').getAttribute('data-product-key');
-        const volume = parseFloat(input.value) || 0;
-
-        // Aktualizuj dane
-        if (!this.volumeData[productKey]) {
-            this.volumeData[productKey] = {};
-        }
-        this.volumeData[productKey].volume = volume;
-
-        // Aktualizuj podsumowanie
-        this.updateVolumeSummary(productKey);
-
-        // Walidacja
-        this.validateVolumeInput(event);
-    }
-
-    handleSelectChange(event) {
-        const select = event.target;
-        const productKey = select.closest('.volume-product-item').getAttribute('data-product-key');
-        const field = select.getAttribute('data-field');
-        const value = select.value;
-
-        // Aktualizuj dane
-        if (!this.volumeData[productKey]) {
-            this.volumeData[productKey] = {};
-        }
-        this.volumeData[productKey][field] = value;
-
-        console.log(`[VolumeManager] Zaktualizowano ${field} dla ${productKey}: ${value}`);
-    }
-
-    validateVolumeInput(event) {
-        const input = event.target;
-        const value = parseFloat(input.value);
-
-        // Resetuj klasy
-        input.classList.remove('is-invalid', 'is-valid');
-
-        if (!input.value || value <= 0) {
-            input.classList.add('is-invalid');
-        } else {
-            input.classList.add('is-valid');
-        }
 
         this.updateSaveButtonState();
     }
 
-    updateVolumeSummary(productKey) {
-        const productItem = this.volumeModal.querySelector(`[data-product-key="${productKey}"]`);
-        if (!productItem) return;
+    /**
+     * Formatuje i waliduje wprowadzoną objętość
+     */
+    formatAndValidateVolumeInput(input) {
+        let value = input.value.trim();
+        
+        if (!value) return;
 
-        const quantityElement = productItem.querySelector('.quantity-value');
-        const totalVolumeElement = productItem.querySelector('.total-volume');
+        // Zamień przecinek na kropkę
+        value = value.replace(',', '.');
+        
+        // Sprawdź czy to liczba
+        const numValue = parseFloat(value);
+        if (isNaN(numValue)) {
+            this.showInputError(input, 'Wprowadź prawidłową liczbę');
+            return;
+        }
 
-        if (!quantityElement || !totalVolumeElement) return;
+        // Walidacja nierealistycznych wartości
+        if (numValue > 10) {
+            this.showInputWarning(input, 'Uwaga: Bardzo duża objętość (>10m³)');
+        } else if (numValue < 0.001 && numValue > 0) {
+            this.showInputWarning(input, 'Uwaga: Bardzo mała objętość (<0.001m³)');
+        } else if (numValue <= 0) {
+            this.showInputError(input, 'Objętość musi być większa od 0');
+            return;
+        } else {
+            this.clearInputMessage(input);
+        }
 
-        const quantity = parseInt(quantityElement.textContent) || 1;
-        const volumePerPiece = this.volumeData[productKey]?.volume || 0;
+        // Zaokrąglij do 4 miejsc po przecinku
+        const roundedValue = Math.round(numValue * 10000) / 10000;
+        
+        // Ustaw sformatowaną wartość
+        input.value = roundedValue.toString();
+
+        // Aktualizuj dane
+        const productKey = input.dataset.productKey;
+        if (productKey) {
+            if (!this.volumeData[productKey]) {
+                this.volumeData[productKey] = {};
+            }
+            this.volumeData[productKey].volume = roundedValue;
+            this.updateTotalVolume(productKey);
+        }
+    }
+
+    showInputError(input, message) {
+        input.classList.remove('is-valid', 'is-warning');
+        input.classList.add('is-invalid');
+        
+        const messageDiv = input.parentNode.querySelector('.validation-message');
+        if (messageDiv) {
+            messageDiv.textContent = message;
+            messageDiv.className = 'validation-message error';
+        }
+    }
+
+    showInputWarning(input, message) {
+        input.classList.remove('is-valid', 'is-invalid');
+        input.classList.add('is-warning');
+        
+        const messageDiv = input.parentNode.querySelector('.validation-message');
+        if (messageDiv) {
+            messageDiv.textContent = message;
+            messageDiv.className = 'validation-message warning';
+        }
+    }
+
+    clearInputMessage(input) {
+        input.classList.remove('is-invalid', 'is-warning');
+        input.classList.add('is-valid');
+        
+        const messageDiv = input.parentNode.querySelector('.validation-message');
+        if (messageDiv) {
+            messageDiv.textContent = '';
+            messageDiv.className = 'validation-message';
+        }
+    }
+
+    handleInputChange(e) {
+        const input = e.target;
+        const productKey = input.dataset.productKey;
+        const field = input.dataset.field;
+
+        if (!productKey || !field) return;
+
+        // Inicjalizuj dane produktu jeśli nie istnieją
+        if (!this.volumeData[productKey]) {
+            this.volumeData[productKey] = {};
+        }
+
+        // Zapisz wartość
+        this.volumeData[productKey][field] = input.value;
+
+        // Dla objętości - aktualizuj obliczenia
+        if (field === 'volume' && !input.value.includes(',')) {
+            this.updateTotalVolume(productKey);
+        }
+
+        // Aktualizuj stan przycisków
+        if (this.isStepByStepMode) {
+            this.updateFooterButtons();
+        } else {
+            this.updateSaveButtonState();
+        }
+    }
+
+    updateTotalVolume(productKey) {
+        const product = this.productsNeedingVolume.find(p => 
+            `${p.order_id}_${p.product_id || 'unknown'}` === productKey
+        );
+
+        if (!product) return;
+
+        const volumePerPiece = parseFloat(this.volumeData[productKey]?.volume) || 0;
+        const quantity = product.quantity || 1;
         const totalVolume = volumePerPiece * quantity;
 
-        totalVolumeElement.textContent = `${totalVolume.toFixed(3)} m³`;
+        // W trybie step-by-step
+        const totalDisplay = document.getElementById('totalVolumeDisplay');
+        if (totalDisplay) {
+            totalDisplay.textContent = `${totalVolume.toFixed(3)} m³`;
+        }
+
+        // W trybie batch
+        const batchDisplay = this.volumeModal.querySelector(`[data-product-key="${productKey}"] .total-volume`);
+        if (batchDisplay) {
+            batchDisplay.textContent = `${totalVolume.toFixed(3)} m³`;
+        }
+    }
+
+    updateChecklist() {
+        if (!this.isStepByStepMode) return;
+
+        const container = document.getElementById('productsChecklistContainer');
+        if (container) {
+            container.innerHTML = this.createProductsChecklist();
+            this.bindStepByStepEvents();
+        }
+    }
+
+    updateFooterButtons() {
+        const footer = this.volumeModal.querySelector('.sync-modal-footer');
+        if (!footer) return;
+
+        if (this.isStepByStepMode) {
+            const current = this.currentProductIndex + 1;
+            const total = this.productsNeedingVolume.length;
+            const isFirst = this.currentProductIndex === 0;
+            const isLast = this.currentProductIndex === total - 1;
+            const currentProduct = this.productsNeedingVolume[this.currentProductIndex];
+            const productKey = `${currentProduct.order_id}_${currentProduct.product_id || 'unknown'}`;
+            const hasVolume = this.volumeData[productKey]?.volume > 0;
+
+            footer.innerHTML = `
+                <button id="volumePrev" class="btn btn-secondary" ${isFirst ? 'disabled' : ''}>
+                    ← Wstecz
+                </button>
+                <button id="volumeNext" class="btn btn-primary" ${!hasVolume ? 'disabled' : ''}>
+                    ${isLast ? 'Zakończ' : 'Dalej →'}
+                </button>
+                <button id="volumeFinish" class="btn btn-success" style="display: ${isLast ? 'inline-block' : 'none'}">
+                    Zapisz wszystkie
+                </button>
+            `;
+        } else {
+            footer.innerHTML = `
+                <button id="volumeBack" class="btn btn-secondary">Wstecz</button>
+                <button id="volumeSkip" class="btn btn-warning">Pomiń (objętość = 0)</button>
+                <button id="volumeSave" class="btn btn-primary">Zapisz z objętościami</button>
+            `;
+        }
+
+        this.bindFooterEvents();
+    }
+
+    // Handler methods
+    handlePrevious() {
+        if (this.currentProductIndex > 0) {
+            this.saveCurrentProductData();
+            this.currentProductIndex--;
+            this.showCurrentProduct();
+            this.updateFooterButtons();
+        }
+    }
+
+    handleNext() {
+        const currentProduct = this.productsNeedingVolume[this.currentProductIndex];
+        const productKey = `${currentProduct.order_id}_${currentProduct.product_id || 'unknown'}`;
+        
+        if (!this.volumeData[productKey]?.volume || this.volumeData[productKey].volume <= 0) {
+            alert('Proszę wprowadzić objętość przed przejściem dalej.');
+            return;
+        }
+
+        this.saveCurrentProductData();
+
+        if (this.currentProductIndex < this.productsNeedingVolume.length - 1) {
+            this.currentProductIndex++;
+            this.showCurrentProduct();
+            this.updateFooterButtons();
+        } else {
+            this.handleFinish();
+        }
+    }
+
+    handleFinish() {
+        this.saveCurrentProductData();
+        this.proceedWithSave();
+    }
+
+    saveCurrentProductData() {
+        if (!this.isStepByStepMode) return;
+
+        const inputs = this.volumeModal.querySelectorAll('.volume-input, .volume-select');
+        inputs.forEach(input => {
+            const productKey = input.dataset.productKey;
+            const field = input.dataset.field;
+
+            if (productKey && field) {
+                if (!this.volumeData[productKey]) {
+                    this.volumeData[productKey] = {};
+                }
+                this.volumeData[productKey][field] = input.value;
+            }
+        });
+    }
+
+    // Pozostałe metody bez zmian...
+    handleBack() {
+        console.log('[VolumeManager] Powrót do listy zamówień');
+        this.hideModal();
+
+        const ordersModal = document.getElementById('syncOrdersModal');
+        if (ordersModal) {
+            ordersModal.style.display = 'flex';
+        }
+    }
+
+    handleSkip() {
+        console.log('[VolumeManager] Pominięcie uzupełniania objętości');
+
+        if (!confirm('Czy na pewno chcesz pominąć uzupełnianie objętości? Produkty bez objętości będą miały wartość 0 m³.')) {
+            return;
+        }
+
+        this.productsNeedingVolume.forEach(product => {
+            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+            this.volumeData[productKey] = { volume: 0 };
+        });
+
+        this.proceedWithSave();
+    }
+
+    async handleSave() {
+        console.log('[VolumeManager] Zapisywanie z uzupełnionymi objętościami');
+
+        if (!this.validateAllInputs()) {
+            alert('Proszę uzupełnić wszystkie wymagane pola objętości.');
+            return;
+        }
+
+        this.proceedWithSave();
+    }
+
+    validateAllInputs() {
+        const requiredInputs = this.volumeModal.querySelectorAll('.volume-required');
+        return Array.from(requiredInputs).every(input => {
+            const value = parseFloat(input.value);
+            return input.value && value > 0;
+        });
     }
 
     updateSaveButtonState() {
+        if (this.isStepByStepMode) return;
+
         const saveBtn = document.getElementById('volumeSave');
         if (!saveBtn) return;
 
@@ -298,152 +698,138 @@ class VolumeManager {
         }
     }
 
-    handleBack() {
-        console.log('[VolumeManager] Powrót do listy zamówień');
-        this.hideModal();
-
-        // Pokaż poprzedni modal (lista zamówień)
-        const ordersModal = document.getElementById('syncOrdersModal');
-        if (ordersModal) {
-            ordersModal.style.display = 'flex';
-        }
-    }
-
-    handleSkip() {
-        console.log('[VolumeManager] Pominięcie uzupełniania objętości');
-
-        if (!confirm('Czy na pewno chcesz pominąć uzupełnianie objętości? Produkty bez objętości będą miały wartość 0 m³.')) {
-            return;
-        }
-
-        // Ustaw objętość 0 dla wszystkich produktów
-        this.productsNeedingVolume.forEach(product => {
-            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
-            this.volumeData[productKey] = { volume: 0 };
-        });
-
-        this.proceedWithSave();
-    }
-
-    async handleSave() {
-        console.log('[VolumeManager] Zapisywanie z uzupełnionymi objętościami');
-
-        if (!this.validateAllInputs()) {
-            alert('Proszę uzupełnić wszystkie wymagane pola objętości.');
-            return;
-        }
-
-        await this.proceedWithSave();
-    }
-
-    validateAllInputs() {
-        const requiredInputs = this.volumeModal.querySelectorAll('.volume-required');
-        return Array.from(requiredInputs).every(input => {
-            const value = parseFloat(input.value);
-            return input.value && value > 0;
-        });
-    }
-
     async proceedWithSave() {
-        try {
-            this.showSaveProgress();
-
-            // Pobierz wybrane zamówienia z poprzedniego kroku
-            const selectedOrderIds = Array.from(new Set(
-                this.productsNeedingVolume.map(p => p.order_id)
-            ));
-
-            console.log('[VolumeManager] Zapisywanie zamówień:', selectedOrderIds);
-            console.log('[VolumeManager] Dane objętości:', this.volumeData);
-
-            const response = await fetch('/reports/api/save-orders-with-volumes', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    order_ids: selectedOrderIds,
-                    volume_fixes: this.volumeData
-                })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                this.showSuccessMessage(result);
-                this.hideModal();
-
-                // Odśwież tabelę raportów
-                if (window.reportsManager) {
-                    window.reportsManager.refreshTable();
-                }
-            } else {
-                throw new Error(result.error || 'Nieznany błąd');
-            }
-
-        } catch (error) {
-            console.error('[VolumeManager] Błąd zapisywania:', error);
-            alert(`Błąd zapisywania zamówień: ${error.message}`);
-        } finally {
-            this.hideSaveProgress();
+        // Wywołaj globalną funkcję zapisywania z danymi objętości
+        if (window.syncManager) {
+            await window.syncManager.saveOrdersWithVolumes(this.volumeData);
         }
+        this.hideModal();
     }
 
-    showSaveProgress() {
-        const saveBtn = document.getElementById('volumeSave');
-        if (saveBtn) {
-            saveBtn.disabled = true;
-            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Zapisywanie...';
-        }
-    }
-
-    hideSaveProgress() {
-        const saveBtn = document.getElementById('volumeSave');
-        if (saveBtn) {
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Zapisz z objętościami';
-        }
-    }
-
-    showSuccessMessage(result) {
-        const message = result.message || 'Zamówienia zostały pomyślnie zapisane';
-
-        // Pokaż toast lub alert
-        if (window.showToast) {
-            window.showToast(message, 'success');
-        } else {
-            alert(message);
-        }
+    hideModal() {
+        console.log('[VolumeManager] Ukrywanie modala objętości');
+        this.volumeModal.style.display = 'none';
+        this.clearData();
     }
 
     clearData() {
         this.productsNeedingVolume = [];
         this.volumeData = {};
+        this.currentProductIndex = 0;
+        this.isStepByStepMode = false;
     }
 
-    /**
-     * Publiczne API dla integracji z SyncManager
-     */
-    getVolumeData() {
-        return this.volumeData;
+    // Pomocnicze metody
+    groupProductsByOrder() {
+        const groups = {};
+        this.productsNeedingVolume.forEach(product => {
+            const orderId = product.order_id;
+            if (!groups[orderId]) {
+                groups[orderId] = {
+                    order_info: product.order_info || {},
+                    products: []
+                };
+            }
+            groups[orderId].products.push(product);
+        });
+        return groups;
     }
 
-    hasVolumeData() {
-        return Object.keys(this.volumeData).length > 0;
+    createOrderElement(orderId, orderData) {
+        return `
+            <div class="volume-order-item">
+                <div class="volume-order-header">
+                    <h4>Zamówienie #${orderId}</h4>
+                    <div class="order-info">
+                        <span>${orderData.order_info.customer_name || 'Nieznany klient'}</span> • 
+                        <span>${orderData.order_info.date || 'Brak daty'}</span>
+                    </div>
+                </div>
+                <div class="volume-products-container">
+                    ${orderData.products.map(product => this.createProductElement(product)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    createProductElement(product) {
+        const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        const savedData = this.volumeData[productKey] || {};
+
+        return `
+            <div class="volume-product-item" data-product-key="${productKey}">
+                <div class="volume-product-header">
+                    <div class="product-name">${product.product_name}</div>
+                    <div class="product-quantity">Ilość: <span class="quantity-value">${product.quantity}</span> szt.</div>
+                </div>
+
+                <div class="volume-inputs-grid">
+                    <!-- Objętość - pole wymagane -->
+                    <div class="volume-input-group required">
+                        <label>Objętość na 1 szt. (m³) *</label>
+                        <input type="text"
+                               class="volume-input volume-required"
+                               data-field="volume"
+                               data-product-key="${productKey}"
+                               value="${savedData.volume || ''}"
+                               step="0.0001"
+                               min="0"
+                               placeholder="np. 0.1234">
+                        <div class="validation-message"></div>
+                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
+                    </div>
+
+                    <!-- Gatunek drewna -->
+                    <div class="volume-input-group">
+                        <label>Gatunek drewna</label>
+                        <select class="volume-select" data-field="wood_species" data-product-key="${productKey}">
+                            <option value="">Wybierz gatunek...</option>
+                            <option value="dąb" ${savedData.wood_species === 'dąb' ? 'selected' : ''}>Dąb</option>
+                            <option value="buk" ${savedData.wood_species === 'buk' ? 'selected' : ''}>Buk</option>
+                            <option value="jesion" ${savedData.wood_species === 'jesion' ? 'selected' : ''}>Jesion</option>
+                            <option value="sosna" ${savedData.wood_species === 'sosna' ? 'selected' : ''}>Sosna</option>
+                            <option value="brzoza" ${savedData.wood_species === 'brzoza' ? 'selected' : ''}>Brzoza</option>
+                        </select>
+                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
+                    </div>
+
+                    <!-- Technologia -->
+                    <div class="volume-input-group">
+                        <label>Technologia</label>
+                        <select class="volume-select" data-field="technology" data-product-key="${productKey}">
+                            <option value="">Wybierz technologię...</option>
+                            <option value="lity" ${savedData.technology === 'lity' ? 'selected' : ''}>Lity</option>
+                            <option value="klejony" ${savedData.technology === 'klejony' ? 'selected' : ''}>Klejony</option>
+                            <option value="mikrowczep" ${savedData.technology === 'mikrowczep' ? 'selected' : ''}>Mikrowczep</option>
+                            <option value="fornir" ${savedData.technology === 'fornir' ? 'selected' : ''}>Fornir</option>
+                        </select>
+                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
+                    </div>
+
+                    <!-- Klasa drewna -->
+                    <div class="volume-input-group">
+                        <label>Klasa drewna</label>
+                        <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
+                            <option value="">Wybierz klasę...</option>
+                            <option value="A/B" ${savedData.wood_class === 'A/B' ? 'selected' : ''}>A/B</option>
+                            <option value="B/B" ${savedData.wood_class === 'B/B' ? 'selected' : ''}>B/B</option>
+                        </select>
+                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
+                    </div>
+                </div>
+
+                <div class="volume-summary">
+                    <strong>Objętość całkowita: <span class="total-volume">0.000 m³</span></strong>
+                </div>
+            </div>
+        `;
+    }
+
+    truncateText(text, maxLength) {
+        if (!text || text.length <= maxLength) return text;
+        return text.substring(0, maxLength - 3) + '...';
     }
 }
 
-// Inicjalizacja globalnego instance
-let volumeManager = null;
-
-document.addEventListener('DOMContentLoaded', function () {
-    volumeManager = new VolumeManager();
-
-    // Udostępnij globalnie dla innych modułów
-    window.volumeManager = volumeManager;
-});
-
-// Export dla użycia w innych plikach
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = VolumeManager;
-}
+// Inicjalizuj VolumeManager globalnie
+window.volumeManager = new VolumeManager();
