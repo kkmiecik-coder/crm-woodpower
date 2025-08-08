@@ -410,13 +410,6 @@ class BaselinkerReportsService:
                               from_fixes_technology=self.get_volume_fix_attribute(product_key, 'technology'),
                               from_fixes_wood_class=self.get_volume_fix_attribute(product_key, 'wood_class'))
     
-            # Przelicz cenę za m³ jeśli objętość się zmieniła
-            total_volume = record_data.get('total_volume', 0)
-            value_net = record_data.get('value_net', 0)
-    
-            if total_volume > 0 and value_net > 0:
-                record_data['price_per_m3'] = round(value_net / total_volume, 2)
-    
             return record_data
     
         except Exception as e:

@@ -2252,10 +2252,6 @@ def _sync_selected_orders_with_volumes(service, order_ids):
                     f"{order_id}_{product.get('product_id', 'unknown')}", 'wood_class'
                 )
                 
-                # Oblicz cenę za m³ jeśli mamy objętość
-                if record_data.get('total_volume', 0) > 0 and record_data.get('value_net', 0) > 0:
-                    record_data['price_per_m3'] = record_data['value_net'] / record_data['total_volume']
-                
                 # Zapisz rekord do bazy
                 service.save_order_record(record_data)
                 orders_added += 1
