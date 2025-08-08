@@ -198,7 +198,16 @@ class BaselinkerReportsService:
             # Weź pierwszy (i jedyny) rekord
             record = records[0]
     
-            # ✅ KONWERTUJ BaselinkerReportOrder z powrotem na słownik
+            # ✅ SPRAWDŹ CZY TO USŁUGA PRZED DALSZYM PRZETWARZANIEM
+            product_name = product_data.get('name', '')
+            if self._is_service_product(product_name):
+                # Dla usług: użyj danych z _convert_order_to_records bez modyfikacji
+                self.logger.debug("Przetwarzanie usługi - używam danych z _convert_order_to_records",
+                                product_name=product_name,
+                                value_net=record.value_net)
+                return self._convert_record_to_dict(record, order_data)
+
+            # ✅ KONWERTUJ BaselinkerReportOrder z powrotem na słownik (TYLKO dla produktów fizycznych)
             record_data = {
                 # Podstawowe pola
                 'date_created': record.date_created,
@@ -416,6 +425,79 @@ class BaselinkerReportsService:
                              product_name=product_data.get('name'),
                              error=str(e))
             raise
+
+    def _convert_record_to_dict(self, record, order_data):
+        """
+        POMOCNICZA METODA: Konwertuje obiekt BaselinkerReportOrder na słownik
+        """
+        return {
+            'date_created': record.date_created,
+            'baselinker_order_id': record.baselinker_order_id,
+            'internal_order_number': record.internal_order_number,
+            'customer_name': record.customer_name,
+            'delivery_postcode': record.delivery_postcode,
+            'delivery_city': record.delivery_city,
+            'delivery_address': record.delivery_address,
+            'delivery_state': record.delivery_state,
+            'phone': record.phone,
+            'caretaker': record.caretaker,
+            'delivery_method': record.delivery_method,
+            'order_source': record.order_source,
+            'group_type': record.group_type,
+            'product_type': record.product_type,
+            'finish_state': record.finish_state,
+            'raw_product_name': record.raw_product_name,
+            'quantity': record.quantity,
+            'length_cm': record.length_cm,
+            'width_cm': record.width_cm,
+            'thickness_cm': record.thickness_cm,
+            'price_gross': record.price_gross,
+            'price_net': record.price_net,
+            'value_gross': record.value_gross,
+            'value_net': record.value_net,  # ✅ KLUCZOWE: To będzie poprawna wartość dla usług
+            'price_type': record.price_type,
+            'original_amount_from_baselinker': record.original_amount_from_baselinker,
+            'payment_method': record.payment_method,
+            'paid_amount_net': record.paid_amount_net,
+            'balance_due': record.balance_due,
+            'wood_species': record.wood_species,
+            'technology': record.technology,
+            'wood_class': record.wood_class,
+            'volume_per_piece': record.volume_per_piece,
+            'total_volume': record.total_volume,
+            'price_per_m3': record.price_per_m3,
+            'current_status': record.current_status,
+            'delivery_cost': record.delivery_cost,
+            'baselinker_status_id': record.baselinker_status_id,
+            'email': record.email,
+            'order_amount_net': self._calculate_order_amount_net_for_record(order_data, record),
+            'total_m3': record.total_m3
+        }
+
+    def _calculate_order_amount_net_for_record(self, order_data, current_record):
+        """
+        Oblicza poprawną wartość order_amount_net dla danego rekordu
+        (aby każdy rekord miał tę samą wartość order_amount_net = suma wszystkich produktów)
+        """
+        total_order_value_net = 0
+    
+        for prod in order_data.get('products', []):
+            prod_name = prod.get('name', '')
+            orig_price = float(prod.get('price_brutto', 0))
+            price_type_api = order_data.get('custom_extra_fields', {}).get('106169', '').strip()
+        
+            # Rozróżnij typ ceny
+            if price_type_api.lower() == 'netto':
+                prod_price_net = orig_price
+            elif price_type_api.lower() == 'brutto':
+                prod_price_net = orig_price / 1.23
+            else:
+                prod_price_net = orig_price / 1.23
+        
+            prod_quantity = int(prod.get('quantity', 1))
+            total_order_value_net += prod_price_net * prod_quantity
+    
+        return total_order_value_net
 
     def get_single_order_from_baselinker(self, order_id):
         """
