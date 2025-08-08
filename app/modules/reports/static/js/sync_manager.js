@@ -1220,12 +1220,43 @@ class SyncManager {
 
         // === NOWY KOD: Stylowanie kafelka z problemami wymiarów ===
         const orderCard = clone.querySelector('.modal-bl-sync-order-card');
-        if (orderCard && (order.has_dimension_issues || order.has_volume_issues)) {
-            // Ustaw specjalne tło i obramowanie dla zamówień z problemami
-            orderCard.style.backgroundColor = '#FFFAF5';
-            orderCard.style.border = '2px solid #F48313';
+        if (orderCard) {
+            // Sprawdź czy zamówienie ma usługi
+            const hasManualInputNeeded = order.products && order.products.some(p =>
+                p.volume_analysis && p.volume_analysis.analysis_type === 'manual_input_needed'
+            );
+            const hasVolumeOnly = order.products && order.products.some(p =>
+                p.volume_analysis && p.volume_analysis.analysis_type === 'volume_only'
+            );
+            const hasServices = order.products && order.products.some(p =>
+                p.volume_analysis && p.volume_analysis.analysis_type === 'service'
+            );
 
-            console.log(`[SyncManager] 🎨 Zamówienie ${order.order_id} ma problemy z wymiarami/objętością - zastosowano specjalne stylowanie`);
+            // Ogólne problemy z wymiarami (stara logika jako fallback)
+            const hasDimensionIssues = order.has_dimension_issues || order.has_volume_issues;
+
+            // ULEPSZONA LOGIKA KOLOROWANIA KAFELKA:
+            if ((hasManualInputNeeded || hasDimensionIssues) && hasServices) {
+                // Kombinacja problemów + usługi: tło czerwone/pomarańczowe + obrys niebieski
+                orderCard.style.backgroundColor = hasManualInputNeeded ? '#FDF2F2' : '#FFFAF5'; // Czerwonawe lub pomarańczowe tło
+                orderCard.style.border = '2px solid #007BFF'; // Niebieski obrys
+                console.log(`[SyncManager] 🎨 Zamówienie ${order.order_id} ma problemy + usługi`);
+            } else if (hasManualInputNeeded) {
+                // Poważny problem: brak wymiarów i objętości - CZERWONY
+                orderCard.style.backgroundColor = '#FDF2F2';
+                orderCard.style.border = '2px solid #DC3545';
+                console.log(`[SyncManager] 🚫 Zamówienie ${order.order_id} ma poważne problemy - czerwony`);
+            } else if (hasVolumeOnly || hasDimensionIssues) {
+                // Mniejszy problem: brak wymiarów ale ma objętość - POMARAŃCZOWY
+                orderCard.style.backgroundColor = '#FFFAF5';
+                orderCard.style.border = '2px solid #F48313';
+                console.log(`[SyncManager] 📦 Zamówienie ${order.order_id} ma mniejsze problemy - pomarańczowy`);
+            } else if (hasServices) {
+                // Tylko usługi: niebieski
+                orderCard.style.backgroundColor = '#F0F8FF';
+                orderCard.style.border = '2px solid #007BFF';
+                console.log(`[SyncManager] 🔧 Zamówienie ${order.order_id} ma tylko usługi - niebieski`);
+            }
         }
 
         // Renderuj listę produktów w nowym stylu
@@ -1259,26 +1290,55 @@ class SyncManager {
                 const price = parseFloat(product.price_brutto) || 0;
                 const totalPrice = price * quantity;
 
-                // === NOWY KOD: Sprawdź problemy z wymiarami ===
+                // === NOWE: Sprawdź problemy z wymiarami i usługi ===
                 const hasDimensionIssues = product.has_dimension_issues;
                 const hasVolumeIssues = product.needs_manual_volume;
                 const hasVolumeOnly = product.volume_analysis?.analysis_type === 'volume_only';
+                const isService = product.volume_analysis?.analysis_type === 'service';
+
+                // DODAJ SZCZEGÓŁOWY DEBUG
+                console.log(`[SyncManager] 🔍 Produkt "${productName}":`, {
+                    has_dimension_issues: hasDimensionIssues,
+                    needs_manual_volume: hasVolumeIssues,
+                    analysis_type: product.volume_analysis?.analysis_type,
+                    has_volume_only: hasVolumeOnly,
+                    is_service: isService
+                });
+
                 const hasProblems = hasDimensionIssues || hasVolumeIssues || hasVolumeOnly;
 
-                // === NOWY KOD: Ikona problemu ===
+                // === NOWE: Ikona i kolor tekstu ===
                 let problemIcon = '';
-                if (hasDimensionIssues && hasVolumeIssues) {
-                    problemIcon = '⚠️📏 ';
+                let textColor = '#314254'; // Domyślny kolor
+
+                if (isService) {
+                    // Usługi: niebieski tekst + ikona
+                    problemIcon = '🔧 ';
+                    textColor = '#007BFF';
+                    console.log(`[SyncManager] 🔧 Usługa - niebieski kolor`);
+                } else if (product.volume_analysis?.analysis_type === 'manual_input_needed') {
+                    // Brak wymiarów I objętości: CZERWONY (poważniejszy problem)
+                    problemIcon = '🚫 ';
+                    textColor = '#DC3545';
+                    console.log(`[SyncManager] 🚫 Brak wymiarów i objętości - czerwony kolor`);
+                } else if (product.volume_analysis?.analysis_type === 'volume_only') {
+                    // Brak wymiarów, ale MA objętość: POMARAŃCZOWY (mniejszy problem)
+                    problemIcon = '📦 ';
+                    textColor = '#F48313';
+                    console.log(`[SyncManager] 📦 Brak wymiarów, ale ma objętość - pomarańczowy kolor`);
                 } else if (hasDimensionIssues) {
+                    // Inne problemy z wymiarami: pomarańczowy (fallback)
                     problemIcon = '⚠️ ';
-                } else if (hasVolumeIssues) {
-                    problemIcon = '📏 ';
+                    textColor = '#F48313';
+                    console.log(`[SyncManager] ⚠️ Inne problemy wymiarów - pomarańczowy kolor`);
                 }
+
+                console.log(`[SyncManager] 🎨 Finalny kolor tekstu: ${textColor}, ikona: ${problemIcon}`);
 
                 const nameWithQuantity = `${problemIcon}${productName} <span style="padding: 1px 5px; background-color: #EEEEEE; border-radius: 6px; font-size: 10px;">${quantity} szt.</span>`;
 
                 productDiv.innerHTML = `
-                <span class="modal-bl-sync-product-name" style="color: ${hasProblems ? '#F48313' : '#314254'}; font-weight: ${hasProblems ? '600' : '400'};">${nameWithQuantity}</span>
+                <span class="modal-bl-sync-product-name" style="color: ${textColor}; font-weight: ${hasProblems || isService ? '600' : '400'};">${nameWithQuantity}</span>
                 <span class="modal-bl-sync-product-price">${totalPrice.toFixed(2)} PLN</span>
             `;
 
@@ -2621,6 +2681,12 @@ class SyncManager {
                                 analysis.analysis_type === 'manual_input_needed'
                             )
                         });
+
+                        // NOWE: Pomiń usługi przy sprawdzaniu potrzeby modala objętości
+                        if (analysis && analysis.analysis_type === 'service') {
+                            console.log(`[SyncManager] 📋 Pominięto usługę: ${product.name}`);
+                            return; // Pomiń usługi - nie dodawaj do productsNeedingVolume
+                        }
                         
                         if (analysis && (
                             analysis.analysis_type === 'manual_input_needed' ||

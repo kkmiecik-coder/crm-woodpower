@@ -2427,20 +2427,37 @@ class TableManager {
                 if (!product.group_type) {
                     errors.push(`Produkt ${index + 1}: Grupa jest wymagana`);
                 }
-                if (!product.product_type) {
-                    errors.push(`Produkt ${index + 1}: Rodzaj jest wymagany`);
-                }
-                if (!product.length_cm || parseFloat(product.length_cm) <= 0) {
-                    errors.push(`Produkt ${index + 1}: Długość musi być większa od 0`);
-                }
-                if (!product.width_cm || parseFloat(product.width_cm) <= 0) {
-                    errors.push(`Produkt ${index + 1}: Szerokość musi być większa od 0`);
-                }
-                if (!product.thickness_cm || parseFloat(product.thickness_cm) <= 0) {
-                    errors.push(`Produkt ${index + 1}: Grubość musi być większa od 0`);
-                }
-                if (!product.quantity || parseInt(product.quantity) <= 0) {
-                    errors.push(`Produkt ${index + 1}: Ilość musi być większa od 0`);
+
+                // NOWE: Różna walidacja dla usług vs produktów fizycznych
+                if (product.group_type === 'usługa') {
+                    // === WALIDACJA DLA USŁUG ===
+                    if (!product.quantity || parseInt(product.quantity) <= 0) {
+                        errors.push(`Usługa ${index + 1}: Ilość musi być większa od 0`);
+                    }
+                    if (!product.price_net || parseFloat(product.price_net) <= 0) {
+                        errors.push(`Usługa ${index + 1}: Cena netto jest wymagana`);
+                    }
+
+                    console.log(`[TableManager] Usługa ${index + 1}: walidacja przeszła`);
+                } else {
+                    // === WALIDACJA DLA PRODUKTÓW FIZYCZNYCH (istniejąca logika) ===
+                    if (!product.product_type) {
+                        errors.push(`Produkt ${index + 1}: Rodzaj jest wymagany`);
+                    }
+                    if (!product.length_cm || parseFloat(product.length_cm) <= 0) {
+                        errors.push(`Produkt ${index + 1}: Długość musi być większa od 0`);
+                    }
+                    if (!product.width_cm || parseFloat(product.width_cm) <= 0) {
+                        errors.push(`Produkt ${index + 1}: Szerokość musi być większa od 0`);
+                    }
+                    if (!product.thickness_cm || parseFloat(product.thickness_cm) <= 0) {
+                        errors.push(`Produkt ${index + 1}: Grubość musi być większa od 0`);
+                    }
+                    if (!product.quantity || parseInt(product.quantity) <= 0) {
+                        errors.push(`Produkt ${index + 1}: Ilość musi być większa od 0`);
+                    }
+
+                    console.log(`[TableManager] Produkt fizyczny ${index + 1}: walidacja przeszła`);
                 }
             });
         }

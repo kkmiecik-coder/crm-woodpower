@@ -2127,20 +2127,35 @@ def analyze_order_products_for_volume(order_data):
     
     for product in products:
         product_name = product.get('name', '')
-        
-        # Przeprowadź kompleksową analizę produktu
-        analysis = analyze_product_for_volume_and_attributes(product_name)
-        
+    
+        # NOWE: Sprawdź czy to usługa używając service
+        service = get_reports_service()
+        if service._is_service_product(product_name):
+            analysis = {
+                'analysis_type': 'service',
+                'has_dimensions': False,
+                'has_volume': False, 
+                'volume': None,
+                'wood_species': None,
+                'technology': None,
+                'wood_class': None
+            }
+            # Usługi nie wymagają uzupełnienia objętości
+            product['needs_manual_volume'] = False
+            product['has_dimension_issues'] = False  # Usługi nie mają problemów z wymiarami
+        else:
+            # Istniejąca logika analizy produktów fizycznych
+            analysis = analyze_product_for_volume_and_attributes(product_name)
+            product['needs_manual_volume'] = analysis['analysis_type'] == 'manual_input_needed'
+            # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
+            product['has_dimension_issues'] = not check_product_dimensions(product_name)
+    
         # Dodaj wyniki analizy do produktu
         product['volume_analysis'] = analysis
-        product['needs_manual_volume'] = analysis['analysis_type'] == 'manual_input_needed'
-        
-        # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
-        product['has_dimension_issues'] = not check_product_dimensions(product_name)
-        
+    
         if analysis['analysis_type'] == 'manual_input_needed' or analysis['analysis_type'] == 'volume_only':
             order_has_volume_issues = True
-        
+    
         analyzed_products.append(product)
     
     # Aktualizuj zamówienie
@@ -2846,13 +2861,24 @@ def group_orders_for_routimo(orders):
     """
     Grupuje dane po zamówieniach dla eksportu Routimo
     Jedno zamówienie = jeden wiersz w CSV
+    NOWE: Wykluczenie usług z eksportu
     
     Args:
         orders (List[BaselinkerReportOrder]): Lista rekordów z bazy danych
         
     Returns:
-        List[Dict]: Lista zamówień zgrupowanych
+        List[Dict]: Lista zamówień zgrupowanych (tylko produkty fizyczne)
     """
+    # NOWE: Filtruj usługi na początku - Routimo dostaje tylko produkty fizyczne
+    physical_products_only = [order for order in orders if order.group_type != 'usługa']
+    
+    if len(orders) != len(physical_products_only):
+        services_excluded = len(orders) - len(physical_products_only)
+        reports_logger.info("Wykluczono usługi z eksportu Routimo",
+                          total_records=len(orders),
+                          physical_products=len(physical_products_only),
+                          services_excluded=services_excluded)
+    
     grouped = defaultdict(lambda: {
         'records': [],
         'baselinker_order_id': None,
@@ -2869,7 +2895,7 @@ def group_orders_for_routimo(orders):
         'current_status': None
     })
     
-    for order in orders:
+    for order in physical_products_only:
         # Klucz grupowania - baselinker_order_id lub manual_id
         if order.baselinker_order_id:
             order_key = f"bl_{order.baselinker_order_id}"
@@ -2906,7 +2932,6 @@ def group_orders_for_routimo(orders):
                       grouped_orders=len(result))
     
     return result
-
 
 def extract_house_and_apartment_number(address):
     """
@@ -3535,7 +3560,7 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
             'success': True,
             'orders_processed': orders_processed,
             'orders_added': orders_added,
-            'message': f'Pomyślnie przetworzono {orders_processed} zamówień. Dodano: {orders_added}.'
+            'message': f'Pomyślnie zapisano {orders_processed} zamówień. Dodano: {orders_added} pozycji.'
         }
 
         if processing_errors:

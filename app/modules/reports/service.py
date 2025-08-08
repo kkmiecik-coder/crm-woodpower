@@ -54,6 +54,31 @@ class BaselinkerReportsService:
         # NOWE właściwości dla obsługi objętości
         self.volume_fixes = {}  # {product_key: {'volume': X, 'wood_species': Y, ...}}
 
+    def _is_service_product(self, product_name: str) -> bool:
+        """
+        Rozpoznaje czy produkt to usługa na podstawie nazwy
+    
+        Args:
+            product_name (str): Nazwa produktu z Baselinker
+        
+        Returns:
+            bool: True jeśli produkt to usługa, False w przeciwnym razie
+        """
+        if not product_name:
+            return False
+    
+        service_keywords = ['usługa' ,'usluga', 'usługi', 'uslugi', 'klejenie', 'przycięcie', 'montaż']
+        product_name_lower = product_name.lower()
+    
+        is_service = any(keyword in product_name_lower for keyword in service_keywords)
+    
+        if is_service:
+            self.logger.debug("Rozpoznano usługę", 
+                             product_name=product_name,
+                             matched_keywords=[kw for kw in service_keywords if kw in product_name_lower])
+    
+        return is_service
+
     def set_volume_fixes(self, volume_fixes_dict):
         """
         NOWA METODA: Ustawia poprawki objętości dla produktów.
@@ -1249,12 +1274,12 @@ class BaselinkerReportsService:
         # Teraz utwórz rekordy dla każdego produktu z tą samą łączną objętością
         for product in products:
             try:
-                # Parsuj nazwę produktu
-                parsed_product = self.parser.parse_product_name(product.get('name', ''))
+                # Pobierz nazwę produktu i sprawdź czy to usługa
+                product_name = product.get('name', '')
             
                 # POPRAWIONA LOGIKA: Przetwórz cenę produktu (zamiast process_baselinker_amount)
                 original_price_from_baselinker = float(product.get('price_brutto', 0))
-                
+            
                 # Rozróżnianie typu ceny - TAKA SAMA LOGIKA jak wyżej
                 if price_type_from_api.lower() == 'netto':
                     # Kwota z Baselinker jest NETTO
@@ -1275,74 +1300,139 @@ class BaselinkerReportsService:
                 # Debug log
                 self.logger.debug("Przetworzono ceny produktu w _convert_order_to_records",
                                 order_id=order.get('order_id'),
-                                product_name=product.get('name'),
+                                product_name=product_name,
                                 price_type_from_api=price_type_from_api,
                                 original_price=original_price_from_baselinker,
                                 final_price_net=price_net,
                                 final_price_gross=price_gross,
                                 price_type_saved=price_type_to_save)
+            
+                # NOWE: Sprawdź czy to usługa
+                if self._is_service_product(product_name):
+                    # === OBSŁUGA USŁUG ===
+                    record = BaselinkerReportOrder(
+                        # Dane zamówienia (bez zmian)
+                        date_created=datetime.fromtimestamp(order.get('date_add')).date() if order.get('date_add') else datetime.now().date(),
+                        baselinker_order_id=order.get('order_id'),
+                        internal_order_number=order.get('extra_field_1'),
+                        customer_name=order.get('delivery_fullname') or order.get('delivery_company') or order.get('user_login') or 'Nieznany klient',
+                        delivery_postcode=order.get('delivery_postcode'),
+                        delivery_city=order.get('delivery_city'),
+                        delivery_address=order.get('delivery_address'),
+                        delivery_state=order.get('delivery_state'),
+                        phone=order.get('phone'),
+                        caretaker=(order.get('custom_extra_fields', {}).get('105623') or "Brak danych"),
+                        delivery_method=order.get('delivery_method'),
+                        order_source=order.get('order_source'),
+                        current_status=self.status_map.get(order.get('order_status_id'), f'Status {order.get("order_status_id")}'),
+                        baselinker_status_id=order.get('order_status_id'),
                 
-                # Utwórz rekord
-                record = BaselinkerReportOrder(
-                    # Dane zamówienia - EXPLICITE BEZ KOPIOWANIA base_data
-                    date_created=datetime.fromtimestamp(order.get('date_add')).date() if order.get('date_add') else datetime.now().date(),
-                    baselinker_order_id=order.get('order_id'),
-                    internal_order_number=order.get('extra_field_1'),
-                    customer_name=order.get('delivery_fullname') or order.get('delivery_company') or order.get('user_login') or 'Nieznany klient',
-                    delivery_postcode=order.get('delivery_postcode'),
-                    delivery_city=order.get('delivery_city'),
-                    delivery_address=order.get('delivery_address'),
-                    delivery_state=order.get('delivery_state'),
-                    phone=order.get('phone'),
-                    caretaker=(order.get('custom_extra_fields', {}).get('105623') or "Brak danych"),
-                    delivery_method=order.get('delivery_method'),
-                    order_source=order.get('order_source'),
-                    current_status=self.status_map.get(order.get('order_status_id'), f'Status {order.get("order_status_id")}'),
-                    baselinker_status_id=order.get('order_status_id'),
+                        # FINANSE (bez zmian)
+                        order_amount_net=total_order_value_net,
+                        delivery_cost=float(order.get('delivery_price', 0)),
+                        paid_amount_net=self._calculate_paid_amount_net(
+                            order.get('payment_done', 0), 
+                            price_type_from_api
+                        ),
+                        payment_method=order.get('payment_method'),
                 
-                    # FINANSE - POPRAWNIE OBLICZONE
-                    order_amount_net=total_order_value_net,
-                    delivery_cost=float(order.get('delivery_price', 0)),
-                    paid_amount_net=self._calculate_paid_amount_net(
-                        order.get('payment_done', 0), 
-                        price_type_from_api
-                    ),
-                    payment_method=order.get('payment_method'),
-                
-                    # DANE PRODUKTU - POPRAWIONE CENY
-                    total_m3=total_m3_all_products,
-                    raw_product_name=product.get('name'),
-                    quantity=product.get('quantity', 1),
-                    price_gross=price_gross,                           # POPRAWIONE: używa obliczonej ceny
-                    price_net=price_net,                               # DODANE: cena netto
-                    price_type=price_type_to_save,                     # POPRAWIONE: używa obliczonego typu
-                    original_amount_from_baselinker=original_price_from_baselinker,  # POPRAWIONE: oryginalna cena
+                        # DANE USŁUGI - brak wymiarów i objętości
+                        total_m3=0,  # Usługi nie mają objętości na poziomie zamówienia
+                        raw_product_name=product_name,
+                        quantity=product.get('quantity', 1),
+                        price_gross=price_gross,
+                        price_net=price_net,
+                        price_type=price_type_to_save,
+                        original_amount_from_baselinker=original_price_from_baselinker,
                     
-                    # Oblicz wartości
-                    value_gross=price_gross * product.get('quantity', 1),
-                    value_net=price_net * product.get('quantity', 1),
+                        # Wartości finansowe
+                        value_gross=price_gross * product.get('quantity', 1),
+                        value_net=price_net * product.get('quantity', 1),
                 
-                    # Dane z parsera
-                    product_type=parsed_product.get('product_type') or 'deska',
-                    wood_species=parsed_product.get('wood_species'),
-                    technology=parsed_product.get('technology'),
-                    wood_class=parsed_product.get('wood_class'),
-                    finish_state=parsed_product.get('finish_state', 'surowy'),
-                    length_cm=parsed_product.get('length_cm'),
-                    width_cm=parsed_product.get('width_cm'),
-                    thickness_cm=parsed_product.get('thickness_cm'),
+                        # USŁUGA: brak atrybutów produktowych
+                        group_type='usługa',
+                        product_type=None,
+                        wood_species=None,
+                        technology=None,
+                        wood_class=None,
+                        finish_state=None,
+                        length_cm=None,
+                        width_cm=None,
+                        thickness_cm=None,
+                        volume_per_piece=None,
+                        total_volume=None,
+                        price_per_m3=None,
                 
-                    # Grupa - domyślnie 'towar' dla produktów z Baselinker
-                    group_type='towar',
+                        # Pola techniczne
+                        is_manual=False,
+                        email=order.get('email')
+                    )
                 
-                    # Pola techniczne
-                    is_manual=False,
-                    email=order.get('email')
-                )
-            
-                # Oblicz pola pochodne
+                    self.logger.debug("Utworzono rekord usługi",
+                                    order_id=order.get('order_id'),
+                                    service_name=product_name,
+                                    quantity=product.get('quantity', 1))
+                else:
+                    # === ISTNIEJĄCA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
+                    parsed_product = self.parser.parse_product_name(product_name)
+                
+                    record = BaselinkerReportOrder(
+                        # Dane zamówienia (bez zmian)
+                        date_created=datetime.fromtimestamp(order.get('date_add')).date() if order.get('date_add') else datetime.now().date(),
+                        baselinker_order_id=order.get('order_id'),
+                        internal_order_number=order.get('extra_field_1'),
+                        customer_name=order.get('delivery_fullname') or order.get('delivery_company') or order.get('user_login') or 'Nieznany klient',
+                        delivery_postcode=order.get('delivery_postcode'),
+                        delivery_city=order.get('delivery_city'),
+                        delivery_address=order.get('delivery_address'),
+                        delivery_state=order.get('delivery_state'),
+                        phone=order.get('phone'),
+                        caretaker=(order.get('custom_extra_fields', {}).get('105623') or "Brak danych"),
+                        delivery_method=order.get('delivery_method'),
+                        order_source=order.get('order_source'),
+                        current_status=self.status_map.get(order.get('order_status_id'), f'Status {order.get("order_status_id")}'),
+                        baselinker_status_id=order.get('order_status_id'),
+                
+                        # FINANSE (bez zmian)
+                        order_amount_net=total_order_value_net,
+                        delivery_cost=float(order.get('delivery_price', 0)),
+                        paid_amount_net=self._calculate_paid_amount_net(
+                            order.get('payment_done', 0), 
+                            price_type_from_api
+                        ),
+                        payment_method=order.get('payment_method'),
+                
+                        # DANE PRODUKTU - z istniejącej logiki
+                        total_m3=total_m3_all_products,
+                        raw_product_name=product_name,
+                        quantity=product.get('quantity', 1),
+                        price_gross=price_gross,
+                        price_net=price_net,
+                        price_type=price_type_to_save,
+                        original_amount_from_baselinker=original_price_from_baselinker,
+                    
+                        # Wartości
+                        value_gross=price_gross * product.get('quantity', 1),
+                        value_net=price_net * product.get('quantity', 1),
+                
+                        # Dane z parsera
+                        group_type='towar',
+                        product_type=parsed_product.get('product_type') or 'klejonka',
+                        wood_species=parsed_product.get('wood_species'),
+                        technology=parsed_product.get('technology'),
+                        wood_class=parsed_product.get('wood_class'),
+                        finish_state=parsed_product.get('finish_state', 'surowy'),
+                        length_cm=parsed_product.get('length_cm'),
+                        width_cm=parsed_product.get('width_cm'),
+                        thickness_cm=parsed_product.get('thickness_cm'),
+                
+                        # Pola techniczne
+                        is_manual=False,
+                        email=order.get('email')
+                    )
+
+                # Oblicz pola pochodne (dla obu typów)
                 record.calculate_fields()
-            
                 records.append(record)
             
             except Exception as e:
@@ -1351,7 +1441,7 @@ class BaselinkerReportsService:
                                 product_name=product.get('name'),
                                 error=str(e))
                 continue
-    
+
         return records
     
     def _extract_base_order_data(self, order: Dict) -> Dict:

@@ -370,72 +370,107 @@ class BaselinkerReportOrder(db.Model):
         return comparison
     
     def calculate_fields(self):
-        """
-        Oblicza pola pochodne (objętości, wartości, daty realizacji)
-        """
-        # Oblicz objętość 1 sztuki (długość × szerokość × grubość w m3)
-        if self.length_cm and self.width_cm and self.thickness_cm:
-            length = float(self.length_cm)
-            width = float(self.width_cm) 
-            thickness = float(self.thickness_cm)
-            self.volume_per_piece = (length * width * thickness) / 1000000
-        
-        # Oblicz całkowitą objętość
-        if self.volume_per_piece and self.quantity:
-            self.total_volume = self.volume_per_piece * self.quantity
-            
-        # Oblicz cenę netto z brutto (VAT 23%)
-        if self.price_gross:
-            self.price_net = float(self.price_gross) / 1.23
-            
-        # Oblicz wartości
-        if self.price_gross and self.quantity:
-            self.value_gross = float(self.price_gross) * self.quantity
-        if self.price_net and self.quantity:
-            self.value_net = float(self.price_net) * self.quantity
-            
-        # Oblicz cenę za m3
-        if self.price_net and self.volume_per_piece and self.volume_per_piece > 0:
-            self.price_per_m3 = float(self.price_net) / self.volume_per_piece
-            
-        # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
-        if self.date_created:
-            target_date = self.date_created + timedelta(days=14)
-            # Jeśli wypada w sobotę (5) lub niedzielę (6), przesuń na poniedziałek
-            while target_date.weekday() >= 5:  # 5=sobota, 6=niedziela
-                target_date += timedelta(days=1)
-            self.realization_date = target_date
-            
-        # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
-        if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
-            # POPRAWKA: Logika zależna od typu ceny zamówienia
-            
-            # Sprawdź typ ceny zamówienia
-            price_type = (self.price_type or '').strip().lower()
-            
-            if price_type == 'netto':
-                # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
-                total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
-            else:
-                # Zamówienia BRUTTO: porównujemy wszystko na netto
-                delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
-                total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
-        
-            # Saldo = całkowita kwota do zapłaty - zapłacono netto
-            self.balance_due = total_order_to_pay - float(self.paid_amount_net)
-            
-        # NOWE: Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
-        self.auto_fill_delivery_state()
-        
-        # Oblicz produkcję i odbiór na podstawie statusu
-        self.update_production_fields()
+        """Oblicza automatyczne pola w rekordzie"""
     
-        # Normalizuj województwo
-        self.normalize_delivery_state()
+        # NOWE: Sprawdź czy to usługa
+        if self.group_type == 'usługa':
+            # === OBSŁUGA USŁUG ===
+            # Dla usług: wyzeruj pola związane z wymiarami/objętością
+            self.volume_per_piece = None
+            self.total_volume = None
+            self.price_per_m3 = None
         
-        # Ustaw domyślny product_type na 'deska' jeśli nie ma
-        if not self.product_type:
-            self.product_type = 'klejonka'
+            # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
+            if self.date_created:
+                target_date = self.date_created + timedelta(days=14)
+                # Jeśli wypada w sobotę (5) lub niedzielę (6), przesuń na poniedziałek
+                while target_date.weekday() >= 5:  # 5=sobota, 6=niedziela
+                    target_date += timedelta(days=1)
+                self.realization_date = target_date
+            
+            # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
+            if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
+                # POPRAWKA: Logika zależna od typu ceny zamówienia
+                price_type = (self.price_type or '').strip().lower()
+            
+                if price_type == 'netto':
+                    # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
+                    total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
+                else:
+                    # Zamówienia BRUTTO: porównujemy wszystko na netto
+                    delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+                    total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
+        
+                # Saldo = całkowita kwota do zapłaty - zapłacono netto
+                self.balance_due = total_order_to_pay - float(self.paid_amount_net)
+            
+            # Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
+            self.auto_fill_delivery_state()
+        
+            # Oblicz produkcję i odbiór na podstawie statusu (bez objętości)
+            self.update_production_fields()
+    
+            # Normalizuj województwo
+            self.normalize_delivery_state()
+        
+            self.logger.debug("Obliczono pola dla usługi",
+                             service_name=self.raw_product_name,
+                             balance_due=self.balance_due)
+        
+        else:
+            # === ISTNIEJĄCA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
+        
+            # Oblicz objętość pojedynczej sztuki (tylko jeśli są wymiary)
+            if self.length_cm and self.width_cm and self.thickness_cm:
+                length_m = float(self.length_cm) / 100
+                width_m = float(self.width_cm) / 100  
+                thickness_m = float(self.thickness_cm) / 100
+                self.volume_per_piece = length_m * width_m * thickness_m
+            
+                # Oblicz łączną objętość
+                if self.quantity:
+                    self.total_volume = self.volume_per_piece * float(self.quantity)
+        
+            # Oblicz cenę za m³ (tylko jeśli jest objętość)
+            if self.value_net and self.volume_per_piece and self.volume_per_piece > 0:
+                self.price_per_m3 = float(self.value_net) / self.volume_per_piece
+            
+            # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
+            if self.date_created:
+                target_date = self.date_created + timedelta(days=14)
+                # Jeśli wypada w sobotę (5) lub niedzielę (6), przesuń na poniedziałek
+                while target_date.weekday() >= 5:  # 5=sobota, 6=niedziela
+                    target_date += timedelta(days=1)
+                self.realization_date = target_date
+            
+            # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
+            if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
+                # POPRAWKA: Logika zależna od typu ceny zamówienia
+                price_type = (self.price_type or '').strip().lower()
+            
+                if price_type == 'netto':
+                    # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
+                    total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
+                else:
+                    # Zamówienia BRUTTO: porównujemy wszystko na netto
+                    delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+                    total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
+        
+                # Saldo = całkowita kwota do zapłaty - zapłacono netto
+                self.balance_due = total_order_to_pay - float(self.paid_amount_net)
+            
+            # Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
+            self.auto_fill_delivery_state()
+        
+            # Oblicz produkcję i odbiór na podstawie statusu
+            self.update_production_fields()
+    
+            # Normalizuj województwo
+            self.normalize_delivery_state()
+        
+            # Ustaw domyślny product_type na 'klejonka' jeśli nie ma
+            if not self.product_type:
+                self.product_type = 'klejonka'
 
     def auto_fill_delivery_state(self):
         """
