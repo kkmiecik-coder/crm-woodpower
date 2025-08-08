@@ -413,9 +413,9 @@ class BaselinkerReportOrder(db.Model):
             # Normalizuj województwo
             self.normalize_delivery_state()
         
-            self.logger.debug("Obliczono pola dla usługi",
-                             service_name=self.raw_product_name,
-                             balance_due=self.balance_due)
+            reports_logger.debug("Obliczono pola dla usługi",
+                           service_name=self.raw_product_name,
+                           balance_due=self.balance_due)
         
         else:
             # === ISTNIEJĄCA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
