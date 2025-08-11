@@ -59,6 +59,8 @@ async function openQuoteEditor(quoteData) {
             loadClientTypesFromDatabase()
         ]);
 
+        await initializeFinishingPrices();
+
         // Synchroniczne operacje po załadowaniu danych
         loadQuoteDataToEditor(quoteData);
         initializeEventListeners();
@@ -441,19 +443,28 @@ function loadCostsToSummary(quoteData) {
     const { costs } = quoteData;
     if (!costs) return;
 
-    // Batch DOM updates
+    // Oblicz sumę za produkt
+    const productTotalBrutto = costs.products.brutto + costs.finishing.brutto;
+    const productTotalNetto = costs.products.netto + costs.finishing.netto;
+
+    // Batch DOM updates z nową strukturą
     const costUpdates = [
         { selector: '.edit-order-brutto', value: costs.products.brutto },
         { selector: '.edit-order-netto', value: costs.products.netto, suffix: ' netto' },
         { selector: '.edit-finishing-brutto', value: costs.finishing.brutto },
         { selector: '.edit-finishing-netto', value: costs.finishing.netto, suffix: ' netto' },
+
+        // NOWE: Suma za produkt
+        { selector: '.edit-product-total-brutto', value: productTotalBrutto },
+        { selector: '.edit-product-total-netto', value: productTotalNetto, suffix: ' netto' },
+
         { selector: '.edit-delivery-brutto', value: costs.shipping.brutto },
         { selector: '.edit-delivery-netto', value: costs.shipping.netto, suffix: ' netto' },
         { selector: '.edit-final-brutto', value: costs.total.brutto },
         { selector: '.edit-final-netto', value: costs.total.netto, suffix: ' netto' }
     ];
 
-    // Single DOM query and update cycle
+    // Single DOM update cycle
     requestAnimationFrame(() => {
         costUpdates.forEach(({ selector, value, suffix = '' }) => {
             const element = document.querySelector(selector);
@@ -494,6 +505,8 @@ function loadProductsToEditor(quoteData) {
     // Single DOM operation
     container.innerHTML = '';
     container.appendChild(fragment);
+
+    updateProductsSummaryTotals();
 
     log('editor', `✅ Załadowano ${Object.keys(groupedProducts).length} produktów`);
 }
@@ -579,6 +592,7 @@ function onFormDataChange() {
         callUpdatePricesSecurely();
         copyCalculationResults();
         updateQuoteSummary();
+        setTimeout(() => updateProductsSummaryTotals(), 100);
 
         log('calculator', '✅ Obliczenia zakończone pomyślnie');
 
@@ -1052,26 +1066,130 @@ function calculateSingleVolume(length, width, thickness) {
  * Zoptymalizowane odświeżanie podsumowania
  */
 function updateQuoteSummary() {
-    log('editor', 'Odświeżanie podsumowania...');
+    if (!currentEditingQuoteData) return;
 
     try {
-        // Calculate all costs in parallel
-        const [productsCosts, finishingCosts, shippingCosts] = [
-            calculateProductsCosts(),
-            calculateFinishingCosts(),
-            getShippingCosts()
-        ];
+        // Dla formularza (górne wiersze) - pokaż tylko aktywny produkt
+        const activeProductCosts = calculateActiveProductCosts();
+        const activeFinishingCosts = calculateActiveProductFinishingCosts();
 
-        const totalCosts = {
-            brutto: productsCosts.brutto + finishingCosts.brutto + shippingCosts.brutto,
-            netto: productsCosts.netto + finishingCosts.netto + shippingCosts.netto
+        // Suma za aktywny produkt
+        const activeProductTotal = {
+            brutto: activeProductCosts.brutto + activeFinishingCosts.brutto,
+            netto: activeProductCosts.netto + activeFinishingCosts.netto
         };
 
-        // Batch update display
-        updateSummaryDisplay(productsCosts, finishingCosts, shippingCosts, totalCosts);
+        // Dla końcowej sumy - wszystkie produkty w wycenie
+        const allProductsCosts = calculateProductsCosts();        // WSZYSTKIE produkty
+        const allFinishingCosts = calculateFinishingCosts();      // WSZYSTKIE wykończenia
+        const shippingCosts = getShippingCosts();
+
+        // Suma za wszystkie produkty w wycenie (bez dostawy)
+        const allProductsTotal = {
+            brutto: allProductsCosts.brutto + allFinishingCosts.brutto,
+            netto: allProductsCosts.netto + allFinishingCosts.netto
+        };
+
+        // Ostateczna suma zamówienia (wszystkie produkty + dostawa)
+        const finalOrderTotal = {
+            brutto: allProductsTotal.brutto + shippingCosts.brutto,
+            netto: allProductsTotal.netto + shippingCosts.netto
+        };
+
+        // Aktualizuj wyświetlanie
+        updateSummaryElementsFixed(
+            activeProductCosts,     // Surowe - tylko aktywny produkt
+            activeFinishingCosts,   // Wykończenie - tylko aktywny produkt  
+            activeProductTotal,     // Suma za produkt - tylko aktywny
+            shippingCosts,          // Dostawa
+            finalOrderTotal         // Suma zamówienia - WSZYSTKIE produkty + dostawa
+        );
+
+        log('editor', 'Podsumowanie zaktualizowane:', {
+            aktywny_surowe: activeProductCosts,
+            aktywny_wykończenie: activeFinishingCosts,
+            aktywny_suma: activeProductTotal,
+            wszystkie_produkty_łącznie: allProductsTotal,
+            dostawa: shippingCosts,
+            suma_zamówienia: finalOrderTotal
+        });
 
     } catch (error) {
-        console.error('[QUOTE EDITOR] ❌ Błąd odświeżania podsumowania:', error);
+        console.error('[QUOTE EDITOR] ❌ Błąd aktualizacji podsumowania:', error);
+    }
+}
+
+/**
+ * NOWA funkcja - aktualizuj elementy z nową strukturą
+ */
+function updateSummaryElementsFixed(activeProductCosts, activeFinishingCosts, activeProductTotal, shippingCosts, finalOrderTotal) {
+    const updates = [
+        // Pokazuj koszty tylko aktywnego produktu w górnych wierszach
+        { selector: '.edit-order-brutto', value: activeProductCosts.brutto },
+        { selector: '.edit-order-netto', value: activeProductCosts.netto, suffix: ' netto' },
+        { selector: '.edit-finishing-brutto', value: activeFinishingCosts.brutto },
+        { selector: '.edit-finishing-netto', value: activeFinishingCosts.netto, suffix: ' netto' },
+
+        // Suma za aktywny produkt
+        { selector: '.edit-product-total-brutto', value: activeProductTotal.brutto },
+        { selector: '.edit-product-total-netto', value: activeProductTotal.netto, suffix: ' netto' },
+
+        // Dostawa (bez zmian)
+        { selector: '.edit-delivery-brutto', value: shippingCosts.brutto },
+        { selector: '.edit-delivery-netto', value: shippingCosts.netto, suffix: ' netto' },
+
+        // POPRAWKA: Suma zamówienia = WSZYSTKIE produkty + dostawa
+        { selector: '.edit-final-brutto', value: finalOrderTotal.brutto },
+        { selector: '.edit-final-netto', value: finalOrderTotal.netto, suffix: ' netto' }
+    ];
+
+    // Batch DOM update
+    requestAnimationFrame(() => {
+        updates.forEach(({ selector, value, suffix = '' }) => {
+            const element = document.querySelector(selector);
+            if (element) {
+                element.textContent = `${value.toFixed(2)} PLN${suffix}`;
+            }
+        });
+    });
+}
+
+/**
+ * DEBUGOWANIE - funkcja do sprawdzania danych produktów
+ */
+function debugProductPrices() {
+    console.log('=== DEBUG CEN PRODUKTÓW ===');
+
+    if (!currentEditingQuoteData?.items) {
+        console.log('Brak produktów w danych wyceny');
+        return;
+    }
+
+    console.log('Produkty w wycenie:');
+    currentEditingQuoteData.items.forEach(item => {
+        console.log(`Produkt ${item.product_index}:`, {
+            is_selected: item.is_selected,
+            quantity: item.quantity,
+            // Ceny jednostkowe
+            unit_price_netto: item.unit_price_netto,
+            unit_price_brutto: item.unit_price_brutto,
+            price_netto: item.price_netto,
+            price_brutto: item.price_brutto,
+            // Ceny całkowite
+            final_price_netto: item.final_price_netto,
+            final_price_brutto: item.final_price_brutto
+        });
+    });
+
+    if (currentEditingQuoteData.finishing) {
+        console.log('Wykończenia w wycenie:');
+        currentEditingQuoteData.finishing.forEach(finishing => {
+            console.log(`Wykończenie produktu ${finishing.product_index}:`, {
+                finishing_price_netto: finishing.finishing_price_netto,
+                finishing_price_brutto: finishing.finishing_price_brutto,
+                quantity: finishing.quantity
+            });
+        });
     }
 }
 
@@ -1079,64 +1197,239 @@ function updateQuoteSummary() {
  * Zoptymalizowane obliczanie kosztów produktów
  */
 function calculateProductsCosts() {
-    // Try calculator data first
+    log('editor', '=== OBLICZANIE KOSZTÓW WSZYSTKICH PRODUKTÓW ===');
+
+    if (!currentEditingQuoteData?.items?.length) {
+        log('editor', 'Brak produktów w wycenie');
+        return { brutto: 0, netto: 0 };
+    }
+
+    let totalBrutto = 0;
+    let totalNetto = 0;
+
+    // Iteruj przez WSZYSTKIE produkty w wycenie
+    currentEditingQuoteData.items.forEach(item => {
+        if (item.is_selected) {
+            // POPRAWKA: Używaj final_price (już zawiera quantity) LUB unit_price * quantity
+            let itemBrutto = 0;
+            let itemNetto = 0;
+
+            if (item.final_price_brutto && item.final_price_netto) {
+                // final_price to już wartość całkowita (unit_price × quantity)
+                itemBrutto = parseFloat(item.final_price_brutto);
+                itemNetto = parseFloat(item.final_price_netto);
+                log('editor', `Produkt ${item.product_index}: używam final_price = ${itemBrutto.toFixed(2)} PLN`);
+            } else if (item.unit_price_brutto && item.unit_price_netto) {
+                // unit_price to cena jednostkowa - trzeba pomnożyć przez quantity
+                const quantity = item.quantity || 1;
+                itemBrutto = parseFloat(item.unit_price_brutto) * quantity;
+                itemNetto = parseFloat(item.unit_price_netto) * quantity;
+                log('editor', `Produkt ${item.product_index}: używam unit_price × ${quantity} = ${itemBrutto.toFixed(2)} PLN`);
+            } else if (item.price_brutto && item.price_netto) {
+                // price to też cena jednostkowa
+                const quantity = item.quantity || 1;
+                itemBrutto = parseFloat(item.price_brutto) * quantity;
+                itemNetto = parseFloat(item.price_netto) * quantity;
+                log('editor', `Produkt ${item.product_index}: używam price × ${quantity} = ${itemBrutto.toFixed(2)} PLN`);
+            }
+
+            totalBrutto += itemBrutto;
+            totalNetto += itemNetto;
+        }
+    });
+
+    log('editor', `Suma wszystkich produktów: ${totalBrutto.toFixed(2)} PLN brutto, ${totalNetto.toFixed(2)} PLN netto`);
+
+    return { brutto: totalBrutto, netto: totalNetto };
+}
+
+/**
+ * POPRAWIONE obliczanie kosztów wykończenia z prawidłową geometrią
+ * Uwzględnia: wymiary w cm → powierzchnia w m² → koszt z bazy danych
+ */
+function calculateFinishingCosts() {
+    log('finishing', '=== OBLICZANIE KOSZTÓW WYKOŃCZENIA WSZYSTKICH PRODUKTÓW ===');
+
+    if (!currentEditingQuoteData?.finishing?.length) {
+        log('finishing', 'Brak danych wykończenia w wycenie');
+        return { brutto: 0, netto: 0 };
+    }
+
+    let totalFinishingBrutto = 0;
+    let totalFinishingNetto = 0;
+
+    // Sumuj wykończenie dla WSZYSTKICH produktów
+    currentEditingQuoteData.finishing.forEach(finishing => {
+        // finishing_price to już wartość całkowita dla danego produktu (uwzględnia quantity)
+        const finishingBrutto = parseFloat(finishing.finishing_price_brutto || 0);
+        const finishingNetto = parseFloat(finishing.finishing_price_netto || 0);
+
+        totalFinishingBrutto += finishingBrutto;
+        totalFinishingNetto += finishingNetto;
+
+        log('finishing', `Produkt ${finishing.product_index}: wykończenie ${finishingBrutto.toFixed(2)} PLN brutto (już z quantity)`);
+    });
+
+    log('finishing', `Suma wykończenia wszystkich produktów: ${totalFinishingBrutto.toFixed(2)} PLN brutto, ${totalFinishingNetto.toFixed(2)} PLN netto`);
+
+    return {
+        brutto: totalFinishingBrutto,
+        netto: totalFinishingNetto
+    };
+}
+
+/**
+ * NOWA funkcja - oblicza sumę produktów dla aktywnego produktu (do wyświetlenia w formularzu)
+ */
+function calculateActiveProductCosts() {
+    log('editor', '=== OBLICZANIE KOSZTÓW AKTYWNEGO PRODUKTU ===');
+
+    // Sprawdź dane z calculator.js dla aktywnego formularza
     if (window.activeQuoteForm?.dataset) {
         const formBrutto = parseFloat(window.activeQuoteForm.dataset.orderBrutto) || 0;
         const formNetto = parseFloat(window.activeQuoteForm.dataset.orderNetto) || 0;
 
         if (formBrutto > 0 || formNetto > 0) {
+            log('editor', `Aktywny produkt (z calculator): ${formBrutto.toFixed(2)} PLN brutto`);
             return { brutto: formBrutto, netto: formNetto };
         }
     }
 
-    // Fallback calculation
-    return currentEditingQuoteData?.items?.reduce((total, item) => {
-        if (item.is_selected) {
-            const quantity = item.quantity || 1;
-            total.brutto += (item.final_price_brutto || item.unit_price_brutto || 0) * quantity;
-            total.netto += (item.final_price_netto || item.unit_price_netto || 0) * quantity;
+    // Fallback - znajdź aktywny produkt w danych wyceny
+    if (activeProductIndex !== null && currentEditingQuoteData?.items) {
+        const activeItem = currentEditingQuoteData.items.find(item =>
+            item.product_index === activeProductIndex && item.is_selected
+        );
+
+        if (activeItem) {
+            let itemBrutto = 0;
+            let itemNetto = 0;
+
+            // Użyj final_price jeśli dostępne (już zawiera quantity)
+            if (activeItem.final_price_brutto && activeItem.final_price_netto) {
+                itemBrutto = parseFloat(activeItem.final_price_brutto);
+                itemNetto = parseFloat(activeItem.final_price_netto);
+            } else {
+                // Oblicz z ceny jednostkowej
+                const quantity = activeItem.quantity || 1;
+                itemBrutto = parseFloat(activeItem.unit_price_brutto || activeItem.price_brutto || 0) * quantity;
+                itemNetto = parseFloat(activeItem.unit_price_netto || activeItem.price_netto || 0) * quantity;
+            }
+
+            log('editor', `Aktywny produkt ${activeProductIndex}: ${itemBrutto.toFixed(2)} PLN brutto`);
+            return { brutto: itemBrutto, netto: itemNetto };
         }
-        return total;
-    }, { brutto: 0, netto: 0 }) || { brutto: 0, netto: 0 };
+    }
+
+    log('editor', 'Brak danych aktywnego produktu');
+    return { brutto: 0, netto: 0 };
 }
 
 /**
- * Zoptymalizowane obliczanie kosztów wykończenia
+ * NOWA funkcja - oblicza wykończenie tylko dla aktywnego produktu
  */
-function calculateFinishingCosts() {
-    // Try calculator data first
+function calculateActiveProductFinishingCosts() {
+    log('finishing', '=== OBLICZANIE WYKOŃCZENIA AKTYWNEGO PRODUKTU ===');
+
+    // Sprawdź dane z calculator.js
     if (window.activeQuoteForm?.dataset) {
         const finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
         const finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
 
         if (finishingBrutto > 0 || finishingNetto > 0) {
+            log('finishing', `Wykończenie aktywnego produktu (z calculator): ${finishingBrutto.toFixed(2)} PLN brutto`);
             return { brutto: finishingBrutto, netto: finishingNetto };
         }
     }
 
-    // Fallback calculation
-    const finishingType = getSelectedFinishingType();
-    const finishingVariant = getSelectedFinishingVariant();
+    // Fallback - znajdź wykończenie aktywnego produktu w danych wyceny
+    if (activeProductIndex !== null && currentEditingQuoteData?.finishing) {
+        const activeFinishing = currentEditingQuoteData.finishing.find(f =>
+            f.product_index === activeProductIndex
+        );
 
-    if (finishingType === 'Surowe') return { brutto: 0, netto: 0 };
+        if (activeFinishing) {
+            // finishing_price to już wartość całkowita dla produktu
+            const finishingBrutto = parseFloat(activeFinishing.finishing_price_brutto || 0);
+            const finishingNetto = parseFloat(activeFinishing.finishing_price_netto || 0);
 
-    const dimensions = getCurrentDimensions();
-    if (!dimensions.isValid) return { brutto: 0, netto: 0 };
-
-    const lengthM = dimensions.length / 1000;
-    const widthM = dimensions.width / 1000;
-    const thicknessM = dimensions.thickness / 1000;
-    const surfaceAreaM2 =
-        2 * (lengthM * widthM + lengthM * thicknessM + widthM * thicknessM) *
-        dimensions.quantity;
-    const finishingPrice = getFinishingPrice(finishingType, finishingVariant);
-
-    if (finishingPrice > 0) {
-        const netto = surfaceAreaM2 * finishingPrice;
-        return { brutto: netto * 1.23, netto };
+            log('finishing', `Wykończenie aktywnego produktu ${activeProductIndex}: ${finishingBrutto.toFixed(2)} PLN brutto`);
+            return { brutto: finishingBrutto, netto: finishingNetto };
+        }
     }
 
+    log('finishing', 'Brak wykończenia dla aktywnego produktu');
     return { brutto: 0, netto: 0 };
+}
+
+/**
+ * Pobiera cenę wykończenia z bazy danych (załadowanej do window.finishingPrices)
+ */
+function getFinishingPriceFromDatabase(finishingType, finishingVariant) {
+    if (!window.finishingPrices) {
+        console.warn('[QUOTE EDITOR] Brak załadowanych cen wykończenia');
+        return 0;
+    }
+
+    let priceKey = '';
+
+    // Mapowanie typów i wariantów na klucze w bazie danych
+    if (finishingType === 'Surowe') {
+        priceKey = 'Surowe';
+    } else if (finishingType === 'Lakierowanie') {
+        if (finishingVariant === 'Bezbarwne') {
+            priceKey = 'Lakierowane bezbarwne';
+        } else if (finishingVariant === 'Barwne') {
+            priceKey = 'Lakierowane barwne';
+        }
+    } else if (finishingType === 'Olejowanie') {
+        priceKey = 'Olejowanie';
+    }
+
+    const price = window.finishingPrices[priceKey] || 0;
+
+    log('finishing', 'Pobieranie ceny z bazy:', {
+        finishingType,
+        finishingVariant,
+        priceKey,
+        price
+    });
+
+    return price;
+}
+
+/**
+ * Fallback - domyślne ceny jeśli nie udało się załadować z bazy
+ */
+function loadDefaultFinishingData() {
+    console.warn('[QUOTE EDITOR] Używam domyślnych cen wykończenia jako fallback');
+
+    window.finishingPrices = {
+        'Surowe': 0,
+        'Lakierowane bezbarwne': 200,
+        'Lakierowane barwne': 250,
+        'Olejowanie': 250
+    };
+
+    // Zbuduj podstawowe dane dla interfejsu
+    const defaultData = {
+        finishing_types: [
+            { id: 1, name: 'Surowe', price_netto: 0 },
+            { id: 2, name: 'Lakierowane bezbarwne', price_netto: 200 },
+            { id: 3, name: 'Lakierowane barwne', price_netto: 250 },
+            { id: 4, name: 'Olejowanie', price_netto: 250 }
+        ],
+        finishing_colors: [
+            { id: 1, name: 'Brak', image_path: null, image_url: null },
+            { id: 2, name: 'Biały', image_path: 'images/colors/white.jpg', image_url: '/calculator/static/images/colors/white.jpg' },
+            { id: 3, name: 'Czarny', image_path: 'images/colors/black.jpg', image_url: '/calculator/static/images/colors/black.jpg' }
+        ]
+    };
+
+    renderFinishingUI(defaultData);
+    finishingDataCache = defaultData;
+
+    log('finishing', 'Załadowano domyślne dane wykończenia');
 }
 
 /**
@@ -1153,7 +1446,7 @@ function getCurrentDimensions() {
         width,
         thickness,
         quantity,
-        isValid: length > 0 && width > 0 && thickness > 0
+        isValid: length > 0 && width > 0 && thickness > 0 && quantity > 0
     };
 }
 
@@ -1194,15 +1487,18 @@ function debounce(func, wait) {
  * Uniwersalne funkcje getter dla wykończenia
  */
 function getSelectedFinishingType() {
-    return document.querySelector('#edit-finishing-type-group .finishing-btn.active')?.dataset.finishingType || 'Surowe';
+    const activeBtn = document.querySelector('#edit-finishing-type-group .finishing-btn.active');
+    return activeBtn?.dataset.finishingType || 'Surowe';
 }
 
 function getSelectedFinishingVariant() {
-    return document.querySelector('#edit-finishing-variant-wrapper .finishing-btn.active')?.dataset.finishingVariant || null;
+    const activeBtn = document.querySelector('#edit-finishing-variant-wrapper .finishing-btn.active');
+    return activeBtn?.dataset.finishingVariant || null;
 }
 
 function getSelectedFinishingColor() {
-    return document.querySelector('#edit-finishing-color-wrapper .color-btn.active')?.dataset.finishingColor || null;
+    const activeBtn = document.querySelector('#edit-finishing-color-wrapper .color-btn.active');
+    return activeBtn?.dataset.finishingColor || null;
 }
 
 /**
@@ -1586,6 +1882,7 @@ function activateProductInEditor(productIndex) {
     // Batch UI updates
     updateProductCardStates(productIndex);
     loadProductDataToForm(productItem);
+    onFormDataChange();
 
     log('editor', `Aktywowano produkt: ${productIndex}`);
 }
@@ -1775,7 +2072,7 @@ function collectUpdatedQuoteData() {
 // ==================== OPTIMIZED FINISHING DATA LOADING ====================
 
 /**
- * Zoptymalizowane ładowanie danych wykończenia
+ * Zoptymalizowane ładowanie danych wykończenia z pobraniem cen z bazy danych
  */
 async function loadFinishingDataFromDatabase() {
     if (finishingDataCache) {
@@ -1785,14 +2082,22 @@ async function loadFinishingDataFromDatabase() {
     }
 
     try {
+        // Pobierz dane wykończenia z quotes API (zawiera więcej informacji)
         const response = await fetch('/quotes/api/finishing-data');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const data = await response.json();
         finishingDataCache = data; // Cache result
 
+        // Przygotuj mapę cen dla łatwego dostępu
+        window.finishingPrices = {};
+        data.finishing_types.forEach(type => {
+            window.finishingPrices[type.name] = parseFloat(type.price_netto);
+        });
+
         renderFinishingUI(data);
-        log('finishing', `✅ Załadowano dane wykończenia (${data.finishing_types.length} typów, ${data.finishing_colors.length} kolorów)`);
+        log('finishing', `✅ Załadowano dane wykończenia z bazy danych (${data.finishing_types.length} typów, ${data.finishing_colors.length} kolorów)`);
+        log('finishing', 'Ceny wykończeń z bazy:', window.finishingPrices);
 
         return data;
 
@@ -1800,6 +2105,21 @@ async function loadFinishingDataFromDatabase() {
         console.error('[QUOTE EDITOR] ❌ Błąd ładowania danych wykończenia:', error);
         loadDefaultFinishingData();
         return null;
+    }
+}
+
+/**
+ * Inicjalizacja ładowania cen wykończenia przy starcie edytora
+ */
+async function initializeFinishingPrices() {
+    log('finishing', 'Inicjalizacja cen wykończenia...');
+
+    try {
+        await loadFinishingDataFromDatabase();
+        log('finishing', '✅ Ceny wykończenia zainicjalizowane');
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ Błąd inicjalizacji cen wykończenia:', error);
+        loadDefaultFinishingData();
     }
 }
 
@@ -2041,11 +2361,151 @@ function generateProductDescriptionForQuote(item, productItems) {
     const quantity = ` | ${item.quantity} szt.`;
     const main = `${translatedVariant} ${dimensions}${finishing}${quantity}`;
 
-    const volume = item.volume_m3 ? `${item.volume_m3.toFixed(3)} m³` : '0.000 m³';
-    const weight = item.weight_kg ? `${item.weight_kg.toFixed(1)} kg` : '0.0 kg';
-    const sub = `${volume} | ${weight}`;
+    // POPRAWKA: Oblicz objętość i wagę jeśli nie są dostępne
+    const volume = item.volume_m3 || calculateProductVolumeFromItem(item);
+    const weight = item.weight_kg || calculateProductWeightFromItem(item);
+
+    const volumeText = volume ? `${volume.toFixed(3)} m³` : '0.000 m³';
+    const weightText = formatWeightDisplay(weight);
+    const sub = `${volumeText} | ${weightText}`;
 
     return { main, sub };
+}
+
+/**
+ * NOWA funkcja - oblicza objętość produktu na podstawie danych z item
+ */
+function calculateProductVolumeFromItem(item) {
+    if (!item.length_cm || !item.width_cm || !item.thickness_cm || !item.quantity) {
+        return 0;
+    }
+
+    const length = parseFloat(item.length_cm) || 0;
+    const width = parseFloat(item.width_cm) || 0;
+    const thickness = parseFloat(item.thickness_cm) || 0;
+    const quantity = parseInt(item.quantity) || 1;
+
+    if (length <= 0 || width <= 0 || thickness <= 0) {
+        return 0;
+    }
+
+    // Oblicz objętość: wymiary w cm → metry → m³
+    const singleVolumeM3 = (length / 100) * (width / 100) * (thickness / 100);
+    const totalVolumeM3 = singleVolumeM3 * quantity;
+
+    return totalVolumeM3;
+}
+
+/**
+ * NOWA funkcja - oblicza wagę produktu na podstawie objętości
+ */
+function calculateProductWeightFromItem(item) {
+    const volume = item.volume_m3 || calculateProductVolumeFromItem(item);
+
+    if (!volume || volume <= 0) {
+        return 0;
+    }
+
+    // Gęstość drewna: 800 kg/m³ (tak samo jak w calculator.js)
+    const WOOD_DENSITY = 800; // kg/m³
+    const weight = volume * WOOD_DENSITY;
+
+    return weight;
+}
+
+/**
+ * NOWA funkcja - aktualizuje podsumowanie objętości i wagi w edytorze wyceny
+ * Można wywołać po zmianie danych produktu
+ */
+function updateProductsSummaryTotals() {
+    if (!currentEditingQuoteData) return;
+
+    const { totalVolume, totalWeight } = calculateTotalVolumeAndWeightFromQuote(currentEditingQuoteData);
+
+    // Znajdź lub utwórz element podsumowania
+    let summaryElement = document.querySelector('.products-total-summary');
+
+    if (!summaryElement && (totalVolume > 0 || totalWeight > 0)) {
+        // Utwórz element podsumowania jeśli nie istnieje
+        const container = document.getElementById('edit-products-summary-container');
+        if (container) {
+            summaryElement = document.createElement('div');
+            summaryElement.className = 'products-total-summary';
+            container.appendChild(summaryElement);
+        }
+    }
+
+    if (summaryElement) {
+        summaryElement.innerHTML = `
+            <div class="products-total-title">Łączne podsumowanie:</div>
+            <div class="products-total-details">
+                <span class="products-total-volume">${formatVolumeDisplay(totalVolume)}</span>
+                <span class="products-total-weight">${formatWeightDisplay(totalWeight)}</span>
+            </div>
+        `;
+    }
+
+    log('editor', `Zaktualizowano podsumowanie: ${formatVolumeDisplay(totalVolume)} | ${formatWeightDisplay(totalWeight)}`);
+}
+
+/**
+ * POPRAWIONA funkcja dla modułu quotes - skopiowana z calculator.js
+ * Oblicza łączną objętość i wagę wszystkich produktów w wycenie
+ */
+function calculateTotalVolumeAndWeightFromQuote(quoteData) {
+    if (!quoteData?.items?.length) {
+        return { totalVolume: 0, totalWeight: 0 };
+    }
+
+    let totalVolume = 0;
+    let totalWeight = 0;
+
+    // Iteruj przez wszystkie elementy wyceny
+    quoteData.items.forEach(item => {
+        // Sprawdź czy produkt jest kompletny (ma wszystkie wymagane dane)
+        const isComplete = checkProductCompletenessForQuote(item);
+
+        if (isComplete) {
+            // Oblicz objętość i wagę dla tego produktu
+            const itemVolume = item.volume_m3 || calculateProductVolumeFromItem(item);
+            const itemWeight = item.weight_kg || calculateProductWeightFromItem(item);
+
+            totalVolume += itemVolume;
+            totalWeight += itemWeight;
+        }
+    });
+
+    return {
+        totalVolume: Math.round(totalVolume * 1000) / 1000, // Zaokrągl do 3 miejsc po przecinku
+        totalWeight: Math.round(totalWeight * 10) / 10      // Zaokrągl do 1 miejsca po przecinku
+    };
+}
+
+/**
+ * NOWA funkcja - formatuje wagę do wyświetlenia
+ */
+function formatWeightDisplay(weight) {
+    if (!weight || weight <= 0) {
+        return "0.0 kg";
+    }
+
+    // Jeśli waga >= 1000 kg, pokaż w tonach
+    if (weight >= 1000) {
+        return `${(weight / 1000).toFixed(2)} t`;
+    }
+
+    return `${weight.toFixed(1)} kg`;
+}
+
+/**
+ * NOWA funkcja - formatuje objętość do wyświetlenia
+ */
+function formatVolumeDisplay(volume) {
+    if (!volume || volume <= 0) {
+        return "0.000 m³";
+    }
+
+    return `${volume.toFixed(3)} m³`;
 }
 
 function checkProductCompletenessForQuote(item) {

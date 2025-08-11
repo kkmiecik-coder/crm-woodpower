@@ -3358,6 +3358,14 @@
     border-radius: 8px;
 }
 
+.edit-product-total-brutto {
+    font-weight: 600;
+    color: #1F2020;
+    text-align: right;
+    min-width: 80px;
+    font-size: inherit;
+}
+
 .finishing-section {
     flex: 0 0 280px;
     background: #f8f9fa;
@@ -3588,12 +3596,18 @@
 
         /* Ostatni wiersz (suma) - wyróżniony */
         .edit-quote-summary > div:last-child {
-            border-bottom: 2px solid #ED6B24;
-            border-top: 1px solid #ddd;
+            border-top: 2px solid #ED6B24;
+            border-bottom: none;
             font-weight: 600;
-            padding: 12px 0 8px 0;
+            padding-top: 12px;
             margin-top: 4px;
             font-size: 14px; /* WIĘKSZA CZCIONKA DLA SUMY */
+        }
+
+        .edit-quote-summary > div:first-child {
+            font-weight: 600;
+            padding-top: 0;
+            margin-top: 0;
         }
 
         /* Usuń border z przedostatniego elementu */
@@ -3625,7 +3639,8 @@
 .edit-quote-summary .edit-order-netto,
 .edit-quote-summary .edit-finishing-netto,
 .edit-quote-summary .edit-delivery-netto,
-.edit-quote-summary .edit-final-netto {
+.edit-quote-summary .edit-final-netto,
+.edit-quote-summary .edit-product-total-netto {
     font-weight: 400;
     color: #888; /* JAŚNIEJSZY KOLOR */
     text-align: right;
