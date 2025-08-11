@@ -101,7 +101,58 @@ async function openQuoteEditor(quoteData) {
     // Dodaj obsługę zamykania
     setupModalCloseHandlers();
 
+    console.log('[QUOTE EDITOR] ✅ Dane wstawione do formularza – uruchamiam przeliczenia');
+    triggerSyntheticRecalc();
+
+    applyHiddenVariantsFromQuoteData(quoteData);
+    console.log('[QUOTE EDITOR] ✅ Zastosowano ukryte warianty z danych wyceny');
+
     console.log('[QUOTE EDITOR] ===== EDYTOR WYCENY OTWARTY =====');
+}
+
+function triggerSyntheticRecalc() {
+  // 1) Wywołaj input/change na wszystkich polach, żeby zadziałały istniejące listenery
+  const inputs = document.querySelectorAll('#quote-editor-modal input, #quote-editor-modal select');
+  inputs.forEach(el => {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  // 2) Centralny przelicznik – dostosuj nazwę, jeśli masz inną
+  if (typeof recalculateEditorTotals === 'function') {
+    recalculateEditorTotals();
+  } else if (typeof onFormDataChange === 'function') {
+    onFormDataChange();
+  } else {
+    console.warn('[QUOTE EDITOR] Brak centralnej funkcji przeliczeń – zostaję przy eventach input/change.');
+  }
+}
+
+function applyHiddenVariantsFromQuoteData(quoteData) {
+  // Przykład: quoteData.products -> [{ index, selected_variant, variants:[{code, hidden:boolean}] }, ...]
+  if (!quoteData || !Array.isArray(quoteData.products)) return;
+
+  quoteData.products.forEach(prod => {
+    if (!Array.isArray(prod.variants)) return;
+
+    prod.variants.forEach(variant => {
+      const code = variant.code || variant.variant_code;
+      if (!code) return;
+
+      // Znajdź checkbox dostępności w edytorze (dopasuj selektor do swojego HTML-a)
+      const cb = document.querySelector(
+        `.variant-availability-checkbox[data-variant="${code}"][data-product-index="${prod.index}"]`
+      ) || document.querySelector(
+        `.variant-availability-checkbox[data-variant="${code}"]`
+      );
+
+      if (cb) {
+        const isHidden = variant.hidden === true || variant.show_on_client_page === false;
+        cb.checked = !isHidden;
+        cb.dispatchEvent(new Event('change', { bubbles: true })); // niech się przerysuje UI/ceny
+      }
+    });
+  });
 }
 
 /**
