@@ -88,6 +88,10 @@ async function openQuoteEditor(quoteData) {
         console.log('[QUOTE EDITOR] Rozpoczynam ładowanie danych wyceny...');
         loadQuoteDataToEditor(quoteData);
 
+        // Inicjalizacja automatycznego odświeżania podsumowania
+        console.log('[QUOTE EDITOR] Inicjalizuję automatyczne odświeżanie podsumowania...');
+        initializeSummaryUpdates();
+
         // Dodaj event listenery
         console.log('[QUOTE EDITOR] Dodaję event listenery...');
         attachEditorFormListeners();
@@ -2630,46 +2634,406 @@ function createCustomUpdatePricesForEditor() {
     console.log('[QUOTE EDITOR] ✅ Zastąpiono funkcję updatePrices NAPRAWIONĄ wersją');
 }
 
+
 /**
- * DODAJ funkcję testową dla cennika
+ * GŁÓWNA FUNKCJA ODŚWIEŻANIA PODSUMOWANIA
  */
-function testPriceSearch() {
-    console.log('=== TEST WYSZUKIWANIA CEN ===');
+function updateQuoteSummary() {
+    console.log('[QUOTE EDITOR] 🔄 Rozpoczynam odświeżanie podsumowania...');
 
-    const testCases = [
-        { species: 'Dąb', technology: 'Lity', wood_class: 'A/B', thickness: 4, length: 200, expected: 14500 },
-        { species: 'Dąb', technology: 'Lity', wood_class: 'A/B', thickness: 2, length: 180, expected: 16000 },
-        { species: 'Dąb', technology: 'Mikrowczep', wood_class: 'A/B', thickness: 4, length: 200, expected: 10000 },
-        { species: 'Buk', technology: 'Lity', wood_class: 'A/B', thickness: 4, length: 200, expected: 9000 }
-    ];
+    try {
+        // 1. Oblicz koszty produktów
+        const productsCosts = calculateProductsCosts();
+        console.log('[QUOTE EDITOR] Koszty produktów:', productsCosts);
 
-    testCases.forEach((test, index) => {
-        console.log(`\n--- Test ${index + 1}: ${test.species} ${test.technology} ${test.wood_class} ---`);
-        console.log(`Parametry: grubość=${test.thickness}cm, długość=${test.length}cm`);
-        console.log(`Oczekiwana cena: ${test.expected} PLN/m³`);
+        // 2. Oblicz koszty wykończenia  
+        const finishingCosts = calculateFinishingCosts();
+        console.log('[QUOTE EDITOR] Koszty wykończenia:', finishingCosts);
 
-        if (typeof getPrice === 'function') {
-            const result = getPrice(test.species, test.technology, test.wood_class, test.thickness, test.length);
-            if (result) {
-                console.log(`✅ ZNALEZIONO: ${result.price_per_m3} PLN/m³`);
-                console.log(`Zakres grubości: ${result.thickness_min}-${result.thickness_max}`);
-                console.log(`Zakres długości: ${result.length_min}-${result.length_max}`);
+        // 3. Pobierz koszty wysyłki (z istniejących danych)
+        const shippingCosts = getShippingCosts();
+        console.log('[QUOTE EDITOR] Koszty wysyłki:', shippingCosts);
 
-                if (result.price_per_m3 === test.expected) {
-                    console.log(`🎯 PERFECT MATCH!`);
-                } else {
-                    console.log(`⚠️ Cena różna od oczekiwanej (${test.expected})`);
-                }
-            } else {
-                console.log(`❌ BRAK DOPASOWANIA`);
-                console.log(`Math.ceil(${test.thickness}) = ${Math.ceil(test.thickness)}`);
+        // 4. Oblicz sumę końcową
+        const totalCosts = {
+            brutto: productsCosts.brutto + finishingCosts.brutto + shippingCosts.brutto,
+            netto: productsCosts.netto + finishingCosts.netto + shippingCosts.netto
+        };
+
+        // 5. Aktualizuj wyświetlanie w podsumowaniu
+        updateSummaryDisplay(productsCosts, finishingCosts, shippingCosts, totalCosts);
+
+        console.log('[QUOTE EDITOR] ✅ Podsumowanie zaktualizowane pomyślnie');
+
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ Błąd podczas odświeżania podsumowania:', error);
+    }
+}
+
+/**
+ * OBLICZANIE KOSZTÓW PRODUKTÓW
+ */
+function calculateProductsCosts() {
+    let totalBrutto = 0;
+    let totalNetto = 0;
+
+    // Sprawdź czy mamy dostęp do aktywnego formularza z kalkulatora
+    if (window.activeQuoteForm && window.activeQuoteForm.dataset) {
+        const formBrutto = parseFloat(window.activeQuoteForm.dataset.orderBrutto) || 0;
+        const formNetto = parseFloat(window.activeQuoteForm.dataset.orderNetto) || 0;
+
+        if (formBrutto > 0 || formNetto > 0) {
+            console.log('[QUOTE EDITOR] Używam danych z activeQuoteForm');
+            return { brutto: formBrutto, netto: formNetto };
+        }
+    }
+
+    // Fallback - oblicz na podstawie danych z wyceny
+    if (currentEditingQuoteData?.items) {
+        currentEditingQuoteData.items.forEach(item => {
+            if (item.is_selected) {
+                const quantity = item.quantity || 1;
+                const unitBrutto = item.final_price_brutto || item.unit_price_brutto || 0;
+                const unitNetto = item.final_price_netto || item.unit_price_netto || 0;
+
+                totalBrutto += unitBrutto * quantity;
+                totalNetto += unitNetto * quantity;
             }
-        } else {
-            console.log('❌ Funkcja getPrice niedostępna');
+        });
+    }
+
+    return { brutto: totalBrutto, netto: totalNetto };
+}
+
+/**
+ * OBLICZANIE KOSZTÓW WYKOŃCZENIA
+ */
+function calculateFinishingCosts() {
+    let totalBrutto = 0;
+    let totalNetto = 0;
+
+    // Sprawdź czy mamy dostęp do danych wykończenia z kalkulatora
+    if (window.activeQuoteForm && window.activeQuoteForm.dataset) {
+        const finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
+        const finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
+
+        if (finishingBrutto > 0 || finishingNetto > 0) {
+            console.log('[QUOTE EDITOR] Używam danych wykończenia z activeQuoteForm');
+            return { brutto: finishingBrutto, netto: finishingNetto };
+        }
+    }
+
+    // Fallback - oblicz na podstawie aktualnego wyboru wykończenia
+    const finishingType = getSelectedFinishingType();
+    const finishingVariant = getSelectedFinishingVariant();
+
+    // Pobierz wymiary do obliczenia powierzchni
+    const length = parseFloat(document.getElementById('edit-length')?.value) || 0;
+    const width = parseFloat(document.getElementById('edit-width')?.value) || 0;
+    const quantity = parseInt(document.getElementById('edit-quantity')?.value) || 1;
+
+    if (length > 0 && width > 0 && finishingType && finishingType !== 'Surowe') {
+        const surfaceAreaM2 = (length / 1000) * (width / 1000) * quantity;
+        const finishingPrice = getFinishingPrice(finishingType, finishingVariant);
+
+        if (finishingPrice > 0) {
+            totalNetto = surfaceAreaM2 * finishingPrice;
+            totalBrutto = totalNetto * 1.23; // VAT 23%
+        }
+    }
+
+    return { brutto: totalBrutto, netto: totalNetto };
+}
+
+/**
+ * POBIERANIE KOSZTÓW WYSYŁKI
+ */
+function getShippingCosts() {
+    if (currentEditingQuoteData?.shipping_cost_brutto) {
+        return {
+            brutto: parseFloat(currentEditingQuoteData.shipping_cost_brutto) || 0,
+            netto: parseFloat(currentEditingQuoteData.shipping_cost_netto) || 0
+        };
+    }
+
+    return { brutto: 0, netto: 0 };
+}
+
+/**
+ * AKTUALIZACJA WYŚWIETLANIA PODSUMOWANIA
+ */
+function updateSummaryDisplay(productsCosts, finishingCosts, shippingCosts, totalCosts) {
+    console.log('[QUOTE EDITOR] Aktualizacja wyświetlania podsumowania...');
+
+    // Produkty
+    const orderBruttoEl = document.querySelector('.edit-order-brutto');
+    const orderNettoEl = document.querySelector('.edit-order-netto');
+    if (orderBruttoEl) orderBruttoEl.textContent = `${productsCosts.brutto.toFixed(2)} PLN`;
+    if (orderNettoEl) orderNettoEl.textContent = `${productsCosts.netto.toFixed(2)} PLN netto`;
+
+    // Wykończenie
+    const finishingBruttoEl = document.querySelector('.edit-finishing-brutto');
+    const finishingNettoEl = document.querySelector('.edit-finishing-netto');
+    if (finishingBruttoEl) finishingBruttoEl.textContent = `${finishingCosts.brutto.toFixed(2)} PLN`;
+    if (finishingNettoEl) finishingNettoEl.textContent = `${finishingCosts.netto.toFixed(2)} PLN netto`;
+
+    // Wysyłka
+    const deliveryBruttoEl = document.querySelector('.edit-delivery-brutto');
+    const deliveryNettoEl = document.querySelector('.edit-delivery-netto');
+    if (deliveryBruttoEl) deliveryBruttoEl.textContent = `${shippingCosts.brutto.toFixed(2)} PLN`;
+    if (deliveryNettoEl) deliveryNettoEl.textContent = `${shippingCosts.netto.toFixed(2)} PLN netto`;
+
+    // Suma końcowa
+    const finalBruttoEl = document.querySelector('.edit-final-brutto');
+    const finalNettoEl = document.querySelector('.edit-final-netto');
+    if (finalBruttoEl) finalBruttoEl.textContent = `${totalCosts.brutto.toFixed(2)} PLN`;
+    if (finalNettoEl) finalNettoEl.textContent = `${totalCosts.netto.toFixed(2)} PLN netto`;
+
+    console.log('[QUOTE EDITOR] ✅ Wyświetlanie zaktualizowane');
+}
+
+/**
+ * FUNKCJE POMOCNICZE
+ */
+
+/**
+ * Pobiera mnożnik dla wybranej grupy cenowej
+ */
+function getMultiplierForClientType(clientType) {
+    if (!clientTypesCache) return 1.0;
+
+    const found = clientTypesCache.find(ct => ct.client_type === clientType);
+    return found ? parseFloat(found.multiplier) : 1.0;
+}
+
+/**
+ * Parsuje kod wariantu do komponentów (species, technology, wood_class)
+ * Na podstawie rzeczywistych kodów z załącznika
+ */
+function parseVariantCode(variantCode) {
+    if (!variantCode) return null;
+
+    // Mapa kodów wariantów z załącznika
+    const variantMapping = {
+        'dab-lity-ab': { species: 'dąb', technology: 'lity', wood_class: 'a/b' },
+        'dab-lity-bb': { species: 'dąb', technology: 'lity', wood_class: 'b/b' },
+        'dab-micro-ab': { species: 'dąb', technology: 'mikrowczep', wood_class: 'a/b' },
+        'dab-micro-bb': { species: 'dąb', technology: 'mikrowczep', wood_class: 'b/b' },
+        'jes-lity-ab': { species: 'jesion', technology: 'lity', wood_class: 'a/b' },
+        'jes-micro-ab': { species: 'jesion', technology: 'mikrowczep', wood_class: 'a/b' },
+        'buk-lity-ab': { species: 'buk', technology: 'lity', wood_class: 'a/b' },
+        'buk-micro-ab': { species: 'buk', technology: 'mikrowczep', wood_class: 'a/b' }
+    };
+
+    const code = variantCode.toLowerCase();
+    return variantMapping[code] || null;
+}
+
+/**
+ * Pobiera cenę wykończenia z cache'a lub domyślnych wartości
+ */
+function getFinishingPrice(finishingType, finishingVariant, finishingColor) {
+    // Sprawdź czy mamy dane z cache'a
+    if (finishingDataCache?.finishing_types) {
+        const typeData = finishingDataCache.finishing_types.find(ft =>
+            ft.name === finishingType ||
+            (finishingType === 'Lakierowanie' && ft.name.includes('Lakierowanie'))
+        );
+
+        if (typeData) {
+            return parseFloat(typeData.price_netto) || 0;
+        }
+    }
+
+    // Domyślne ceny jako fallback
+    const defaultPrices = {
+        'Surowe': 0,
+        'Lakierowanie': finishingVariant === 'Barwne' ? 250 : 200,
+        'Olejowanie': 250
+    };
+
+    return defaultPrices[finishingType] || 0;
+}
+
+/**
+ * ULEPSZONA FUNKCJA onFormDataChange
+ * Zachowuje istniejącą logikę ale dodaje odświeżanie podsumowania
+ */
+function enhanceOnFormDataChange() {
+    // Sprawdź czy funkcja już istnieje
+    if (typeof window.onFormDataChange !== 'function') {
+        console.warn('[QUOTE EDITOR] onFormDataChange nie istnieje - tworzę podstawową wersję');
+        window.onFormDataChange = function () {
+            console.log('[QUOTE EDITOR] Podstawowa onFormDataChange');
+            updateQuoteSummary();
+        };
+        return;
+    }
+
+    // Zachowaj oryginalną funkcję
+    if (!window.originalOnFormDataChange) {
+        window.originalOnFormDataChange = window.onFormDataChange;
+        console.log('[QUOTE EDITOR] Zachowano oryginalną onFormDataChange');
+    }
+
+    // Zastąp ulepszoną wersją
+    window.onFormDataChange = function () {
+        console.log('[QUOTE EDITOR] 🔄 Ulepszona onFormDataChange wywołana');
+
+        try {
+            // Najpierw wykonaj oryginalną logikę
+            if (typeof window.originalOnFormDataChange === 'function') {
+                window.originalOnFormDataChange();
+            }
+        } catch (error) {
+            console.warn('[QUOTE EDITOR] Błąd w oryginalnej onFormDataChange:', error);
+        }
+
+        // Następnie odśwież podsumowanie (z małą zwłoką na zaaplikowanie zmian)
+        setTimeout(() => {
+            updateQuoteSummary();
+        }, 100);
+    };
+
+    console.log('[QUOTE EDITOR] ✅ onFormDataChange ulepszona');
+}
+
+/**
+ * ULEPSZONA FUNKCJA attachEditorFormListeners 
+ * Zachowuje istniejące listenery ale dodaje odświeżanie podsumowania
+ */
+function enhanceAttachEditorFormListeners() {
+    // Sprawdź czy funkcja już istnieje
+    if (typeof window.attachEditorFormListeners !== 'function') {
+        console.warn('[QUOTE EDITOR] attachEditorFormListeners nie istnieje - tworzę podstawową wersję');
+        window.attachEditorFormListeners = function () {
+            console.log('[QUOTE EDITOR] Podstawowa attachEditorFormListeners');
+            addBasicEventListeners();
+        };
+        return;
+    }
+
+    // Zachowaj oryginalną funkcję
+    if (!window.originalAttachEditorFormListeners) {
+        window.originalAttachEditorFormListeners = window.attachEditorFormListeners;
+        console.log('[QUOTE EDITOR] Zachowano oryginalną attachEditorFormListeners');
+    }
+
+    // Zastąp ulepszoną wersją
+    window.attachEditorFormListeners = function () {
+        console.log('[QUOTE EDITOR] 🔄 Ulepszona attachEditorFormListeners wywołana');
+
+        try {
+            // Najpierw wykonaj oryginalną logikę
+            if (typeof window.originalAttachEditorFormListeners === 'function') {
+                window.originalAttachEditorFormListeners();
+            }
+        } catch (error) {
+            console.warn('[QUOTE EDITOR] Błąd w oryginalnej attachEditorFormListeners:', error);
+        }
+
+        // Dodaj dodatkowe listenery dla podsumowania
+        addSummaryEventListeners();
+    };
+
+    console.log('[QUOTE EDITOR] ✅ attachEditorFormListeners ulepszona');
+}
+
+/**
+ * Dodaje podstawowe event listenery jeśli oryginalne nie istnieją
+ */
+function addBasicEventListeners() {
+    console.log('[QUOTE EDITOR] Dodaję podstawowe event listenery...');
+
+    const modal = document.getElementById('quote-editor-modal');
+    if (!modal) return;
+
+    // Input/change dla pól formularza
+    modal.addEventListener('input', (e) => {
+        if (e.target.matches('input[type="number"], input[type="text"], select')) {
+            debounce(updateQuoteSummary, 300)();
         }
     });
 
-    console.log('\n=== KONIEC TESTU ===');
+    modal.addEventListener('change', (e) => {
+        if (e.target.matches('input[type="radio"], input[type="checkbox"], select')) {
+            updateQuoteSummary();
+        }
+    });
+
+    console.log('[QUOTE EDITOR] ✅ Podstawowe listenery dodane');
+}
+
+/**
+ * Dodaje dodatkowe event listenery dla odświeżania podsumowania
+ */
+function addSummaryEventListeners() {
+    console.log('[QUOTE EDITOR] Dodaję dodatkowe event listenery dla podsumowania...');
+
+    const modal = document.getElementById('quote-editor-modal');
+    if (!modal) return;
+
+    // Dodatkowy listener dla przycisków wykończenia (w przypadku konfliktów)
+    modal.addEventListener('click', (e) => {
+        if (e.target.matches('.finishing-btn, .color-btn') && !e.target.hasAttribute('data-summary-listener')) {
+            e.target.setAttribute('data-summary-listener', 'true');
+            setTimeout(updateQuoteSummary, 100);
+        }
+    });
+
+    // Dodatkowy listener dla zmian w wymiarach (backup)
+    const dimensionInputs = modal.querySelectorAll('#edit-length, #edit-width, #edit-thickness, #edit-quantity');
+    dimensionInputs.forEach(input => {
+        if (!input.hasAttribute('data-summary-listener')) {
+            input.setAttribute('data-summary-listener', 'true');
+            input.addEventListener('input', debounce(updateQuoteSummary, 300));
+        }
+    });
+
+    console.log('[QUOTE EDITOR] ✅ Dodatkowe listenery dla podsumowania dodane');
+}
+
+/**
+ * FUNKCJA DEBOUNCE dla limitowania częstotliwości wykonywania
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+/**
+ * INICJALIZACJA - wywołać po załadowaniu edytora
+ * Ulepszona wersja zachowująca istniejącą funkcjonalność
+ */
+function initializeSummaryUpdates() {
+    console.log('[QUOTE EDITOR] Inicjalizacja automatycznego odświeżania podsumowania...');
+
+    // Ulepsz istniejące funkcje
+    enhanceOnFormDataChange();
+    enhanceAttachEditorFormListeners();
+
+    // Wywołaj ulepszoną wersję attachEditorFormListeners
+    if (typeof window.attachEditorFormListeners === 'function') {
+        window.attachEditorFormListeners();
+    } else {
+        console.warn('[QUOTE EDITOR] attachEditorFormListeners nie istnieje - używam podstawowej wersji');
+        addBasicEventListeners();
+        addSummaryEventListeners();
+    }
+
+    // Wykonaj pierwsze odświeżanie
+    setTimeout(() => {
+        updateQuoteSummary();
+    }, 500); // Krótka zwłoka na załadowanie danych
+
+    console.log('[QUOTE EDITOR] ✅ Automatyczne odświeżanie podsumowania zainicjalizowane');
 }
 
 // Eksportuj funkcję testową
