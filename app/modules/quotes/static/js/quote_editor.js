@@ -182,28 +182,20 @@ const handleInputChange = debounce((e) => {
  * Centralizowana obsługa zmian w select-ach
  */
 function handleSelectChange(e) {
-    const target = e.target;
+    const radio = e.target;
+    if (radio.type !== 'radio' || radio.name !== 'edit-variantOption') return;
 
-    if (target.id === 'edit-clientType') {
-        log('sync', `Client type change: ${target.value}`);
-        syncEditorToMockForm();
-        onClientTypeChange();
-        onFormDataChange();
-    }
+    log('sync', `Variant change: ${radio.value}`);
 
-    if (target.matches('input[name="edit-variantOption"]') && target.checked) {
-        log('sync', `Variant change: ${target.value}`);
-        updateSelectedVariant(target);
-        syncEditorToMockForm();
-        onFormDataChange();
-    }
+    // Wywołaj oryginalną logikę
+    onFormDataChange();
 
-    if (target.matches('.variant-availability-checkbox')) {
-        log('sync', `Checkbox change: ${target.dataset.variant} = ${target.checked}`);
-        updateEditorVariantAvailability(target);
-        syncEditorToMockForm();
-        onFormDataChange();
-    }
+    // DODANE: Synchronizuj dataset po zmianie wariantu
+    setTimeout(() => {
+        syncRadioDatasetWithMockForm();
+        // Odśwież podsumowanie po synchronizacji
+        updateQuoteSummary();
+    }, 100);
 }
 
 /**
@@ -262,34 +254,36 @@ function handleButtonClick(e) {
 function setupCalculatorForEditor() {
     log('calculator', 'Konfiguracja calculator.js...');
 
-    // KLUCZOWA POPRAWKA: Najpierw backup, potem setup
-    backupOriginalCalculatorState();
+    try {
+        backupOriginalCalculatorState();
+        const container = findOrCreateContainer();
+        if (!container) return false;
 
-    // Znajdź/stwórz kontener PRZED formą
-    const container = findOrCreateContainer();
-    if (!container) {
-        console.error('[QUOTE EDITOR] Błąd tworzenia kontenera');
+        window.quoteFormsContainer = container;
+        const form = findOrCreateForm();
+        if (!form) return false;
+
+        window.activeQuoteForm = form;
+
+        // ✅ POPRAWKA: Inicjalizacja przycisków wykończenia z error handling
+        try {
+            if (typeof attachFinishingUIListeners === 'function') {
+                attachFinishingUIListeners(form);
+                log('calculator', 'Zainicjalizowano przyciski wykończenia w mock formularzu');
+            }
+        } catch (error) {
+            log('calculator', '⚠️ Błąd inicjalizacji przycisków wykończenia:', error);
+            // Nie blokuj dalszej konfiguracji
+        }
+
+        addVariantsToCalculatorForm();
+        log('calculator', '✅ Calculator.js skonfigurowany pomyślnie');
+        return true;
+
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ Błąd konfiguracji calculator.js:', error);
         return false;
     }
-
-    // Ustaw container w window PRZED tworzeniem formy
-    window.quoteFormsContainer = container;
-
-    // Teraz dopiero znajdź/stwórz formę
-    const form = findOrCreateForm();
-    if (!form) {
-        console.error('[QUOTE EDITOR] Błąd tworzenia formularza');
-        return false;
-    }
-
-    // Ustaw form w window
-    window.activeQuoteForm = form;
-
-    // Dodaj warianty
-    addVariantsToCalculatorForm();
-
-    log('calculator', '✅ Calculator.js skonfigurowany pomyślnie');
-    return true;
 }
 
 /**
@@ -378,6 +372,32 @@ function createMockFormHTML() {
             <input type="number" data-field="quantity" value="1" style="display: none;">
         </div>
         <div class="variants" style="display: none;"></div>
+        
+        <!-- ✅ SEKCJA WYKOŃCZENIA - KLUCZOWA POPRAWKA -->
+        <div class="finishing-section" style="display: none;">
+            <div class="finishing-type-group">
+                <button type="button" class="finishing-btn active" data-finishing-type="Surowe">Surowe</button>
+                <button type="button" class="finishing-btn" data-finishing-type="Lakierowanie">Lakierowanie</button>
+                <button type="button" class="finishing-btn" data-finishing-type="Olejowanie">Olejowanie</button>
+            </div>
+            
+            <div class="finishing-variant-wrapper" style="display: none;">
+                <button type="button" class="finishing-btn" data-finishing-variant="Bezbarwne">Bezbarwne</button>
+                <button type="button" class="finishing-btn" data-finishing-variant="Barwne">Barwne</button>
+            </div>
+            
+            <div class="finishing-color-wrapper" style="display: none;">
+                <div class="color-group">
+                    <!-- Kolory będą dodane dynamicznie -->
+                </div>
+            </div>
+            
+            <div class="finishing-gloss-wrapper" style="display: none;">
+                <button type="button" class="finishing-btn" data-finishing-gloss="Matowy">Matowy</button>
+                <button type="button" class="finishing-btn" data-finishing-gloss="Półmatowy">Półmatowy</button>
+                <button type="button" class="finishing-btn" data-finishing-gloss="Połysk">Połysk</button>
+            </div>
+        </div>
     `;
 }
 
@@ -567,7 +587,7 @@ function onFormDataChange() {
     }
 
     try {
-        // Sprawdź czy setup się powiódł PRZED dalszymi operacjami
+        // ✅ POPRAWKA: Sprawdź setup PRZED dalszymi operacjami
         if (!setupCalculatorForEditor()) {
             log('calculator', 'Setup calculator.js nie powiódł się - fallback');
             calculateEditorPrices();
@@ -575,20 +595,24 @@ function onFormDataChange() {
             return;
         }
 
-        // Sprawdź czy sync się powiódł
+        // ✅ POPRAWKA: Sprawdź sync PRZED calculation
         if (!syncEditorDataToCalculatorForm()) {
             log('sync', 'Sync danych nie powiódł się - fallback');
             calculateEditorPrices();
+            updateQuoteSummary();
             return;
         }
 
-        // Kontynuuj tylko jeśli wszystko OK
+        // ✅ POPRAWKA: Bezpieczne wywołania
         copyVariantMappingToEditor();
         createCustomUpdatePricesForEditor();
+
+        // ✅ KLUCZOWA POPRAWKA: Synchronizuj wykończenie PRZED calculation
+        syncFinishingStateToMockForm();
+
         callUpdatePricesSecurely();
         copyCalculationResults();
         updateQuoteSummary();
-        setTimeout(() => updateProductsSummaryTotals(), 100);
 
         log('calculator', '✅ Obliczenia zakończone pomyślnie');
 
@@ -690,17 +714,19 @@ function handleFinishingButtonClick(button) {
         handleFinishingVariantChange(finishingVariant);
     } else if (finishingGloss) {
         setActiveFinishingButton(button, '#edit-finishing-gloss-wrapper');
-    }
-
-    // Recalculate finishing costs immediately if possible
-    if (typeof calculateFinishingCost === 'function' && window.activeQuoteForm) {
-        try {
-            calculateFinishingCost(window.activeQuoteForm);
-        } catch (err) {
-            log('finishing', 'Błąd przeliczania wykończenia', err);
+        // Dodaj przeliczenie po zmianie połysku
+        syncFinishingStateToMockForm();
+        if (typeof calculateFinishingCost === 'function' && window.activeQuoteForm) {
+            try {
+                calculateFinishingCost(window.activeQuoteForm);
+            } catch (err) {
+                log('finishing', 'Błąd przeliczania po zmianie połysku', err);
+            }
         }
+        updateQuoteSummary();
     }
 
+    // ✅ ZAWSZE wywołaj onFormDataChange po kliknięciu przycisku wykończenia
     onFormDataChange();
 }
 
@@ -736,6 +762,22 @@ function handleFinishingTypeChange(finishingType) {
     }
 
     log('finishing', `Typ wykończenia: ${finishingType}`);
+
+    // ✅ KLUCZOWA POPRAWKA: Synchronizuj do mock formularza
+    syncFinishingStateToMockForm();
+
+    // ✅ KLUCZOWA POPRAWKA: Przelicz koszty po zmianie typu
+    if (typeof calculateFinishingCost === 'function' && window.activeQuoteForm) {
+        try {
+            calculateFinishingCost(window.activeQuoteForm);
+            log('finishing', 'Przeliczono koszty wykończenia po zmianie typu');
+        } catch (err) {
+            log('finishing', 'Błąd przeliczania wykończenia po zmianie typu', err);
+        }
+    }
+
+    // ✅ KLUCZOWA POPRAWKA: Aktualizuj podsumowanie
+    updateQuoteSummary();
 }
 
 /**
@@ -752,22 +794,20 @@ function handleFinishingVariantChange(variant) {
     colorWrapper.style.display = variant === 'Barwne' ? 'flex' : 'none';
 
     log('finishing', `Wariant wykończenia: ${variant}`);
-}
 
-/**
- * Obsługa zmiany wariantu wykończenia
- */
-function handleFinishingVariantChange(variant) {
-    const colorWrapper = document.getElementById('edit-finishing-color-wrapper');
-    if (!colorWrapper) return;
+    // ✅ DODAJ: Synchronizuj i przelicz
+    syncFinishingStateToMockForm();
 
-    // Reset active color buttons
-    colorWrapper.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+    if (typeof calculateFinishingCost === 'function' && window.activeQuoteForm) {
+        try {
+            calculateFinishingCost(window.activeQuoteForm);
+            log('finishing', 'Przeliczono koszty wykończenia po zmianie wariantu');
+        } catch (err) {
+            log('finishing', 'Błąd przeliczania wykończenia po zmianie wariantu', err);
+        }
+    }
 
-    // Show colors only for "Barwne" variant
-    colorWrapper.style.display = variant === 'Barwne' ? 'flex' : 'none';
-
-    log('finishing', `Wariant wykończenia: ${variant}`);
+    updateQuoteSummary();
 }
 
 /**
@@ -1062,56 +1102,71 @@ function calculateSingleVolume(length, width, thickness) {
  * Zoptymalizowane odświeżanie podsumowania
  */
 function updateQuoteSummary() {
-    if (!currentEditingQuoteData) return;
+    log('editor', 'Odświeżanie podsumowania...');
 
     try {
-        // Dla formularza (górne wiersze) - pokaż tylko aktywny produkt
-        const activeProductCosts = calculateActiveProductCosts();
-        const activeFinishingCosts = calculateActiveProductFinishingCosts();
-
-        // Suma za aktywny produkt
-        const activeProductTotal = {
-            brutto: activeProductCosts.brutto + activeFinishingCosts.brutto,
-            netto: activeProductCosts.netto + activeFinishingCosts.netto
-        };
-
-        // Dla końcowej sumy - wszystkie produkty w wycenie
-        const allProductsCosts = calculateProductsCosts();        // WSZYSTKIE produkty
-        const allFinishingCosts = calculateFinishingCosts();      // WSZYSTKIE wykończenia
+        // Calculate all costs
+        const productsCosts = calculateProductsCosts();
+        const finishingCosts = calculateFinishingCosts();
         const shippingCosts = getShippingCosts();
 
-        // Suma za wszystkie produkty w wycenie (bez dostawy)
-        const allProductsTotal = {
-            brutto: allProductsCosts.brutto + allFinishingCosts.brutto,
-            netto: allProductsCosts.netto + allFinishingCosts.netto
+        const totalCosts = {
+            brutto: productsCosts.brutto + finishingCosts.brutto + shippingCosts.brutto,
+            netto: productsCosts.netto + finishingCosts.netto + shippingCosts.netto
         };
 
-        // Ostateczna suma zamówienia (wszystkie produkty + dostawa)
-        const finalOrderTotal = {
-            brutto: allProductsTotal.brutto + shippingCosts.brutto,
-            netto: allProductsTotal.netto + shippingCosts.netto
+        // ✅ KLUCZOWA POPRAWKA: Bezpośrednia aktualizacja UI
+        updateSummaryDisplay(productsCosts, finishingCosts, shippingCosts, totalCosts);
+
+        // Dodatkowo zaktualizuj obiekty dla logowania
+        const summaryObject = {
+            aktywny_surowe: { brutto: productsCosts.brutto, netto: productsCosts.netto },
+            aktywny_wykończenie: { brutto: finishingCosts.brutto, netto: finishingCosts.netto },
+            aktywny_suma: { brutto: productsCosts.brutto + finishingCosts.brutto, netto: productsCosts.netto + finishingCosts.netto },
+            wszystkie_produkty_łącznie: { brutto: totalCosts.brutto, netto: totalCosts.netto },
+            dostawa: { brutto: shippingCosts.brutto, netto: shippingCosts.netto },
+            suma_zamówienia: { brutto: totalCosts.brutto, netto: totalCosts.netto }
         };
 
-        // Aktualizuj wyświetlanie
-        updateSummaryElementsFixed(
-            activeProductCosts,     // Surowe - tylko aktywny produkt
-            activeFinishingCosts,   // Wykończenie - tylko aktywny produkt  
-            activeProductTotal,     // Suma za produkt - tylko aktywny
-            shippingCosts,          // Dostawa
-            finalOrderTotal         // Suma zamówienia - WSZYSTKIE produkty + dostawa
-        );
-
-        log('editor', 'Podsumowanie zaktualizowane:', {
-            aktywny_surowe: activeProductCosts,
-            aktywny_wykończenie: activeFinishingCosts,
-            aktywny_suma: activeProductTotal,
-            wszystkie_produkty_łącznie: allProductsTotal,
-            dostawa: shippingCosts,
-            suma_zamówienia: finalOrderTotal
-        });
+        log('editor', 'Podsumowanie zaktualizowane:', summaryObject);
 
     } catch (error) {
-        console.error('[QUOTE EDITOR] ❌ Błąd aktualizacji podsumowania:', error);
+        console.error('[QUOTE EDITOR] ❌ Błąd odświeżania podsumowania:', error);
+    }
+}
+
+function debugFinishingData() {
+    console.log('=== DEBUG WYKOŃCZENIA ===');
+    console.log('1. Stan przycisków edytora:');
+    console.log('   - Typ:', getSelectedFinishingType());
+    console.log('   - Wariant:', getSelectedFinishingVariant());
+    console.log('   - Kolor:', getSelectedFinishingColor());
+
+    console.log('2. Dataset mock formularza:');
+    if (window.activeQuoteForm) {
+        console.log('   - finishingBrutto:', window.activeQuoteForm.dataset.finishingBrutto);
+        console.log('   - finishingNetto:', window.activeQuoteForm.dataset.finishingNetto);
+    } else {
+        console.log('   - BRAK activeQuoteForm!');
+    }
+
+    console.log('3. Elementy UI:');
+    const bruttoEl = document.querySelector('.edit-finishing-brutto');
+    const nettoEl = document.querySelector('.edit-finishing-netto');
+    console.log('   - .edit-finishing-brutto:', bruttoEl?.textContent);
+    console.log('   - .edit-finishing-netto:', nettoEl?.textContent);
+
+    console.log('4. Obliczenia funkcji:');
+    const calculated = calculateFinishingCosts();
+    console.log('   - calculateFinishingCosts():', calculated);
+
+    console.log('5. Mock formularz (przyciski):');
+    if (window.activeQuoteForm) {
+        const mockButtons = window.activeQuoteForm.querySelectorAll('.finishing-btn');
+        console.log('   - Liczba przycisków w mock:', mockButtons.length);
+        mockButtons.forEach((btn, i) => {
+            console.log(`   - Przycisk ${i}:`, btn.dataset.finishingType || btn.dataset.finishingVariant, btn.classList.contains('active') ? 'ACTIVE' : 'inactive');
+        });
     }
 }
 
@@ -1195,48 +1250,70 @@ function debugProductPrices() {
 function calculateProductsCosts() {
     log('editor', '=== OBLICZANIE KOSZTÓW WSZYSTKICH PRODUKTÓW ===');
 
-    if (!currentEditingQuoteData?.items?.length) {
-        log('editor', 'Brak produktów w wycenie');
+    try {
+        // OPCJA 1: Sprawdź aktualnie wybrany radio button w edytorze
+        const selectedRadio = document.querySelector('input[name="edit-variantOption"]:checked');
+        if (selectedRadio && selectedRadio.dataset) {
+            const radioBrutto = parseFloat(selectedRadio.dataset.orderBrutto) || 0;
+            const radioNetto = parseFloat(selectedRadio.dataset.orderNetto) || 0;
+
+            if (radioBrutto > 0 || radioNetto > 0) {
+                log('editor', `Produkt 1: używam radio button = ${radioBrutto.toFixed(2)} PLN brutto, ${radioNetto.toFixed(2)} PLN netto`);
+                return { brutto: radioBrutto, netto: radioNetto };
+            }
+        }
+
+        // OPCJA 2: Sprawdź dataset z activeQuoteForm (calculator)
+        if (window.activeQuoteForm?.dataset) {
+            const formBrutto = parseFloat(window.activeQuoteForm.dataset.orderBrutto) || 0;
+            const formNetto = parseFloat(window.activeQuoteForm.dataset.orderNetto) || 0;
+
+            if (formBrutto > 0 || formNetto > 0) {
+                log('editor', `Produkt 1: używam activeQuoteForm = ${formBrutto.toFixed(2)} PLN brutto, ${formNetto.toFixed(2)} PLN netto`);
+                return { brutto: formBrutto, netto: formNetto };
+            }
+        }
+
+        // OPCJA 3: Fallback - sprawdź oryginalny dataset z aktualnie wybranego wariantu
+        if (currentEditingQuoteData?.items?.length > 0) {
+            const selectedItem = currentEditingQuoteData.items.find(item => item.is_selected);
+            if (selectedItem) {
+                const quantity = selectedItem.quantity || 1;
+                const brutto = (selectedItem.final_price_brutto || selectedItem.unit_price_brutto || 0) * quantity;
+                const netto = (selectedItem.final_price_netto || selectedItem.unit_price_netto || 0) * quantity;
+
+                log('editor', `Produkt 1: używam fallback = ${brutto.toFixed(2)} PLN brutto, ${netto.toFixed(2)} PLN netto`);
+                return { brutto, netto };
+            }
+        }
+
+        // OPCJA 4: Ostateczny fallback
+        log('editor', 'Produkt 1: używam final_price = 0.00 PLN (brak danych)');
+        return { brutto: 0, netto: 0 };
+
+    } catch (error) {
+        console.error('[QUOTE EDITOR] ❌ Błąd obliczania kosztów produktów:', error);
         return { brutto: 0, netto: 0 };
     }
+}
 
-    let totalBrutto = 0;
-    let totalNetto = 0;
+/**
+ * DODATKOWA FUNKCJA: Synchronizacja dataset radio button z mock form
+ * Ta funkcja powinna być wywoływana po każdej zmianie wariantu
+ */
+function syncRadioDatasetWithMockForm() {
+    const selectedRadio = document.querySelector('input[name="edit-variantOption"]:checked');
+    const mockForm = window.activeQuoteForm;
 
-    // Iteruj przez WSZYSTKIE produkty w wycenie
-    currentEditingQuoteData.items.forEach(item => {
-        if (item.is_selected) {
-            // POPRAWKA: Używaj final_price (już zawiera quantity) LUB unit_price * quantity
-            let itemBrutto = 0;
-            let itemNetto = 0;
+    if (selectedRadio && mockForm && mockForm.dataset) {
+        // Kopiuj dane z mock form do radio button
+        selectedRadio.dataset.orderBrutto = mockForm.dataset.orderBrutto || '0';
+        selectedRadio.dataset.orderNetto = mockForm.dataset.orderNetto || '0';
 
-            if (item.final_price_brutto && item.final_price_netto) {
-                // final_price to już wartość całkowita (unit_price × quantity)
-                itemBrutto = parseFloat(item.final_price_brutto);
-                itemNetto = parseFloat(item.final_price_netto);
-                log('editor', `Produkt ${item.product_index}: używam final_price = ${itemBrutto.toFixed(2)} PLN`);
-            } else if (item.unit_price_brutto && item.unit_price_netto) {
-                // unit_price to cena jednostkowa - trzeba pomnożyć przez quantity
-                const quantity = item.quantity || 1;
-                itemBrutto = parseFloat(item.unit_price_brutto) * quantity;
-                itemNetto = parseFloat(item.unit_price_netto) * quantity;
-                log('editor', `Produkt ${item.product_index}: używam unit_price × ${quantity} = ${itemBrutto.toFixed(2)} PLN`);
-            } else if (item.price_brutto && item.price_netto) {
-                // price to też cena jednostkowa
-                const quantity = item.quantity || 1;
-                itemBrutto = parseFloat(item.price_brutto) * quantity;
-                itemNetto = parseFloat(item.price_netto) * quantity;
-                log('editor', `Produkt ${item.product_index}: używam price × ${quantity} = ${itemBrutto.toFixed(2)} PLN`);
-            }
-
-            totalBrutto += itemBrutto;
-            totalNetto += itemNetto;
-        }
-    });
-
-    log('editor', `Suma wszystkich produktów: ${totalBrutto.toFixed(2)} PLN brutto, ${totalNetto.toFixed(2)} PLN netto`);
-
-    return { brutto: totalBrutto, netto: totalNetto };
+        log('sync', `✅ Zsynchronizowano dataset wariantu: ${selectedRadio.value}`);
+        log('sync', `   - Brutto: ${selectedRadio.dataset.orderBrutto} PLN`);
+        log('sync', `   - Netto: ${selectedRadio.dataset.orderNetto} PLN`);
+    }
 }
 
 /**
@@ -1244,34 +1321,55 @@ function calculateProductsCosts() {
  * Uwzględnia: wymiary w cm → powierzchnia w m² → koszt z bazy danych
  */
 function calculateFinishingCosts() {
-    log('finishing', '=== OBLICZANIE KOSZTÓW WYKOŃCZENIA WSZYSTKICH PRODUKTÓW ===');
+    // Priorytet: dane z calculator.js
+    if (window.activeQuoteForm?.dataset) {
+        const finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
+        const finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
 
-    if (!currentEditingQuoteData?.finishing?.length) {
-        log('finishing', 'Brak danych wykończenia w wycenie');
+        if (finishingBrutto > 0 || finishingNetto > 0) {
+            log('finishing', `Koszty z calculator: ${finishingBrutto} PLN brutto`);
+            return { brutto: finishingBrutto, netto: finishingNetto };
+        }
+    }
+
+    // Fallback calculation z poprawnymi obliczeniami
+    const finishingType = getSelectedFinishingType();
+    const finishingVariant = getSelectedFinishingVariant();
+
+    log('finishing', `Obliczam fallback: typ=${finishingType}, wariant=${finishingVariant}`);
+
+    if (finishingType === 'Surowe') {
+        log('finishing', 'Surowe wykończenie - koszt 0');
         return { brutto: 0, netto: 0 };
     }
 
-    let totalFinishingBrutto = 0;
-    let totalFinishingNetto = 0;
+    const dimensions = getCurrentDimensions();
+    if (!dimensions.isValid) {
+        log('finishing', 'Nieprawidłowe wymiary - koszt 0');
+        return { brutto: 0, netto: 0 };
+    }
 
-    // Sumuj wykończenie dla WSZYSTKICH produktów
-    currentEditingQuoteData.finishing.forEach(finishing => {
-        // finishing_price to już wartość całkowita dla danego produktu (uwzględnia quantity)
-        const finishingBrutto = parseFloat(finishing.finishing_price_brutto || 0);
-        const finishingNetto = parseFloat(finishing.finishing_price_netto || 0);
+    // ✅ POPRAWKA: Prawidłowe przeliczenie cm→m (podziel przez 100, nie 1000!)
+    const lengthM = dimensions.length / 100;
+    const widthM = dimensions.width / 100;
+    const thicknessM = dimensions.thickness / 100;
 
-        totalFinishingBrutto += finishingBrutto;
-        totalFinishingNetto += finishingNetto;
+    // Wzór na powierzchnię prostopadłościanu: 2(lw + lh + wh)
+    const surfaceAreaM2 = 2 * (lengthM * widthM + lengthM * thicknessM + widthM * thicknessM) * dimensions.quantity;
 
-        log('finishing', `Produkt ${finishing.product_index}: wykończenie ${finishingBrutto.toFixed(2)} PLN brutto (już z quantity)`);
-    });
+    const finishingPrice = getFinishingPrice(finishingType, finishingVariant);
 
-    log('finishing', `Suma wykończenia wszystkich produktów: ${totalFinishingBrutto.toFixed(2)} PLN brutto, ${totalFinishingNetto.toFixed(2)} PLN netto`);
+    if (finishingPrice > 0) {
+        const netto = surfaceAreaM2 * finishingPrice;
+        const brutto = netto * 1.23;
 
-    return {
-        brutto: totalFinishingBrutto,
-        netto: totalFinishingNetto
-    };
+        log('finishing', `Obliczono fallback POPRAWNIE: ${brutto.toFixed(2)} PLN brutto (${surfaceAreaM2.toFixed(4)} m² × ${finishingPrice} PLN/m²)`);
+
+        return { brutto, netto };
+    }
+
+    log('finishing', 'Brak ceny wykończenia - koszt 0');
+    return { brutto: 0, netto: 0 };
 }
 
 /**
@@ -1509,6 +1607,82 @@ function clearFinishingSelections() {
     selectors.forEach(selector => {
         document.querySelectorAll(selector).forEach(btn => btn.classList.remove('active'));
     });
+
+    // ✅ KLUCZOWA POPRAWKA: Resetuj koszty wykończenia w mock formularzu
+    if (window.activeQuoteForm) {
+        window.activeQuoteForm.dataset.finishingBrutto = '0';
+        window.activeQuoteForm.dataset.finishingNetto = '0';
+
+        // Aktualizuj wyświetlanie w formularzu (jeśli istnieją elementy)
+        const finishingBruttoEl = window.activeQuoteForm.querySelector('.finishing-brutto');
+        const finishingNettoEl = window.activeQuoteForm.querySelector('.finishing-netto');
+
+        if (finishingBruttoEl) finishingBruttoEl.textContent = '0.00 PLN';
+        if (finishingNettoEl) finishingNettoEl.textContent = '0.00 PLN';
+
+        log('finishing', 'Zresetowano koszty wykończenia w formularzu');
+    }
+}
+
+function safeAttachFinishingUIListeners(form) {
+    if (!form) {
+        log('calculator', '❌ Brak formularza dla attachFinishingUIListeners');
+        return;
+    }
+
+    try {
+        // Sprawdź czy formularz ma klasę quote-form
+        if (!form.classList.contains('quote-form')) {
+            form.classList.add('quote-form');
+        }
+
+        // Znajdź przyciski w formularzu
+        const typeButtons = form.querySelectorAll('.finishing-btn[data-finishing-type]');
+        const variantButtons = form.querySelectorAll('.finishing-btn[data-finishing-variant]');
+        const colorButtons = form.querySelectorAll('.color-btn[data-finishing-color]');
+
+        log('calculator', `Znaleziono przyciski: ${typeButtons.length} typów, ${variantButtons.length} wariantów, ${colorButtons.length} kolorów`);
+
+        // Dodaj event listenery bez błędów
+        typeButtons.forEach(btn => {
+            btn.addEventListener('click', function () {
+                // Reset innych przycisków typu
+                typeButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                // Wywołaj calculation
+                if (typeof calculateFinishingCost === 'function') {
+                    calculateFinishingCost(form);
+                }
+            });
+        });
+
+        variantButtons.forEach(btn => {
+            btn.addEventListener('click', function () {
+                // Reset innych przycisków wariantu
+                variantButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                // Wywołaj calculation
+                if (typeof calculateFinishingCost === 'function') {
+                    calculateFinishingCost(form);
+                }
+            });
+        });
+
+        colorButtons.forEach(btn => {
+            btn.addEventListener('click', function () {
+                // Reset innych przycisków koloru
+                colorButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        log('calculator', '✅ Event listenery wykończenia dodane pomyślnie');
+
+    } catch (error) {
+        log('calculator', '❌ Błąd w safeAttachFinishingUIListeners:', error);
+    }
 }
 
 /**
@@ -1601,8 +1775,14 @@ function updateSelectedVariant(selectedRadio) {
     if (selectedOption) {
         selectedOption.classList.add('selected');
     }
-}
 
+    // ✅ KLUCZOWA POPRAWKA: Po zmianie wariantu skopiuj ceny z mock formularza
+    setTimeout(() => {
+        copyCalculationResults();
+        updateQuoteSummary();
+        log('sync', `✅ Zaktualizowano ceny po zmianie wariantu: ${selectedRadio.value}`);
+    }, 100); // Krótki delay żeby calculator.js zdążył przeliczyć
+}
 // ==================== OPTIMIZED CALCULATOR INTEGRATION ====================
 
 /**
@@ -1637,10 +1817,15 @@ function syncEditorToMockForm() {
  * Zoptymalizowana kopia results
  */
 function copyCalculationResults() {
-    if (!window.activeQuoteForm) return;
+    if (!window.activeQuoteForm) {
+        log('sync', '❌ Brak activeQuoteForm do kopiowania wyników');
+        return;
+    }
 
     const calculatorVariants = window.activeQuoteForm.querySelectorAll('.variant-item');
     const editorVariants = document.querySelectorAll('.variant-option');
+
+    log('sync', `Kopiowanie wyników: ${calculatorVariants.length} calculator → ${editorVariants.length} editor`);
 
     // Create mapping for efficient lookup
     const editorVariantMap = new Map();
@@ -1649,7 +1834,9 @@ function copyCalculationResults() {
         if (radio) editorVariantMap.set(radio.value, variant);
     });
 
-    // Single loop copy
+    let copiedCount = 0;
+
+    // Copy prices between variants
     calculatorVariants.forEach(calcVariant => {
         const calcRadio = calcVariant.querySelector('input[type="radio"]');
         if (!calcRadio) return;
@@ -1657,24 +1844,54 @@ function copyCalculationResults() {
         const editorVariant = editorVariantMap.get(calcRadio.value);
         if (!editorVariant) return;
 
-        copyPricesBetweenVariants(calcVariant, editorVariant);
+        const copied = copyPricesBetweenVariants(calcVariant, editorVariant);
+        if (copied) copiedCount++;
     });
 
-    // Copy summary data
-    copySummaryData();
+    log('sync', `✅ Skopiowano ceny dla ${copiedCount} wariantów`);
+
+    // ✅ DODAJ: Skopiuj dataset z wybranego wariantu
+    copySelectedVariantDataset();
 }
 
 function copyPricesBetweenVariants(source, target) {
     const priceFields = ['unit-brutto', 'unit-netto', 'total-brutto', 'total-netto'];
+    let copiedFields = 0;
 
     priceFields.forEach(field => {
         const sourceEl = source.querySelector(`.${field}`);
         const targetEl = target.querySelector(`.${field}`);
 
-        if (sourceEl && targetEl) {
+        if (sourceEl && targetEl && sourceEl.textContent !== 'Obliczanie...') {
             targetEl.textContent = sourceEl.textContent;
+            copiedFields++;
         }
     });
+
+    return copiedFields > 0;
+}
+
+/**
+ * NOWA funkcja kopiowania datasetu wybranego wariantu
+ */
+function copySelectedVariantDataset() {
+    if (!window.activeQuoteForm) return;
+
+    const selectedMockRadio = window.activeQuoteForm.querySelector('input[type="radio"]:checked');
+    const selectedEditorRadio = document.querySelector('input[name="edit-variantOption"]:checked');
+
+    if (selectedMockRadio && selectedEditorRadio) {
+        // Skopiuj dataset z mock radio do editor radio
+        const datasetFields = ['totalBrutto', 'totalNetto', 'unitBrutto', 'unitNetto'];
+
+        datasetFields.forEach(field => {
+            if (selectedMockRadio.dataset[field]) {
+                selectedEditorRadio.dataset[field] = selectedMockRadio.dataset[field];
+            }
+        });
+
+        log('sync', `✅ Skopiowano dataset wariantu: ${selectedEditorRadio.value}`);
+    }
 }
 
 function copySummaryData() {
@@ -2365,11 +2582,11 @@ function createCalculatorVariant(sourceRadio, tabIndex) {
         style: 'display: none'
     });
 
-    // Create radio button
+    // ✅ POPRAWKA: Poprawna nazwa radio button
     const radio = createElement('input', {
         type: 'radio',
-        name: `variant-product-${tabIndex}-selected`,
-        id: `calc-${sourceRadio.id}`,
+        name: `variant-product-${tabIndex}-selected`, // Prawidłowa nazwa
+        id: `calc-${sourceRadio.id}-${tabIndex}`, // Unikalne ID
         value: sourceRadio.value,
         checked: sourceRadio.checked
     });
@@ -2379,7 +2596,10 @@ function createCalculatorVariant(sourceRadio, tabIndex) {
     const elements = [radio];
 
     priceSpans.forEach(className => {
-        elements.push(createElement('span', { className }));
+        elements.push(createElement('span', {
+            className,
+            textContent: 'Obliczanie...' // Domyślny tekst
+        }));
     });
 
     elements.forEach(el => container.appendChild(el));
@@ -2451,23 +2671,76 @@ function getEditorPrice(species, technology, wood_class, thickness, length) {
  * Zoptymalizowana funkcja getFinishingPrice
  */
 function getFinishingPrice(finishingType, finishingVariant) {
-    if (finishingDataCache?.finishing_types) {
-        const typeData = finishingDataCache.finishing_types.find(ft =>
-            ft.name === finishingType ||
-            (finishingType === 'Lakierowanie' && ft.name.includes('Lakierowanie'))
-        );
-
-        if (typeData) return parseFloat(typeData.price_netto) || 0;
+    // Spróbuj użyć globalnych cen
+    if (window.finishingPrices) {
+        if (finishingType === 'Lakierowanie' && finishingVariant === 'Bezbarwne') {
+            return window.finishingPrices['Lakierowane bezbarwne'] || 200;
+        } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Barwne') {
+            return window.finishingPrices['Lakierowane barwne'] || 250;
+        } else if (finishingType === 'Olejowanie') {
+            return window.finishingPrices['Olejowanie'] || 250;
+        }
     }
 
     // Fallback prices
     const defaultPrices = {
-        'Surowe': 0,
-        'Lakierowanie': finishingVariant === 'Barwne' ? 250 : 200,
+        'Lakierowanie': {
+            'Bezbarwne': 200,
+            'Barwne': 250
+        },
         'Olejowanie': 250
     };
 
-    return defaultPrices[finishingType] || 0;
+    if (finishingType === 'Olejowanie') {
+        return defaultPrices.Olejowanie;
+    }
+
+    if (finishingType === 'Lakierowanie' && finishingVariant) {
+        return defaultPrices.Lakierowanie[finishingVariant] || 0;
+    }
+
+    return 0;
+}
+
+function syncFinishingStateToMockForm() {
+    if (!window.activeQuoteForm) return;
+
+    const finishingType = getSelectedFinishingType();
+    const finishingVariant = getSelectedFinishingVariant();
+    const finishingColor = getSelectedFinishingColor();
+
+    // Reset wszystkich przycisków w mock formularzu
+    const mockForm = window.activeQuoteForm;
+    mockForm.querySelectorAll('.finishing-btn.active').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    // Ustaw active dla odpowiednich przycisków
+    if (finishingType) {
+        const typeBtn = mockForm.querySelector(`[data-finishing-type="${finishingType}"]`);
+        if (typeBtn) {
+            typeBtn.classList.add('active');
+            log('finishing', `Zsynchronizowano typ: ${finishingType}`);
+        }
+    }
+
+    if (finishingVariant) {
+        const variantBtn = mockForm.querySelector(`[data-finishing-variant="${finishingVariant}"]`);
+        if (variantBtn) {
+            variantBtn.classList.add('active');
+            log('finishing', `Zsynchronizowano wariant: ${finishingVariant}`);
+        }
+    }
+
+    if (finishingColor) {
+        const colorBtn = mockForm.querySelector(`[data-finishing-color="${finishingColor}"]`);
+        if (colorBtn) {
+            colorBtn.classList.add('active');
+            log('finishing', `Zsynchronizowano kolor: ${finishingColor}`);
+        }
+    }
+
+    log('finishing', `✅ Zsynchronizowano wykończenie do mock form: ${finishingType}/${finishingVariant}/${finishingColor}`);
 }
 
 // ==================== OPTIMIZED HELPER FUNCTIONS ====================
@@ -2996,4 +3269,106 @@ window.QuoteEditor = {
         activeProduct: activeProductIndex,
         calculatorReady: checkCalculatorReadiness()
     })
+};
+
+// Override attachFinishingUIListeners z calculator.js
+window.originalAttachFinishingUIListeners = window.attachFinishingUIListeners;
+window.attachFinishingUIListeners = safeAttachFinishingUIListeners;
+
+window.debugFinishingEditor = function () {
+    console.log('=== DEBUG EDYTORA WYKOŃCZENIA ===');
+
+    console.log('1. Stan przycisków edytora:');
+    console.log('   - Typ:', getSelectedFinishingType());
+    console.log('   - Wariant:', getSelectedFinishingVariant());
+    console.log('   - Kolor:', getSelectedFinishingColor());
+
+    console.log('2. Mock formularz:');
+    if (window.activeQuoteForm) {
+        console.log('   - finishingBrutto:', window.activeQuoteForm.dataset.finishingBrutto);
+        console.log('   - finishingNetto:', window.activeQuoteForm.dataset.finishingNetto);
+
+        const mockButtons = window.activeQuoteForm.querySelectorAll('.finishing-btn');
+        console.log('   - Liczba przycisków w mock:', mockButtons.length);
+        mockButtons.forEach((btn, i) => {
+            const type = btn.dataset.finishingType || btn.dataset.finishingVariant || btn.dataset.finishingGloss;
+            const active = btn.classList.contains('active') ? 'ACTIVE' : 'inactive';
+            console.log(`   - Przycisk ${i}: ${type} (${active})`);
+        });
+    } else {
+        console.log('   - BRAK activeQuoteForm!');
+    }
+
+    console.log('3. Elementy UI:');
+    const bruttoEl = document.querySelector('.edit-finishing-brutto');
+    const nettoEl = document.querySelector('.edit-finishing-netto');
+    console.log('   - .edit-finishing-brutto:', bruttoEl?.textContent);
+    console.log('   - .edit-finishing-netto:', nettoEl?.textContent);
+
+    console.log('4. Obliczenia:');
+    const calculated = calculateFinishingCosts();
+    console.log('   - calculateFinishingCosts():', calculated);
+
+    console.log('5. Warianty:');
+    const variants = document.querySelectorAll('.variant-option input[type="radio"]');
+    console.log('   - Liczba wariantów w edytorze:', variants.length);
+    variants.forEach((radio, i) => {
+        if (radio.checked) {
+            console.log(`   - Wybrany wariant ${i}: ${radio.value}`);
+        }
+    });
+
+    if (window.activeQuoteForm) {
+        const mockRadios = window.activeQuoteForm.querySelectorAll('input[type="radio"]');
+        console.log('   - Liczba radio w mock formularzu:', mockRadios.length);
+        mockRadios.forEach((radio, i) => {
+            if (radio.checked) {
+                console.log(`   - Wybrany w mock ${i}: ${radio.value} (name: ${radio.name})`);
+            }
+        });
+    }
+};
+
+window.monitorVariantChanges = function () {
+    console.log('=== MONITORING ZMIAN WARIANTÓW ===');
+
+    // Dodaj temporary listener do monitorowania
+    const radios = document.querySelectorAll('input[name="edit-variantOption"]');
+
+    radios.forEach(radio => {
+        radio.addEventListener('change', function () {
+            console.log(`📡 VARIANT CHANGE DETECTED: ${this.value} (checked: ${this.checked})`);
+
+            setTimeout(() => {
+                // Sprawdź co się stało z cenami
+                const option = this.closest('.variant-option');
+                const bruttoEl = option.querySelector('.total-brutto');
+                const nettoEl = option.querySelector('.total-netto');
+
+                console.log(`💰 Ceny po zmianie wariantu:`);
+                console.log(`   - Brutto: ${bruttoEl?.textContent}`);
+                console.log(`   - Netto: ${nettoEl?.textContent}`);
+
+                // Sprawdź mock formularz
+                if (window.activeQuoteForm) {
+                    const mockRadio = window.activeQuoteForm.querySelector(`input[value="${this.value}"]`);
+                    console.log(`🎭 Mock formularz:`);
+                    console.log(`   - Radio checked: ${mockRadio?.checked}`);
+                    console.log(`   - Dataset orderBrutto: ${window.activeQuoteForm.dataset.orderBrutto}`);
+                    console.log(`   - Dataset orderNetto: ${window.activeQuoteForm.dataset.orderNetto}`);
+                }
+
+                // Sprawdź podsumowanie
+                const summaryBrutto = document.querySelector('.edit-order-brutto');
+                const summaryNetto = document.querySelector('.edit-order-netto');
+                console.log(`📊 Podsumowanie:`);
+                console.log(`   - Koszt surowego brutto: ${summaryBrutto?.textContent}`);
+                console.log(`   - Koszt surowego netto: ${summaryNetto?.textContent}`);
+
+            }, 200);
+        });
+    });
+
+    console.log(`✅ Monitoring włączony dla ${radios.length} radio buttons`);
+    console.log('Kliknij teraz inne warianty i obserwuj logi...');
 };
