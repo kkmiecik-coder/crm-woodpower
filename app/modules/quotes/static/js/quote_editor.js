@@ -210,32 +210,41 @@ function handleSelectChange(e) {
 function handleButtonClick(e) {
     const target = e.target;
 
-    // Finishing buttons
-    if (target.matches('.finishing-btn')) {
-        handleFinishingButtonClick(target);
+    // Color buttons (check first in case they contain inner elements)
+    const colorButton = target.closest('.color-btn');
+    if (colorButton) {
+        handleColorButtonClick(colorButton);
+        return;
     }
 
-    // Color buttons
-    if (target.matches('.color-btn')) {
-        handleColorButtonClick(target);
+    // Finishing buttons
+    const finishingButton = target.closest('.finishing-btn');
+    if (finishingButton) {
+        handleFinishingButtonClick(finishingButton);
+        return;
     }
 
     // Product cards
-    if (target.closest('.product-card') && !target.closest('.remove-product-btn')) {
-        const productIndex = parseInt(target.closest('.product-card').dataset.index);
+    const productCard = target.closest('.product-card');
+    if (productCard && !target.closest('.remove-product-btn')) {
+        const productIndex = parseInt(productCard.dataset.index);
         activateProductInEditor(productIndex);
+        return;
     }
 
     // Remove product buttons
-    if (target.closest('.remove-product-btn')) {
+    const removeBtn = target.closest('.remove-product-btn');
+    if (removeBtn) {
         e.stopPropagation();
-        const productIndex = parseInt(target.closest('.remove-product-btn').dataset.index);
+        const productIndex = parseInt(removeBtn.dataset.index);
         removeProductFromQuote(productIndex);
+        return;
     }
 
     // Action buttons
     if (target.id === 'save-quote-changes') {
         saveQuoteChanges();
+        return;
     }
 
     if (target.id === 'edit-add-product-btn') {
@@ -535,6 +544,7 @@ function onFormDataChange() {
     if (!checkCalculatorReadiness()) {
         log('sync', 'Calculator.js nie gotowy - używam fallback');
         calculateEditorPrices();
+        updateQuoteSummary();
         return;
     }
 
@@ -543,6 +553,7 @@ function onFormDataChange() {
         if (!setupCalculatorForEditor()) {
             log('calculator', 'Setup calculator.js nie powiódł się - fallback');
             calculateEditorPrices();
+            updateQuoteSummary();
             return;
         }
 
@@ -558,6 +569,7 @@ function onFormDataChange() {
         createCustomUpdatePricesForEditor();
         callUpdatePricesSecurely();
         copyCalculationResults();
+        updateQuoteSummary();
 
         log('calculator', '✅ Obliczenia zakończone pomyślnie');
 
@@ -565,6 +577,7 @@ function onFormDataChange() {
         console.error('[QUOTE EDITOR] ❌ Błąd w obliczeniach:', error);
         log('editor', 'Używam fallback z powodu błędu');
         calculateEditorPrices();
+        updateQuoteSummary();
     }
 }
 
@@ -660,6 +673,15 @@ function handleFinishingButtonClick(button) {
         setActiveFinishingButton(button, '#edit-finishing-gloss-wrapper');
     }
 
+    // Recalculate finishing costs immediately if possible
+    if (typeof calculateFinishingCost === 'function' && window.activeQuoteForm) {
+        try {
+            calculateFinishingCost(window.activeQuoteForm);
+        } catch (err) {
+            log('finishing', 'Błąd przeliczania wykończenia', err);
+        }
+    }
+
     onFormDataChange();
 }
 
@@ -695,6 +717,38 @@ function handleFinishingTypeChange(finishingType) {
     }
 
     log('finishing', `Typ wykończenia: ${finishingType}`);
+}
+
+/**
+ * Obsługa zmiany wariantu wykończenia
+ */
+function handleFinishingVariantChange(variant) {
+    const colorWrapper = document.getElementById('edit-finishing-color-wrapper');
+    if (!colorWrapper) return;
+
+    // Reset active color buttons
+    colorWrapper.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+
+    // Show colors only for "Barwne" variant
+    colorWrapper.style.display = variant === 'Barwne' ? 'flex' : 'none';
+
+    log('finishing', `Wariant wykończenia: ${variant}`);
+}
+
+/**
+ * Obsługa zmiany wariantu wykończenia
+ */
+function handleFinishingVariantChange(variant) {
+    const colorWrapper = document.getElementById('edit-finishing-color-wrapper');
+    if (!colorWrapper) return;
+
+    // Reset active color buttons
+    colorWrapper.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+
+    // Show colors only for "Barwne" variant
+    colorWrapper.style.display = variant === 'Barwne' ? 'flex' : 'none';
+
+    log('finishing', `Wariant wykończenia: ${variant}`);
 }
 
 /**
@@ -2296,6 +2350,7 @@ window.QuoteEditor = {
     },
     save: saveQuoteChanges,
     updateSummary: updateQuoteSummary,
+    handleFinishingVariantChange,
     // Debug helpers
     setDebugLevel: (category, enabled) => {
         DEBUG_LOGS[category] = enabled;
