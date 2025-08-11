@@ -389,7 +389,7 @@ function createMockFormHTML() {
 function loadQuoteDataToEditor(quoteData) {
     log('editor', 'Ładowanie danych do edytora...');
 
-    // Ustal pierwszy produkt przed budowaniem listy
+    // Ustal pierwszy produkt na podstawie items
     if (quoteData.items?.length > 0) {
         const firstItem = quoteData.items
             .sort((a, b) => a.product_index - b.product_index)[0];
@@ -406,14 +406,10 @@ function loadQuoteDataToEditor(quoteData) {
     loadProductsToEditor(quoteData);
     loadCostsToSummary(quoteData);
 
-    // Set active product
-    if (quoteData.items?.length > 0) {
-        const firstItem = quoteData.items.sort((a, b) => a.product_index - b.product_index)[0];
-        if (firstItem) {
-            loadProductDataToForm(firstItem);
-            activeProductIndex = firstItem.product_index;
-        }
-    }
+    // KLUCZOWE DODANIE: Ustaw wybrane warianty z wyceny
+    setSelectedVariantsByQuote(quoteData);
+
+    log('editor', '✅ Dane wyceny załadowane do edytora');
 }
 
 /**
@@ -1882,7 +1878,11 @@ function activateProductInEditor(productIndex) {
     // Batch UI updates
     updateProductCardStates(productIndex);
     loadProductDataToForm(productItem);
-    onFormDataChange();
+
+    // DODAJ TO: Ustaw odpowiedni wariant dla aktywnego produktu
+    if (currentEditingQuoteData) {
+        setSelectedVariantForActiveProduct(productIndex);
+    }
 
     log('editor', `Aktywowano produkt: ${productIndex}`);
 }
@@ -1917,17 +1917,163 @@ function loadProductDataToForm(productItem) {
     }
 }
 
-function selectVariantByCode(variantCode) {
-    // Clear all selections first
-    document.querySelectorAll('input[name="edit-variantOption"]').forEach(r => r.checked = false);
+/**
+ * DODAJ TĘ FUNKCJĘ - Główna funkcja ustawiająca wybrane warianty na podstawie danych z wyceny
+ */
+function setSelectedVariantsByQuote(quoteData) {
+    log('editor', 'Ustawianie wybranych wariantów z wyceny...');
 
-    // Find and select the correct variant
-    const radioButton = document.querySelector(`input[name="edit-variantOption"][value="${variantCode}"]`) ||
-        document.querySelector(`input[name="edit-variantOption"][value*="${variantCode.replace('-', '')}"]`);
+    if (!quoteData?.items?.length) {
+        log('editor', 'Brak pozycji w wycenie - używam domyślnych ustawień');
+        setDefaultVariantSelection();
+        return;
+    }
+
+    // Zbierz wybrane warianty dla każdego produktu
+    const selectedVariantsByProduct = new Map();
+
+    quoteData.items.forEach(item => {
+        if (item.is_selected && item.variant_code) {
+            selectedVariantsByProduct.set(item.product_index, item.variant_code);
+            log('editor', `Produkt ${item.product_index}: wybrany wariant ${item.variant_code}`);
+        }
+    });
+
+    // Jeśli nie ma wybranych wariantów, ustaw domyślne
+    if (selectedVariantsByProduct.size === 0) {
+        log('editor', 'Brak wybranych wariantów - używam domyślnych');
+        setDefaultVariantSelection();
+        return;
+    }
+
+    // Ustaw warianty w interfejsie edytora
+    setVariantsInEditor(selectedVariantsByProduct);
+}
+
+/**
+ * DODAJ TĘ FUNKCJĘ - Ustawia warianty w interfejsie edytora na podstawie mapy wybranych wariantów
+ */
+function setVariantsInEditor(selectedVariantsByProduct) {
+    // Najpierw wyczyść wszystkie zaznaczenia
+    clearAllVariantSelections();
+
+    // Dla aktywnego produktu ustaw odpowiedni wariant
+    if (activeProductIndex !== null && selectedVariantsByProduct.has(activeProductIndex)) {
+        const variantCode = selectedVariantsByProduct.get(activeProductIndex);
+        selectVariantByCode(variantCode);
+        log('editor', `Ustawiono wariant ${variantCode} dla aktywnego produktu ${activeProductIndex}`);
+    } else {
+        // Jeśli aktywny produkt nie ma wybranego wariantu, ustaw pierwszy dostępny
+        selectFirstAvailableVariant();
+        log('editor', 'Ustawiono pierwszy dostępny wariant dla aktywnego produktu');
+    }
+}
+
+/**
+ * DODAJ TĘ FUNKCJĘ - Wyczyść wszystkie zaznaczenia wariantów
+ */
+function clearAllVariantSelections() {
+    document.querySelectorAll('input[name="edit-variantOption"]').forEach(radio => {
+        radio.checked = false;
+    });
+
+    // Usuń klasy selected z variant-option
+    document.querySelectorAll('.variant-option').forEach(option => {
+        option.classList.remove('selected');
+    });
+
+    log('editor', 'Wyczyszczono wszystkie zaznaczenia wariantów');
+}
+
+/**
+ * DODAJ TĘ FUNKCJĘ - Ustawianie domyślnego wariantu (gdy brak danych z wyceny)
+ */
+function setDefaultVariantSelection() {
+    log('editor', 'Ustawianie domyślnego wariantu...');
+
+    // Sprawdź czy istnieje preferowany wariant "dab-lity-ab"
+    const defaultVariant = document.querySelector('input[name="edit-variantOption"][value="dab-lity-ab"]');
+
+    if (defaultVariant && !defaultVariant.disabled) {
+        defaultVariant.checked = true;
+        updateSelectedVariant(defaultVariant);
+        log('editor', 'Ustawiono domyślny wariant: dab-lity-ab');
+    } else {
+        // Jeśli domyślny wariant nie jest dostępny, wybierz pierwszy dostępny
+        selectFirstAvailableVariant();
+        log('editor', 'Domyślny wariant niedostępny - wybrano pierwszy dostępny');
+    }
+}
+
+/**
+ * DODAJ TĘ FUNKCJĘ - Pomocnicza funkcja do sprawdzania wybranych wariantów
+ */
+function getSelectedVariantForProduct(quoteData, productIndex) {
+    if (!quoteData?.items) return null;
+
+    const selectedItem = quoteData.items.find(item =>
+        item.product_index === productIndex && item.is_selected
+    );
+
+    return selectedItem?.variant_code || null;
+}
+
+/**
+ * DODAJ TĘ FUNKCJĘ - Funkcja do sprawdzania czy wariant jest dostępny w edytorze
+ */
+function isVariantAvailableInEditor(variantCode) {
+    const radioButton = document.querySelector(`input[name="edit-variantOption"][value="${variantCode}"]`);
+    return radioButton && !radioButton.disabled;
+}
+
+/**
+ * DODAJ TĘ FUNKCJĘ - Funkcja pomocnicza dla aktywnego produktu - ustaw odpowiedni wariant
+ */
+function setSelectedVariantForActiveProduct(productIndex) {
+    // Znajdź wybrany wariant dla tego produktu
+    const selectedVariant = getSelectedVariantForProduct(currentEditingQuoteData, productIndex);
+
+    if (selectedVariant && isVariantAvailableInEditor(selectedVariant)) {
+        selectVariantByCode(selectedVariant);
+        log('editor', `Ustawiono wariant ${selectedVariant} dla produktu ${productIndex}`);
+    } else {
+        // Fallback - ustaw pierwszy dostępny wariant
+        selectFirstAvailableVariant();
+        log('editor', `Nie znaleziono wybranego wariantu - ustawiono pierwszy dostępny dla produktu ${productIndex}`);
+    }
+}
+
+function selectVariantByCode(variantCode) {
+    if (!variantCode) {
+        log('editor', 'Brak kodu wariantu - pomijam selekcję');
+        return;
+    }
+
+    // Wyczyść poprzednie zaznaczenia
+    clearAllVariantSelections();
+
+    // Znajdź odpowiedni radio button
+    const radioButton = document.querySelector(`input[name="edit-variantOption"][value="${variantCode}"]`);
 
     if (radioButton) {
+        // Sprawdź czy wariant jest dostępny
+        if (radioButton.disabled) {
+            log('editor', `Wariant ${variantCode} jest niedostępny - wybierz pierwszy dostępny`);
+            selectFirstAvailableVariant();
+            return;
+        }
+
+        // Zaznacz wariant
         radioButton.checked = true;
-        log('editor', `Wybrano wariant: ${variantCode}`);
+        updateSelectedVariant(radioButton);
+
+        // Wywołaj event change dla aktualizacji cen
+        radioButton.dispatchEvent(new Event('change', { bubbles: true }));
+
+        log('editor', `✅ Wybrano wariant: ${variantCode}`);
+    } else {
+        log('editor', `❌ Nie znaleziono radio button dla wariantu: ${variantCode}`);
+        selectFirstAvailableVariant();
     }
 }
 
