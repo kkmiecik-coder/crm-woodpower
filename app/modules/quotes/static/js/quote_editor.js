@@ -387,6 +387,16 @@ function createMockFormHTML() {
 function loadQuoteDataToEditor(quoteData) {
     log('editor', 'Ładowanie danych do edytora...');
 
+    // Ustal pierwszy produkt przed budowaniem listy
+    if (quoteData.items?.length > 0) {
+        const firstItem = quoteData.items
+            .sort((a, b) => a.product_index - b.product_index)[0];
+        if (firstItem) {
+            activeProductIndex = firstItem.product_index;
+            loadProductDataToForm(firstItem);
+        }
+    }
+
     // Batch update form fields
     updateFormFields(quoteData);
 
@@ -415,12 +425,11 @@ function updateFormFields(quoteData) {
 
     updates.forEach(({ id, value, textContent }) => {
         const element = document.getElementById(id);
-        if (element && value) {
-            if (textContent !== undefined) {
-                element.textContent = textContent;
-            } else {
-                element.value = value;
-            }
+        if (!element) return;
+        if (textContent !== undefined && textContent !== null) {
+            element.textContent = textContent;
+        } else if (value !== undefined && value !== null) {
+            element.value = value;
         }
     });
 }
@@ -1114,7 +1123,12 @@ function calculateFinishingCosts() {
     const dimensions = getCurrentDimensions();
     if (!dimensions.isValid) return { brutto: 0, netto: 0 };
 
-    const surfaceAreaM2 = (dimensions.length / 1000) * (dimensions.width / 1000) * dimensions.quantity;
+    const lengthM = dimensions.length / 1000;
+    const widthM = dimensions.width / 1000;
+    const thicknessM = dimensions.thickness / 1000;
+    const surfaceAreaM2 =
+        2 * (lengthM * widthM + lengthM * thicknessM + widthM * thicknessM) *
+        dimensions.quantity;
     const finishingPrice = getFinishingPrice(finishingType, finishingVariant);
 
     if (finishingPrice > 0) {
@@ -1131,22 +1145,34 @@ function calculateFinishingCosts() {
 function getCurrentDimensions() {
     const length = parseFloat(document.getElementById('edit-length')?.value) || 0;
     const width = parseFloat(document.getElementById('edit-width')?.value) || 0;
+    const thickness = parseFloat(document.getElementById('edit-thickness')?.value) || 0;
     const quantity = parseInt(document.getElementById('edit-quantity')?.value) || 1;
 
     return {
         length,
         width,
+        thickness,
         quantity,
-        isValid: length > 0 && width > 0
+        isValid: length > 0 && width > 0 && thickness > 0
     };
 }
 
 function getShippingCosts() {
-    if (currentEditingQuoteData?.shipping_cost_brutto) {
+    if (currentEditingQuoteData?.shipping_cost_brutto || currentEditingQuoteData?.shipping_cost_netto) {
         return {
             brutto: parseFloat(currentEditingQuoteData.shipping_cost_brutto) || 0,
             netto: parseFloat(currentEditingQuoteData.shipping_cost_netto) || 0
         };
+    }
+    if (currentEditingQuoteData?.costs?.shipping) {
+        return {
+            brutto: parseFloat(currentEditingQuoteData.costs.shipping.brutto) || 0,
+            netto: parseFloat(currentEditingQuoteData.costs.shipping.netto) || 0
+        };
+    }
+    if (currentEditingQuoteData?.cost_shipping) {
+        const brutto = parseFloat(currentEditingQuoteData.cost_shipping) || 0;
+        return { brutto, netto: brutto / 1.23 };
     }
     return { brutto: 0, netto: 0 };
 }
@@ -2080,7 +2106,11 @@ function calculateEditorPrices() {
         return;
     }
 
-    const volume = (dimensions.length / 1000) * (dimensions.width / 1000) * (dimensions.quantity / 1000) * dimensions.quantity;
+    const volume =
+        (dimensions.length / 1000) *
+        (dimensions.width / 1000) *
+        (dimensions.thickness / 1000) *
+        dimensions.quantity;
 
     // Show calculating state
     document.querySelectorAll('.variant-option').forEach(variant => {
