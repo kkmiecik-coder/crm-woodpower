@@ -154,13 +154,28 @@ async function loadCalculatorIfNeeded() {
 function initializeEventListeners() {
     log('editor', 'Inicjalizacja event listeners...');
 
-    // Użyj event delegation zamiast pojedynczych listeners
     const modal = document.getElementById('quote-editor-modal');
+    if (!modal) {
+        log('editor', '❌ Nie znaleziono modalu edytora');
+        return;
+    }
 
-    // Single event listener dla wszystkich inputów wymiarów
+    // ✅ Event delegation dla wydajności
     modal.addEventListener('input', handleInputChange);
     modal.addEventListener('change', handleSelectChange);
     modal.addEventListener('click', handleButtonClick);
+
+    // ✅ KLUCZOWA POPRAWKA: Specjalny listener dla grupy cenowej
+    const clientTypeSelect = document.getElementById('edit-clientType');
+    if (clientTypeSelect) {
+        // Usuń poprzednie listenery dla pewności
+        clientTypeSelect.removeEventListener('change', onClientTypeChange);
+
+        // Dodaj nowy listener z większym priorytetem
+        clientTypeSelect.addEventListener('change', onClientTypeChange);
+
+        log('editor', '✅ Dodano specjalny listener dla grupy cenowej');
+    }
 
     log('editor', '✅ Event listeners zainicjalizowane');
 }
@@ -709,6 +724,9 @@ function onFormDataChange() {
             return;
         }
 
+        // ✅ KLUCZOWA POPRAWKA: Aktualizuj przelicznik PRZED obliczeniami
+        updateMultiplierFromEditor();
+
         // ✅ POPRAWKA: Bezpieczne wywołania
         copyVariantMappingToEditor();
         createCustomUpdatePricesForEditor();
@@ -1222,10 +1240,10 @@ function calculateSingleVolume(length, width, thickness) {
  * Zoptymalizowane odświeżanie podsumowania
  */
 function updateQuoteSummary() {
-    log('editor', 'Odświeżanie podsumowania...');
+    log('editor', '=== ODŚWIEŻANIE PODSUMOWANIA EDYTORA ===');
 
     try {
-        // Koszty aktywnego produktu
+        // ✅ Oblicz koszty aktywnego produktu (do pokazania w formularzu)
         const activeProductCosts = calculateActiveProductCosts();
         const activeFinishingCosts = calculateActiveProductFinishingCosts();
         const activeProductTotal = {
@@ -1233,42 +1251,48 @@ function updateQuoteSummary() {
             netto: activeProductCosts.netto + activeFinishingCosts.netto
         };
 
-        // Koszty całego zamówienia (wszystkie produkty + wykończenie)
+        // ✅ KLUCZOWA POPRAWKA: Oblicz sumę WSZYSTKICH produktów w wycenie
         const orderTotals = calculateOrderTotals(activeProductCosts, activeFinishingCosts);
         const shippingCosts = getShippingCosts();
+
+        // ✅ Finalna suma = wszystkie produkty + wszystkie wykończenia + dostawa
         const finalOrderTotal = {
             brutto: orderTotals.products.brutto + orderTotals.finishing.brutto + shippingCosts.brutto,
             netto: orderTotals.products.netto + orderTotals.finishing.netto + shippingCosts.netto
         };
 
-        // Aktualizacja UI z nową strukturą
+        // ✅ Aktualizacja UI - pokaż koszty aktywnego produktu + sumę całego zamówienia
         updateSummaryElementsFixed(
-            activeProductCosts,
-            activeFinishingCosts,
-            activeProductTotal,
-            shippingCosts,
-            finalOrderTotal
+            activeProductCosts,      // Tylko aktywny produkt (do pokazania w formularzu)
+            activeFinishingCosts,    // Wykończenie aktywnego produktu
+            activeProductTotal,      // Suma aktywnego produktu
+            orderTotals,            // ✅ WSZYSTKIE produkty w zamówieniu
+            shippingCosts,          // Dostawa
+            finalOrderTotal         // Suma końcowa
         );
 
-        // Logowanie dla debugowania
+        // ✅ Debug logging
         const summaryObject = {
-            aktywny_surowe: activeProductCosts,
-            aktywny_wykończenie: activeFinishingCosts,
-            aktywny_suma: activeProductTotal,
-            wszystkie_produkty_łącznie: {
-                produkty: orderTotals.products,
-                wykończenie: orderTotals.finishing
+            aktywny_produkt: {
+                surowe: activeProductCosts,
+                wykończenie: activeFinishingCosts,
+                suma: activeProductTotal
             },
-            dostawa: shippingCosts,
-            suma_zamówienia: finalOrderTotal
+            całe_zamówienie: {
+                wszystkie_produkty: orderTotals.products,
+                wszystkie_wykończenia: orderTotals.finishing,
+                dostawa: shippingCosts,
+                suma_końcowa: finalOrderTotal
+            }
         };
 
-        log('editor', 'Podsumowanie zaktualizowane:', summaryObject);
+        log('editor', '✅ Podsumowanie zaktualizowane:', summaryObject);
 
     } catch (error) {
         console.error('[QUOTE EDITOR] ❌ Błąd odświeżania podsumowania:', error);
     }
 }
+
 
 function debugFinishingData() {
     console.log('=== DEBUG WYKOŃCZENIA ===');
@@ -1338,6 +1362,13 @@ function updateSummaryElementsFixed(activeProductCosts, activeFinishingCosts, ac
             }
         });
     });
+}
+
+function formatPLN(value) {
+    if (typeof value !== 'number' || isNaN(value)) {
+        return '0.00 PLN';
+    }
+    return `${value.toFixed(2)} PLN`;
 }
 
 /**
@@ -1513,44 +1544,61 @@ function calculateFinishingCosts() {
 function calculateActiveProductCosts() {
     log('editor', '=== OBLICZANIE KOSZTÓW AKTYWNEGO PRODUKTU ===');
 
-    // Sprawdź dane z calculator.js dla aktywnego formularza
+    // ✅ PRIORYTET 1: Sprawdź dane z calculator.js dla aktywnego formularza
     if (window.activeQuoteForm?.dataset) {
         const formBrutto = parseFloat(window.activeQuoteForm.dataset.orderBrutto) || 0;
         const formNetto = parseFloat(window.activeQuoteForm.dataset.orderNetto) || 0;
 
         if (formBrutto > 0 || formNetto > 0) {
-            log('editor', `Aktywny produkt (z calculator): ${formBrutto.toFixed(2)} PLN brutto`);
+            log('editor', `✅ Aktywny produkt (z calculator): ${formBrutto.toFixed(2)} PLN brutto`);
             return { brutto: formBrutto, netto: formNetto };
         }
     }
 
-    // Fallback - znajdź aktywny produkt w danych wyceny
+    // ✅ PRIORYTET 2: Sprawdź zachowane obliczenia aktywnego produktu
     if (activeProductIndex !== null && currentEditingQuoteData?.items) {
         const activeItem = currentEditingQuoteData.items.find(item =>
             item.product_index === activeProductIndex && item.is_selected
         );
 
         if (activeItem) {
+            // ✅ Użyj zachowanych obliczeń jeśli są dostępne
+            const calculatedBrutto = parseFloat(activeItem.calculated_price_brutto || 0);
+            const calculatedNetto = parseFloat(activeItem.calculated_price_netto || 0);
+
+            if (calculatedBrutto > 0 || calculatedNetto > 0) {
+                log('editor', `✅ Aktywny produkt (zachowane obliczenia): ${calculatedBrutto.toFixed(2)} PLN brutto`);
+                return { brutto: calculatedBrutto, netto: calculatedNetto };
+            }
+
+            // ✅ Fallback - użyj oryginalnych danych produktu
             let itemBrutto = 0;
             let itemNetto = 0;
 
-            // Użyj final_price jeśli dostępne (już zawiera quantity)
+            // Sprawdź różne pola w kolejności priorytetów
             if (activeItem.final_price_brutto && activeItem.final_price_netto) {
                 itemBrutto = parseFloat(activeItem.final_price_brutto);
                 itemNetto = parseFloat(activeItem.final_price_netto);
+            } else if (activeItem.total_brutto && activeItem.total_netto) {
+                itemBrutto = parseFloat(activeItem.total_brutto);
+                itemNetto = parseFloat(activeItem.total_netto);
             } else {
                 // Oblicz z ceny jednostkowej
                 const quantity = activeItem.quantity || 1;
-                itemBrutto = parseFloat(activeItem.unit_price_brutto || activeItem.price_brutto || 0) * quantity;
-                itemNetto = parseFloat(activeItem.unit_price_netto || activeItem.price_netto || 0) * quantity;
+                const unitBrutto = parseFloat(activeItem.unit_price_brutto || activeItem.price_brutto || 0);
+                const unitNetto = parseFloat(activeItem.unit_price_netto || activeItem.price_netto || 0);
+                itemBrutto = unitBrutto * quantity;
+                itemNetto = unitNetto * quantity;
             }
 
-            log('editor', `Aktywny produkt ${activeProductIndex}: ${itemBrutto.toFixed(2)} PLN brutto`);
-            return { brutto: itemBrutto, netto: itemNetto };
+            if (itemBrutto > 0 || itemNetto > 0) {
+                log('editor', `✅ Aktywny produkt (z danych wyceny): ${itemBrutto.toFixed(2)} PLN brutto`);
+                return { brutto: itemBrutto, netto: itemNetto };
+            }
         }
     }
 
-    log('editor', 'Brak danych aktywnego produktu');
+    log('editor', '⚠️ Brak danych aktywnego produktu - zwracam 0');
     return { brutto: 0, netto: 0 };
 }
 
@@ -1603,118 +1651,112 @@ function calculateOrderTotals(activeProductCosts, activeFinishingCosts) {
 
     log('editor', '=== OBLICZANIE CAŁKOWITEJ SUMY ZAMÓWIENIA ===');
 
-    // 1. Sumuj produkty surowe
-    if (currentEditingQuoteData?.items) {
-        currentEditingQuoteData.items.forEach(item => {
-            if (!item.is_selected) return;
-
-            let brutto, netto;
-
-            // POPRAWKA: Sprawdź czy to aktywny produkt, który właśnie edytujemy
-            if (item.product_index === activeProductIndex) {
-                // Użyj aktualnych kosztów z formularza (aktywnego produktu)
-                brutto = activeProductCosts.brutto;
-                netto = activeProductCosts.netto;
-                log('editor', `Produkt ${item.product_index} (AKTYWNY): ${brutto.toFixed(2)} PLN brutto`);
-            } else {
-                // NOWA LOGIKA: Sprawdź czy final_price jest już przemnożone przez ilość
-                // Sprawdźmy różne pola i określmy które używać
-
-                const quantity = item.quantity || 1;
-
-                // Opcja 1: final_price (prawdopodobnie już przemnożone przez ilość)
-                const finalBrutto = parseFloat(item.final_price_brutto || 0);
-                const finalNetto = parseFloat(item.final_price_netto || 0);
-
-                // Opcja 2: unit_price (cena jednostkowa)
-                const unitBrutto = parseFloat(item.unit_price_brutto || 0);
-                const unitNetto = parseFloat(item.unit_price_netto || 0);
-
-                // Opcja 3: price (może być jednostkowa lub całkowita)
-                const priceBrutto = parseFloat(item.price_brutto || 0);
-                const priceNetto = parseFloat(item.price_netto || 0);
-
-                // DEBUG: Pokaż wszystkie dostępne wartości
-                log('editor', `DEBUG Produkt ${item.product_index} (ilość: ${quantity}):`);
-                log('editor', `  - final_price_brutto: ${finalBrutto}`);
-                log('editor', `  - unit_price_brutto: ${unitBrutto}`);
-                log('editor', `  - price_brutto: ${priceBrutto}`);
-
-                // LOGIKA WYBORU: Użyj final_price jeśli dostępne, inaczej oblicz z unit_price
-                if (finalBrutto > 0) {
-                    // final_price jest prawdopodobnie już przemnożone przez ilość
-                    brutto = finalBrutto;
-                    netto = finalNetto;
-                    log('editor', `  → Używam final_price: ${brutto.toFixed(2)} PLN brutto (już z ilością)`);
-                } else if (unitBrutto > 0) {
-                    // unit_price to cena jednostkowa, trzeba przemnożyć
-                    brutto = unitBrutto * quantity;
-                    netto = unitNetto * quantity;
-                    log('editor', `  → Używam unit_price * ilość: ${brutto.toFixed(2)} PLN brutto`);
-                } else if (priceBrutto > 0) {
-                    // price - nie wiadomo czy jednostkowa czy całkowita, sprawdźmy proporcje
-                    const pricePerUnit = priceBrutto / quantity;
-                    log('editor', `  → price per unit: ${pricePerUnit.toFixed(2)} PLN`);
-
-                    // Heurystyka: jeśli cena za sztukę wydaje się rozsądna (>10 PLN), użyj price * quantity
-                    // Jeśli bardzo mała lub bardzo duża, prawdopodobnie price jest już całkowite
-                    if (pricePerUnit >= 10 && pricePerUnit <= 10000) {
-                        brutto = priceBrutto * quantity;
-                        netto = priceNetto * quantity;
-                        log('editor', `  → Używam price * ilość: ${brutto.toFixed(2)} PLN brutto`);
-                    } else {
-                        brutto = priceBrutto;
-                        netto = priceNetto;
-                        log('editor', `  → Używam price bezpośrednio: ${brutto.toFixed(2)} PLN brutto`);
-                    }
-                } else {
-                    brutto = 0;
-                    netto = 0;
-                    log('editor', `  → Brak ceny dla produktu ${item.product_index}`);
-                }
-
-                log('editor', `Produkt ${item.product_index} (z bazy): ${brutto.toFixed(2)} PLN brutto`);
-            }
-
-            totals.products.brutto += brutto;
-            totals.products.netto += netto;
-        });
+    if (!currentEditingQuoteData?.items) {
+        log('editor', '❌ Brak produktów w danych wyceny');
+        return totals;
     }
 
-    // 2. Sumuj wykończenie (bez zmian)
-    if (currentEditingQuoteData?.finishing) {
-        currentEditingQuoteData.finishing.forEach(f => {
-            let brutto, netto;
+    // ✅ KLUCZOWA POPRAWKA: Przed obliczeniem sumy, zapisz koszty aktywnego produktu
+    updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts);
 
-            if (f.product_index === activeProductIndex) {
-                brutto = activeFinishingCosts.brutto;
-                netto = activeFinishingCosts.netto;
-                log('finishing', `Wykończenie produktu ${f.product_index} (AKTYWNE): ${brutto.toFixed(2)} PLN brutto`);
-            } else {
-                brutto = parseFloat(f.finishing_price_brutto || 0);
-                netto = parseFloat(f.finishing_price_netto || 0);
-                log('finishing', `Wykończenie produktu ${f.product_index} (z bazy): ${brutto.toFixed(2)} PLN brutto`);
-            }
-
-            totals.finishing.brutto += brutto;
-            totals.finishing.netto += netto;
-        });
-    } else {
-        if (activeFinishingCosts.brutto > 0 || activeFinishingCosts.netto > 0) {
-            totals.finishing.brutto += activeFinishingCosts.brutto;
-            totals.finishing.netto += activeFinishingCosts.netto;
-            log('finishing', `Wykończenie aktywnego produktu (brak w bazie): ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
+    // ✅ Iteruj przez WSZYSTKIE produkty i sumuj ich ZACHOWANE koszty
+    currentEditingQuoteData.items.forEach(item => {
+        if (!item.is_selected) {
+            log('editor', `Pomijam produkt ${item.product_index} - nie zaznaczony`);
+            return;
         }
-    }
 
-    log('editor', '🏁 SUMA CAŁKOWITA:', {
-        produkty: `${totals.products.brutto.toFixed(2)} PLN brutto, ${totals.products.netto.toFixed(2)} PLN netto`,
-        wykończenie: `${totals.finishing.brutto.toFixed(2)} PLN brutto, ${totals.finishing.netto.toFixed(2)} PLN netto`,
-        razem: `${(totals.products.brutto + totals.finishing.brutto).toFixed(2)} PLN brutto`
+        // ✅ Pobierz zachowane koszty produktu (surowe)
+        const productBrutto = parseFloat(item.calculated_price_brutto || item.final_price_brutto || item.total_brutto || 0);
+        const productNetto = parseFloat(item.calculated_price_netto || item.final_price_netto || item.total_netto || 0);
+
+        // ✅ Pobierz zachowane koszty wykończenia dla tego produktu
+        const finishingBrutto = parseFloat(item.calculated_finishing_brutto || item.finishing_price_brutto || 0);
+        const finishingNetto = parseFloat(item.calculated_finishing_netto || item.finishing_price_netto || 0);
+
+        // ✅ Dodaj do sum
+        totals.products.brutto += productBrutto;
+        totals.products.netto += productNetto;
+        totals.finishing.brutto += finishingBrutto;
+        totals.finishing.netto += finishingNetto;
+
+        log('editor', `Produkt ${item.product_index}: ${productBrutto.toFixed(2)} PLN brutto + ${finishingBrutto.toFixed(2)} PLN wykończenie`);
     });
+
+    // ✅ Oblicz wykończenie dla wszystkich produktów osobno
+    const totalFinishingCosts = calculateAllProductsFinishingCosts();
+
+    // ✅ Zastąp obliczenia wykończeniem z wszystkich produktów
+    totals.finishing = totalFinishingCosts;
+
+    log('editor', `✅ SUMA ZAMÓWIENIA: ${totals.products.brutto.toFixed(2)} PLN produkty + ${totals.finishing.brutto.toFixed(2)} PLN wykończenie`);
 
     return totals;
 }
+
+/**
+ * NOWA FUNKCJA - dodaj na końcu pliku
+ * Aktualizuje koszty aktywnego produktu w danych wyceny (żeby były zachowane)
+ */
+function updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts) {
+    if (activeProductIndex === null || !currentEditingQuoteData?.items) {
+        return;
+    }
+
+    const activeItem = currentEditingQuoteData.items.find(item =>
+        item.product_index === activeProductIndex
+    );
+
+    if (activeItem) {
+        // ✅ KLUCZOWA POPRAWKA: Zapisz aktualne koszty aktywnego produktu
+        activeItem.calculated_price_brutto = activeProductCosts.brutto;
+        activeItem.calculated_price_netto = activeProductCosts.netto;
+        activeItem.calculated_finishing_brutto = activeFinishingCosts.brutto;
+        activeItem.calculated_finishing_netto = activeFinishingCosts.netto;
+
+        // ✅ Również zaktualizuj standardowe pola dla kompatybilności
+        activeItem.total_brutto = activeProductCosts.brutto;
+        activeItem.total_netto = activeProductCosts.netto;
+
+        log('editor', `✅ Zachowano koszty produktu ${activeProductIndex}: ${activeProductCosts.brutto.toFixed(2)} PLN brutto`);
+    } else {
+        log('editor', `⚠️ Nie znaleziono aktywnego produktu ${activeProductIndex} do aktualizacji kosztów`);
+    }
+}
+
+function calculateAllProductsFinishingCosts() {
+    const finishingTotals = { brutto: 0, netto: 0 };
+
+    if (!currentEditingQuoteData?.items) {
+        return finishingTotals;
+    }
+
+    currentEditingQuoteData.items.forEach(item => {
+        if (!item.is_selected) return;
+
+        // ✅ Dla aktywnego produktu użyj najnowszych obliczeń
+        if (item.product_index === activeProductIndex) {
+            const activeFinishingCosts = calculateActiveProductFinishingCosts();
+            finishingTotals.brutto += activeFinishingCosts.brutto;
+            finishingTotals.netto += activeFinishingCosts.netto;
+
+            log('editor', `Wykończenie produktu ${item.product_index} (aktywny): ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
+        } else {
+            // ✅ Dla innych produktów użyj zachowanych kosztów
+            const savedBrutto = parseFloat(item.calculated_finishing_brutto || item.finishing_price_brutto || 0);
+            const savedNetto = parseFloat(item.calculated_finishing_netto || item.finishing_price_netto || 0);
+
+            finishingTotals.brutto += savedBrutto;
+            finishingTotals.netto += savedNetto;
+
+            log('editor', `Wykończenie produktu ${item.product_index} (zachowane): ${savedBrutto.toFixed(2)} PLN brutto`);
+        }
+    });
+
+    log('editor', `✅ Łączne wykończenie wszystkich produktów: ${finishingTotals.brutto.toFixed(2)} PLN brutto`);
+    return finishingTotals;
+}
+
 
 /**
  * Pobiera cenę wykończenia z bazy danych (załadowanej do window.finishingPrices)
@@ -2069,7 +2111,10 @@ function updateSelectedVariant(selectedRadio) {
  * Zoptymalizowana synchronizacja do mock form
  */
 function syncEditorToMockForm() {
-    if (!window.activeQuoteForm) return;
+    if (!window.activeQuoteForm) {
+        log('sync', '❌ Brak activeQuoteForm do synchronizacji');
+        return false;
+    }
 
     const syncMappings = [
         { editor: 'edit-clientType', calculator: '[data-field="clientType"]' },
@@ -2079,18 +2124,35 @@ function syncEditorToMockForm() {
         { editor: 'edit-quantity', calculator: '[data-field="quantity"]' }
     ];
 
-    // Single loop synchronization
+    let syncedCount = 0;
+
+    // ✅ POPRAWIONA synchronizacja z logowaniem
     syncMappings.forEach(({ editor, calculator }) => {
         const editorEl = document.getElementById(editor);
         const calcEl = window.activeQuoteForm.querySelector(calculator);
 
-        if (editorEl && calcEl && editorEl.value !== calcEl.value) {
-            calcEl.value = editorEl.value;
+        if (editorEl && calcEl) {
+            const editorValue = editorEl.value || '';
+            const calcValue = calcEl.value || '';
+
+            if (editorValue !== calcValue) {
+                calcEl.value = editorValue;
+                log('sync', `✅ Zsynchronizowano ${editor}: "${editorValue}"`);
+                syncedCount++;
+            }
+        } else {
+            log('sync', `⚠️ Nie można zsynchronizować ${editor}`);
         }
     });
 
+    // ✅ KLUCZOWA POPRAWKA: Po synchronizacji pól wymuś aktualizację przelicznika
+    updateCalculatorMultiplier();
+
     syncAvailabilityStates(window.activeQuoteForm);
     syncSelectedVariant();
+
+    log('sync', `✅ Zsynchronizowano ${syncedCount}/${syncMappings.length} pól`);
+    return syncedCount > 0;
 }
 
 /**
@@ -2130,11 +2192,16 @@ function copyCalculationResults() {
 
     log('sync', `✅ Skopiowano ceny dla ${copiedCount} wariantów`);
 
-    // ✅ DODAJ: Skopiuj dataset z wybranego wariantu
+    // ✅ KLUCZOWA POPRAWKA: Skopiuj dataset z wybranego wariantu
     copySelectedVariantDataset();
+
+    // ✅ POPRAWKA: Zaktualizuj totały w aktywnym produkcie
+    updateActiveProductTotals();
 }
 
 function copyPricesBetweenVariants(source, target) {
+    if (!source || !target) return false;
+
     const priceFields = ['unit-brutto', 'unit-netto', 'total-brutto', 'total-netto'];
     let copiedFields = 0;
 
@@ -2142,7 +2209,7 @@ function copyPricesBetweenVariants(source, target) {
         const sourceEl = source.querySelector(`.${field}`);
         const targetEl = target.querySelector(`.${field}`);
 
-        if (sourceEl && targetEl && sourceEl.textContent !== 'Obliczanie...') {
+        if (sourceEl && targetEl && sourceEl.textContent) {
             targetEl.textContent = sourceEl.textContent;
             copiedFields++;
         }
@@ -2362,26 +2429,217 @@ function copyVariantMappingToEditor() {
 // ==================== OPTIMIZED PRODUCT MANAGEMENT ====================
 
 /**
+ * NOWA FUNKCJA - dodaj na końcu pliku, przed ostatnim komentarzem
+ * Aktualizuje przelicznik w calculator.js z danych edytora
+ */
+function updateMultiplierFromEditor() {
+    const clientTypeSelect = document.getElementById('edit-clientType');
+    if (!clientTypeSelect || !clientTypeSelect.value) {
+        log('sync', '⚠️ Brak grupy cenowej w edytorze');
+        return;
+    }
+
+    const selectedOption = clientTypeSelect.options[clientTypeSelect.selectedIndex];
+    if (!selectedOption || !selectedOption.dataset.multiplierValue) {
+        log('sync', '⚠️ Brak danych przelicznika dla wybranej grupy');
+        return;
+    }
+
+    const clientType = selectedOption.value;
+    const multiplierValue = parseFloat(selectedOption.dataset.multiplierValue);
+
+    // ✅ KLUCZOWA POPRAWKA: Zaktualizuj zmienne globalne calculator.js
+    if (typeof window.currentClientType !== 'undefined') {
+        window.currentClientType = clientType;
+        log('sync', `✅ Zaktualizowano currentClientType: ${clientType}`);
+    }
+
+    if (typeof window.currentMultiplier !== 'undefined') {
+        window.currentMultiplier = multiplierValue;
+        log('sync', `✅ Zaktualizowano currentMultiplier: ${multiplierValue}`);
+    }
+
+    // ✅ Zaktualizuj multiplierMapping jeśli istnieje
+    if (typeof window.multiplierMapping === 'object' && window.multiplierMapping) {
+        window.multiplierMapping[clientType] = multiplierValue;
+        log('sync', `✅ Zaktualizowano multiplierMapping[${clientType}] = ${multiplierValue}`);
+    }
+}
+
+/**
+ * NOWA FUNKCJA - dodaj na końcu pliku, przed ostatnim komentarzem
+ * Synchronizuje grupę cenową na wszystkich produktach w wycenie
+ */
+function syncClientTypeAcrossAllProducts(clientType, multiplierValue) {
+    log('sync', `Synchronizuję grupę ${clientType} (${multiplierValue}) na wszystkich produktach`);
+
+    if (!currentEditingQuoteData?.items) {
+        log('sync', '⚠️ Brak produktów do synchronizacji');
+        return;
+    }
+
+    // ✅ Zaktualizuj grupę cenową w danych każdego produktu
+    currentEditingQuoteData.items.forEach((item, index) => {
+        if (item) {
+            item.client_type = clientType;
+            item.multiplier = multiplierValue;
+            log('sync', `✅ Zaktualizowano grupę w produkcie ${index}: ${clientType}`);
+        }
+    });
+
+    // ✅ Zaktualizuj kartki produktów (jeśli są wyświetlane)
+    const productCards = document.querySelectorAll('.product-card');
+    productCards.forEach((card, index) => {
+        const multiplierDisplay = card.querySelector('.product-multiplier');
+        if (multiplierDisplay) {
+            multiplierDisplay.textContent = `${clientType} (${multiplierValue})`;
+        }
+    });
+
+    // ✅ Zaktualizuj dane głównej wyceny
+    if (currentEditingQuoteData) {
+        currentEditingQuoteData.quote_client_type = clientType;
+        currentEditingQuoteData.quote_multiplier = multiplierValue;
+        log('sync', `✅ Zaktualizowano główne dane wyceny: ${clientType} (${multiplierValue})`);
+    }
+
+    log('sync', '✅ Synchronizacja grupy cenowej zakończona');
+}
+
+/**
+ * NOWA FUNKCJA - dodaj na końcu pliku, przed ostatnim komentarzem
+ * Aktualizuje przelicznik w calculator.js (wersja uproszczona dla syncEditorToMockForm)
+ */
+function updateCalculatorMultiplier() {
+    const clientTypeSelect = document.getElementById('edit-clientType');
+    if (!clientTypeSelect || !clientTypeSelect.value) {
+        return;
+    }
+
+    const selectedOption = clientTypeSelect.options[clientTypeSelect.selectedIndex];
+    if (!selectedOption || !selectedOption.dataset.multiplierValue) {
+        return;
+    }
+
+    const clientType = selectedOption.value;
+    const multiplierValue = parseFloat(selectedOption.dataset.multiplierValue);
+
+    // ✅ Bezpieczna aktualizacja zmiennych globalnych
+    try {
+        if (typeof window.currentClientType !== 'undefined') {
+            window.currentClientType = clientType;
+        }
+
+        if (typeof window.currentMultiplier !== 'undefined') {
+            window.currentMultiplier = multiplierValue;
+        }
+
+        if (typeof window.multiplierMapping === 'object' && window.multiplierMapping) {
+            window.multiplierMapping[clientType] = multiplierValue;
+        }
+
+        log('sync', `✅ Zaktualizowano przelicznik calculator.js: ${clientType} (${multiplierValue})`);
+    } catch (error) {
+        log('sync', '❌ Błąd aktualizacji przelicznika:', error);
+    }
+}
+
+/**
+ * NOWA FUNKCJA - dodaj na końcu pliku, przed ostatnim komentarzem
+ * Kopiuje dataset z wybranego wariantu (używana w copyCalculationResults)
+ */
+function copySelectedVariantDataset() {
+    if (!window.activeQuoteForm) return;
+
+    const selectedMockRadio = window.activeQuoteForm.querySelector('input[type="radio"]:checked');
+    if (!selectedMockRadio) {
+        log('sync', '⚠️ Brak zaznaczonego wariantu w mock formularzu');
+        return;
+    }
+
+    // ✅ Skopiuj dataset z mock formularza do zmiennych globalnych
+    const datasetKeys = ['orderBrutto', 'orderNetto', 'totalBrutto', 'totalNetto'];
+
+    datasetKeys.forEach(key => {
+        if (window.activeQuoteForm.dataset[key]) {
+            // Zapisz w globalnej zmiennej dla aktywnego produktu
+            window.currentActiveProductData = window.currentActiveProductData || {};
+            window.currentActiveProductData[key] = window.activeQuoteForm.dataset[key];
+
+            log('sync', `✅ Skopiowano ${key}: ${window.activeQuoteForm.dataset[key]}`);
+        }
+    });
+}
+
+/**
+ * NOWA FUNKCJA - dodaj na końcu pliku, przed ostatnim komentarzem
+ * Aktualizuje totały aktywnego produktu na podstawie obliczeń
+ */
+function updateActiveProductTotals() {
+    if (!window.currentActiveProductData || activeProductIndex === null) {
+        return;
+    }
+
+    const activeProduct = currentEditingQuoteData?.items?.find(
+        item => item.product_index === activeProductIndex
+    );
+
+    if (activeProduct && window.currentActiveProductData.orderBrutto) {
+        // ✅ Zaktualizuj totały w danych produktu
+        activeProduct.total_brutto = parseFloat(window.currentActiveProductData.orderBrutto);
+        activeProduct.total_netto = parseFloat(window.currentActiveProductData.orderNetto);
+
+        log('sync', `✅ Zaktualizowano totały produktu ${activeProductIndex}:`, {
+            brutto: activeProduct.total_brutto,
+            netto: activeProduct.total_netto
+        });
+    }
+}
+
+/**
  * Zoptymalizowana aktywacja produktu
  */
 function activateProductInEditor(productIndex) {
-    if (!currentEditingQuoteData) return;
+    if (!currentEditingQuoteData) {
+        log('editor', '❌ Brak danych wyceny');
+        return;
+    }
 
     const productItem = currentEditingQuoteData.items.find(item => item.product_index === productIndex);
-    if (!productItem) return;
+    if (!productItem) {
+        log('editor', `❌ Nie znaleziono produktu o indeksie: ${productIndex}`);
+        return;
+    }
 
     activeProductIndex = productIndex;
+
+    // ✅ KLUCZOWA POPRAWKA: Zachowaj aktualną grupę cenową
+    const currentClientType = document.getElementById('edit-clientType')?.value;
 
     // Batch UI updates
     updateProductCardStates(productIndex);
     loadProductDataToForm(productItem);
+
+    // ✅ POPRAWKA: Przywróć grupę cenową po załadowaniu produktu
+    if (currentClientType) {
+        const clientTypeSelect = document.getElementById('edit-clientType');
+        if (clientTypeSelect && clientTypeSelect.value !== currentClientType) {
+            clientTypeSelect.value = currentClientType;
+            log('editor', `✅ Przywrócono grupę cenową: ${currentClientType}`);
+        }
+    }
 
     // DODAJ TO: Ustaw odpowiedni wariant dla aktywnego produktu
     if (currentEditingQuoteData) {
         setSelectedVariantForActiveProduct(productIndex);
     }
 
-    log('editor', `Aktywowano produkt: ${productIndex}`);
+    // ✅ POPRAWKA: Wymuś przeliczenie po aktywacji produktu
+    setTimeout(() => {
+        onFormDataChange();
+    }, 100);
+
+    log('editor', `✅ Aktywowano produkt: ${productIndex}`);
 }
 
 function updateProductCardStates(activeIndex) {
@@ -3679,7 +3937,17 @@ function onClientTypeChange() {
     const clientType = selectedOption.value;
 
     log('sync', `Zmiana grupy cenowej: ${clientType} (mnożnik: ${multiplierValue})`);
-    onFormDataChange();
+
+    // ✅ KLUCZOWA POPRAWKA: Synchronizuj grupę cenową na wszystkich produktach
+    syncClientTypeAcrossAllProducts(clientType, multiplierValue);
+
+    // ✅ Zaktualizuj zmienne globalne calculator.js
+    updateMultiplierFromEditor();
+
+    // ✅ Wywołaj przeliczenie po krótkiej pauzie
+    setTimeout(() => {
+        onFormDataChange();
+    }, 50);
 }
 
 // ==================== PLACEHOLDER FUNCTIONS (TODO) ====================
