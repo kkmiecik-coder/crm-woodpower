@@ -1105,27 +1105,42 @@ function updateQuoteSummary() {
     log('editor', 'Odświeżanie podsumowania...');
 
     try {
-        // Calculate all costs
-        const productsCosts = calculateProductsCosts();
-        const finishingCosts = calculateFinishingCosts();
-        const shippingCosts = getShippingCosts();
-
-        const totalCosts = {
-            brutto: productsCosts.brutto + finishingCosts.brutto + shippingCosts.brutto,
-            netto: productsCosts.netto + finishingCosts.netto + shippingCosts.netto
+        // Koszty aktywnego produktu
+        const activeProductCosts = calculateActiveProductCosts();
+        const activeFinishingCosts = calculateActiveProductFinishingCosts();
+        const activeProductTotal = {
+            brutto: activeProductCosts.brutto + activeFinishingCosts.brutto,
+            netto: activeProductCosts.netto + activeFinishingCosts.netto
         };
 
-        // ✅ KLUCZOWA POPRAWKA: Bezpośrednia aktualizacja UI
-        updateSummaryDisplay(productsCosts, finishingCosts, shippingCosts, totalCosts);
+        // Koszty całego zamówienia (wszystkie produkty + wykończenie)
+        const orderTotals = calculateOrderTotals(activeProductCosts, activeFinishingCosts);
+        const shippingCosts = getShippingCosts();
+        const finalOrderTotal = {
+            brutto: orderTotals.products.brutto + orderTotals.finishing.brutto + shippingCosts.brutto,
+            netto: orderTotals.products.netto + orderTotals.finishing.netto + shippingCosts.netto
+        };
 
-        // Dodatkowo zaktualizuj obiekty dla logowania
+        // Aktualizacja UI z nową strukturą
+        updateSummaryElementsFixed(
+            activeProductCosts,
+            activeFinishingCosts,
+            activeProductTotal,
+            shippingCosts,
+            finalOrderTotal
+        );
+
+        // Logowanie dla debugowania
         const summaryObject = {
-            aktywny_surowe: { brutto: productsCosts.brutto, netto: productsCosts.netto },
-            aktywny_wykończenie: { brutto: finishingCosts.brutto, netto: finishingCosts.netto },
-            aktywny_suma: { brutto: productsCosts.brutto + finishingCosts.brutto, netto: productsCosts.netto + finishingCosts.netto },
-            wszystkie_produkty_łącznie: { brutto: totalCosts.brutto, netto: totalCosts.netto },
-            dostawa: { brutto: shippingCosts.brutto, netto: shippingCosts.netto },
-            suma_zamówienia: { brutto: totalCosts.brutto, netto: totalCosts.netto }
+            aktywny_surowe: activeProductCosts,
+            aktywny_wykończenie: activeFinishingCosts,
+            aktywny_suma: activeProductTotal,
+            wszystkie_produkty_łącznie: {
+                produkty: orderTotals.products,
+                wykończenie: orderTotals.finishing
+            },
+            dostawa: shippingCosts,
+            suma_zamówienia: finalOrderTotal
         };
 
         log('editor', 'Podsumowanie zaktualizowane:', summaryObject);
@@ -1454,6 +1469,56 @@ function calculateActiveProductFinishingCosts() {
 
     log('finishing', 'Brak wykończenia dla aktywnego produktu');
     return { brutto: 0, netto: 0 };
+}
+
+/**
+ * Oblicza łączny koszt wszystkich produktów w wycenie
+ * (surowe + wykończenie dla każdego produktu)
+ */
+function calculateOrderTotals(activeProductCosts, activeFinishingCosts) {
+    const totals = {
+        products: { brutto: 0, netto: 0 },
+        finishing: { brutto: 0, netto: 0 }
+    };
+
+    if (currentEditingQuoteData?.items) {
+        currentEditingQuoteData.items.forEach(item => {
+            if (!item.is_selected) return;
+
+            const quantity = item.quantity || 1;
+            let brutto = parseFloat(item.final_price_brutto || item.unit_price_brutto || 0) * quantity;
+            let netto = parseFloat(item.final_price_netto || item.unit_price_netto || 0) * quantity;
+
+            if (item.product_index === activeProductIndex) {
+                brutto = activeProductCosts.brutto;
+                netto = activeProductCosts.netto;
+            }
+
+            totals.products.brutto += brutto;
+            totals.products.netto += netto;
+        });
+    }
+
+    if (currentEditingQuoteData?.finishing) {
+        currentEditingQuoteData.finishing.forEach(f => {
+            let brutto = parseFloat(f.finishing_price_brutto || 0);
+            let netto = parseFloat(f.finishing_price_netto || 0);
+
+            if (f.product_index === activeProductIndex) {
+                brutto = activeFinishingCosts.brutto;
+                netto = activeFinishingCosts.netto;
+            }
+
+            totals.finishing.brutto += brutto;
+            totals.finishing.netto += netto;
+        });
+    } else {
+        // Brak danych wykończenia w wycenie - uwzględnij tylko aktywne
+        totals.finishing.brutto += activeFinishingCosts.brutto;
+        totals.finishing.netto += activeFinishingCosts.netto;
+    }
+
+    return totals;
 }
 
 /**
