@@ -903,29 +903,45 @@ function handleFinishingTypeChange(finishingType) {
 
     log('finishing', `Typ wykończenia: ${finishingType}`);
 
-    // KLUCZOWA POPRAWKA: Synchronizuj do mock formularza
-    syncFinishingStateToMockForm();
-
-    // SPECJALNA POPRAWKA DLA "SUROWE": Wymuś resetowanie kosztów
+    // ✅ SPECJALNA OBSŁUGA DLA "SUROWE": Wymuś resetowanie kosztów PRZED synchronizacją
     if (finishingType === 'Surowe' && window.activeQuoteForm) {
         // Bezpośrednio wyzeruj dataset
         window.activeQuoteForm.dataset.finishingBrutto = '0';
         window.activeQuoteForm.dataset.finishingNetto = '0';
         log('finishing', '✅ WYMUSZONO zerowanie kosztów dla "Surowe"');
-    }
 
-    // KLUCZOWA POPRAWKA: Przelicz koszty po zmianie typu (zawsze!)
-    if (typeof calculateFinishingCost === 'function' && window.activeQuoteForm) {
-        try {
-            const result = calculateFinishingCost(window.activeQuoteForm);
-            log('finishing', `Przeliczono koszty wykończenia po zmianie typu: ${result?.brutto || 0} PLN brutto`);
-        } catch (err) {
-            log('finishing', 'Błąd przeliczania wykończenia po zmianie typu', err);
+        // ✅ NOWA POPRAWKA: Wymuś natychmiastowe przeliczenie dla "Surowe"
+        if (typeof calculateFinishingCost === 'function') {
+            try {
+                const result = calculateFinishingCost(window.activeQuoteForm);
+                log('finishing', `✅ NATYCHMIASTOWE przeliczenie dla "Surowe": ${result?.brutto || 0} PLN brutto`);
+            } catch (err) {
+                log('finishing', '❌ Błąd natychmiastowego przeliczania dla "Surowe":', err);
+            }
         }
     }
 
-    // Aktualizuj podsumowanie
-    updateQuoteSummary();
+    // KLUCZOWA POPRAWKA: Synchronizuj do mock formularza
+    syncFinishingStateToMockForm();
+
+    // ✅ NOWA POPRAWKA: Dodatkowe przeliczenie po synchronizacji (dla wszystkich typów)
+    if (typeof calculateFinishingCost === 'function' && window.activeQuoteForm) {
+        setTimeout(() => {
+            try {
+                const result = calculateFinishingCost(window.activeQuoteForm);
+                log('finishing', `Przeliczono koszty wykończenia po zmianie typu: ${result?.brutto || 0} PLN brutto`);
+
+                // ✅ KLUCZOWA POPRAWKA: Wymuś aktualizację podsumowania po każdej zmianie typu
+                setTimeout(() => {
+                    updateQuoteSummary();
+                    log('finishing', '✅ Zaktualizowano podsumowanie po zmianie typu wykończenia');
+                }, 100);
+
+            } catch (err) {
+                log('finishing', 'Błąd przeliczania wykończenia po zmianie typu', err);
+            }
+        }, 100);
+    }
 
     // Odśwież karty produktów po zmianie typu wykończenia
     refreshProductCards();
@@ -1612,15 +1628,23 @@ function calculateActiveProductCosts() {
 function calculateActiveProductFinishingCosts() {
     log('finishing', '=== OBLICZANIE WYKOŃCZENIA AKTYWNEGO PRODUKTU ===');
 
+    // ✅ KLUCZOWA POPRAWKA: Zawsze sprawdź aktualny stan przycisków wykończenia
+    const finishingType = getSelectedFinishingType();
+
+    // ✅ SPECJALNA OBSŁUGA dla "Surowe" - zawsze zwróć 0
+    if (finishingType === 'Surowe') {
+        log('finishing', 'Wykończenie aktywnego produktu (Surowe): 0.00 PLN brutto');
+        return { brutto: 0, netto: 0 };
+    }
+
     // Sprawdź dane z calculator.js
     if (window.activeQuoteForm?.dataset) {
         const finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
         const finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
 
-        if (finishingBrutto > 0 || finishingNetto > 0) {
-            log('finishing', `Wykończenie aktywnego produktu (z calculator): ${finishingBrutto.toFixed(2)} PLN brutto`);
-            return { brutto: finishingBrutto, netto: finishingNetto };
-        }
+        // ✅ POPRAWKA: Akceptuj też wartość 0 (nie tylko > 0)
+        log('finishing', `Wykończenie aktywnego produktu (z calculator): ${finishingBrutto.toFixed(2)} PLN brutto`);
+        return { brutto: finishingBrutto, netto: finishingNetto };
     }
 
     // Fallback - znajdź wykończenie aktywnego produktu w danych wyceny
@@ -1786,6 +1810,45 @@ function updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts
         activeItem.calculated_finishing_brutto = activeFinishingCosts.brutto;
         activeItem.calculated_finishing_netto = activeFinishingCosts.netto;
 
+        // ✅ NOWA POPRAWKA: Aktualizuj także dane wykończenia w tabeli finishing
+        if (currentEditingQuoteData.finishing) {
+            let finishingItem = currentEditingQuoteData.finishing.find(f =>
+                f.product_index === activeProductIndex
+            );
+
+            if (finishingItem) {
+                // Aktualizuj istniejący wpis wykończenia
+                finishingItem.finishing_price_brutto = activeFinishingCosts.brutto;
+                finishingItem.finishing_price_netto = activeFinishingCosts.netto;
+                log('finishing', `✅ Zaktualizowano wykończenie w tabeli finishing dla produktu ${activeProductIndex}: ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
+            } else if (activeFinishingCosts.brutto > 0 || activeFinishingCosts.netto > 0) {
+                // Utwórz nowy wpis wykończenia jeśli nie istnieje (i koszt > 0)
+                currentEditingQuoteData.finishing.push({
+                    product_index: activeProductIndex,
+                    finishing_price_brutto: activeFinishingCosts.brutto,
+                    finishing_price_netto: activeFinishingCosts.netto,
+                    finishing_type: getSelectedFinishingType(),
+                    finishing_variant: getSelectedFinishingVariant(),
+                    finishing_color: getSelectedFinishingColor()
+                });
+                log('finishing', `✅ Utworzono nowy wpis wykończenia dla produktu ${activeProductIndex}: ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
+            }
+        } else {
+            // Utwórz tablicę finishing jeśli nie istnieje
+            currentEditingQuoteData.finishing = [];
+            if (activeFinishingCosts.brutto > 0 || activeFinishingCosts.netto > 0) {
+                currentEditingQuoteData.finishing.push({
+                    product_index: activeProductIndex,
+                    finishing_price_brutto: activeFinishingCosts.brutto,
+                    finishing_price_netto: activeFinishingCosts.netto,
+                    finishing_type: getSelectedFinishingType(),
+                    finishing_variant: getSelectedFinishingVariant(),
+                    finishing_color: getSelectedFinishingColor()
+                });
+                log('finishing', `✅ Utworzono tablicę finishing i dodano wpis dla produktu ${activeProductIndex}: ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
+            }
+        }
+
         // ✅ Również zaktualizuj standardowe pola dla kompatybilności
         activeItem.total_brutto = activeProductCosts.brutto;
         activeItem.total_netto = activeProductCosts.netto;
@@ -1795,6 +1858,7 @@ function updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts
         log('editor', `⚠️ Nie znaleziono aktywnego produktu ${activeProductIndex} do aktualizacji kosztów`);
     }
 }
+
 
 function calculateAllProductsFinishingCosts() {
     const finishingTotals = { brutto: 0, netto: 0 };
@@ -1988,30 +2052,21 @@ function clearFinishingSelections() {
         window.activeQuoteForm.dataset.finishingBrutto = '0';
         window.activeQuoteForm.dataset.finishingNetto = '0';
 
-        log('finishing', '✅ WYMUSZONO zerowanie dataset.finishingBrutto/Netto');
+        log('finishing', '✅ WYMUSZONO zerowanie dataset.finishingBrutto/Netto w clearFinishingSelections');
 
-        // ✅ DODATKOWA POPRAWKA: Wymuś wywołanie calculateFinishingCost z "Surowe"
+        // ✅ NOWA DODATKOWA POPRAWKA: Wymuś wywołanie calculateFinishingCost po czyszczeniu
         if (typeof calculateFinishingCost === 'function') {
-            try {
-                // Upewnij się że active button to "Surowe"
-                const surowiBtn = window.activeQuoteForm.querySelector('.finishing-btn[data-finishing-type="Surowe"]');
-                if (surowiBtn && !surowiBtn.classList.contains('active')) {
-                    // Resetuj wszystkie type buttons
-                    window.activeQuoteForm.querySelectorAll('.finishing-btn[data-finishing-type]').forEach(btn => {
-                        btn.classList.remove('active');
-                    });
-                    surowiBtn.classList.add('active');
-                    log('finishing', '✅ Wymuszono active na przycisku "Surowe" w mock form');
+            setTimeout(() => {
+                try {
+                    const result = calculateFinishingCost(window.activeQuoteForm);
+                    log('finishing', `✅ WYMUSZONE przeliczenie po clearFinishingSelections: ${result?.brutto || 0} PLN brutto`);
+                } catch (err) {
+                    log('finishing', '❌ Błąd przeliczania po clearFinishingSelections:', err);
                 }
-
-                const result = calculateFinishingCost(window.activeQuoteForm);
-                log('finishing', `✅ Wywołano calculateFinishingCost po reset: ${result?.brutto || 0} PLN brutto`);
-            } catch (err) {
-                log('finishing', '❌ Błąd calculateFinishingCost po reset:', err);
-            }
+            }, 50);
         }
 
-        // Aktualizuj wyświetlanie w formularzu (jeśli istnieją elementy)
+        // ✅ DODATKOWE WYMUSZENIE: Bezpośrednio aktualizuj elementy UI
         const finishingBruttoEl = window.activeQuoteForm.querySelector('.finishing-brutto');
         const finishingNettoEl = window.activeQuoteForm.querySelector('.finishing-netto');
 
@@ -3339,15 +3394,25 @@ function getFinishingPrice(finishingType, finishingVariant) {
     return 0;
 }
 
+/**
+ * POPRAWIONA FUNKCJA - syncFinishingStateToMockForm
+ * Zastąp obecną funkcję syncFinishingStateToMockForm tym kodem
+ */
 function syncFinishingStateToMockForm() {
-    if (!window.activeQuoteForm) return;
-
     const finishingType = getSelectedFinishingType();
     const finishingVariant = getSelectedFinishingVariant();
     const finishingColor = getSelectedFinishingColor();
 
-    // Reset wszystkich przycisków w mock formularzu
+    log('finishing', `Synchronizacja wykończenia: ${finishingType} ${finishingVariant || ''} ${finishingColor || ''}`);
+
+    if (!window.activeQuoteForm) {
+        log('finishing', '❌ Brak activeQuoteForm do synchronizacji');
+        return;
+    }
+
     const mockForm = window.activeQuoteForm;
+
+    // Resetuj wszystkie active buttony
     mockForm.querySelectorAll('.finishing-btn.active').forEach(btn => {
         btn.classList.remove('active');
     });
@@ -3390,13 +3455,18 @@ function syncFinishingStateToMockForm() {
             try {
                 const result = calculateFinishingCost(mockForm);
                 log('finishing', `✅ WYMUSZONE przeliczenie po sync "Surowe": ${result?.brutto || 0} PLN brutto`);
-            } catch (err) {
-                log('finishing', '❌ Błąd wymuszonego przeliczenia "Surowe":', err);
-            }
-        }, 10);
-    }
 
-    log('finishing', `✅ Zsynchronizowano wykończenie do mock form: ${finishingType}/${finishingVariant}/${finishingColor}`);
+                // ✅ NOWA POPRAWKA: Po przeliczeniu wymuś aktualizację podsumowania
+                setTimeout(() => {
+                    updateQuoteSummary();
+                    log('finishing', '✅ WYMUSZONA aktualizacja podsumowania po sync "Surowe"');
+                }, 50);
+
+            } catch (err) {
+                log('finishing', '❌ Błąd przeliczania po sync:', err);
+            }
+        }, 50);
+    }
 }
 
 // ==================== OPTIMIZED HELPER FUNCTIONS ====================
@@ -3570,6 +3640,28 @@ function checkProductCompletenessInEditor() {
 
     const hasVariant = selectedVariant !== null;
 
+    // ✅ NOWA WALIDACJA WYKOŃCZENIA
+    const finishingType = getSelectedFinishingType();
+    const finishingVariant = getSelectedFinishingVariant();
+    const finishingColor = getSelectedFinishingColor();
+
+    let hasValidFinishing = true;
+    let finishingErrorMessage = '';
+
+    // Sprawdź czy wykończenie jest kompletne według nowych zasad
+    if (finishingType === 'Lakierowanie') {
+        if (!finishingVariant) {
+            hasValidFinishing = false;
+            finishingErrorMessage = 'Wybierz wariant lakierowania (Bezbarwne/Barwne)';
+        } else if (finishingVariant === 'Barwne' && !finishingColor) {
+            hasValidFinishing = false;
+            finishingErrorMessage = 'Wybierz kolor dla barwnego lakierowania';
+        }
+    }
+    // "Surowe" i "Olejowanie" są zawsze kompletne bez dodatkowych wyborów
+
+    const isComplete = hasBasicData && hasVariant && hasValidFinishing;
+
     console.log('[checkProductCompletenessInEditor] Walidacja formularza:', {
         length: length,
         width: width,
@@ -3578,10 +3670,20 @@ function checkProductCompletenessInEditor() {
         hasBasicData: hasBasicData,
         selectedVariant: selectedVariant?.value,
         hasVariant: hasVariant,
-        isComplete: hasBasicData && hasVariant
+        finishingType: finishingType,
+        finishingVariant: finishingVariant,
+        finishingColor: finishingColor,
+        hasValidFinishing: hasValidFinishing,
+        finishingErrorMessage: finishingErrorMessage,
+        isComplete: isComplete
     });
 
-    return hasBasicData && hasVariant;
+    // ✅ OPCJONALNE: Pokaż komunikat błędu wykończenia w konsoli do debugowania
+    if (!hasValidFinishing) {
+        console.warn('[checkProductCompletenessInEditor] Wykończenie niekompletne:', finishingErrorMessage);
+    }
+
+    return isComplete;
 }
 
 /**

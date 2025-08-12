@@ -4765,3 +4765,174 @@
         font-size: 8px;
     }
 }
+
+
+/* Karta pojedynczego produktu */
+.product-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    font-size: 12px;
+    animation: slideInProduct 0.3s ease-out;
+}
+
+    /* Hover effect dla kart produktów */
+    .product-card:hover {
+        border-color: #ED6B24;
+        background: #FFF8F5;
+        transform: translateY(-3px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Aktywna karta produktu */
+    .product-card.active {
+        border-color: #ED6B24;
+        background: #FFF8F5;
+        box-shadow: 0 0 0 2px rgba(237, 107, 36, 0.1);
+    }
+
+    /* Hover effect dla aktywnej karty */
+    .product-card:not(.error):hover .product-card-number {
+        background: #D45611;
+        transform: scale(1.05);
+    }
+
+    .product-card.active .product-card-number {
+        background: #D45611;
+        box-shadow: 0 0 0 2px rgba(237, 107, 36, 0.3);
+        margin-right: 12px;
+    }
+
+    /* Karta z błędem (niekompletny produkt) */
+    .product-card.error {
+        border-color: #E57373;
+        background: #FFEBEE;
+    }
+
+        .product-card.error:hover {
+            border-color: #F44336;
+            background: #FFCDD2;
+        }
+
+        /* Badge błędu dla niekompletnych produktów */
+        .product-card.error::before {
+            content: "!";
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            background: #F44336;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+/* Zawartość karty produktu */
+.product-card-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+/* Numer produktu (kółko) */
+.product-card-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ED6B24;
+    color: #FFFFFF;
+    font-weight: 600;
+    font-size: 11px;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    margin-right: 12px;
+}
+
+.product-card.error .product-card-number {
+    background: #F44336;
+}
+
+/* Szczegóły produktu */
+.product-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+/* Główne informacje o produkcie */
+.product-card-main-info {
+    font-weight: 500;
+    font-size: 12px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    hyphens: auto;
+}
+
+.product-card.error .product-card-main-info {
+    color: #D32F2F;
+}
+
+/* Dodatkowe informacje o produkcie */
+.product-card-sub-info {
+    font-size: 10px;
+    color: #666666;
+    font-family: Poppins, sans-serif;
+}
+
+/* Status produktu */
+.product-card-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: #888888;
+}
+
+/* Przycisk dodania nowego produktu */
+.add-product-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border: 1px dashed #ED6B24;
+    border-radius: 6px;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    color: #ED6B24;
+    font-weight: 500;
+    font-size: 12px;
+    font-family: Poppins, sans-serif;
+}
+
+    .add-product-card:hover {
+        background: #FFF8F5;
+        border-color: #D45611;
+        color: #D45611;
+    }
