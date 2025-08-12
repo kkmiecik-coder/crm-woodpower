@@ -270,8 +270,15 @@ function handleButtonClick(e) {
         return;
     }
 
-    if (target.id === 'edit-add-product-btn') {
-        addNewProductToQuote();
+    if (target.id === 'close-quote-editor') {
+        window.QuoteEditor.close();
+        return;
+    }
+
+    // ✅ DODANE: Obsługa zmiany grupy cenowej przez select
+    if (target.id === 'edit-clientType') {
+        handleClientTypeChange(e);
+        return;
     }
 }
 
@@ -866,7 +873,9 @@ function handleColorButtonClick(button) {
     // ✅ Synchronizuj stan koloru do mock formularza
     onFormDataChange();
 
-    // ✅ Synchronizuj stan wykończenia do mock formularza
+    // ✅ DODANE: Zawsze aktualizuj podsumowanie po zmianie koloru
+    updateQuoteSummary();
+
     refreshProductCards();
 }
 
@@ -1651,45 +1660,115 @@ function calculateOrderTotals(activeProductCosts, activeFinishingCosts) {
 
     log('editor', '=== OBLICZANIE CAŁKOWITEJ SUMY ZAMÓWIENIA ===');
 
-    if (!currentEditingQuoteData?.items) {
-        log('editor', '❌ Brak produktów w danych wyceny');
-        return totals;
+    // 1. Sumuj produkty surowe
+    if (currentEditingQuoteData?.items) {
+        currentEditingQuoteData.items.forEach(item => {
+            if (!item.is_selected) return;
+
+            let brutto, netto;
+
+            // POPRAWKA: Sprawdź czy to aktywny produkt, który właśnie edytujemy
+            if (item.product_index === activeProductIndex) {
+                // Użyj aktualnych kosztów z formularza (aktywnego produktu)
+                brutto = activeProductCosts.brutto;
+                netto = activeProductCosts.netto;
+                log('editor', `Produkt ${item.product_index} (AKTYWNY): ${brutto.toFixed(2)} PLN brutto`);
+            } else {
+                // NOWA LOGIKA: Sprawdź czy final_price jest już przemnożone przez ilość
+                // Sprawdźmy różne pola i określmy które używać
+
+                const quantity = item.quantity || 1;
+
+                // Opcja 1: final_price (prawdopodobnie już przemnożone przez ilość)
+                const finalBrutto = parseFloat(item.final_price_brutto || 0);
+                const finalNetto = parseFloat(item.final_price_netto || 0);
+
+                // Opcja 2: unit_price (cena jednostkowa)
+                const unitBrutto = parseFloat(item.unit_price_brutto || 0);
+                const unitNetto = parseFloat(item.unit_price_netto || 0);
+
+                // Opcja 3: price (może być jednostkowa lub całkowita)
+                const priceBrutto = parseFloat(item.price_brutto || 0);
+                const priceNetto = parseFloat(item.price_netto || 0);
+
+                // DEBUG: Pokaż wszystkie dostępne wartości
+                log('editor', `DEBUG Produkt ${item.product_index} (ilość: ${quantity}):`);
+                log('editor', `  - final_price_brutto: ${finalBrutto}`);
+                log('editor', `  - unit_price_brutto: ${unitBrutto}`);
+                log('editor', `  - price_brutto: ${priceBrutto}`);
+
+                // LOGIKA WYBORU: Użyj final_price jeśli dostępne, inaczej oblicz z unit_price
+                if (finalBrutto > 0) {
+                    // final_price jest prawdopodobnie już przemnożone przez ilość
+                    brutto = finalBrutto;
+                    netto = finalNetto;
+                    log('editor', `  → Używam final_price: ${brutto.toFixed(2)} PLN brutto (już z ilością)`);
+                } else if (unitBrutto > 0) {
+                    // unit_price to cena jednostkowa, trzeba przemnożyć
+                    brutto = unitBrutto * quantity;
+                    netto = unitNetto * quantity;
+                    log('editor', `  → Używam unit_price * ilość: ${brutto.toFixed(2)} PLN brutto`);
+                } else if (priceBrutto > 0) {
+                    // price - nie wiadomo czy jednostkowa czy całkowita, sprawdźmy proporcje
+                    const pricePerUnit = priceBrutto / quantity;
+                    log('editor', `  → price per unit: ${pricePerUnit.toFixed(2)} PLN`);
+
+                    // Heurystyka: jeśli cena za sztukę wydaje się rozsądna (>10 PLN), użyj price * quantity
+                    // Jeśli bardzo mała lub bardzo duża, prawdopodobnie price jest już całkowite
+                    if (pricePerUnit >= 10 && pricePerUnit <= 10000) {
+                        brutto = priceBrutto * quantity;
+                        netto = priceNetto * quantity;
+                        log('editor', `  → Używam price * ilość: ${brutto.toFixed(2)} PLN brutto`);
+                    } else {
+                        brutto = priceBrutto;
+                        netto = priceNetto;
+                        log('editor', `  → Używam price bezpośrednio: ${brutto.toFixed(2)} PLN brutto`);
+                    }
+                } else {
+                    brutto = 0;
+                    netto = 0;
+                    log('editor', `  → Brak ceny dla produktu ${item.product_index}`);
+                }
+
+                log('editor', `Produkt ${item.product_index} (z bazy): ${brutto.toFixed(2)} PLN brutto`);
+            }
+
+            totals.products.brutto += brutto;
+            totals.products.netto += netto;
+        });
     }
 
-    // ✅ KLUCZOWA POPRAWKA: Przed obliczeniem sumy, zapisz koszty aktywnego produktu
-    updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts);
+    // 2. Sumuj wykończenie (bez zmian)
+    if (currentEditingQuoteData?.finishing) {
+        currentEditingQuoteData.finishing.forEach(f => {
+            let brutto, netto;
 
-    // ✅ Iteruj przez WSZYSTKIE produkty i sumuj ich ZACHOWANE koszty
-    currentEditingQuoteData.items.forEach(item => {
-        if (!item.is_selected) {
-            log('editor', `Pomijam produkt ${item.product_index} - nie zaznaczony`);
-            return;
+            if (f.product_index === activeProductIndex) {
+                brutto = activeFinishingCosts.brutto;
+                netto = activeFinishingCosts.netto;
+                log('finishing', `Wykończenie produktu ${f.product_index} (AKTYWNE): ${brutto.toFixed(2)} PLN brutto`);
+            } else {
+                brutto = parseFloat(f.finishing_price_brutto || 0);
+                netto = parseFloat(f.finishing_price_netto || 0);
+                log('finishing', `Wykończenie produktu ${f.product_index} (z bazy): ${brutto.toFixed(2)} PLN brutto`);
+            }
+
+            totals.finishing.brutto += brutto;
+            totals.finishing.netto += netto;
+        });
+    } else {
+        if (activeFinishingCosts.brutto > 0 || activeFinishingCosts.netto > 0) {
+            totals.finishing.brutto += activeFinishingCosts.brutto;
+            totals.finishing.netto += activeFinishingCosts.netto;
+            log('finishing', `Wykończenie aktywnego produktu (brak w bazie): ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
         }
+    }
 
-        // ✅ Pobierz zachowane koszty produktu (surowe)
-        const productBrutto = parseFloat(item.calculated_price_brutto || item.final_price_brutto || item.total_brutto || 0);
-        const productNetto = parseFloat(item.calculated_price_netto || item.final_price_netto || item.total_netto || 0);
-
-        // ✅ Pobierz zachowane koszty wykończenia dla tego produktu
-        const finishingBrutto = parseFloat(item.calculated_finishing_brutto || item.finishing_price_brutto || 0);
-        const finishingNetto = parseFloat(item.calculated_finishing_netto || item.finishing_price_netto || 0);
-
-        // ✅ Dodaj do sum
-        totals.products.brutto += productBrutto;
-        totals.products.netto += productNetto;
-        totals.finishing.brutto += finishingBrutto;
-        totals.finishing.netto += finishingNetto;
-
-        log('editor', `Produkt ${item.product_index}: ${productBrutto.toFixed(2)} PLN brutto + ${finishingBrutto.toFixed(2)} PLN wykończenie`);
+    log('editor', '🏁 SUMA CAŁKOWITA:', {
+        produkty: `${totals.products.brutto.toFixed(2)} PLN brutto, ${totals.products.netto.toFixed(2)} PLN netto`,
+        wykończenie: `${totals.finishing.brutto.toFixed(2)} PLN brutto, ${totals.finishing.netto.toFixed(2)} PLN netto`,
+        razem: `${(totals.products.brutto + totals.finishing.brutto).toFixed(2)} PLN brutto`
     });
-
-    // ✅ Oblicz wykończenie dla wszystkich produktów osobno
-    const totalFinishingCosts = calculateAllProductsFinishingCosts();
-
-    // ✅ Zastąp obliczenia wykończeniem z wszystkich produktów
-    totals.finishing = totalFinishingCosts;
-
-    log('editor', `✅ SUMA ZAMÓWIENIA: ${totals.products.brutto.toFixed(2)} PLN produkty + ${totals.finishing.brutto.toFixed(2)} PLN wykończenie`);
 
     return totals;
 }
@@ -2638,6 +2717,11 @@ function activateProductInEditor(productIndex) {
     setTimeout(() => {
         onFormDataChange();
     }, 100);
+
+    // ✅ DODANE: Zawsze aktualizuj podsumowanie po zmianie aktywnego produktu
+    if (previousIndex !== productIndex) {
+        updateQuoteSummary();
+    }
 
     log('editor', `✅ Aktywowano produkt: ${productIndex}`);
 }
@@ -3948,6 +4032,9 @@ function onClientTypeChange() {
     setTimeout(() => {
         onFormDataChange();
     }, 50);
+    updateQuoteSummary();
+
+    refreshProductCards();
 }
 
 // ==================== PLACEHOLDER FUNCTIONS (TODO) ====================
@@ -4098,307 +4185,3 @@ window.QuoteEditor = {
 // Override attachFinishingUIListeners z calculator.js
 window.originalAttachFinishingUIListeners = window.attachFinishingUIListeners;
 window.attachFinishingUIListeners = safeAttachFinishingUIListeners;
-
-window.debugFinishingEditor = function () {
-    console.log('=== DEBUG EDYTORA WYKOŃCZENIA ===');
-
-    console.log('1. Stan przycisków edytora:');
-    console.log('   - Typ:', getSelectedFinishingType());
-    console.log('   - Wariant:', getSelectedFinishingVariant());
-    console.log('   - Kolor:', getSelectedFinishingColor());
-
-    console.log('2. Mock formularz:');
-    if (window.activeQuoteForm) {
-        console.log('   - finishingBrutto:', window.activeQuoteForm.dataset.finishingBrutto);
-        console.log('   - finishingNetto:', window.activeQuoteForm.dataset.finishingNetto);
-
-        const mockButtons = window.activeQuoteForm.querySelectorAll('.finishing-btn');
-        console.log('   - Liczba przycisków w mock:', mockButtons.length);
-        mockButtons.forEach((btn, i) => {
-            const type = btn.dataset.finishingType || btn.dataset.finishingVariant || btn.dataset.finishingGloss;
-            const active = btn.classList.contains('active') ? 'ACTIVE' : 'inactive';
-            console.log(`   - Przycisk ${i}: ${type} (${active})`);
-        });
-    } else {
-        console.log('   - BRAK activeQuoteForm!');
-    }
-
-    console.log('3. Elementy UI:');
-    const bruttoEl = document.querySelector('.edit-finishing-brutto');
-    const nettoEl = document.querySelector('.edit-finishing-netto');
-    console.log('   - .edit-finishing-brutto:', bruttoEl?.textContent);
-    console.log('   - .edit-finishing-netto:', nettoEl?.textContent);
-
-    console.log('4. Obliczenia:');
-    const calculated = calculateFinishingCosts();
-    console.log('   - calculateFinishingCosts():', calculated);
-
-    console.log('5. Warianty:');
-    const variants = document.querySelectorAll('.variant-option input[type="radio"]');
-    console.log('   - Liczba wariantów w edytorze:', variants.length);
-    variants.forEach((radio, i) => {
-        if (radio.checked) {
-            console.log(`   - Wybrany wariant ${i}: ${radio.value}`);
-        }
-    });
-
-    if (window.activeQuoteForm) {
-        const mockRadios = window.activeQuoteForm.querySelectorAll('input[type="radio"]');
-        console.log('   - Liczba radio w mock formularzu:', mockRadios.length);
-        mockRadios.forEach((radio, i) => {
-            if (radio.checked) {
-                console.log(`   - Wybrany w mock ${i}: ${radio.value} (name: ${radio.name})`);
-            }
-        });
-    }
-};
-
-window.monitorVariantChanges = function () {
-    console.log('=== MONITORING ZMIAN WARIANTÓW ===');
-
-    // Dodaj temporary listener do monitorowania
-    const radios = document.querySelectorAll('input[name="edit-variantOption"]');
-
-    radios.forEach(radio => {
-        radio.addEventListener('change', function () {
-            console.log(`📡 VARIANT CHANGE DETECTED: ${this.value} (checked: ${this.checked})`);
-
-            setTimeout(() => {
-                // Sprawdź co się stało z cenami
-                const option = this.closest('.variant-option');
-                const bruttoEl = option.querySelector('.total-brutto');
-                const nettoEl = option.querySelector('.total-netto');
-
-                console.log(`💰 Ceny po zmianie wariantu:`);
-                console.log(`   - Brutto: ${bruttoEl?.textContent}`);
-                console.log(`   - Netto: ${nettoEl?.textContent}`);
-
-                // Sprawdź mock formularz
-                if (window.activeQuoteForm) {
-                    const mockRadio = window.activeQuoteForm.querySelector(`input[value="${this.value}"]`);
-                    console.log(`🎭 Mock formularz:`);
-                    console.log(`   - Radio checked: ${mockRadio?.checked}`);
-                    console.log(`   - Dataset orderBrutto: ${window.activeQuoteForm.dataset.orderBrutto}`);
-                    console.log(`   - Dataset orderNetto: ${window.activeQuoteForm.dataset.orderNetto}`);
-                }
-
-                // Sprawdź podsumowanie
-                const summaryBrutto = document.querySelector('.edit-order-brutto');
-                const summaryNetto = document.querySelector('.edit-order-netto');
-                console.log(`📊 Podsumowanie:`);
-                console.log(`   - Koszt surowego brutto: ${summaryBrutto?.textContent}`);
-                console.log(`   - Koszt surowego netto: ${summaryNetto?.textContent}`);
-
-            }, 200);
-        });
-    });
-
-    console.log(`✅ Monitoring włączony dla ${radios.length} radio buttons`);
-    console.log('Kliknij teraz inne warianty i obserwuj logi...');
-};
-
-/**
-* KOMENDY DEBUGOWANIA - wklej do konsoli przeglądarki
-*/
-
-// 1. SPRAWDŹ DANE WYCENY
-function debugQuoteData() {
-    console.log('=== DEBUG DANYCH WYCENY ===');
-
-    if (!currentEditingQuoteData) {
-        console.log('❌ Brak currentEditingQuoteData');
-        return;
-    }
-
-    console.log('📊 Wszystkie pozycje w wycenie:', currentEditingQuoteData.items?.length || 0);
-
-    const selectedItems = currentEditingQuoteData.items?.filter(item => item.is_selected === true) || [];
-    console.log('✅ Wybrane pozycje:', selectedItems.length);
-
-    const uniqueProducts = [...new Set(selectedItems.map(item => item.product_index))];
-    console.log('🔢 Unikalne produkty (product_index):', uniqueProducts);
-
-    // Pokaż szczegóły każdego wybranego produktu
-    selectedItems.forEach((item, index) => {
-        console.log(`\n--- Pozycja ${index + 1} (product_index: ${item.product_index}) ---`);
-        console.log(`Wymiary: ${item.length_cm}×${item.width_cm}×${item.thickness_cm} cm`);
-        console.log(`Ilość: ${item.quantity}`);
-        console.log(`Wariant: ${item.variant_code}`);
-        console.log(`is_selected: ${item.is_selected}`);
-        console.log(`Objętość z bazy: ${item.volume_m3}`);
-        console.log(`Waga z bazy: ${item.weight_kg}`);
-    });
-}
-
-// 2. SPRAWDŹ KARTY PRODUKTÓW
-function debugProductCards() {
-    console.log('\n=== DEBUG KART PRODUKTÓW ===');
-
-    const cards = document.querySelectorAll('.product-card');
-    console.log(`📋 Liczba kart produktów: ${cards.length}`);
-
-    let totalVolumeFromCards = 0;
-    let totalWeightFromCards = 0;
-
-    cards.forEach((card, index) => {
-        const subInfo = card.querySelector('.product-card-sub-info');
-        const mainInfo = card.querySelector('.product-card-main-info');
-
-        console.log(`\n--- Karta ${index + 1} ---`);
-        console.log(`Nazwa: ${mainInfo?.textContent || 'BRAK'}`);
-        console.log(`Sub info: ${subInfo?.textContent || 'BRAK'}`);
-
-        if (subInfo) {
-            const subText = subInfo.textContent;
-
-            // Wyciągnij objętość
-            const volumeMatch = subText.match(/(\d+\.?\d*)\s*m³/);
-            if (volumeMatch) {
-                const volume = parseFloat(volumeMatch[1]);
-                totalVolumeFromCards += volume;
-                console.log(`  📦 Objętość: ${volume} m³`);
-            }
-
-            // Wyciągnij wagę
-            const weightMatch = subText.match(/(\d+\.?\d*)\s*(kg|t)/);
-            if (weightMatch) {
-                let weight = parseFloat(weightMatch[1]);
-                if (weightMatch[2] === 't') {
-                    weight = weight * 1000;
-                }
-                totalWeightFromCards += weight;
-                console.log(`  ⚖️ Waga: ${weight} kg`);
-            }
-        }
-    });
-
-    console.log(`\n🏁 SUMA Z KART:`);
-    console.log(`📦 Objętość: ${totalVolumeFromCards.toFixed(3)} m³`);
-    console.log(`⚖️ Waga: ${totalWeightFromCards.toFixed(1)} kg`);
-
-    return { totalVolumeFromCards, totalWeightFromCards };
-}
-
-// 3. SPRAWDŹ OBLICZENIA Z DANYCH WYCENY
-function debugCalculatedTotals() {
-    console.log('\n=== DEBUG OBLICZEŃ Z DANYCH WYCENY ===');
-
-    if (!currentEditingQuoteData?.items) {
-        console.log('❌ Brak danych do obliczenia');
-        return;
-    }
-
-    const selectedItems = currentEditingQuoteData.items.filter(item => item.is_selected === true);
-    console.log(`📊 Obliczam dla ${selectedItems.length} wybranych pozycji`);
-
-    let totalVolume = 0;
-    let totalWeight = 0;
-
-    selectedItems.forEach((item, index) => {
-        console.log(`\n--- Obliczenia dla pozycji ${index + 1} (product_index: ${item.product_index}) ---`);
-
-        const isComplete = checkProductCompletenessForQuote(item);
-        console.log(`Kompletny: ${isComplete}`);
-
-        if (!isComplete) {
-            console.log('❌ Pozycja niekompletna - pomijam');
-            return;
-        }
-
-        // Sprawdź czy to aktywny produkt
-        const isActiveProduct = parseInt(item.product_index) === activeProductIndex;
-        console.log(`Aktywny produkt: ${isActiveProduct}`);
-
-        let length, width, thickness, quantity;
-
-        if (isActiveProduct) {
-            // Dane z formularza
-            length = parseFloat(document.getElementById('edit-length')?.value) || item.length_cm;
-            width = parseFloat(document.getElementById('edit-width')?.value) || item.width_cm;
-            thickness = parseFloat(document.getElementById('edit-thickness')?.value) || item.thickness_cm;
-            quantity = parseInt(document.getElementById('edit-quantity')?.value) || item.quantity;
-            console.log(`📝 Dane z formularza: ${length}×${width}×${thickness} cm, ${quantity} szt.`);
-        } else {
-            // Dane z bazy
-            length = item.length_cm;
-            width = item.width_cm;
-            thickness = item.thickness_cm;
-            quantity = item.quantity;
-            console.log(`💾 Dane z bazy: ${length}×${width}×${thickness} cm, ${quantity} szt.`);
-        }
-
-        if (length > 0 && width > 0 && thickness > 0 && quantity > 0) {
-            // Oblicz objętość
-            const singleVolumeM3 = (length / 100) * (width / 100) * (thickness / 100);
-            const itemTotalVolume = singleVolumeM3 * quantity;
-            const itemTotalWeight = itemTotalVolume * 800;
-
-            console.log(`📐 Objętość 1 szt: ${singleVolumeM3.toFixed(6)} m³`);
-            console.log(`📦 Objętość ${quantity} szt: ${itemTotalVolume.toFixed(6)} m³`);
-            console.log(`⚖️ Waga ${quantity} szt: ${itemTotalWeight.toFixed(1)} kg`);
-
-            totalVolume += itemTotalVolume;
-            totalWeight += itemTotalWeight;
-        } else {
-            console.log('❌ Błędne wymiary - pomijam');
-        }
-    });
-
-    console.log(`\n🏁 SUMA Z OBLICZEŃ:`);
-    console.log(`📦 Objętość: ${totalVolume.toFixed(3)} m³`);
-    console.log(`⚖️ Waga: ${totalWeight.toFixed(1)} kg`);
-
-    return { totalVolume, totalWeight };
-}
-
-// 4. PORÓWNAJ WSZYSTKIE METODY
-function debugAllMethods() {
-    console.log('\n=== PORÓWNANIE WSZYSTKICH METOD ===');
-
-    debugQuoteData();
-
-    const cardsResult = debugProductCards();
-    const calculatedResult = debugCalculatedTotals();
-
-    console.log('\n🔍 PORÓWNANIE WYNIKÓW:');
-    console.log('📋 Z kart produktów:', cardsResult);
-    console.log('🧮 Z obliczeń:', calculatedResult);
-
-    if (cardsResult && calculatedResult) {
-        const volumeDiff = Math.abs(cardsResult.totalVolumeFromCards - calculatedResult.totalVolume);
-        const weightDiff = Math.abs(cardsResult.totalWeightFromCards - calculatedResult.totalWeight);
-
-        console.log('\n⚠️ RÓŻNICE:');
-        console.log(`📦 Objętość: ${volumeDiff.toFixed(3)} m³`);
-        console.log(`⚖️ Waga: ${weightDiff.toFixed(1)} kg`);
-
-        if (volumeDiff > 0.001 || weightDiff > 1) {
-            console.log('🚨 WYKRYTO ZNACZĄCE RÓŻNICE!');
-        } else {
-            console.log('✅ Wyniki są podobne');
-        }
-    }
-}
-
-// 5. SPRAWDŹ CO POKAZUJE MODAL SZCZEGÓŁÓW
-function debugDetailsModal() {
-    console.log('\n=== DEBUG MODALU SZCZEGÓŁÓW ===');
-
-    // Sprawdź czy modal szczegółów jest otwarty
-    const detailsModal = document.getElementById('quotes-details-modal');
-    if (detailsModal && detailsModal.style.display !== 'none') {
-        const costElements = {
-            productsBrutto: document.getElementById('quotes-details-modal-cost-products-brutto'),
-            productsNetto: document.getElementById('quotes-details-modal-cost-products-netto'),
-            totalBrutto: document.getElementById('quotes-details-modal-cost-total-brutto'),
-            totalNetto: document.getElementById('quotes-details-modal-cost-total-netto')
-        };
-
-        console.log('💰 Koszty z modalu szczegółów:');
-        Object.entries(costElements).forEach(([key, element]) => {
-            console.log(`${key}: ${element?.textContent || 'BRAK'}`);
-        });
-    } else {
-        console.log('❌ Modal szczegółów nie jest otwarty');
-    }
-}
