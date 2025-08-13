@@ -270,8 +270,11 @@ function handleButtonClick(e) {
         return;
     }
 
-    if (target.id === 'edit-add-product-btn') {
-        addNewProductToQuote();
+    const addBtn = target.closest('#edit-add-product-btn');
+    if (addBtn) {
+        e.stopPropagation();
+        // Defer execution to avoid interference with ongoing loops
+        setTimeout(() => addNewProductToQuote(), 0);
         return;
     }
 
@@ -280,7 +283,7 @@ function handleButtonClick(e) {
         return;
     }
 
-    // ✅ DODANE: Obsługa zmiany grupy cenowej przez select
+    // Obsługa zmiany grupy cenowej przez select
     if (target.id === 'edit-clientType') {
         handleClientTypeChange(e);
         return;
@@ -2807,6 +2810,8 @@ function saveActiveProductFormData() {
  * Zoptymalizowana aktywacja produktu
  */
 function activateProductInEditor(productIndex) {
+    // Zachowaj poprzedni indeks przed zmianą
+    const previousIndex = activeProductIndex;
 
     // Zachowaj dane aktualnie edytowanego produktu przed zmianą
     saveActiveProductFormData();
@@ -2823,6 +2828,12 @@ function activateProductInEditor(productIndex) {
     }
 
     activeProductIndex = productIndex;
+
+    // Wyzeruj dataset kalkulatora, aby nie przenosić kosztów między produktami
+    if (window.activeQuoteForm?.dataset) {
+        window.activeQuoteForm.dataset.orderBrutto = '0';
+        window.activeQuoteForm.dataset.orderNetto = '0';
+    }
 
     // ✅ KLUCZOWA POPRAWKA: Zachowaj aktualną grupę cenową
     const currentClientType = document.getElementById('edit-clientType')?.value;
