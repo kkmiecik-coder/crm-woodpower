@@ -1708,27 +1708,36 @@ function calculateOrderTotals(activeProductCosts, activeFinishingCosts) {
                 const finalBrutto = parseFloat(item.final_price_brutto || 0);
                 const finalNetto = parseFloat(item.final_price_netto || 0);
 
-                // Opcja 2: unit_price (cena jednostkowa)
+                // Opcja 2: zapamiętane obliczenia (calculated_price)
+                const calculatedBrutto = parseFloat(item.calculated_price_brutto || 0);
+                const calculatedNetto = parseFloat(item.calculated_price_netto || 0);
+
+                // Opcja 3: unit_price (cena jednostkowa)
                 const unitBrutto = parseFloat(item.unit_price_brutto || 0);
                 const unitNetto = parseFloat(item.unit_price_netto || 0);
 
-                // Opcja 3: price (może być jednostkowa lub całkowita)
+                // Opcja 4: price (może być jednostkowa lub całkowita)
                 const priceBrutto = parseFloat(item.price_brutto || 0);
                 const priceNetto = parseFloat(item.price_netto || 0);
 
                 // DEBUG: Pokaż wszystkie dostępne wartości
                 log('editor', `DEBUG Produkt ${item.product_index} (ilość: ${quantity}):`);
                 log('editor', `  - final_price_brutto: ${finalBrutto}`);
+                log('editor', `  - calculated_price_brutto: ${calculatedBrutto}`);
                 log('editor', `  - unit_price_brutto: ${unitBrutto}`);
                 log('editor', `  - price_brutto: ${priceBrutto}`);
 
-                // LOGIKA WYBORU: Użyj final_price jeśli dostępne, inaczej oblicz z unit_price
+                // LOGIKA WYBORU: Użyj final_price jeśli dostępne, potem calculated_price, inaczej oblicz z unit_price
                 if (finalBrutto > 0) {
                     // final_price jest prawdopodobnie już przemnożone przez ilość
                     brutto = finalBrutto;
                     netto = finalNetto;
                     log('editor', `  → Używam final_price: ${brutto.toFixed(2)} PLN brutto (już z ilością)`);
-                } else if (unitBrutto > 0) {
+                } else if (calculatedBrutto > 0) {
+                    // zapamiętana cena z poprzednich obliczeń
+                    brutto = calculatedBrutto;
+                    netto = calculatedNetto;
+                    log('editor', `  → Używam calculated_price: ${brutto.toFixed(2)} PLN brutto`);
                     // unit_price to cena jednostkowa, trzeba przemnożyć
                     brutto = unitBrutto * quantity;
                     netto = unitNetto * quantity;
@@ -2816,6 +2825,12 @@ function activateProductInEditor(productIndex) {
     // Zachowaj dane aktualnie edytowanego produktu przed zmianą
     saveActiveProductFormData();
 
+    // NOWE: przed zmianą aktywnego produktu zapisz również jego koszty
+    if (previousIndex !== null && currentEditingQuoteData) {
+        updateQuoteSummary();
+    }
+
+
     if (!currentEditingQuoteData) {
         log('editor', '❌ Brak danych wyceny');
         return;
@@ -2862,9 +2877,7 @@ function activateProductInEditor(productIndex) {
     }, 100);
 
     // ✅ DODANE: Zawsze aktualizuj podsumowanie po zmianie aktywnego produktu
-    if (previousIndex !== productIndex) {
-        updateQuoteSummary();
-    }
+    updateQuoteSummary();
 
     log('editor', `✅ Aktywowano produkt: ${productIndex}`);
 }
