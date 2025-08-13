@@ -1976,13 +1976,21 @@ function getSelectedFinishingColor() {
  */
 function clearFinishingSelections() {
     const selectors = [
+        '#edit-finishing-type-group .finishing-btn',
         '#edit-finishing-variant-wrapper .finishing-btn',
-        '#edit-finishing-color-wrapper .color-btn'
+        '#edit-finishing-color-wrapper .color-btn',
+        '#edit-finishing-gloss-wrapper .finishing-btn'
     ];
 
     selectors.forEach(selector => {
         document.querySelectorAll(selector).forEach(btn => btn.classList.remove('active'));
     });
+
+    ['#edit-finishing-variant-wrapper', '#edit-finishing-color-wrapper', '#edit-finishing-gloss-wrapper']
+        .forEach(sel => {
+            const el = document.querySelector(sel);
+            if (el) el.style.display = 'none';
+        });
 
     // ✅ KLUCZOWA POPRAWKA: Agresywnie resetuj koszty wykończenia w mock formularzu
     if (window.activeQuoteForm) {
@@ -2799,7 +2807,6 @@ function activateProductInEditor(productIndex) {
 
     // ✅ DODANE: Zawsze aktualizuj podsumowanie po zmianie aktywnego produktu
     updateQuoteSummary();
-    updateProductsSummaryTotals();
 
     log('editor', `✅ Aktywowano produkt: ${productIndex}`);
 }
@@ -3912,9 +3919,11 @@ function loadFinishingDataToForm(productItem) {
     // ✅ Ukryj sekcje wariantów i kolorów
     const variantWrapper = document.getElementById('edit-finishing-variant-wrapper');
     const colorWrapper = document.getElementById('edit-finishing-color-wrapper');
+    const glossWrapper = document.getElementById('edit-finishing-gloss-wrapper');
 
     if (variantWrapper) variantWrapper.style.display = 'none';
     if (colorWrapper) colorWrapper.style.display = 'none';
+    if (glossWrapper) glossWrapper.style.display = 'none';
 
     // ✅ Jeśli mamy dane wykończenia z bazy, ustaw je w interfejsie
     if (finishingData && finishingData.finishing_type && finishingData.finishing_type !== 'Surowe') {
@@ -4174,9 +4183,11 @@ function onClientTypeChange() {
     // ✅ Wywołaj przeliczenie po krótkiej pauzie
     setTimeout(() => {
         onFormDataChange();
+        updateQuoteSummary();
+        updateProductsSummaryTotals();
     }, 50);
     updateQuoteSummary();
-
+    updateProductsSummaryTotals();
     refreshProductCards();
 }
 
