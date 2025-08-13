@@ -3945,6 +3945,10 @@
     flex: 1;
 }
 
+.product-card-actions {
+    display: flex;
+    gap: 4px;
+}
 /* Główne informacje o produkcie */
 .product-card-main-info {
     font-weight: 500;
@@ -3969,9 +3973,6 @@
 
 /* Przycisk usuwania produktu */
 .remove-product-btn {
-    position: absolute;
-    right: 8px;
-    top: 8px;
     width: 24px;
     height: 24px;
     border: none;
@@ -4822,25 +4823,6 @@
             background: #FFCDD2;
         }
 
-        /* Badge błędu dla niekompletnych produktów */
-        .product-card.error::before {
-            content: "!";
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 16px;
-            height: 16px;
-            background: #F44336;
-            color: white;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            font-weight: bold;
-        }
-
 /* Zawartość karty produktu */
 .product-card-content {
     display: flex;
@@ -4936,3 +4918,32 @@
         border-color: #D45611;
         color: #D45611;
     }
+
+/* Style dla przycisku duplikowania produktu */
+.copy-product-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: #4CAF50;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    z-index: 5;
+    flex-shrink: 0;
+}
+
+    .copy-product-btn:hover {
+        background: #45a049;
+        transform: scale(1.05);
+    }
+
+    .copy-product-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+

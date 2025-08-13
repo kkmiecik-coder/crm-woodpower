@@ -270,6 +270,11 @@ function handleButtonClick(e) {
         return;
     }
 
+    if (target.id === 'edit-add-product-btn') {
+        addNewProductToQuote();
+        return;
+    }
+
     if (target.id === 'close-quote-editor') {
         window.QuoteEditor.close();
         return;
@@ -2748,9 +2753,64 @@ function updateActiveProductTotals() {
 }
 
 /**
+ * Saves current active product form data into currentEditingQuoteData
+ * so switching between products keeps the changes in memory
+ */
+function saveActiveProductFormData() {
+    if (activeProductIndex === null || !currentEditingQuoteData?.items) {
+        return;
+    }
+
+    const length = parseFloat(document.getElementById('edit-length')?.value) || 0;
+    const width = parseFloat(document.getElementById('edit-width')?.value) || 0;
+    const thickness = parseFloat(document.getElementById('edit-thickness')?.value) || 0;
+    const quantity = parseFloat(document.getElementById('edit-quantity')?.value) || 0;
+    const selectedVariant = document.querySelector('input[name="edit-variantOption"]:checked');
+
+    // Finishing selections
+    const finishingType = getSelectedFinishingType();
+    const finishingVariant = getSelectedFinishingVariant();
+    const finishingColor = getSelectedFinishingColor();
+    const finishingGloss = document.querySelector('#edit-finishing-gloss-wrapper .finishing-btn.active')?.dataset.finishingGloss || null;
+
+    currentEditingQuoteData.items
+        .filter(item => item.product_index === activeProductIndex)
+        .forEach(item => {
+            item.length_cm = length;
+            item.width_cm = width;
+            item.thickness_cm = thickness;
+            item.quantity = quantity;
+            if (selectedVariant) item.variant_code = selectedVariant.value;
+
+            item.finishing_type = finishingType;
+            item.finishing_variant = finishingVariant;
+            item.finishing_color = finishingColor;
+            item.finishing_gloss = finishingGloss;
+        });
+
+    // Also store finishing info in dedicated finishing array
+    currentEditingQuoteData.finishing = currentEditingQuoteData.finishing || [];
+    let fin = currentEditingQuoteData.finishing.find(f => f.product_index === activeProductIndex);
+    if (!fin) {
+        fin = { product_index: activeProductIndex };
+        currentEditingQuoteData.finishing.push(fin);
+    }
+    fin.finishing_type = finishingType;
+    fin.finishing_variant = finishingVariant;
+    fin.finishing_color = finishingColor;
+    fin.finishing_gloss = finishingGloss;
+
+    log('editor', `✅ Zapisano dane produktu ${activeProductIndex} w pamięci`);
+}
+
+/**
  * Zoptymalizowana aktywacja produktu
  */
 function activateProductInEditor(productIndex) {
+
+    // Zachowaj dane aktualnie edytowanego produktu przed zmianą
+    saveActiveProductFormData();
+
     if (!currentEditingQuoteData) {
         log('editor', '❌ Brak danych wyceny');
         return;
@@ -3067,6 +3127,9 @@ function resetCalculatorAfterEditor() {
  */
 function saveQuoteChanges() {
     log('editor', 'Zapisywanie zmian w wycenie...');
+
+    // Zachowaj bieżące dane produktu przed zapisem
+    saveActiveProductFormData();
 
     if (!currentEditingQuoteData) {
         alert('Błąd: Brak danych wyceny do zapisu');
@@ -4275,11 +4338,49 @@ function onClientTypeChange() {
 // ==================== PLACEHOLDER FUNCTIONS (TODO) ====================
 
 /**
- * Placeholder functions - to be implemented
+ * Add a new empty product to the quote editor
  */
 function addNewProductToQuote() {
     log('editor', 'Dodawanie nowego produktu...');
-    alert('Funkcja dodawania produktów będzie dostępna wkrótce!');
+
+    if (!currentEditingQuoteData) {
+        log('editor', '❌ Brak danych wyceny');
+        return;
+    }
+
+    // Save current product before creating a new one
+    saveActiveProductFormData();
+
+    const items = currentEditingQuoteData.items || [];
+    const maxIndex = items.length ? Math.max(...items.map(i => i.product_index)) : -1;
+    const newIndex = maxIndex + 1;
+
+    // Create minimal blank item
+    const newItem = {
+        product_index: newIndex,
+        length_cm: 0,
+        width_cm: 0,
+        thickness_cm: 0,
+        quantity: 1,
+        variant_code: null,
+        is_selected: true,
+        final_price_brutto: 0,
+        final_price_netto: 0,
+        calculated_price_brutto: 0,
+        calculated_price_netto: 0,
+        calculated_finishing_brutto: 0,
+        calculated_finishing_netto: 0
+    };
+
+    items.push(newItem);
+
+    // Refresh UI with new product and activate it
+    loadProductsToEditor(currentEditingQuoteData);
+    activateProductInEditor(newIndex);
+    refreshProductCards();
+    updateQuoteSummary();
+
+    log('editor', `✅ Dodano nowy produkt ${newIndex}`);
 }
 
 function removeProductFromQuote(productIndex) {
@@ -4399,6 +4500,10 @@ document.addEventListener('DOMContentLoaded', function () {
 window.QuoteEditor = {
     open: openQuoteEditor,
     close: () => {
+
+        // Zachowaj dane bieżącego produktu przed zamknięciem
+        saveActiveProductFormData();
+
         const modal = document.getElementById('quote-editor-modal');
         if (modal) modal.style.display = 'none';
         resetEditorState();
