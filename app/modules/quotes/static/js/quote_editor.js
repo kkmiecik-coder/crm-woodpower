@@ -213,6 +213,7 @@ function handleSelectChange(e) {
         syncRadioDatasetWithMockForm();
         // Odśwież podsumowanie po synchronizacji
         updateQuoteSummary();
+        updateProductsSummaryTotals();
     }, 100);
 
     refreshProductCards();
@@ -273,6 +274,13 @@ function handleButtonClick(e) {
     const addBtn = target.closest('#edit-add-product-btn');
     if (addBtn) {
         e.stopPropagation();
+        // Zachowaj dane i koszty aktywnego produktu zanim dodamy nowy
+        const activeProductCosts = calculateActiveProductCosts();
+        const activeFinishingCosts = calculateActiveProductFinishingCosts();
+        saveActiveProductFormData();
+        updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts);
+        updateQuoteSummary();
+        updateProductsSummaryTotals();
         // Defer execution to avoid interference with ongoing loops
         setTimeout(() => addNewProductToQuote(), 0);
         return;
@@ -705,6 +713,8 @@ function copyProductInQuote(sourceProductIndex) {
 
     // TODO: Implementacja kopiowania produktu w wycenie
     alert(`Kopiowanie produktu ${sourceProductIndex} będzie dostępne wkrótce!`);
+    updateProductsSummaryTotals();
+    refreshProductCards();
 }
 
 // ==================== OPTIMIZED CALCULATION FUNCTIONS ====================
@@ -719,6 +729,8 @@ function onFormDataChange() {
         log('sync', 'Calculator.js nie gotowy - używam fallback');
         calculateEditorPrices();
         updateQuoteSummary();
+        saveActiveProductFormData();
+        updateProductsSummaryTotals();
         return;
     }
 
@@ -728,6 +740,8 @@ function onFormDataChange() {
             log('calculator', 'Setup calculator.js nie powiódł się - fallback');
             calculateEditorPrices();
             updateQuoteSummary();
+            saveActiveProductFormData();
+            updateProductsSummaryTotals();
             return;
         }
 
@@ -761,6 +775,8 @@ function onFormDataChange() {
         calculateEditorPrices();
         updateQuoteSummary();
     }
+    saveActiveProductFormData();
+    updateProductsSummaryTotals();
 }
 
 /**
@@ -883,7 +899,7 @@ function handleColorButtonClick(button) {
 
     // ✅ DODANE: Zawsze aktualizuj podsumowanie po zmianie koloru
     updateQuoteSummary();
-
+    updateProductsSummaryTotals();
     refreshProductCards();
 }
 
@@ -1296,7 +1312,7 @@ function updateQuoteSummary() {
         updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts);
 
         // ✅ KLUCZOWA POPRAWKA: Oblicz sumę WSZYSTKICH produktów w wycenie (po zapisaniu danych!)
-        const orderTotals = calculateOrderTotals(activeProductCosts, activeFinishingCosts);
+        const orderTotals = calculateOrderTotals();
         const shippingCosts = getShippingCosts();
 
         // ✅ Finalna suma = wszystkie produkty + wszystkie wykończenia + dostawa
@@ -1677,9 +1693,9 @@ function calculateActiveProductFinishingCosts() {
 
 /**
  * Oblicza łączny koszt wszystkich produktów w wycenie
- * (surowe + wykończenie dla każdego produktu)
+ * wykorzystując dane zapisane w currentEditingQuoteData.items
  */
-function calculateOrderTotals(activeProductCosts, activeFinishingCosts) {
+function calculateOrderTotals() {
     const totals = {
         products: { brutto: 0, netto: 0 },
         finishing: { brutto: 0, netto: 0 }
@@ -1687,115 +1703,20 @@ function calculateOrderTotals(activeProductCosts, activeFinishingCosts) {
 
     log('editor', '=== OBLICZANIE CAŁKOWITEJ SUMY ZAMÓWIENIA ===');
 
-    // 1. Sumuj wszystkie produkty surowe
     if (currentEditingQuoteData?.items) {
         currentEditingQuoteData.items.forEach(item => {
             if (!item.is_selected) return;
 
-            let brutto, netto;
+            const productBrutto = parseFloat(item.calculated_price_brutto ?? item.final_price_brutto ?? 0);
+            const productNetto = parseFloat(item.calculated_price_netto ?? item.final_price_netto ?? 0);
+            const finishingBrutto = parseFloat(item.calculated_finishing_brutto ?? 0);
+            const finishingNetto = parseFloat(item.calculated_finishing_netto ?? 0);
 
-            // POPRAWKA: Sprawdź czy to aktywny produkt, który właśnie edytujemy
-            if (item.product_index === activeProductIndex) {
-                // Użyj aktualnych kosztów z formularza (aktywnego produktu)
-                brutto = activeProductCosts.brutto;
-                netto = activeProductCosts.netto;
-                log('editor', `Produkt ${item.product_index} (AKTYWNY): ${brutto.toFixed(2)} PLN brutto`);
-            } else {
-                // NOWA LOGIKA: Sprawdź czy final_price jest już przemnożone przez ilość
-                const quantity = item.quantity || 1;
-
-                // Opcja 1: final_price (prawdopodobnie już przemnożone przez ilość)
-                const finalBrutto = parseFloat(item.final_price_brutto || 0);
-                const finalNetto = parseFloat(item.final_price_netto || 0);
-
-                // Opcja 2: zapamiętane obliczenia (calculated_price)
-                const calculatedBrutto = parseFloat(item.calculated_price_brutto || 0);
-                const calculatedNetto = parseFloat(item.calculated_price_netto || 0);
-
-                // Opcja 3: unit_price (cena jednostkowa)
-                const unitBrutto = parseFloat(item.unit_price_brutto || 0);
-                const unitNetto = parseFloat(item.unit_price_netto || 0);
-
-                // Opcja 4: price (może być jednostkowa lub całkowita)
-                const priceBrutto = parseFloat(item.price_brutto || 0);
-                const priceNetto = parseFloat(item.price_netto || 0);
-
-                // DEBUG: Pokaż wszystkie dostępne wartości
-                log('editor', `DEBUG Produkt ${item.product_index} (ilość: ${quantity}):`);
-                log('editor', `  - final_price_brutto: ${finalBrutto}`);
-                log('editor', `  - calculated_price_brutto: ${calculatedBrutto}`);
-                log('editor', `  - unit_price_brutto: ${unitBrutto}`);
-                log('editor', `  - price_brutto: ${priceBrutto}`);
-
-                // LOGIKA WYBORU: Użyj final_price jeśli dostępne, potem calculated_price, inaczej oblicz z unit_price
-                if (finalBrutto > 0) {
-                    // final_price jest prawdopodobnie już przemnożone przez ilość
-                    brutto = finalBrutto;
-                    netto = finalNetto;
-                    log('editor', `  → Używam final_price: ${brutto.toFixed(2)} PLN brutto (już z ilością)`);
-                } else if (calculatedBrutto > 0) {
-                    // zapamiętana cena z poprzednich obliczeń
-                    brutto = calculatedBrutto;
-                    netto = calculatedNetto;
-                    log('editor', `  → Używam calculated_price: ${brutto.toFixed(2)} PLN brutto`);
-                    // unit_price to cena jednostkowa, trzeba przemnożyć
-                    brutto = unitBrutto * quantity;
-                    netto = unitNetto * quantity;
-                    log('editor', `  → Używam unit_price * ilość: ${brutto.toFixed(2)} PLN brutto`);
-                } else if (priceBrutto > 0) {
-                    // price - nie wiadomo czy jednostkowa czy całkowita, sprawdźmy proporcje
-                    const pricePerUnit = priceBrutto / quantity;
-                    log('editor', `  → price per unit: ${pricePerUnit.toFixed(2)} PLN`);
-
-                    // Heurystyka: jeśli cena za sztukę wydaje się rozsądna (>10 PLN), użyj price * quantity
-                    // Jeśli bardzo mała lub bardzo duża, prawdopodobnie price jest już całkowite
-                    if (pricePerUnit >= 10 && pricePerUnit <= 10000) {
-                        brutto = priceBrutto * quantity;
-                        netto = priceNetto * quantity;
-                        log('editor', `  → Używam price * ilość: ${brutto.toFixed(2)} PLN brutto`);
-                    } else {
-                        brutto = priceBrutto;
-                        netto = priceNetto;
-                        log('editor', `  → Używam price bezpośrednio: ${brutto.toFixed(2)} PLN brutto`);
-                    }
-                } else {
-                    brutto = 0;
-                    netto = 0;
-                    log('editor', `  → Brak ceny dla produktu ${item.product_index}`);
-                }
-
-                log('editor', `Produkt ${item.product_index} (z bazy): ${brutto.toFixed(2)} PLN brutto`);
-            }
-
-            totals.products.brutto += brutto;
-            totals.products.netto += netto;
+            totals.products.brutto += productBrutto;
+            totals.products.netto += productNetto;
+            totals.finishing.brutto += finishingBrutto;
+            totals.finishing.netto += finishingNetto;
         });
-    }
-
-    // 2. Sumuj wykończenie (bez zmian)
-    if (currentEditingQuoteData?.finishing) {
-        currentEditingQuoteData.finishing.forEach(f => {
-            let brutto, netto;
-
-            if (f.product_index === activeProductIndex) {
-                brutto = activeFinishingCosts.brutto;
-                netto = activeFinishingCosts.netto;
-                log('finishing', `Wykończenie produktu ${f.product_index} (AKTYWNE): ${brutto.toFixed(2)} PLN brutto`);
-            } else {
-                brutto = parseFloat(f.finishing_price_brutto || 0);
-                netto = parseFloat(f.finishing_price_netto || 0);
-                log('finishing', `Wykończenie produktu ${f.product_index} (z bazy): ${brutto.toFixed(2)} PLN brutto`);
-            }
-
-            totals.finishing.brutto += brutto;
-            totals.finishing.netto += netto;
-        });
-    } else {
-        if (activeFinishingCosts.brutto > 0 || activeFinishingCosts.netto > 0) {
-            totals.finishing.brutto += activeFinishingCosts.brutto;
-            totals.finishing.netto += activeFinishingCosts.netto;
-            log('finishing', `Wykończenie aktywnego produktu (brak w bazie): ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
-        }
     }
 
     log('editor', '🏁 SUMA CAŁKOWITA:', {
@@ -2828,8 +2749,8 @@ function activateProductInEditor(productIndex) {
     // NOWE: przed zmianą aktywnego produktu zapisz również jego koszty
     if (previousIndex !== null && currentEditingQuoteData) {
         updateQuoteSummary();
+        updateProductsSummaryTotals();
     }
-
 
     if (!currentEditingQuoteData) {
         log('editor', '❌ Brak danych wyceny');
@@ -2878,6 +2799,7 @@ function activateProductInEditor(productIndex) {
 
     // ✅ DODANE: Zawsze aktualizuj podsumowanie po zmianie aktywnego produktu
     updateQuoteSummary();
+    updateProductsSummaryTotals();
 
     log('editor', `✅ Aktywowano produkt: ${productIndex}`);
 }
@@ -3821,21 +3743,8 @@ function calculateProductWeightFromItem(item) {
 function updateProductsSummaryTotals() {
     if (!currentEditingQuoteData) return;
 
-    // Oblicz totale
-    const fromCards = calculateTotalVolumeAndWeightFromProductCards();
-    const fromQuote = calculateTotalVolumeAndWeightFromQuoteFixed(currentEditingQuoteData);
-
-    console.log('=== PORÓWNANIE METOD OBLICZANIA ===');
-    console.log('Z kart produktów:', fromCards);
-    console.log('Z danych wyceny:', fromQuote);
-
-    const productCards = document.querySelectorAll('.product-card');
-    const useCardsMethod = productCards.length > 0;
-
-    const { totalVolume, totalWeight } = useCardsMethod ? fromCards : fromQuote;
-
-    console.log(`Używam metody: ${useCardsMethod ? 'karty produktów' : 'dane z wyceny'}`);
-    console.log(`Wynik: ${totalVolume} m³, ${totalWeight} kg`);
+    const { totalVolume, totalWeight } =
+        calculateTotalVolumeAndWeightFromQuoteFixed(currentEditingQuoteData);
 
     // POPRAWKA: Znajdź główną sekcję produktów, nie kontener scroll
     const mainSection = document.querySelector('.edit-products-summary-main');
@@ -3869,57 +3778,7 @@ function updateProductsSummaryTotals() {
     log('editor', `Zaktualizowano podsumowanie (poza scrollem): ${formatVolumeDisplay(totalVolume)} | ${formatWeightDisplay(totalWeight)}`);
 }
 
-/**
- * POPRAWIONA funkcja dla modułu quotes - skopiowana z calculator.js
- * Oblicza łączną objętość i wagę wszystkich produktów w wycenie
- */
-function calculateTotalVolumeAndWeightFromProductCards() {
-    console.log('[calculateTotalVolumeAndWeightFromProductCards] Obliczanie z kart produktów...');
-
-    let totalVolume = 0;
-    let totalWeight = 0;
-
-    // Pobierz wszystkie karty produktów
-    const productCards = document.querySelectorAll('.product-card');
-
-    productCards.forEach((card, index) => {
-        const subInfo = card.querySelector('.product-card-sub-info');
-        if (subInfo) {
-            const subText = subInfo.textContent; // np. "0.028 m³ | 22.4 kg"
-
-            // Wyciągnij objętość (przed "m³")
-            const volumeMatch = subText.match(/(\d+\.?\d*)\s*m³/);
-            if (volumeMatch) {
-                const volume = parseFloat(volumeMatch[1]);
-                totalVolume += volume;
-                console.log(`  Produkt ${index + 1}: ${volume} m³`);
-            }
-
-            // Wyciągnij wagę (przed "kg" lub "t")
-            const weightMatch = subText.match(/(\d+\.?\d*)\s*(kg|t)/);
-            if (weightMatch) {
-                let weight = parseFloat(weightMatch[1]);
-                // Jeśli w tonach, przelicz na kg
-                if (weightMatch[2] === 't') {
-                    weight = weight * 1000;
-                }
-                totalWeight += weight;
-                console.log(`  Produkt ${index + 1}: ${weight} kg`);
-            }
-        }
-    });
-
-    console.log(`[calculateTotalVolumeAndWeightFromProductCards] SUMA: ${totalVolume.toFixed(3)} m³, ${totalWeight.toFixed(1)} kg`);
-
-    return {
-        totalVolume: Math.round(totalVolume * 1000) / 1000, // Zaokrągl do 3 miejsc po przecinku
-        totalWeight: Math.round(totalWeight * 10) / 10      // Zaokrągl do 1 miejsca po przecinku
-    };
-}
-
 function calculateTotalVolumeAndWeightFromQuoteFixed(quoteData) {
-    console.log('[calculateTotalVolumeAndWeightFromQuoteFixed] Obliczanie z danych wyceny...');
-
     if (!quoteData?.items?.length) {
         return { totalVolume: 0, totalWeight: 0 };
     }
@@ -3927,68 +3786,30 @@ function calculateTotalVolumeAndWeightFromQuoteFixed(quoteData) {
     let totalVolume = 0;
     let totalWeight = 0;
 
-    // POPRAWKA: Iteruj tylko przez wybrane pozycje (is_selected = true)
-    const selectedItems = quoteData.items.filter(item => item.is_selected === true);
-    console.log(`[calculateTotalVolumeAndWeightFromQuoteFixed] Przetwarzam ${selectedItems.length} wybranych pozycji z ${quoteData.items.length} wszystkich`);
+    quoteData.items.forEach(item => {
+        if (item.is_selected !== true) return;
+        if (!checkProductCompletenessForQuote(item)) return;
 
-    selectedItems.forEach((item, index) => {
-        console.log(`\n--- Obliczenia dla produktu ${index + 1} (product_index: ${item.product_index}) ---`);
+        const length = parseFloat(item.length_cm);
+        const width = parseFloat(item.width_cm);
+        const thickness = parseFloat(item.thickness_cm);
+        const quantity = parseFloat(item.quantity);
 
-        // Sprawdź czy produkt jest kompletny
-        const isComplete = checkProductCompletenessForQuote(item);
-        console.log(`Kompletny: ${isComplete}`);
-
-        if (isComplete) {
-            // POPRAWKA: Dla aktywnego produktu użyj danych z formularza
-            let length, width, thickness, quantity;
-
-            const isActiveProduct = parseInt(item.product_index) === activeProductIndex;
-
-            if (isActiveProduct) {
-                // Pobierz aktualne dane z formularza
-                length = parseFloat(document.getElementById('edit-length')?.value) || item.length_cm;
-                width = parseFloat(document.getElementById('edit-width')?.value) || item.width_cm;
-                thickness = parseFloat(document.getElementById('edit-thickness')?.value) || item.thickness_cm;
-                quantity = parseInt(document.getElementById('edit-quantity')?.value) || item.quantity;
-                console.log(`Aktywny produkt - dane z formularza: ${length}×${width}×${thickness} cm, ${quantity} szt.`);
-            } else {
-                // Dla nieaktywnych - dane z bazy
-                length = item.length_cm;
-                width = item.width_cm;
-                thickness = item.thickness_cm;
-                quantity = item.quantity;
-                console.log(`Nieaktywny produkt - dane z bazy: ${length}×${width}×${thickness} cm, ${quantity} szt.`);
-            }
-
-            // POPRAWKA: Prawidłowe obliczenie objętości
-            if (length > 0 && width > 0 && thickness > 0 && quantity > 0) {
-                // Oblicz objętość POJEDYNCZEGO elementu w m³
-                const singleVolumeM3 = (length / 100) * (width / 100) * (thickness / 100);
-                // Pomnóż przez ilość
-                const itemTotalVolume = singleVolumeM3 * quantity;
-
-                // POPRAWKA: Prawidłowe obliczenie wagi (gęstość drewna 800 kg/m³)
-                const itemTotalWeight = itemTotalVolume * 800;
-
-                console.log(`Objętość 1 szt: ${singleVolumeM3.toFixed(6)} m³`);
-                console.log(`Objętość ${quantity} szt: ${itemTotalVolume.toFixed(6)} m³`);
-                console.log(`Waga ${quantity} szt: ${itemTotalWeight.toFixed(1)} kg`);
-
-                totalVolume += itemTotalVolume;
-                totalWeight += itemTotalWeight;
-            } else {
-                console.log('Błędne wymiary - pomijam produkt');
-            }
-        } else {
-            console.log('Produkt niekompletny - pomijam');
+        if ([length, width, thickness, quantity].some(v => isNaN(v) || v <= 0)) {
+            return;
         }
+
+        const singleVolumeM3 = (length / 100) * (width / 100) * (thickness / 100);
+        const itemTotalVolume = singleVolumeM3 * quantity;
+        const itemTotalWeight = itemTotalVolume * 800; // gęstość drewna 800 kg/m³
+
+        totalVolume += itemTotalVolume;
+        totalWeight += itemTotalWeight;
     });
 
-    console.log(`\n[calculateTotalVolumeAndWeightFromQuoteFixed] SUMA KOŃCOWA: ${totalVolume.toFixed(3)} m³, ${totalWeight.toFixed(1)} kg`);
-
     return {
-        totalVolume: Math.round(totalVolume * 1000) / 1000, // Zaokrągl do 3 miejsc po przecinku
-        totalWeight: Math.round(totalWeight * 10) / 10      // Zaokrągl do 1 miejsca po przecinku
+        totalVolume: Math.round(totalVolume * 1000) / 1000,
+        totalWeight: Math.round(totalWeight * 10) / 10
     };
 }
 
@@ -4374,6 +4195,9 @@ function addNewProductToQuote() {
 
     // Save current product before creating a new one
     saveActiveProductFormData();
+    // Przelicz koszty i podsumowanie zanim przełączymy produkt
+    updateQuoteSummary();
+    updateProductsSummaryTotals();
 
     const items = currentEditingQuoteData.items || [];
     const maxIndex = items.length ? Math.max(...items.map(i => i.product_index)) : -1;
@@ -4403,6 +4227,7 @@ function addNewProductToQuote() {
     activateProductInEditor(newIndex);
     refreshProductCards();
     updateQuoteSummary();
+    updateProductsSummaryTotals();
 
     log('editor', `✅ Dodano nowy produkt ${newIndex}`);
 }
@@ -4413,6 +4238,7 @@ function removeProductFromQuote(productIndex) {
     if (!confirm('Czy na pewno chcesz usunąć ten produkt?')) return;
 
     alert(`Usuwanie produktu ${productIndex} będzie dostępne wkrótce!`);
+    updateProductsSummaryTotals();
 }
 
 // ==================== ERROR HANDLING ====================
