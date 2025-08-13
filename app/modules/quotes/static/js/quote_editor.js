@@ -1311,14 +1311,14 @@ function updateQuoteSummary() {
         // ✅ KLUCZOWA POPRAWKA: Zapisz aktualne koszty aktywnego produktu do danych wyceny
         updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts);
 
-        // ✅ KLUCZOWA POPRAWKA: Oblicz sumę WSZYSTKICH produktów w wycenie (po zapisaniu danych!)
+        // ✅ KLUCZOWA POPRAWKA: Oblicz sumę WSZYSTKICH produktów w wycenie (z wykończeniem)
         const orderTotals = calculateOrderTotals();
         const shippingCosts = getShippingCosts();
 
-        // ✅ Finalna suma = wszystkie produkty + wszystkie wykończenia + dostawa
+        // ✅ Finalna suma = wszystkie produkty (z wykończeniem) + dostawa
         const finalOrderTotal = {
-            brutto: orderTotals.products.brutto + orderTotals.finishing.brutto + shippingCosts.brutto,
-            netto: orderTotals.products.netto + orderTotals.finishing.netto + shippingCosts.netto
+            brutto: orderTotals.products.brutto + shippingCosts.brutto,
+            netto: orderTotals.products.netto + shippingCosts.netto
         };
 
         // ✅ Aktualizacja UI - pokaż koszty aktywnego produktu + sumę całego zamówienia
@@ -1340,7 +1340,6 @@ function updateQuoteSummary() {
             },
             całe_zamówienie: {
                 wszystkie_produkty: orderTotals.products,
-                wszystkie_wykończenia: orderTotals.finishing,
                 dostawa: shippingCosts,
                 suma_końcowa: finalOrderTotal
             }
@@ -1384,7 +1383,7 @@ function updateSummaryElementsFixed(activeProductCosts, activeFinishingCosts, ac
         { selector: '.edit-delivery-brutto', value: shippingCosts.brutto },
         { selector: '.edit-delivery-netto', value: shippingCosts.netto, suffix: ' netto' },
 
-        // ✅ POPRAWKA: Suma zamówienia = WSZYSTKIE produkty + dostawa (używamy orderTotals + shippingCosts)
+        // ✅ POPRAWKA: Suma zamówienia = WSZYSTKIE produkty (z wykończeniem) + dostawa (używamy orderTotals + shippingCosts)
         { selector: '.edit-final-brutto', value: finalOrderTotal.brutto },
         { selector: '.edit-final-netto', value: finalOrderTotal.netto, suffix: ' netto' }
     ];
@@ -1709,20 +1708,44 @@ function calculateOrderTotals() {
 
             const productBrutto = parseFloat(item.calculated_price_brutto ?? item.final_price_brutto ?? 0);
             const productNetto = parseFloat(item.calculated_price_netto ?? item.final_price_netto ?? 0);
-            const finishingBrutto = parseFloat(item.calculated_finishing_brutto ?? 0);
-            const finishingNetto = parseFloat(item.calculated_finishing_netto ?? 0);
 
-            totals.products.brutto += productBrutto;
-            totals.products.netto += productNetto;
+            // Pobierz koszt wykończenia z wielu możliwych źródeł
+            let finishingBrutto = parseFloat(
+                item.calculated_finishing_brutto ??
+                item.finishing_price_brutto ??
+                0
+            );
+            let finishingNetto = parseFloat(
+                item.calculated_finishing_netto ??
+                item.finishing_price_netto ??
+                0
+            );
+
+            // Jeśli koszt wykończenia nie został zapisany w item, sprawdź tabelę finishing
+            if ((finishingBrutto === 0 && finishingNetto === 0) && currentEditingQuoteData?.finishing) {
+                const finishingItem = currentEditingQuoteData.finishing.find(f => f.product_index === item.product_index);
+                if (finishingItem) {
+                    finishingBrutto = parseFloat(finishingItem.finishing_price_brutto || 0);
+                    finishingNetto = parseFloat(finishingItem.finishing_price_netto || 0);
+                }
+            }
+
+            const totalBrutto = productBrutto + finishingBrutto;
+            const totalNetto = productNetto + finishingNetto;
+
+            // Do sumy zamówienia dodajemy pełny koszt produktu (surowe + wykończenie)
+            totals.products.brutto += totalBrutto;
+            totals.products.netto += totalNetto;
+
+            // Zachowaj osobne sumy wykończeń do ewentualnego debugowania
             totals.finishing.brutto += finishingBrutto;
             totals.finishing.netto += finishingNetto;
         });
     }
 
     log('editor', '🏁 SUMA CAŁKOWITA:', {
-        produkty: `${totals.products.brutto.toFixed(2)} PLN brutto, ${totals.products.netto.toFixed(2)} PLN netto`,
-        wykończenie: `${totals.finishing.brutto.toFixed(2)} PLN brutto, ${totals.finishing.netto.toFixed(2)} PLN netto`,
-        razem: `${(totals.products.brutto + totals.finishing.brutto).toFixed(2)} PLN brutto`
+        produkty_z_wykończeniem: `${totals.products.brutto.toFixed(2)} PLN brutto, ${totals.products.netto.toFixed(2)} PLN netto`,
+        wykończenie: `${totals.finishing.brutto.toFixed(2)} PLN brutto, ${totals.finishing.netto.toFixed(2)} PLN netto`
     });
 
     return totals;
@@ -2777,7 +2800,12 @@ function activateProductInEditor(productIndex) {
     if (window.activeQuoteForm?.dataset) {
         window.activeQuoteForm.dataset.orderBrutto = '0';
         window.activeQuoteForm.dataset.orderNetto = '0';
+        window.activeQuoteForm.dataset.finishingBrutto = '0';
+        window.activeQuoteForm.dataset.finishingNetto = '0';
     }
+
+    // Usuń zapisane wyniki poprzedniego produktu
+    window.currentActiveProductData = {};
 
     // ✅ KLUCZOWA POPRAWKA: Zachowaj aktualną grupę cenową
     const currentClientType = document.getElementById('edit-clientType')?.value;
