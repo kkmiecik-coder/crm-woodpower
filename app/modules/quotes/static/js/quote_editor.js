@@ -2749,12 +2749,23 @@ function saveActiveProductFormData() {
             item.thickness_cm = thickness;
             item.quantity = quantity;
             if (selectedVariant) item.variant_code = selectedVariant.value;
-
             item.finishing_type = finishingType;
             item.finishing_variant = finishingVariant;
             item.finishing_color = finishingColor;
             item.finishing_gloss = finishingGloss;
         });
+
+    const availabilityCheckboxes = document.querySelectorAll('.variant-availability-checkbox');
+    availabilityCheckboxes.forEach(cb => {
+        const variant = cb.dataset.variant;
+        const item = currentEditingQuoteData.items.find(
+            i => i.product_index === activeProductIndex && i.variant_code === variant
+        );
+        if (item) {
+            // Store availability as numeric flag to match backend data format
+            item.show_on_client_page = cb.checked ? 1 : 0;
+        }
+    });
 
     // Also store finishing info in dedicated finishing array
     currentEditingQuoteData.finishing = currentEditingQuoteData.finishing || [];
@@ -2831,6 +2842,9 @@ function activateProductInEditor(productIndex) {
     if (currentEditingQuoteData) {
         setSelectedVariantForActiveProduct(productIndex);
     }
+
+    // Ustaw dostępność wariantów dla aktywnego produktu
+    applyVariantAvailabilityFromQuoteData(currentEditingQuoteData, productIndex);
 
     // ✅ POPRAWKA: Wymuś przeliczenie po aktywacji produktu
     setTimeout(() => {
@@ -4121,7 +4135,7 @@ function performInitialCalculations(quoteData) {
     // Batch initial operations
     const operations = [
         () => triggerSyntheticRecalc(),
-        () => applyHiddenVariantsFromQuoteData(quoteData),
+        () => applyVariantAvailabilityFromQuoteData(quoteData, activeProductIndex),
         () => initializeSummaryUpdates()
     ];
 
@@ -4150,32 +4164,20 @@ function triggerSyntheticRecalc() {
         }
     }
 }
+function applyVariantAvailabilityFromQuoteData(quoteData, productIndex) {
+    const pIndex = productIndex ?? activeProductIndex;
+    if (!quoteData?.items || pIndex === null || pIndex === undefined) return;
 
-function applyHiddenVariantsFromQuoteData(quoteData) {
-    if (!quoteData?.products) return;
+    const productItems = quoteData.items.filter(item => item.product_index === pIndex);
+    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
 
-    quoteData.products.forEach(prod => {
-        if (!Array.isArray(prod.variants)) return;
-
-        prod.variants.forEach(variant => {
-            const code = variant.code || variant.variant_code;
-            if (!code) return;
-
-            const selectors = [
-                `.variant-availability-checkbox[data-variant="${code}"][data-product-index="${prod.index}"]`,
-                `.variant-availability-checkbox[data-variant="${code}"]`
-            ];
-
-            for (const selector of selectors) {
-                const checkbox = document.querySelector(selector);
-                if (checkbox) {
-                    const isHidden = variant.hidden === true || variant.show_on_client_page === false;
-                    checkbox.checked = !isHidden;
-                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-                    break;
-                }
-            }
-        });
+    checkboxes.forEach(checkbox => {
+        const variant = checkbox.dataset.variant;
+        const item = productItems.find(i => i.variant_code === variant);
+        const raw = item ? item.show_on_client_page : undefined;
+        const isVisible = raw === undefined ? true : (raw === 1 || raw === '1' || raw === true);
+        checkbox.checked = isVisible;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     });
 }
 
@@ -4242,28 +4244,41 @@ function addNewProductToQuote() {
     updateQuoteSummary();
     updateProductsSummaryTotals();
 
-    const items = currentEditingQuoteData.items || [];
+    currentEditingQuoteData.items = currentEditingQuoteData.items || [];
+    const items = currentEditingQuoteData.items;
     const maxIndex = items.length ? Math.max(...items.map(i => i.product_index)) : -1;
     const newIndex = maxIndex + 1;
 
-    // Create minimal blank item
-    const newItem = {
-        product_index: newIndex,
-        length_cm: 0,
-        width_cm: 0,
-        thickness_cm: 0,
-        quantity: 1,
-        variant_code: null,
-        is_selected: true,
-        final_price_brutto: 0,
-        final_price_netto: 0,
-        calculated_price_brutto: 0,
-        calculated_price_netto: 0,
-        calculated_finishing_brutto: 0,
-        calculated_finishing_netto: 0
-    };
+    const variantCodes = [
+        'dab-lity-ab',
+        'dab-lity-bb',
+        'dab-micro-ab',
+        'dab-micro-bb',
+        'jes-lity-ab',
+        'jes-micro-ab',
+        'buk-lity-ab',
+        'buk-micro-ab'
+    ];
 
-    items.push(newItem);
+    variantCodes.forEach(code => {
+        items.push({
+            product_index: newIndex,
+            length_cm: 0,
+            width_cm: 0,
+            thickness_cm: 0,
+            quantity: 1,
+            variant_code: code,
+            is_selected: code === 'dab-lity-ab',
+            // Default availability: hide specific variants on client page
+            show_on_client_page: code === 'buk-micro-ab' || code === 'jes-micro-ab' ? 0 : 1,
+            final_price_brutto: 0,
+            final_price_netto: 0,
+            calculated_price_brutto: 0,
+            calculated_price_netto: 0,
+            calculated_finishing_brutto: 0,
+            calculated_finishing_netto: 0
+        });
+    });
 
     // Ensure finishing array has placeholder for this product
     currentEditingQuoteData.finishing = currentEditingQuoteData.finishing || [];
