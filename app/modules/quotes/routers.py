@@ -503,10 +503,9 @@ def get_users():
 @quotes_bp.route("/api/quotes/<int:quote_id>")
 @login_required
 def get_quote_details(quote_id):
-    print(f"[get_quote_details] Pobieranie szczegółów dla wyceny ID {quote_id}", file=sys.stderr)
-
+    print(f"[get_quote_details] Pobieranie szczegółów wyceny {quote_id}", file=sys.stderr)
     try:
-        # POPRAWKA: Usuń joinedload(Quote.items) bo lazy='dynamic' nie obsługuje eager loading
+        # Pobierz wycenę z relacjami
         quote = db.session.query(Quote)\
             .options(
                 joinedload(Quote.client),
@@ -524,6 +523,18 @@ def get_quote_details(quote_id):
 
         # POPRAWKA: Pobierz items osobno (ponieważ lazy='dynamic')
         quote_items = quote.items.all()  # .all() na dynamic relationship
+        
+        # DEBUGOWANIE: Sprawdź co mamy w bazie danych
+        print(f"[get_quote_details] DEBUG: Znaleziono {len(quote_items)} pozycji w wycenie {quote_id}", file=sys.stderr)
+        for i, item in enumerate(quote_items):
+            print(f"[get_quote_details] DEBUG: Pozycja {i}: id={item.id}, variant_code='{item.variant_code}', product_index={item.product_index}, show_on_client_page={item.show_on_client_page}", file=sys.stderr)
+        
+        # DEBUGOWANIE: Sprawdź to_dict() dla każdej pozycji
+        items_data = []
+        for i, item in enumerate(quote_items):
+            item_dict = item.to_dict()
+            print(f"[get_quote_details] DEBUG: to_dict() pozycji {i}: variant_code='{item_dict.get('variant_code')}', id={item_dict.get('id')}", file=sys.stderr)
+            items_data.append(item_dict)
 
         selected_items = [item for item in quote_items if item.is_selected]
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
@@ -542,6 +553,12 @@ def get_quote_details(quote_id):
             accepted_by_user = quote.accepted_by_user
 
         print(f"[get_quote_details] Wycena {quote.quote_number}, user akceptujący: {accepted_by_user.first_name if accepted_by_user else 'brak'}", file=sys.stderr)
+
+        # DEBUGOWANIE: Sprawdź końcowy JSON
+        final_json_items = [item.to_dict() for item in quote_items]
+        print(f"[get_quote_details] DEBUG: Końcowy JSON zawiera {len(final_json_items)} pozycji", file=sys.stderr)
+        for i, item_json in enumerate(final_json_items):
+            print(f"[get_quote_details] DEBUG: JSON pozycja {i}: variant_code='{item_json.get('variant_code')}', id={item_json.get('id')}", file=sys.stderr)
 
         return jsonify({
             "id": quote.id,

@@ -34,17 +34,54 @@ function log(category, message, data = null) {
 
 // ==================== GŁÓWNE FUNKCJE EDYTORA ====================
 
+function debugIncomingQuoteData(quoteData, context = 'unknown') {
+    console.log(`=== DEBUG INCOMING DATA (${context}) ===`);
+    console.log('Quote ID:', quoteData?.id);
+    console.log('Wszystkich pozycji:', quoteData?.items?.length || 0);
+
+    if (quoteData?.items) {
+        console.log('=== ANALIZA POZYCJI ===');
+        quoteData.items.forEach((item, index) => {
+            console.log(`Pozycja ${index}:`, {
+                id: item.id,
+                variant_code: item.variant_code,
+                product_index: item.product_index,
+                show_on_client_page: item.show_on_client_page,
+                is_selected: item.is_selected
+            });
+        });
+
+        console.log('=== UNIKALNE VARIANT_CODE ===');
+        const uniqueVariants = [...new Set(quoteData.items.map(item => item.variant_code))];
+        console.log('Unikalne warianty:', uniqueVariants);
+        console.log('Liczba unikalnych wariantów:', uniqueVariants.length);
+    }
+
+    console.log('=== KONIEC DEBUG DATA ===');
+}
+
 /**
  * Główna funkcja otwierania edytora - zoptymalizowana
  */
 async function openQuoteEditor(quoteData) {
     log('editor', '===== OTWIERANIE EDYTORA WYCENY =====');
 
+    // DEBUGOWANIE: Sprawdź dane wejściowe
+    debugIncomingQuoteData(quoteData, 'openQuoteEditor - wejście');
+
     // Walidacja wstępna
     if (!validateQuoteData(quoteData)) return;
 
+    // DEBUGOWANIE: Sprawdź czy dane nie są modyfikowane po walidacji
+    debugIncomingQuoteData(quoteData, 'openQuoteEditor - po walidacji');
+
     // Przygotowanie środowiska
     currentEditingQuoteData = quoteData;
+
+    // DEBUGOWANIE: Sprawdź currentEditingQuoteData po przypisaniu
+    console.log('=== DEBUG currentEditingQuoteData PO PRZYPISANIU ===');
+    debugIncomingQuoteData(currentEditingQuoteData, 'currentEditingQuoteData - po przypisaniu');
+
     const modal = initializeModal();
     if (!modal) return;
 
@@ -61,8 +98,17 @@ async function openQuoteEditor(quoteData) {
 
         await initializeFinishingPrices();
 
+        // DEBUGOWANIE: Sprawdź dane przed loadQuoteDataToEditor
+        console.log('=== DEBUG PRZED loadQuoteDataToEditor ===');
+        debugIncomingQuoteData(currentEditingQuoteData, 'przed loadQuoteDataToEditor');
+
         // Synchroniczne operacje po załadowaniu danych
         loadQuoteDataToEditor(quoteData);
+
+        // DEBUGOWANIE: Sprawdź dane po loadQuoteDataToEditor
+        console.log('=== DEBUG PO loadQuoteDataToEditor ===');
+        debugIncomingQuoteData(currentEditingQuoteData, 'po loadQuoteDataToEditor');
+
         initializeEventListeners();
 
         // Finalizacja
@@ -2741,6 +2787,7 @@ function saveActiveProductFormData() {
     const finishingColor = getSelectedFinishingColor();
     const finishingGloss = document.querySelector('#edit-finishing-gloss-wrapper .finishing-btn.active')?.dataset.finishingGloss || null;
 
+    // POPRAWKA: Zaktualizuj tylko wymiary, ilość i wykończenie (NIE variant_code!)
     currentEditingQuoteData.items
         .filter(item => item.product_index === activeProductIndex)
         .forEach(item => {
@@ -2748,13 +2795,38 @@ function saveActiveProductFormData() {
             item.width_cm = width;
             item.thickness_cm = thickness;
             item.quantity = quantity;
-            if (selectedVariant) item.variant_code = selectedVariant.value;
+            // USUNIĘTE: item.variant_code = selectedVariant.value; <- TO BYŁO PROBLEMEM!
             item.finishing_type = finishingType;
             item.finishing_variant = finishingVariant;
             item.finishing_color = finishingColor;
             item.finishing_gloss = finishingGloss;
         });
 
+    // POPRAWKA: Zaktualizuj is_selected tylko dla wybranego wariantu
+    if (selectedVariant) {
+        const selectedVariantCode = selectedVariant.value;
+
+        // Odznacz wszystkie warianty dla tego produktu
+        currentEditingQuoteData.items
+            .filter(item => item.product_index === activeProductIndex)
+            .forEach(item => {
+                item.is_selected = false;
+            });
+
+        // Zaznacz tylko wybrany wariant
+        const selectedItem = currentEditingQuoteData.items.find(
+            item => item.product_index === activeProductIndex && item.variant_code === selectedVariantCode
+        );
+
+        if (selectedItem) {
+            selectedItem.is_selected = true;
+            log('sync', `✅ Ustawiono jako wybrany wariant: ${selectedVariantCode} (id: ${selectedItem.id})`);
+        } else {
+            log('sync', `⚠️ Nie znaleziono pozycji dla wybranego wariantu: ${selectedVariantCode}`);
+        }
+    }
+
+    // Synchronizacja dostępności wariantów (bez zmian)
     const availabilityCheckboxes = document.querySelectorAll('.variant-availability-checkbox');
     availabilityCheckboxes.forEach(cb => {
         const variant = cb.dataset.variant;
@@ -2762,24 +2834,14 @@ function saveActiveProductFormData() {
             i => i.product_index === activeProductIndex && i.variant_code === variant
         );
         if (item) {
-            // Store availability as numeric flag to match backend data format
+            // Zapisuj jako liczbę, aby była zgodność z bazą danych
             item.show_on_client_page = cb.checked ? 1 : 0;
+
+            log('sync', `Zapisano dostępność wariantu ${variant}: ${cb.checked ? '1 (widoczny)' : '0 (niewidoczny)'}`);
         }
     });
 
-    // Also store finishing info in dedicated finishing array
-    currentEditingQuoteData.finishing = currentEditingQuoteData.finishing || [];
-    let fin = currentEditingQuoteData.finishing.find(f => f.product_index === activeProductIndex);
-    if (!fin) {
-        fin = { product_index: activeProductIndex };
-        currentEditingQuoteData.finishing.push(fin);
-    }
-    fin.finishing_type = finishingType;
-    fin.finishing_variant = finishingVariant;
-    fin.finishing_color = finishingColor;
-    fin.finishing_gloss = finishingGloss;
-
-    log('editor', `✅ Zapisano dane produktu ${activeProductIndex} w pamięci`);
+    log('sync', '✅ Zapisano dane aktywnego produktu (bez nadpisywania variant_code)');
 }
 
 /**
@@ -4166,19 +4228,67 @@ function triggerSyntheticRecalc() {
 }
 function applyVariantAvailabilityFromQuoteData(quoteData, productIndex) {
     const pIndex = productIndex ?? activeProductIndex;
-    if (!quoteData?.items || pIndex === null || pIndex === undefined) return;
+    if (!quoteData?.items || pIndex === null || pIndex === undefined) {
+        log('sync', '❌ Brak danych do synchronizacji checkboxów');
+        return;
+    }
 
     const productItems = quoteData.items.filter(item => item.product_index === pIndex);
     const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
 
+    log('sync', `Synchronizuję checkboxy dla produktu ${pIndex}, znalezionych pozycji: ${productItems.length}`);
+
+    // POPRAWKA: Utwórz mapę dostępności wariantów - weź ostatnią wartość dla każdego wariantu
+    const variantAvailabilityMap = new Map();
+
+    productItems.forEach(item => {
+        if (item.variant_code) {
+            const rawValue = item.show_on_client_page;
+            let isVisible;
+
+            if (rawValue === null || rawValue === undefined) {
+                isVisible = true; // Domyślnie widoczny
+            } else if (typeof rawValue === 'boolean') {
+                isVisible = rawValue;
+            } else if (typeof rawValue === 'number') {
+                isVisible = rawValue === 1; // 1 = widoczny, 0 = niewidoczny
+            } else if (typeof rawValue === 'string') {
+                isVisible = rawValue === '1' || rawValue.toLowerCase() === 'true';
+            } else {
+                isVisible = true; // Domyślnie widoczny
+            }
+
+            // Zapisz w mapie (nadpisuje poprzednie wartości dla tego samego wariantu)
+            variantAvailabilityMap.set(item.variant_code, isVisible);
+
+            log('sync', `Mapowanie wariantu ${item.variant_code}: raw=${rawValue} (${typeof rawValue}) → visible=${isVisible}`);
+        }
+    });
+
+    // Zastosuj stany checkboxów na podstawie mapy
     checkboxes.forEach(checkbox => {
         const variant = checkbox.dataset.variant;
-        const item = productItems.find(i => i.variant_code === variant);
-        const raw = item ? item.show_on_client_page : undefined;
-        const isVisible = raw === undefined ? true : (raw === 1 || raw === '1' || raw === true);
+
+        let isVisible;
+        if (variantAvailabilityMap.has(variant)) {
+            // Wariant znaleziony w danych wyceny
+            isVisible = variantAvailabilityMap.get(variant);
+            log('sync', `Wariant ${variant}: znaleziono w mapie → visible=${isVisible}`);
+        } else {
+            // Wariant nie znaleziony w danych - domyślnie widoczny
+            isVisible = true;
+            log('sync', `Wariant ${variant}: brak w bazie danych → domyślnie widoczny`);
+        }
+
+        // Ustaw stan checkboxa
         checkbox.checked = isVisible;
+
+        // Wymuś event change dla aktualizacji interfejsu
         checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     });
+
+    log('sync', `✅ Zakończono synchronizację checkboxów dla produktu ${pIndex}`);
+    log('sync', `Mapa dostępności:`, Array.from(variantAvailabilityMap.entries()));
 }
 
 /**
@@ -4444,3 +4554,151 @@ window.QuoteEditor = {
 // Override attachFinishingUIListeners z calculator.js
 window.originalAttachFinishingUIListeners = window.attachFinishingUIListeners;
 window.attachFinishingUIListeners = safeAttachFinishingUIListeners;
+
+
+/**
+ * DODAJ TĘ FUNKCJĘ DEBUGOWANIA - sprawdzenie danych wyceny
+ * Lokalizacja: dodaj gdziekolwiek w pliku quote_editor.js
+ * 
+ * Uruchom tę funkcję w konsoli przeglądarki, gdy edytor jest otwarty:
+ * debugQuoteItemsData()
+ */
+function debugQuoteItemsData() {
+    console.log('=== DEBUGGING QUOTE ITEMS DATA ===');
+
+    if (!currentEditingQuoteData) {
+        console.log('❌ Brak currentEditingQuoteData');
+        return;
+    }
+
+    console.log('Quote ID:', currentEditingQuoteData.id);
+    console.log('Aktywny produkt:', activeProductIndex);
+    console.log('Wszystkich pozycji w wycenie:', currentEditingQuoteData.items?.length || 0);
+
+    if (currentEditingQuoteData.items) {
+        console.log('\n=== WSZYSTKIE POZYCJE W WYCENIE ===');
+        currentEditingQuoteData.items.forEach((item, index) => {
+            console.log(`Pozycja ${index}:`, {
+                id: item.id,
+                product_index: item.product_index,
+                variant_code: item.variant_code,
+                show_on_client_page: item.show_on_client_page,
+                show_on_client_page_type: typeof item.show_on_client_page,
+                is_selected: item.is_selected
+            });
+        });
+
+        console.log('\n=== POZYCJE DLA AKTYWNEGO PRODUKTU ===');
+        const activeProductItems = currentEditingQuoteData.items.filter(item => item.product_index === activeProductIndex);
+        console.log(`Znalezionych pozycji dla produktu ${activeProductIndex}:`, activeProductItems.length);
+
+        activeProductItems.forEach((item, index) => {
+            console.log(`Aktywny produkt - pozycja ${index}:`, {
+                id: item.id,
+                variant_code: item.variant_code,
+                show_on_client_page: item.show_on_client_page,
+                show_on_client_page_type: typeof item.show_on_client_page
+            });
+        });
+
+        console.log('\n=== ANALIZA NIEWIDOCZNYCH WARIANTÓW ===');
+        const hiddenVariants = currentEditingQuoteData.items.filter(item => {
+            return item.show_on_client_page === 0 ||
+                item.show_on_client_page === '0' ||
+                item.show_on_client_page === false;
+        });
+
+        console.log('Niewidoczne warianty w bazie:', hiddenVariants.map(item => ({
+            product_index: item.product_index,
+            variant_code: item.variant_code,
+            show_on_client_page: item.show_on_client_page
+        })));
+    }
+
+    console.log('\n=== STANY CHECKBOXÓW W INTERFEJSIE ===');
+    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+    checkboxes.forEach(checkbox => {
+        console.log(`Checkbox ${checkbox.dataset.variant}:`, {
+            checked: checkbox.checked,
+            dataset_variant: checkbox.dataset.variant
+        });
+    });
+
+    console.log('=== KONIEC DEBUGOWANIA ===');
+}
+
+/**
+ * DODAJ TEŻ TĄ FUNKCJĘ - sprawdzenie czy warianty są w odpowiednich pozycjach
+ * Uruchom w konsoli: checkVariantMapping()
+ */
+function checkVariantMapping() {
+    console.log('=== SPRAWDZENIE MAPOWANIA WARIANTÓW ===');
+
+    const expectedVariants = ['dab-lity-ab', 'dab-lity-bb', 'dab-micro-ab', 'dab-micro-bb',
+        'jes-lity-ab', 'jes-micro-ab', 'buk-lity-ab', 'buk-micro-ab'];
+
+    expectedVariants.forEach(variantCode => {
+        const checkbox = document.querySelector(`#quote-editor-modal .variant-availability-checkbox[data-variant="${variantCode}"]`);
+        const itemInData = currentEditingQuoteData?.items?.find(item =>
+            item.product_index === activeProductIndex && item.variant_code === variantCode
+        );
+
+        console.log(`Wariant ${variantCode}:`, {
+            hasCheckbox: !!checkbox,
+            checkboxChecked: checkbox?.checked,
+            hasItemInData: !!itemInData,
+            itemShowOnClientPage: itemInData?.show_on_client_page,
+            itemId: itemInData?.id
+        });
+    });
+}
+
+function debugCheckboxStates(context = 'debug') {
+    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+
+    log('debug', `=== STANY CHECKBOXÓW (${context}) ===`);
+    checkboxes.forEach(checkbox => {
+        const variant = checkbox.dataset.variant;
+        const isChecked = checkbox.checked;
+        log('debug', `Checkbox ${variant}: ${isChecked ? 'ZAZNACZONY' : 'ODZNACZONY'}`);
+    });
+    log('debug', '=== KONIEC DEBUGOWANIA CHECKBOXÓW ===');
+}
+
+/**
+ * DODAJ TĄ NOWĄ FUNKCJĘ - Wymusza pełną synchronizację checkboxów dla aktywnego produktu
+ * Lokalizacja: dodaj gdziekolwiek w pliku quote_editor.js
+ */
+function forceSyncCheckboxesForActiveProduct() {
+    if (!currentEditingQuoteData || activeProductIndex === null) {
+        log('sync', '❌ Nie można wymusić synchronizacji - brak danych lub aktywnego produktu');
+        return;
+    }
+
+    log('sync', `Wymuszam synchronizację checkboxów dla produktu ${activeProductIndex}`);
+    applyVariantAvailabilityFromQuoteData(currentEditingQuoteData, activeProductIndex);
+}
+
+/**
+* DODAJ TĄ FUNKCJĘ DEBUGOWANIA
+* Sprawdź co dzieje się w loadQuoteDataToEditor
+*/
+function debugLoadQuoteDataToEditor(quoteData, context = 'loadQuoteDataToEditor') {
+    console.log(`=== DEBUG ${context} ===`);
+    console.log('Input quoteData:', quoteData);
+    console.log('currentEditingQuoteData przed zmianami:', currentEditingQuoteData);
+
+    if (quoteData?.items) {
+        console.log('Items w input data:');
+        quoteData.items.forEach((item, i) => {
+            console.log(`  ${i}: id=${item.id}, variant_code='${item.variant_code}'`);
+        });
+    }
+
+    if (currentEditingQuoteData?.items) {
+        console.log('Items w currentEditingQuoteData:');
+        currentEditingQuoteData.items.forEach((item, i) => {
+            console.log(`  ${i}: id=${item.id}, variant_code='${item.variant_code}'`);
+        });
+    }
+}
