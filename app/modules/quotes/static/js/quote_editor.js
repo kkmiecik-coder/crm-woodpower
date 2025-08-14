@@ -15,8 +15,8 @@ let calculatorInitialized = false;
 // Optimized logging - centralized debug control
 const DEBUG_LOGS = {
     editor: true,
-    calculator: true,
-    finishing: true,
+    calculator: false,
+    finishing: false,
     sync: true
 };
 
@@ -531,8 +531,17 @@ function loadQuoteDataToEditor(quoteData) {
     loadProductsToEditor(quoteData);
     loadCostsToSummary(quoteData);
 
-    // KLUCZOWE DODANIE: Ustaw wybrane warianty z wyceny
+    // ✅ POPRAWKA: Najpierw synchronizuj checkboxy dostępności
+    if (activeProductIndex !== null) {
+        applyVariantAvailabilityFromQuoteData(quoteData, activeProductIndex);
+        log('editor', 'Zsynchronizowano checkboxy dostępności dla aktywnego produktu');
+    }
+
+    // ✅ POPRAWKA: Następnie ustaw wybrane warianty
     setSelectedVariantsByQuote(quoteData);
+
+    // Zainicjalizuj event listenery dla checkboxów
+    initializeVariantAvailabilityListeners();
 
     log('editor', '✅ Dane wyceny załadowane do edytora');
 }
@@ -1460,98 +1469,6 @@ function formatPLN(value) {
 }
 
 /**
- * DEBUGOWANIE - funkcja do sprawdzania danych produktów
- */
-function debugProductPrices() {
-    console.log('=== DEBUG CEN PRODUKTÓW ===');
-
-    if (!currentEditingQuoteData?.items) {
-        console.log('Brak produktów w danych wyceny');
-        return;
-    }
-
-    console.log('Produkty w wycenie:');
-    currentEditingQuoteData.items.forEach(item => {
-        console.log(`Produkt ${item.product_index}:`, {
-            is_selected: item.is_selected,
-            quantity: item.quantity,
-            // Ceny jednostkowe
-            unit_price_netto: item.unit_price_netto,
-            unit_price_brutto: item.unit_price_brutto,
-            price_netto: item.price_netto,
-            price_brutto: item.price_brutto,
-            // Ceny całkowite
-            final_price_netto: item.final_price_netto,
-            final_price_brutto: item.final_price_brutto
-        });
-    });
-
-    if (currentEditingQuoteData.finishing) {
-        console.log('Wykończenia w wycenie:');
-        currentEditingQuoteData.finishing.forEach(finishing => {
-            console.log(`Wykończenie produktu ${finishing.product_index}:`, {
-                finishing_price_netto: finishing.finishing_price_netto,
-                finishing_price_brutto: finishing.finishing_price_brutto,
-                quantity: finishing.quantity
-            });
-        });
-    }
-}
-
-/**
- * Zoptymalizowane obliczanie kosztów produktów
- */
-function calculateProductsCosts() {
-    log('editor', '=== OBLICZANIE KOSZTÓW WSZYSTKICH PRODUKTÓW ===');
-
-    try {
-        // OPCJA 1: Sprawdź aktualnie wybrany radio button w edytorze
-        const selectedRadio = document.querySelector('input[name="edit-variantOption"]:checked');
-        if (selectedRadio && selectedRadio.dataset) {
-            const radioBrutto = parseFloat(selectedRadio.dataset.orderBrutto) || 0;
-            const radioNetto = parseFloat(selectedRadio.dataset.orderNetto) || 0;
-
-            if (radioBrutto > 0 || radioNetto > 0) {
-                log('editor', `Produkt 1: używam radio button = ${radioBrutto.toFixed(2)} PLN brutto, ${radioNetto.toFixed(2)} PLN netto`);
-                return { brutto: radioBrutto, netto: radioNetto };
-            }
-        }
-
-        // OPCJA 2: Sprawdź dataset z activeQuoteForm (calculator)
-        if (window.activeQuoteForm?.dataset) {
-            const formBrutto = parseFloat(window.activeQuoteForm.dataset.orderBrutto) || 0;
-            const formNetto = parseFloat(window.activeQuoteForm.dataset.orderNetto) || 0;
-
-            if (formBrutto > 0 || formNetto > 0) {
-                log('editor', `Produkt 1: używam activeQuoteForm = ${formBrutto.toFixed(2)} PLN brutto, ${formNetto.toFixed(2)} PLN netto`);
-                return { brutto: formBrutto, netto: formNetto };
-            }
-        }
-
-        // OPCJA 3: Fallback - sprawdź oryginalny dataset z aktualnie wybranego wariantu
-        if (currentEditingQuoteData?.items?.length > 0) {
-            const selectedItem = currentEditingQuoteData.items.find(item => item.is_selected);
-            if (selectedItem) {
-                const quantity = selectedItem.quantity || 1;
-                const brutto = (selectedItem.final_price_brutto || selectedItem.unit_price_brutto || 0) * quantity;
-                const netto = (selectedItem.final_price_netto || selectedItem.unit_price_netto || 0) * quantity;
-
-                log('editor', `Produkt 1: używam fallback = ${brutto.toFixed(2)} PLN brutto, ${netto.toFixed(2)} PLN netto`);
-                return { brutto, netto };
-            }
-        }
-
-        // OPCJA 4: Ostateczny fallback
-        log('editor', 'Produkt 1: używam final_price = 0.00 PLN (brak danych)');
-        return { brutto: 0, netto: 0 };
-
-    } catch (error) {
-        console.error('[QUOTE EDITOR] ❌ Błąd obliczania kosztów produktów:', error);
-        return { brutto: 0, netto: 0 };
-    }
-}
-
-/**
  * DODATKOWA FUNKCJA: Synchronizacja dataset radio button z mock form
  * Ta funkcja powinna być wywoływana po każdej zmianie wariantu
  */
@@ -1568,62 +1485,6 @@ function syncRadioDatasetWithMockForm() {
         log('sync', `   - Brutto: ${selectedRadio.dataset.orderBrutto} PLN`);
         log('sync', `   - Netto: ${selectedRadio.dataset.orderNetto} PLN`);
     }
-}
-
-/**
- * POPRAWIONE obliczanie kosztów wykończenia z prawidłową geometrią
- * Uwzględnia: wymiary w cm → powierzchnia w m² → koszt z bazy danych
- */
-function calculateFinishingCosts() {
-    // Priorytet: dane z calculator.js
-    if (window.activeQuoteForm?.dataset) {
-        const finishingBrutto = parseFloat(window.activeQuoteForm.dataset.finishingBrutto) || 0;
-        const finishingNetto = parseFloat(window.activeQuoteForm.dataset.finishingNetto) || 0;
-
-        if (finishingBrutto > 0 || finishingNetto > 0) {
-            log('finishing', `Koszty z calculator: ${finishingBrutto} PLN brutto`);
-            return { brutto: finishingBrutto, netto: finishingNetto };
-        }
-    }
-
-    // Fallback calculation z poprawnymi obliczeniami
-    const finishingType = getSelectedFinishingType();
-    const finishingVariant = getSelectedFinishingVariant();
-
-    log('finishing', `Obliczam fallback: typ=${finishingType}, wariant=${finishingVariant}`);
-
-    if (finishingType === 'Surowe') {
-        log('finishing', 'Surowe wykończenie - koszt 0');
-        return { brutto: 0, netto: 0 };
-    }
-
-    const dimensions = getCurrentDimensions();
-    if (!dimensions.isValid) {
-        log('finishing', 'Nieprawidłowe wymiary - koszt 0');
-        return { brutto: 0, netto: 0 };
-    }
-
-    // ✅ POPRAWKA: Prawidłowe przeliczenie cm→m (podziel przez 100, nie 1000!)
-    const lengthM = dimensions.length / 100;
-    const widthM = dimensions.width / 100;
-    const thicknessM = dimensions.thickness / 100;
-
-    // Wzór na powierzchnię prostopadłościanu: 2(lw + lh + wh)
-    const surfaceAreaM2 = 2 * (lengthM * widthM + lengthM * thicknessM + widthM * thicknessM) * dimensions.quantity;
-
-    const finishingPrice = getFinishingPrice(finishingType, finishingVariant);
-
-    if (finishingPrice > 0) {
-        const netto = surfaceAreaM2 * finishingPrice;
-        const brutto = netto * 1.23;
-
-        log('finishing', `Obliczono fallback POPRAWNIE: ${brutto.toFixed(2)} PLN brutto (${surfaceAreaM2.toFixed(4)} m² × ${finishingPrice} PLN/m²)`);
-
-        return { brutto, netto };
-    }
-
-    log('finishing', 'Brak ceny wykończenia - koszt 0');
-    return { brutto: 0, netto: 0 };
 }
 
 /**
@@ -1870,75 +1731,6 @@ function updateActiveProductCostsInData(activeProductCosts, activeFinishingCosts
     } else {
         log('editor', `⚠️ Nie znaleziono aktywnego produktu ${activeProductIndex} do aktualizacji kosztów`);
     }
-}
-function calculateAllProductsFinishingCosts() {
-    const finishingTotals = { brutto: 0, netto: 0 };
-
-    if (!currentEditingQuoteData?.items) {
-        return finishingTotals;
-    }
-
-    currentEditingQuoteData.items.forEach(item => {
-        if (!item.is_selected) return;
-
-        // ✅ Dla aktywnego produktu użyj najnowszych obliczeń
-        if (item.product_index === activeProductIndex) {
-            const activeFinishingCosts = calculateActiveProductFinishingCosts();
-            finishingTotals.brutto += activeFinishingCosts.brutto;
-            finishingTotals.netto += activeFinishingCosts.netto;
-
-            log('editor', `Wykończenie produktu ${item.product_index} (aktywny): ${activeFinishingCosts.brutto.toFixed(2)} PLN brutto`);
-        } else {
-            // ✅ Dla innych produktów użyj zachowanych kosztów
-            const savedBrutto = parseFloat(item.calculated_finishing_brutto || item.finishing_price_brutto || 0);
-            const savedNetto = parseFloat(item.calculated_finishing_netto || item.finishing_price_netto || 0);
-
-            finishingTotals.brutto += savedBrutto;
-            finishingTotals.netto += savedNetto;
-
-            log('editor', `Wykończenie produktu ${item.product_index} (zachowane): ${savedBrutto.toFixed(2)} PLN brutto`);
-        }
-    });
-
-    log('editor', `✅ Łączne wykończenie wszystkich produktów: ${finishingTotals.brutto.toFixed(2)} PLN brutto`);
-    return finishingTotals;
-}
-
-
-/**
- * Pobiera cenę wykończenia z bazy danych (załadowanej do window.finishingPrices)
- */
-function getFinishingPriceFromDatabase(finishingType, finishingVariant) {
-    if (!window.finishingPrices) {
-        console.warn('[QUOTE EDITOR] Brak załadowanych cen wykończenia');
-        return 0;
-    }
-
-    let priceKey = '';
-
-    // Mapowanie typów i wariantów na klucze w bazie danych
-    if (finishingType === 'Surowe') {
-        priceKey = 'Surowe';
-    } else if (finishingType === 'Lakierowanie') {
-        if (finishingVariant === 'Bezbarwne') {
-            priceKey = 'Lakierowane bezbarwne';
-        } else if (finishingVariant === 'Barwne') {
-            priceKey = 'Lakierowane barwne';
-        }
-    } else if (finishingType === 'Olejowanie') {
-        priceKey = 'Olejowanie';
-    }
-
-    const price = window.finishingPrices[priceKey] || 0;
-
-    log('finishing', 'Pobieranie ceny z bazy:', {
-        finishingType,
-        finishingVariant,
-        priceKey,
-        price
-    });
-
-    return price;
 }
 
 /**
@@ -2194,34 +1986,6 @@ function loadScript(src) {
     });
 }
 
-// ==================== BATCH DOM OPERATIONS ====================
-
-/**
- * Batch update summary display - zoptymalizowane
- */
-function updateSummaryDisplay(productsCosts, finishingCosts, shippingCosts, totalCosts) {
-    const summaryUpdates = [
-        { selector: '.edit-order-brutto', value: productsCosts.brutto },
-        { selector: '.edit-order-netto', value: productsCosts.netto, suffix: ' netto' },
-        { selector: '.edit-finishing-brutto', value: finishingCosts.brutto },
-        { selector: '.edit-finishing-netto', value: finishingCosts.netto, suffix: ' netto' },
-        { selector: '.edit-delivery-brutto', value: shippingCosts.brutto },
-        { selector: '.edit-delivery-netto', value: shippingCosts.netto, suffix: ' netto' },
-        { selector: '.edit-final-brutto', value: totalCosts.brutto },
-        { selector: '.edit-final-netto', value: totalCosts.netto, suffix: ' netto' }
-    ];
-
-    // Single DOM update cycle
-    requestAnimationFrame(() => {
-        summaryUpdates.forEach(({ selector, value, suffix = '' }) => {
-            const element = document.querySelector(selector);
-            if (element) {
-                element.textContent = `${value.toFixed(2)} PLN${suffix}`;
-            }
-        });
-    });
-}
-
 // ==================== VARIANT MANAGEMENT ====================
 
 /**
@@ -2409,22 +2173,6 @@ function copySelectedVariantDataset() {
 
         log('sync', `✅ Skopiowano dataset wariantu: ${selectedEditorRadio.value}`);
     }
-}
-
-function copySummaryData() {
-    const summaryMappings = [
-        { dataset: 'orderBrutto', elementId: 'edit-summary-brutto' },
-        { dataset: 'orderNetto', elementId: 'edit-summary-netto' }
-    ];
-
-    summaryMappings.forEach(({ dataset, elementId }) => {
-        if (window.activeQuoteForm.dataset[dataset]) {
-            const element = document.getElementById(elementId);
-            if (element) {
-                element.textContent = window.activeQuoteForm.dataset[dataset];
-            }
-        }
-    });
 }
 
 // ==================== OPTIMIZED VALIDATION ====================
@@ -2982,7 +2730,7 @@ function setSelectedVariantsByQuote(quoteData) {
     const selectedVariantsByProduct = new Map();
 
     quoteData.items.forEach(item => {
-        if (item.is_selected && item.variant_code) {
+        if (isVariantSelected(item) && item.variant_code) {
             selectedVariantsByProduct.set(item.product_index, item.variant_code);
             log('editor', `Produkt ${item.product_index}: wybrany wariant ${item.variant_code}`);
         }
@@ -2997,6 +2745,14 @@ function setSelectedVariantsByQuote(quoteData) {
 
     // Ustaw warianty w interfejsie edytora
     setVariantsInEditor(selectedVariantsByProduct);
+}
+
+/**
+ * ✅ NOWA FUNKCJA POMOCNICZA - Sprawdza czy wariant jest wybrany
+ */
+function isVariantSelected(item) {
+    const value = item.is_selected;
+    return value === true || value === 1 || value === '1' || value === 'true';
 }
 
 /**
@@ -3140,7 +2896,7 @@ function setupModalCloseHandlers() {
 
     const closeModal = () => {
         modal.style.display = 'none';
-        resetEditorState();
+        resetEditorState(); // ✅ Używaj resetEditorState zamiast clearEditorData
     };
 
     // Attach close handlers
@@ -3148,9 +2904,40 @@ function setupModalCloseHandlers() {
         const element = document.querySelector(selector);
         if (element) element.onclick = closeModal;
     });
+
+    // ✅ DODAJ: Pełne czyszczenie tylko przy rzeczywistym opuszczeniu strony
+    window.addEventListener('beforeunload', clearEditorData);
 }
 
+/**
+ * ✅ POPRAWIONA FUNKCJA - Reset stanu edytora z zachowaniem danych
+ */
 function resetEditorState() {
+    log('editor', 'Reset stanu edytora...');
+
+    // ✅ POPRAWKA: NIE resetuj currentEditingQuoteData od razu
+    // Zostaw dane dostępne do następnego otwarcia
+
+    // Reset tylko aktywnego produktu
+    activeProductIndex = null;
+
+    // Reset kalkulatora
+    resetCalculatorAfterEditor();
+
+    // ✅ POPRAWKA: Usuń event listenery
+    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.removeEventListener('change', handleVariantAvailabilityChange);
+    });
+
+    log('editor', '✅ Stan edytora zresetowany (dane zachowane)');
+}
+
+/**
+ * ✅ NOWA FUNKCJA - Pełne czyszczenie danych edytora (tylko przy rzeczywistym zamknięciu)
+ */
+function clearEditorData() {
+    log('editor', 'Pełne czyszczenie danych edytora...');
     currentEditingQuoteData = null;
     activeProductIndex = null;
     resetCalculatorAfterEditor();
@@ -3498,41 +3285,6 @@ function getEditorPrice(species, technology, wood_class, thickness, length) {
 }
 
 /**
- * Zoptymalizowana funkcja getFinishingPrice
- */
-function getFinishingPrice(finishingType, finishingVariant) {
-    // Spróbuj użyć globalnych cen
-    if (window.finishingPrices) {
-        if (finishingType === 'Lakierowanie' && finishingVariant === 'Bezbarwne') {
-            return window.finishingPrices['Lakierowane bezbarwne'] || 200;
-        } else if (finishingType === 'Lakierowanie' && finishingVariant === 'Barwne') {
-            return window.finishingPrices['Lakierowane barwne'] || 250;
-        } else if (finishingType === 'Olejowanie') {
-            return window.finishingPrices['Olejowanie'] || 250;
-        }
-    }
-
-    // Fallback prices
-    const defaultPrices = {
-        'Lakierowanie': {
-            'Bezbarwne': 200,
-            'Barwne': 250
-        },
-        'Olejowanie': 250
-    };
-
-    if (finishingType === 'Olejowanie') {
-        return defaultPrices.Olejowanie;
-    }
-
-    if (finishingType === 'Lakierowanie' && finishingVariant) {
-        return defaultPrices.Lakierowanie[finishingVariant] || 0;
-    }
-
-    return 0;
-}
-
-/**
  * POPRAWIONA FUNKCJA - syncFinishingStateToMockForm
  * Zastąp obecną funkcję syncFinishingStateToMockForm tym kodem
  */
@@ -3846,23 +3598,6 @@ function calculateProductVolumeFromItem(item) {
     const totalVolumeM3 = singleVolumeM3 * quantity;
 
     return totalVolumeM3;
-}
-
-/**
- * NOWA funkcja - oblicza wagę produktu na podstawie objętości
- */
-function calculateProductWeightFromItem(item) {
-    const volume = item.volume_m3 || calculateProductVolumeFromItem(item);
-
-    if (!volume || volume <= 0) {
-        return 0;
-    }
-
-    // Gęstość drewna: 800 kg/m³ (tak samo jak w calculator.js)
-    const WOOD_DENSITY = 800; // kg/m³
-    const weight = volume * WOOD_DENSITY;
-
-    return weight;
 }
 
 /**
@@ -4182,25 +3917,7 @@ function showVariantErrors(errorMessage) {
     });
 }
 
-// ==================== BACKUP AND RESTORE FUNCTIONS ====================
 
-/**
- * Backup original calculator state
- */
-function backupOriginalCalculatorState() {
-    const backups = [
-        { original: 'quoteFormsContainer', backup: 'originalQuoteFormsContainer' },
-        { original: 'activeQuoteForm', backup: 'originalActiveQuoteForm' },
-        { original: 'updatePrices', backup: 'originalUpdatePrices' },
-        { original: 'updateVariantAvailability', backup: 'originalUpdateVariantAvailability' }
-    ];
-
-    backups.forEach(({ original, backup }) => {
-        if (window[original] && !window[backup]) {
-            window[backup] = window[original];
-        }
-    });
-}
 
 // ==================== INITIALIZATION AND CLEANUP ====================
 
@@ -4343,7 +4060,114 @@ function applyVariantAvailabilityFromQuoteData(quoteData, productIndex) {
         }
     });
 
-    log('sync', '✅ Zakończono pełną synchronizację dla produktu ' + productIndex);
+    // ✅ DODAJ: Aktualizuj dostępność radio buttonów na podstawie checkboxów
+    syncRadioButtonAvailability();
+
+    // ✅ DODAJ: Wymuś przeliczenie cen po synchronizacji
+    setTimeout(() => {
+        if (typeof onFormDataChange === 'function') {
+            onFormDataChange();
+        }
+    }, 100);
+
+    log('sync', '✅ Synchronizacja checkboxów i radio buttonów zakończona');
+}
+
+/**
+ * ✅ NOWA FUNKCJA - Inicjalizuje event listenery dla checkboxów dostępności
+ */
+function initializeVariantAvailabilityListeners() {
+    // Usuń poprzednie listenery aby uniknąć duplikacji
+    const existingCheckboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+    existingCheckboxes.forEach(checkbox => {
+        checkbox.removeEventListener('change', handleVariantAvailabilityChange);
+    });
+
+    // Dodaj nowe listenery
+    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', handleVariantAvailabilityChange);
+    });
+
+    log('sync', `✅ Zainicjalizowano ${checkboxes.length} event listenerów dla checkboxów`);
+}
+
+/**
+ * ✅ NOWA FUNKCJA - Obsługuje zmianę stanu checkboxa dostępności
+ */
+function handleVariantAvailabilityChange(event) {
+    const checkbox = event.target;
+    const variantCode = checkbox.dataset.variant;
+    const isChecked = checkbox.checked;
+
+    log('sync', `Ręczna zmiana checkboxa ${variantCode}: ${isChecked ? 'zaznaczony' : 'odznaczony'}`);
+
+    // Znajdź odpowiedni radio button i kontener wariantu
+    const radioButton = document.querySelector(`input[name="edit-variantOption"][value="${variantCode}"]`);
+    const variantOption = radioButton?.closest('.variant-option');
+
+    if (radioButton && variantOption) {
+        // Ustaw dostępność radio buttona
+        radioButton.disabled = !isChecked;
+
+        // Dodaj/usuń klasę CSS
+        if (isChecked) {
+            variantOption.classList.remove('unavailable');
+            log('sync', `✅ Aktywowano wariant ${variantCode}`);
+        } else {
+            variantOption.classList.add('unavailable');
+
+            // Jeśli niedostępny wariant był zaznaczony, odznacz go i wybierz inny
+            if (radioButton.checked) {
+                radioButton.checked = false;
+                variantOption.classList.remove('selected');
+                selectFirstAvailableVariant();
+                log('sync', `⚠️ Odznaczono wybrany wariant ${variantCode} - wybrano pierwszy dostępny`);
+            }
+            log('sync', `❌ Dezaktywowano wariant ${variantCode}`);
+        }
+
+        // Wymuś przeliczenie po zmianie
+        setTimeout(() => {
+            if (typeof onFormDataChange === 'function') {
+                onFormDataChange();
+            }
+        }, 100);
+    }
+}
+
+/**
+ * ✅ NOWA FUNKCJA - Synchronizuje dostępność radio buttonów na podstawie stanu checkboxów
+ */
+function syncRadioButtonAvailability() {
+    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+
+    checkboxes.forEach(checkbox => {
+        const variantCode = checkbox.dataset.variant;
+        const radioButton = document.querySelector(`input[name="edit-variantOption"][value="${variantCode}"]`);
+        const variantOption = radioButton?.closest('.variant-option');
+
+        if (radioButton && variantOption) {
+            const isAvailable = checkbox.checked;
+
+            // Ustaw dostępność radio buttona
+            radioButton.disabled = !isAvailable;
+
+            // Dodaj/usuń klasę CSS
+            if (isAvailable) {
+                variantOption.classList.remove('unavailable');
+            } else {
+                variantOption.classList.add('unavailable');
+                // Jeśli niedostępny wariant był zaznaczony, odznacz go
+                if (radioButton.checked) {
+                    radioButton.checked = false;
+                    selectFirstAvailableVariant();
+                }
+            }
+
+            log('sync', `Radio button ${variantCode}: ${isAvailable ? 'dostępny' : 'niedostępny'}`);
+        }
+    });
 }
 
 /**
@@ -4541,25 +4365,6 @@ function callUpdatePricesSecurely() {
     }
 }
 
-function fixPriceIndexAccess() {
-    if (typeof priceIndex !== 'undefined' && priceIndex && Object.keys(priceIndex).length > 0) {
-        window.priceIndex = priceIndex;
-        return true;
-    }
-
-    if (window.pricesFromDatabase?.length) {
-        window.priceIndex = window.pricesFromDatabase.reduce((index, entry) => {
-            const key = `${entry.species}::${entry.technology}::${entry.wood_class}`;
-            if (!index[key]) index[key] = [];
-            index[key].push(entry);
-            return index;
-        }, {});
-        return true;
-    }
-
-    return false;
-}
-
 // ==================== INITIALIZATION ====================
 
 /**
@@ -4609,151 +4414,3 @@ window.QuoteEditor = {
 // Override attachFinishingUIListeners z calculator.js
 window.originalAttachFinishingUIListeners = window.attachFinishingUIListeners;
 window.attachFinishingUIListeners = safeAttachFinishingUIListeners;
-
-
-/**
- * DODAJ TĘ FUNKCJĘ DEBUGOWANIA - sprawdzenie danych wyceny
- * Lokalizacja: dodaj gdziekolwiek w pliku quote_editor.js
- * 
- * Uruchom tę funkcję w konsoli przeglądarki, gdy edytor jest otwarty:
- * debugQuoteItemsData()
- */
-function debugQuoteItemsData() {
-    console.log('=== DEBUGGING QUOTE ITEMS DATA ===');
-
-    if (!currentEditingQuoteData) {
-        console.log('❌ Brak currentEditingQuoteData');
-        return;
-    }
-
-    console.log('Quote ID:', currentEditingQuoteData.id);
-    console.log('Aktywny produkt:', activeProductIndex);
-    console.log('Wszystkich pozycji w wycenie:', currentEditingQuoteData.items?.length || 0);
-
-    if (currentEditingQuoteData.items) {
-        console.log('\n=== WSZYSTKIE POZYCJE W WYCENIE ===');
-        currentEditingQuoteData.items.forEach((item, index) => {
-            console.log(`Pozycja ${index}:`, {
-                id: item.id,
-                product_index: item.product_index,
-                variant_code: item.variant_code,
-                show_on_client_page: item.show_on_client_page,
-                show_on_client_page_type: typeof item.show_on_client_page,
-                is_selected: item.is_selected
-            });
-        });
-
-        console.log('\n=== POZYCJE DLA AKTYWNEGO PRODUKTU ===');
-        const activeProductItems = currentEditingQuoteData.items.filter(item => item.product_index === activeProductIndex);
-        console.log(`Znalezionych pozycji dla produktu ${activeProductIndex}:`, activeProductItems.length);
-
-        activeProductItems.forEach((item, index) => {
-            console.log(`Aktywny produkt - pozycja ${index}:`, {
-                id: item.id,
-                variant_code: item.variant_code,
-                show_on_client_page: item.show_on_client_page,
-                show_on_client_page_type: typeof item.show_on_client_page
-            });
-        });
-
-        console.log('\n=== ANALIZA NIEWIDOCZNYCH WARIANTÓW ===');
-        const hiddenVariants = currentEditingQuoteData.items.filter(item => {
-            return item.show_on_client_page === 0 ||
-                item.show_on_client_page === '0' ||
-                item.show_on_client_page === false;
-        });
-
-        console.log('Niewidoczne warianty w bazie:', hiddenVariants.map(item => ({
-            product_index: item.product_index,
-            variant_code: item.variant_code,
-            show_on_client_page: item.show_on_client_page
-        })));
-    }
-
-    console.log('\n=== STANY CHECKBOXÓW W INTERFEJSIE ===');
-    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
-    checkboxes.forEach(checkbox => {
-        console.log(`Checkbox ${checkbox.dataset.variant}:`, {
-            checked: checkbox.checked,
-            dataset_variant: checkbox.dataset.variant
-        });
-    });
-
-    console.log('=== KONIEC DEBUGOWANIA ===');
-}
-
-/**
- * DODAJ TEŻ TĄ FUNKCJĘ - sprawdzenie czy warianty są w odpowiednich pozycjach
- * Uruchom w konsoli: checkVariantMapping()
- */
-function checkVariantMapping() {
-    console.log('=== SPRAWDZENIE MAPOWANIA WARIANTÓW ===');
-
-    const expectedVariants = ['dab-lity-ab', 'dab-lity-bb', 'dab-micro-ab', 'dab-micro-bb',
-        'jes-lity-ab', 'jes-micro-ab', 'buk-lity-ab', 'buk-micro-ab'];
-
-    expectedVariants.forEach(variantCode => {
-        const checkbox = document.querySelector(`#quote-editor-modal .variant-availability-checkbox[data-variant="${variantCode}"]`);
-        const itemInData = currentEditingQuoteData?.items?.find(item =>
-            item.product_index === activeProductIndex && item.variant_code === variantCode
-        );
-
-        console.log(`Wariant ${variantCode}:`, {
-            hasCheckbox: !!checkbox,
-            checkboxChecked: checkbox?.checked,
-            hasItemInData: !!itemInData,
-            itemShowOnClientPage: itemInData?.show_on_client_page,
-            itemId: itemInData?.id
-        });
-    });
-}
-
-function debugCheckboxStates(context = 'debug') {
-    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
-
-    log('debug', `=== STANY CHECKBOXÓW (${context}) ===`);
-    checkboxes.forEach(checkbox => {
-        const variant = checkbox.dataset.variant;
-        const isChecked = checkbox.checked;
-        log('debug', `Checkbox ${variant}: ${isChecked ? 'ZAZNACZONY' : 'ODZNACZONY'}`);
-    });
-    log('debug', '=== KONIEC DEBUGOWANIA CHECKBOXÓW ===');
-}
-
-/**
- * DODAJ TĄ NOWĄ FUNKCJĘ - Wymusza pełną synchronizację checkboxów dla aktywnego produktu
- * Lokalizacja: dodaj gdziekolwiek w pliku quote_editor.js
- */
-function forceSyncCheckboxesForActiveProduct() {
-    if (!currentEditingQuoteData || activeProductIndex === null) {
-        log('sync', '❌ Nie można wymusić synchronizacji - brak danych lub aktywnego produktu');
-        return;
-    }
-
-    log('sync', `Wymuszam synchronizację checkboxów dla produktu ${activeProductIndex}`);
-    applyVariantAvailabilityFromQuoteData(currentEditingQuoteData, activeProductIndex);
-}
-
-/**
-* DODAJ TĄ FUNKCJĘ DEBUGOWANIA
-* Sprawdź co dzieje się w loadQuoteDataToEditor
-*/
-function debugLoadQuoteDataToEditor(quoteData, context = 'loadQuoteDataToEditor') {
-    console.log(`=== DEBUG ${context} ===`);
-    console.log('Input quoteData:', quoteData);
-    console.log('currentEditingQuoteData przed zmianami:', currentEditingQuoteData);
-
-    if (quoteData?.items) {
-        console.log('Items w input data:');
-        quoteData.items.forEach((item, i) => {
-            console.log(`  ${i}: id=${item.id}, variant_code='${item.variant_code}'`);
-        });
-    }
-
-    if (currentEditingQuoteData?.items) {
-        console.log('Items w currentEditingQuoteData:');
-        currentEditingQuoteData.items.forEach((item, i) => {
-            console.log(`  ${i}: id=${item.id}, variant_code='${item.variant_code}'`);
-        });
-    }
-}
