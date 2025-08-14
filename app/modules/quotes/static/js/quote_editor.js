@@ -2771,38 +2771,39 @@ function updateActiveProductTotals() {
  * so switching between products keeps the changes in memory
  */
 function saveActiveProductFormData() {
-    if (activeProductIndex === null || !currentEditingQuoteData?.items) {
+    if (!currentEditingQuoteData || activeProductIndex === null) {
+        log('sync', '❌ Brak danych do zapisania');
         return;
     }
 
-    const length = parseFloat(document.getElementById('edit-length')?.value) || 0;
-    const width = parseFloat(document.getElementById('edit-width')?.value) || 0;
-    const thickness = parseFloat(document.getElementById('edit-thickness')?.value) || 0;
-    const quantity = parseFloat(document.getElementById('edit-quantity')?.value) || 0;
+    const formElements = {
+        length: document.getElementById('edit-length')?.value,
+        width: document.getElementById('edit-width')?.value,
+        thickness: document.getElementById('edit-thickness')?.value,
+        quantity: document.getElementById('edit-quantity')?.value,
+        finishingType: document.getElementById('finishing-type')?.textContent?.trim(),
+        finishingVariant: document.getElementById('finishing-variant')?.textContent?.trim(),
+        finishingColor: document.getElementById('finishing-color')?.textContent?.trim(),
+        finishingGloss: document.getElementById('finishing-gloss-level')?.textContent?.trim()
+    };
+
     const selectedVariant = document.querySelector('input[name="edit-variantOption"]:checked');
 
-    // Finishing selections
-    const finishingType = getSelectedFinishingType();
-    const finishingVariant = getSelectedFinishingVariant();
-    const finishingColor = getSelectedFinishingColor();
-    const finishingGloss = document.querySelector('#edit-finishing-gloss-wrapper .finishing-btn.active')?.dataset.finishingGloss || null;
-
-    // POPRAWKA: Zaktualizuj tylko wymiary, ilość i wykończenie (NIE variant_code!)
+    // Aktualizuj podstawowe dane produktu (bez zmiany show_on_client_page)
     currentEditingQuoteData.items
         .filter(item => item.product_index === activeProductIndex)
         .forEach(item => {
-            item.length_cm = length;
-            item.width_cm = width;
-            item.thickness_cm = thickness;
-            item.quantity = quantity;
-            // USUNIĘTE: item.variant_code = selectedVariant.value; <- TO BYŁO PROBLEMEM!
-            item.finishing_type = finishingType;
-            item.finishing_variant = finishingVariant;
-            item.finishing_color = finishingColor;
-            item.finishing_gloss = finishingGloss;
+            item.length_cm = formElements.length;
+            item.width_cm = formElements.width;
+            item.thickness_cm = formElements.thickness;
+            item.quantity = formElements.quantity;
+            item.finishing_type = formElements.finishingType;
+            item.finishing_variant = formElements.finishingVariant;
+            item.finishing_color = formElements.finishingColor;
+            item.finishing_gloss = formElements.finishingGloss;
         });
 
-    // POPRAWKA: Zaktualizuj is_selected tylko dla wybranego wariantu
+    // Aktualizuj is_selected tylko dla wybranego wariantu
     if (selectedVariant) {
         const selectedVariantCode = selectedVariant.value;
 
@@ -2826,22 +2827,35 @@ function saveActiveProductFormData() {
         }
     }
 
-    // Synchronizacja dostępności wariantów (bez zmian)
+    // ✅ KLUCZOWA POPRAWKA: Aktualizuj show_on_client_page tylko na podstawie checkboxów
+    // ALE TYLKO wtedy gdy checkboxy faktycznie zmieniły się względem danych z backend-u
     const availabilityCheckboxes = document.querySelectorAll('.variant-availability-checkbox');
     availabilityCheckboxes.forEach(cb => {
         const variant = cb.dataset.variant;
         const item = currentEditingQuoteData.items.find(
             i => i.product_index === activeProductIndex && i.variant_code === variant
         );
-        if (item) {
-            // Zapisuj jako liczbę, aby była zgodność z bazą danych
-            item.show_on_client_page = cb.checked ? 1 : 0;
 
-            log('sync', `Zapisano dostępność wariantu ${variant}: ${cb.checked ? '1 (widoczny)' : '0 (niewidoczny)'}`);
+        if (item) {
+            // Sprawdź czy checkbox różni się od stanu w danych
+            const currentBackendValue = item.show_on_client_page;
+            const checkboxValue = cb.checked;
+
+            // Konwertuj backend value na boolean dla porównania
+            const backendBoolean = currentBackendValue === true || currentBackendValue === 1 || currentBackendValue === '1';
+
+            // Aktualizuj TYLKO jeśli wartość się zmieniła
+            if (backendBoolean !== checkboxValue) {
+                // POPRAWKA: Zachowaj typ danych zgodny z backend-em (boolean)
+                item.show_on_client_page = checkboxValue;
+                log('sync', `Zaktualizowano dostępność wariantu ${variant}: ${checkboxValue ? 'true (widoczny)' : 'false (niewidoczny)'}`);
+            } else {
+                log('sync', `Dostępność wariantu ${variant}: bez zmian (${backendBoolean ? 'widoczny' : 'niewidoczny'})`);
+            }
         }
     });
 
-    log('sync', '✅ Zapisano dane aktywnego produktu (bez nadpisywania variant_code)');
+    log('sync', '✅ Zapisano dane aktywnego produktu (bez nadpisywania oryginalnych wartości)');
 }
 
 /**
@@ -4227,68 +4241,109 @@ function triggerSyntheticRecalc() {
     }
 }
 function applyVariantAvailabilityFromQuoteData(quoteData, productIndex) {
-    const pIndex = productIndex ?? activeProductIndex;
-    if (!quoteData?.items || pIndex === null || pIndex === undefined) {
+    if (!quoteData?.items || productIndex === null || productIndex === undefined) {
         log('sync', '❌ Brak danych do synchronizacji checkboxów');
         return;
     }
 
-    const productItems = quoteData.items.filter(item => item.product_index === pIndex);
-    const checkboxes = document.querySelectorAll('#quote-editor-modal .variant-availability-checkbox');
+    // Znajdź pozycje dla tego produktu
+    const productItems = quoteData.items.filter(item => item.product_index === productIndex);
 
-    log('sync', `Synchronizuję checkboxy dla produktu ${pIndex}, znalezionych pozycji: ${productItems.length}`);
+    log('sync', `Synchronizuję checkboxy i selecty dla produktu ${productIndex}, znalezionych pozycji: ${productItems.length}`);
 
-    // POPRAWKA: Utwórz mapę dostępności wariantów - weź ostatnią wartość dla każdego wariantu
-    const variantAvailabilityMap = new Map();
+    // Stwórz mapę dostępności na podstawie rzeczywistych danych z backend-u
+    const availabilityMap = new Map();
+    const selectedVariant = productItems.find(item => item.is_selected === true)?.variant_code;
 
     productItems.forEach(item => {
-        if (item.variant_code) {
-            const rawValue = item.show_on_client_page;
-            let isVisible;
+        // Prawidłowe mapowanie wartości z backend-u
+        const rawValue = item.show_on_client_page;
+        const isVisible = rawValue === true || rawValue === 1 || rawValue === '1';
 
-            if (rawValue === null || rawValue === undefined) {
-                isVisible = true; // Domyślnie widoczny
-            } else if (typeof rawValue === 'boolean') {
-                isVisible = rawValue;
-            } else if (typeof rawValue === 'number') {
-                isVisible = rawValue === 1; // 1 = widoczny, 0 = niewidoczny
-            } else if (typeof rawValue === 'string') {
-                isVisible = rawValue === '1' || rawValue.toLowerCase() === 'true';
+        availabilityMap.set(item.variant_code, isVisible);
+
+        log('sync', `Mapowanie wariantu ${item.variant_code}: raw=${rawValue} (${typeof rawValue}) → visible=${isVisible}`);
+    });
+
+    // Lista wszystkich wariantów do zsynchronizowania
+    const allVariants = ['dab-lity-ab', 'dab-lity-bb', 'dab-micro-ab', 'dab-micro-bb',
+        'jes-lity-ab', 'jes-micro-ab', 'buk-lity-ab', 'buk-micro-ab'];
+
+    // 1. SYNCHRONIZACJA CHECKBOXÓW (widoczność wariantów)
+    log('sync', '--- Synchronizacja checkboxów dostępności ---');
+    allVariants.forEach(variantCode => {
+        const checkbox = document.querySelector(`#quote-editor-modal .variant-availability-checkbox[data-variant="${variantCode}"]`);
+
+        if (checkbox) {
+            if (availabilityMap.has(variantCode)) {
+                const isVisible = availabilityMap.get(variantCode);
+                checkbox.checked = isVisible;
+                log('sync', `✅ Checkbox ${variantCode}: visible=${isVisible}`);
             } else {
-                isVisible = true; // Domyślnie widoczny
+                // Jeśli wariant nie ma danych w bazie, domyślnie niewidoczny
+                checkbox.checked = false;
+                log('sync', `⚠️ Checkbox ${variantCode}: brak w bazie → visible=false`);
             }
-
-            // Zapisz w mapie (nadpisuje poprzednie wartości dla tego samego wariantu)
-            variantAvailabilityMap.set(item.variant_code, isVisible);
-
-            log('sync', `Mapowanie wariantu ${item.variant_code}: raw=${rawValue} (${typeof rawValue}) → visible=${isVisible}`);
-        }
-    });
-
-    // Zastosuj stany checkboxów na podstawie mapy
-    checkboxes.forEach(checkbox => {
-        const variant = checkbox.dataset.variant;
-
-        let isVisible;
-        if (variantAvailabilityMap.has(variant)) {
-            // Wariant znaleziony w danych wyceny
-            isVisible = variantAvailabilityMap.get(variant);
-            log('sync', `Wariant ${variant}: znaleziono w mapie → visible=${isVisible}`);
         } else {
-            // Wariant nie znaleziony w danych - domyślnie widoczny
-            isVisible = true;
-            log('sync', `Wariant ${variant}: brak w bazie danych → domyślnie widoczny`);
+            log('sync', `❌ Nie znaleziono checkboxa dla wariantu: ${variantCode}`);
         }
-
-        // Ustaw stan checkboxa
-        checkbox.checked = isVisible;
-
-        // Wymuś event change dla aktualizacji interfejsu
-        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     });
 
-    log('sync', `✅ Zakończono synchronizację checkboxów dla produktu ${pIndex}`);
-    log('sync', `Mapa dostępności:`, Array.from(variantAvailabilityMap.entries()));
+    // 2. SYNCHRONIZACJA RADIO BUTTONS (wybrany wariant)
+    log('sync', '--- Synchronizacja radio buttons ---');
+    if (selectedVariant) {
+        log('sync', `Szukam radio button dla wybranego wariantu: ${selectedVariant}`);
+
+        // Sprawdź wszystkie możliwe selektory radio buttons
+        const possibleSelectors = [
+            `#quote-editor-modal input[name="edit-variantOption"][value="${selectedVariant}"]`,
+            `#quote-editor-modal input[name="variant-product-0-selected"][value="${selectedVariant}"]`,
+            `#quote-editor-modal input[name="variant-product-${productIndex}-selected"][value="${selectedVariant}"]`,
+            `#quote-editor-modal input[type="radio"][value="${selectedVariant}"]`
+        ];
+
+        let radioFound = false;
+        for (const selector of possibleSelectors) {
+            const radio = document.querySelector(selector);
+            if (radio) {
+                // Odznacz wszystkie radio buttons w tej grupie
+                const allRadiosInGroup = document.querySelectorAll(`#quote-editor-modal input[name="${radio.name}"]`);
+                allRadiosInGroup.forEach(r => r.checked = false);
+
+                // Zaznacz właściwy radio button
+                radio.checked = true;
+                log('sync', `✅ Zaznaczono radio button: ${selector}`);
+
+                // Wywołaj zdarzenie change aby zaktualizować interfejs
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+                radioFound = true;
+                break;
+            }
+        }
+
+        if (!radioFound) {
+            log('sync', `❌ Nie znaleziono radio button dla wybranego wariantu: ${selectedVariant}`);
+            log('sync', `Sprawdzone selektory:`, possibleSelectors);
+        }
+    } else {
+        log('sync', '⚠️ Brak wybranego wariantu w danych z backend-u');
+    }
+
+    // 3. SYNCHRONIZACJA WIZUALNYCH ELEMENTÓW (DIV.variant-option)
+    log('sync', '--- Synchronizacja wizualnych elementów ---');
+    allVariants.forEach(variantCode => {
+        const visualElement = document.querySelector(`#quote-editor-modal .${variantCode}-option.variant-option`);
+        if (visualElement) {
+            if (selectedVariant === variantCode) {
+                visualElement.classList.add('selected');
+                log('sync', `✅ Dodano klasę 'selected' do elementu: ${variantCode}`);
+            } else {
+                visualElement.classList.remove('selected');
+            }
+        }
+    });
+
+    log('sync', '✅ Zakończono pełną synchronizację dla produktu ' + productIndex);
 }
 
 /**
