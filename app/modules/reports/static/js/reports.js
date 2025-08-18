@@ -328,6 +328,15 @@ class ReportsManager {
                 element.className = 'stat-comparison';
             }
         });
+
+        const surfaceElements = ['compOlejowanieSurface', 'compLakierowanieSurface'];
+        surfaceElements.forEach(elementId => {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.textContent = '';
+                element.className = 'stat-comparison';
+            }
+        });
     }
 
     /**
@@ -1239,40 +1248,46 @@ class ReportsManager {
      * Oblicza statystyki powierzchni według wykończenia
      */
     calculateFinishStatistics(data) {
-        let olejowanieVolume = 0;
-        let lakierowanieVolume = 0;
+        let olejowanieSurface = 0;
+        let lakierowanieSurface = 0;
+
+        console.log('[calculateFinishStatistics] Rozpoczynam obliczenia powierzchni dla', data.length, 'rekordów');
 
         // Iteruj przez wszystkie rekordy danych
         data.forEach(record => {
-            if (!record.finish_state || !record.total_volume) {
-                return; // Pomiń rekordy bez wykończenia lub objętości
+            if (!record.finish_state || !record.total_surface_m2) {
+                return; // Pomiń rekordy bez wykończenia lub powierzchni
             }
 
             const finishState = String(record.finish_state).toLowerCase().trim();
-            const volume = parseFloat(record.total_volume) || 0;
+            const surface = parseFloat(record.total_surface_m2) || 0;
+
+            console.log(`[calculateFinishStatistics] Rekord ID ${record.id}: finish_state="${finishState}", surface=${surface}`);
 
             // Sprawdź czy to olejowanie (różne warianty)
             if (finishState.includes('olejowa') ||
                 finishState.includes('olejowanie') ||
+                finishState.includes('olej') ||
                 finishState.includes('olejowany')) {
-                olejowanieVolume += volume;
-                console.log(`[calculateFinishStatistics] Dodano olejowanie: ${volume} m³ (${finishState})`);
+                olejowanieSurface += surface;
+                console.log(`[calculateFinishStatistics] Dodano olejowanie: ${surface} m² (${finishState})`);
             }
 
             // Sprawdź czy to lakierowanie (różne warianty)
             if (finishState.includes('lakierowa') ||
                 finishState.includes('lakierowanie') ||
+                finishState.includes('lakier') ||
                 finishState.includes('lakierowany')) {
-                lakierowanieVolume += volume;
-                console.log(`[calculateFinishStatistics] Dodano lakierowanie: ${volume} m³ (${finishState})`);
+                lakierowanieSurface += surface;
+                console.log(`[calculateFinishStatistics] Dodano lakierowanie: ${surface} m² (${finishState})`);
             }
         });
 
-        console.log(`[calculateFinishStatistics] Podsumowanie - Olejowanie: ${olejowanieVolume} m³, Lakierowanie: ${lakierowanieVolume} m³`);
+        console.log(`[calculateFinishStatistics] Podsumowanie - Olejowanie: ${olejowanieSurface} m², Lakierowanie: ${lakierowanieSurface} m²`);
 
         return {
-            olejowanie_volume: olejowanieVolume,
-            lakierowanie_volume: lakierowanieVolume
+            olejowanie_surface: olejowanieSurface,
+            lakierowanie_surface: lakierowanieSurface
         };
     }
 
@@ -1298,12 +1313,12 @@ class ReportsManager {
         // NOWE - oblicz i aktualizuj statystyki wykończenia na podstawie aktualnych danych
         if (this.currentData && this.currentData.length > 0) {
             const finishStats = this.calculateFinishStatistics(this.currentData);
-            this.updateStat('statOlejowanieVolume', finishStats.olejowanie_volume, 4, ' m³');
-            this.updateStat('statLakierowanieVolume', finishStats.lakierowanie_volume, 4, ' m³');
+            this.updateStat('statOlejowanieSurface', finishStats.olejowanie_surface, 4, ' m²');
+            this.updateStat('statLakierowanieSurface', finishStats.lakierowanie_surface, 4, ' m²');
         } else {
             // Jeśli brak danych, wyzeruj statystyki wykończenia
-            this.updateStat('statOlejowanieVolume', 0, 4, ' m³');
-            this.updateStat('statLakierowanieVolume', 0, 4, ' m³');
+            this.updateStat('statOlejowanieSurface', 0, 4, ' m²');
+            this.updateStat('statLakierowanieSurface', 0, 4, ' m²');
         }
     }
 
@@ -1348,7 +1363,7 @@ class ReportsManager {
         const fields = [
             'total_m3', 'order_amount_net', 'value_net',
             'avg_price_per_m3', 'delivery_cost_net', 'paid_amount_net', 'balance_due',
-            'production_volume', 'production_value_net', 'ready_pickup_volume'
+            'production_volume', 'production_value_net', 'ready_pickup_volume', 'olejowanie_surface', 'lakierowanie_surface'
         ];
 
         const elementMap = {
@@ -1360,6 +1375,8 @@ class ReportsManager {
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
             'production_value_net': 'compProductionValueNet',
+            'olejowanie_surface': 'compOlejowanieSurface',
+            'lakierowanie_surface': 'compLakierowanieSurface',
             'ready_pickup_volume': 'compReadyPickupVolume'
         };
 

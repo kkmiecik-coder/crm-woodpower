@@ -66,6 +66,7 @@ class BaselinkerReportOrder(db.Model):
     value_net = db.Column(db.Numeric(10, 2), nullable=True, comment="28. Wartość netto")
     volume_per_piece = db.Column(db.Numeric(10, 4), nullable=True, comment="29. Objętość 1 szt.")
     total_volume = db.Column(db.Numeric(10, 4), nullable=True, comment="30. Objętość TTL")
+    total_surface_m2 = db.Column(db.Numeric(10, 4), nullable=True, comment="30a. Powierzchnia całkowita produktu (m²)")
     price_per_m3 = db.Column(db.Numeric(10, 2), nullable=True, comment="31. Cena za m3")
     avg_order_price_per_m3 = db.Column(db.Numeric(10, 2), nullable=True, comment="32. Średnia cena za m3 w zamówieniu")
     realization_date = db.Column(db.Date, nullable=True, comment="33. Data realizacji")
@@ -369,6 +370,39 @@ class BaselinkerReportOrder(db.Model):
                     }
         
         return comparison
+
+    def calculate_surface_area(self):
+        """
+        Oblicza powierzchnię całkowatą sześcianu (suma wszystkich 6 ścian)
+    
+        Returns:
+            float: Powierzchnia w m² lub 0 jeśli brak wymiarów
+        """
+        if not (self.length_cm and self.width_cm and self.thickness_cm):
+            return 0.0
+    
+        try:
+            # Konwersja z cm na m
+            length_m = float(self.length_cm) / 100
+            width_m = float(self.width_cm) / 100
+            thickness_m = float(self.thickness_cm) / 100
+        
+            # Powierzchnia sześcianu = 2 × (długość×szerokość + długość×grubość + szerokość×grubość)
+            surface_one_piece = 2 * (
+                length_m * width_m +      # 2 ściany: góra i dół
+                length_m * thickness_m +  # 2 ściany: przód i tył
+                width_m * thickness_m     # 2 ściany: lewo i prawo
+            )
+        
+            # Powierzchnia całkowita = powierzchnia 1 sztuki × ilość
+            quantity = float(self.quantity or 1)
+            total_surface = surface_one_piece * quantity
+        
+            return round(total_surface, 4)
+        
+        except (ValueError, TypeError) as e:
+            reports_logger.warning(f"Błąd obliczania powierzchni: {e}")
+            return 0.0
     
     def calculate_fields(self):
         """Oblicza automatyczne pola w rekordzie"""
@@ -431,6 +465,9 @@ class BaselinkerReportOrder(db.Model):
                 # Oblicz łączną objętość
                 if self.quantity:
                     self.total_volume = self.volume_per_piece * float(self.quantity)
+
+            # Oblicz powierzchnię całkowitą (suma 6 ścian sześcianu)
+            self.total_surface_m2 = self.calculate_surface_area()
         
             # Oblicz cenę za m³ (tylko jeśli jest objętość)
             if self.price_net and self.volume_per_piece and self.volume_per_piece > 0:
@@ -631,6 +668,7 @@ class BaselinkerReportOrder(db.Model):
             'value_net': float(self.value_net or 0),
             'volume_per_piece': float(self.volume_per_piece or 0),
             'total_volume': float(self.total_volume or 0),
+            'total_surface_m2': float(self.total_surface_m2 or 0),
             'price_per_m3': float(self.price_per_m3 or 0),
             'avg_order_price_per_m3': float(self.avg_order_price_per_m3 or 0),
             'realization_date': self.realization_date.strftime('%d-%m-%Y') if self.realization_date else None,
