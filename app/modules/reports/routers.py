@@ -1374,7 +1374,7 @@ def api_export_excel():
                     orders_grouped[order_id].append(idx + 4)  # +4 bo dane zaczynają się od wiersza 4
         
                 # Uproszczone scalanie - podstawowe kolumny + finansowe
-                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'AI', 'AJ', 'AK', 'AL']
+                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'AI', 'AF', 'AJ', 'AK', 'AL']
         
                 for order_id, row_indices in orders_grouped.items():
                     if len(row_indices) > 1:
