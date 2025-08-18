@@ -401,7 +401,6 @@ class VolumeManager {
 
         // Bind events dla tego produktu
         this.bindCurrentProductEvents();
-        this.updateTotalVolume(productKey);
         this.updateChecklist();
     }
 
@@ -496,7 +495,6 @@ class VolumeManager {
                 this.volumeData[productKey] = {};
             }
             this.volumeData[productKey].volume = roundedValue;
-            this.updateTotalVolume(productKey);
         }
     }
 
@@ -547,11 +545,6 @@ class VolumeManager {
 
         // Zapisz wartość
         this.volumeData[productKey][field] = input.value;
-
-        // Dla objętości - aktualizuj obliczenia
-        if (field === 'volume' && !input.value.includes(',')) {
-            this.updateTotalVolume(productKey);
-        }
 
         // Aktualizuj stan przycisków
         if (this.isStepByStepMode) {
