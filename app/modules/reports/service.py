@@ -409,6 +409,10 @@ class BaselinkerReportsService:
                               from_fixes_wood_species=self.get_volume_fix_attribute(product_key, 'wood_species'),
                               from_fixes_technology=self.get_volume_fix_attribute(product_key, 'technology'),
                               from_fixes_wood_class=self.get_volume_fix_attribute(product_key, 'wood_class'))
+
+            # ✅ NOWE: Dodaj avg_order_price_per_m3 do record_data
+            # Dla pojedynczych produktów będzie to cena tego produktu
+            record_data['avg_order_price_per_m3'] = record_data.get('price_per_m3', 0.0)
     
             return record_data
     
@@ -582,6 +586,7 @@ class BaselinkerReportsService:
             record.volume_per_piece = record_data.get('volume_per_piece')
             record.total_volume = record_data.get('total_volume')  # To trafia do kolumny używanej w statystykach
             record.price_per_m3 = record_data.get('price_per_m3')
+            record.avg_order_price_per_m3 = record_data.get('avg_order_price_per_m3', 0.0)
             
             # Pozostałe pola
             record.realization_date = record_data.get('realization_date')
@@ -605,6 +610,11 @@ class BaselinkerReportsService:
             
             # ✅ OBLICZ automatycznie wszystkie pola (w tym datę realizacji)
             record.calculate_fields()
+
+            # ✅ NOWE: Ustaw avg_order_price_per_m3 (metoda calculate_fields może to ustawić już poprawnie)
+            # Ale sprawdź czy jest potrzebne dodatkowe ustawienie
+            if not hasattr(record, 'avg_order_price_per_m3') or record.avg_order_price_per_m3 is None:
+                record.avg_order_price_per_m3 = record.price_per_m3 if record.price_per_m3 else 0.0
 
             # Zapisz do bazy
             db.session.add(record)
@@ -1098,8 +1108,7 @@ class BaselinkerReportsService:
             self.logger.error("Błąd HTTP przy pobieraniu statusów", error=str(e))
             return []
 
-    def sync_orders(self, date_from: Optional[datetime] = None, 
-                   sync_type: str = 'manual', orders_list: Optional[List[Dict]] = None) -> Dict[str, any]:
+    def sync_orders(self, date_from: Optional[datetime] = None, sync_type: str = 'manual', orders_list: Optional[List[Dict]] = None) -> Dict[str, any]:
         """
         Synchronizuje zamówienia z Baselinker
     
@@ -1269,6 +1278,35 @@ class BaselinkerReportsService:
             raise
         
         return added_count
+
+    def _calculate_average_order_price_per_m3(self, records: List) -> float:
+        """
+        Oblicza średnią cenę za m³ w zamówieniu na podstawie już obliczonych cen produktów.
+    
+        Args:
+            records (List): Lista rekordów BaselinkerReportOrder dla danego zamówienia
+        
+        Returns:
+            float: Średnia cena za m³ w zamówieniu
+        """
+        try:
+            price_per_m3_values = []
+        
+            for record in records:
+                # Pomiń usługi i produkty bez ceny za m³
+                if record.price_per_m3 and record.price_per_m3 > 0:
+                    price_per_m3_values.append(float(record.price_per_m3))
+        
+            # Oblicz średnią arytmetyczną
+            if price_per_m3_values:
+                avg_price = sum(price_per_m3_values) / len(price_per_m3_values)
+                return round(avg_price, 2)
+            else:
+                return 0.0
+            
+        except Exception as e:
+            self.logger.error("Błąd obliczania średniej ceny za m³ w zamówieniu", error=str(e))
+            return 0.0
     
     def _convert_order_to_records(self, order: Dict) -> List[BaselinkerReportOrder]:
         """
@@ -1563,6 +1601,20 @@ class BaselinkerReportsService:
                                 product_name=product.get('name'),
                                 error=str(e))
                 continue
+
+        # PRZENIEŚ OBLICZANIE ŚREDNIEJ CENY TUTAJ (PO calculate_fields)
+        # Oblicz średnią cenę za m³ dla całego zamówienia
+        avg_order_price_per_m3 = self._calculate_average_order_price_per_m3(records)
+        
+        # USTAW ŚREDNIĄ CENĘ PO calculate_fields (żeby nie została nadpisana)
+        for record in records:
+            record.avg_order_price_per_m3 = avg_order_price_per_m3
+
+        # DEBUG: Sprawdź czy wartości zostały ustawione
+        self.logger.info("DEBUG: Obliczono średnią cenę za m³ w zamówieniu",
+                        order_id=order.get('order_id'),
+                        avg_order_price_per_m3=avg_order_price_per_m3,
+                        records_count=len(records))
 
         return records
     

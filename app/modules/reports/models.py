@@ -67,19 +67,20 @@ class BaselinkerReportOrder(db.Model):
     volume_per_piece = db.Column(db.Numeric(10, 4), nullable=True, comment="29. Objętość 1 szt.")
     total_volume = db.Column(db.Numeric(10, 4), nullable=True, comment="30. Objętość TTL")
     price_per_m3 = db.Column(db.Numeric(10, 2), nullable=True, comment="31. Cena za m3")
-    realization_date = db.Column(db.Date, nullable=True, comment="32. Data realizacji")
+    avg_order_price_per_m3 = db.Column(db.Numeric(10, 2), nullable=True, comment="32. Średnia cena za m3 w zamówieniu")
+    realization_date = db.Column(db.Date, nullable=True, comment="33. Data realizacji")
     
     # === STATUS I PŁATNOŚCI (kolumny 33-37) ===
-    current_status = db.Column(db.String(100), nullable=True, comment="33. Status")
-    delivery_cost = db.Column(db.Numeric(10, 2), nullable=True, comment="34. Koszt kuriera dla klienta")
-    payment_method = db.Column(db.String(100), nullable=True, comment="35. Sposób płatności")
-    paid_amount_net = db.Column(db.Numeric(10, 2), default=0.00, comment="36. Zapłacono TTL netto")
-    balance_due = db.Column(db.Numeric(10, 2), nullable=True, comment="37. Saldo")
+    current_status = db.Column(db.String(100), nullable=True, comment="34. Status")
+    delivery_cost = db.Column(db.Numeric(10, 2), nullable=True, comment="35. Koszt kuriera dla klienta")
+    payment_method = db.Column(db.String(100), nullable=True, comment="36. Sposób płatności")
+    paid_amount_net = db.Column(db.Numeric(10, 2), default=0.00, comment="37. Zapłacono TTL netto")
+    balance_due = db.Column(db.Numeric(10, 2), nullable=True, comment="38. Saldo")
     
     # === PRODUKCJA I ODBIÓR (kolumny 38-40) ===
-    production_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="38. Ilość w produkcji")
-    production_value_net = db.Column(db.Numeric(10, 2), default=0.00, comment="39. Wartość netto w produkcji")
-    ready_pickup_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="40. Ilość gotowa do odbioru")
+    production_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="39. Ilość w produkcji")
+    production_value_net = db.Column(db.Numeric(10, 2), default=0.00, comment="40. Wartość netto w produkcji")
+    ready_pickup_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="41. Ilość gotowa do odbioru")
     
     # === POLA TECHNICZNE (nie wyświetlane w tabeli) ===
     baselinker_status_id = db.Column(db.Integer, nullable=True, comment="ID statusu z Baselinker")
@@ -472,6 +473,15 @@ class BaselinkerReportOrder(db.Model):
             if not self.product_type:
                 self.product_type = 'klejonka'
 
+            # NOWE: Zachowaj avg_order_price_per_m3 jeśli już jest ustawione
+            # (nie nadpisuj wartości ustawionej przez service.py)
+            if not hasattr(self, 'avg_order_price_per_m3') or self.avg_order_price_per_m3 is None:
+                # Dla pojedynczych rekordów ustaw na podstawie price_per_m3
+                if hasattr(self, 'price_per_m3') and self.price_per_m3:
+                    self.avg_order_price_per_m3 = self.price_per_m3
+                else:
+                    self.avg_order_price_per_m3 = 0.0
+
     def auto_fill_delivery_state(self):
         """
         Automatycznie uzupełnia województwo na podstawie kodu pocztowego
@@ -622,6 +632,7 @@ class BaselinkerReportOrder(db.Model):
             'volume_per_piece': float(self.volume_per_piece or 0),
             'total_volume': float(self.total_volume or 0),
             'price_per_m3': float(self.price_per_m3 or 0),
+            'avg_order_price_per_m3': float(self.avg_order_price_per_m3 or 0),
             'realization_date': self.realization_date.strftime('%d-%m-%Y') if self.realization_date else None,
             'current_status': self.current_status,
             'delivery_cost': float(self.delivery_cost or 0),

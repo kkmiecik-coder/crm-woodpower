@@ -959,6 +959,7 @@ def api_export_excel():
                 sposob_platnosci = safe_str(order.payment_method)
                 zaplacono_netto = float(order.paid_amount_net or 0)
                 do_zaplaty_netto = float(order.balance_due or 0)
+                srednia_cena_za_m3 = float(order.avg_order_price_per_m3 or 0)
             else:
                 # Pozostałe produkty w zamówieniu mają 0/pusty string dla kolumn poziomu zamówienia
                 calculated_ttl_m3 = 0.0
@@ -979,6 +980,7 @@ def api_export_excel():
                 sposob_platnosci = ''
                 zaplacono_netto = 0.0
                 do_zaplaty_netto = 0.0
+                srednia_cena_za_m3 = 0.0
     
             excel_data.append({
                 # KOLUMNY POZIOMU ZAMÓWIENIA (tylko w pierwszym produkcie)
@@ -1015,6 +1017,7 @@ def api_export_excel():
                 'Objetosc 1 szt.': float(order.volume_per_piece or 0),
                 'Objetosc TTL': float(order.total_volume or 0),
                 'Cena za m3': float(order.price_per_m3 or 0),
+                'Srednia cena za m3': srednia_cena_za_m3,
                 'Data realizacji': order.realization_date.strftime('%d-%m-%Y') if order.realization_date else '',
                 'Status': safe_str(order.current_status),
                 
@@ -1104,6 +1107,7 @@ def api_export_excel():
             'Wartosc brutto': 'financial_data',
             'Wartosc netto': 'financial_data',
             'Cena za m3': 'financial_data',
+            'Srednia cena za m3': 'financial_data',
             'Koszt kuriera': 'financial_data',
             'Koszt dostawy netto': 'financial_data',
             'Zaplacono netto': 'financial_data',
@@ -3515,33 +3519,26 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
                                   order_id=order_data.get('order_id'),
                                   products_count=len(order_data.get('products', [])))
                 
-                # ✅ POPRAWKA: Przetwórz każdy produkt osobno
-                for product in order_data.get('products', []):
-                    try:
-                        # Użyj właściwej metody z analizą objętości
-                        record_data = service.prepare_order_record_data_with_volume_analysis(order_data, product)
-                        
-                        # Zapisz rekord
-                        service.save_order_record(record_data)
-                        orders_added += 1
-                        
-                        reports_logger.debug("Zapisano produkt z analizą objętości",
-                                           order_id=order_data.get('order_id'),
-                                           product_name=product.get('name'),
-                                           total_volume=record_data.get('total_volume', 0))
-                        
-                    except Exception as e:
-                        error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"
-                        processing_errors.append({
-                            'order_id': order_data.get('order_id'),
-                            'product_name': product.get('name', 'unknown'),
-                            'error': str(e)
-                        })
-                        reports_logger.error(error_msg)
-                        continue
+                # ✅ NOWE: GRUPOWE PRZETWARZANIE - użyj _convert_order_to_records
+                # (to zapewni właściwe obliczenie średniej ceny dla całego zamówienia)
+                records = service._convert_order_to_records(order_data)
+                
+                # Zapisz wszystkie rekordy zamówienia do bazy
+                for record in records:
+                    db.session.add(record)
+                
+                # Commit dla całego zamówienia
+                db.session.commit()
+                orders_added += len(records)
+                
+                reports_logger.info("Zapisano rekord zamówienia z objętością", 
+                                  order_id=order_data.get('order_id'),
+                                  products_count=len(records),
+                                  avg_order_price_per_m3=records[0].avg_order_price_per_m3 if records else 0.0,
+                                  total_volume=sum(float(r.total_volume or 0) for r in records))
 
                 orders_processed += 1
-                
+                        
             except Exception as e:
                 error_msg = f"Błąd przetwarzania zamówienia {order_data.get('order_id', 'unknown')}: {str(e)}"
                 processing_errors.append({

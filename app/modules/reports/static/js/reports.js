@@ -549,6 +549,7 @@ class ReportsManager {
             <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
             <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
             <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
+            ${this.renderMergedCell(this.formatCurrency(order.avg_order_price_per_m3), orderCount, isFirst, 'cell-currency')}
             <td class="cell-date">${order.realization_date || ''}</td>
             <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
             ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
