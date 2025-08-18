@@ -2660,11 +2660,12 @@ def export_routimo():
 
 def generate_routimo_excel(grouped_orders):
     """
-    NOWA FUNKCJA: Generuje Excel w formacie identycznym z wzorcem
+    ZAKTUALIZOWANA FUNKCJA: Generuje Excel w formacie identycznym z wzorcem
+    DODANE: kolumny "Numer wew." i "Koszty kuriera netto"
     """
-    # Nagłówki - identyczne z plikiem wzorcowym
+    # Nagłówki - ZAKTUALIZOWANE z nowymi kolumnami
     headers = [
-        'Nazwa', 'Klient', 'Nazwa przesyłki', 'Ulica', 'Numer domu', 'Numer mieszkania',
+        'Nazwa', 'Klient', 'Nazwa przesyłki', 'Numer wew.', 'Koszty kuriera netto', 'Ulica', 'Numer domu', 'Numer mieszkania',
         'Kod pocztowy', 'Miasto', 'Kraj', 'Region', 'Numer telefonu', 'Email',
         'Email klienta', 'Nip klienta', 'Początek okna czasowego', 'Koniec okna czasowego',
         'Okno czasowe', 'Czas na wykonanie zadania', 'Oczekiwana data realizacji',
@@ -2717,43 +2718,45 @@ def generate_routimo_excel(grouped_orders):
         cell.alignment = header_alignment
         cell.border = header_border     # ZMIANA: dodanie obramowania
     
-    # SZEROKOŚCI KOLUMN - dokładne z pliku wzorcowego + automatyczne dla reszty
+    # SZEROKOŚCI KOLUMN - ZAKTUALIZOWANE z nowymi kolumnami
     column_widths = {
-        'A': 83.8,   # Nazwa (bardzo szeroka dla długich nazw firm)
+        'A': 40.0,   # Nazwa (bardzo szeroka dla długich nazw firm)
         'B': 31.81,  # Klient  
-        'C': 23.08,  # Nazwa przesyłki (ID zamówienia)
-        'D': 50.57,  # Ulica (szeroka dla długich nazw ulic)
-        'E': 12.0,   # Numer domu
-        'F': 12.0,   # Numer mieszkania
-        'G': 15.0,   # Kod pocztowy
-        'H': 25.0,   # Miasto
-        'I': 12.0,   # Kraj
-        'J': 20.0,   # Region/Województwo
-        'K': 20.0,   # Telefon
-        'L': 25.0,   # Email (puste)
-        'M': 30.0,   # Email klienta
-        'N': 15.0,   # NIP (puste)
-        'O': 20.0,   # Początek okna
-        'P': 20.0,   # Koniec okna
-        'Q': 15.0,   # Okno czasowe
-        'R': 25.0,   # Czas na zadanie
-        'S': 20.0,   # Data realizacji
-        'T': 15.0,   # Harmonogram
-        'U': 15.0,   # Pojazd
-        'V': 20.0,   # Typy pojazdów
-        'W': 15.0,   # Liczba przesyłek
-        'X': 18.0,   # Wielkość (m³)
-        'Y': 15.0,   # Waga (kg)
-        'Z': 18.0,   # Wartość PLN
-        'AA': 20.0,  # Forma płatności
-        'AB': 10.0,  # Waluta
-        'AC': 20.0,  # Szerokość geo
-        'AD': 20.0,  # Długość geo
-        'AE': 25.0,  # Komentarz
-        'AF': 25.0,  # Komentarz 2
-        'AG': 25.0,  # Uwagi
-        'AH': 15.0,  # Dodatkowe 1
-        'AI': 15.0   # Dodatkowe 2
+        'C': 17.0,   # Nazwa przesyłki (ID zamówienia)
+        'D': 13.0,   # NOWA: Numer wew.
+        'E': 13.0,   # NOWA: Koszty kuriera netto
+        'F': 32.0,   # Ulica (szeroka dla długich nazw ulic) - przesunięte z D
+        'G': 9.0,    # Numer domu - przesunięte z E
+        'H': 9.0,    # Numer mieszkania - przesunięte z F
+        'I': 14.0,   # Kod pocztowy - przesunięte z G
+        'J': 25.0,   # Miasto - przesunięte z H
+        'K': 12.0,   # Kraj - przesunięte z I
+        'L': 20.0,   # Region/Województwo - przesunięte z J
+        'M': 15.0,   # Telefon - przesunięte z K
+        'N': 25.0,   # Email (puste) - przesunięte z L
+        'O': 38.0,   # Email klienta - przesunięte z M
+        'P': 15.0,   # NIP (puste) - przesunięte z N
+        'Q': 20.0,   # Początek okna - przesunięte z O
+        'R': 20.0,   # Koniec okna - przesunięte z P
+        'S': 15.0,   # Okno czasowe - przesunięte z Q
+        'T': 25.0,   # Czas na zadanie - przesunięte z R
+        'U': 20.0,   # Data realizacji - przesunięte z S
+        'V': 15.0,   # Harmonogram - przesunięte z T
+        'W': 15.0,   # Pojazd - przesunięte z U
+        'X': 20.0,   # Typy pojazdów - przesunięte z V
+        'Y': 15.0,   # Liczba przesyłek - przesunięte z W
+        'Z': 18.0,   # Wielkość (m³) - przesunięte z X
+        'AA': 15.0,  # Waga (kg) - przesunięte z Y
+        'AB': 18.0,  # Wartość PLN - przesunięte z Z
+        'AC': 20.0,  # Forma płatności - przesunięte z AA
+        'AD': 10.0,  # Waluta - przesunięte z AB
+        'AE': 20.0,  # Szerokość geo - przesunięte z AC
+        'AF': 20.0,  # Długość geo - przesunięte z AD
+        'AG': 70.0,  # Komentarz - przesunięte z AE
+        'AH': 20.0,  # Komentarz 2 - przesunięte z AF
+        'AI': 25.0,  # Uwagi - przesunięte z AG
+        'AJ': 15.0,  # Dodatkowe 1 - przesunięte z AH
+        'AK': 15.0   # Dodatkowe 2 - przesunięte z AI
     }
     
     # Ustaw szerokości kolumn
@@ -2763,7 +2766,7 @@ def generate_routimo_excel(grouped_orders):
     # WYSOKOŚĆ WIERSZA NAGŁÓWKOWEGO - 57px jak żądasz (≈43pt)
     worksheet.row_dimensions[1].height = 43.0
     
-    # Dodaj dane
+            # Dodaj dane
     for row_idx, order in enumerate(grouped_orders, 2):  # Zaczynaj od wiersza 2
         # Wyciągnij numer domu i mieszkania z adresu
         house_number, apartment_number, clean_street = extract_house_and_apartment_number(order['delivery_address'])
@@ -2771,51 +2774,81 @@ def generate_routimo_excel(grouped_orders):
         # Oblicz wagę (jak w oryginalnym CSV)
         weight = round(order['total_volume'] * 800, 2)
         
-        # Generuj komentarz z listą produktów
-        products_comment = generate_products_comment(order['records'])
+        # NOWE: Generuj komentarz z listą produktów (każda pozycja od nowej linii)
+        products_comment = generate_products_comment_multiline(order['records'])
         
-        # Dane wiersza - z komentarzem produktów
+        # NOWE: Oblicz łączną liczbę sztuk wszystkich produktów w zamówieniu
+        total_quantity = sum(int(record.quantity or 0) for record in order['records'])
+        
+        # NOWE: Oblicz koszty kuriera netto (z VAT 23%)
+        delivery_cost_gross = order.get('delivery_cost', 0) or 0
+        delivery_cost_net = round(float(delivery_cost_gross) / 1.23, 2) if delivery_cost_gross > 0 else 0
+        
+        # NOWE: Utwórz komentarz 2 z numerem Baselinker i numerem wewnętrznym
+        baselinker_id = order['baselinker_order_id'] or ''
+        internal_number = order.get('internal_order_number', '') or ''
+        comment_2 = f"{baselinker_id}, {internal_number}" if baselinker_id and internal_number else (baselinker_id or internal_number or '')
+        
+        # Dane wiersza - ZAKTUALIZOWANE z nowymi kolumnami
         row_data = [
             order['customer_name'],                    # A - Nazwa
             order['customer_name'],                    # B - Klient
             order['baselinker_order_id'],              # C - Nazwa przesyłki
-            clean_street,                              # D - Ulica (OCZYSZCZONA!)
-            house_number,                              # E - Numer domu
-            apartment_number,                          # F - Numer mieszkania
-            order['delivery_postcode'],                # G - Kod pocztowy
-            order['delivery_city'],                    # H - Miasto
-            'Polska',                                  # I - Kraj
-            order['delivery_state'],                   # J - Region
-            order['phone'],                            # K - Numer telefonu
-            '',                                        # L - Email (puste)
-            order['email'],                            # M - Email klienta
-            '',                                        # N - Nip klienta (puste)
-            '',                                        # O - Początek okna czasowego (puste)
-            '',                                        # P - Koniec okna czasowego (puste)
-            '',                                        # Q - Okno czasowe (puste)
-            '',                                        # R - Czas na wykonanie zadania (puste)
-            '',                                        # S - Oczekiwana data realizacji (puste)
-            '',                                        # T - Harmonogram (puste)
-            '',                                        # U - Pojazd (puste)
-            '',                                        # V - Typy pojazdów (puste)
-            int(order['total_quantity']),              # W - Liczba przesyłek
-            round(order['total_volume'], 4),           # X - Wielkość przesyłki (m³)
-            weight,                                    # Y - Waga przesyłki (kg)
-            round(order['total_value_net'], 2),        # Z - Wartość przesyłki
-            '',                                        # AA - Forma płatności (puste)
-            'PLN',                                     # AB - Waluta
-            '',                                        # AC - Szerokość geograficzna (puste)
-            '',                                        # AD - Długość geograficzna (puste)
-            products_comment,                          # AE - Komentarz (LISTA PRODUKTÓW!)
-            '',                                        # AF - Komentarz 2 (puste)
-            '',                                        # AG - Uwagi (puste)
-            '',                                        # AH - Dodatkowe 1 (puste)
-            '',                                        # AI - Dodatkowe 2 (puste)
+            order.get('internal_order_number', ''),    # D - NOWA: Numer wew.
+            delivery_cost_net,                         # E - NOWA: Koszty kuriera netto
+            clean_street,                              # F - Ulica (OCZYSZCZONA!) - przesunięte z D
+            house_number,                              # G - Numer domu - przesunięte z E
+            apartment_number,                          # H - Numer mieszkania - przesunięte z F
+            order['delivery_postcode'],                # I - Kod pocztowy - przesunięte z G
+            order['delivery_city'],                    # J - Miasto - przesunięte z H
+            'Polska',                                  # K - Kraj - przesunięte z I
+            order['delivery_state'],                   # L - Region/Województwo - przesunięte z J
+            order['phone'],                            # M - Telefon - przesunięte z K
+            '',                                        # N - Email (puste) - przesunięte z L
+            order.get('email', ''),                    # O - Email klienta - przesunięte z M
+            '',                                        # P - NIP (puste) - przesunięte z N
+            '',                                        # Q - Początek okna (puste) - przesunięte z O
+            '',                                        # R - Koniec okna (puste) - przesunięte z P
+            '',                                        # S - Okno czasowe (puste) - przesunięte z Q
+            '',                                        # T - Czas na zadanie (puste) - przesunięte z R
+            '',                                        # U - Data realizacji (puste) - przesunięte z S
+            '',                                        # V - Harmonogram (puste) - przesunięte z T
+            '',                                        # W - Pojazd (puste) - przesunięte z U
+            '',                                        # X - Typy pojazdów (puste) - przesunięte z V
+            total_quantity,                            # Y - Liczba przesyłek (suma sztuk wszystkich produktów) - przesunięte z W
+            round(order['total_volume'], 3),           # Z - Wielkość w m³ - przesunięte z X
+            weight,                                    # AA - Waga w kg (objętość * 800) - przesunięte z Y
+            round(order['order_amount_net'], 2),       # AB - Wartość w PLN - przesunięte z Z
+            order.get('payment_method', ''),           # AC - Forma płatności - przesunięte z AA
+            'PLN',                                     # AD - Waluta - przesunięte z AB
+            '',                                        # AE - Szerokość geograficzna (puste) - przesunięte z AC
+            '',                                        # AF - Długość geograficzna (puste) - przesunięte z AD
+            products_comment,                          # AG - Komentarz z listą produktów (wieloliniowy) - przesunięte z AE
+            comment_2,                                 # AH - Komentarz 2 (Baselinker ID, Numer wew.) - przesunięte z AF
+            '',                                        # AI - Uwagi (puste) - przesunięte z AG
+            '',                                        # AJ - Dodatkowe 1 (puste) - przesunięte z AH
+            '',                                        # AK - Dodatkowe 2 (puste) - przesunięte z AI
         ]
         
         # Wstaw dane do wiersza
         for col_idx, value in enumerate(row_data, 1):
-            worksheet.cell(row=row_idx, column=col_idx).value = value
+            cell = worksheet.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            
+            # NOWE: Specjalne formatowanie dla kolumny komentarz (AG)
+            if col_idx == 33:  # Kolumna AG - Komentarz
+                cell.alignment = Alignment(
+                    horizontal='left',
+                    vertical='top',
+                    wrap_text=True  # Zawijanie tekstu dla wieloliniowego komentarza
+                )
+        
+        # NOWE: Automatyczne dostosowanie wysokości wiersza dla komentarza
+        if products_comment and '\n' in products_comment:
+            # Oszacuj liczbę linii i ustaw wysokość wiersza
+            line_count = products_comment.count('\n') + 1
+            row_height = max(15 * line_count, 15)  # Minimum 15pt na linię
+            worksheet.row_dimensions[row_idx].height = row_height
     
     # Zapisz do BytesIO
     excel_buffer = io.BytesIO()
@@ -2827,17 +2860,19 @@ def generate_routimo_excel(grouped_orders):
     
     return excel_buffer.getvalue()
 
-
-def generate_products_comment(order_records):
+    
+def generate_products_comment_multiline(order_records):
     """
-    Generuje komentarz z listą wszystkich produktów w zamówieniu
-    Format: "Klejonka dębowa lita A/B 200.0×30.0×3.2cm (Surowe) x1, Klejonka... x6"
+    Generuje komentarz z listą wszystkich produktów w zamówieniu (wieloliniowy)
+    Format: każda pozycja produktu od nowej linii
+    "Klejonka dębowa lita A/B 200.0×30.0×3.2cm (Surowe) x1
+    Klejonka bukowa lita A/B 150.0×25.0×2.8cm (Olejowana) x6"
     
     Args:
         order_records: Lista rekordów BaselinkerReportOrder dla jednego zamówienia
         
     Returns:
-        str: Sformatowany komentarz z produktami
+        str: Sformatowany wieloliniowy komentarz z produktami
     """
     if not order_records:
         return ''
@@ -2853,15 +2888,15 @@ def generate_products_comment(order_records):
         product_entry = f"{product_name} x{quantity}"
         products_list.append(product_entry)
     
-    # Połącz wszystkie produkty przecinkami
-    return ', '.join(products_list)
-
+    # Połącz wszystkie produkty znakiem nowej linii
+    return '\n'.join(products_list)
 
 def group_orders_for_routimo(orders):
     """
     Grupuje dane po zamówieniach dla eksportu Routimo
     Jedno zamówienie = jeden wiersz w CSV
     NOWE: Wykluczenie usług z eksportu
+    DODANE: internal_order_number i delivery_cost
     
     Args:
         orders (List[BaselinkerReportOrder]): Lista rekordów z bazy danych
@@ -2882,6 +2917,7 @@ def group_orders_for_routimo(orders):
     grouped = defaultdict(lambda: {
         'records': [],
         'baselinker_order_id': None,
+        'internal_order_number': None,  # NOWE: dodane pole
         'customer_name': None,
         'delivery_address': None,
         'delivery_postcode': None,
@@ -2889,6 +2925,9 @@ def group_orders_for_routimo(orders):
         'delivery_state': None,
         'phone': None,
         'email': None,
+        'delivery_cost': 0,  # NOWE: dodane pole
+        'payment_method': None,  # NOWE: dodane pole dla order_amount_net
+        'order_amount_net': 0,  # NOWE: dodane pole
         'total_quantity': 0,
         'total_volume': 0,
         'total_value_net': 0,
@@ -2908,6 +2947,7 @@ def group_orders_for_routimo(orders):
         # Ustaw dane zamówienia (z pierwszego rekordu)
         if not order_group['customer_name']:
             order_group['baselinker_order_id'] = order.baselinker_order_id or f"Manual_{order.id}"
+            order_group['internal_order_number'] = order.internal_order_number or ''  # NOWE
             order_group['customer_name'] = order.customer_name or ''
             order_group['delivery_address'] = order.delivery_address or ''
             order_group['delivery_postcode'] = order.delivery_postcode or ''
@@ -2915,6 +2955,9 @@ def group_orders_for_routimo(orders):
             order_group['delivery_state'] = order.delivery_state or ''
             order_group['phone'] = order.phone or ''
             order_group['email'] = order.email or ''
+            order_group['delivery_cost'] = float(order.delivery_cost or 0)  # NOWE
+            order_group['payment_method'] = order.payment_method or ''  # NOWE
+            order_group['order_amount_net'] = float(order.order_amount_net or 0)  # NOWE
             order_group['current_status'] = order.current_status or ''
         
         # Sumuj wartości - POPRAWKA: używaj właściwości SQLAlchemy
