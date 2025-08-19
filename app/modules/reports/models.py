@@ -203,7 +203,9 @@ class BaselinkerReportOrder(db.Model):
             'production_volume': 0.0,
             'production_value_net': 0.0,
             'ready_pickup_volume': 0.0,
-            'pickup_ready_volume': 0.0  # NOWA KOLUMNA: Do odebrania
+            'pickup_ready_volume': 0.0,
+            'unique_orders': 0,
+            'products_count': 0
         }
 
         if not orders:
@@ -310,6 +312,17 @@ class BaselinkerReportOrder(db.Model):
         for key, value in stats.items():
             if not isinstance(value, (int, float)) or value < 0:
                 stats[key] = 0.0
+
+
+        # Liczba unikalnych zamówień (grupowanie po baselinker_order_id lub ręcznych wpisach)
+        unique_orders = len(orders_by_unique_id)
+        
+        # Liczba produktów fizycznych (wykluczając usługi)
+        products_count = len([order for order in orders if order.group_type != 'usługa'])
+        
+        # Dodaj do statystyk
+        stats['unique_orders'] = unique_orders
+        stats['products_count'] = products_count
 
         return stats
     

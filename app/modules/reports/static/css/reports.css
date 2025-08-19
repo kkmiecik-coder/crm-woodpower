@@ -315,7 +315,7 @@
 }
 
 .loading-text {
-    color: white;
+    color: #314254;
     font-size: 1rem;
     font-weight: 500;
     font-family: var(--font-family);
@@ -6681,4 +6681,14 @@ body.fullscreen-mode {
 .products-checklist::-webkit-scrollbar-thumb:hover,
 .volume-products-list::-webkit-scrollbar-thumb:hover {
     background: #a8a8a8;
+}
+
+.loadingbox-banner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 30px 50px;
+    background: #FCFCFC;
+    border-radius: 16px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
 }

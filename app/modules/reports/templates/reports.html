@@ -19,6 +19,15 @@
         {% include 'sidebar/sidebar.html' %}
 
         <main class="main-content">
+
+            <!-- Loading overlay -->
+            <div id="loadingOverlay" class="loading-overlay">
+                <div class="loadingbox-banner">
+                    <div class="spinner"></div>
+                    <div class="loading-text">Pobieranie danych...</div>
+                </div>
+            </div>
+
             <!-- Nagłówek -->
             <div class="reports-header">
                 <h1 class="title-with-underline">Raport sprzedażowy</h1>
@@ -83,6 +92,11 @@
             <!-- Statystyki -->
             <div class="stats-container">
                 <div class="stat-box">
+                    <div class="stat-label">Zamówienia / pozycje</div>
+                    <div class="stat-value" id="statOrdersProducts">0 / 0</div>
+                    <div class="stat-comparison" id="compOrdersProducts"></div>
+                </div>
+                <div class="stat-box">
                     <div class="stat-label">TTL m³</div>
                     <div class="stat-value" id="statTotalM3">0.0000</div>
                     <div class="stat-comparison" id="compTotalM3"></div>
@@ -142,12 +156,6 @@
                     <div class="stat-value" id="statLakierowanieSurface">0.0000</div>
                     <div class="stat-comparison" id="compLakierowanieSurface"></div>
                 </div>
-            </div>
-
-            <!-- Loading overlay -->
-            <div id="loadingOverlay" class="loading-overlay hidden">
-                <div class="spinner"></div>
-                <div class="loading-text">Pobieranie danych...</div>
             </div>
 
             <!-- Tabela raportów -->
@@ -371,14 +379,8 @@
                             <option value="5">5 dni</option>
                             <option value="6">6 dni</option>
                             <option value="7">7 dni</option>
-                            <option value="8">8 dni</option>
-                            <option value="9">9 dni</option>
-                            <option value="10">10 dni</option>
-                            <option value="11">11 dni</option>
-                            <option value="12">12 dni</option>
-                            <option value="13">13 dni</option>
                             <option value="14">14 dni</option>
-                            <option value="18">18 dni</option>
+                            <option value="20">20 dni</option>
                         </select>
                     </div>
 

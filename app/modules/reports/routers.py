@@ -1755,6 +1755,8 @@ def api_sync_statuses():
         processed_count = 0
         payment_updated_count = 0
         status_updated_count = 0
+        internal_number_updated_count = 0
+        delivery_updated_count = 0
         sync_start = datetime.utcnow()
         
         for order_id in unique_order_ids:
@@ -1774,27 +1776,50 @@ def api_sync_statuses():
                     
                     new_paid_amount_net = service._calculate_paid_amount_net(payment_done, price_type_from_api)
                     
-                    # Aktualizuj wszystkie rekordy tego zamówienia
-                    records_updated = BaselinkerReportOrder.query.filter_by(
-                        baselinker_order_id=order_id
-                    ).update({
+                    # NOWE: Pobierz numer wewnętrzny z extra_field_1
+                    new_internal_number = order_details.get('extra_field_1', '').strip()
+                    
+                    # NOWE: Pobierz dane dostawy
+                    new_delivery_method = order_details.get('delivery_method', '').strip()
+                    new_delivery_cost_gross = float(order_details.get('delivery_price', 0))
+                    
+                    # Przygotuj dane do aktualizacji
+                    update_data = {
                         'current_status': new_status,
                         'baselinker_status_id': new_status_id,
                         'paid_amount_net': new_paid_amount_net,
+                        'internal_order_number': new_internal_number,
+                        'delivery_method': new_delivery_method,
+                        'delivery_cost': new_delivery_cost_gross,
                         'updated_at': datetime.utcnow()
-                    })
+                    }
+                    
+                    # Aktualizuj wszystkie rekordy tego zamówienia
+                    records_updated = BaselinkerReportOrder.query.filter_by(
+                        baselinker_order_id=order_id
+                    ).update(update_data)
                     
                     if records_updated > 0:
                         updated_count += records_updated
                         status_updated_count += 1
+                        
                         if new_paid_amount_net > 0:
                             payment_updated_count += 1
                             
-                        reports_logger.debug("Zaktualizowano status zamówienia",
+                        if new_internal_number:
+                            internal_number_updated_count += 1
+                            
+                        if new_delivery_method or new_delivery_cost_gross > 0:
+                            delivery_updated_count += 1
+                            
+                        reports_logger.debug("Zaktualizowano zamówienie",
                                            order_id=order_id,
                                            new_status=new_status,
                                            new_status_id=new_status_id,
                                            paid_amount_net=new_paid_amount_net,
+                                           internal_number=new_internal_number,
+                                           delivery_method=new_delivery_method,
+                                           delivery_cost=new_delivery_cost_gross,
                                            records_updated=records_updated)
                     
                     processed_count += 1
@@ -1819,6 +1844,8 @@ def api_sync_statuses():
                           updated_records=updated_count,
                           status_updated_count=status_updated_count,
                           payment_updated_count=payment_updated_count,
+                          internal_number_updated_count=internal_number_updated_count,
+                          delivery_updated_count=delivery_updated_count,
                           duration_seconds=duration)
         
         return jsonify({
@@ -1827,7 +1854,9 @@ def api_sync_statuses():
             'orders_processed': processed_count,
             'orders_updated': status_updated_count,
             'records_updated': updated_count,
-            'payment_updated_count': payment_updated_count
+            'payment_updated_count': payment_updated_count,
+            'internal_number_updated': internal_number_updated_count,
+            'delivery_updated': delivery_updated_count
         })
         
     except Exception as e:

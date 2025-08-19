@@ -60,6 +60,7 @@ class ReportsManager {
 
             // Statystyki
             statTotalM3: document.getElementById('statTotalM3'),
+            statOrdersProducts: document.getElementById('statOrdersProducts'),
             statOrderAmountNet: document.getElementById('statOrderAmountNet'),
             statValueNet: document.getElementById('statValueNet'),
             statPricePerM3: document.getElementById('statPricePerM3'),
@@ -308,6 +309,7 @@ class ReportsManager {
 
         const elementMap = {
             'total_m3': 'compTotalM3',
+            'unique_orders': 'compOrdersProducts',
             'order_amount_net': 'compOrderAmountNet',
             'avg_price_per_m3': 'compPricePerM3',
             'delivery_cost_net': 'compDeliveryCostNet',
@@ -1320,6 +1322,10 @@ class ReportsManager {
             this.updateStat('statOlejowanieSurface', 0, 4, ' m²');
             this.updateStat('statLakierowanieSurface', 0, 4, ' m²');
         }
+
+        if (this.elements.statOrdersProducts) {
+            this.elements.statOrdersProducts.textContent = `${stats.unique_orders || 0} / ${stats.products_count || 0}`;
+        }
     }
 
     /**
@@ -1368,6 +1374,7 @@ class ReportsManager {
 
         const elementMap = {
             'total_m3': 'compTotalM3',
+            'unique_orders': 'compOrdersProducts',      // NOWE: mapowanie dla zamówień/produktów
             'order_amount_net': 'compOrderAmountNet',
             'avg_price_per_m3': 'compPricePerM3',
             'delivery_cost_net': 'compDeliveryCostNet',
