@@ -421,11 +421,12 @@ class BaselinkerReportsService:
                               volume_fix_data=volume_fix,
                               available_fixes=list(self.volume_fixes.keys()) if hasattr(self, 'volume_fixes') else [])
 
-            # ✅ TYLKO DLA PRODUKTÓW FIZYCZNYCH: Dodaj atrybuty z analizy lub z ręcznego wprowadzenia
+            # ✅ TYLKO DLA PRODUKTÓW FIZYCZNYCH: Dodaj atrybuty z ręcznego wprowadzenia lub analizy
             # (dla usług te wartości pozostaną None jak ustawione w _convert_order_to_records)
-            wood_species = analysis.get('wood_species') or self.get_volume_fix_attribute(product_key, 'wood_species')
-            technology = analysis.get('technology') or self.get_volume_fix_attribute(product_key, 'technology')  
-            wood_class = analysis.get('wood_class') or self.get_volume_fix_attribute(product_key, 'wood_class')
+            # Ręczne dane mają pierwszeństwo przed auto-analizą nazwy
+            wood_species = self.get_volume_fix_attribute(product_key, 'wood_species') or analysis.get('wood_species')
+            technology = self.get_volume_fix_attribute(product_key, 'technology') or analysis.get('technology')
+            wood_class = self.get_volume_fix_attribute(product_key, 'wood_class') or analysis.get('wood_class')
 
             # ✅ NADPISZ TYLKO JEŚLI MAMY NOWE WARTOŚCI (nie nadpisuj None na None)
             if wood_species:
@@ -1409,15 +1410,20 @@ class BaselinkerReportsService:
         # POPRAWIONA LOGIKA: Oblicz łączną objętość wszystkich produktów w zamówieniu
         # ✅ UWZGLĘDNIJ TAKŻE volume_fixes zamiast tylko parsera!
         total_m3_all_products = 0.0
-        for product in products:
+        for product_index, product in enumerate(products):
             try:
                 product_name = product.get('name', '')
                 quantity = int(product.get('quantity', 1))
                 product_id_raw = product.get('product_id')
-                product_id = product_id_raw if product_id_raw else 'unknown'
-        
+                order_product_id = product.get('order_product_id')
+                if order_product_id:
+                    product_key = f"{order.get('order_id')}_{order_product_id}"
+                elif product_id_raw and product_id_raw != "":
+                    product_key = f"{order.get('order_id')}_{product_id_raw}"
+                else:
+                    product_key = f"{order.get('order_id')}_{product_index}"
+
                 # ✅ NOWA LOGIKA: Sprawdź volume_fixes NAJPIERW
-                product_key = f"{order.get('order_id')}_{product_id}"
                 volume_fix = self.get_volume_fix(product_key) if hasattr(self, 'volume_fixes') else None
         
                 if volume_fix and volume_fix.get('volume'):
@@ -1508,7 +1514,7 @@ class BaselinkerReportsService:
                         products_count=len(products))
     
         # Teraz utwórz rekordy dla każdego produktu z tą samą łączną objętością
-        for product in products:
+        for product_index, product in enumerate(products):
             try:
                 # Pobierz nazwę produktu i sprawdź czy to usługa
                 product_name = product.get('name', '')
@@ -1611,7 +1617,17 @@ class BaselinkerReportsService:
                 else:
                     # === ISTNIEJĄCA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
                     parsed_product = self.parser.parse_product_name(product_name)
-                
+
+                    # Wygeneruj klucz produktu zgodnie z frontendem
+                    order_product_id = product.get('order_product_id')
+                    product_id_raw = product.get('product_id')
+                    if order_product_id:
+                        product_key = f"{order.get('order_id')}_{order_product_id}"
+                    elif product_id_raw and product_id_raw != "":
+                        product_key = f"{order.get('order_id')}_{product_id_raw}"
+                    else:
+                        product_key = f"{order.get('order_id')}_{product_index}"
+
                     record = BaselinkerReportOrder(
                         # Dane zamówienia (bez zmian)
                         date_created=datetime.fromtimestamp(order.get('date_add')).date() if order.get('date_add') else datetime.now().date(),
@@ -1661,11 +1677,45 @@ class BaselinkerReportsService:
                         length_cm=parsed_product.get('length_cm'),
                         width_cm=parsed_product.get('width_cm'),
                         thickness_cm=parsed_product.get('thickness_cm'),
-                
+
                         # Pola techniczne
                         is_manual=False,
                         email=order.get('email')
                     )
+
+                    # Przeprowadź analizę nazwy i zastosuj poprawki objętości oraz atrybutów
+                    from .routers import analyze_product_for_volume_and_attributes
+                    analysis = analyze_product_for_volume_and_attributes(product_name)
+
+                    if analysis['analysis_type'] == 'volume_only' and analysis.get('volume'):
+                        total_volume = float(analysis.get('volume', 0))
+                        qty = record.quantity or 1
+                        record.total_volume = total_volume
+                        record.volume_per_piece = total_volume / qty
+                        record.length_cm = None
+                        record.width_cm = None
+                        record.thickness_cm = None
+                    elif analysis['analysis_type'] == 'manual_input_needed':
+                        volume_fix = self.get_volume_fix(product_key)
+                        if volume_fix and volume_fix.get('volume'):
+                            total_volume = float(volume_fix['volume'])
+                            qty = record.quantity or 1
+                            record.total_volume = total_volume
+                            record.volume_per_piece = total_volume / qty
+                            record.length_cm = None
+                            record.width_cm = None
+                            record.thickness_cm = None
+
+                    # Atrybuty drewna – pierwszeństwo mają dane ręczne
+                    wood_species = self.get_volume_fix_attribute(product_key, 'wood_species') or analysis.get('wood_species')
+                    technology = self.get_volume_fix_attribute(product_key, 'technology') or analysis.get('technology')
+                    wood_class = self.get_volume_fix_attribute(product_key, 'wood_class') or analysis.get('wood_class')
+                    if wood_species:
+                        record.wood_species = wood_species
+                    if technology:
+                        record.technology = technology
+                    if wood_class:
+                        record.wood_class = wood_class
 
                 # Oblicz pola pochodne (dla obu typów)
                 record.calculate_fields()
