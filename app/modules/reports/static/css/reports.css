@@ -4397,6 +4397,11 @@ body.fullscreen-mode {
 }
 
 .status-shipped {
+    background-color: #FFC107;
+    color: #453505;
+}
+
+.status-complaint {
     background-color: #d4edda;
     color: #155724;
 }
@@ -5816,6 +5821,15 @@ body.fullscreen-mode {
 
     .modal-bl-sync-status-badge.status-shipped .order-status-badge {
         color: #155724;
+    }
+
+/* Reklamacja */
+.modal-bl-sync-status-badge.status-complaint {
+    background: #FFC107;
+}
+
+    .modal-bl-sync-status-badge.status-complaint .order-status-badge {
+        color: #453505;
     }
 
 /* Dostarczone */

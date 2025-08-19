@@ -858,16 +858,17 @@ class BaselinkerReportsService:
                             error=str(e))
             return False
     
-    def fetch_orders_from_baselinker(self, date_from: Optional[datetime] = None, order_id: Optional[int] = None, max_orders: int = 500, include_excluded_statuses: bool = False) -> List[Dict]:
+    def fetch_orders_from_baselinker(self, date_from: datetime = None, order_id: int = None, 
+                                max_orders: int = 500, include_excluded_statuses: bool = False) -> List[Dict]:
         """
-        Pobiera zamówienia z Baselinker API z prawidłową paginacją
+        Pobiera zamówienia z Baselinker z prawidłową paginacją zgodną z dokumentacją API
     
         Args:
             date_from (datetime): Data od której pobierać zamówienia (opcjonalne)
             order_id (int): Konkretny numer zamówienia (jeśli podany, date_from ignorowane)
             max_orders (int): Maksymalna liczba zamówień do pobrania (domyślnie 500)
             include_excluded_statuses (bool): Czy dołączyć anulowane i nieopłacone (domyślnie False)
-    
+
         Returns:
             List[Dict]: Lista zamówień z Baselinker (bez duplikatów)
         """
@@ -886,173 +887,139 @@ class BaselinkerReportsService:
                 "order_id": order_id,
                 "include_custom_extra_fields": True
             }
-        
-            # POPRAWKA: Dodaj filtr statusów także dla pojedynczego zamówienia
             if not include_excluded_statuses:
-                parameters["filter_order_status_id"] = "!105112,!138625"  # Wykluczamy nieopłacone i anulowane
+                parameters["filter_order_status_id"] = "!105112,!138625"
         
-            self.logger.info("Pobieranie pojedynczego zamówienia", 
-                            order_id=order_id,
-                            include_excluded_statuses=include_excluded_statuses)
-    
             data = {
                 'method': 'getOrders',
                 'parameters': json.dumps(parameters)
             }
-    
+
             try:
                 response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
                 response.raise_for_status()
                 result = response.json()
-        
+            
                 if result.get('status') == 'SUCCESS':
                     orders = result.get('orders', [])
-                    self.logger.info("Pomyślnie pobrano zamówienia", 
-                                   orders_count=len(orders),
-                                   has_date_filter=False,
-                                   single_order=True,
-                                   filtered_excluded_statuses=not include_excluded_statuses)
+                    self.logger.info("Pobrano pojedyncze zamówienie", 
+                                   order_id=order_id,
+                                   orders_count=len(orders))
                     return orders
                 else:
                     error_msg = result.get('error_message', 'Nieznany błąd API')
                     self.logger.error("Błąd API Baselinker", error_message=error_msg)
                     return []
-                
             except Exception as e:
-                self.logger.error("Błąd pobierania pojedynczego zamówienia", 
-                                 order_id=order_id, error=str(e))
+                self.logger.error("Błąd pobierania pojedynczego zamówienia", order_id=order_id, error=str(e))
                 return []
 
-        # POBIERANIE WIELU ZAMÓWIEŃ Z PRAWIDŁOWĄ PAGINACJĄ BASELINKER
+        # POBIERANIE WIELU ZAMÓWIEŃ Z PRAWIDŁOWĄ PAGINACJĄ
         all_orders = []
-        seen_order_ids = set()  # Przechowuje ID zamówień które już mamy
-        page = 0
-
-        # Pobieranie w pętli z PRAWIDŁOWĄ paginacją według dokumentacji Baselinker
-        current_date_from = date_from  # Startuj od podanej daty
-        current_time = datetime.now()
-
-        self.logger.info("Rozpoczęcie pobierania zamówień z prawidłową paginacją Baselinker",
-                        date_from=current_date_from.isoformat() if current_date_from else None,
-                        current_time=current_time.isoformat(),
+        seen_order_ids = set()
+        current_date_confirmed_from = date_from
+    
+        self.logger.info("Rozpoczęcie pobierania zamówień",
+                        date_from=current_date_confirmed_from.isoformat() if current_date_confirmed_from else None,
                         max_orders=max_orders,
-                        existing_orders_count=len(seen_order_ids),
                         include_excluded_statuses=include_excluded_statuses)
 
-        while len(all_orders) < max_orders:
-            page += 1
+        iteration = 0
+        max_iterations = 50
     
-            # Parametry dla tego zapytania - zgodnie z dokumentacją Baselinker
+        while len(all_orders) < max_orders and iteration < max_iterations:
+            iteration += 1
+
+            # Parametry zapytania
             parameters = {
                 "include_custom_extra_fields": True,
-                "get_unconfirmed_orders": True,  # WAŻNE: żeby łapać niepotwierdzone
+                "get_unconfirmed_orders": True,
             }
         
-            # POPRAWKA: Zawsze dodawaj filtr statusów (chyba że explicite żądamy wszystkich)
             if not include_excluded_statuses:
-                parameters["filter_order_status_id"] = "!105112,!138625"  # Wykluczamy nieopłacone i anulowane
-    
-            # KLUCZOWA ZMIANA: Używaj date_confirmed_from zamiast date_add_from/to
-            if current_date_from:
-                # Upewnij się, że to datetime, nie date
-                if isinstance(current_date_from, date) and not isinstance(current_date_from, datetime):
-                    current_date_from = datetime.combine(current_date_from, datetime.min.time())
+                parameters["filter_order_status_id"] = "!105112,!138625"
 
-                timestamp_from = int(current_date_from.timestamp())
+            if current_date_confirmed_from:
+                if isinstance(current_date_confirmed_from, date) and not isinstance(current_date_confirmed_from, datetime):
+                    current_date_confirmed_from = datetime.combine(current_date_confirmed_from, datetime.min.time())
+                timestamp_from = int(current_date_confirmed_from.timestamp())
                 parameters["date_confirmed_from"] = timestamp_from
-        
-            self.logger.debug("Pobieranie partii zamówień - paginacja Baselinker",
-                             page=page,
-                             date_confirmed_from=current_date_from.isoformat() if current_date_from else None,
-                             current_count=len(all_orders),
-                             filtered_excluded_statuses=not include_excluded_statuses)
-    
+
             data = {
                 'method': 'getOrders',
                 'parameters': json.dumps(parameters)
             }
-    
+
             try:
                 response = requests.post(self.endpoint, headers=headers, data=data, timeout=30)
                 response.raise_for_status()
                 result = response.json()
-        
+            
                 if result.get('status') == 'SUCCESS':
                     batch_orders = result.get('orders', [])
-            
+                
                     if not batch_orders:
-                        self.logger.info("Brak zamówień w tym zakresie dat - kończę pobieranie",
-                                       page=page, total_collected=len(all_orders))
                         break
-            
-                    # Filtruj duplikaty i śledź najnowsze date_confirmed
-                    new_orders_in_batch = 0
+                
+                    # Znajdź najnowszą date_confirmed dla następnej iteracji
                     latest_date_confirmed = None
-            
+                    new_orders_in_batch = 0
+                
                     for order in batch_orders:
                         order_id_val = order.get('order_id')
-                
-                        if order_id_val not in seen_order_ids:
-                            all_orders.append(order)
-                            seen_order_ids.add(order_id_val)
-                            new_orders_in_batch += 1
                     
-                            # Śledzenie najnowszej daty
-                            date_confirmed = order.get('date_confirmed')
-                            if date_confirmed:
-                                if latest_date_confirmed is None or date_confirmed > latest_date_confirmed:
-                                    latest_date_confirmed = date_confirmed
-            
-                    self.logger.debug("Przetworzona partia zamówień",
-                                    page=page,
-                                    batch_total=len(batch_orders),
-                                    new_orders=new_orders_in_batch,
-                                    duplicates=len(batch_orders) - new_orders_in_batch,
-                                    total_collected=len(all_orders))
-            
-                    # Jeśli mamy mniej niż 100 zamówień w partii, prawdopodobnie to koniec
-                    if len(batch_orders) < 100:
-                        self.logger.info("Partia zawiera mniej niż 100 zamówień - kończę pobieranie",
-                                       page=page, batch_size=len(batch_orders))
-                        break
-                
-                    # Aktualizuj date_from dla następnej iteracji
+                        # Pomiń duplikaty
+                        if order_id_val in seen_order_ids:
+                            continue
+                        
+                        # Dodaj zamówienie
+                        all_orders.append(order)
+                        seen_order_ids.add(order_id_val)
+                        new_orders_in_batch += 1
+                    
+                        # Śledź najnowszą datę
+                        order_date_confirmed = order.get('date_confirmed')
+                        if order_date_confirmed:
+                            order_datetime = datetime.fromtimestamp(int(order_date_confirmed))
+                            if latest_date_confirmed is None or order_datetime > latest_date_confirmed:
+                                latest_date_confirmed = order_datetime
+
+                    # Aktualizuj date_confirmed_from zgodnie z dokumentacją Baselinker
                     if latest_date_confirmed:
-                        current_date_from = datetime.fromtimestamp(latest_date_confirmed)
-                        self.logger.debug("Aktualizacja date_from dla następnej iteracji",
-                                        new_date_from=current_date_from.isoformat(),
-                                        batch_size=len(batch_orders))
-                    else:
-                        # Brak date_confirmed w zamówieniach - nie można kontynuować
-                        self.logger.warning("Brak date_confirmed w zamówieniach - kończę pobieranie",
-                                          page=page, batch_size=len(batch_orders))
+                        current_date_confirmed_from = latest_date_confirmed + timedelta(seconds=1)
+                
+                    # Warunki końca paginacji
+                    if len(batch_orders) < 100:
+                        self.logger.info("Partia zawiera mniej niż 100 zamówień - koniec paginacji",
+                                       iteration=iteration, batch_size=len(batch_orders))
                         break
                 
+                    if new_orders_in_batch == 0:
+                        self.logger.info("Brak nowych zamówień w partii - koniec", iteration=iteration)
+                        break
+            
                 else:
                     error_msg = result.get('error_message', 'Nieznany błąd API')
                     error_code = result.get('error_code', 'Brak kodu błędu')
-                    self.logger.error("Błąd API Baselinker",
-                                     page=page, error_message=error_msg, error_code=error_code)
+                    self.logger.error("Błąd API Baselinker", iteration=iteration, 
+                                     error_message=error_msg, error_code=error_code)
                     break
-            
+        
             except requests.exceptions.Timeout:
-                self.logger.error("Timeout przy pobieraniu partii", page=page)
+                self.logger.error("Timeout przy pobieraniu partii", iteration=iteration)
                 continue
-        
+    
             except requests.exceptions.RequestException as e:
-                self.logger.error("Błąd połączenia", page=page, error=str(e))
+                self.logger.error("Błąd połączenia", iteration=iteration, error=str(e))
                 continue
-        
-            # Bezpieczeństwo - maksymalnie 20 stron (żeby nie było nieskończonej pętli)
-            if page >= 20:
-                self.logger.warning("Osiągnięto maksymalną liczbę stron", max_pages=20, total_collected=len(all_orders))
-                break
 
-        self.logger.info("Zakończono pobieranie zamówień z prawidłową paginacją Baselinker",
+        if iteration >= max_iterations:
+            self.logger.warning("Osiągnięto maksymalną liczbę iteracji", 
+                              max_iterations=max_iterations, total_collected=len(all_orders))
+
+        self.logger.info("Zakończono pobieranie zamówień",
                         total_orders=len(all_orders),
-                        pages_processed=page,
-                        date_from=date_from.isoformat() if date_from else None,
-                        max_orders=max_orders,
+                        iterations_processed=iteration,
                         unique_orders=len(seen_order_ids),
                         filtered_excluded_statuses=not include_excluded_statuses)
 

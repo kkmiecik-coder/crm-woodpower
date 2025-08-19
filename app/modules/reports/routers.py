@@ -1973,10 +1973,10 @@ def api_delete_manual_row():
 @login_required
 def api_fetch_orders_for_selection():
     """
-    EXTENDED ENDPOINT: Fetches orders from Baselinker for selected date range
+    POPRAWIONY ENDPOINT: Fetches orders from Baselinker for selected date range
     with automatic pagination when >90 orders
     DEFAULT EXCLUDES STATUSES 105112 and 138625
-    + NEW FUNCTIONALITY: Volume and attributes analysis for products
+    + Volume and attributes analysis for products
     """
     user_email = session.get('user_email')
     
@@ -1993,7 +1993,6 @@ def api_fetch_orders_for_selection():
         date_from = data.get('date_from')
         date_to = data.get('date_to')
         days_count = data.get('days_count')
-        # FIX: Default FALSE to exclude cancelled and unpaid orders
         get_all_statuses = data.get('get_all_statuses', False)
 
         if not all([date_from, date_to, days_count]):
@@ -2011,11 +2010,6 @@ def api_fetch_orders_for_selection():
 
         service = get_reports_service()
         
-        # EXISTING LOGIC: Automatic pagination mechanism
-        all_orders = []
-        current_date_from = datetime.fromisoformat(date_from).date()
-        end_date = datetime.fromisoformat(date_to).date()
-        
         # Get existing orders from database to avoid duplicates
         existing_orders = BaselinkerReportOrder.query.filter(
             BaselinkerReportOrder.baselinker_order_id.isnot(None)
@@ -2023,121 +2017,103 @@ def api_fetch_orders_for_selection():
         existing_order_ids = {order[0] for order in existing_orders}
         
         reports_logger.info("Loaded existing orders from database", 
-                          existing_count=len(existing_order_ids))
+                         existing_count=len(existing_order_ids))
         
-        iteration = 0
-        max_iterations = 20  # Protection against infinite loop
+        # NOWA LOGIKA: Pobierz wszystkie zamówienia w jednym wywołaniu z poprawną paginacją
+        reports_logger.info("Fetching all orders from date range using corrected pagination",
+                          date_from=date_from,
+                          date_to=date_to)
         
-        while current_date_from <= end_date and iteration < max_iterations:
-            iteration += 1
+        # Konwertuj daty
+        start_date = datetime.fromisoformat(date_from)
+        end_date = datetime.fromisoformat(date_to)
+        
+        # KLUCZ: Użyj fetch_orders_from_date_range zamiast wielokrotnego wywołania fetch_orders_from_baselinker
+        result = service.fetch_orders_from_date_range(
+            date_from=start_date,
+            date_to=end_date,
+            get_all_statuses=get_all_statuses
+        )
+        
+        if not result['success']:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Unknown error fetching orders')
+            }), 500
+        
+        all_orders = result['orders']
+        reports_logger.info(f"Fetched {len(all_orders)} orders from date range")
+        
+        # Dodaj filtrowanie i analizę objętości
+        processed_orders = []
+        new_orders_count = 0
+        
+        for order in all_orders:
+            order_id = order['order_id']
             
-            reports_logger.info(f"Iteration {iteration} fetching orders with volume analysis",
-                              current_date_from=current_date_from.isoformat(),
-                              end_date=end_date.isoformat(),
-                              include_excluded_statuses=get_all_statuses)
-            
-            # EXISTING LOGIC: Fetch orders with status filtering control
-            batch_orders = service.fetch_orders_from_baselinker(
-                date_from=datetime.combine(current_date_from, datetime.min.time()),
-                max_orders=100,  # Baselinker API limit
-                include_excluded_statuses=get_all_statuses  # Pass filtering parameter
-            )
-            
-            if not batch_orders:
-                reports_logger.info(f"No orders in iteration {iteration}")
-                break
+            # Sprawdź czy zamówienie już istnieje
+            if order_id not in existing_order_ids:
+                # Dodatkowa ochrona: filtruj wykluczone statusy po stronie aplikacji
+                status_id = order.get('order_status_id')
                 
-            reports_logger.info(f"Fetched {len(batch_orders)} orders in iteration {iteration}")
-            
-            # Add new orders to list with additional filtering
-            new_orders_in_batch = 0
-            for order in batch_orders:
-                order_id = order['order_id']
+                if not get_all_statuses and status_id in [105112, 138625]:
+                    reports_logger.debug("Excluded order due to status",
+                                       order_id=order_id,
+                                       status_id=status_id,
+                                       status_name=service.status_map.get(status_id, f'Status {status_id}'))
+                    continue
                 
-                # Check if order already exists
-                if order_id not in existing_order_ids:
-                    # ADDITIONAL PROTECTION: Filter excluded statuses on application side
-                    status_id = order.get('order_status_id')
-                    
-                    if not get_all_statuses and status_id in [105112, 138625]:
-                        reports_logger.debug("Excluded order due to status",
-                                           order_id=order_id,
-                                           status_id=status_id,
-                                           status_name=service.status_map.get(status_id, f'Status {status_id}'))
-                        continue
-                    
-                    # NEW FUNCTIONALITY: Perform volume analysis for products in order
-                    order = analyze_order_products_for_volume(order)
-                    
-                    all_orders.append(order)
-                    new_orders_in_batch += 1
-            
-            reports_logger.info(f"New orders in iteration {iteration}: {new_orders_in_batch}")
-            
-            # EXISTING LOGIC: Pagination control (rest unchanged...)
-            if len(batch_orders) < 90:
-                reports_logger.info("Fetched less than 90 orders - end of pagination")
-                break
-            
-            # [Rest of pagination logic remains unchanged...]
-            oldest_date = None
-            for order in batch_orders:
-                date_add = order.get('date_add')
-                if isinstance(date_add, (int, float)):
-                    order_date = datetime.fromtimestamp(date_add).date()
-                else:
-                    try:
-                        order_date = datetime.fromisoformat(str(date_add)).date()
-                    except (TypeError, ValueError):
-                        continue
-                if oldest_date is None or order_date < oldest_date:
-                    oldest_date = order_date
-            
-            if oldest_date and oldest_date <= current_date_from:
-                current_date_from = oldest_date - timedelta(days=1)
+                # Wykonaj analizę objętości dla produktów w zamówieniu
+                order = analyze_order_products_for_volume(order)
+                
+                processed_orders.append(order)
+                new_orders_count += 1
             else:
-                break
+                # Oznacz istniejące zamówienia
+                order['exists_in_database'] = True
+                processed_orders.append(order)
+
+        # Analiza objętości
+        total_volume_issues = sum(1 for order in processed_orders if order.get('has_volume_issues', False))
         
-        # NEW FUNCTIONALITY: Volume analysis summary
-        total_volume_issues = sum(1 for order in all_orders if order.get('has_volume_issues', False))
-        
-        # Check which orders already exist in database (existing logic)
-        if all_orders:
-            order_ids_to_check = [order['order_id'] for order in all_orders]
+        # Oznacz które zamówienia już istnieją w bazie
+        if processed_orders:
+            order_ids_to_check = [order['order_id'] for order in processed_orders]
             existing = BaselinkerReportOrder.query.filter(
                 BaselinkerReportOrder.baselinker_order_id.in_(order_ids_to_check)
             ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
             existing_set = {order[0] for order in existing}
             
-            # Mark existing orders
-            for order in all_orders:
+            # Oznacz istniejące zamówienia
+            for order in processed_orders:
                 order['exists_in_database'] = order['order_id'] in existing_set
 
         reports_logger.info("Completed fetching orders with volume analysis",
-                          total_orders=len(all_orders),
-                          iterations=iteration,
+                          total_orders=len(processed_orders),
+                          new_orders=new_orders_count,
                           volume_issues_count=total_volume_issues)
 
         return jsonify({
             'success': True,
-            'orders': all_orders,
-            'total_orders': len(all_orders),
-            'volume_issues_count': total_volume_issues,  # NEW
+            'orders': processed_orders,
+            'total_orders': len(processed_orders),
+            'new_orders': new_orders_count,
+            'volume_issues_count': total_volume_issues,
             'pagination_info': {
-                'iterations_used': iteration,
-                'max_iterations': max_iterations,
+                'method': 'date_range_fetch',
                 'filtered_excluded_statuses': not get_all_statuses
             },
-            'message': f'Fetched {len(all_orders)} orders. {total_volume_issues} products require volume completion.'  # UPDATED
+            'message': f'Fetched {len(processed_orders)} orders ({new_orders_count} new). {total_volume_issues} products require volume completion.'
         })
         
     except Exception as e:
-        reports_logger.error("Error fetching orders with volume analysis",
+        reports_logger.error("Error fetching orders for selection",
                            user_email=user_email,
-                           error=str(e))
+                           error=str(e),
+                           error_type=type(e).__name__)
         return jsonify({
             'success': False,
-            'error': f'Error fetching orders: {str(e)}'
+            'error': f'Server error: {str(e)}'
         }), 500
 
 def analyze_order_products_for_volume(order_data):
