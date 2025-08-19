@@ -466,15 +466,23 @@ class BaselinkerReportOrder(db.Model):
                            balance_due=self.balance_due)
         
         else:
-            # === ISTNIEJĄCA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
-        
-            # Oblicz objętość pojedynczej sztuki (tylko jeśli są wymiary)
-            if self.length_cm and self.width_cm and self.thickness_cm:
+            # === ULEPSZONA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
+
+            # ✅ POPRAWKA: Oblicz objętość tylko jeśli NIE jest już ustawiona przez analizę objętości
+            # Jeśli volume_per_piece i total_volume są już ustawione (z analizy objętości),
+            # to NIE nadpisuj ich obliczeniami z wymiarów
+            has_existing_volume = (
+                self.volume_per_piece is not None and self.volume_per_piece > 0 and
+                self.total_volume is not None and self.total_volume > 0
+            )
+    
+            if not has_existing_volume and self.length_cm and self.width_cm and self.thickness_cm:
+                # Oblicz objętość pojedynczej sztuki z wymiarów (tylko jeśli nie ma już objętości)
                 length_m = float(self.length_cm) / 100
                 width_m = float(self.width_cm) / 100  
                 thickness_m = float(self.thickness_cm) / 100
                 self.volume_per_piece = length_m * width_m * thickness_m
-            
+    
                 # Oblicz łączną objętość
                 if self.quantity:
                     self.total_volume = self.volume_per_piece * float(self.quantity)

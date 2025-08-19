@@ -325,13 +325,34 @@ class BaselinkerReportsService:
                               current_product=product_data.get('name'))
 
             # ✅ TYLKO DLA PRODUKTÓW FIZYCZNYCH: DODAJ ANALIZĘ OBJĘTOŚCI
+            order_product_id = product_data.get('order_product_id')
             product_id_raw = product_data.get('product_id')
-            if not product_id_raw or product_id_raw == "":
-                product_id = 'unknown'
-            else:
-                product_id = product_id_raw
 
-            product_key = f"{order_data.get('order_id')}_{product_id}"
+            if order_product_id:
+                # Preferuj order_product_id jeśli dostępne (unikalne w ramach zamówienia)
+                product_key = f"{order_data.get('order_id')}_{order_product_id}"
+            elif product_id_raw and product_id_raw != "":
+                # Fallback do product_id jeśli dostępne
+                product_key = f"{order_data.get('order_id')}_{product_id_raw}"
+            else:
+                # Ostateczność: użyj indeksu produktu w zamówieniu
+                product_index = order_data.get('products', []).index(product_data)
+                product_key = f"{order_data.get('order_id')}_{product_index}"
+
+            # DODAJ DEBUG:
+            self.logger.debug("Product key generation POPRAWIONA", 
+                              order_id=order_data.get('order_id'),
+                              product_id_raw=product_id_raw,
+                              order_product_id=order_product_id,
+                              final_product_key=product_key,
+                              volume_fixes_keys=list(self.volume_fixes.keys()) if hasattr(self, 'volume_fixes') else [])
+
+            # DODAJ DEBUG
+            self.logger.info(f"🔍 PRODUCT KEY GENERATION:")
+            self.logger.info(f"   📦 Product name: {product_data.get('name', 'BRAK')}")
+            self.logger.info(f"   🔢 Product index: {product_index}")
+            self.logger.info(f"   🔑 Generated key: {product_key}")
+            self.logger.info(f"   🛠️ Available volume_fixes keys: {list(self.volume_fixes.keys()) if hasattr(self, 'volume_fixes') else []}")
 
             # DODAJ DEBUG:
             self.logger.debug("Product key generation", 
@@ -362,18 +383,35 @@ class BaselinkerReportsService:
             elif analysis['analysis_type'] == 'manual_input_needed':
                 # Użyj ręcznie wprowadzonych danych
                 volume_fix = self.get_volume_fix(product_key)
+                
+                # ✅ DODAJ SZCZEGÓŁOWY DEBUG
+                self.logger.info("🔍 MANUAL_INPUT_NEEDED DEBUG:")
+                self.logger.info(f"   📦 Product key: {product_key}")
+                self.logger.info(f"   🔍 Volume fix found: {volume_fix is not None}")
+                self.logger.info(f"   📊 Volume fix data: {volume_fix}")
+                self.logger.info(f"   🔢 Quantity: {record_data.get('quantity', 1)}")
+                
                 if volume_fix and volume_fix.get('volume'):
                     total_volume = float(volume_fix['volume'])
                     quantity = record_data.get('quantity', 1)
 
                     record_data['total_volume'] = total_volume  # NIE MNÓŻ!
                     record_data['volume_per_piece'] = total_volume / quantity  # PODZIEL!
-            
-                    # Wyczyść wymiary
+                    
+                    # ✅ DODAJ DEBUG PO USTAWIENIU
+                    self.logger.info("🔍 PO USTAWIENIU OBJĘTOŚCI:")
+                    self.logger.info(f"   📊 record_data['total_volume']: {record_data.get('total_volume')}")
+                    self.logger.info(f"   📦 record_data['volume_per_piece']: {record_data.get('volume_per_piece')}")
+
+                    # Wyczyść wymiary (bo ich nie ma)
                     record_data['length_cm'] = None
                     record_data['width_cm'] = None  
                     record_data['thickness_cm'] = None
-                # Jeśli brak danych - zostaw to co wyliczył _convert_order_to_records
+                else:
+                    # ✅ DODAJ DEBUG BRAKU DANYCH
+                    self.logger.warning("⚠️ BRAK VOLUME_FIX - ustawiam objętość na 0")
+                    record_data['total_volume'] = 0
+                    record_data['volume_per_piece'] = 0
             
             # ✅ DODAJ SZCZEGÓŁOWY DEBUG PRZED POBIERANIEM ATRYBUTÓW
             volume_fix = self.get_volume_fix(product_key)
@@ -535,17 +573,28 @@ class BaselinkerReportsService:
     def save_order_record(self, record_data):
         """
         ULEPSZONA METODA: Zapisuje rekord zamówienia do bazy z obsługą objętości.
-        
+    
         Args:
             record_data (dict): Dane rekordu do zapisu
-            
+        
         Returns:
             BaselinkerReportOrder: Zapisany rekord
         """
         try:
+            # ✅ DODAJ DEBUG PRZED TWORZENIEM REKORDU
+            volume_per_piece_input = record_data.get('volume_per_piece')
+            total_volume_input = record_data.get('total_volume')
+        
+            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PRZED TWORZENIEM:")
+            reports_logger.info(f"   📦 Input volume_per_piece: {volume_per_piece_input}")
+            reports_logger.info(f"   📊 Input total_volume: {total_volume_input}")
+            reports_logger.info(f"   📏 Input length_cm: {record_data.get('length_cm')}")
+            reports_logger.info(f"   📏 Input width_cm: {record_data.get('width_cm')}")
+            reports_logger.info(f"   📏 Input thickness_cm: {record_data.get('thickness_cm')}")
+        
             # Utwórz nowy rekord
             record = BaselinkerReportOrder()
-            
+        
             # Podstawowe pola
             record.date_created = record_data.get('date_created')
             record.baselinker_order_id = record_data.get('baselinker_order_id')
@@ -559,35 +608,43 @@ class BaselinkerReportsService:
             record.caretaker = record_data.get('caretaker')
             record.delivery_method = record_data.get('delivery_method')
             record.order_source = record_data.get('order_source')
-            
+        
             # Dane produktu
             record.group_type = record_data.get('group_type')
             record.product_type = record_data.get('product_type')
             record.finish_state = record_data.get('finish_state')
-            
+        
             # NOWE: Atrybuty z analizy objętości
             record.wood_species = record_data.get('wood_species')
             record.technology = record_data.get('technology')
             record.wood_class = record_data.get('wood_class')
-            
+        
             # Wymiary (mogą być None dla produktów z objętością)
             record.length_cm = record_data.get('length_cm')
             record.width_cm = record_data.get('width_cm')
             record.thickness_cm = record_data.get('thickness_cm')
             record.quantity = record_data.get('quantity')
-            
+        
             # Ceny i wartości
             record.price_gross = record_data.get('price_gross')
             record.price_net = record_data.get('price_net')
             record.value_gross = record_data.get('value_gross')  
             record.value_net = record_data.get('value_net')
-            
-            # WAŻNE: Objętości
+        
+            # ✅ WAŻNE: Objętości - ustaw PRZED calculate_fields()
             record.volume_per_piece = record_data.get('volume_per_piece')
             record.total_volume = record_data.get('total_volume')  # To trafia do kolumny używanej w statystykach
             record.price_per_m3 = record_data.get('price_per_m3')
             record.avg_order_price_per_m3 = record_data.get('avg_order_price_per_m3', 0.0)
-            
+        
+            # ✅ DEBUG PO USTAWIENIU WARTOŚCI
+            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PO USTAWIENIU ATRYBUTÓW:")
+            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
+            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
+            reports_logger.info(f"   📏 Record length_cm: {record.length_cm}")
+            reports_logger.info(f"   📏 Record width_cm: {record.width_cm}")
+            reports_logger.info(f"   📏 Record thickness_cm: {record.thickness_cm}")
+        
             # Pozostałe pola
             record.realization_date = record_data.get('realization_date')
             record.current_status = record_data.get('current_status')
@@ -598,18 +655,25 @@ class BaselinkerReportsService:
             record.production_volume = record_data.get('production_volume', 0)
             record.production_value_net = record_data.get('production_value_net', 0)
             record.ready_pickup_volume = record_data.get('ready_pickup_volume', 0)
-            
+        
             # Pola techniczne
             record.baselinker_status_id = record_data.get('baselinker_status_id')
             record.raw_product_name = record_data.get('raw_product_name')
             record.email = record_data.get('email')
-            
+        
             # Oblicz total_m3 na poziomie zamówienia
             record.total_m3 = record_data.get('total_volume', 0)
             record.order_amount_net = record_data.get('order_amount_net', 0)
-            
+        
             # ✅ OBLICZ automatycznie wszystkie pola (w tym datę realizacji)
+            # UWAGA: Ta metoda może nadpisać objętości!
             record.calculate_fields()
+
+            # ✅ DEBUG PO CALCULATE_FIELDS
+            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PO CALCULATE_FIELDS:")
+            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
+            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
+            reports_logger.info(f"   💰 Record price_per_m3: {record.price_per_m3}")
 
             # ✅ NOWE: Ustaw avg_order_price_per_m3 (metoda calculate_fields może to ustawić już poprawnie)
             # Ale sprawdź czy jest potrzebne dodatkowe ustawienie
@@ -619,10 +683,16 @@ class BaselinkerReportsService:
             # Zapisz do bazy
             db.session.add(record)
             db.session.commit()
-            
+        
+            # ✅ DEBUG PO ZAPISIE DO BAZY
+            reports_logger.info(f"🔍 SAVE_ORDER_RECORD DEBUG - PO ZAPISIE DO BAZY:")
+            reports_logger.info(f"   📦 Final volume_per_piece: {record.volume_per_piece}")
+            reports_logger.info(f"   📊 Final total_volume: {record.total_volume}")
+            reports_logger.info(f"   🆔 Record ID: {record.id}")
+        
             reports_logger.info(f"Zapisano rekord zamówienia {record.baselinker_order_id} z objętością {record.total_volume} m³")
             return record
-            
+        
         except Exception as e:
             db.session.rollback()
             reports_logger.error(f"Błąd zapisu rekordu zamówienia: {e}")
@@ -1336,55 +1406,94 @@ class BaselinkerReportsService:
             if not self._is_service_product(product_name):
                 total_order_value_net_products_only += product_value_net
 
-        # NOWA LOGIKA: Oblicz łączną objętość wszystkich produktów w zamówieniu
+        # POPRAWIONA LOGIKA: Oblicz łączną objętość wszystkich produktów w zamówieniu
+        # ✅ UWZGLĘDNIJ TAKŻE volume_fixes zamiast tylko parsera!
         total_m3_all_products = 0.0
         for product in products:
             try:
-                parsed_product = self.parser.parse_product_name(product.get('name', ''))
-        
-                # POPRAWKA: Bezpieczna konwersja wszystkich wymiarów na float
-                length_cm = parsed_product.get('length_cm')
-                width_cm = parsed_product.get('width_cm') 
-                thickness_mm = parsed_product.get('thickness_mm')
+                product_name = product.get('name', '')
                 quantity = int(product.get('quantity', 1))
+                product_id_raw = product.get('product_id')
+                product_id = product_id_raw if product_id_raw else 'unknown'
         
-                # Bezpieczna konwersja Decimal/None na float
-                def safe_float_convert(value):
-                    if value is None:
-                        return 0.0
-                    if isinstance(value, Decimal):
-                        return float(value)
-                    try:
-                        return float(value)
-                    except (ValueError, TypeError):
-                        return 0.0
+                # ✅ NOWA LOGIKA: Sprawdź volume_fixes NAJPIERW
+                product_key = f"{order.get('order_id')}_{product_id}"
+                volume_fix = self.get_volume_fix(product_key) if hasattr(self, 'volume_fixes') else None
         
-                length_m = safe_float_convert(length_cm) / 100 if length_cm else 0.0
-                width_m = safe_float_convert(width_cm) / 100 if width_cm else 0.0
-                thickness_m = safe_float_convert(thickness_mm) / 1000 if thickness_mm else 0.0
-        
-                if length_m > 0 and width_m > 0 and thickness_m > 0:
-                    product_m3 = length_m * width_m * thickness_m * quantity
-                    total_m3_all_products += product_m3
+                if volume_fix and volume_fix.get('volume'):
+                    # PRZYPADEK 1: Mamy ręczne poprawki objętości
+                    product_volume = float(volume_fix['volume'])
+                    total_m3_all_products += product_volume
             
-                    self.logger.debug("Obliczono objętość produktu",
+                    self.logger.debug("Użyto volume_fix dla produktu",
                                     order_id=order.get('order_id'),
-                                    product_name=product.get('name'),
-                                    length_m=round(length_m, 4),
-                                    width_m=round(width_m, 4),
-                                    thickness_m=round(thickness_m, 4),
-                                    quantity=quantity,
-                                    product_m3=round(product_m3, 6))
+                                    product_name=product_name,
+                                    product_key=product_key,
+                                    volume_from_fix=product_volume,
+                                    quantity=quantity)
                 else:
-                    self.logger.debug("Nie można obliczyć objętości - brak wymiarów",
-                                    order_id=order.get('order_id'),
-                                    product_name=product.get('name'),
-                                    parsed_dimensions={
-                                        'length_cm': safe_float_convert(length_cm) if length_cm else None,
-                                        'width_cm': safe_float_convert(width_cm) if width_cm else None,
-                                        'thickness_mm': safe_float_convert(thickness_mm) if thickness_mm else None
-                                    })
+                    # PRZYPADEK 2: Użyj analizy nazwy produktu
+                    from .routers import analyze_product_for_volume_and_attributes
+                    analysis = analyze_product_for_volume_and_attributes(product_name)
             
+                    if analysis['analysis_type'] == 'volume_only' and analysis.get('volume'):
+                        # Objętość z nazwy produktu
+                        product_volume = float(analysis.get('volume', 0))
+                        total_m3_all_products += product_volume
+                
+                        self.logger.debug("Użyto objętości z nazwy produktu",
+                                        order_id=order.get('order_id'),
+                                        product_name=product_name,
+                                        volume_from_name=product_volume,
+                                        quantity=quantity)
+                    else:
+                        # PRZYPADEK 3: Użyj parsera wymiarów (dotychczasowa logika)
+                        parsed_product = self.parser.parse_product_name(product_name)
+        
+                        # POPRAWKA: Bezpieczna konwersja wszystkich wymiarów na float
+                        length_cm = parsed_product.get('length_cm')
+                        width_cm = parsed_product.get('width_cm') 
+                        thickness_mm = parsed_product.get('thickness_mm')
+        
+                        # Bezpieczna konwersja Decimal/None na float
+                        def safe_float_convert(value):
+                            if value is None:
+                                return 0.0
+                            if isinstance(value, Decimal):
+                                return float(value)
+                            try:
+                                return float(value)
+                            except (ValueError, TypeError):
+                                return 0.0
+        
+                        length_m = safe_float_convert(length_cm) / 100 if length_cm else 0.0
+                        width_m = safe_float_convert(width_cm) / 100 if width_cm else 0.0
+                        thickness_m = safe_float_convert(thickness_mm) / 1000 if thickness_mm else 0.0
+        
+                        if length_m > 0 and width_m > 0 and thickness_m > 0:
+                            product_m3 = length_m * width_m * thickness_m * quantity
+                            total_m3_all_products += product_m3
+            
+                            self.logger.debug("Obliczono objętość produktu z wymiarów",
+                                            order_id=order.get('order_id'),
+                                            product_name=product_name,
+                                            length_m=round(length_m, 4),
+                                            width_m=round(width_m, 4),
+                                            thickness_m=round(thickness_m, 4),
+                                            quantity=quantity,
+                                            product_m3=round(product_m3, 6))
+                        else:
+                            self.logger.debug("Nie można obliczyć objętości - brak wymiarów i volume_fix",
+                                            order_id=order.get('order_id'),
+                                            product_name=product_name,
+                                            product_key=product_key,
+                                            has_volume_fix=volume_fix is not None,
+                                            parsed_dimensions={
+                                                'length_cm': safe_float_convert(length_cm) if length_cm else None,
+                                                'width_cm': safe_float_convert(width_cm) if width_cm else None,
+                                                'thickness_mm': safe_float_convert(thickness_mm) if thickness_mm else None
+                                            })
+        
             except Exception as e:
                 self.logger.warning("Błąd obliczania objętości produktu",
                                   order_id=order.get('order_id'),
@@ -2224,12 +2333,119 @@ class BaselinkerReportsService:
 
     def create_report_record(self, record_data):
         """
-        NOWA METODA: Tworzy rekord raportu w bazie danych
+        ULEPSZONA METODA: Tworzy rekord raportu w bazie danych z debugiem objętości
         """
         try:
-            record = BaselinkerReportOrder(**record_data)
+            # ✅ DODAJ DEBUG PRZED TWORZENIEM REKORDU
+            volume_per_piece_input = record_data.get('volume_per_piece')
+            total_volume_input = record_data.get('total_volume')
+        
+            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - DANE WEJŚCIOWE:")
+            reports_logger.info(f"   📦 Input volume_per_piece: {volume_per_piece_input}")
+            reports_logger.info(f"   📊 Input total_volume: {total_volume_input}")
+            reports_logger.info(f"   📏 Input length_cm: {record_data.get('length_cm')}")
+            reports_logger.info(f"   📏 Input width_cm: {record_data.get('width_cm')}")
+            reports_logger.info(f"   📏 Input thickness_cm: {record_data.get('thickness_cm')}")
+            reports_logger.info(f"   🌳 Input wood_species: {record_data.get('wood_species')}")
+            reports_logger.info(f"   🔧 Input technology: {record_data.get('technology')}")
+            reports_logger.info(f"   📏 Input wood_class: {record_data.get('wood_class')}")
+        
+            # ✅ UTWÓRZ REKORD BEZPOŚREDNIO (zamiast przez konstruktor)
+            record = BaselinkerReportOrder()
+        
+            # ✅ USTAW WSZYSTKIE POLA RĘCZNIE (jak w save_order_record)
+            # Podstawowe pola
+            record.date_created = record_data.get('date_created')
+            record.baselinker_order_id = record_data.get('baselinker_order_id')
+            record.internal_order_number = record_data.get('internal_order_number')
+            record.customer_name = record_data.get('customer_name')
+            record.delivery_postcode = record_data.get('delivery_postcode')
+            record.delivery_city = record_data.get('delivery_city')
+            record.delivery_address = record_data.get('delivery_address')
+            record.delivery_state = record_data.get('delivery_state')
+            record.phone = record_data.get('phone')
+            record.caretaker = record_data.get('caretaker')
+            record.delivery_method = record_data.get('delivery_method')
+            record.order_source = record_data.get('order_source')
+        
+            # Dane produktu
+            record.group_type = record_data.get('group_type')
+            record.product_type = record_data.get('product_type')
+            record.finish_state = record_data.get('finish_state')
+        
+            # Atrybuty z analizy objętości
+            record.wood_species = record_data.get('wood_species')
+            record.technology = record_data.get('technology')
+            record.wood_class = record_data.get('wood_class')
+        
+            # Wymiary (mogą być None dla produktów z objętością)
+            record.length_cm = record_data.get('length_cm')
+            record.width_cm = record_data.get('width_cm')
+            record.thickness_cm = record_data.get('thickness_cm')
+            record.quantity = record_data.get('quantity')
+        
+            # Ceny i wartości
+            record.price_gross = record_data.get('price_gross')
+            record.price_net = record_data.get('price_net')
+            record.value_gross = record_data.get('value_gross')  
+            record.value_net = record_data.get('value_net')
+        
+            # ✅ WAŻNE: Objętości - ustaw PRZED calculate_fields()
+            record.volume_per_piece = record_data.get('volume_per_piece')
+            record.total_volume = record_data.get('total_volume')
+            record.price_per_m3 = record_data.get('price_per_m3')
+            record.avg_order_price_per_m3 = record_data.get('avg_order_price_per_m3', 0.0)
+        
+            # ✅ DEBUG PO USTAWIENIU WARTOŚCI
+            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - PO USTAWIENIU ATRYBUTÓW:")
+            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
+            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
+            reports_logger.info(f"   📏 Record length_cm: {record.length_cm}")
+            reports_logger.info(f"   📏 Record width_cm: {record.width_cm}")
+            reports_logger.info(f"   📏 Record thickness_cm: {record.thickness_cm}")
+        
+            # Pozostałe pola
+            record.realization_date = record_data.get('realization_date')
+            record.current_status = record_data.get('current_status')
+            record.delivery_cost = record_data.get('delivery_cost')
+            record.payment_method = record_data.get('payment_method')
+            record.paid_amount_net = record_data.get('paid_amount_net', 0)
+            record.balance_due = record_data.get('balance_due')
+            record.production_volume = record_data.get('production_volume', 0)
+            record.production_value_net = record_data.get('production_value_net', 0)
+            record.ready_pickup_volume = record_data.get('ready_pickup_volume', 0)
+        
+            # Pola techniczne
+            record.baselinker_status_id = record_data.get('baselinker_status_id')
+            record.raw_product_name = record_data.get('raw_product_name')
+            record.email = record_data.get('email')
+        
+            # Oblicz total_m3 na poziomie zamówienia
+            record.total_m3 = record_data.get('total_volume', 0)
+            record.order_amount_net = record_data.get('order_amount_net', 0)
+            record.price_type = record_data.get('price_type')
+            record.original_amount_from_baselinker = record_data.get('original_amount_from_baselinker')
+        
+            # ✅ OBLICZ automatycznie wszystkie pola (w tym datę realizacji) 
+            # UWAGA: Ta metoda może nadpisać objętości!
+            record.calculate_fields()
+
+            # ✅ DEBUG PO CALCULATE_FIELDS
+            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - PO CALCULATE_FIELDS:")
+            reports_logger.info(f"   📦 Record volume_per_piece: {record.volume_per_piece}")
+            reports_logger.info(f"   📊 Record total_volume: {record.total_volume}")
+            reports_logger.info(f"   💰 Record price_per_m3: {record.price_per_m3}")
+        
+            # Dodaj do sesji (nie commituj tutaj)
             db.session.add(record)
+        
+            # ✅ DEBUG PO DODANIU DO SESJI
+            reports_logger.info(f"🔍 CREATE_REPORT_RECORD DEBUG - PO DODANIU DO SESJI:")
+            reports_logger.info(f"   📦 Final volume_per_piece: {record.volume_per_piece}")
+            reports_logger.info(f"   📊 Final total_volume: {record.total_volume}")
+        
             return record
+        
         except Exception as e:
             reports_logger.error(f"Błąd tworzenia rekordu: {str(e)}")
             raise

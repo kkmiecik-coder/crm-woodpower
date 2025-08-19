@@ -62,6 +62,21 @@ function createToastContainer() {
     return container;
 }
 
+function generateProductKey(orderId, product, productIndex) {
+    // Preferuj order_product_id jeśli dostępne
+    if (product.order_product_id) {
+        return `${orderId}_${product.order_product_id}`;
+    }
+    // Fallback do product_id jeśli dostępne
+    else if (product.product_id && product.product_id !== "") {
+        return `${orderId}_${product.product_id}`;
+    }
+    // Ostateczność: użyj indeksu produktu
+    else {
+        return `${orderId}_${productIndex}`;
+    }
+}
+
 function addToastStyles() {
     if (document.getElementById('toast-styles')) return;
 
@@ -2985,11 +3000,13 @@ class SyncManager {
         const productsNeedingVolume = [];
 
         selectedOrders.forEach(order => {
-            order.products.forEach(product => {
+            order.products.forEach((product, productIndex) => {
                 if (product.needs_manual_volume) {
                     productsNeedingVolume.push({
                         order_id: order.order_id,
                         product_id: product.product_id || 'unknown',
+                        order_product_id: product.order_product_id, // ✅ DODAJ order_product_id
+                        product_index: productIndex, // ✅ DODAJ indeks produktu
                         product_name: product.name,
                         quantity: product.quantity || 1,
                         order_info: {
@@ -3088,23 +3105,23 @@ class SyncManager {
         const productsNeedingVolume = [];
 
         selectedOrders.forEach(order => {
-            if (order.products && Array.isArray(order.products)) {
-                order.products.forEach(product => {
-                    if (product.needs_manual_volume) {
-                        productsNeedingVolume.push({
-                            order_id: order.order_id,
-                            product_id: product.product_id || 'unknown',
-                            product_name: product.name,
-                            quantity: product.quantity || 1,
-                            order_info: {
-                                customer_name: order.customer_name || order.delivery_fullname,
-                                date: new Date(order.date_add * 1000).toLocaleDateString('pl-PL')
-                            },
-                            analysis: product.volume_analysis
-                        });
-                    }
-                });
-            }
+            order.products.forEach((product, productIndex) => {
+                if (product.needs_manual_volume) {
+                    productsNeedingVolume.push({
+                        order_id: order.order_id,
+                        product_id: product.product_id || 'unknown',
+                        order_product_id: product.order_product_id, // ✅ DODAJ order_product_id
+                        product_index: productIndex, // ✅ DODAJ indeks produktu
+                        product_name: product.name,
+                        quantity: product.quantity || 1,
+                        order_info: {
+                            customer_name: order.customer_name,
+                            date: order.date_created
+                        },
+                        analysis: product.volume_analysis
+                    });
+                }
+            });
         });
 
         return productsNeedingVolume;
@@ -3828,10 +3845,11 @@ class SyncManager {
 
                 if (order.products && Array.isArray(order.products)) {
                     order.products.forEach((product, productIndex) => {
-                        const expectedKey = `${order.order_id}_${product.product_id || 'unknown'}`;
+                        const expectedKey = generateProductKey(order.order_id, product, productIndex);
                         const hasVolumeData = volumeData.hasOwnProperty(expectedKey);
                         console.log(`  - Produkt ${productIndex}: ${product.name}`);
                         console.log(`    product_id: ${product.product_id || 'BRAK/unknown'}`);
+                        console.log(`    order_product_id: ${product.order_product_id || 'BRAK'}`);
                         console.log(`    expected key: ${expectedKey}`);
                         console.log(`    has volume data: ${hasVolumeData}`);
                         if (hasVolumeData) {
@@ -3848,8 +3866,8 @@ class SyncManager {
             const expectedKeys = [];
             selectedOrdersData.forEach(order => {
                 if (order.products && Array.isArray(order.products)) {
-                    order.products.forEach(product => {
-                        expectedKeys.push(`${order.order_id}_${product.product_id || 'unknown'}`);
+                    order.products.forEach((product, productIndex) => {
+                        expectedKeys.push(generateProductKey(order.order_id, product, productIndex));
                     });
                 }
             });

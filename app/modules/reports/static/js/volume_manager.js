@@ -1,6 +1,8 @@
 // app/modules/reports/static/js/volume_manager.js
 // Ulepszona wersja z step-by-step workflow i auto-wypełnianiem
 
+
+
 class VolumeManager {
     constructor() {
         this.volumeModal = null;
@@ -11,6 +13,24 @@ class VolumeManager {
         this.isInitialized = false;
 
         this.init();
+    }
+
+    generateProductKey(orderId, product, productIndex = null) {
+        // Preferuj order_product_id jeśli dostępne
+        if (product.order_product_id) {
+            return `${orderId}_${product.order_product_id}`;
+        }
+        // Fallback do product_id jeśli dostępne
+        else if (product.product_id && product.product_id !== "") {
+            return `${orderId}_${product.product_id}`;
+        }
+        // Ostateczność: użyj indeksu produktu
+        else if (productIndex !== null) {
+            return `${orderId}_${productIndex}`;
+        }
+        else {
+            return `${orderId}_unknown`;
+        }
     }
 
     init() {
@@ -179,8 +199,9 @@ class VolumeManager {
      * Auto-wypełnia wykryte objętości z analizy nazw produktów
      */
     prePopulateDetectedVolumes() {
-        this.productsNeedingVolume.forEach(product => {
-            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        this.productsNeedingVolume.forEach((product, productIndex) => {
+            // ✅ POPRAWKA: Użyj tej samej logiki co w sync_manager
+            const productKey = this.generateProductKey(product.order_id, product, product.product_index);
             const analysis = product.analysis || {};
 
             // POPRAWKA: Inicjalizuj dane dla każdego produktu z jego własnymi atrybutami
@@ -205,9 +226,9 @@ class VolumeManager {
 
                 console.log(`[VolumeManager] Auto-wypełniono dla produktu ${product.product_name}:`, {
                     volume: volume,
-                    wood_species: analysis.wood_species,
-                    technology: analysis.technology,
-                    wood_class: analysis.wood_class
+                    wood_species: analysis.wood_species || '',
+                    technology: analysis.technology || '',
+                    wood_class: analysis.wood_class || ''
                 });
             }
         });
@@ -285,7 +306,7 @@ class VolumeManager {
 
     createProductsChecklist() {
         return this.productsNeedingVolume.map((product, index) => {
-            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+            const productKey = this.generateProductKey(product.order_id, product);
             const isCompleted = this.volumeData[productKey] && this.volumeData[productKey].volume > 0;
             const isCurrent = index === this.currentProductIndex;
             
@@ -332,7 +353,7 @@ class VolumeManager {
         const container = document.getElementById('currentProductForm');
         if (!container) return;
 
-        const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        const productKey = this.generateProductKey(product.order_id, product);
         const savedData = this.volumeData[productKey] || {
             volume: '',
             wood_species: '',
@@ -574,7 +595,7 @@ class VolumeManager {
             const isFirst = this.currentProductIndex === 0;
             const isLast = this.currentProductIndex === total - 1;
             const currentProduct = this.productsNeedingVolume[this.currentProductIndex];
-            const productKey = `${currentProduct.order_id}_${currentProduct.product_id || 'unknown'}`;
+            const productKey = this.generateProductKey(currentProduct.order_id, currentProduct, currentProduct.product_index);
             const hasVolume = this.volumeData[productKey]?.volume > 0;
 
             footer.innerHTML = `
@@ -611,7 +632,7 @@ class VolumeManager {
 
     handleNext() {
         const currentProduct = this.productsNeedingVolume[this.currentProductIndex];
-        const productKey = `${currentProduct.order_id}_${currentProduct.product_id || 'unknown'}`;
+        const productKey = this.generateProductKey(currentProduct.order_id, currentProduct, currentProduct.product_index);
         
         if (!this.volumeData[productKey]?.volume || this.volumeData[productKey].volume <= 0) {
             alert('Proszę wprowadzić objętość przed przejściem dalej.');
@@ -687,8 +708,9 @@ class VolumeManager {
         // Wyczyść czas ostatniego kliknięcia
         this.lastSkipTime = null;
 
-        this.productsNeedingVolume.forEach(product => {
-            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        this.productsNeedingVolume.forEach((product, productIndex) => {
+            // ✅ POPRAWKA: Użyj tej samej logiki generowania kluczy
+            const productKey = this.generateProductKey(product.order_id, product, product.product_index);
             this.volumeData[productKey] = { volume: 0 };
         });
 
@@ -726,8 +748,9 @@ class VolumeManager {
 
         productKeys.forEach(productKey => {
             const productData = this.volumeData[productKey];
+            // ✅ POPRAWKA: Użyj tej samej logiki generowania kluczy
             const correspondingProduct = this.productsNeedingVolume.find(p =>
-                `${p.order_id}_${p.product_id || 'unknown'}` === productKey
+                this.generateProductKey(p.order_id, p, p.product_index) === productKey
             );
 
             if (!correspondingProduct) {
@@ -841,7 +864,8 @@ class VolumeManager {
     }
 
     createProductElement(product) {
-        const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        // ✅ POPRAWKA: Użyj tej samej logiki co wszędzie indziej
+        const productKey = this.generateProductKey(product.order_id, product, product.product_index);
 
         // POPRAWKA: Upewnij się, że mamy aktualne dane z volumeData
         const savedData = this.volumeData[productKey] || {};
@@ -927,7 +951,7 @@ class VolumeManager {
         }
 
         // Następnie sprawdź w volumeData
-        const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        const productKey = this.generateProductKey(product.order_id, product);
         const savedData = this.volumeData[productKey] || {};
         return savedData[attribute] || '';
     }

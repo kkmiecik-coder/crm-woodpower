@@ -3550,19 +3550,79 @@ def api_save_orders_with_volumes():
 
         reports_logger.info("Ustawiono poprawki objętości dla {} produktów".format(len(volume_fixes) if volume_fixes else 0))
 
+        # ✅ DODAJ DEBUG PRZED WYWOŁANIEM FUNKCJI ZAPISUJĄCEJ
+        reports_logger.info("🔍 DEBUG PRZED WYWOŁANIEM FUNKCJI ZAPISUJĄCEJ:")
+        reports_logger.info(f"   📊 new_order_ids: {new_order_ids}")
+        reports_logger.info(f"   📦 filtered_orders_data count: {len(filtered_orders_data)}")
+        reports_logger.info(f"   🔧 service.volume_fixes keys: {list(service.volume_fixes.keys()) if hasattr(service, 'volume_fixes') else 'BRAK'}")
+        
+        # Sprawdź pierwszy produkt w pierwszym zamówieniu
+        if filtered_orders_data and len(filtered_orders_data) > 0:
+            first_order = filtered_orders_data[0]
+            reports_logger.info(f"   🎯 Pierwszy order_id: {first_order.get('order_id')}")
+            first_products = first_order.get('products', [])
+            if first_products:
+                first_product = first_products[0]
+                reports_logger.info(f"   📝 Pierwszy produkt: {first_product.get('name', 'BRAK NAZWY')}")
+                product_id = first_product.get('product_id', 'unknown')
+                expected_key = f"{first_order.get('order_id')}_{product_id}"
+                reports_logger.info(f"   🔑 Oczekiwany klucz: {expected_key}")
+                
+                # ✅ DODAJ DEBUG STRUKTURY PRODUKTU
+                reports_logger.info(f"   🔍 Struktura pierwszego produktu:")
+                reports_logger.info(f"   📦 product_id: '{first_product.get('product_id', 'BRAK')}'")
+                reports_logger.info(f"   📝 name: '{first_product.get('name', 'BRAK')}'")
+                reports_logger.info(f"   🔢 quantity: {first_product.get('quantity', 'BRAK')}")
+                reports_logger.info(f"   💰 price_brutto: {first_product.get('price_brutto', 'BRAK')}")
+                
+                # Sprawdź czy klucz istnieje w volume_fixes
+                if hasattr(service, 'volume_fixes') and expected_key in service.volume_fixes:
+                    fix_data = service.volume_fixes[expected_key]
+                    reports_logger.info(f"   ✅ Klucz znaleziony w volume_fixes: {fix_data}")
+                else:
+                    reports_logger.info(f"   ❌ Klucz NIE ZNALEZIONY w volume_fixes!")
+                    
+                    # Sprawdź wszystkie dostępne klucze
+                    if hasattr(service, 'volume_fixes'):
+                        available_keys = list(service.volume_fixes.keys())
+                        reports_logger.info(f"   🔍 Dostępne klucze: {available_keys}")
+                        
+                    # ✅ SPRAWDŹ WSZYSTKIE PRODUKTY W ZAMÓWIENIU
+                    reports_logger.info(f"   📋 Wszystkie produkty w zamówieniu:")
+                    for idx, prod in enumerate(first_products):
+                        prod_id = prod.get('product_id', 'BRAK')
+                        prod_name = prod.get('name', 'BRAK NAZWY')
+                        key_for_this_prod = f"{first_order.get('order_id')}_{prod_id if prod_id else 'unknown'}"
+                        reports_logger.info(f"      {idx+1}. ID: '{prod_id}' | Nazwa: '{prod_name}' | Klucz: '{key_for_this_prod}'")
+
         # Przekaż przefiltrowane dane zamówień
         result = _sync_selected_orders_with_volume_analysis(service, new_order_ids, filtered_orders_data)
         
-        # Wyczyść poprawki objętości
-        if volume_fixes:
-            service.clear_volume_fixes()
+        # ✅ DODAJ DEBUG PO WYWOŁANIU FUNKCJI ZAPISUJĄCEJ
+        reports_logger.info("🔍 DEBUG PO WYWOŁANIU FUNKCJI ZAPISUJĄCEJ:")
+        reports_logger.info(f"   📊 Result success: {result.get('success')}")
+        reports_logger.info(f"   📈 Orders processed: {result.get('orders_processed')}")
+        reports_logger.info(f"   📝 Orders added: {result.get('orders_added')}")
+        if not result.get('success'):
+            reports_logger.info(f"   ❌ Error: {result.get('error')}")
+
+        # ✅ POPRAWKA: Wyczyść poprawki objętości DOPIERO PO zakończeniu zapisu
+        # (nie wcześniej, bo _sync_selected_orders_with_volume_analysis może jeszcze ich używać!)
 
         if result.get('success'):
+            # ✅ TUTAJ jest właściwe miejsce na czyszczenie volume_fixes
+            if volume_fixes:
+                service.clear_volume_fixes()
+                
             reports_logger.info("Zapisywanie zamówień z objętościami zakończone pomyślnie",
                               orders_processed=result.get('orders_processed', 0),
                               orders_added=result.get('orders_added', 0))
             return jsonify(result)
         else:
+            # ✅ W przypadku błędu też wyczyść volume_fixes
+            if volume_fixes:
+                service.clear_volume_fixes()
+                
             return jsonify(result), 500
             
     except Exception as e:
