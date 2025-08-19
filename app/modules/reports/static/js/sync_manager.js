@@ -859,6 +859,12 @@ class SyncManager {
                 this.fetchedOrders = result.orders || [];
                 console.log('[SyncManager] ✅ Pobrano zamówienia z analizą objętości:', this.fetchedOrders.length);
 
+                // *** NOWY KOD: Obsługa komunikatu z API ***
+                if (result.message) {
+                    console.log('[SyncManager] 📄 Komunikat z API:', result.message);
+                    this.showApiMessage(result.message, result.ignored_existing > 0 ? 'info' : 'success');
+                }
+
                 // Symuluj czas analizowania (żeby użytkownik widział krok 3)
                 await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -3914,6 +3920,26 @@ class SyncManager {
             }
             this.clearSelectedOrders();
         }, 3000);
+    }
+
+    // *** NOWA FUNKCJA: Pokazywanie komunikatu z API ***
+    showApiMessage(message, type = 'info') {
+        console.log(`[SyncManager] 📢 Pokazywanie komunikatu API: ${message}`);
+
+        // Użyj systemu toastów jeśli dostępny
+        if (window.showToast) {
+            window.showToast(message, type, 8000); // 8 sekund dla dłuższych komunikatów
+            return;
+        }
+
+        // Fallback - użyj systemu komunikatów reports managera jeśli dostępny
+        if (window.reportsManager && typeof window.reportsManager.showMessage === 'function') {
+            window.reportsManager.showMessage(message, type);
+            return;
+        }
+
+        // Ostateczny fallback - alert
+        alert(message);
     }
 
     updateSyncStatus() {

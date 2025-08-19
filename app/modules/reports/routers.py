@@ -1977,6 +1977,7 @@ def api_fetch_orders_for_selection():
     with automatic pagination when >90 orders
     DEFAULT EXCLUDES STATUSES 105112 and 138625
     + Volume and attributes analysis for products
+    + NOWE: Całkowicie ignoruje zamówienia które już istnieją w bazie danych
     """
     user_email = session.get('user_email')
     
@@ -2044,76 +2045,83 @@ def api_fetch_orders_for_selection():
         all_orders = result['orders']
         reports_logger.info(f"Fetched {len(all_orders)} orders from date range")
         
-        # Dodaj filtrowanie i analizę objętości
+        # ZMIANA: Filtruj zamówienia - pokaż TYLKO te które NIE istnieją w bazie danych
         processed_orders = []
         new_orders_count = 0
+        ignored_existing_count = 0
         
         for order in all_orders:
             order_id = order['order_id']
             
-            # Sprawdź czy zamówienie już istnieje
-            if order_id not in existing_order_ids:
-                # Dodatkowa ochrona: filtruj wykluczone statusy po stronie aplikacji
-                status_id = order.get('order_status_id')
+            # KLUCZOWA ZMIANA: Sprawdź czy zamówienie już istnieje - jeśli TAK, IGNORUJ całkowicie
+            if order_id in existing_order_ids:
+                ignored_existing_count += 1
+                reports_logger.debug("Ignoring existing order",
+                                   order_id=order_id,
+                                   customer_name=order.get('delivery_fullname', 'Brak nazwy'))
+                continue  # Pomiń to zamówienie całkowicie
                 
-                if not get_all_statuses and status_id in [105112, 138625]:
-                    reports_logger.debug("Excluded order due to status",
-                                       order_id=order_id,
-                                       status_id=status_id,
-                                       status_name=service.status_map.get(status_id, f'Status {status_id}'))
-                    continue
-                
-                # Wykonaj analizę objętości dla produktów w zamówieniu
-                order = analyze_order_products_for_volume(order)
-                
-                processed_orders.append(order)
-                new_orders_count += 1
-            else:
-                # Oznacz istniejące zamówienia
-                order['exists_in_database'] = True
-                processed_orders.append(order)
+            # Dodatkowa ochrona: filtruj wykluczone statusy po stronie aplikacji
+            status_id = order.get('order_status_id')
+            if not get_all_statuses and status_id in [105112, 138625]:
+                reports_logger.debug("Excluded order due to status",
+                                   order_id=order_id,
+                                   status_id=status_id,
+                                   status_name=service.status_map.get(status_id, f'Status {status_id}'))
+                continue
+            
+            # Wykonaj analizę objętości dla produktów w zamówieniu
+            order = analyze_order_products_for_volume(order)
+            
+            # Oznacz jako nowe zamówienie (wszystkie tutaj są nowe, bo istniejące zostały pominięte)
+            order['exists_in_database'] = False
+            
+            processed_orders.append(order)
+            new_orders_count += 1
 
         # Analiza objętości
         total_volume_issues = sum(1 for order in processed_orders if order.get('has_volume_issues', False))
-        
-        # Oznacz które zamówienia już istnieją w bazie
-        if processed_orders:
-            order_ids_to_check = [order['order_id'] for order in processed_orders]
-            existing = BaselinkerReportOrder.query.filter(
-                BaselinkerReportOrder.baselinker_order_id.in_(order_ids_to_check)
-            ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
-            existing_set = {order[0] for order in existing}
-            
-            # Oznacz istniejące zamówienia
-            for order in processed_orders:
-                order['exists_in_database'] = order['order_id'] in existing_set
 
         reports_logger.info("Completed fetching orders with volume analysis",
-                          total_orders=len(processed_orders),
-                          new_orders=new_orders_count,
+                          total_orders_fetched=len(all_orders),
+                          ignored_existing=ignored_existing_count,
+                          new_orders_displayed=new_orders_count,
                           volume_issues_count=total_volume_issues)
+
+        # Sprawdź czy są jakieś nowe zamówienia do wyświetlenia
+        if new_orders_count == 0:
+            return jsonify({
+                'success': True,
+                'orders': [],
+                'total_orders': 0,
+                'new_orders': 0,
+                'ignored_existing': ignored_existing_count,
+                'volume_issues_count': 0,
+                'message': f'Brak nowych zamówień w wybranym okresie. Zignorowano {ignored_existing_count} zamówień już istniejących w bazie danych.'
+            })
 
         return jsonify({
             'success': True,
             'orders': processed_orders,
             'total_orders': len(processed_orders),
             'new_orders': new_orders_count,
+            'ignored_existing': ignored_existing_count,
             'volume_issues_count': total_volume_issues,
             'pagination_info': {
                 'method': 'date_range_fetch',
                 'filtered_excluded_statuses': not get_all_statuses
             },
-            'message': f'Fetched {len(processed_orders)} orders ({new_orders_count} new). {total_volume_issues} products require volume completion.'
+            'message': f'Znaleziono {new_orders_count} nowych zamówień. Zignorowano {ignored_existing_count} już istniejących. {total_volume_issues} produktów wymaga uzupełnienia objętości.'
         })
-        
+
     except Exception as e:
-        reports_logger.error("Error fetching orders for selection",
+        reports_logger.error("Error in fetch-orders-for-selection",
                            user_email=user_email,
                            error=str(e),
                            error_type=type(e).__name__)
         return jsonify({
             'success': False,
-            'error': f'Server error: {str(e)}'
+            'error': f'Błąd pobierania zamówień: {str(e)}'
         }), 500
 
 def analyze_order_products_for_volume(order_data):
