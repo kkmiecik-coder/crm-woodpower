@@ -3523,7 +3523,32 @@ def api_save_orders_with_volumes():
         # Zastosuj poprawki objętości jeśli zostały podane
         if volume_fixes:
             service.set_volume_fixes(volume_fixes)
-            reports_logger.info("Ustawiono poprawki objętości dla {} produktów".format(len(volume_fixes)))
+            reports_logger.info("🔍 DEBUGGING VOLUME FIXES:")
+            reports_logger.info(f"📊 Liczba kluczy w volume_fixes: {len(volume_fixes)}")
+            for product_key, fixes in volume_fixes.items():
+                reports_logger.info(f"🔑 Klucz: {product_key}")
+                reports_logger.info(f"📦 Dane: {fixes}")
+                reports_logger.info(f"🔢 Objętość: {fixes.get('volume', 'BRAK')}")
+                reports_logger.info(f"🌳 Gatunek: {fixes.get('wood_species', 'BRAK')}")
+                reports_logger.info(f"🔧 Technologia: {fixes.get('technology', 'BRAK')}")
+                reports_logger.info(f"📏 Klasa: {fixes.get('wood_class', 'BRAK')}")
+    
+            # ✅ SPRAWDŹ CZY SERVICE MA DOSTĘP DO DANYCH
+            reports_logger.info("🔍 SPRAWDZENIE SERVICE:")
+            reports_logger.info(f"📊 service.volume_fixes keys: {list(service.volume_fixes.keys()) if hasattr(service, 'volume_fixes') else 'BRAK ATRYBUTU'}")
+    
+            # ✅ TESTUJ get_volume_fix_attribute
+            for product_key in volume_fixes.keys():
+                test_volume = service.get_volume_fix_attribute(product_key, 'volume')
+                test_species = service.get_volume_fix_attribute(product_key, 'wood_species')
+                reports_logger.info(f"🧪 TEST get_volume_fix_attribute dla {product_key}:")
+                reports_logger.info(f"   📦 volume: {test_volume}")
+                reports_logger.info(f"   🌳 wood_species: {test_species}")
+        
+        else:
+            reports_logger.info("⚠️ BRAK volume_fixes - używamy automatycznej analizy")
+
+        reports_logger.info("Ustawiono poprawki objętości dla {} produktów".format(len(volume_fixes) if volume_fixes else 0))
 
         # Przekaż przefiltrowane dane zamówień
         result = _sync_selected_orders_with_volume_analysis(service, new_order_ids, filtered_orders_data)

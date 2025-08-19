@@ -3795,46 +3795,102 @@ class SyncManager {
 
             const orderIds = Array.from(this.selectedOrderIds);
 
-            // 🔍 DODAJ SZCZEGÓŁOWE DEBUGOWANIE
-            console.log('[SyncManager] 🔍 DEBUGGING DANYCH:');
-            console.log('1. selectedOrderIds:', orderIds);
-            console.log('2. fetchedOrders length:', this.fetchedOrders?.length || 0);
-            console.log('3. fetchedOrders sample:', this.fetchedOrders?.[0] || 'BRAK');
-            console.log('4. volumeData:', volumeData);
-
-            // ✅ Filtruj dane zamówień do tylko wybranych
+            // ✅ POPRAWKA: Znajdź odpowiednie dane zamówień
             const selectedOrdersData = this.fetchedOrders.filter(order => {
                 const orderId = order.order_id?.toString();
-                const isSelected = orderIds.includes(orderId);
-                console.log(`[DEBUG] Order ${order.order_id}: selected=${isSelected}, orderIds includes ${orderId}=${orderIds.includes(orderId)}`);
-                return isSelected;
+                return orderIds.includes(orderId);
             });
 
-            console.log('[SyncManager] 🔍 PO FILTROWANIU:');
-            console.log('selectedOrdersData length:', selectedOrdersData.length);
-            console.log('selectedOrdersData sample:', selectedOrdersData[0] || 'BRAK PO FILTROWANIU');
+            // ✅ POPRAWKA: Dodaj szczegółowe logowanie danych objętości
+            console.log('[SyncManager] 🔍 DEBUGGING VOLUME DATA:');
+            console.log('1. Otrzymane volumeData:', volumeData);
+            console.log('2. Klucze w volumeData:', Object.keys(volumeData));
+            console.log('3. Przykładowa wartość volumeData:', Object.values(volumeData)[0]);
 
-            // 🔍 SPRAWDŹ STRUKTURĘ PIERWSZEGO ZAMÓWIENIA
-            if (selectedOrdersData.length > 0) {
-                const firstOrder = selectedOrdersData[0];
-                console.log('[SyncManager] 🔍 STRUKTURA PIERWSZEGO ZAMÓWIENIA:');
-                console.log('- order_id:', firstOrder.order_id);
-                console.log('- customer_name:', firstOrder.customer_name || firstOrder.delivery_fullname);
-                console.log('- products:', firstOrder.products?.length || 0);
-                console.log('- products sample:', firstOrder.products?.[0]?.name || 'BRAK');
-                console.log('- cały obiekt:', firstOrder);
+            // ✅ POPRAWKA: Sprawdź selectedOrdersData
+            console.log('[SyncManager] 🔍 DEBUGGING SELECTED ORDERS DATA:');
+            console.log('4. selectedOrdersData length:', selectedOrdersData.length);
+            console.log('5. selectedOrdersData:', selectedOrdersData);
+
+            if (selectedOrdersData.length === 0) {
+                console.error('[SyncManager] ❌ BRAK selectedOrdersData! Sprawdzamy fetchedOrders...');
+                console.log('fetchedOrders:', this.fetchedOrders);
+                console.log('selectedOrderIds:', Array.from(this.selectedOrderIds));
+                throw new Error('Brak danych wybranych zamówień. Problem z filtrowaniem zamówień.');
             }
 
-            console.log('[SyncManager] 📤 Przesyłanie danych:', {
-                orderIds: orderIds.length,
-                ordersData: selectedOrdersData.length,
-                volumeFixes: Object.keys(volumeData).length,
-                selectedOrdersDataSample: selectedOrdersData.length > 0 ? {
-                    order_id: selectedOrdersData[0].order_id,
-                    hasProducts: !!selectedOrdersData[0].products,
-                    productsCount: selectedOrdersData[0].products?.length || 0
-                } : 'BRAK'
+            // ✅ POPRAWKA: Debuguj strukturę produktów w selectedOrdersData
+            selectedOrdersData.forEach((order, orderIndex) => {
+                console.log(`[DEBUG] Zamówienie ${order.order_id} (${orderIndex}):`);
+                console.log(`  - customer_name: ${order.customer_name || order.delivery_fullname || 'BRAK'}`);
+                console.log(`  - ma products: ${!!(order.products && Array.isArray(order.products))}`);
+                console.log(`  - liczba produktów: ${order.products?.length || 0}`);
+
+                if (order.products && Array.isArray(order.products)) {
+                    order.products.forEach((product, productIndex) => {
+                        const expectedKey = `${order.order_id}_${product.product_id || 'unknown'}`;
+                        const hasVolumeData = volumeData.hasOwnProperty(expectedKey);
+                        console.log(`  - Produkt ${productIndex}: ${product.name}`);
+                        console.log(`    product_id: ${product.product_id || 'BRAK/unknown'}`);
+                        console.log(`    expected key: ${expectedKey}`);
+                        console.log(`    has volume data: ${hasVolumeData}`);
+                        if (hasVolumeData) {
+                            console.log(`    volume data:`, volumeData[expectedKey]);
+                        }
+                    });
+                } else {
+                    console.warn(`  ⚠️ Zamówienie ${order.order_id} nie ma produktów lub products nie jest tablicą!`);
+                }
             });
+
+            // ✅ POPRAWKA: Sprawdź zgodność kluczy
+            const volumeKeys = Object.keys(volumeData);
+            const expectedKeys = [];
+            selectedOrdersData.forEach(order => {
+                if (order.products && Array.isArray(order.products)) {
+                    order.products.forEach(product => {
+                        expectedKeys.push(`${order.order_id}_${product.product_id || 'unknown'}`);
+                    });
+                }
+            });
+
+            console.log('[SyncManager] 🔍 PORÓWNANIE KLUCZY:');
+            console.log('Klucze z volumeData:', volumeKeys);
+            console.log('Oczekiwane klucze z produktów:', expectedKeys);
+            console.log('Zgodność kluczy:', volumeKeys.every(key => expectedKeys.includes(key)));
+
+            // ✅ POPRAWKA: Waliduj czy mamy zgodność
+            const hasMatchingKeys = volumeKeys.some(key => expectedKeys.includes(key));
+            if (!hasMatchingKeys && volumeKeys.length > 0) {
+                console.error('[SyncManager] ❌ BRAK ZGODNOŚCI KLUCZY!');
+                console.log('Możliwe przyczyny:');
+                console.log('1. product_id w selectedOrdersData nie odpowiada kluczom w volumeData');
+                console.log('2. Struktura danych się zmieniła między modelem objętości a zapisem');
+                console.log('3. Problem z filtrowaniem selectedOrdersData');
+            }
+
+            // ✅ POPRAWKA: Debuguj strukture produktów w selectedOrdersData
+            selectedOrdersData.forEach((order, orderIndex) => {
+                console.log(`[DEBUG] Zamówienie ${order.order_id} (${orderIndex}):`);
+                if (order.products && Array.isArray(order.products)) {
+                    order.products.forEach((product, productIndex) => {
+                        const expectedKey = `${order.order_id}_${product.product_id || 'unknown'}`;
+                        const hasVolumeData = volumeData.hasOwnProperty(expectedKey);
+                        console.log(`  - Produkt ${productIndex}: ${product.name}`);
+                        console.log(`    product_id: ${product.product_id || 'unknown'}`);
+                        console.log(`    expected key: ${expectedKey}`);
+                        console.log(`    has volume data: ${hasVolumeData}`);
+                        if (hasVolumeData) {
+                            console.log(`    volume data:`, volumeData[expectedKey]);
+                        }
+                    });
+                }
+            });
+
+            // ✅ POPRAWKA: Waliduj czy mamy dane zamówień
+            if (selectedOrdersData.length === 0) {
+                throw new Error('Brak danych wybranych zamówień. Odśwież stronę i spróbuj ponownie.');
+            }
 
             // UŻYWAJ ISTNIEJĄCEGO ENDPOINTU save-orders-with-volumes
             const response = await fetch('/reports/api/save-orders-with-volumes', {
@@ -3844,7 +3900,7 @@ class SyncManager {
                 },
                 body: JSON.stringify({
                     order_ids: orderIds,
-                    volume_fixes: volumeData,
+                    volume_fixes: volumeData,  // ✅ Przekaż objętości bezpośrednio
                     orders_data: selectedOrdersData  // ✅ PRZESYŁAJ PEŁNE DANE
                 })
             });
