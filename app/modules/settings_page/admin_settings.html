@@ -5,6 +5,7 @@
     <title>Ustawienia - Wood Power CRM</title>
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('scheduler.static', filename='css/scheduler.css') }}">
 </head>
 <body>
     <div class="app-container">
@@ -19,6 +20,8 @@
                 <div class="tab active" data-tab="profile-settings">Ustawienia profilu</div>
                 <div class="tab" data-tab="users-settings">Zespół</div>
                 <div class="tab" data-tab="prices-settings">DB cennik produktowy</div>
+                <a class="tab" href="{{ url_for('settings_logs') }}">Logi</a>
+                <div class="tab" data-tab="scheduler-settings">Automatyzacje</div>
             </div>
 
             <!-- Blok wyświetlania flash messages -->
@@ -104,7 +107,7 @@
                                         </div>
                                         <input type="file" name="avatar_file" class="upload-avatar" accept="image/*">
                                         <!-- Gdybyś chciał osobny przycisk "Wgraj plik" – możesz dodać:
-                                <button type="button" class="submit-txt">Wgraj plik</button> --->
+                                        <button type="button" class="submit-txt">Wgraj plik</button> --->
                                     </div>
                                 </div>
                                 <!-- Ukryte pole do zapisu wybranego domyślnego avatara -->
@@ -251,64 +254,77 @@
                 <h2 class="title-with-underline-h2">Tabela cennika</h2>
                 <!-- Formularz z listą wszystkich rekordów -->
                 <form action="{{ url_for('admin_prices') }}" method="POST">
-                  <table class="styled-table">
-                    <thead>
-                      <tr>
-                        <th>Gatunek</th>
-                        <th>Technologia</th>
-                        <th>Klasa</th>
-                        <th>Grubość min.</th>
-                        <th>Grubość max.</th>
-                        <th>Długość min.</th>
-                        <th>Długość max.</th>
-                        <th>Cena za m3</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for p in prices %}
-                      <tr>
-                        <td>{{ p.species }}</td>
-                        <td>{{ p.technology }}</td>
-                        <td>{{ p.wood_class }}</td>
-                        <td>
-                          <input type="text"
-                                 name="price_{{ p.id }}_thickness_min"
-                                 value="{{ p.thickness_min|default(0) }}">
-                        </td>
-                        <td>
-                          <input type="text"
-                                 name="price_{{ p.id }}_thickness_max"
-                                 value="{{ p.thickness_max|default(0) }}">
-                        </td>
-                        <td>
-                          <input type="text"
-                                 name="price_{{ p.id }}_length_min"
-                                 value="{{ p.length_min|default(0) }}">
-                        </td>
-                        <td>
-                          <input type="text"
-                                 name="price_{{ p.id }}_length_max"
-                                 value="{{ p.length_max|default(0) }}">
-                        </td>
-                        <td>
-                          <input type="text"
-                                 name="price_{{ p.id }}_price_per_m3"
-                                 value="{{ p.price_per_m3|default(0) }}">
-                        </td>
-                      </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-              
-                  <!-- Przycisk zapisu -->
-                  <button type="submit" class="orange-button" style="margin-top: 20px;">Zapisz</button>
+                    <table class="styled-table">
+                        <thead>
+                            <tr>
+                                <th>Gatunek</th>
+                                <th>Technologia</th>
+                                <th>Klasa</th>
+                                <th>Grubość min.</th>
+                                <th>Grubość max.</th>
+                                <th>Długość min.</th>
+                                <th>Długość max.</th>
+                                <th>Cena za m3</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in prices %}
+                            <tr>
+                                <td>{{ p.species }}</td>
+                                <td>{{ p.technology }}</td>
+                                <td>{{ p.wood_class }}</td>
+                                <td>
+                                    <input type="text"
+                                           name="price_{{ p.id }}_thickness_min"
+                                           value="{{ p.thickness_min|default(0) }}">
+                                </td>
+                                <td>
+                                    <input type="text"
+                                           name="price_{{ p.id }}_thickness_max"
+                                           value="{{ p.thickness_max|default(0) }}">
+                                </td>
+                                <td>
+                                    <input type="text"
+                                           name="price_{{ p.id }}_length_min"
+                                           value="{{ p.length_min|default(0) }}">
+                                </td>
+                                <td>
+                                    <input type="text"
+                                           name="price_{{ p.id }}_length_max"
+                                           value="{{ p.length_max|default(0) }}">
+                                </td>
+                                <td>
+                                    <input type="text"
+                                           name="price_{{ p.id }}_price_per_m3"
+                                           value="{{ p.price_per_m3|default(0) }}">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                    <!-- Przycisk zapisu -->
+                    <button type="submit" class="orange-button" style="margin-top: 20px;">Zapisz</button>
                 </form>
+            </div>
+            <!-- Zakładka "Automatyzacje" -->
+            <div id="scheduler-settings" class="tab-content">
+                {% if scheduler_status %}
+                {% include 'scheduler_content.html' %}
+                {% else %}
+                <div style="padding: 40px; text-align: center; background: #f8f9fa;">
+                    <h3>❌ Scheduler niedostępny</h3>
+                    <p>scheduler_status = {{ scheduler_status }}</p>
+                    <p>quote_stats = {{ quote_stats }}</p>
+                </div>
+                {% endif %}
             </div>
         </main>
     </div>
 
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('scheduler.static', filename='js/scheduler.js') }}"></script>
 
     <!-- Modal overlay i modal box -->
     <div class="modal-overlay" id="modal-overlay" style="display: none;"></div>
