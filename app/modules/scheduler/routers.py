@@ -98,10 +98,33 @@ def dashboard():
         for config in config_records:
             configs[config.key] = config.value
         
-        # Statystyki ogólne
+        # POPRAWIONE STATYSTYKI
         total_scheduled = EmailSchedule.query.count()
+        
+        # Zaplanowane emaile (pending) - te które czekają na wysłanie
         pending_emails = EmailSchedule.query.filter_by(status='pending').count()
+        
+        # Failed emails - te które się nie udało wysłać
         failed_emails = EmailSchedule.query.filter_by(status='failed').count()
+        
+        # Logi z ostatnich 30 dni
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        recent_sent = EmailLog.query.filter(
+            EmailLog.status == 'success',
+            EmailLog.sent_at >= thirty_days_ago
+        ).count()
+        
+        recent_failed = EmailLog.query.filter(
+            EmailLog.status == 'failed',
+            EmailLog.sent_at >= thirty_days_ago
+        ).count()
+        
+        print(f"[Dashboard] Statystyki emaili:", file=sys.stderr)
+        print(f"  - Łącznie zaplanowanych: {total_scheduled}", file=sys.stderr)
+        print(f"  - Oczekujących (pending): {pending_emails}", file=sys.stderr)
+        print(f"  - Nieudanych (failed): {failed_emails}", file=sys.stderr)
+        print(f"  - Wysłanych (30 dni): {recent_sent}", file=sys.stderr)
+        print(f"  - Błędów (30 dni): {recent_failed}", file=sys.stderr)
         
         return render_template(
             'scheduler_dashboard.html',
@@ -444,4 +467,86 @@ def get_upcoming_emails():
         return jsonify({
             'success': False,
             'message': f'Błąd: {str(e)}'
+        }), 500
+
+@scheduler_bp.route('/api/test/send-quote-reminder', methods=['POST'])
+@login_required
+@admin_required
+def send_test_quote_reminder():
+    """
+    API endpoint do wysyłania próbnego przypomnienia o wycenie
+    """
+    try:
+        data = request.get_json()
+        quote_id = data.get('quote_id')
+        
+        if not quote_id:
+            return jsonify({
+                'success': False,
+                'message': 'Brak ID wyceny w żądaniu'
+            }), 400
+        
+        # Sprawdź czy ID jest liczbą
+        try:
+            quote_id = int(quote_id)
+        except (ValueError, TypeError):
+            return jsonify({
+                'success': False,
+                'message': 'ID wyceny musi być liczbą'
+            }), 400
+        
+        print(f"[TEST QUOTE EMAIL] Rozpoczynam wysyłanie próbnego przypomnienia dla wyceny ID: {quote_id}", file=sys.stderr)
+        
+        # Import modeli
+        from modules.quotes.models import Quote
+        from modules.scheduler.jobs.quote_reminders import send_quote_reminder_email
+        
+        # Znajdź wycenę
+        quote = Quote.query.get(quote_id)
+        if not quote:
+            print(f"[TEST QUOTE EMAIL] Nie znaleziono wyceny ID: {quote_id}", file=sys.stderr)
+            return jsonify({
+                'success': False,
+                'message': f'Nie znaleziono wyceny o ID: {quote_id}'
+            }), 404
+        
+        # Sprawdź czy wycena ma klienta i email
+        if not quote.client:
+            return jsonify({
+                'success': False,
+                'message': f'Wycena {quote.quote_number} nie ma przypisanego klienta'
+            }), 400
+        
+        if not quote.client.email:
+            return jsonify({
+                'success': False,
+                'message': f'Klient wyceny {quote.quote_number} nie ma adresu email'
+            }), 400
+        
+        print(f"[TEST QUOTE EMAIL] Wysyłam przypomnienie dla wyceny {quote.quote_number} na {quote.client.email}", file=sys.stderr)
+        
+        # Użyj istniejącej funkcji do wysyłania przypomnień
+        success = send_quote_reminder_email(quote)
+        
+        if success:
+            print(f"[TEST QUOTE EMAIL] Próbne przypomnienie wysłane pomyślnie dla wyceny {quote.quote_number}", file=sys.stderr)
+            
+            return jsonify({
+                'success': True,
+                'message': f'Próbne przypomnienie o wycenie {quote.quote_number} zostało wysłane na {quote.client.email}'
+            })
+        else:
+            print(f"[TEST QUOTE EMAIL] Błąd wysyłania próbnego przypomnienia dla wyceny {quote.quote_number}", file=sys.stderr)
+            
+            return jsonify({
+                'success': False,
+                'message': f'Nie udało się wysłać przypomnienia o wycenie {quote.quote_number}. Sprawdź logi systemu.'
+            }), 500
+        
+    except Exception as e:
+        print(f"[TEST QUOTE EMAIL] Błąd wysyłania próbnego przypomnienia: {e}", file=sys.stderr)
+        
+        return jsonify({
+            'success': False,
+            'message': f'Błąd serwera: {str(e)}'
         }), 500

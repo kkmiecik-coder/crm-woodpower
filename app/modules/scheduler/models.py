@@ -83,7 +83,6 @@ class SchedulerConfig(db.Model):
         return f'<SchedulerConfig {self.key}: {self.value}>'
 
 
-# Funkcja pomocnicza do tworzenia domyślnych konfiguracji
 def create_default_scheduler_config():
     """
     Tworzy domyślne ustawienia schedulera jeśli nie istnieją
@@ -97,12 +96,22 @@ def create_default_scheduler_config():
         {
             'key': 'quote_reminder_days',
             'value': '7',
-            'description': 'Po ilu dniach wysyłać przypomnienie o wycenie'
+            'description': 'Po ilu dniach sprawdzać wyceny (minimum)'
+        },
+        {
+            'key': 'quote_reminder_max_days',
+            'value': '30',
+            'description': 'Maksymalny wiek wycen do sprawdzania (dni)'
         },
         {
             'key': 'daily_check_hour',
-            'value': '9',
+            'value': '16',  # ZMIENIONE na 16:00
             'description': 'O której godzinie sprawdzać codziennie (0-23)'
+        },
+        {
+            'key': 'email_send_delay',  # NOWE
+            'value': '1',
+            'description': 'Po ilu godzinach od sprawdzania wysłać emaile'
         },
         {
             'key': 'max_reminder_attempts',
@@ -123,7 +132,7 @@ def create_default_scheduler_config():
     
     try:
         db.session.commit()
-        print("[Scheduler] Domyślne konfiguracje zostały utworzone")
+        print("[Scheduler] Domyślne konfiguracje zostały utworzone", file=sys.stderr)
     except Exception as e:
         db.session.rollback()
-        print(f"[Scheduler] Błąd tworzenia konfiguracji: {e}")
+        print(f"[Scheduler] Błąd tworzenia konfiguracji: {e}", file=sys.stderr)

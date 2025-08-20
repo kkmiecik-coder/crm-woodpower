@@ -490,3 +490,24 @@
         border-color: #718096;
     }
 }
+
+.tab:hover {
+    background: #d85a1e !important;
+    color: white !important;
+}
+
+.tab.active {
+    background: #ED6B24 !important;
+    color: white !important;
+}
+
+.tab-content {
+    min-height: 200px;
+}
+
+.form-select {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-right: 12px;
+}
