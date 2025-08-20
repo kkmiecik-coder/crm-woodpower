@@ -1,0 +1,28 @@
+# .htaccess - Zoptymalizowana konfiguracja
+PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/3.9/bin/python
+PassengerStartupFile passenger_wsgi.py
+
+# Podstawowe ustawienia
+PassengerEnabled on
+PassengerAppType wsgi
+PassengerAppRoot /home/woodpower/domains/crm.woodpower.pl/public_html/app
+
+# POPRAWIONE: Stabilnoœæ bez wieszania
+PassengerMinInstances 1
+PassengerMaxInstances 1        # ZMIANA: Tylko 1 instancja = brak konkurencji
+PassengerPoolIdleTime 0
+PassengerMaxPoolSize 2         # ZMIANA: Mniejszy pool = mniej problemów
+
+# POPRAWIONE: Krótsze timeouty = szybsze odpowiedzi
+PassengerSpawnTimeout 60       # ZMIANA: 1 minuta zamiast 5
+PassengerStartTimeout 45       # ZMIANA: 45 sekund zamiast 5 minut
+
+# Katalogi
+PassengerRestartDir /home/woodpower/domains/crm.woodpower.pl/public_html/app/tmp
+
+# POPRAWIONE: Mniejsze kolejki = szybsze odpowiedzi
+PassengerMaxRequestQueueSize 10  # ZMIANA: 10 zamiast 100
+PassengerStatThrottleRate 5      # ZMIANA: Szybsze statystyki
+
+# Wy³¹cz debug (spowalnia)
+PassengerLogLevel 1             # ZMIANA: Minimalny poziom logowania

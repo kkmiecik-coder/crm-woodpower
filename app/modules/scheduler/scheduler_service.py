@@ -123,12 +123,17 @@ def add_quote_check_job(app):
     Dodaje job sprawdzania wycen (tylko sprawdzanie, bez wysyłki)
     """
     try:
+        # Import datetime na początku
+        from datetime import datetime, timedelta
+        
         # Pobierz godzinę i minutę z konfiguracji
         hour_config = SchedulerConfig.query.filter_by(key='daily_check_hour').first()
         minute_config = SchedulerConfig.query.filter_by(key='daily_check_minute').first()
         
         check_hour = int(hour_config.value) if hour_config else 16
         check_minute = int(minute_config.value) if minute_config else 0
+        
+        print(f"[Scheduler] Konfiguracja sprawdzania wycen: {check_hour:02d}:{check_minute:02d}", file=sys.stderr)
         
         # Wrapper funkcji z kontekstem aplikacji
         def quote_check_job_wrapper():
@@ -144,6 +149,10 @@ def add_quote_check_job(app):
                     check_quote_reminders()  # Tylko sprawdzanie, bez wysyłki
                     
                     print(f"[SCHEDULER JOB] === ZAKOŃCZENIE SPRAWDZANIA WYCEN ===", file=sys.stderr)
+                    
+                    # Aktualizuj last_run w bazie danych
+                    from modules.scheduler.models import update_job_last_run
+                    update_job_last_run('quote_check_daily')
                     
                 except Exception as e:
                     print(f"[SCHEDULER JOB] BŁĄD w zadaniu sprawdzania wycen: {e}", file=sys.stderr)
@@ -161,8 +170,81 @@ def add_quote_check_job(app):
         
         print(f"[Scheduler] Dodano zadanie: sprawdzanie wycen codziennie o {check_hour:02d}:{check_minute:02d}", file=sys.stderr)
         
+        # BEZPIECZNE sprawdzenie next_run_time po uruchomieniu schedulera
+        def check_and_maybe_run_immediately():
+            """Sprawdza czy uruchomić zadanie natychmiast - po uruchomieniu schedulera"""
+            try:
+                # Poczekaj aż scheduler się w pełni uruchomi
+                from threading import Timer
+                
+                def delayed_check():
+                    try:
+                        with app.app_context():
+                            # Teraz bezpiecznie sprawdź next_run_time
+                            job = scheduler.get_job('quote_check_daily')
+                            if not job:
+                                print(f"[Scheduler] ❌ Nie znaleziono zadania quote_check_daily", file=sys.stderr)
+                                return
+                            
+                            print(f"[Scheduler] Sprawdzam czy uruchomić zadanie natychmiast...", file=sys.stderr)
+                            
+                            current_time = datetime.now()
+                            today_scheduled_time = current_time.replace(hour=check_hour, minute=check_minute, second=0, microsecond=0)
+                            
+                            print(f"[Scheduler] Obecny czas: {current_time.strftime('%H:%M:%S')}", file=sys.stderr)
+                            print(f"[Scheduler] Zaplanowany czas dzisiaj: {today_scheduled_time.strftime('%H:%M:%S')}", file=sys.stderr)
+                            
+                            if hasattr(job, 'next_run_time') and job.next_run_time:
+                                print(f"[Scheduler] Następne uruchomienie: {job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}", file=sys.stderr)
+                            
+                            # Sprawdź czy już minęliśmy dzisiejszą godzinę uruchomienia
+                            should_run_immediately = current_time > today_scheduled_time
+                            
+                            if should_run_immediately:
+                                print(f"[Scheduler] ⚠️ Minęliśmy dzisiejszą godzinę uruchomienia", file=sys.stderr)
+                                
+                                # Sprawdź last_run z bazy danych
+                                from modules.scheduler.models import get_job_state
+                                job_state = get_job_state('quote_check_daily')
+                                
+                                already_run_today = False
+                                if job_state and job_state['last_run']:
+                                    last_run = job_state['last_run']
+                                    if last_run.date() == current_time.date():
+                                        already_run_today = True
+                                        print(f"[Scheduler] ✅ Zadanie już uruchomione dzisiaj o {last_run.strftime('%H:%M:%S')}", file=sys.stderr)
+                                    else:
+                                        print(f"[Scheduler] ❌ Ostatnie uruchomienie: {last_run.strftime('%Y-%m-%d %H:%M:%S')} - nie dzisiaj", file=sys.stderr)
+                                else:
+                                    print(f"[Scheduler] ❌ Brak informacji o ostatnim uruchomieniu", file=sys.stderr)
+                                
+                                # Jeśli zadanie się dziś nie uruchomiło, uruchom natychmiast
+                                if not already_run_today:
+                                    print(f"[Scheduler] 🚀 URUCHAMIAM ZADANIE NATYCHMIAST", file=sys.stderr)
+                                    quote_check_job_wrapper()
+                            else:
+                                print(f"[Scheduler] ✅ Zadanie zostanie uruchomione o zaplanowanej godzinie", file=sys.stderr)
+                                
+                    except Exception as e:
+                        print(f"[Scheduler] Błąd sprawdzania natychmiastowego uruchomienia: {e}", file=sys.stderr)
+                
+                # Uruchom sprawdzenie za 10 sekund (po pełnym starcie aplikacji)
+                timer = Timer(10.0, delayed_check)
+                timer.daemon = True
+                timer.start()
+                
+                print(f"[Scheduler] ⏰ Sprawdzenie natychmiastowego uruchomienia za 10 sekund", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[Scheduler] Błąd ustawienia opóźnionego sprawdzenia: {e}", file=sys.stderr)
+        
+        # Uruchom sprawdzenie po inicjalizacji
+        check_and_maybe_run_immediately()
+        
     except Exception as e:
         print(f"[Scheduler] Błąd dodawania zadania sprawdzania wycen: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
 
 def add_email_send_job(app):
     """
