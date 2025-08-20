@@ -119,26 +119,13 @@
     {% endif %}
 </div>
 
-<!-- Ustawienia z formularzem i przyciskiem Zapisz -->
+<!-- Ustawienia z formularzem i przyciskiem Zapisz - UPROSZCZONE -->
 <div class="scheduler-section">
-    <h2 class="title-with-underline-h2">Ustawienia systemu</h2>
+    <h2 class="title-with-underline-h2">⚙️ Parametry systemu</h2>
 
     <form id="schedulerSettingsForm" onsubmit="saveSchedulerSettings(event)">
         <div class="settings-grid">
-            <!-- Włączanie/wyłączanie -->
-            <div class="setting-item">
-                <label class="setting-label">
-                    <input type="checkbox"
-                           id="reminderEnabled"
-                           name="quote_reminder_enabled"
-                           {% if configs.quote_reminder_enabled == 'true' %}checked{% endif %}>
-                    Włącz przypomnienia o wycenach
-                </label>
-                <small style="color: #666; font-size: 12px; margin-top: 8px; display: block;">
-                    System będzie automatycznie wysyłać przypomnienia o wycenach po określonym czasie
-                </small>
-            </div>
-
+            <!-- USUNIĘTO: checkbox "Włącz przypomnienia o wycenach" -->
             <!-- Liczba dni minimum -->
             <div class="setting-item">
                 <label class="setting-label">Po ilu dniach sprawdzać wyceny (minimum):</label>
@@ -150,11 +137,11 @@
                        max="30"
                        required>
                 <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                    Zakres: 1-30 dni (wyceny starsze niż ta liczba dni)
+                    Zakres: 1-30 dni (wyceny starsze niż ta liczba dni będą sprawdzane)
                 </small>
             </div>
 
-            <!-- NOWE: Liczba dni maksimum -->
+            <!-- Liczba dni maksimum -->
             <div class="setting-item">
                 <label class="setting-label">Maksymalny wiek wycen do sprawdzania:</label>
                 <input type="number"
@@ -171,21 +158,35 @@
 
             <!-- Godzina sprawdzania -->
             <div class="setting-item">
-                <label class="setting-label">Godzina codziennego sprawdzania:</label>
-                <select id="checkHour" name="daily_check_hour" required>
-                    {% for hour in range(24) %}
-                    <option value="{{ hour }}"
-                            {% if configs.daily_check_hour == hour|string %}selected{% endif %}>
-                        {{ hour }}:00
-                    </option>
-                    {% endfor %}
-                </select>
+                <label class="setting-label">Czas codziennego sprawdzania:</label>
+                <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+                    <input type="number"
+                           id="checkHour"
+                           name="daily_check_hour"
+                           value="{{ (configs.daily_check_hour or '16') | int }}"
+                           min="0"
+                           max="23"
+                           style="width: 80px; text-align: center;"
+                           required>
+                    <span style="font-weight: 600; color: #666;">:</span>
+                    <input type="number"
+                           id="checkMinute"
+                           name="daily_check_minute"
+                           value="{{ (configs.daily_check_minute or '0') | int }}"
+                           min="0"
+                           max="59"
+                           style="width: 80px; text-align: center;"
+                           required>
+                    <span style="color: #666; font-size: 14px; margin-left: 8px;">
+                        (format: HH:MM)
+                    </span>
+                </div>
                 <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                    O tej godzinie system będzie sprawdzać wyceny do zaplanowania
+                    O tym czasie system będzie sprawdzać wyceny do zaplanowania (0-23 godziny, 0-59 minuty)
                 </small>
             </div>
 
-            <!-- NOWE: Opóźnienie wysyłki -->
+            <!-- Opóźnienie wysyłki -->
             <div class="setting-item">
                 <label class="setting-label">Opóźnienie wysyłki emaili (godziny):</label>
                 <input type="number"
@@ -219,7 +220,7 @@
         <!-- Przyciski akcji -->
         <div style="margin-top: 24px; display: flex; gap: 12px; align-items: center;">
             <button type="submit" class="orange-button" id="saveSettingsBtn">
-                💾 Zapisz ustawienia
+                💾 Zapisz parametry
             </button>
             <button type="button" class="orange-button" onclick="resetSettingsForm()" style="background: #6c757d;">
                 🔄 Przywróć

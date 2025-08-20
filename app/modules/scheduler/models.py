@@ -83,16 +83,31 @@ class SchedulerConfig(db.Model):
         return f'<SchedulerConfig {self.key}: {self.value}>'
 
 
+class JobState(db.Model):
+    """
+    Model dla trwałego przechowywania stanów zadań schedulera
+    """
+    __tablename__ = 'scheduler_job_states'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.String(100), unique=True, nullable=False)  # ID zadania np. 'quote_check_daily'
+    state = db.Column(db.String(20), nullable=False, default='active')  # 'active', 'paused'
+    last_run = db.Column(db.DateTime, nullable=True)  # Ostatnie uruchomienie
+    next_run = db.Column(db.DateTime, nullable=True)  # Następne zaplanowane uruchomienie
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<JobState {self.job_id}: {self.state}>'
+
+
 def create_default_scheduler_config():
     """
     Tworzy domyślne ustawienia schedulera jeśli nie istnieją
+    UPROSZCZONE: Bez quote_reminder_enabled (kontrola przez scheduler)
     """
     defaults = [
-        {
-            'key': 'quote_reminder_enabled',
-            'value': 'true',
-            'description': 'Czy włączone są przypomnienia o wycenach'
-        },
+        # USUNIĘTO: quote_reminder_enabled (kontrola przez wstrzymanie/wznowienie zadań)
         {
             'key': 'quote_reminder_days',
             'value': '7',
@@ -105,11 +120,16 @@ def create_default_scheduler_config():
         },
         {
             'key': 'daily_check_hour',
-            'value': '16',  # ZMIENIONE na 16:00
+            'value': '16',
             'description': 'O której godzinie sprawdzać codziennie (0-23)'
         },
         {
-            'key': 'email_send_delay',  # NOWE
+            'key': 'daily_check_minute',
+            'value': '0',
+            'description': 'O której minucie sprawdzać codziennie (0-59)'
+        },
+        {
+            'key': 'email_send_delay',
             'value': '1',
             'description': 'Po ilu godzinach od sprawdzania wysłać emaile'
         },
@@ -136,3 +156,161 @@ def create_default_scheduler_config():
     except Exception as e:
         db.session.rollback()
         print(f"[Scheduler] Błąd tworzenia konfiguracji: {e}", file=sys.stderr)
+
+def save_job_state(job_id, state, next_run_time=None):
+    """
+    Zapisuje stan zadania do bazy danych (nowy model JobState)
+    
+    Args:
+        job_id: ID zadania
+        state: Stan zadania ('active' lub 'paused')
+        next_run_time: Następne uruchomienie (opcjonalne)
+    """
+    try:
+        print(f"[JobState] Zapisuję stan zadania {job_id}: {state}", file=sys.stderr)
+        
+        # Znajdź lub utwórz wpis stanu zadania
+        job_state = JobState.query.filter_by(job_id=job_id).first()
+        
+        if job_state:
+            # Aktualizuj istniejący
+            job_state.state = state
+            job_state.updated_at = datetime.utcnow()
+            if next_run_time:
+                job_state.next_run = next_run_time
+            print(f"[JobState] Zaktualizowano istniejący stan zadania {job_id}", file=sys.stderr)
+        else:
+            # Utwórz nowy
+            job_state = JobState(
+                job_id=job_id,
+                state=state,
+                next_run=next_run_time
+            )
+            db.session.add(job_state)
+            print(f"[JobState] Utworzono nowy stan zadania {job_id}", file=sys.stderr)
+        
+        db.session.commit()
+        print(f"[JobState] ✅ Zapisano stan zadania {job_id}: {state}", file=sys.stderr)
+        return True
+        
+    except Exception as e:
+        print(f"[JobState] ❌ Błąd zapisu stanu zadania {job_id}: {e}", file=sys.stderr)
+        db.session.rollback()
+        return False
+
+
+def get_job_state(job_id):
+    """
+    Pobiera zapisany stan zadania z bazy danych
+    
+    Args:
+        job_id: ID zadania
+        
+    Returns:
+        dict: Stan zadania lub None jeśli nie znaleziono
+    """
+    try:
+        job_state = JobState.query.filter_by(job_id=job_id).first()
+        
+        if job_state:
+            result = {
+                'state': job_state.state,
+                'last_run': job_state.last_run,
+                'next_run': job_state.next_run,
+                'updated_at': job_state.updated_at
+            }
+            print(f"[JobState] ✅ Odczytano stan zadania {job_id}: {job_state.state}", file=sys.stderr)
+            return result
+        else:
+            print(f"[JobState] ℹ️ Brak zapisanego stanu dla zadania {job_id}", file=sys.stderr)
+            return None
+            
+    except Exception as e:
+        print(f"[JobState] ❌ Błąd odczytu stanu zadania {job_id}: {e}", file=sys.stderr)
+        return None
+
+
+def get_all_job_states():
+    """
+    Pobiera wszystkie stany zadań z bazy danych
+    
+    Returns:
+        dict: Słownik {job_id: state_info}
+    """
+    try:
+        all_states = JobState.query.all()
+        result = {}
+        
+        for job_state in all_states:
+            result[job_state.job_id] = {
+                'state': job_state.state,
+                'last_run': job_state.last_run,
+                'next_run': job_state.next_run,
+                'updated_at': job_state.updated_at
+            }
+        
+        print(f"[JobState] Odczytano stany {len(result)} zadań z bazy", file=sys.stderr)
+        return result
+        
+    except Exception as e:
+        print(f"[JobState] Błąd odczytu wszystkich stanów: {e}", file=sys.stderr)
+        return {}
+
+
+def update_job_last_run(job_id):
+    """
+    Aktualizuje czas ostatniego uruchomienia zadania
+    
+    Args:
+        job_id: ID zadania
+    """
+    try:
+        job_state = JobState.query.filter_by(job_id=job_id).first()
+        
+        if job_state:
+            job_state.last_run = datetime.utcnow()
+            job_state.updated_at = datetime.utcnow()
+            db.session.commit()
+            print(f"[JobState] Zaktualizowano last_run dla zadania {job_id}", file=sys.stderr)
+        else:
+            # Utwórz nowy wpis jeśli nie istnieje
+            job_state = JobState(
+                job_id=job_id,
+                state='active',
+                last_run=datetime.utcnow()
+            )
+            db.session.add(job_state)
+            db.session.commit()
+            print(f"[JobState] Utworzono nowy wpis z last_run dla zadania {job_id}", file=sys.stderr)
+            
+    except Exception as e:
+        print(f"[JobState] Błąd aktualizacji last_run dla {job_id}: {e}", file=sys.stderr)
+        db.session.rollback()
+
+
+def initialize_default_job_states():
+    """
+    Inicjalizuje domyślne stany dla znanych zadań
+    """
+    try:
+        default_jobs = [
+            'quote_check_daily',
+            'email_send_daily'
+        ]
+        
+        for job_id in default_jobs:
+            existing = JobState.query.filter_by(job_id=job_id).first()
+            if not existing:
+                job_state = JobState(
+                    job_id=job_id,
+                    state='active'
+                )
+                db.session.add(job_state)
+                print(f"[JobState] Utworzono domyślny stan dla zadania {job_id}", file=sys.stderr)
+        
+        db.session.commit()
+        print("[JobState] Zainicjalizowano domyślne stany zadań", file=sys.stderr)
+        
+    except Exception as e:
+        print(f"[JobState] Błąd inicjalizacji domyślnych stanów: {e}", file=sys.stderr)
+        db.session.rollback()

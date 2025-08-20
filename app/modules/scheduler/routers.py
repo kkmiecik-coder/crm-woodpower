@@ -278,30 +278,54 @@ def update_config():
         
         db.session.commit()
         
-        # Jeśli zmieniono godzinę sprawdzania, zaktualizuj harmonogram
-        if config_key == 'daily_check_hour':
+        # Jeśli zmieniono godzinę lub minutę sprawdzania, zaktualizuj harmonogram
+        if config_key in ['daily_check_hour', 'daily_check_minute']:
             try:
-                new_hour = int(config_value)
-                if not (0 <= new_hour <= 23):
-                    raise ValueError("Godzina poza zakresem")
+                if config_key == 'daily_check_hour':
+                    new_hour = int(config_value)
+                    if not (0 <= new_hour <= 23):
+                        raise ValueError("Godzina poza zakresem")
                     
-                update_job_schedule('quote_reminders_daily', new_hour=new_hour)
+                    # Pobierz aktualną minutę z konfiguracji
+                    minute_config = SchedulerConfig.query.filter_by(key='daily_check_minute').first()
+                    current_minute = int(minute_config.value) if minute_config else 0
+                    
+                    update_job_schedule('quote_check_daily', new_hour=new_hour, new_minute=current_minute)
+                    
+                    return jsonify({
+                        'success': True,
+                        'message': f'⏰ Godzina sprawdzania została zmieniona na {new_hour:02d}:{current_minute:02d}'
+                    })
                 
-                return jsonify({
-                    'success': True,
-                    'message': f'⏰ Godzina sprawdzania została zmieniona na {new_hour}:00'
-                })
-            except ValueError:
+                elif config_key == 'daily_check_minute':
+                    new_minute = int(config_value)
+                    if not (0 <= new_minute <= 59):
+                        raise ValueError("Minuta poza zakresem")
+                    
+                    # Pobierz aktualną godzinę z konfiguracji
+                    hour_config = SchedulerConfig.query.filter_by(key='daily_check_hour').first()
+                    current_hour = int(hour_config.value) if hour_config else 16
+                    
+                    update_job_schedule('quote_check_daily', new_hour=current_hour, new_minute=new_minute)
+                    
+                    return jsonify({
+                        'success': True,
+                        'message': f'⏰ Minuta sprawdzania została zmieniona na {current_hour:02d}:{new_minute:02d}'
+                    })
+                    
+            except ValueError as e:
+                error_msg = '❌ Godzina musi być z zakresu 0-23' if 'Godzina' in str(e) else '❌ Minuta musi być z zakresu 0-59'
                 return jsonify({
                     'success': False,
-                    'message': '❌ Godzina musi być liczbą z zakresu 0-23'
+                    'message': error_msg
                 }), 400
         
         # Komunikaty dla innych konfiguracji
         success_messages = {
-            'quote_reminder_enabled': f'✅ Przypomnienia o wycenach zostały {"włączone" if config_value == "true" else "wyłączone"}',
-            'quote_reminder_days': f'📅 Przypomnienia będą wysyłane po {config_value} dniach',
-            'max_reminder_attempts': f'🔄 Maksymalna liczba prób wysłania ustawiona na {config_value}'
+            'quote_reminder_days': f'📅 Przypomnienia będą wysyłane po {config_value} {config_value == "1" if "dniu" else "dniach" if int(config_value) < 5 else "dniach"}',
+            'quote_reminder_max_days': f'📅 Maksymalny wiek wycen ustawiony na {config_value} dni',
+            'email_send_delay': f'📧 Opóźnienie wysyłki ustawione na {config_value} {"godzinę" if config_value == "1" else "godziny" if int(config_value) < 5 else "godzin"}',
+            'max_reminder_attempts': f'🔄 Maksymalna liczba prób wysłania: {config_value}'
         }
         
         message = success_messages.get(config_key, f'✅ Ustawienie "{config_name}" zostało zaktualizowane')
@@ -340,7 +364,7 @@ def get_quote_logs():
         per_page = request.args.get('per_page', 20, type=int)
         status_filter = request.args.get('status', '')
         
-        # Bazowe zapytanie
+        # Bazowe zapytanie - POPRAWIONE: dodano email_type
         query = EmailLog.query.filter_by(email_type='quote_reminder_7_days')
         
         # Filtrowanie po statusie
@@ -352,7 +376,7 @@ def get_quote_logs():
             page=page, per_page=per_page, error_out=False
         )
         
-        # Przygotuj dane do JSON
+        # Przygotuj dane do JSON - POPRAWIONE: dodano email_type
         logs_data = []
         for log in logs.items:
             log_data = {
@@ -362,7 +386,8 @@ def get_quote_logs():
                 'status': log.status,
                 'error_message': log.error_message,
                 'sent_at': log.sent_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'quote_number': log.quote.quote_number if log.quote else 'N/A'
+                'quote_number': log.quote.quote_number if log.quote else 'N/A',
+                'email_type': log.email_type  # DODANE: typ emaila
             }
             logs_data.append(log_data)
         
@@ -410,18 +435,21 @@ def refresh_stats():
             'message': f'Błąd: {str(e)}'
         }), 500
 
-# Zamień funkcję test_check_quotes():
 @scheduler_bp.route('/test/check-quotes')
 @login_required
 @admin_required
 def test_check_quotes():
     """
-    Endpoint testowy do ręcznego sprawdzenia wycen
+    Endpoint testowy do ręcznego sprawdzenia wycen (tylko sprawdzanie, bez wysyłki)
     """
     try:
-        print("[TEST] Ręczne uruchomienie sprawdzania wycen", file=sys.stderr)
+        print("[TEST] Ręczne uruchomienie sprawdzania wycen (bez wysyłki)", file=sys.stderr)
+        
+        # Użyj nowej funkcji która tylko sprawdza wyceny
+        from modules.scheduler.jobs.quote_reminders import check_quote_reminders
         check_quote_reminders()
-        flash("🧪 Test sprawdzania wycen został zakończony pomyślnie. Sprawdź logi w systemie.", "success")
+        
+        flash("🧪 Test sprawdzania wycen został zakończony pomyślnie. Wyceny zostały przeanalizowane i zaplanowane do wysyłki. Sprawdź logi w systemie.", "success")
         return redirect(url_for('settings'))
         
     except Exception as e:
@@ -546,6 +574,53 @@ def send_test_quote_reminder():
     except Exception as e:
         print(f"[TEST QUOTE EMAIL] Błąd wysyłania próbnego przypomnienia: {e}", file=sys.stderr)
         
+        return jsonify({
+            'success': False,
+            'message': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@scheduler_bp.route('/api/job/status/<job_id>', methods=['GET'])
+@login_required
+@admin_required
+def get_job_status(job_id):
+    """
+    API endpoint do pobierania statusu pojedynczego zadania
+    """
+    try:
+        from modules.scheduler.scheduler_service import get_scheduler_status
+        
+        # Pobierz pełny status schedulera
+        scheduler_status = get_scheduler_status()
+        
+        if not scheduler_status.get('running'):
+            return jsonify({
+                'success': False,
+                'message': 'Scheduler nie jest aktywny'
+            }), 503
+        
+        # Znajdź konkretne zadanie
+        target_job = None
+        for job in scheduler_status.get('jobs', []):
+            if job['id'] == job_id:
+                target_job = job
+                break
+        
+        if not target_job:
+            job_name = get_friendly_job_name(job_id)
+            return jsonify({
+                'success': False,
+                'message': f'Nie znaleziono zadania "{job_name}"'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'job': target_job,
+            'message': f'Status zadania "{target_job["name"]}" został pobrany'
+        })
+        
+    except Exception as e:
+        print(f"[API] Błąd pobierania statusu zadania {job_id}: {e}", file=sys.stderr)
         return jsonify({
             'success': False,
             'message': f'Błąd serwera: {str(e)}'

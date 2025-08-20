@@ -254,8 +254,136 @@ function maintainMainTabActive() {
 
 
 // ==========================================
-// ZARZĄDZANIE ZADANIAMI
+// ZARZĄDZANIE ZADANIAMI - NOWE FUNKCJE
 // ==========================================
+
+/**
+ * NOWA FUNKCJA: Aktualizuje pojedynczy wiersz zadania w tabeli
+ */
+function updateJobRow(jobId, newJobData) {
+    debugLog('🔄 Aktualizuję wiersz zadania', { jobId, newJobData });
+
+    // Znajdź wiersz z tym zadaniem w tabeli
+    const table = document.querySelector('.jobs-table-container table tbody');
+    if (!table) {
+        debugLog('❌ Nie znaleziono tabeli zadań');
+        return;
+    }
+
+    // Znajdź wiersz z odpowiednim job ID
+    const rows = table.querySelectorAll('tr');
+    let targetRow = null;
+
+    for (let row of rows) {
+        const jobIdCell = row.querySelector('td:nth-child(1) small');
+        if (jobIdCell && jobIdCell.textContent.includes(`ID: ${jobId}`)) {
+            targetRow = row;
+            break;
+        }
+    }
+
+    if (!targetRow) {
+        debugLog('❌ Nie znaleziono wiersza dla zadania', { jobId });
+        return;
+    }
+
+    debugLog('✅ Znaleziono wiersz zadania - aktualizuję', { jobId });
+
+    // Aktualizuj komórki
+    const cells = targetRow.querySelectorAll('td');
+
+    // Komórka 2: Kolejne sprawdzenie
+    if (cells[1]) {
+        if (newJobData.is_paused) {
+            cells[1].innerHTML = `
+                <span style="color: #ff6b35; font-weight: 600;">
+                    ⏸️ Wstrzymane
+                </span>
+            `;
+        } else {
+            cells[1].innerHTML = `
+                <span style="color: #28a745; font-weight: 600;">
+                    ${newJobData.next_run}
+                </span>
+            `;
+        }
+    }
+
+    // Komórka 4: Status
+    if (cells[3]) {
+        if (newJobData.is_paused) {
+            cells[3].innerHTML = `
+                <span class="status-badge" style="background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;">
+                    ⏸️ Zatrzymane
+                </span>
+            `;
+        } else {
+            cells[3].innerHTML = `
+                <span class="status-badge status-success">
+                    ▶️ Aktywne
+                </span>
+            `;
+        }
+    }
+
+    // Komórka 5: Przyciski akcji
+    if (cells[4]) {
+        const jobName = FRIENDLY_MESSAGES.jobs[jobId] || jobId;
+
+        if (newJobData.is_paused) {
+            // Zadanie wstrzymane - pokaż Wznów i Uruchom teraz
+            cells[4].innerHTML = `
+                <button class="btn-small btn-orange" onclick="resumeJob('${jobId}')">
+                    ▶️ Wznów
+                </button>
+                <button class="btn-small" style="background: #17a2b8; color: white;" onclick="triggerJob('${jobId}')">
+                    🚀 Uruchom teraz
+                </button>
+            `;
+        } else {
+            // Zadanie aktywne - pokaż Wstrzymaj i Uruchom teraz
+            cells[4].innerHTML = `
+                <button class="btn-small btn-gray" onclick="pauseJob('${jobId}')">
+                    ⏸️ Wstrzymaj
+                </button>
+                <button class="btn-small btn-orange" onclick="triggerJob('${jobId}')">
+                    🚀 Uruchom teraz
+                </button>
+            `;
+        }
+    }
+
+    debugLog('✅ Zaktualizowano wiersz zadania', { jobId });
+}
+
+/**
+ * NOWA FUNKCJA: Pobiera aktualne dane pojedynczego zadania
+ */
+function refreshSingleJob(jobId) {
+    debugLog('🔄 Pobieram aktualne dane zadania', { jobId });
+
+    return fetch('/scheduler/api/job/status/' + jobId)
+        .then(response => {
+            debugLog('🔄 Odpowiedź serwera na status zadania', { jobId, status: response.status });
+            return response.json();
+        })
+        .then(data => {
+            debugLog('🔄 Dane zadania z serwera', { jobId, data });
+            if (data.success) {
+                return data.job;
+            } else {
+                throw new Error(data.message || 'Nie udało się pobrać danych zadania');
+            }
+        })
+        .catch(error => {
+            debugLog('❌ Błąd pobierania danych zadania', { jobId, error: error.message });
+            // Fallback - odśwież całą stronę jeśli nie można pobrać pojedynczego zadania
+            console.error('Błąd pobierania danych zadania, odświeżam całą stronę:', error);
+            location.reload();
+            throw error;
+        });
+}
+
 function triggerJob(jobId) {
     debugLog('🚀 Rozpoczynam uruchamianie zadania', { jobId });
 
@@ -325,11 +453,16 @@ function pauseJob(jobId) {
             if (data.success) {
                 showMessage(FRIENDLY_MESSAGES.actions.pause.success(jobName), 'success');
 
-                // AUTOMATYCZNE ODŚWIEŻENIE PO 1 SEKUNDZIE
+                // NOWE: Aktualizuj tylko ten konkretny wiersz zadania
                 setTimeout(() => {
-                    debugLog('⏸️ Automatyczne odświeżenie strony po wstrzymaniu zadania');
-                    location.reload();
-                }, 1000);
+                    debugLog('⏸️ Aktualizuję wiersz zadania po wstrzymaniu');
+                    refreshSingleJob(jobId).then(jobData => {
+                        updateJobRow(jobId, jobData);
+                    }).catch(error => {
+                        debugLog('❌ Błąd aktualizacji wiersza, odświeżam całą stronę');
+                        location.reload();
+                    });
+                }, 500);
             } else {
                 showMessage(FRIENDLY_MESSAGES.actions.pause.error(jobName), 'error');
             }
@@ -363,11 +496,16 @@ function resumeJob(jobId) {
             if (data.success) {
                 showMessage(FRIENDLY_MESSAGES.actions.resume.success(jobName), 'success');
 
-                // AUTOMATYCZNE ODŚWIEŻENIE PO 1 SEKUNDZIE
+                // NOWE: Aktualizuj tylko ten konkretny wiersz zadania
                 setTimeout(() => {
-                    debugLog('▶️ Automatyczne odświeżenie strony po wznowieniu zadania');
-                    location.reload();
-                }, 1000);
+                    debugLog('▶️ Aktualizuję wiersz zadania po wznowieniu');
+                    refreshSingleJob(jobId).then(jobData => {
+                        updateJobRow(jobId, jobData);
+                    }).catch(error => {
+                        debugLog('❌ Błąd aktualizacji wiersza, odświeżam całą stronę');
+                        location.reload();
+                    });
+                }, 500);
             } else {
                 showMessage(FRIENDLY_MESSAGES.actions.resume.error(jobName), 'error');
             }
@@ -384,34 +522,35 @@ function resumeJob(jobId) {
 // ==========================================
 function saveSchedulerSettings(event) {
     event.preventDefault();
-    debugLog('💾 Rozpoczynam zapisywanie ustawień schedulera');
+    debugLog('💾 Rozpoczynam zapisywanie parametrów schedulera');
 
     const form = document.getElementById('schedulerSettingsForm');
     const saveBtn = document.getElementById('saveSettingsBtn');
     const statusDiv = document.getElementById('settingsStatus');
 
-    // Pobierz dane z formularza
+    // Pobierz dane z formularza - ROZSZERZONE o minuty
     const formData = new FormData(form);
     const settings = {};
 
-    // Konwertuj dane formularza - DODANO NOWE POLA
-    settings['quote_reminder_enabled'] = formData.get('quote_reminder_enabled') ? 'true' : 'false';
+    // USUNIĘTO: quote_reminder_enabled (kontrolowane przez wstrzymanie/wznowienie zadań)
     settings['quote_reminder_days'] = formData.get('quote_reminder_days');
-    settings['quote_reminder_max_days'] = formData.get('quote_reminder_max_days');  // NOWE
+    settings['quote_reminder_max_days'] = formData.get('quote_reminder_max_days');
     settings['daily_check_hour'] = formData.get('daily_check_hour');
-    settings['email_send_delay'] = formData.get('email_send_delay');  // NOWE
+    settings['daily_check_minute'] = formData.get('daily_check_minute');  // NOWE
+    settings['email_send_delay'] = formData.get('email_send_delay');
     settings['max_reminder_attempts'] = formData.get('max_reminder_attempts');
 
-    debugLog('💾 Pobrane ustawienia z formularza', settings);
+    debugLog('💾 Pobrane parametry z formularza', settings);
 
-    // ROZSZERZONA WALIDACJA
+    // ROZSZERZONA WALIDACJA - dodano minuty
     const reminderDays = parseInt(settings['quote_reminder_days']);
     const reminderMaxDays = parseInt(settings['quote_reminder_max_days']);
     const checkHour = parseInt(settings['daily_check_hour']);
+    const checkMinute = parseInt(settings['daily_check_minute']);  // NOWE
     const emailDelay = parseInt(settings['email_send_delay']);
     const maxAttempts = parseInt(settings['max_reminder_attempts']);
 
-    debugLog('💾 Walidacja ustawień', { reminderDays, reminderMaxDays, checkHour, emailDelay, maxAttempts });
+    debugLog('💾 Walidacja parametrów', { reminderDays, reminderMaxDays, checkHour, checkMinute, emailDelay, maxAttempts });
 
     // Walidacja zakresu dni
     if (reminderDays < 1 || reminderDays > 30) {
@@ -433,9 +572,16 @@ function saveSchedulerSettings(event) {
         return;
     }
 
+    // ROZSZERZONA walidacja czasu
     if (checkHour < 0 || checkHour > 23) {
         debugLog('❌ Walidacja nieudana - nieprawidłowa godzina', { checkHour });
         showSettingsStatus('❌ Godzina musi być z zakresu 0-23', 'error');
+        return;
+    }
+
+    if (checkMinute < 0 || checkMinute > 59) {
+        debugLog('❌ Walidacja nieudana - nieprawidłowa minuta', { checkMinute });
+        showSettingsStatus('❌ Minuta musi być z zakresu 0-59', 'error');
         return;
     }
 
@@ -456,9 +602,9 @@ function saveSchedulerSettings(event) {
     // Wyłącz przycisk i pokaż loading
     saveBtn.disabled = true;
     saveBtn.innerHTML = '⏳ Zapisywanie...';
-    showSettingsStatus('💾 Zapisywanie ustawień...', 'info');
+    showSettingsStatus('💾 Zapisywanie parametrów...', 'info');
 
-    debugLog('💾 Rozpoczynam wysyłanie ustawień do serwera');
+    debugLog('💾 Rozpoczynam wysyłanie parametrów do serwera');
 
     // Wyślij wszystkie ustawienia jednocześnie
     saveAllSettings(settings)
@@ -469,20 +615,34 @@ function saveSchedulerSettings(event) {
             const allSuccess = results.every(result => result.success);
 
             if (allSuccess) {
-                debugLog('✅ Wszystkie ustawienia zapisane pomyślnie');
-                showSettingsStatus('✅ Wszystkie ustawienia zostały zapisane pomyślnie', 'success');
+                debugLog('✅ Wszystkie parametry zapisane pomyślnie');
+                showSettingsStatus('✅ Wszystkie parametry zostały zapisane pomyślnie', 'success');
 
-                // Komunikaty o zmianach
-                if (results.some(r => r.key === 'daily_check_hour')) {
+                // NOWE: Sprawdź czy zmieniono czas i odśwież zadania
+                const timeChanged = results.some(r => r.key === 'daily_check_hour') ||
+                    results.some(r => r.key === 'daily_check_minute') ||
+                    results.some(r => r.key === 'email_send_delay');
+
+                if (timeChanged) {
+                    debugLog('⏰ Wykryto zmianę czasu - odświeżam zadania');
+
+                    // Pokaż komunikat o aktualizacji
+                    const newTime = `${checkHour.toString().padStart(2, '0')}:${checkMinute.toString().padStart(2, '0')}`;
                     setTimeout(() => {
-                        showSettingsStatus('⏰ Harmonogram sprawdzania został zaktualizowany', 'info');
+                        showSettingsStatus(`⏰ Harmonogram sprawdzania został zaktualizowany na ${newTime}`, 'info');
+                    }, 4000);
+
+                    // NOWE: Odśwież listę zadań po 2 sekundach
+                    setTimeout(() => {
+                        debugLog('🔄 Odświeżam listę zadań po zmianie harmonogramu');
+                        refreshJobsList();
                     }, 2000);
-                }
 
-                if (results.some(r => r.key === 'email_send_delay')) {
-                    setTimeout(() => {
-                        showSettingsStatus('📧 Opóźnienie wysyłki zostało zaktualizowane', 'info');
-                    }, 3000);
+                    if (results.some(r => r.key === 'email_send_delay')) {
+                        setTimeout(() => {
+                            showSettingsStatus('📧 Opóźnienie wysyłki zostało zaktualizowane', 'info');
+                        }, 7000);
+                    }
                 }
             } else {
                 const errors = results.filter(r => !r.success);
@@ -491,15 +651,15 @@ function saveSchedulerSettings(event) {
             }
         })
         .catch(error => {
-            debugLog('❌ Krytyczny błąd podczas zapisywania ustawień', { error: error.message });
-            console.error('Błąd zapisywania ustawień:', error);
+            debugLog('❌ Krytyczny błąd podczas zapisywania parametrów', { error: error.message });
+            console.error('Błąd zapisywania parametrów:', error);
             showSettingsStatus('🔧 Wystąpił błąd połączenia. Spróbuj ponownie.', 'error');
         })
         .finally(() => {
             debugLog('💾 Zakończono proces zapisywania - przywracam interfejs');
             // Przywróć przycisk
             saveBtn.disabled = false;
-            saveBtn.innerHTML = '💾 Zapisz ustawienia';
+            saveBtn.innerHTML = '💾 Zapisz parametry';
         });
 }
 
@@ -575,12 +735,26 @@ function showSettingsStatus(message, type) {
     statusDiv.style.color = color;
     statusDiv.style.fontWeight = '500';
 
-    // Ukryj komunikat po 5 sekundach (tylko dla success i info)
+    // NOWY TIMING - dłuższe wyświetlanie
+    let hideAfter = 6000; // domyślnie 6 sekund
+
+    if (type === 'success') {
+        hideAfter = 8000; // sukces - 8 sekund
+    } else if (type === 'error') {
+        hideAfter = 10000; // błędy - 10 sekund (nie ukrywaj automatycznie)
+        return; // Błędy nie znikają automatycznie
+    } else if (type === 'info') {
+        hideAfter = 6000; // info - 6 sekund
+    }
+
+    debugLog('💭 Ustawiono czas ukrywania komunikatu', { type, hideAfter });
+
+    // Ukryj komunikat po określonym czasie (tylko dla success i info)
     if (type === 'success' || type === 'info') {
         setTimeout(() => {
-            debugLog('💭 Ukrywam komunikat status', { afterSeconds: 5 });
+            debugLog(`💭 Ukrywam komunikat status po ${hideAfter}ms`);
             statusDiv.innerHTML = '';
-        }, 5000);
+        }, hideAfter);
     }
 }
 
@@ -907,6 +1081,153 @@ function refreshSchedulerStatus() {
         });
 }
 
+/**
+ * NOWA FUNKCJA: Odświeża tylko listę zadań w harmonogramie
+ */
+function refreshJobsList() {
+    debugLog('🔄 Rozpoczynam odświeżanie listy zadań');
+
+    fetch('/scheduler/api/stats/refresh')
+        .then(response => {
+            debugLog('🔄 Odpowiedź serwera na odświeżenie zadań', { status: response.status });
+            return response.json();
+        })
+        .then(data => {
+            debugLog('🔄 Dane odświeżenia zadań', data);
+
+            if (data.success && data.scheduler_status && data.scheduler_status.jobs) {
+                updateJobsTable(data.scheduler_status.jobs);
+                showMessage('🔄 Harmonogram zadań został zaktualizowany', 'info');
+            } else {
+                debugLog('❌ Błąd w danych odświeżenia zadań', data);
+                // Fallback - odśwież całą stronę
+                setTimeout(() => {
+                    debugLog('🔄 Fallback - odświeżam całą stronę');
+                    location.reload();
+                }, 1000);
+            }
+        })
+        .catch(error => {
+            debugLog('❌ Błąd odświeżania listy zadań', { error: error.message });
+            console.error('Błąd odświeżania zadań:', error);
+
+            // Fallback - odśwież całą stronę po 2 sekundach
+            setTimeout(() => {
+                debugLog('🔄 Fallback po błędzie - odświeżam całą stronę');
+                location.reload();
+            }, 2000);
+        });
+}
+
+/**
+ * NOWA FUNKCJA: Aktualizuje tylko tabelę zadań bez przeładowania strony
+ */
+function updateJobsTable(jobs) {
+    debugLog('🔄 Aktualizuję tabelę zadań', { jobsCount: jobs.length });
+
+    const tableContainer = document.querySelector('.jobs-table-container');
+    if (!tableContainer) {
+        debugLog('❌ Nie znaleziono kontenera tabeli zadań');
+        return;
+    }
+
+    const tableBody = tableContainer.querySelector('table tbody');
+    if (!tableBody) {
+        debugLog('❌ Nie znaleziono tbody tabeli zadań');
+        return;
+    }
+
+    // Wyczyść aktualne wiersze
+    tableBody.innerHTML = '';
+
+    // Dodaj zaktualizowane wiersze
+    jobs.forEach((job, index) => {
+        debugLog(`🔄 Aktualizuję zadanie ${index + 1}`, {
+            jobId: job.id,
+            nextRun: job.next_run,
+            isPaused: job.is_paused
+        });
+
+        const row = document.createElement('tr');
+
+        // Kolumna 1: Nazwa zadania
+        const nameCell = document.createElement('td');
+        nameCell.innerHTML = `
+            <strong>${job.name}</strong>
+            <br><small style="color: #666;">ID: ${job.id}</small>
+        `;
+        row.appendChild(nameCell);
+
+        // Kolumna 2: Kolejne sprawdzenie
+        const nextRunCell = document.createElement('td');
+        if (job.is_paused) {
+            nextRunCell.innerHTML = `
+                <span style="color: #ff6b35; font-weight: 600;">
+                    ⏸️ Wstrzymane
+                </span>
+            `;
+        } else {
+            nextRunCell.innerHTML = `
+                <span style="color: #28a745; font-weight: 600;">
+                    ${job.next_run}
+                </span>
+            `;
+        }
+        row.appendChild(nextRunCell);
+
+        // Kolumna 3: Częstotliwość
+        const triggerCell = document.createElement('td');
+        triggerCell.textContent = job.trigger;
+        row.appendChild(triggerCell);
+
+        // Kolumna 4: Status
+        const statusCell = document.createElement('td');
+        if (job.is_paused) {
+            statusCell.innerHTML = `
+                <span class="status-badge" style="background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;">
+                    ⏸️ Zatrzymane
+                </span>
+            `;
+        } else {
+            statusCell.innerHTML = `
+                <span class="status-badge status-success">
+                    ▶️ Aktywne
+                </span>
+            `;
+        }
+        row.appendChild(statusCell);
+
+        // Kolumna 5: Przyciski akcji
+        const actionsCell = document.createElement('td');
+        if (job.is_paused) {
+            // Zadanie wstrzymane - pokaż Wznów i Uruchom teraz
+            actionsCell.innerHTML = `
+                <button class="btn-small btn-orange" onclick="resumeJob('${job.id}')">
+                    ▶️ Wznów
+                </button>
+                <button class="btn-small" style="background: #17a2b8; color: white;" onclick="triggerJob('${job.id}')">
+                    🚀 Uruchom teraz
+                </button>
+            `;
+        } else {
+            // Zadanie aktywne - pokaż Wstrzymaj i Uruchom teraz
+            actionsCell.innerHTML = `
+                <button class="btn-small btn-gray" onclick="pauseJob('${job.id}')">
+                    ⏸️ Wstrzymaj
+                </button>
+                <button class="btn-small btn-orange" onclick="triggerJob('${job.id}')">
+                    🚀 Uruchom teraz
+                </button>
+            `;
+        }
+        row.appendChild(actionsCell);
+
+        tableBody.appendChild(row);
+    });
+
+    debugLog('✅ Tabela zadań została zaktualizowana', { updatedJobs: jobs.length });
+}
+
 // ==========================================
 // AUTO-ODŚWIEŻANIE
 // ==========================================
@@ -968,9 +1289,22 @@ function showMessage(message, type) {
     document.body.appendChild(messageDiv);
     debugLog('💬 Komunikat dodany do DOM');
 
-    // Usuń komunikat po 4 sekundach
+    // NOWY TIMING - różny dla różnych typów komunikatów
+    let displayTime = 4000; // domyślnie 4 sekundy
+
+    if (type === 'success') {
+        displayTime = 5000; // komunikaty sukcesu - 5 sekund
+    } else if (type === 'error') {
+        displayTime = 7000; // komunikaty błędów - 7 sekund (dłużej bo ważne)
+    } else {
+        displayTime = 4000; // info - 4 sekundy
+    }
+
+    debugLog('💬 Ustawiono czas wyświetlania komunikatu', { type, displayTime });
+
+    // Usuń komunikat po określonym czasie
     setTimeout(() => {
-        debugLog('💬 Ukrywam komunikat po 4 sekundach');
+        debugLog(`💬 Ukrywam komunikat po ${displayTime}ms`);
         messageDiv.style.animation = 'slideOutRight 0.3s ease';
         setTimeout(() => {
             if (messageDiv.parentNode) {
@@ -978,7 +1312,7 @@ function showMessage(message, type) {
                 debugLog('💬 Komunikat usunięty z DOM');
             }
         }, 300);
-    }, 4000);
+    }, displayTime);
 }
 
 // ==========================================
@@ -1123,6 +1457,8 @@ window.schedulerDebug = {
     showMessage: showMessage,
     sendTestEmail: sendTestEmail,
     saveSettings: saveSchedulerSettings,
+    updateJobRow: updateJobRow,
+    refreshSingleJob: refreshSingleJob,
     toggleDebug: function () {
         window.DEBUG_ENABLED = !DEBUG_ENABLED;
         console.log(`Debug logowanie ${DEBUG_ENABLED ? 'włączone' : 'wyłączone'}`);

@@ -6,6 +6,7 @@ import sys
 from flask import current_app
 from modules.scheduler.jobs.quote_reminders import check_quote_reminders
 from modules.scheduler.models import SchedulerConfig, create_default_scheduler_config
+from modules.scheduler.models import save_job_state, get_all_job_states, update_job_last_run
 from extensions import db
 
 # Globalny scheduler
@@ -44,11 +45,19 @@ def init_scheduler(app):
             # Sprawdź/utwórz domyślne konfiguracje
             create_default_scheduler_config()
             
+            # NOWE: Inicjalizuj tabelę stanów zadań
+            from modules.scheduler.models import initialize_default_job_states
+            db.create_all()  # Upewnij się że tabele istnieją
+            initialize_default_job_states()
+            
             # ZADANIE 1: Sprawdzanie wycen (codziennie)
             add_quote_check_job(app)
             
             # ZADANIE 2: Wysyłka emaili (co godzinę)
             add_email_send_job(app)
+            
+            # NOWE: Przywróć stany zadań z bazy danych
+            restore_job_states_from_db()
         
         # Uruchomienie schedulera
         scheduler.start()
@@ -62,14 +71,64 @@ def init_scheduler(app):
         if scheduler:
             scheduler.shutdown()
 
+def restore_job_states_from_db():
+    """
+    Przywraca stany zadań z bazy danych po restarcie aplikacji (nowy model JobState)
+    """
+    try:
+        print("[Scheduler] Przywracanie stanów zadań z bazy danych...", file=sys.stderr)
+        
+        from modules.scheduler.models import get_all_job_states
+        
+        # Pobierz wszystkie stany z bazy
+        all_states = get_all_job_states()
+        
+        if not all_states:
+            print("[Scheduler] Brak zapisanych stanów w bazie danych", file=sys.stderr)
+            return
+        
+        print(f"[Scheduler] Znaleziono {len(all_states)} stanów zadań w bazie", file=sys.stderr)
+        
+        for job_id, state_info in all_states.items():
+            try:
+                job = scheduler.get_job(job_id)
+                if not job:
+                    print(f"[Scheduler] ⚠️ Zadanie {job_id} nie istnieje w schedulerze", file=sys.stderr)
+                    continue
+                
+                saved_state = state_info['state']
+                
+                if saved_state == 'paused':
+                    print(f"[Scheduler] Przywracanie stanu 'paused' dla zadania {job_id}", file=sys.stderr)
+                    scheduler.pause_job(job_id)
+                    print(f"[Scheduler] ✅ Zadanie {job_id} zostało wstrzymane", file=sys.stderr)
+                
+                elif saved_state == 'active':
+                    print(f"[Scheduler] Zadanie {job_id} pozostaje aktywne", file=sys.stderr)
+                
+                else:
+                    print(f"[Scheduler] ⚠️ Nieznany stan '{saved_state}' dla zadania {job_id}", file=sys.stderr)
+                
+            except Exception as job_error:
+                print(f"[Scheduler] ❌ Błąd przywracania stanu zadania {job_id}: {job_error}", file=sys.stderr)
+                continue
+        
+        print("[Scheduler] Zakończono przywracanie stanów zadań", file=sys.stderr)
+        
+    except Exception as e:
+        print(f"[Scheduler] Błąd przywracania stanów zadań z bazy: {e}", file=sys.stderr)
+
 def add_quote_check_job(app):
     """
     Dodaje job sprawdzania wycen (tylko sprawdzanie, bez wysyłki)
     """
     try:
-        # Pobierz godzinę z konfiguracji
+        # Pobierz godzinę i minutę z konfiguracji
         hour_config = SchedulerConfig.query.filter_by(key='daily_check_hour').first()
-        check_hour = int(hour_config.value) if hour_config else 9
+        minute_config = SchedulerConfig.query.filter_by(key='daily_check_minute').first()
+        
+        check_hour = int(hour_config.value) if hour_config else 16
+        check_minute = int(minute_config.value) if minute_config else 0
         
         # Wrapper funkcji z kontekstem aplikacji
         def quote_check_job_wrapper():
@@ -91,34 +150,42 @@ def add_quote_check_job(app):
                     import traceback
                     traceback.print_exc(file=sys.stderr)
         
-        # Dodanie zadania do schedulera
+        # Dodanie zadania do schedulera z godzinami i minutami
         scheduler.add_job(
             func=quote_check_job_wrapper,
-            trigger=CronTrigger(hour=check_hour, minute=0),
+            trigger=CronTrigger(hour=check_hour, minute=check_minute),
             id='quote_check_daily',
             name='Sprawdzanie wycen do przypomnienia',
             replace_existing=True
         )
         
-        print(f"[Scheduler] Dodano zadanie: sprawdzanie wycen codziennie o {check_hour}:00", file=sys.stderr)
+        print(f"[Scheduler] Dodano zadanie: sprawdzanie wycen codziennie o {check_hour:02d}:{check_minute:02d}", file=sys.stderr)
         
     except Exception as e:
         print(f"[Scheduler] Błąd dodawania zadania sprawdzania wycen: {e}", file=sys.stderr)
 
 def add_email_send_job(app):
     """
-    Dodaje job wysyłki zaplanowanych emaili (codziennie, 1h po sprawdzaniu)
+    Dodaje job wysyłki zaplanowanych emaili (z opóźnieniem po sprawdzaniu)
     """
     try:
-        # Pobierz godzinę sprawdzania i opóźnienie
+        # Pobierz godzinę, minutę sprawdzania i opóźnienie
         hour_config = SchedulerConfig.query.filter_by(key='daily_check_hour').first()
+        minute_config = SchedulerConfig.query.filter_by(key='daily_check_minute').first()
         delay_config = SchedulerConfig.query.filter_by(key='email_send_delay').first()
         
-        check_hour = int(hour_config.value) if hour_config else 9
+        check_hour = int(hour_config.value) if hour_config else 16
+        check_minute = int(minute_config.value) if minute_config else 0
         delay_hours = int(delay_config.value) if delay_config else 1
         
-        # Oblicz godzinę wysyłki
-        send_hour = (check_hour + delay_hours) % 24
+        # Oblicz czas wysyłki (dodaj opóźnienie do czasu sprawdzania)
+        import datetime as dt
+        check_time = dt.time(check_hour, check_minute)
+        check_datetime = dt.datetime.combine(dt.date.today(), check_time)
+        send_datetime = check_datetime + dt.timedelta(hours=delay_hours)
+        
+        send_hour = send_datetime.hour
+        send_minute = send_datetime.minute
         
         # Wrapper funkcji z kontekstem aplikacji
         def email_send_job_wrapper():
@@ -140,16 +207,16 @@ def add_email_send_job(app):
                     import traceback
                     traceback.print_exc(file=sys.stderr)
         
-        # Dodanie zadania do schedulera
+        # Dodanie zadania do schedulera z godzinami i minutami
         scheduler.add_job(
             func=email_send_job_wrapper,
-            trigger=CronTrigger(hour=send_hour, minute=0),  # Codziennie o określonej godzinie
+            trigger=CronTrigger(hour=send_hour, minute=send_minute),
             id='email_send_daily',
             name='Wysyłka zaplanowanych emaili',
             replace_existing=True
         )
         
-        print(f"[Scheduler] Dodano zadanie: wysyłka emaili codziennie o {send_hour}:00 (sprawdzanie + {delay_hours}h)", file=sys.stderr)
+        print(f"[Scheduler] Dodano zadanie: wysyłka emaili codziennie o {send_hour:02d}:{send_minute:02d} (sprawdzanie {check_hour:02d}:{check_minute:02d} + {delay_hours}h)", file=sys.stderr)
         
     except Exception as e:
         print(f"[Scheduler] Błąd dodawania zadania wysyłki emaili: {e}", file=sys.stderr)
@@ -232,7 +299,7 @@ def remove_job(job_id):
 
 def pause_job(job_id):
     """
-    Wstrzymuje zadanie
+    Wstrzymuje zadanie i zapisuje stan do bazy danych (nowy model JobState)
     
     Args:
         job_id: ID zadania do wstrzymania
@@ -240,6 +307,11 @@ def pause_job(job_id):
     try:
         if scheduler and scheduler.running:
             scheduler.pause_job(job_id)
+            
+            # NOWE: Zapisz stan do nowego modelu JobState
+            from modules.scheduler.models import save_job_state
+            save_job_state(job_id, 'paused')
+            
             print(f"[Scheduler] Wstrzymano zadanie: {job_id}", file=sys.stderr)
         return True
     except Exception as e:
@@ -249,7 +321,7 @@ def pause_job(job_id):
 
 def resume_job(job_id):
     """
-    Wznawia wstrzymane zadanie
+    Wznawia wstrzymane zadanie i zapisuje stan do bazy danych (nowy model JobState)
     
     Args:
         job_id: ID zadania do wznowienia
@@ -257,6 +329,16 @@ def resume_job(job_id):
     try:
         if scheduler and scheduler.running:
             scheduler.resume_job(job_id)
+            
+            # NOWE: Zapisz stan do nowego modelu JobState
+            from modules.scheduler.models import save_job_state
+            
+            # Pobierz następne uruchomienie z schedulera
+            job = scheduler.get_job(job_id)
+            next_run = job.next_run_time if job else None
+            
+            save_job_state(job_id, 'active', next_run)
+            
             print(f"[Scheduler] Wznowiono zadanie: {job_id}", file=sys.stderr)
         return True
     except Exception as e:
@@ -288,9 +370,9 @@ def get_scheduler_status():
                 'id': job.id,
                 'name': job.name,
                 'next_run': job.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if job.next_run_time else 'Wstrzymane',
-                'trigger': format_trigger_for_display(str(job.trigger)),  # <-- UŻYWAJ NOWEJ FUNKCJI
+                'trigger': format_trigger_for_display(str(job.trigger)),
                 'func_name': job.func.__name__ if hasattr(job.func, '__name__') else 'Nieznana',
-                'is_paused': is_paused  # <-- DODAJ STATUS PAUZY
+                'is_paused': is_paused
             })
         
         return {
@@ -310,7 +392,7 @@ def get_scheduler_status():
 
 def trigger_job_manually(job_id):
     """
-    Uruchamia zadanie ręcznie (niezależnie od harmonogramu)
+    Uruchamia zadanie ręcznie (niezależnie od harmonogramu) i aktualizuje last_run
     
     Args:
         job_id: ID zadania do uruchomienia
@@ -324,6 +406,11 @@ def trigger_job_manually(job_id):
             if job:
                 # Uruchom zadanie w tle
                 scheduler.modify_job(job_id, next_run_time=datetime.now())
+                
+                # NOWE: Aktualizuj last_run w bazie
+                from modules.scheduler.models import update_job_last_run
+                update_job_last_run(job_id)
+                
                 print(f"[Scheduler] Ręcznie uruchomiono zadanie: {job_id}", file=sys.stderr)
                 return True
             else:
@@ -345,7 +432,9 @@ def log_scheduled_jobs():
             print(f"[Scheduler] Zaplanowane zadania ({len(jobs)}):", file=sys.stderr)
             for job in jobs:
                 next_run = job.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if job.next_run_time else 'Brak'
-                print(f"  - {job.id}: {job.name} | Następne: {next_run}", file=sys.stderr)
+                is_paused = job.next_run_time is None
+                status = 'WSTRZYMANE' if is_paused else 'AKTYWNE'
+                print(f"  - {job.id}: {job.name} | Następne: {next_run} | Status: {status}", file=sys.stderr)
         else:
             print("[Scheduler] Brak aktywnego schedulera", file=sys.stderr)
     except Exception as e:
@@ -377,7 +466,7 @@ def shutdown_scheduler():
 
 def update_job_schedule(job_id, new_hour=None, new_minute=None):
     """
-    Aktualizuje harmonogram istniejącego zadania
+    Aktualizuje harmonogram istniejącego zadania z obsługą godzin i minut
     """
     try:
         if scheduler and scheduler.running:
@@ -391,19 +480,27 @@ def update_job_schedule(job_id, new_hour=None, new_minute=None):
                     new_trigger = CronTrigger(hour=hour, minute=minute)
                     scheduler.modify_job(job_id, trigger=new_trigger)
                     
-                    # RÓWNIEŻ zaktualizuj wysyłkę emaili (1h później)
+                    # RÓWNIEŻ zaktualizuj wysyłkę emaili (z opóźnieniem)
                     email_job = scheduler.get_job('email_send_daily')
                     if email_job:
                         # Pobierz opóźnienie z konfiguracji
                         delay_config = SchedulerConfig.query.filter_by(key='email_send_delay').first()
                         delay_hours = int(delay_config.value) if delay_config else 1
                         
-                        send_hour = (hour + delay_hours) % 24
-                        email_trigger = CronTrigger(hour=send_hour, minute=minute)
+                        # Oblicz czas wysyłki z opóźnieniem
+                        import datetime as dt
+                        check_time = dt.time(hour, minute)
+                        check_datetime = dt.datetime.combine(dt.date.today(), check_time)
+                        send_datetime = check_datetime + dt.timedelta(hours=delay_hours)
+                        
+                        send_hour = send_datetime.hour
+                        send_minute = send_datetime.minute
+                        
+                        email_trigger = CronTrigger(hour=send_hour, minute=send_minute)
                         scheduler.modify_job('email_send_daily', trigger=email_trigger)
                         
                         print(f"[Scheduler] Zaktualizowano harmonogram sprawdzania: {hour:02d}:{minute:02d}", file=sys.stderr)
-                        print(f"[Scheduler] Zaktualizowano harmonogram wysyłki: {send_hour:02d}:{minute:02d}", file=sys.stderr)
+                        print(f"[Scheduler] Zaktualizowano harmonogram wysyłki: {send_hour:02d}:{send_minute:02d}", file=sys.stderr)
                     
                 elif job_id == 'email_send_daily':
                     # Bezpośrednia aktualizacja wysyłki
@@ -428,7 +525,6 @@ def format_trigger_for_display(trigger_str):
     Konwertuje techniczny opis trigger na user-friendly format
     """
     try:
-        # USUŃ debugLog - nie jest dostępne w tym pliku
         print(f"[Format Trigger] Formatowanie triggera: {trigger_str}", file=sys.stderr)
         
         # Obsługa cron triggers

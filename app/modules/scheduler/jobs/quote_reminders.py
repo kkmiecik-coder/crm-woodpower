@@ -10,15 +10,15 @@ def check_quote_reminders():
     Sprawdza wyceny wymagające przypomnienia i oznacza je do wysyłki.
     NIE wysyła emaili - tylko przygotowuje harmonogram.
     Wywoływana codziennie przez scheduler.
+    
+    UPROSZCZONE: Kontrola odbywa się przez wstrzymanie/wznowienie zadania w schedulerze,
+    nie przez checkbox w ustawieniach.
     """
     try:
         print("[Quote Check] === ROZPOCZĘCIE SPRAWDZANIA WYCEN ===", file=sys.stderr)
         
-        # Sprawdź czy funkcja jest włączona
-        config = SchedulerConfig.query.filter_by(key='quote_reminder_enabled').first()
-        if not config or config.value.lower() != 'true':
-            print("[Quote Check] Przypomnienia są wyłączone w konfiguracji", file=sys.stderr)
-            return
+        # USUNIĘTO: sprawdzanie quote_reminder_enabled (kontrola przez scheduler)
+        print("[Quote Check] Sprawdzanie wycen jest aktywne (zadanie uruchomione)", file=sys.stderr)
         
         # Pobierz konfigurację dni
         min_days_config = SchedulerConfig.query.filter_by(key='quote_reminder_days').first()
@@ -48,7 +48,8 @@ def check_quote_reminders():
         print(f"[Quote Check] Znaleziono {len(quotes_to_check)} wycen do sprawdzenia", file=sys.stderr)
         
         scheduled_count = 0
-        skipped_count = 0
+        skipped_no_email_count = 0  # licznik wycen bez emaili
+        skipped_already_scheduled_count = 0  # licznik już zaplanowanych
         error_count = 0
         
         for quote in quotes_to_check:
@@ -63,24 +64,35 @@ def check_quote_reminders():
                 
                 if existing_schedule:
                     print(f"[Quote Check] Wycena {quote.quote_number} - przypomnienie już zaplanowane (status: {existing_schedule.status})", file=sys.stderr)
-                    skipped_count += 1
+                    skipped_already_scheduled_count += 1
                     continue
                 
-                # Sprawdź czy klient ma email
-                if not quote.client or not quote.client.email:
-                    print(f"[Quote Check] Wycena {quote.quote_number} - brak klienta lub emaila", file=sys.stderr)
-                    # Zaloguj błąd ale nie przerwij procesu
-                    log_email_error(quote.id, 'quote_reminder_7_days', '', 'Brak klienta lub emaila klienta')
-                    error_count += 1
+                # Sprawdź czy klient ma email - jeśli nie, po prostu ignoruj
+                if not quote.client:
+                    print(f"[Quote Check] ℹ️ Wycena {quote.quote_number} - brak przypisanego klienta, pomijam", file=sys.stderr)
+                    skipped_no_email_count += 1
                     continue
                 
-                # NOWE: Utwórz wpis w harmonogramie z opóźnieniem 1h
+                if not quote.client.email or quote.client.email.strip() == '':
+                    print(f"[Quote Check] ℹ️ Wycena {quote.quote_number} - klient nie ma emaila, pomijam", file=sys.stderr)
+                    skipped_no_email_count += 1
+                    continue
+                
+                # Walidacja formatu emaila
+                import re
+                email_pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+                if not re.match(email_pattern, quote.client.email.strip()):
+                    print(f"[Quote Check] ℹ️ Wycena {quote.quote_number} - nieprawidłowy format emaila ({quote.client.email}), pomijam", file=sys.stderr)
+                    skipped_no_email_count += 1
+                    continue
+                
+                # Jeśli doszliśmy tutaj, wycena ma poprawny email - zaplanuj przypomnienie
                 schedule_date = datetime.now() + timedelta(hours=1)
                 
                 new_schedule = EmailSchedule(
                     quote_id=quote.id,
                     email_type='quote_reminder_7_days',
-                    recipient_email=quote.client.email,
+                    recipient_email=quote.client.email.strip(),
                     scheduled_date=schedule_date,
                     status='pending',
                     attempts=0
@@ -100,7 +112,10 @@ def check_quote_reminders():
         db.session.commit()
         
         print(f"[Quote Check] === ZAKOŃCZENIE SPRAWDZANIA ===", file=sys.stderr)
-        print(f"[Quote Check] Zaplanowano: {scheduled_count}, Pominięto: {skipped_count}, Błędów: {error_count}", file=sys.stderr)
+        print(f"[Quote Check] Zaplanowano: {scheduled_count}", file=sys.stderr)
+        print(f"[Quote Check] Już zaplanowane: {skipped_already_scheduled_count}", file=sys.stderr)
+        print(f"[Quote Check] Bez emaila (pominięto): {skipped_no_email_count}", file=sys.stderr)
+        print(f"[Quote Check] Błędów: {error_count}", file=sys.stderr)
         
     except Exception as e:
         print(f"[Quote Check] KRYTYCZNY BŁĄD w sprawdzaniu wycen: {e}", file=sys.stderr)
@@ -156,32 +171,35 @@ def send_quote_reminder_email(quote):
         print(f"[Email] Klient: {client_name}", file=sys.stderr)
         print(f"[Email] Email klienta: {client_email}", file=sys.stderr)
         
-        if not client_email:
-            # Użyj bezpiecznej nazwy klienta
-            safe_client_name = getattr(quote.client, 'name', 
-                                     getattr(quote.client, 'company_name', 
-                                           f"Klient ID: {quote.client.id}"))
+        if not client_email or client_email.strip() == '':
+            # ZMIENIONA LOGIKA: To nie jest błąd, tylko informacja
+            print(f"[Email] ℹ️ Klient nie ma adresu email - pomijam wysyłkę", file=sys.stderr)
             
-            error_details = {
-                'step': step,
-                'issue': 'Klient nie ma adresu email',
-                'client_id': quote.client.id,
-                'client_name': safe_client_name
-            }
-            print(f"[Email] BŁĄD: {error_details}", file=sys.stderr)
-            return False
+            # Oznacz harmonogram jako 'skipped' zamiast 'failed'
+            if 'schedule_entry' in locals() and schedule_entry:
+                schedule_entry.status = 'skipped'
+                db.session.commit()
+            
+            return False  # Nie jest to błąd - po prostu nie wysyłamy
         
-        # Walidacja formatu email
+        # Walidacja formatu email - ROZSZERZONA
         import re
         email_pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
-        if not re.match(email_pattern, client_email):
-            error_details = {
-                'step': step,
-                'issue': 'Nieprawidłowy format adresu email',
-                'email': client_email
-            }
-            print(f"[Email] BŁĄD: {error_details}", file=sys.stderr)
-            return False
+        cleaned_email = client_email.strip()
+        
+        if not re.match(email_pattern, cleaned_email):
+            # ZMIENIONA LOGIKA: Loguj jako ostrzeżenie, nie błąd
+            print(f"[Email] ⚠️ Nieprawidłowy format adresu email: '{client_email}' - pomijam wysyłkę", file=sys.stderr)
+            
+            # Oznacz harmonogram jako 'invalid_email'
+            if 'schedule_entry' in locals() and schedule_entry:
+                schedule_entry.status = 'invalid_email'
+                db.session.commit()
+            
+            return False  # Nie jest to błąd systemowy
+        
+        # Aktualizuj email na oczyszczoną wersję
+        client_email = cleaned_email
         
         step = "DATABASE_SCHEDULE"
         print(f"[Email] Sprawdzam/tworzę wpis w harmonogramie...", file=sys.stderr)
@@ -454,15 +472,15 @@ def send_scheduled_emails():
     """
     Wysyła zaplanowane emaile które mają scheduled_date <= teraz.
     Wywoływana co godzinę przez scheduler.
+    
+    UPROSZCZONE: Kontrola odbywa się przez wstrzymanie/wznowienie zadania w schedulerze,
+    nie przez checkbox w ustawieniach.
     """
     try:
         print("[Email Send] === ROZPOCZĘCIE WYSYŁKI ZAPLANOWANYCH EMAILI ===", file=sys.stderr)
         
-        # Sprawdź czy funkcja jest włączona
-        config = SchedulerConfig.query.filter_by(key='quote_reminder_enabled').first()
-        if not config or config.value.lower() != 'true':
-            print("[Email Send] Przypomnienia są wyłączone w konfiguracji", file=sys.stderr)
-            return
+        # USUNIĘTO: sprawdzanie quote_reminder_enabled (kontrola przez scheduler)
+        print("[Email Send] Wysyłka emaili jest aktywna (zadanie uruchomione)", file=sys.stderr)
         
         # Znajdź emaile gotowe do wysłania
         current_time = datetime.now()
