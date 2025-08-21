@@ -63,17 +63,24 @@ function createToastContainer() {
 }
 
 function generateProductKey(orderId, product, productIndex) {
-    // Preferuj order_product_id jeśli dostępne
-    if (product.order_product_id) {
+    /**
+     * ✅ JEDNOLITA FUNKCJA: Identyczna logika jak w volume_manager.js
+     */
+    // PRIORYTET 1: order_product_id (najbardziej unikalny)
+    if (product.order_product_id && String(product.order_product_id).trim()) {
         return `${orderId}_${product.order_product_id}`;
     }
-    // Fallback do product_id jeśli dostępne
-    else if (product.product_id && product.product_id !== "") {
+    // PRIORYTET 2: product_id (jeśli nie jest pusty)
+    else if (product.product_id && String(product.product_id).trim() && product.product_id !== "") {
         return `${orderId}_${product.product_id}`;
     }
-    // Ostateczność: użyj indeksu produktu
+    // ✅ PRIORYTET 3: product_index z prefiksem "idx_" (gwarantuje unikalność)
+    else if (productIndex !== null && productIndex !== undefined) {
+        return `${orderId}_idx_${productIndex}`;
+    }
+    // OSTATECZNOŚĆ: unknown (może powodować konflikty)
     else {
-        return `${orderId}_${productIndex}`;
+        return `${orderId}_unknown`;
     }
 }
 
@@ -3839,16 +3846,13 @@ class SyncManager {
             // ✅ POPRAWKA: Debuguj strukturę produktów w selectedOrdersData
             selectedOrdersData.forEach((order, orderIndex) => {
                 console.log(`[DEBUG] Zamówienie ${order.order_id} (${orderIndex}):`);
-                console.log(`  - customer_name: ${order.customer_name || order.delivery_fullname || 'BRAK'}`);
-                console.log(`  - ma products: ${!!(order.products && Array.isArray(order.products))}`);
-                console.log(`  - liczba produktów: ${order.products?.length || 0}`);
-
                 if (order.products && Array.isArray(order.products)) {
                     order.products.forEach((product, productIndex) => {
+                        // ✅ UŻYJ JEDNOLITEJ FUNKCJI generateProductKey
                         const expectedKey = generateProductKey(order.order_id, product, productIndex);
                         const hasVolumeData = volumeData.hasOwnProperty(expectedKey);
                         console.log(`  - Produkt ${productIndex}: ${product.name}`);
-                        console.log(`    product_id: ${product.product_id || 'BRAK/unknown'}`);
+                        console.log(`    product_id: ${product.product_id || 'unknown'}`);
                         console.log(`    order_product_id: ${product.order_product_id || 'BRAK'}`);
                         console.log(`    expected key: ${expectedKey}`);
                         console.log(`    has volume data: ${hasVolumeData}`);
@@ -3856,8 +3860,6 @@ class SyncManager {
                             console.log(`    volume data:`, volumeData[expectedKey]);
                         }
                     });
-                } else {
-                    console.warn(`  ⚠️ Zamówienie ${order.order_id} nie ma produktów lub products nie jest tablicą!`);
                 }
             });
 

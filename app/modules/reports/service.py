@@ -48,6 +48,7 @@ class BaselinkerReportsService:
             149777: "Czeka na odbiór osobisty",
             149778: "Dostarczona - trans. WoodPower",
             149779: "Odebrane",
+            316636: "Reklamacja",
             155824: "Nowe - opłacone"
         }
 
@@ -94,6 +95,28 @@ class BaselinkerReportsService:
         """NOWA METODA: Czyści poprawki objętości."""
         self.volume_fixes = {}
         reports_logger.info("Wyczyszczono poprawki objętości")
+
+    def generate_product_key(self, order_id, product, product_index=None):
+        """
+        ✅ POPRAWIONA METODA: Identyczna logika jak w frontendzie
+        """
+        order_product_id = product.get('order_product_id')
+        product_id_raw = product.get('product_id')
+    
+        # PRIORYTET 1: order_product_id (najbardziej unikalne)
+        if order_product_id and str(order_product_id).strip():
+            return f"{order_id}_{order_product_id}"
+    
+        # PRIORYTET 2: product_id (jeśli nie jest pusty)
+        if product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != "":
+            return f"{order_id}_{product_id_raw}"
+    
+        # ✅ PRIORYTET 3: product_index z prefiksem "idx_" (gwarantuje unikalność)
+        if product_index is not None:
+            return f"{order_id}_idx_{product_index}"
+    
+        # OSTATECZNOŚĆ: 'unknown' (może powodować konflikty)
+        return f"{order_id}_unknown"
         
     def get_volume_fix(self, product_key):
         """Pobiera poprawki objętości dla konkretnego produktu"""
@@ -181,23 +204,23 @@ class BaselinkerReportsService:
         Args:
             order_data (dict): Dane zamówienia z Baselinker
             product_data (dict): Dane produktu z zamówienia
-    
+
         Returns:
             dict: Przygotowane dane do zapisu w bazie
         """
         try:
             # ✅ UŻYJ ISTNIEJĄCEJ LOGIKI: Stwórz tymczasowe zamówienie z jednym produktem
             temp_order = {**order_data, 'products': [product_data]}
-    
+
             # ✅ WYKORZYSTAJ _convert_order_to_records (ale nie zapisuj do bazy)
             records = self._convert_order_to_records(temp_order)
-    
+
             if not records:
                 raise Exception("Nie udało się przetworzyć zamówienia")
-        
+    
             # Weź pierwszy (i jedyny) rekord
             record = records[0]
-    
+
             # ✅ SPRAWDŹ CZY TO USŁUGA PRZED DALSZYM PRZETWARZANIEM
             product_name = product_data.get('name', '')
             if self._is_service_product(product_name):
@@ -222,19 +245,19 @@ class BaselinkerReportsService:
                 'caretaker': record.caretaker,
                 'delivery_method': record.delivery_method,
                 'order_source': record.order_source,
-        
+    
                 # Dane produktu - ✅ POPRAWKA: Użyj group_type z record (już ustawione przez _convert_order_to_records)
                 'group_type': record.group_type,  # To już zawiera 'usługa' lub 'towar'
                 'product_type': record.product_type,
                 'finish_state': record.finish_state,
                 'raw_product_name': record.raw_product_name,
                 'quantity': record.quantity,
-        
+    
                 # Wymiary (z parsera)
                 'length_cm': record.length_cm,
                 'width_cm': record.width_cm,
                 'thickness_cm': record.thickness_cm,
-        
+    
                 # Ceny i wartości
                 'price_gross': record.price_gross,
                 'price_net': record.price_net,
@@ -245,7 +268,7 @@ class BaselinkerReportsService:
                 'payment_method': record.payment_method,
                 'paid_amount_net': record.paid_amount_net,
                 'balance_due': record.balance_due,
-        
+    
                 # ✅ DODAJ ATRYBUTY DREWNA
                 'wood_species': record.wood_species,
                 'technology': record.technology,
@@ -255,7 +278,7 @@ class BaselinkerReportsService:
                 'volume_per_piece': record.volume_per_piece,
                 'total_volume': record.total_volume,
                 'price_per_m3': record.price_per_m3,
-        
+    
                 # Pozostałe pola
                 'current_status': record.current_status,
                 'delivery_cost': record.delivery_cost,
@@ -284,18 +307,18 @@ class BaselinkerReportsService:
 
             record_data['paid_amount_net'] = paid_amount_net
             record_data['payment_done'] = payment_done
-    
+
             # ✅ POPRAWKA: Sprawdź czy to usługa PRZED dodawaniem analizy objętości
             product_name = product_data.get('name', '')
             is_service = self._is_service_product(product_name)
-        
+    
             if is_service:
                 # ✅ DLA USŁUG: Pomiń analizę objętości - usługi nie mają objętości ani atrybutów drewna
                 self.logger.debug("Przetwarzanie usługi - pomijam analizę objętości",
                                  product_name=product_name,
                                  group_type=record_data.get('group_type'))
                 return record_data
-    
+
             # ✅ OBLICZ ŁĄCZNĄ WARTOŚĆ NETTO TYLKO PRODUKTÓW FIZYCZNYCH (bez usług)
             total_products_value_net = 0
             for prod in order_data.get('products', []):
@@ -305,67 +328,41 @@ class BaselinkerReportsService:
                     orig_price = float(prod.get('price_brutto', 0))
                     custom_fields = order_data.get('custom_extra_fields', {})
                     price_type_api = custom_fields.get('106169', '').strip()
-                
+            
                     if price_type_api.lower() == 'netto':
                         prod_price_net = orig_price
                     elif price_type_api.lower() == 'brutto':
                         prod_price_net = orig_price / 1.23
                     else:
                         prod_price_net = orig_price / 1.23
-                
+            
                     prod_quantity = int(prod.get('quantity', 1))
                     total_products_value_net += prod_price_net * prod_quantity
-        
+    
             # ✅ NADPISZ order_amount_net na łączną wartość produktów fizycznych
             record_data['order_amount_net'] = total_products_value_net
-        
+    
             self.logger.debug("Obliczono order_amount_net dla zamówienia",
                               order_id=order_data.get('order_id'),
                               total_products_value_net=total_products_value_net,
                               current_product=product_data.get('name'))
 
             # ✅ TYLKO DLA PRODUKTÓW FIZYCZNYCH: DODAJ ANALIZĘ OBJĘTOŚCI
-            order_product_id = product_data.get('order_product_id')
-            product_id_raw = product_data.get('product_id')
+            # ✅ UŻYJ NOWEJ METODY GENEROWANIA KLUCZY
+            product_key = self.generate_product_key(order_data.get('order_id'), product_data)
 
-            if order_product_id:
-                # Preferuj order_product_id jeśli dostępne (unikalne w ramach zamówienia)
-                product_key = f"{order_data.get('order_id')}_{order_product_id}"
-            elif product_id_raw and product_id_raw != "":
-                # Fallback do product_id jeśli dostępne
-                product_key = f"{order_data.get('order_id')}_{product_id_raw}"
-            else:
-                # Ostateczność: użyj indeksu produktu w zamówieniu
-                product_index = order_data.get('products', []).index(product_data)
-                product_key = f"{order_data.get('order_id')}_{product_index}"
+            # ✅ DODAJ DEBUG GENEROWANIA KLUCZA
+            self.logger.debug("Generated product key",
+                             order_id=order_data.get('order_id'),
+                             product_name=product_data.get('name', 'BRAK'),
+                             order_product_id=product_data.get('order_product_id'),
+                             product_id=product_data.get('product_id'),
+                             generated_key=product_key)
 
-            # DODAJ DEBUG:
-            self.logger.debug("Product key generation POPRAWIONA", 
-                              order_id=order_data.get('order_id'),
-                              product_id_raw=product_id_raw,
-                              order_product_id=order_product_id,
-                              final_product_key=product_key,
-                              volume_fixes_keys=list(self.volume_fixes.keys()) if hasattr(self, 'volume_fixes') else [])
-
-            # DODAJ DEBUG
-            self.logger.info(f"🔍 PRODUCT KEY GENERATION:")
-            self.logger.info(f"   📦 Product name: {product_data.get('name', 'BRAK')}")
-            self.logger.info(f"   🔢 Product index: {product_index}")
-            self.logger.info(f"   🔑 Generated key: {product_key}")
-            self.logger.info(f"   🛠️ Available volume_fixes keys: {list(self.volume_fixes.keys()) if hasattr(self, 'volume_fixes') else []}")
-
-            # DODAJ DEBUG:
-            self.logger.debug("Product key generation", 
-                              order_id=order_data.get('order_id'),
-                              product_id_raw=product_id_raw,
-                              order_product_id=product_data.get('order_product_id'),
-                              final_product_key=product_key,
-                              volume_fixes_keys=list(self.volume_fixes.keys()) if hasattr(self, 'volume_fixes') else [])
-    
             # Przeprowadź analizę produktu
             from .routers import analyze_product_for_volume_and_attributes
             analysis = analyze_product_for_volume_and_attributes(product_name)
-    
+
             # Nadpisz objętość według nowej analizy
             if analysis['analysis_type'] == 'volume_only':
                 # ✅ POPRAWKA: objętość z nazwy to już total_volume całej pozycji
@@ -374,30 +371,30 @@ class BaselinkerReportsService:
 
                 record_data['total_volume'] = total_volume  # NIE MNÓŻ!
                 record_data['volume_per_piece'] = total_volume / quantity  # PODZIEL!
-        
+    
                 # Wyczyść wymiary (bo ich nie ma)
                 record_data['length_cm'] = None
                 record_data['width_cm'] = None
                 record_data['thickness_cm'] = None
-        
+    
             elif analysis['analysis_type'] == 'manual_input_needed':
                 # Użyj ręcznie wprowadzonych danych
                 volume_fix = self.get_volume_fix(product_key)
-                
+            
                 # ✅ DODAJ SZCZEGÓŁOWY DEBUG
                 self.logger.info("🔍 MANUAL_INPUT_NEEDED DEBUG:")
                 self.logger.info(f"   📦 Product key: {product_key}")
                 self.logger.info(f"   🔍 Volume fix found: {volume_fix is not None}")
                 self.logger.info(f"   📊 Volume fix data: {volume_fix}")
                 self.logger.info(f"   🔢 Quantity: {record_data.get('quantity', 1)}")
-                
+            
                 if volume_fix and volume_fix.get('volume'):
                     total_volume = float(volume_fix['volume'])
                     quantity = record_data.get('quantity', 1)
 
                     record_data['total_volume'] = total_volume  # NIE MNÓŻ!
                     record_data['volume_per_piece'] = total_volume / quantity  # PODZIEL!
-                    
+                
                     # ✅ DODAJ DEBUG PO USTAWIENIU
                     self.logger.info("🔍 PO USTAWIENIU OBJĘTOŚCI:")
                     self.logger.info(f"   📊 record_data['total_volume']: {record_data.get('total_volume')}")
@@ -412,7 +409,7 @@ class BaselinkerReportsService:
                     self.logger.warning("⚠️ BRAK VOLUME_FIX - ustawiam objętość na 0")
                     record_data['total_volume'] = 0
                     record_data['volume_per_piece'] = 0
-            
+        
             # ✅ DODAJ SZCZEGÓŁOWY DEBUG PRZED POBIERANIEM ATRYBUTÓW
             volume_fix = self.get_volume_fix(product_key)
             self.logger.debug("Volume fix lookup",
@@ -452,9 +449,9 @@ class BaselinkerReportsService:
             # ✅ NOWE: Dodaj avg_order_price_per_m3 do record_data
             # Dla pojedynczych produktów będzie to cena tego produktu
             record_data['avg_order_price_per_m3'] = record_data.get('price_per_m3', 0.0)
-    
+
             return record_data
-    
+
         except Exception as e:
             self.logger.error("Błąd przygotowywania danych z analizą objętości",
                              order_id=order_data.get('order_id'),
@@ -1414,14 +1411,17 @@ class BaselinkerReportsService:
             try:
                 product_name = product.get('name', '')
                 quantity = int(product.get('quantity', 1))
-                product_id_raw = product.get('product_id')
-                order_product_id = product.get('order_product_id')
-                if order_product_id:
-                    product_key = f"{order.get('order_id')}_{order_product_id}"
-                elif product_id_raw and product_id_raw != "":
-                    product_key = f"{order.get('order_id')}_{product_id_raw}"
-                else:
-                    product_key = f"{order.get('order_id')}_{product_index}"
+                
+                # ✅ UŻYJ NOWEJ METODY GENEROWANIA KLUCZY
+                product_key = self.generate_product_key(order.get('order_id'), product, product_index)
+                
+                self.logger.debug("Processing product for volume calculation",
+                                order_id=order.get('order_id'),
+                                product_name=product_name,
+                                product_index=product_index,
+                                order_product_id=product.get('order_product_id'),
+                                product_id_raw=product.get('product_id'),
+                                generated_key=product_key)
 
                 # ✅ NOWA LOGIKA: Sprawdź volume_fixes NAJPIERW
                 volume_fix = self.get_volume_fix(product_key) if hasattr(self, 'volume_fixes') else None
@@ -1618,15 +1618,16 @@ class BaselinkerReportsService:
                     # === ISTNIEJĄCA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
                     parsed_product = self.parser.parse_product_name(product_name)
 
-                    # Wygeneruj klucz produktu zgodnie z frontendem
-                    order_product_id = product.get('order_product_id')
-                    product_id_raw = product.get('product_id')
-                    if order_product_id:
-                        product_key = f"{order.get('order_id')}_{order_product_id}"
-                    elif product_id_raw and product_id_raw != "":
-                        product_key = f"{order.get('order_id')}_{product_id_raw}"
-                    else:
-                        product_key = f"{order.get('order_id')}_{product_index}"
+                    # ✅ WYGENERUJ KLUCZ PRODUKTU ZGODNIE Z FRONTENDEM
+                    product_key = self.generate_product_key(order.get('order_id'), product, product_index)
+                    
+                    self.logger.debug("Generated product key for physical product",
+                                    order_id=order.get('order_id'),
+                                    product_name=product_name,
+                                    product_index=product_index,
+                                    order_product_id=product.get('order_product_id'),
+                                    product_id_raw=product.get('product_id'),
+                                    generated_key=product_key)
 
                     record = BaselinkerReportOrder(
                         # Dane zamówienia (bez zmian)
@@ -1683,7 +1684,7 @@ class BaselinkerReportsService:
                         email=order.get('email')
                     )
 
-                    # Przeprowadź analizę nazwy i zastosuj poprawki objętości oraz atrybutów
+                    # ✅ PRZEPROWADŹ ANALIZĘ NAZWY I ZASTOSUJ POPRAWKI OBJĘTOŚCI ORAZ ATRYBUTÓW
                     from .routers import analyze_product_for_volume_and_attributes
                     analysis = analyze_product_for_volume_and_attributes(product_name)
 
@@ -1705,6 +1706,17 @@ class BaselinkerReportsService:
                             record.length_cm = None
                             record.width_cm = None
                             record.thickness_cm = None
+
+                    # ✅ ATRYBUTY DREWNA – PIERWSZEŃSTWO MAJĄ DANE RĘCZNE
+                    wood_species = self.get_volume_fix_attribute(product_key, 'wood_species') or analysis.get('wood_species')
+                    technology = self.get_volume_fix_attribute(product_key, 'technology') or analysis.get('technology')
+                    wood_class = self.get_volume_fix_attribute(product_key, 'wood_class') or analysis.get('wood_class')
+                    if wood_species:
+                        record.wood_species = wood_species
+                    if technology:
+                        record.technology = technology
+                    if wood_class:
+                        record.wood_class = wood_class
 
                     # Atrybuty drewna – pierwszeństwo mają dane ręczne
                     wood_species = self.get_volume_fix_attribute(product_key, 'wood_species') or analysis.get('wood_species')

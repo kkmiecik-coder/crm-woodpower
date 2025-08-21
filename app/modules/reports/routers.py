@@ -40,6 +40,19 @@ def login_required(func):
         return func(*args, **kwargs)
     return wrapper
 
+def generate_product_key_router(order_id, product):
+    """
+    Pomocnicza funkcja do generowania kluczy produktów - identyczna z service.py
+    """
+    order_product_id = product.get('order_product_id')
+    product_id_raw = product.get('product_id')
+    
+    if order_product_id and str(order_product_id).strip():
+        return f"{order_id}_{order_product_id}"
+    elif product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != "":
+        return f"{order_id}_{product_id_raw}"
+    else:
+        return f"{order_id}_unknown"
 
 @reports_bp.route('/')
 @login_required
@@ -3593,7 +3606,23 @@ def api_save_orders_with_volumes():
                         prod_id = prod.get('product_id', 'BRAK')
                         prod_name = prod.get('name', 'BRAK NAZWY')
                         key_for_this_prod = f"{first_order.get('order_id')}_{prod_id if prod_id else 'unknown'}"
-                        reports_logger.info(f"      {idx+1}. ID: '{prod_id}' | Nazwa: '{prod_name}' | Klucz: '{key_for_this_prod}'")
+                        reports_logger.info(f"   📋 Wszystkie produkty w zamówieniu:")
+                    for idx, prod in enumerate(first_products):
+                        order_product_id = prod.get('order_product_id')
+                        product_id_raw = prod.get('product_id')
+                        prod_name = prod.get('name', 'BRAK NAZWY')
+                        
+                        # ✅ UŻYJ TEJ SAMEJ LOGIKI CO W generate_product_key
+                        if order_product_id and str(order_product_id).strip():
+                            key_for_this_prod = f"{first_order.get('order_id')}_{order_product_id}"
+                        elif product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != "":
+                            key_for_this_prod = f"{first_order.get('order_id')}_{product_id_raw}"
+                        else:
+                            key_for_this_prod = f"{first_order.get('order_id')}_unknown"
+                        
+                        has_volume_data = key_for_this_prod in service.volume_fixes if hasattr(service, 'volume_fixes') else False
+                        
+                        reports_logger.info(f"      {idx+1}. order_product_id: '{order_product_id}' | product_id: '{product_id_raw}' | Nazwa: '{prod_name}' | Klucz: '{key_for_this_prod}' | Ma dane: {has_volume_data}")
 
         # Przekaż przefiltrowane dane zamówień
         result = _sync_selected_orders_with_volume_analysis(service, new_order_ids, filtered_orders_data)
