@@ -98,23 +98,23 @@ class BaselinkerReportsService:
 
     def generate_product_key(self, order_id, product, product_index=None):
         """
-        ✅ POPRAWIONA METODA: Identyczna logika jak w frontendzie
+        ✅ ZSYNCHRONIZOWANA METODA: Preferuje product_index gdy jest podany
         """
         order_product_id = product.get('order_product_id')
         product_id_raw = product.get('product_id')
-    
-        # PRIORYTET 1: order_product_id (najbardziej unikalne)
-        if order_product_id and str(order_product_id).strip():
-            return f"{order_id}_{order_product_id}"
-    
-        # PRIORYTET 2: product_id (jeśli nie jest pusty)
-        if product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != "":
-            return f"{order_id}_{product_id_raw}"
-    
-        # ✅ PRIORYTET 3: product_index z prefiksem "idx_" (gwarantuje unikalność)
+
+        # ✅ PRIORYTET 1: product_index z prefiksem "idx_" (gdy podany)
         if product_index is not None:
             return f"{order_id}_idx_{product_index}"
-    
+
+        # PRIORYTET 2: order_product_id (najbardziej unikalne)
+        if order_product_id and str(order_product_id).strip():
+            return f"{order_id}_{order_product_id}"
+
+        # PRIORYTET 3: product_id (jeśli nie jest pusty)
+        if product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != "":
+            return f"{order_id}_{product_id_raw}"
+
         # OSTATECZNOŚĆ: 'unknown' (może powodować konflikty)
         return f"{order_id}_unknown"
         
@@ -196,7 +196,7 @@ class BaselinkerReportsService:
             'wood_class': extract_wood_class_from_product_name(product_name)
         }
 
-    def prepare_order_record_data_with_volume_analysis(self, order_data, product_data):
+    def prepare_order_record_data_with_volume_analysis(self, order_data, product_data, product_index=None):
         """
         ULEPSZONA METODA: Przygotowuje dane rekordu zamówienia z analizą objętości.
         UŻYWA ISTNIEJĄCEJ LOGIKI z _convert_order_to_records zamiast duplikować kod.
@@ -204,6 +204,7 @@ class BaselinkerReportsService:
         Args:
             order_data (dict): Dane zamówienia z Baselinker
             product_data (dict): Dane produktu z zamówienia
+            product_index (int): Indeks produktu w zamówieniu (NOWY PARAMETR)
 
         Returns:
             dict: Przygotowane dane do zapisu w bazie
@@ -349,15 +350,25 @@ class BaselinkerReportsService:
 
             # ✅ TYLKO DLA PRODUKTÓW FIZYCZNYCH: DODAJ ANALIZĘ OBJĘTOŚCI
             # ✅ UŻYJ NOWEJ METODY GENEROWANIA KLUCZY
-            product_key = self.generate_product_key(order_data.get('order_id'), product_data)
+            product_key = self.generate_product_key(order_data.get('order_id'), product_data, product_index)
 
             # ✅ DODAJ DEBUG GENEROWANIA KLUCZA
-            self.logger.debug("Generated product key",
-                             order_id=order_data.get('order_id'),
-                             product_name=product_data.get('name', 'BRAK'),
-                             order_product_id=product_data.get('order_product_id'),
-                             product_id=product_data.get('product_id'),
-                             generated_key=product_key)
+            # ✅ SZCZEGÓŁOWY DEBUG GENEROWANIA KLUCZA
+            order_product_id_raw = product_data.get('order_product_id')
+            product_id_raw = product_data.get('product_id')
+
+            self.logger.info("🔑 SZCZEGÓŁOWY DEBUG GENEROWANIA KLUCZA:")
+            self.logger.info(f"   📦 order_id: {order_data.get('order_id')}")
+            self.logger.info(f"   🏷️  product_name: {product_data.get('name', 'BRAK')}")
+            self.logger.info(f"   🆔 order_product_id: '{order_product_id_raw}' (type: {type(order_product_id_raw)})")
+            self.logger.info(f"   🔢 product_id: '{product_id_raw}' (type: {type(product_id_raw)})")
+            self.logger.info(f"   📍 product_index: {product_index}")
+            self.logger.info(f"   ✅ order_product_id not empty: {order_product_id_raw and str(order_product_id_raw).strip()}")
+            self.logger.info(f"   ✅ product_id not empty: {product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != ''}")
+
+            product_key = self.generate_product_key(order_data.get('order_id'), product_data, product_index)
+
+            self.logger.info(f"   🎯 WYGENEROWANY KLUCZ: {product_key}")
 
             # Przeprowadź analizę produktu
             from .routers import analyze_product_for_volume_and_attributes
@@ -2282,79 +2293,80 @@ class BaselinkerReportsService:
         try:
             order_id = order_data.get('order_id')
             products = order_data.get('products', [])
-            
+        
             if not products:
                 return {
                     'success': False,
                     'error': f'Zamówienie {order_id} nie zawiera produktów'
                 }
-            
+        
             reports_logger.info(f"Zapisywanie zamówienia {order_id} z analizą objętości",
                             products_count=len(products))
-            
+        
             # Sprawdź czy zamówienie już istnieje
             if self.order_exists(order_id):
                 return {
                     'success': False,
                     'error': f'Zamówienie {order_id} już istnieje w bazie danych'
                 }
-            
+        
             saved_records = []
             processing_errors = []
-            
-            for product in products:
+        
+            # ✅ POPRAWKA: Dodaj enumerate() aby mieć product_index
+            for product_index, product in enumerate(products):
                 try:
-                    # Użyj ulepszonej metody przygotowania danych z analizą objętości
+                    # ✅ POPRAWKA: Przekaż product_index jako trzeci parametr
                     record_data = self.prepare_order_record_data_with_volume_analysis(
-                        order_data, product
+                        order_data, product, product_index
                     )
-                    
+                
                     # Zapisz rekord
                     record = self.create_report_record(record_data)
                     saved_records.append(record)
-                    
+                
                     # Loguj szczegóły
                     volume_info = f"objętość: {record_data.get('total_volume', 0):.4f}m³"
                     if record_data.get('wood_species'):
                         volume_info += f", gatunek: {record_data.get('wood_species')}"
                     if record_data.get('technology'):
                         volume_info += f", technologia: {record_data.get('technology')}"
-                    
+                
                     reports_logger.debug(f"Zapisano produkt z analizą: {product.get('name', 'unknown')} - {volume_info}")
-                    
+                
                 except Exception as e:
                     error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"
                     processing_errors.append(error_msg)
                     reports_logger.error(error_msg)
                     continue
-            
+        
             if not saved_records:
                 return {
                     'success': False,
                     'error': f'Nie udało się zapisać żadnych produktów z zamówienia {order_id}',
                     'details': processing_errors
                 }
-            
+        
             # Commit transakcji
             db.session.commit()
-            
+        
             result = {
                 'success': True,
                 'order_id': order_id,
                 'products_saved': len(saved_records),
                 'message': f'Pomyślnie zapisano {len(saved_records)} produktów z zamówienia {order_id}'
             }
-            
+        
             if processing_errors:
                 result['warnings'] = processing_errors
                 result['products_failed'] = len(processing_errors)
-            
+        
             reports_logger.info(f"Zamówienie {order_id} zapisane pomyślnie z analizą objętości",
                             products_saved=len(saved_records),
                             products_failed=len(processing_errors))
-            
+        
             return result
-            
+        
         except Exception as e:
             db.session.rollback()
             error_msg = f"Krytyczny błąd zapisywania zamówienia {order_data.get('order_id', 'unknown')} z analizą objętości: {str(e)}"

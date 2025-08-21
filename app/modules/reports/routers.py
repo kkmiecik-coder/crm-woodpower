@@ -40,17 +40,32 @@ def login_required(func):
         return func(*args, **kwargs)
     return wrapper
 
-def generate_product_key_router(order_id, product):
+def generate_product_key_router(order_id, product, product_index=None):
     """
-    Pomocnicza funkcja do generowania kluczy produktów - identyczna z service.py
+    ✅ POPRAWIONA FUNKCJA: Identyczna logika jak w frontendzie volume_manager.js
+    Pomocnicza funkcja do generowania kluczy produktów - musi być IDENTYCZNA z frontendem
     """
     order_product_id = product.get('order_product_id')
     product_id_raw = product.get('product_id')
     
-    if order_product_id and str(order_product_id).strip():
+    # ✅ KLUCZOWA ZMIANA: Sprawdź czy product_id jest RZECZYWIŚCIE pusty
+    # W danych widzimy product_id: '' (pusty string), nie None
+    is_product_id_empty = not product_id_raw or str(product_id_raw).strip() == '' or str(product_id_raw) == 'unknown'
+    
+    # PRIORYTET 1: order_product_id TYLKO gdy product_id nie jest pusty
+    # (to różni się od poprzedniej logiki!)
+    if order_product_id and str(order_product_id).strip() and not is_product_id_empty:
         return f"{order_id}_{order_product_id}"
-    elif product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != "":
+    
+    # PRIORYTET 2: product_id (jeśli nie jest pusty)
+    elif not is_product_id_empty:
         return f"{order_id}_{product_id_raw}"
+    
+    # ✅ PRIORYTET 3: product_index z prefiksem "idx_" (gdy product_id jest pusty)
+    elif product_index is not None:
+        return f"{order_id}_idx_{product_index}"
+    
+    # OSTATECZNOŚĆ: 'unknown' (może powodować konflikty)
     else:
         return f"{order_id}_unknown"
 
@@ -3603,26 +3618,17 @@ def api_save_orders_with_volumes():
                     # ✅ SPRAWDŹ WSZYSTKIE PRODUKTY W ZAMÓWIENIU
                     reports_logger.info(f"   📋 Wszystkie produkty w zamówieniu:")
                     for idx, prod in enumerate(first_products):
-                        prod_id = prod.get('product_id', 'BRAK')
-                        prod_name = prod.get('name', 'BRAK NAZWY')
-                        key_for_this_prod = f"{first_order.get('order_id')}_{prod_id if prod_id else 'unknown'}"
-                        reports_logger.info(f"   📋 Wszystkie produkty w zamówieniu:")
-                    for idx, prod in enumerate(first_products):
                         order_product_id = prod.get('order_product_id')
                         product_id_raw = prod.get('product_id')
+                        product_index = prod.get('product_index', idx)  # ✅ UŻYJ product_index Z DANYCH LUB idx
                         prod_name = prod.get('name', 'BRAK NAZWY')
-                        
-                        # ✅ UŻYJ TEJ SAMEJ LOGIKI CO W generate_product_key
-                        if order_product_id and str(order_product_id).strip():
-                            key_for_this_prod = f"{first_order.get('order_id')}_{order_product_id}"
-                        elif product_id_raw and str(product_id_raw).strip() and str(product_id_raw) != "":
-                            key_for_this_prod = f"{first_order.get('order_id')}_{product_id_raw}"
-                        else:
-                            key_for_this_prod = f"{first_order.get('order_id')}_unknown"
-                        
+            
+                        # ✅ UŻYJ POPRAWIONEJ FUNKCJI generate_product_key_router
+                        key_for_this_prod = generate_product_key_router(first_order.get('order_id'), prod, product_index)
+            
                         has_volume_data = key_for_this_prod in service.volume_fixes if hasattr(service, 'volume_fixes') else False
-                        
-                        reports_logger.info(f"      {idx+1}. order_product_id: '{order_product_id}' | product_id: '{product_id_raw}' | Nazwa: '{prod_name}' | Klucz: '{key_for_this_prod}' | Ma dane: {has_volume_data}")
+            
+                        reports_logger.info(f"      {idx+1}. order_product_id: '{order_product_id}' | product_id: '{product_id_raw}' | product_index: {product_index} | Nazwa: '{prod_name}' | Klucz: '{key_for_this_prod}' | Ma dane: {has_volume_data}")
 
         # Przekaż przefiltrowane dane zamówień
         result = _sync_selected_orders_with_volume_analysis(service, new_order_ids, filtered_orders_data)
@@ -3689,27 +3695,68 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
                                   order_id=order_data.get('order_id'),
                                   products_count=len(order_data.get('products', [])))
                 
-                # ✅ NOWE: GRUPOWE PRZETWARZANIE - użyj _convert_order_to_records
-                # (to zapewni właściwe obliczenie średniej ceny dla całego zamówienia)
-                records = service._convert_order_to_records(order_data)
+                # ✅ POPRAWKA: Zamiast _convert_order_to_records, użyj indywidualnego przetwarzania
+                # które respektuje product_index z frontendu
                 
-                # Zapisz wszystkie rekordy zamówienia do bazy
-                for record in records:
-                    db.session.add(record)
+                order_id = order_data.get('order_id')
+                products = order_data.get('products', [])
                 
-                # Commit dla całego zamówienia
-                db.session.commit()
-                orders_added += len(records)
+                if not products:
+                    reports_logger.warning(f"Zamówienie {order_id} nie ma produktów")
+                    continue
                 
-                reports_logger.info("Zapisano rekord zamówienia z objętością", 
-                                  order_id=order_data.get('order_id'),
-                                  products_count=len(records),
-                                  avg_order_price_per_m3=records[0].avg_order_price_per_m3 if records else 0.0,
-                                  total_volume=sum(float(r.total_volume or 0) for r in records))
-
-                orders_processed += 1
+                saved_records = []
+                
+                # ✅ PRZETWARZAJ KAŻDY PRODUKT INDYWIDUALNIE Z ZACHOWANIEM product_index
+                for product in products:
+                    try:
+                        # ✅ UŻYJ product_index Z DANYCH FRONTENDU
+                        product_index = product.get('product_index')
+                        if product_index is None:
+                            reports_logger.warning(f"Brak product_index dla produktu {product.get('name', 'unknown')} w zamówieniu {order_id}")
+                            continue
+                        
+                        # ✅ UŻYJ FUNKCJI Z service.py KTÓRA UŻYWA product_index
+                        record_data = service.prepare_order_record_data_with_volume_analysis(
+                            order_data, product, product_index
+                        )
+                        
+                        # Zapisz rekord
+                        record = service.create_report_record(record_data)
+                        saved_records.append(record)
+                        
+                        reports_logger.debug(f"Zapisano produkt: {product.get('name', 'unknown')} z indeksem {product_index}")
+                        
+                    except Exception as e:
+                        error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"
+                        reports_logger.error(error_msg)
+                        processing_errors.append({
+                            'order_id': order_id,
+                            'product_name': product.get('name', 'unknown'),
+                            'error': str(e)
+                        })
+                        continue
+                
+                if saved_records:
+                    # Commit dla całego zamówienia
+                    db.session.commit()
+                    orders_added += len(saved_records)
+                    
+                    # Oblicz łączną objętość dla logowania
+                    total_volume = sum(float(r.total_volume or 0) for r in saved_records)
+                    avg_price = saved_records[0].avg_order_price_per_m3 if saved_records else 0.0
+                    
+                    reports_logger.info("Zapisano rekord zamówienia z objętością", 
+                                      order_id=order_id,
+                                      products_count=len(saved_records),
+                                      avg_order_price_per_m3=avg_price,
+                                      total_volume=total_volume)
+                    orders_processed += 1
+                else:
+                    reports_logger.warning(f"Brak zapisanych produktów dla zamówienia {order_id}")
                         
             except Exception as e:
+                db.session.rollback()  # ✅ DODAJ ROLLBACK W PRZYPADKU BŁĘDU
                 error_msg = f"Błąd przetwarzania zamówienia {order_data.get('order_id', 'unknown')}: {str(e)}"
                 processing_errors.append({
                     'order_id': order_data.get('order_id', 'unknown'),
@@ -3725,14 +3772,15 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
             'orders_added': orders_added,
             'message': f'Pomyślnie zapisano {orders_processed} zamówień. Dodano: {orders_added} pozycji.'
         }
-
+        
         if processing_errors:
             result['warnings'] = processing_errors
             result['message'] += f' Błędów: {len(processing_errors)}.'
-
+        
         return result
-
+        
     except Exception as e:
+        db.session.rollback()  # ✅ DODAJ ROLLBACK W PRZYPADKU KRYTYCZNEGO BŁĘDU
         reports_logger.error("Krytyczny błąd synchronizacji z analizą objętości", error=str(e))
         return {
             'success': False,

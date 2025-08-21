@@ -1,2 +1,86 @@
-PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/3.9/bin/python
-PassengerStartupFile passenger_wsgi.py
+# Podstawowa konfiguracja Passenger
+PassengerEnabled On
+PassengerAppRoot /home/woodpower/domains/crm.woodpower.pl/public_html/app
+PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/app/3.9/bin/python
+
+# Optymalizacja procesów
+PassengerMinInstances 1
+PassengerMaxPoolSize 2
+PassengerPoolIdleTime 600
+PassengerMaxRequests 500
+PassengerStartTimeout 90
+PassengerFriendlyErrorPages off
+
+# Zarz¹dzanie procesami
+PassengerMaxPreloaderIdleTime 0
+PassengerSpawnMethod smart
+PassengerPreStart https://crm.woodpower.pl/
+
+# Kodowanie UTF-8
+PassengerAppEnv production
+PassengerEnvVar PYTHONIOENCODING utf-8
+PassengerEnvVar LC_ALL C.UTF-8
+PassengerEnvVar LANG C.UTF-8
+
+# Logowanie (wy³¹czone w produkcji dla wydajnoœci)
+PassengerLogLevel 0
+
+# Buforowanie odpowiedzi
+PassengerBufferResponse on
+
+# Timeout dla d³ugich operacji
+PassengerAppGroupName crm_woodpower
+
+# Przekierowania i zabezpieczenia
+RewriteEngine On
+
+# Wymuszenie HTTPS
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+# Blokowanie dostêpu do plików konfiguracyjnych
+<FilesMatch "\.(json|log|db|sqlite|env)$">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Blokowanie dostêpu do katalogów systemowych
+<DirectoryMatch "/(config|logs|migrations|__pycache__|\.git)/">
+    Order deny,allow
+    Deny from all
+</DirectoryMatch>
+
+# Nag³ówki bezpieczeñstwa
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Kompresja
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
+
+# Cache dla statycznych plików
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    ExpiresByType application/font-woff2 "access plus 1 month"
+</IfModule>
+
+# Ustawienie domyœlnego charset
+AddDefaultCharset UTF-8
+
+# Timeout dla PHP (jeœli u¿ywane)
+<IfModule mod_php.c>
+    php_value max_execution_time 300
+    php_value max_input_time 300
+    php_value memory_limit 256M
+</IfModule>
