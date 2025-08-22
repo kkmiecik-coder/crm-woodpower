@@ -625,3 +625,46 @@ def get_job_status(job_id):
             'success': False,
             'message': f'Błąd serwera: {str(e)}'
         }), 500
+
+@scheduler_bp.route('/force_restart', methods=['POST'])
+@login_required
+@admin_required
+def force_restart_scheduler():
+    """
+    Wymusza restart schedulera - usuwa lock file i restartuje
+    """
+    try:
+        import os
+        import tempfile
+        
+        # Ścieżka do lock file
+        lock_file_path = os.path.join(tempfile.gettempdir(), 'woodpower_scheduler.lock')
+        
+        # Usuń lock file jeśli istnieje
+        if os.path.exists(lock_file_path):
+            os.remove(lock_file_path)
+            print(f"[Scheduler] Usunięto lock file: {lock_file_path}", file=sys.stderr)
+        
+        # Zrestartuj scheduler
+        from modules.scheduler.scheduler_service import init_scheduler, scheduler
+        
+        # Zatrzymaj obecny scheduler jeśli działa
+        if scheduler and scheduler.running:
+            scheduler.shutdown(wait=False)
+            print("[Scheduler] Zatrzymano obecny scheduler", file=sys.stderr)
+        
+        # Uruchom nowy scheduler
+        from flask import current_app
+        init_scheduler(current_app)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Scheduler został zrestartowany pomyślnie'
+        })
+        
+    except Exception as e:
+        print(f"[Scheduler] Błąd restartu: {e}", file=sys.stderr)
+        return jsonify({
+            'success': False,
+            'message': f'Błąd restartu schedulera: {str(e)}'
+        }), 500

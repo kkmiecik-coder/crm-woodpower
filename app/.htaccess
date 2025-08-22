@@ -1,34 +1,56 @@
+# .htaccess - Optymalizacja dla CYBER_FOLKS shared hosting
+
 # Podstawowa konfiguracja Passenger
 PassengerEnabled On
 PassengerAppRoot /home/woodpower/domains/crm.woodpower.pl/public_html/app
 PassengerPython /home/woodpower/virtualenv/domains/crm.woodpower.pl/public_html/app/3.9/bin/python
 
-# Optymalizacja procesów
-PassengerMinInstances 1
-PassengerMaxPoolSize 2
-PassengerPoolIdleTime 600
-PassengerMaxRequests 500
-PassengerStartTimeout 90
+# ===== CYBER_FOLKS COMPATIBLE OPTIMIZATIONS =====
+
+# Wiêcej procesów na starcie (w ramach limitów hostingu)
+PassengerMinInstances 3
+
+# Ograniczenie procesów (¿eby nie przekroczyæ limitów)
+PassengerMaxPoolSize 5
+
+# D³u¿szy czas ¿ycia procesów (30 minut)
+PassengerPoolIdleTime 1800
+
+# Wiêcej requestów na proces (mniej restartów)
+PassengerMaxRequests 800
+
+# Szybszy start
+PassengerStartTimeout 60
 PassengerFriendlyErrorPages off
 
-# Zarz¹dzanie procesami
-PassengerMaxPreloaderIdleTime 0
+# ===== SHARED HOSTING OPTIMIZATIONS =====
+
+# Smart spawning (efektywniejsze dla shared hosting)
 PassengerSpawnMethod smart
+PassengerMaxPreloaderIdleTime 1800
+
+# Preload przy starcie (jeœli Cyber_folks pozwala)
 PassengerPreStart https://crm.woodpower.pl/
 
-# Kodowanie UTF-8
+# ===== ENVIRONMENT OPTIMIZATIONS =====
+
 PassengerAppEnv production
 PassengerEnvVar PYTHONIOENCODING utf-8
 PassengerEnvVar LC_ALL C.UTF-8
 PassengerEnvVar LANG C.UTF-8
 
-# Logowanie (wy³¹czone w produkcji dla wydajnoœci)
-PassengerLogLevel 0
+# Python optimizations (kompatybilne z shared hosting)
+PassengerEnvVar PYTHONDONTWRITEBYTECODE 1
+PassengerEnvVar PYTHONUNBUFFERED 1
 
-# Buforowanie odpowiedzi
+# ===== CONSERVATIVE MONITORING =====
+
+# Minimalne logowanie (shared hosting ma limity)
+PassengerLogLevel 1
+
+# ===== STANDARD OPTIMIZATIONS =====
+
 PassengerBufferResponse on
-
-# Timeout dla d³ugich operacji
 PassengerAppGroupName crm_woodpower
 
 # Przekierowania i zabezpieczenia
@@ -58,12 +80,12 @@ RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
     Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
-# Kompresja
+# Kompresja (shared hosting friendly)
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
 </IfModule>
 
-# Cache dla statycznych plików
+# Cache dla statycznych plików (shared hosting friendly)
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresByType image/jpeg "access plus 1 month"
@@ -75,12 +97,8 @@ RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
     ExpiresByType application/font-woff2 "access plus 1 month"
 </IfModule>
 
-# Ustawienie domyœlnego charset
+# Charset
 AddDefaultCharset UTF-8
 
-# Timeout dla PHP (jeœli u¿ywane)
-<IfModule mod_php.c>
-    php_value max_execution_time 300
-    php_value max_input_time 300
-    php_value memory_limit 256M
-</IfModule>
+# ===== CYBER_FOLKS SPECIFIC =====
+# Jeœli hosting ma limity CPU/pamiêci, te ustawienia powinny je uszanowaæ

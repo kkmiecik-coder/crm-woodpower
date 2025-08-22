@@ -1447,6 +1447,87 @@ function sendTestEmail() {
         });
 }
 
+/**
+ * Wymusza restart schedulera - usuwa lock file i restartuje
+ */
+async function forceRestartScheduler() {
+    debugLog('🔥 Wymuszanie restartu schedulera');
+
+    // Potwierdzenie
+    const confirmed = confirm(
+        '🔥 FORCE RESTART SCHEDULERA\n\n' +
+        'Ta operacja:\n' +
+        '• Usuwa blokady scheduler\n' +
+        '• Zatrzymuje obecny scheduler\n' +
+        '• Uruchamia nowy scheduler\n\n' +
+        'Czy na pewno chcesz kontynuować?'
+    );
+
+    if (!confirmed) {
+        debugLog('🔥 Force restart anulowany przez użytkownika');
+        return;
+    }
+
+    try {
+        // Wyświetl status ładowania
+        const statusDiv = document.getElementById('settingsStatus');
+        if (statusDiv) {
+            statusDiv.innerHTML = '<span style="color: #dc3545;">🔥 Restartowanie schedulera...</span>';
+        }
+
+        debugLog('🔥 Wysyłanie żądania force restart');
+
+        const response = await fetch('/scheduler/force_restart', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+
+        const data = await response.json();
+        debugLog('🔥 Odpowiedź serwera:', data);
+
+        if (data.success) {
+            // Sukces
+            if (statusDiv) {
+                statusDiv.innerHTML = '<span style="color: #28a745;">✅ ' + data.message + '</span>';
+            }
+
+            // Prostsze powiadomienie bez showFriendlyMessage
+            console.log('🔥 Scheduler został zrestartowany pomyślnie!');
+
+            // Odśwież status schedulera po 2 sekundach
+            setTimeout(() => {
+                if (typeof loadSchedulerStatus === 'function') {
+                    loadSchedulerStatus();
+                }
+                if (statusDiv) {
+                    statusDiv.innerHTML = '';
+                }
+            }, 2000);
+
+        } else {
+            // Błąd
+            if (statusDiv) {
+                statusDiv.innerHTML = '<span style="color: #dc3545;">❌ ' + data.message + '</span>';
+            }
+
+            console.error('❌ Błąd restartu: ' + data.message);
+        }
+
+    } catch (error) {
+        debugLog('🔥 Błąd force restart:', error);
+
+        const statusDiv = document.getElementById('settingsStatus');
+        if (statusDiv) {
+            statusDiv.innerHTML = '<span style="color: #dc3545;">❌ Błąd połączenia</span>';
+        }
+
+        console.error('❌ Błąd połączenia z serwerem');
+    }
+}
+
 // ==========================================
 // FUNKCJE DEBUGOWANIA (DEV ONLY)
 // ==========================================

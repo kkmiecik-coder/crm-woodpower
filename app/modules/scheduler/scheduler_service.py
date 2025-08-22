@@ -3,6 +3,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
 import atexit
 import sys
+import os
 from flask import current_app
 from modules.scheduler.jobs.quote_reminders import check_quote_reminders
 from modules.scheduler.models import SchedulerConfig, create_default_scheduler_config
@@ -13,14 +14,52 @@ from extensions import db
 scheduler = None
 
 
+# ZNAJDŹ funkcję init_scheduler w scheduler_service.py i ZAMIEŃ całą funkcję na tę:
+
 def init_scheduler(app):
     """
     Inicjalizuje i uruchamia APScheduler z kontekstem aplikacji Flask
+    OSTATECZNE ROZWIĄZANIE: File locking zamiast port locking
     """
     global scheduler
     
+    import fcntl
+    import tempfile
+    
+    # NOWE: File lock zamiast socket lock
+    lock_file_path = os.path.join(tempfile.gettempdir(), 'woodpower_scheduler.lock')
+    
     try:
-        print("[Scheduler] Inicjalizacja APScheduler...", file=sys.stderr)
+        # Otwórz/utwórz plik lock
+        lock_file = open(lock_file_path, 'w')
+        
+        # Próba zablokowania pliku (non-blocking)
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        
+        # Zapisz PID do pliku
+        lock_file.write(f"{os.getpid()}\n")
+        lock_file.flush()
+        
+        print(f"[Scheduler] PID {os.getpid()} zablokował plik {lock_file_path} - jestem głównym schedulerem", file=sys.stderr)
+        
+    except (OSError, IOError) as e:
+        print(f"[Scheduler] PID {os.getpid()} - nie można zablokować {lock_file_path}, inny scheduler już działa - pomijam inicjalizację", file=sys.stderr)
+        try:
+            lock_file.close()
+        except:
+            pass
+        return
+    
+    # NOWE: Sprawdź czy scheduler już istnieje w tym procesie
+    if scheduler is not None:
+        if scheduler.running:
+            print(f"[Scheduler] PID {os.getpid()} - scheduler już działa w tym procesie", file=sys.stderr)
+            return
+        else:
+            print(f"[Scheduler] PID {os.getpid()} - scheduler istnieje ale nie działa, restartowanie...", file=sys.stderr)
+    
+    try:
+        print(f"[Scheduler] PID {os.getpid()} - inicjalizacja APScheduler...", file=sys.stderr)
         
         # Konfiguracja executorów i jobstore
         executors = {
@@ -44,6 +83,7 @@ def init_scheduler(app):
         with app.app_context():
             # Sprawdź/utwórz domyślne konfiguracje
             create_default_scheduler_config()
+            print(f"[Scheduler] PID {os.getpid()} - domyślne konfiguracje utworzone", file=sys.stderr)
             
             # NOWE: Inicjalizuj tabelę stanów zadań
             from modules.scheduler.models import initialize_default_job_states
@@ -59,17 +99,56 @@ def init_scheduler(app):
             # NOWE: Przywróć stany zadań z bazy danych
             restore_job_states_from_db()
         
-        # Uruchomienie schedulera
-        scheduler.start()
-        print("[Scheduler] APScheduler uruchomiony pomyślnie", file=sys.stderr)
+        # Uruchomienie schedulera z obsługą błędów
+        try:
+            scheduler.start()
+            print(f"[Scheduler] PID {os.getpid()} - APScheduler uruchomiony pomyślnie ✅", file=sys.stderr)
+        except Exception as start_error:
+            print(f"[Scheduler] PID {os.getpid()} - błąd uruchamiania schedulera: {start_error}", file=sys.stderr)
+            # Zwolnij lock jeśli scheduler się nie uruchomił
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+                os.remove(lock_file_path)
+            except:
+                pass
+            raise
         
         # Wyloguj informacje o zaplanowanych zadaniach
         log_scheduled_jobs()
         
+        # Zarejestruj funkcję zamykającą scheduler przy zamknięciu aplikacji
+        def cleanup_scheduler():
+            if scheduler and scheduler.running:
+                print(f"[Scheduler] PID {os.getpid()} - zamykanie schedulera przy zamknięciu aplikacji", file=sys.stderr)
+                scheduler.shutdown(wait=False)
+            # Zwolnij lock
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+                os.remove(lock_file_path)
+                print(f"[Scheduler] PID {os.getpid()} - zwolniono lock {lock_file_path}", file=sys.stderr)
+            except:
+                pass
+        
+        atexit.register(cleanup_scheduler)
+        
+        # Zapisz lock file w schedulerze żeby nie został zamknięty przez garbage collector
+        scheduler._lock_file = lock_file
+        
     except Exception as e:
-        print(f"[Scheduler] BŁĄD inicjalizacji: {e}", file=sys.stderr)
-        if scheduler:
-            scheduler.shutdown()
+        print(f"[Scheduler] PID {os.getpid()} - błąd inicjalizacji APScheduler: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        # Zwolnij lock w przypadku błędu
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            lock_file.close()
+            os.remove(lock_file_path)
+        except:
+            pass
+        # Nie re-raise błędu - aplikacja powinna działać nawet bez schedulera
+        scheduler = None
 
 def restore_job_states_from_db():
     """

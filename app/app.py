@@ -20,6 +20,8 @@ from modules.preview3d_ar import preview3d_ar_bp
 from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 from modules.reports import reports_bp
+import threading
+
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
 from modules.scheduler import scheduler_bp
 try:
@@ -37,6 +39,37 @@ except ImportError as e:
         'pending_reminders': 0, 
         'success_rate': 0
     }
+
+_scheduler_lock = threading.Lock()
+_scheduler_initialized = False
+
+def initialize_scheduler_safely(app):
+    """
+    Thread-safe inicjalizacja schedulera - wywoływana tylko raz
+    """
+    global _scheduler_initialized
+    
+    if not SCHEDULER_AVAILABLE:
+        print("[Scheduler] Scheduler niedostępny - pomijam inicjalizację", file=sys.stderr)
+        return
+    
+    # Double-checked locking pattern
+    if not _scheduler_initialized:
+        with _scheduler_lock:
+            if not _scheduler_initialized:
+                try:
+                    print(f"[Scheduler] Inicjalizacja schedulera w procesie PID: {os.getpid()}", file=sys.stderr)
+                    init_scheduler(app)
+                    _scheduler_initialized = True
+                    print("[Scheduler] ✅ Scheduler zainicjalizowany pomyślnie", file=sys.stderr)
+                except Exception as e:
+                    print(f"[Scheduler] ❌ Błąd inicjalizacji schedulera: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+            else:
+                print("[Scheduler] Scheduler już zainicjalizowany - pomijam", file=sys.stderr)
+    else:
+        print("[Scheduler] Scheduler już zainicjalizowany - pomijam", file=sys.stderr)
 
 def create_admin():
     """Tworzy użytkownika admina, jeśli nie istnieje."""
@@ -1018,9 +1051,8 @@ def create_app():
         app_logger.debug("Wycena routes registered", routes_count=len(wycena_routes))
 
     # Inicjalizacja schedulera (na końcu po wszystkich konfiguracjach)
-    if not app.config.get('TESTING', False) and SCHEDULER_AVAILABLE:
-        init_scheduler(app)
-        app_logger.info("APScheduler został zainicjalizowany")
+    if not app.config.get('TESTING', False):
+        initialize_scheduler_safely(app)
 
     return app
 
