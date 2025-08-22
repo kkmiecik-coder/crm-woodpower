@@ -15,27 +15,22 @@ class VolumeManager {
     }
 
     generateProductKey(orderId, product, productIndex = null) {
-        /**
-         * ✅ ZSYNCHRONIZOWANA FUNKCJA: Identyczna z Python generate_product_key
-         * PRIORYTET 1: product_index z prefiksem "idx_" (gdy podany)
-         */
-        // ✅ PRIORYTET 1: product_index z prefiksem "idx_" (gdy podany)
-        if (productIndex !== null && productIndex !== undefined) {
-            return `${orderId}_idx_${productIndex}`;
-        }
-
-        // PRIORYTET 2: order_product_id (najbardziej unikalne)
+        // PRIORYTET 1: order_product_id (najbardziej unikalny)
         if (product.order_product_id && String(product.order_product_id).trim()) {
             return `${orderId}_${product.order_product_id}`;
         }
-
-        // PRIORYTET 3: product_id (jeśli nie jest pusty)
-        if (product.product_id && String(product.product_id).trim() && product.product_id !== "") {
+        // PRIORYTET 2: product_id (jeśli nie jest pusty)
+        else if (product.product_id && String(product.product_id).trim() && product.product_id !== "") {
             return `${orderId}_${product.product_id}`;
         }
-
-        // OSTATECZNOŚĆ: 'unknown' (może powodować konflikty)
-        return `${orderId}_unknown`;
+        // ✅ PRIORYTET 3: product_index z prefiksem "idx_" (gwarantuje unikalność)
+        else if (productIndex !== null && productIndex !== undefined) {
+            return `${orderId}_idx_${productIndex}`;
+        }
+        // OSTATECZNOŚĆ: unknown (może powodować konflikty)
+        else {
+            return `${orderId}_unknown`;
+        }
     }
 
     init() {

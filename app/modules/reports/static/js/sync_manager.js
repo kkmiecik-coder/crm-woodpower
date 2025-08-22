@@ -64,25 +64,24 @@ function createToastContainer() {
 
 function generateProductKey(orderId, product, productIndex) {
     /**
-     * ✅ ZSYNCHRONIZOWANA FUNKCJA: Identyczna z Python generate_product_key
-     * PRIORYTET 1: product_index z prefiksem "idx_" (gdy podany)
+     * ✅ ZSYNCHRONIZOWANA FUNKCJA: product_index ma najwyższy priorytet
      */
     // ✅ PRIORYTET 1: product_index z prefiksem "idx_" (gdy podany)
     if (productIndex !== null && productIndex !== undefined) {
         return `${orderId}_idx_${productIndex}`;
     }
 
-    // PRIORYTET 2: order_product_id (najbardziej unikalne)
+    // PRIORYTET 2: order_product_id (najbardziej unikalny)
     if (product.order_product_id && String(product.order_product_id).trim()) {
         return `${orderId}_${product.order_product_id}`;
     }
 
     // PRIORYTET 3: product_id (jeśli nie jest pusty)
-    if (product.product_id && String(product.product_id).trim() && product.product_id !== "") {
+    if (product.product_id && String(product.product_id).trim() && String(product.product_id) !== "") {
         return `${orderId}_${product.product_id}`;
     }
 
-    // OSTATECZNOŚĆ: 'unknown' (może powodować konflikty)
+    // OSTATECZNOŚĆ: 'unknown'
     return `${orderId}_unknown`;
 }
 
@@ -3813,7 +3812,7 @@ class SyncManager {
 
     // ============ NOWE METODY DO OBSŁUGI OBJĘTOŚCI ============
 
-    saveOrdersWithVolumes(volumeData) {
+    async saveOrdersWithVolumes(volumeData) {
         console.log('[SyncManager] 📥 Zapisywanie zamówień z objętościami');
 
         try {
@@ -3900,56 +3899,66 @@ class SyncManager {
             const hasMatchingKeys = volumeKeys.some(key => expectedKeys.includes(key));
             if (!hasMatchingKeys && volumeKeys.length > 0) {
                 console.error('[SyncManager] ❌ BRAK ZGODNOŚCI KLUCZY!');
-                console.error('Volume keys nie pasują do expected keys. Sprawdź generateProductKey.');
-                throw new Error('Brak zgodności kluczy między danymi objętości a produktami.');
+                console.log('Możliwe przyczyny:');
+                console.log('1. product_id w selectedOrdersData nie odpowiada kluczom w volumeData');
+                console.log('2. Struktura danych się zmieniła między modelem objętości a zapisem');
+                console.log('3. Problem z filtrowaniem selectedOrdersData');
             }
 
-            const payload = {
-                order_ids: selectedOrderIdsAsNumbers,
-                orders_data: selectedOrdersData,
-                volume_fixes: volumeData
+            const orderIds = Array.from(this.selectedOrderIds);
+
+            const requestData = {
+                order_ids: orderIds,
+                volume_fixes: volumeData,
+                orders_data: selectedOrdersData  // ✅ WYSYŁAJ PEŁNE DANE Z product_index
             };
 
-            console.log('[SyncManager] 📤 Wysyłanie żądania zapisania zamówień:', payload);
+            console.log('[SyncManager] 📤 Wysyłanie danych:', {
+                order_ids_count: orderIds.length,
+                volume_fixes_count: Object.keys(volumeData).length,
+                orders_data_count: selectedOrdersData.length
+            });
 
-            fetch('/reports/api/save_orders_with_volumes', {
+            const response = await fetch('/reports/api/save-orders-with-volumes', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(payload)
-            })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('[SyncManager] 📥 Odpowiedź z serwera:', data);
+                body: JSON.stringify(requestData)
+            });
 
-                    if (data.success) {
-                        this.showNotification('✅ Zamówienia zapisane pomyślnie!', 'success');
-                        this.hideSaveProgress();
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[SyncManager] ❌ HTTP Error:', response.status, errorText);
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
 
-                        // Odśwież listę zamówień z bazy danych
-                        this.loadDatabaseOrders();
+            const result = await response.json();
+            console.log('[SyncManager] 📥 Wynik zapisu z objętościami:', result);
 
-                        // ✅ POPRAWKA 5: Wyczyść zaznaczenie zamówień
-                        this.selectedOrderIds.clear();
-                        this.updateBulkActionsVisibility();
+            if (result.success) {
+                this.showSuccessMessage(result);
+                this.hideOrdersModal();
 
-                        // ✅ POPRAWKA 6: Odśwież widok tabeli
-                        this.updateSelectedOrdersDisplay();
-
-                    } else {
-                        throw new Error(data.error || 'Nieznany błąd podczas zapisywania');
-                    }
-                })
-                .catch(error => {
-                    console.error('[SyncManager] ❌ Błąd zapisywania zamówień:', error);
-                    this.showNotification(`❌ Błąd zapisywania: ${error.message}`, 'error');
-                    this.hideSaveProgress();
-                });
+                // ✅ POPRAWKA: Wymuś odświeżenie tabeli
+                if (window.reportsManager && typeof window.reportsManager.refreshData === 'function') {
+                    window.reportsManager.refreshData();
+                } else {
+                    setTimeout(() => window.location.reload(), 1000);
+                }
+            } else {
+                throw new Error(result.message || 'Błąd podczas zapisywania zamówień');
+            }
 
         } catch (error) {
-            console.error('[SyncManager] ❌ Błąd przygotowania danych:', error);
-            this.showNotification(`❌ Błąd przygotowania danych: ${error.message}`, 'error');
+            console.error('[SyncManager] Błąd zapisu z objętościami:', error);
+            if (window.showToast) {
+                window.showToast(`Błąd zapisu: ${error.message}`, 'error');
+            } else {
+                alert(`Błąd zapisu: ${error.message}`);
+            }
+            throw error;
+        } finally {
             this.hideSaveProgress();
         }
     }

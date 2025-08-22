@@ -117,28 +117,6 @@ def settings():
         return render_template('production/settings.html', data={})
 
 
-@production_bp.route('/api/settings')
-@login_required
-def api_settings():
-    """API dane do ustawień"""
-    try:
-        # Pobierz konfigurację
-        configs = ProductionConfig.query.all()
-        workers = Worker.query.filter_by(is_active=True).all()
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'configs': [config.to_dict() for config in configs],
-                'workers': [worker.to_dict() for worker in workers]
-            }
-        })
-        
-    except Exception as e:
-        production_logger.error("Błąd API ustawień", error=str(e))
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
 @production_bp.route('/reports')
 @login_required
 def reports():
