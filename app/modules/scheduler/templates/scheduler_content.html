@@ -1,0 +1,376 @@
+<!-- Partial template - tylko zawartość schedulera bez layoutu -->
+<!-- Status systemu -->
+<div class="scheduler-section">
+    <h2 class="title-with-underline-h2">Status systemu</h2>
+
+    <div class="status-grid">
+        <div class="status-card {% if scheduler_status.running %}status-success{% else %}status-error{% endif %}">
+            <div class="status-icon">⚙️</div>
+            <div class="status-info">
+                <h3>Scheduler</h3>
+                <p>{% if scheduler_status.running %}Działa{% else %}Zatrzymany{% endif %}</p>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-icon">📧</div>
+            <div class="status-info">
+                <h3>Zaplanowane emaile</h3>
+                <p>{{ pending_emails }}</p>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-icon">✅</div>
+            <div class="status-info">
+                <h3>Wysłane (30 dni)</h3>
+                <p>{{ quote_stats.sent_last_30_days }}</p>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-icon">❌</div>
+            <div class="status-info">
+                <h3>Błędy (30 dni)</h3>
+                <p>{{ quote_stats.failed_last_30_days }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Aktywne zadania -->
+<div class="scheduler-section">
+    <h2 class="title-with-underline-h2">⚙️ Zadania w harmonogramie</h2>
+
+    {% if scheduler_status.jobs %}
+    <div class="jobs-table-container">
+        <table class="styled-table">
+            <thead>
+                <tr>
+                    <th>Nazwa automatyzacji</th>
+                    <th>Kolejne sprawdzenie</th>
+                    <th>Częstotliwość</th>
+                    <th>Status</th>
+                    <th>Dostępne akcje</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in scheduler_status.jobs %}
+                <tr>
+                    <td>
+                        <strong>{{ job.name }}</strong>
+                        <br><small style="color: #666;">ID: {{ job.id }}</small>
+                    </td>
+                    <td>
+                        {% if job.is_paused %}
+                        <span style="color: #ff6b35; font-weight: 600;">
+                            ⏸️ Wstrzymane
+                        </span>
+                        {% else %}
+                        <span style="color: #28a745; font-weight: 600;">
+                            {{ job.next_run }}
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>{{ job.trigger }}</td>
+                    <td>
+                        {% if job.is_paused %}
+                        <span class="status-badge" style="background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;">
+                            ⏸️ Zatrzymane
+                        </span>
+                        {% else %}
+                        <span class="status-badge status-success">
+                            ▶️ Aktywne
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <!-- Smart przyciski - pokazuj odpowiedni na podstawie statusu -->
+                        {% if job.is_paused %}
+                        <!-- Zadanie wstrzymane - pokaż tylko Wznów i Uruchom teraz -->
+                        <button class="btn-small btn-orange" onclick="resumeJob('{{ job.id }}')">
+                            ▶️ Wznów
+                        </button>
+                        <button class="btn-small" style="background: #17a2b8; color: white;" onclick="triggerJob('{{ job.id }}')">
+                            🚀 Uruchom teraz
+                        </button>
+                        {% else %}
+                        <!-- Zadanie aktywne - pokaż Wstrzymaj i Uruchom teraz -->
+                        <button class="btn-small btn-gray" onclick="pauseJob('{{ job.id }}')">
+                            ⏸️ Wstrzymaj
+                        </button>
+                        <button class="btn-small btn-orange" onclick="triggerJob('{{ job.id }}')">
+                            🚀 Uruchom teraz
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>🤷‍♂️ Brak zadań w harmonogramie</p>
+        <small style="color: #999; font-size: 12px;">
+            System automatyzacji nie ma aktualnie zaplanowanych zadań.
+        </small>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Ustawienia z formularzem i przyciskiem Zapisz - UPROSZCZONE -->
+<div class="scheduler-section">
+    <h2 class="title-with-underline-h2">⚙️ Parametry systemu</h2>
+
+    <form id="schedulerSettingsForm" onsubmit="saveSchedulerSettings(event)">
+        <div class="settings-grid">
+            <!-- USUNIĘTO: checkbox "Włącz przypomnienia o wycenach" -->
+            <!-- Liczba dni minimum -->
+            <div class="setting-item">
+                <label class="setting-label">Po ilu dniach sprawdzać wyceny (minimum):</label>
+                <input type="number"
+                       id="reminderDays"
+                       name="quote_reminder_days"
+                       value="{{ configs.quote_reminder_days or 7 }}"
+                       min="1"
+                       max="30"
+                       required>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                    Zakres: 1-30 dni (wyceny starsze niż ta liczba dni będą sprawdzane)
+                </small>
+            </div>
+
+            <!-- Liczba dni maksimum -->
+            <div class="setting-item">
+                <label class="setting-label">Maksymalny wiek wycen do sprawdzania:</label>
+                <input type="number"
+                       id="reminderMaxDays"
+                       name="quote_reminder_max_days"
+                       value="{{ configs.quote_reminder_max_days or 30 }}"
+                       min="7"
+                       max="90"
+                       required>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                    Zakres: 7-90 dni (nie sprawdzaj wycen starszych niż ta liczba dni)
+                </small>
+            </div>
+
+            <!-- Godzina sprawdzania -->
+            <div class="setting-item">
+                <label class="setting-label">Czas codziennego sprawdzania:</label>
+                <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+                    <input type="number"
+                           id="checkHour"
+                           name="daily_check_hour"
+                           value="{{ (configs.daily_check_hour or '16') | int }}"
+                           min="0"
+                           max="23"
+                           style="width: 80px; text-align: center;"
+                           required>
+                    <span style="font-weight: 600; color: #666;">:</span>
+                    <input type="number"
+                           id="checkMinute"
+                           name="daily_check_minute"
+                           value="{{ (configs.daily_check_minute or '0') | int }}"
+                           min="0"
+                           max="59"
+                           style="width: 80px; text-align: center;"
+                           required>
+                    <span style="color: #666; font-size: 14px; margin-left: 8px;">
+                        (format: HH:MM)
+                    </span>
+                </div>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                    O tym czasie system będzie sprawdzać wyceny do zaplanowania (0-23 godziny, 0-59 minuty)
+                </small>
+            </div>
+
+            <!-- Opóźnienie wysyłki -->
+            <div class="setting-item">
+                <label class="setting-label">Opóźnienie wysyłki emaili (godziny):</label>
+                <input type="number"
+                       id="emailDelay"
+                       name="email_send_delay"
+                       value="{{ configs.email_send_delay or 1 }}"
+                       min="1"
+                       max="24"
+                       required>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                    Ile godzin po sprawdzeniu wysłać emaile (1-24h)
+                </small>
+            </div>
+
+            <!-- Maksymalna liczba prób -->
+            <div class="setting-item">
+                <label class="setting-label">Maksymalna liczba prób wysłania:</label>
+                <input type="number"
+                       id="maxAttempts"
+                       name="max_reminder_attempts"
+                       value="{{ configs.max_reminder_attempts or 3 }}"
+                       min="1"
+                       max="10"
+                       required>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                    Ile razy system spróbuje wysłać email w przypadku błędu
+                </small>
+            </div>
+        </div>
+
+        <!-- Przyciski akcji -->
+        <div style="margin-top: 24px; display: flex; gap: 12px; align-items: center;">
+            <button type="submit" class="orange-button" id="saveSettingsBtn">
+                💾 Zapisz parametry
+            </button>
+            <button type="button" class="orange-button" onclick="resetSettingsForm()" style="background: #6c757d;">
+                🔄 Przywróć
+            </button>
+            <div id="settingsStatus" style="margin-left: 16px; font-size: 14px;"></div>
+        </div>
+    </form>
+</div>
+
+<!-- System zakładek dla logów -->
+<div class="scheduler-section">
+    <h2 class="title-with-underline-h2">📋 Logi i historia</h2>
+
+    <!-- Zakładki schedulera z unikalnymi ID -->
+    <div class="scheduler-tabs-container" style="margin-bottom: 20px;">
+        <div class="scheduler-tab scheduler-tab-active"
+             id="scheduler-tab-recent"
+             data-scheduler-target="scheduler-content-recent"
+             style="display: inline-block; padding: 8px 16px; background: #ED6B24; color: white; border-radius: 4px; margin-right: 8px; cursor: pointer;">
+            📄 Ostatnie akcje
+        </div>
+        <div class="scheduler-tab"
+             id="scheduler-tab-quotes"
+             data-scheduler-target="scheduler-content-quotes"
+             style="display: inline-block; padding: 8px 16px; background: #f8f9fa; color: #666; border-radius: 4px; margin-right: 8px; cursor: pointer;">
+            📧 Logi wycen
+        </div>
+        <div class="scheduler-tab"
+             id="scheduler-tab-logs"
+             data-scheduler-target="scheduler-content-logs"
+             style="display: inline-block; padding: 8px 16px; background: #f8f9fa; color: #666; border-radius: 4px; cursor: pointer;">
+            📋 Wszystkie logi
+        </div>
+    </div>
+
+    <!-- Zawartość zakładek schedulera z unikalnymi ID -->
+    <!-- Zakładka: Ostatnie akcje (domyślnie aktywna) -->
+    <div id="scheduler-content-recent" class="scheduler-content scheduler-content-active" style="display: block;">
+        {% if recent_logs %}
+        <div class="logs-table-container">
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Typ</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Wycena</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_logs %}
+                    <tr>
+                        <td>{{ log.sent_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                        <td>
+                            {% if log.email_type == 'quote_reminder_7_days' %}
+                            Przypomnienie 7-dni
+                            {% else %}
+                            {{ log.email_type }}
+                            {% endif %}
+                        </td>
+                        <td>{{ log.recipient_email }}</td>
+                        <td>
+                            <span class="status-badge status-{{ log.status }}">
+                                {{ log.status }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if log.quote %}
+                            {{ log.quote.quote_number }}
+                            {% else %}
+                            N/A
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>Brak logów do wyświetlenia</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Zakładka: Logi wycen -->
+    <div id="scheduler-content-quotes" class="scheduler-content" style="display: none;">
+        <!-- Filtry -->
+        <div class="logs-filters" style="margin-bottom: 16px;">
+            <select id="statusFilter" class="form-select" style="width: auto;">
+                <option value="">Wszystkie statusy</option>
+                <option value="success">Sukces</option>
+                <option value="failed">Błąd</option>
+                <option value="pending">Oczekujące</option>
+            </select>
+            <button onclick="refreshQuoteLogs()" class="btn-small btn-orange">🔄 Odśwież</button>
+        </div>
+
+        <!-- Kontener na logi wycen (tu JS wstawi dane) -->
+        <div id="quoteLogs">
+            <div class="loading-spinner">Ładowanie logów wycen...</div>
+        </div>
+    </div>
+
+    <!-- Zakładka: Wszystkie logi -->
+    <div id="scheduler-content-logs" class="scheduler-content" style="display: none;">
+        <!-- Filtry -->
+        <div class="logs-filters" style="margin-bottom: 16px;">
+            <select id="logStatusFilter" class="form-select" style="width: auto;">
+                <option value="">Wszystkie statusy</option>
+                <option value="success">Sukces</option>
+                <option value="failed">Błąd</option>
+                <option value="pending">Oczekujące</option>
+            </select>
+            <select id="logTypeFilter" class="form-select" style="width: auto;">
+                <option value="">Wszystkie typy</option>
+                <option value="quote_reminder_7_days">Przypomnienia 7-dni</option>
+            </select>
+            <button onclick="refreshAllLogs()" class="btn-small btn-orange">🔄 Odśwież</button>
+        </div>
+
+        <!-- Kontener na wszystkie logi (tu JS wstawi dane) -->
+        <div id="allLogs">
+            <div class="loading-spinner">Ładowanie wszystkich logów...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Akcje -->
+<div class="scheduler-section">
+    <h2 class="title-with-underline-h2">Akcje testowe</h2>
+
+    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <button class="orange-button" onclick="location.reload()">
+            🔄 Odśwież dane
+        </button>
+        <button class="orange-button" onclick="sendTestEmail()">
+            📧 Wyślij próbne przypomnienie o wycenie
+        </button>
+        <a href="/scheduler/test/check-quotes" class="orange-button" style="text-decoration: none;"
+           onclick="return confirm('UWAGA: To może wysłać rzeczywiste emaile! Czy kontynuować?')">
+            🧪 Test sprawdzania wycen
+        </a>
+        <button type="button"
+                class="orange-button"
+                onclick="forceRestartScheduler()"
+                style="background: #dc3545; border-color: #dc3545;"
+                title="Wymusza restart schedulera - usuwa blokady i uruchamia ponownie">
+            🔥 Force Restart
+        </button>
+    </div>
+</div>

@@ -19,6 +19,15 @@
         {% include 'sidebar/sidebar.html' %}
 
         <main class="main-content">
+
+            <!-- Loading overlay -->
+            <div id="loadingOverlay" class="loading-overlay">
+                <div class="loadingbox-banner">
+                    <div class="spinner"></div>
+                    <div class="loading-text">Pobieranie danych...</div>
+                </div>
+            </div>
+
             <!-- Nagłówek -->
             <div class="reports-header">
                 <h1 class="title-with-underline">Raport sprzedażowy</h1>
@@ -83,8 +92,13 @@
             <!-- Statystyki -->
             <div class="stats-container">
                 <div class="stat-box">
+                    <div class="stat-label">Zamówienia / pozycje</div>
+                    <div class="stat-value" id="statOrdersProducts">0 / 0</div>
+                    <div class="stat-comparison" id="compOrdersProducts"></div>
+                </div>
+                <div class="stat-box">
                     <div class="stat-label">TTL m³</div>
-                    <div class="stat-value" id="statTotalM3">0.00</div>
+                    <div class="stat-value" id="statTotalM3">0.0000</div>
                     <div class="stat-comparison" id="compTotalM3"></div>
                 </div>
                 <div class="stat-box">
@@ -109,7 +123,7 @@
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Ilość m³ w produkcji</div>
-                    <div class="stat-value" id="statProductionVolume">0.00</div>
+                    <div class="stat-value" id="statProductionVolume">0.0000</div>
                     <div class="stat-comparison" id="compProductionVolume"></div>
                 </div>
                 <div class="stat-box">
@@ -124,7 +138,7 @@
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Do odebrania</div>
-                    <div class="stat-value" id="statPickupReady">0.00</div>
+                    <div class="stat-value" id="statPickupReady">0.0000</div>
                     <div class="stat-comparison" id="compPickupReady"></div>
                 </div>
                 <div class="stat-box">
@@ -132,13 +146,16 @@
                     <div class="stat-value" id="statBalanceDue">0.00 zł</div>
                     <div class="stat-comparison" id="compBalanceDue"></div>
                 </div>
-                <!-- do usunięcia -->
-            </div>
-
-            <!-- Loading overlay -->
-            <div id="loadingOverlay" class="loading-overlay hidden">
-                <div class="spinner"></div>
-                <div class="loading-text">Pobieranie danych...</div>
+                <div class="stat-box">
+                    <div class="stat-label">Olejowanie m²</div>
+                    <div class="stat-value" id="statOlejowanieSurface">0.0000</div>
+                    <div class="stat-comparison" id="compOlejowanieSurface"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Lakierowanie m²</div>
+                    <div class="stat-value" id="statLakierowanieSurface">0.0000</div>
+                    <div class="stat-comparison" id="compLakierowanieSurface"></div>
+                </div>
             </div>
 
             <!-- Tabela raportów -->
@@ -312,6 +329,7 @@
                                 <th>Objętość 1 szt.</th>
                                 <th>Objętość TTL</th>
                                 <th>Cena netto za m³</th>
+                                <th>Średnia cena za m³</th>
                                 <th>Data realizacji</th>
                                 <th>Status</th>
                                 <th>Koszt kuriera brutto</th>
@@ -362,13 +380,13 @@
                             <option value="6">6 dni</option>
                             <option value="7">7 dni</option>
                             <option value="14">14 dni</option>
-                            <option value="30">30 dni</option>
+                            <option value="21">21 dni</option>
                         </select>
                     </div>
 
                     <div class="date-preview" id="datePreview" style="display: none;">
                         <p class="date-preview-text">
-                            Zostanę pobrane zamówienia od <strong id="dateFromPreview"></strong>
+                            Zostaną pobrane zamówienia od <strong id="dateFromPreview"></strong>
                             do <strong id="dateToPreview"></strong>
                         </p>
                     </div>

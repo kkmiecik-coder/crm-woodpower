@@ -40,6 +40,34 @@ def login_required(func):
         return func(*args, **kwargs)
     return wrapper
 
+def generate_product_key_router(order_id, product, product_index=None):
+    """
+    ✅ POPRAWIONA FUNKCJA: Identyczna logika jak w frontendzie volume_manager.js
+    Pomocnicza funkcja do generowania kluczy produktów - musi być IDENTYCZNA z frontendem
+    """
+    order_product_id = product.get('order_product_id')
+    product_id_raw = product.get('product_id')
+    
+    # ✅ KLUCZOWA ZMIANA: Sprawdź czy product_id jest RZECZYWIŚCIE pusty
+    # W danych widzimy product_id: '' (pusty string), nie None
+    is_product_id_empty = not product_id_raw or str(product_id_raw).strip() == '' or str(product_id_raw) == 'unknown'
+    
+    # PRIORYTET 1: order_product_id TYLKO gdy product_id nie jest pusty
+    # (to różni się od poprzedniej logiki!)
+    if order_product_id and str(order_product_id).strip() and not is_product_id_empty:
+        return f"{order_id}_{order_product_id}"
+    
+    # PRIORYTET 2: product_id (jeśli nie jest pusty)
+    elif not is_product_id_empty:
+        return f"{order_id}_{product_id_raw}"
+    
+    # ✅ PRIORYTET 3: product_index z prefiksem "idx_" (gdy product_id jest pusty)
+    elif product_index is not None:
+        return f"{order_id}_idx_{product_index}"
+    
+    # OSTATECZNOŚĆ: 'unknown' (może powodować konflikty)
+    else:
+        return f"{order_id}_unknown"
 
 @reports_bp.route('/')
 @login_required
@@ -959,6 +987,7 @@ def api_export_excel():
                 sposob_platnosci = safe_str(order.payment_method)
                 zaplacono_netto = float(order.paid_amount_net or 0)
                 do_zaplaty_netto = float(order.balance_due or 0)
+                srednia_cena_za_m3 = float(order.avg_order_price_per_m3 or 0)
             else:
                 # Pozostałe produkty w zamówieniu mają 0/pusty string dla kolumn poziomu zamówienia
                 calculated_ttl_m3 = 0.0
@@ -979,6 +1008,7 @@ def api_export_excel():
                 sposob_platnosci = ''
                 zaplacono_netto = 0.0
                 do_zaplaty_netto = 0.0
+                srednia_cena_za_m3 = 0.0
     
             excel_data.append({
                 # KOLUMNY POZIOMU ZAMÓWIENIA (tylko w pierwszym produkcie)
@@ -1015,6 +1045,7 @@ def api_export_excel():
                 'Objetosc 1 szt.': float(order.volume_per_piece or 0),
                 'Objetosc TTL': float(order.total_volume or 0),
                 'Cena za m3': float(order.price_per_m3 or 0),
+                'Srednia cena za m3': srednia_cena_za_m3,
                 'Data realizacji': order.realization_date.strftime('%d-%m-%Y') if order.realization_date else '',
                 'Status': safe_str(order.current_status),
                 
@@ -1104,6 +1135,7 @@ def api_export_excel():
             'Wartosc brutto': 'financial_data',
             'Wartosc netto': 'financial_data',
             'Cena za m3': 'financial_data',
+            'Srednia cena za m3': 'financial_data',
             'Koszt kuriera': 'financial_data',
             'Koszt dostawy netto': 'financial_data',
             'Zaplacono netto': 'financial_data',
@@ -1370,7 +1402,7 @@ def api_export_excel():
                     orders_grouped[order_id].append(idx + 4)  # +4 bo dane zaczynają się od wiersza 4
         
                 # Uproszczone scalanie - podstawowe kolumny + finansowe
-                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'AI', 'AJ', 'AK', 'AL']
+                basic_merge_columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'AI', 'AF', 'AJ', 'AK', 'AL']
         
                 for order_id, row_indices in orders_grouped.items():
                     if len(row_indices) > 1:
@@ -1751,6 +1783,8 @@ def api_sync_statuses():
         processed_count = 0
         payment_updated_count = 0
         status_updated_count = 0
+        internal_number_updated_count = 0
+        delivery_updated_count = 0
         sync_start = datetime.utcnow()
         
         for order_id in unique_order_ids:
@@ -1770,27 +1804,50 @@ def api_sync_statuses():
                     
                     new_paid_amount_net = service._calculate_paid_amount_net(payment_done, price_type_from_api)
                     
-                    # Aktualizuj wszystkie rekordy tego zamówienia
-                    records_updated = BaselinkerReportOrder.query.filter_by(
-                        baselinker_order_id=order_id
-                    ).update({
+                    # NOWE: Pobierz numer wewnętrzny z extra_field_1
+                    new_internal_number = order_details.get('extra_field_1', '').strip()
+                    
+                    # NOWE: Pobierz dane dostawy
+                    new_delivery_method = order_details.get('delivery_method', '').strip()
+                    new_delivery_cost_gross = float(order_details.get('delivery_price', 0))
+                    
+                    # Przygotuj dane do aktualizacji
+                    update_data = {
                         'current_status': new_status,
                         'baselinker_status_id': new_status_id,
                         'paid_amount_net': new_paid_amount_net,
+                        'internal_order_number': new_internal_number,
+                        'delivery_method': new_delivery_method,
+                        'delivery_cost': new_delivery_cost_gross,
                         'updated_at': datetime.utcnow()
-                    })
+                    }
+                    
+                    # Aktualizuj wszystkie rekordy tego zamówienia
+                    records_updated = BaselinkerReportOrder.query.filter_by(
+                        baselinker_order_id=order_id
+                    ).update(update_data)
                     
                     if records_updated > 0:
                         updated_count += records_updated
                         status_updated_count += 1
+                        
                         if new_paid_amount_net > 0:
                             payment_updated_count += 1
                             
-                        reports_logger.debug("Zaktualizowano status zamówienia",
+                        if new_internal_number:
+                            internal_number_updated_count += 1
+                            
+                        if new_delivery_method or new_delivery_cost_gross > 0:
+                            delivery_updated_count += 1
+                            
+                        reports_logger.debug("Zaktualizowano zamówienie",
                                            order_id=order_id,
                                            new_status=new_status,
                                            new_status_id=new_status_id,
                                            paid_amount_net=new_paid_amount_net,
+                                           internal_number=new_internal_number,
+                                           delivery_method=new_delivery_method,
+                                           delivery_cost=new_delivery_cost_gross,
                                            records_updated=records_updated)
                     
                     processed_count += 1
@@ -1815,6 +1872,8 @@ def api_sync_statuses():
                           updated_records=updated_count,
                           status_updated_count=status_updated_count,
                           payment_updated_count=payment_updated_count,
+                          internal_number_updated_count=internal_number_updated_count,
+                          delivery_updated_count=delivery_updated_count,
                           duration_seconds=duration)
         
         return jsonify({
@@ -1823,7 +1882,9 @@ def api_sync_statuses():
             'orders_processed': processed_count,
             'orders_updated': status_updated_count,
             'records_updated': updated_count,
-            'payment_updated_count': payment_updated_count
+            'payment_updated_count': payment_updated_count,
+            'internal_number_updated': internal_number_updated_count,
+            'delivery_updated': delivery_updated_count
         })
         
     except Exception as e:
@@ -1940,10 +2001,11 @@ def api_delete_manual_row():
 @login_required
 def api_fetch_orders_for_selection():
     """
-    EXTENDED ENDPOINT: Fetches orders from Baselinker for selected date range
+    POPRAWIONY ENDPOINT: Fetches orders from Baselinker for selected date range
     with automatic pagination when >90 orders
     DEFAULT EXCLUDES STATUSES 105112 and 138625
-    + NEW FUNCTIONALITY: Volume and attributes analysis for products
+    + Volume and attributes analysis for products
+    + NOWE: Całkowicie ignoruje zamówienia które już istnieją w bazie danych
     """
     user_email = session.get('user_email')
     
@@ -1960,7 +2022,6 @@ def api_fetch_orders_for_selection():
         date_from = data.get('date_from')
         date_to = data.get('date_to')
         days_count = data.get('days_count')
-        # FIX: Default FALSE to exclude cancelled and unpaid orders
         get_all_statuses = data.get('get_all_statuses', False)
 
         if not all([date_from, date_to, days_count]):
@@ -1978,11 +2039,6 @@ def api_fetch_orders_for_selection():
 
         service = get_reports_service()
         
-        # EXISTING LOGIC: Automatic pagination mechanism
-        all_orders = []
-        current_date_from = datetime.fromisoformat(date_from).date()
-        end_date = datetime.fromisoformat(date_to).date()
-        
         # Get existing orders from database to avoid duplicates
         existing_orders = BaselinkerReportOrder.query.filter(
             BaselinkerReportOrder.baselinker_order_id.isnot(None)
@@ -1990,121 +2046,110 @@ def api_fetch_orders_for_selection():
         existing_order_ids = {order[0] for order in existing_orders}
         
         reports_logger.info("Loaded existing orders from database", 
-                          existing_count=len(existing_order_ids))
+                         existing_count=len(existing_order_ids))
         
-        iteration = 0
-        max_iterations = 20  # Protection against infinite loop
+        # NOWA LOGIKA: Pobierz wszystkie zamówienia w jednym wywołaniu z poprawną paginacją
+        reports_logger.info("Fetching all orders from date range using corrected pagination",
+                          date_from=date_from,
+                          date_to=date_to)
         
-        while current_date_from <= end_date and iteration < max_iterations:
-            iteration += 1
+        # Konwertuj daty
+        start_date = datetime.fromisoformat(date_from)
+        end_date = datetime.fromisoformat(date_to)
+        
+        # KLUCZ: Użyj fetch_orders_from_date_range zamiast wielokrotnego wywołania fetch_orders_from_baselinker
+        result = service.fetch_orders_from_date_range(
+            date_from=start_date,
+            date_to=end_date,
+            get_all_statuses=get_all_statuses
+        )
+        
+        if not result['success']:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Unknown error fetching orders')
+            }), 500
+        
+        all_orders = result['orders']
+        reports_logger.info(f"Fetched {len(all_orders)} orders from date range")
+        
+        # ZMIANA: Filtruj zamówienia - pokaż TYLKO te które NIE istnieją w bazie danych
+        processed_orders = []
+        new_orders_count = 0
+        ignored_existing_count = 0
+        
+        for order in all_orders:
+            order_id = order['order_id']
             
-            reports_logger.info(f"Iteration {iteration} fetching orders with volume analysis",
-                              current_date_from=current_date_from.isoformat(),
-                              end_date=end_date.isoformat(),
-                              include_excluded_statuses=get_all_statuses)
-            
-            # EXISTING LOGIC: Fetch orders with status filtering control
-            batch_orders = service.fetch_orders_from_baselinker(
-                date_from=datetime.combine(current_date_from, datetime.min.time()),
-                max_orders=100,  # Baselinker API limit
-                include_excluded_statuses=get_all_statuses  # Pass filtering parameter
-            )
-            
-            if not batch_orders:
-                reports_logger.info(f"No orders in iteration {iteration}")
-                break
+            # KLUCZOWA ZMIANA: Sprawdź czy zamówienie już istnieje - jeśli TAK, IGNORUJ całkowicie
+            if order_id in existing_order_ids:
+                ignored_existing_count += 1
+                reports_logger.debug("Ignoring existing order",
+                                   order_id=order_id,
+                                   customer_name=order.get('delivery_fullname', 'Brak nazwy'))
+                continue  # Pomiń to zamówienie całkowicie
                 
-            reports_logger.info(f"Fetched {len(batch_orders)} orders in iteration {iteration}")
+            # Dodatkowa ochrona: filtruj wykluczone statusy po stronie aplikacji
+            status_id = order.get('order_status_id')
+            if not get_all_statuses and status_id in [105112, 138625]:
+                reports_logger.debug("Excluded order due to status",
+                                   order_id=order_id,
+                                   status_id=status_id,
+                                   status_name=service.status_map.get(status_id, f'Status {status_id}'))
+                continue
             
-            # Add new orders to list with additional filtering
-            new_orders_in_batch = 0
-            for order in batch_orders:
-                order_id = order['order_id']
-                
-                # Check if order already exists
-                if order_id not in existing_order_ids:
-                    # ADDITIONAL PROTECTION: Filter excluded statuses on application side
-                    status_id = order.get('order_status_id')
-                    
-                    if not get_all_statuses and status_id in [105112, 138625]:
-                        reports_logger.debug("Excluded order due to status",
-                                           order_id=order_id,
-                                           status_id=status_id,
-                                           status_name=service.status_map.get(status_id, f'Status {status_id}'))
-                        continue
-                    
-                    # NEW FUNCTIONALITY: Perform volume analysis for products in order
-                    order = analyze_order_products_for_volume(order)
-                    
-                    all_orders.append(order)
-                    new_orders_in_batch += 1
+            # Wykonaj analizę objętości dla produktów w zamówieniu
+            order = analyze_order_products_for_volume(order)
             
-            reports_logger.info(f"New orders in iteration {iteration}: {new_orders_in_batch}")
+            # Oznacz jako nowe zamówienie (wszystkie tutaj są nowe, bo istniejące zostały pominięte)
+            order['exists_in_database'] = False
             
-            # EXISTING LOGIC: Pagination control (rest unchanged...)
-            if len(batch_orders) < 90:
-                reports_logger.info("Fetched less than 90 orders - end of pagination")
-                break
-            
-            # [Rest of pagination logic remains unchanged...]
-            oldest_date = None
-            for order in batch_orders:
-                date_add = order.get('date_add')
-                if isinstance(date_add, (int, float)):
-                    order_date = datetime.fromtimestamp(date_add).date()
-                else:
-                    try:
-                        order_date = datetime.fromisoformat(str(date_add)).date()
-                    except (TypeError, ValueError):
-                        continue
-                if oldest_date is None or order_date < oldest_date:
-                    oldest_date = order_date
-            
-            if oldest_date and oldest_date <= current_date_from:
-                current_date_from = oldest_date - timedelta(days=1)
-            else:
-                break
-        
-        # NEW FUNCTIONALITY: Volume analysis summary
-        total_volume_issues = sum(1 for order in all_orders if order.get('has_volume_issues', False))
-        
-        # Check which orders already exist in database (existing logic)
-        if all_orders:
-            order_ids_to_check = [order['order_id'] for order in all_orders]
-            existing = BaselinkerReportOrder.query.filter(
-                BaselinkerReportOrder.baselinker_order_id.in_(order_ids_to_check)
-            ).with_entities(BaselinkerReportOrder.baselinker_order_id).distinct().all()
-            existing_set = {order[0] for order in existing}
-            
-            # Mark existing orders
-            for order in all_orders:
-                order['exists_in_database'] = order['order_id'] in existing_set
+            processed_orders.append(order)
+            new_orders_count += 1
+
+        # Analiza objętości
+        total_volume_issues = sum(1 for order in processed_orders if order.get('has_volume_issues', False))
 
         reports_logger.info("Completed fetching orders with volume analysis",
-                          total_orders=len(all_orders),
-                          iterations=iteration,
+                          total_orders_fetched=len(all_orders),
+                          ignored_existing=ignored_existing_count,
+                          new_orders_displayed=new_orders_count,
                           volume_issues_count=total_volume_issues)
+
+        # Sprawdź czy są jakieś nowe zamówienia do wyświetlenia
+        if new_orders_count == 0:
+            return jsonify({
+                'success': True,
+                'orders': [],
+                'total_orders': 0,
+                'new_orders': 0,
+                'ignored_existing': ignored_existing_count,
+                'volume_issues_count': 0,
+                'message': f'Brak nowych zamówień w wybranym okresie. Zignorowano {ignored_existing_count} zamówień już istniejących w bazie danych.'
+            })
 
         return jsonify({
             'success': True,
-            'orders': all_orders,
-            'total_orders': len(all_orders),
-            'volume_issues_count': total_volume_issues,  # NEW
+            'orders': processed_orders,
+            'total_orders': len(processed_orders),
+            'new_orders': new_orders_count,
+            'ignored_existing': ignored_existing_count,
+            'volume_issues_count': total_volume_issues,
             'pagination_info': {
-                'iterations_used': iteration,
-                'max_iterations': max_iterations,
+                'method': 'date_range_fetch',
                 'filtered_excluded_statuses': not get_all_statuses
             },
-            'message': f'Fetched {len(all_orders)} orders. {total_volume_issues} products require volume completion.'  # UPDATED
+            'message': f'Znaleziono {new_orders_count} nowych zamówień. Zignorowano {ignored_existing_count} już istniejących. {total_volume_issues} produktów wymaga uzupełnienia objętości.'
         })
-        
+
     except Exception as e:
-        reports_logger.error("Error fetching orders with volume analysis",
+        reports_logger.error("Error in fetch-orders-for-selection",
                            user_email=user_email,
-                           error=str(e))
+                           error=str(e),
+                           error_type=type(e).__name__)
         return jsonify({
             'success': False,
-            'error': f'Error fetching orders: {str(e)}'
+            'error': f'Błąd pobierania zamówień: {str(e)}'
         }), 500
 
 def analyze_order_products_for_volume(order_data):
@@ -2127,20 +2172,35 @@ def analyze_order_products_for_volume(order_data):
     
     for product in products:
         product_name = product.get('name', '')
-        
-        # Przeprowadź kompleksową analizę produktu
-        analysis = analyze_product_for_volume_and_attributes(product_name)
-        
+    
+        # NOWE: Sprawdź czy to usługa używając service
+        service = get_reports_service()
+        if service._is_service_product(product_name):
+            analysis = {
+                'analysis_type': 'service',
+                'has_dimensions': False,
+                'has_volume': False, 
+                'volume': None,
+                'wood_species': None,
+                'technology': None,
+                'wood_class': None
+            }
+            # Usługi nie wymagają uzupełnienia objętości
+            product['needs_manual_volume'] = False
+            product['has_dimension_issues'] = False  # Usługi nie mają problemów z wymiarami
+        else:
+            # Istniejąca logika analizy produktów fizycznych
+            analysis = analyze_product_for_volume_and_attributes(product_name)
+            product['needs_manual_volume'] = analysis['analysis_type'] == 'manual_input_needed'
+            # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
+            product['has_dimension_issues'] = not check_product_dimensions(product_name)
+    
         # Dodaj wyniki analizy do produktu
         product['volume_analysis'] = analysis
-        product['needs_manual_volume'] = analysis['analysis_type'] == 'manual_input_needed'
-        
-        # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
-        product['has_dimension_issues'] = not check_product_dimensions(product_name)
-        
+    
         if analysis['analysis_type'] == 'manual_input_needed' or analysis['analysis_type'] == 'volume_only':
             order_has_volume_issues = True
-        
+    
         analyzed_products.append(product)
     
     # Aktualizuj zamówienie
@@ -2236,10 +2296,6 @@ def _sync_selected_orders_with_volumes(service, order_ids):
                 record_data['wood_class'] = analysis.get('wood_class') or service.get_volume_fix_attribute(
                     f"{order_id}_{product.get('product_id', 'unknown')}", 'wood_class'
                 )
-                
-                # Oblicz cenę za m³ jeśli mamy objętość
-                if record_data.get('total_volume', 0) > 0 and record_data.get('value_net', 0) > 0:
-                    record_data['price_per_m3'] = record_data['value_net'] / record_data['total_volume']
                 
                 # Zapisz rekord do bazy
                 service.save_order_record(record_data)
@@ -2645,11 +2701,12 @@ def export_routimo():
 
 def generate_routimo_excel(grouped_orders):
     """
-    NOWA FUNKCJA: Generuje Excel w formacie identycznym z wzorcem
+    ZAKTUALIZOWANA FUNKCJA: Generuje Excel w formacie identycznym z wzorcem
+    DODANE: kolumny "Numer wew." i "Koszty kuriera netto"
     """
-    # Nagłówki - identyczne z plikiem wzorcowym
+    # Nagłówki - ZAKTUALIZOWANE z nowymi kolumnami
     headers = [
-        'Nazwa', 'Klient', 'Nazwa przesyłki', 'Ulica', 'Numer domu', 'Numer mieszkania',
+        'Nazwa', 'Klient', 'Nazwa przesyłki', 'Numer wew.', 'Koszty kuriera netto', 'Ulica', 'Numer domu', 'Numer mieszkania',
         'Kod pocztowy', 'Miasto', 'Kraj', 'Region', 'Numer telefonu', 'Email',
         'Email klienta', 'Nip klienta', 'Początek okna czasowego', 'Koniec okna czasowego',
         'Okno czasowe', 'Czas na wykonanie zadania', 'Oczekiwana data realizacji',
@@ -2702,43 +2759,45 @@ def generate_routimo_excel(grouped_orders):
         cell.alignment = header_alignment
         cell.border = header_border     # ZMIANA: dodanie obramowania
     
-    # SZEROKOŚCI KOLUMN - dokładne z pliku wzorcowego + automatyczne dla reszty
+    # SZEROKOŚCI KOLUMN - ZAKTUALIZOWANE z nowymi kolumnami
     column_widths = {
-        'A': 83.8,   # Nazwa (bardzo szeroka dla długich nazw firm)
+        'A': 40.0,   # Nazwa (bardzo szeroka dla długich nazw firm)
         'B': 31.81,  # Klient  
-        'C': 23.08,  # Nazwa przesyłki (ID zamówienia)
-        'D': 50.57,  # Ulica (szeroka dla długich nazw ulic)
-        'E': 12.0,   # Numer domu
-        'F': 12.0,   # Numer mieszkania
-        'G': 15.0,   # Kod pocztowy
-        'H': 25.0,   # Miasto
-        'I': 12.0,   # Kraj
-        'J': 20.0,   # Region/Województwo
-        'K': 20.0,   # Telefon
-        'L': 25.0,   # Email (puste)
-        'M': 30.0,   # Email klienta
-        'N': 15.0,   # NIP (puste)
-        'O': 20.0,   # Początek okna
-        'P': 20.0,   # Koniec okna
-        'Q': 15.0,   # Okno czasowe
-        'R': 25.0,   # Czas na zadanie
-        'S': 20.0,   # Data realizacji
-        'T': 15.0,   # Harmonogram
-        'U': 15.0,   # Pojazd
-        'V': 20.0,   # Typy pojazdów
-        'W': 15.0,   # Liczba przesyłek
-        'X': 18.0,   # Wielkość (m³)
-        'Y': 15.0,   # Waga (kg)
-        'Z': 18.0,   # Wartość PLN
-        'AA': 20.0,  # Forma płatności
-        'AB': 10.0,  # Waluta
-        'AC': 20.0,  # Szerokość geo
-        'AD': 20.0,  # Długość geo
-        'AE': 25.0,  # Komentarz
-        'AF': 25.0,  # Komentarz 2
-        'AG': 25.0,  # Uwagi
-        'AH': 15.0,  # Dodatkowe 1
-        'AI': 15.0   # Dodatkowe 2
+        'C': 17.0,   # Nazwa przesyłki (ID zamówienia)
+        'D': 13.0,   # NOWA: Numer wew.
+        'E': 13.0,   # NOWA: Koszty kuriera netto
+        'F': 32.0,   # Ulica (szeroka dla długich nazw ulic) - przesunięte z D
+        'G': 9.0,    # Numer domu - przesunięte z E
+        'H': 9.0,    # Numer mieszkania - przesunięte z F
+        'I': 14.0,   # Kod pocztowy - przesunięte z G
+        'J': 25.0,   # Miasto - przesunięte z H
+        'K': 12.0,   # Kraj - przesunięte z I
+        'L': 20.0,   # Region/Województwo - przesunięte z J
+        'M': 15.0,   # Telefon - przesunięte z K
+        'N': 25.0,   # Email (puste) - przesunięte z L
+        'O': 38.0,   # Email klienta - przesunięte z M
+        'P': 15.0,   # NIP (puste) - przesunięte z N
+        'Q': 20.0,   # Początek okna - przesunięte z O
+        'R': 20.0,   # Koniec okna - przesunięte z P
+        'S': 15.0,   # Okno czasowe - przesunięte z Q
+        'T': 25.0,   # Czas na zadanie - przesunięte z R
+        'U': 20.0,   # Data realizacji - przesunięte z S
+        'V': 15.0,   # Harmonogram - przesunięte z T
+        'W': 15.0,   # Pojazd - przesunięte z U
+        'X': 20.0,   # Typy pojazdów - przesunięte z V
+        'Y': 15.0,   # Liczba przesyłek - przesunięte z W
+        'Z': 18.0,   # Wielkość (m³) - przesunięte z X
+        'AA': 15.0,  # Waga (kg) - przesunięte z Y
+        'AB': 18.0,  # Wartość PLN - przesunięte z Z
+        'AC': 20.0,  # Forma płatności - przesunięte z AA
+        'AD': 10.0,  # Waluta - przesunięte z AB
+        'AE': 20.0,  # Szerokość geo - przesunięte z AC
+        'AF': 20.0,  # Długość geo - przesunięte z AD
+        'AG': 70.0,  # Komentarz - przesunięte z AE
+        'AH': 20.0,  # Komentarz 2 - przesunięte z AF
+        'AI': 25.0,  # Uwagi - przesunięte z AG
+        'AJ': 15.0,  # Dodatkowe 1 - przesunięte z AH
+        'AK': 15.0   # Dodatkowe 2 - przesunięte z AI
     }
     
     # Ustaw szerokości kolumn
@@ -2748,7 +2807,7 @@ def generate_routimo_excel(grouped_orders):
     # WYSOKOŚĆ WIERSZA NAGŁÓWKOWEGO - 57px jak żądasz (≈43pt)
     worksheet.row_dimensions[1].height = 43.0
     
-    # Dodaj dane
+            # Dodaj dane
     for row_idx, order in enumerate(grouped_orders, 2):  # Zaczynaj od wiersza 2
         # Wyciągnij numer domu i mieszkania z adresu
         house_number, apartment_number, clean_street = extract_house_and_apartment_number(order['delivery_address'])
@@ -2756,51 +2815,81 @@ def generate_routimo_excel(grouped_orders):
         # Oblicz wagę (jak w oryginalnym CSV)
         weight = round(order['total_volume'] * 800, 2)
         
-        # Generuj komentarz z listą produktów
-        products_comment = generate_products_comment(order['records'])
+        # NOWE: Generuj komentarz z listą produktów (każda pozycja od nowej linii)
+        products_comment = generate_products_comment_multiline(order['records'])
         
-        # Dane wiersza - z komentarzem produktów
+        # NOWE: Oblicz łączną liczbę sztuk wszystkich produktów w zamówieniu
+        total_quantity = sum(int(record.quantity or 0) for record in order['records'])
+        
+        # NOWE: Oblicz koszty kuriera netto (z VAT 23%)
+        delivery_cost_gross = order.get('delivery_cost', 0) or 0
+        delivery_cost_net = round(float(delivery_cost_gross) / 1.23, 2) if delivery_cost_gross > 0 else 0
+        
+        # NOWE: Utwórz komentarz 2 z numerem Baselinker i numerem wewnętrznym
+        baselinker_id = order['baselinker_order_id'] or ''
+        internal_number = order.get('internal_order_number', '') or ''
+        comment_2 = f"{baselinker_id}, {internal_number}" if baselinker_id and internal_number else (baselinker_id or internal_number or '')
+        
+        # Dane wiersza - ZAKTUALIZOWANE z nowymi kolumnami
         row_data = [
             order['customer_name'],                    # A - Nazwa
             order['customer_name'],                    # B - Klient
             order['baselinker_order_id'],              # C - Nazwa przesyłki
-            clean_street,                              # D - Ulica (OCZYSZCZONA!)
-            house_number,                              # E - Numer domu
-            apartment_number,                          # F - Numer mieszkania
-            order['delivery_postcode'],                # G - Kod pocztowy
-            order['delivery_city'],                    # H - Miasto
-            'Polska',                                  # I - Kraj
-            order['delivery_state'],                   # J - Region
-            order['phone'],                            # K - Numer telefonu
-            '',                                        # L - Email (puste)
-            order['email'],                            # M - Email klienta
-            '',                                        # N - Nip klienta (puste)
-            '',                                        # O - Początek okna czasowego (puste)
-            '',                                        # P - Koniec okna czasowego (puste)
-            '',                                        # Q - Okno czasowe (puste)
-            '',                                        # R - Czas na wykonanie zadania (puste)
-            '',                                        # S - Oczekiwana data realizacji (puste)
-            '',                                        # T - Harmonogram (puste)
-            '',                                        # U - Pojazd (puste)
-            '',                                        # V - Typy pojazdów (puste)
-            int(order['total_quantity']),              # W - Liczba przesyłek
-            round(order['total_volume'], 4),           # X - Wielkość przesyłki (m³)
-            weight,                                    # Y - Waga przesyłki (kg)
-            round(order['total_value_net'], 2),        # Z - Wartość przesyłki
-            '',                                        # AA - Forma płatności (puste)
-            'PLN',                                     # AB - Waluta
-            '',                                        # AC - Szerokość geograficzna (puste)
-            '',                                        # AD - Długość geograficzna (puste)
-            products_comment,                          # AE - Komentarz (LISTA PRODUKTÓW!)
-            '',                                        # AF - Komentarz 2 (puste)
-            '',                                        # AG - Uwagi (puste)
-            '',                                        # AH - Dodatkowe 1 (puste)
-            '',                                        # AI - Dodatkowe 2 (puste)
+            order.get('internal_order_number', ''),    # D - NOWA: Numer wew.
+            delivery_cost_net,                         # E - NOWA: Koszty kuriera netto
+            clean_street,                              # F - Ulica (OCZYSZCZONA!) - przesunięte z D
+            house_number,                              # G - Numer domu - przesunięte z E
+            apartment_number,                          # H - Numer mieszkania - przesunięte z F
+            order['delivery_postcode'],                # I - Kod pocztowy - przesunięte z G
+            order['delivery_city'],                    # J - Miasto - przesunięte z H
+            'Polska',                                  # K - Kraj - przesunięte z I
+            order['delivery_state'],                   # L - Region/Województwo - przesunięte z J
+            order['phone'],                            # M - Telefon - przesunięte z K
+            '',                                        # N - Email (puste) - przesunięte z L
+            order.get('email', ''),                    # O - Email klienta - przesunięte z M
+            '',                                        # P - NIP (puste) - przesunięte z N
+            '',                                        # Q - Początek okna (puste) - przesunięte z O
+            '',                                        # R - Koniec okna (puste) - przesunięte z P
+            '',                                        # S - Okno czasowe (puste) - przesunięte z Q
+            '',                                        # T - Czas na zadanie (puste) - przesunięte z R
+            '',                                        # U - Data realizacji (puste) - przesunięte z S
+            '',                                        # V - Harmonogram (puste) - przesunięte z T
+            '',                                        # W - Pojazd (puste) - przesunięte z U
+            '',                                        # X - Typy pojazdów (puste) - przesunięte z V
+            total_quantity,                            # Y - Liczba przesyłek (suma sztuk wszystkich produktów) - przesunięte z W
+            round(order['total_volume'], 3),           # Z - Wielkość w m³ - przesunięte z X
+            weight,                                    # AA - Waga w kg (objętość * 800) - przesunięte z Y
+            round(order['order_amount_net'], 2),       # AB - Wartość w PLN - przesunięte z Z
+            order.get('payment_method', ''),           # AC - Forma płatności - przesunięte z AA
+            'PLN',                                     # AD - Waluta - przesunięte z AB
+            '',                                        # AE - Szerokość geograficzna (puste) - przesunięte z AC
+            '',                                        # AF - Długość geograficzna (puste) - przesunięte z AD
+            products_comment,                          # AG - Komentarz z listą produktów (wieloliniowy) - przesunięte z AE
+            comment_2,                                 # AH - Komentarz 2 (Baselinker ID, Numer wew.) - przesunięte z AF
+            '',                                        # AI - Uwagi (puste) - przesunięte z AG
+            '',                                        # AJ - Dodatkowe 1 (puste) - przesunięte z AH
+            '',                                        # AK - Dodatkowe 2 (puste) - przesunięte z AI
         ]
         
         # Wstaw dane do wiersza
         for col_idx, value in enumerate(row_data, 1):
-            worksheet.cell(row=row_idx, column=col_idx).value = value
+            cell = worksheet.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            
+            # NOWE: Specjalne formatowanie dla kolumny komentarz (AG)
+            if col_idx == 33:  # Kolumna AG - Komentarz
+                cell.alignment = Alignment(
+                    horizontal='left',
+                    vertical='top',
+                    wrap_text=True  # Zawijanie tekstu dla wieloliniowego komentarza
+                )
+        
+        # NOWE: Automatyczne dostosowanie wysokości wiersza dla komentarza
+        if products_comment and '\n' in products_comment:
+            # Oszacuj liczbę linii i ustaw wysokość wiersza
+            line_count = products_comment.count('\n') + 1
+            row_height = max(15 * line_count, 15)  # Minimum 15pt na linię
+            worksheet.row_dimensions[row_idx].height = row_height
     
     # Zapisz do BytesIO
     excel_buffer = io.BytesIO()
@@ -2812,17 +2901,19 @@ def generate_routimo_excel(grouped_orders):
     
     return excel_buffer.getvalue()
 
-
-def generate_products_comment(order_records):
+    
+def generate_products_comment_multiline(order_records):
     """
-    Generuje komentarz z listą wszystkich produktów w zamówieniu
-    Format: "Klejonka dębowa lita A/B 200.0×30.0×3.2cm (Surowe) x1, Klejonka... x6"
+    Generuje komentarz z listą wszystkich produktów w zamówieniu (wieloliniowy)
+    Format: każda pozycja produktu od nowej linii
+    "Klejonka dębowa lita A/B 200.0×30.0×3.2cm (Surowe) x1
+    Klejonka bukowa lita A/B 150.0×25.0×2.8cm (Olejowana) x6"
     
     Args:
         order_records: Lista rekordów BaselinkerReportOrder dla jednego zamówienia
         
     Returns:
-        str: Sformatowany komentarz z produktami
+        str: Sformatowany wieloliniowy komentarz z produktami
     """
     if not order_records:
         return ''
@@ -2838,24 +2929,36 @@ def generate_products_comment(order_records):
         product_entry = f"{product_name} x{quantity}"
         products_list.append(product_entry)
     
-    # Połącz wszystkie produkty przecinkami
-    return ', '.join(products_list)
-
+    # Połącz wszystkie produkty znakiem nowej linii
+    return '\n'.join(products_list)
 
 def group_orders_for_routimo(orders):
     """
     Grupuje dane po zamówieniach dla eksportu Routimo
     Jedno zamówienie = jeden wiersz w CSV
+    NOWE: Wykluczenie usług z eksportu
+    DODANE: internal_order_number i delivery_cost
     
     Args:
         orders (List[BaselinkerReportOrder]): Lista rekordów z bazy danych
         
     Returns:
-        List[Dict]: Lista zamówień zgrupowanych
+        List[Dict]: Lista zamówień zgrupowanych (tylko produkty fizyczne)
     """
+    # NOWE: Filtruj usługi na początku - Routimo dostaje tylko produkty fizyczne
+    physical_products_only = [order for order in orders if order.group_type != 'usługa']
+    
+    if len(orders) != len(physical_products_only):
+        services_excluded = len(orders) - len(physical_products_only)
+        reports_logger.info("Wykluczono usługi z eksportu Routimo",
+                          total_records=len(orders),
+                          physical_products=len(physical_products_only),
+                          services_excluded=services_excluded)
+    
     grouped = defaultdict(lambda: {
         'records': [],
         'baselinker_order_id': None,
+        'internal_order_number': None,  # NOWE: dodane pole
         'customer_name': None,
         'delivery_address': None,
         'delivery_postcode': None,
@@ -2863,13 +2966,16 @@ def group_orders_for_routimo(orders):
         'delivery_state': None,
         'phone': None,
         'email': None,
+        'delivery_cost': 0,  # NOWE: dodane pole
+        'payment_method': None,  # NOWE: dodane pole dla order_amount_net
+        'order_amount_net': 0,  # NOWE: dodane pole
         'total_quantity': 0,
         'total_volume': 0,
         'total_value_net': 0,
         'current_status': None
     })
     
-    for order in orders:
+    for order in physical_products_only:
         # Klucz grupowania - baselinker_order_id lub manual_id
         if order.baselinker_order_id:
             order_key = f"bl_{order.baselinker_order_id}"
@@ -2882,6 +2988,7 @@ def group_orders_for_routimo(orders):
         # Ustaw dane zamówienia (z pierwszego rekordu)
         if not order_group['customer_name']:
             order_group['baselinker_order_id'] = order.baselinker_order_id or f"Manual_{order.id}"
+            order_group['internal_order_number'] = order.internal_order_number or ''  # NOWE
             order_group['customer_name'] = order.customer_name or ''
             order_group['delivery_address'] = order.delivery_address or ''
             order_group['delivery_postcode'] = order.delivery_postcode or ''
@@ -2889,6 +2996,9 @@ def group_orders_for_routimo(orders):
             order_group['delivery_state'] = order.delivery_state or ''
             order_group['phone'] = order.phone or ''
             order_group['email'] = order.email or ''
+            order_group['delivery_cost'] = float(order.delivery_cost or 0)  # NOWE
+            order_group['payment_method'] = order.payment_method or ''  # NOWE
+            order_group['order_amount_net'] = float(order.order_amount_net or 0)  # NOWE
             order_group['current_status'] = order.current_status or ''
         
         # Sumuj wartości - POPRAWKA: używaj właściwości SQLAlchemy
@@ -2906,7 +3016,6 @@ def group_orders_for_routimo(orders):
                       grouped_orders=len(result))
     
     return result
-
 
 def extract_house_and_apartment_number(address):
     """
@@ -3442,21 +3551,113 @@ def api_save_orders_with_volumes():
         # Zastosuj poprawki objętości jeśli zostały podane
         if volume_fixes:
             service.set_volume_fixes(volume_fixes)
-            reports_logger.info("Ustawiono poprawki objętości dla {} produktów".format(len(volume_fixes)))
+            reports_logger.info("🔍 DEBUGGING VOLUME FIXES:")
+            reports_logger.info(f"📊 Liczba kluczy w volume_fixes: {len(volume_fixes)}")
+            for product_key, fixes in volume_fixes.items():
+                reports_logger.info(f"🔑 Klucz: {product_key}")
+                reports_logger.info(f"📦 Dane: {fixes}")
+                reports_logger.info(f"🔢 Objętość: {fixes.get('volume', 'BRAK')}")
+                reports_logger.info(f"🌳 Gatunek: {fixes.get('wood_species', 'BRAK')}")
+                reports_logger.info(f"🔧 Technologia: {fixes.get('technology', 'BRAK')}")
+                reports_logger.info(f"📏 Klasa: {fixes.get('wood_class', 'BRAK')}")
+    
+            # ✅ SPRAWDŹ CZY SERVICE MA DOSTĘP DO DANYCH
+            reports_logger.info("🔍 SPRAWDZENIE SERVICE:")
+            reports_logger.info(f"📊 service.volume_fixes keys: {list(service.volume_fixes.keys()) if hasattr(service, 'volume_fixes') else 'BRAK ATRYBUTU'}")
+    
+            # ✅ TESTUJ get_volume_fix_attribute
+            for product_key in volume_fixes.keys():
+                test_volume = service.get_volume_fix_attribute(product_key, 'volume')
+                test_species = service.get_volume_fix_attribute(product_key, 'wood_species')
+                reports_logger.info(f"🧪 TEST get_volume_fix_attribute dla {product_key}:")
+                reports_logger.info(f"   📦 volume: {test_volume}")
+                reports_logger.info(f"   🌳 wood_species: {test_species}")
+        
+        else:
+            reports_logger.info("⚠️ BRAK volume_fixes - używamy automatycznej analizy")
+
+        reports_logger.info("Ustawiono poprawki objętości dla {} produktów".format(len(volume_fixes) if volume_fixes else 0))
+
+        # ✅ DODAJ DEBUG PRZED WYWOŁANIEM FUNKCJI ZAPISUJĄCEJ
+        reports_logger.info("🔍 DEBUG PRZED WYWOŁANIEM FUNKCJI ZAPISUJĄCEJ:")
+        reports_logger.info(f"   📊 new_order_ids: {new_order_ids}")
+        reports_logger.info(f"   📦 filtered_orders_data count: {len(filtered_orders_data)}")
+        reports_logger.info(f"   🔧 service.volume_fixes keys: {list(service.volume_fixes.keys()) if hasattr(service, 'volume_fixes') else 'BRAK'}")
+        
+        # Sprawdź pierwszy produkt w pierwszym zamówieniu
+        if filtered_orders_data and len(filtered_orders_data) > 0:
+            first_order = filtered_orders_data[0]
+            reports_logger.info(f"   🎯 Pierwszy order_id: {first_order.get('order_id')}")
+            first_products = first_order.get('products', [])
+            if first_products:
+                first_product = first_products[0]
+                reports_logger.info(f"   📝 Pierwszy produkt: {first_product.get('name', 'BRAK NAZWY')}")
+                product_id = first_product.get('product_id', 'unknown')
+                expected_key = f"{first_order.get('order_id')}_{product_id}"
+                reports_logger.info(f"   🔑 Oczekiwany klucz: {expected_key}")
+                
+                # ✅ DODAJ DEBUG STRUKTURY PRODUKTU
+                reports_logger.info(f"   🔍 Struktura pierwszego produktu:")
+                reports_logger.info(f"   📦 product_id: '{first_product.get('product_id', 'BRAK')}'")
+                reports_logger.info(f"   📝 name: '{first_product.get('name', 'BRAK')}'")
+                reports_logger.info(f"   🔢 quantity: {first_product.get('quantity', 'BRAK')}")
+                reports_logger.info(f"   💰 price_brutto: {first_product.get('price_brutto', 'BRAK')}")
+                
+                # Sprawdź czy klucz istnieje w volume_fixes
+                if hasattr(service, 'volume_fixes') and expected_key in service.volume_fixes:
+                    fix_data = service.volume_fixes[expected_key]
+                    reports_logger.info(f"   ✅ Klucz znaleziony w volume_fixes: {fix_data}")
+                else:
+                    reports_logger.info(f"   ❌ Klucz NIE ZNALEZIONY w volume_fixes!")
+                    
+                    # Sprawdź wszystkie dostępne klucze
+                    if hasattr(service, 'volume_fixes'):
+                        available_keys = list(service.volume_fixes.keys())
+                        reports_logger.info(f"   🔍 Dostępne klucze: {available_keys}")
+                        
+                    # ✅ SPRAWDŹ WSZYSTKIE PRODUKTY W ZAMÓWIENIU
+                    reports_logger.info(f"   📋 Wszystkie produkty w zamówieniu:")
+                    for idx, prod in enumerate(first_products):
+                        order_product_id = prod.get('order_product_id')
+                        product_id_raw = prod.get('product_id')
+                        product_index = prod.get('product_index', idx)  # ✅ UŻYJ product_index Z DANYCH LUB idx
+                        prod_name = prod.get('name', 'BRAK NAZWY')
+            
+                        # ✅ UŻYJ POPRAWIONEJ FUNKCJI generate_product_key_router
+                        key_for_this_prod = generate_product_key_router(first_order.get('order_id'), prod, product_index)
+            
+                        has_volume_data = key_for_this_prod in service.volume_fixes if hasattr(service, 'volume_fixes') else False
+            
+                        reports_logger.info(f"      {idx+1}. order_product_id: '{order_product_id}' | product_id: '{product_id_raw}' | product_index: {product_index} | Nazwa: '{prod_name}' | Klucz: '{key_for_this_prod}' | Ma dane: {has_volume_data}")
 
         # Przekaż przefiltrowane dane zamówień
         result = _sync_selected_orders_with_volume_analysis(service, new_order_ids, filtered_orders_data)
         
-        # Wyczyść poprawki objętości
-        if volume_fixes:
-            service.clear_volume_fixes()
+        # ✅ DODAJ DEBUG PO WYWOŁANIU FUNKCJI ZAPISUJĄCEJ
+        reports_logger.info("🔍 DEBUG PO WYWOŁANIU FUNKCJI ZAPISUJĄCEJ:")
+        reports_logger.info(f"   📊 Result success: {result.get('success')}")
+        reports_logger.info(f"   📈 Orders processed: {result.get('orders_processed')}")
+        reports_logger.info(f"   📝 Orders added: {result.get('orders_added')}")
+        if not result.get('success'):
+            reports_logger.info(f"   ❌ Error: {result.get('error')}")
+
+        # ✅ POPRAWKA: Wyczyść poprawki objętości DOPIERO PO zakończeniu zapisu
+        # (nie wcześniej, bo _sync_selected_orders_with_volume_analysis może jeszcze ich używać!)
 
         if result.get('success'):
+            # ✅ TUTAJ jest właściwe miejsce na czyszczenie volume_fixes
+            if volume_fixes:
+                service.clear_volume_fixes()
+                
             reports_logger.info("Zapisywanie zamówień z objętościami zakończone pomyślnie",
                               orders_processed=result.get('orders_processed', 0),
                               orders_added=result.get('orders_added', 0))
             return jsonify(result)
         else:
+            # ✅ W przypadku błędu też wyczyść volume_fixes
+            if volume_fixes:
+                service.clear_volume_fixes()
+                
             return jsonify(result), 500
             
     except Exception as e:
@@ -3494,34 +3695,71 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
                                   order_id=order_data.get('order_id'),
                                   products_count=len(order_data.get('products', [])))
                 
-                # ✅ POPRAWKA: Przetwórz każdy produkt osobno
-                for product in order_data.get('products', []):
+                # ✅ POPRAWKA: Zamiast _convert_order_to_records, użyj indywidualnego przetwarzania
+                # które respektuje product_index z frontendu
+                
+                order_id = order_data.get('order_id')
+                products = order_data.get('products', [])
+                
+                if not products:
+                    reports_logger.warning(f"Zamówienie {order_id} nie ma produktów")
+                    continue
+                
+                saved_records = []
+                
+                # ✅ PRZETWARZAJ KAŻDY PRODUKT INDYWIDUALNIE Z ZACHOWANIEM product_index
+                for product_index, product in enumerate(products):
                     try:
-                        # Użyj właściwej metody z analizą objętości
-                        record_data = service.prepare_order_record_data_with_volume_analysis(order_data, product)
+                        # ✅ POPRAWKA: Użyj product_index z frontendu jeśli dostępny, w przeciwnym razie enumerate
+                        frontend_product_index = product.get('product_index')
+                        if frontend_product_index is not None:
+                            actual_product_index = frontend_product_index
+                            reports_logger.debug(f"Używam product_index z frontendu: {actual_product_index} dla produktu {product.get('name', 'unknown')}")
+                        else:
+                            actual_product_index = product_index
+                            reports_logger.warning(f"Brak product_index dla produktu {product.get('name', 'unknown')} w zamówieniu {order_id} - używam enumerate: {actual_product_index}")
+                        
+                        # ✅ UŻYJ FUNKCJI Z service.py KTÓRA UŻYWA product_index
+                        record_data = service.prepare_order_record_data_with_volume_analysis(
+                            order_data, product, actual_product_index
+                        )
                         
                         # Zapisz rekord
-                        service.save_order_record(record_data)
-                        orders_added += 1
+                        record = service.create_report_record(record_data)
+                        saved_records.append(record)
                         
-                        reports_logger.debug("Zapisano produkt z analizą objętości",
-                                           order_id=order_data.get('order_id'),
-                                           product_name=product.get('name'),
-                                           total_volume=record_data.get('total_volume', 0))
+                        reports_logger.debug(f"Zapisano produkt: {product.get('name', 'unknown')} z indeksem {actual_product_index}")
                         
                     except Exception as e:
                         error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"
+                        reports_logger.error(error_msg)
                         processing_errors.append({
-                            'order_id': order_data.get('order_id'),
+                            'order_id': order_id,
                             'product_name': product.get('name', 'unknown'),
                             'error': str(e)
                         })
-                        reports_logger.error(error_msg)
                         continue
-
-                orders_processed += 1
                 
+                if saved_records:
+                    # Commit dla całego zamówienia
+                    db.session.commit()
+                    orders_added += len(saved_records)
+                    
+                    # Oblicz łączną objętość dla logowania
+                    total_volume = sum(float(r.total_volume or 0) for r in saved_records)
+                    avg_price = saved_records[0].avg_order_price_per_m3 if saved_records else 0.0
+                    
+                    reports_logger.info("Zapisano rekord zamówienia z objętością", 
+                                      order_id=order_id,
+                                      products_count=len(saved_records),
+                                      avg_order_price_per_m3=avg_price,
+                                      total_volume=total_volume)
+                    orders_processed += 1
+                else:
+                    reports_logger.warning(f"Brak zapisanych produktów dla zamówienia {order_id}")
+                        
             except Exception as e:
+                db.session.rollback()  # ✅ DODAJ ROLLBACK W PRZYPADKU BŁĘDU
                 error_msg = f"Błąd przetwarzania zamówienia {order_data.get('order_id', 'unknown')}: {str(e)}"
                 processing_errors.append({
                     'order_id': order_data.get('order_id', 'unknown'),
@@ -3535,16 +3773,17 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
             'success': True,
             'orders_processed': orders_processed,
             'orders_added': orders_added,
-            'message': f'Pomyślnie przetworzono {orders_processed} zamówień. Dodano: {orders_added}.'
+            'message': f'Pomyślnie zapisano {orders_processed} zamówień. Dodano: {orders_added} pozycji.'
         }
-
+        
         if processing_errors:
             result['warnings'] = processing_errors
             result['message'] += f' Błędów: {len(processing_errors)}.'
-
+        
         return result
-
+        
     except Exception as e:
+        db.session.rollback()  # ✅ DODAJ ROLLBACK W PRZYPADKU KRYTYCZNEGO BŁĘDU
         reports_logger.error("Krytyczny błąd synchronizacji z analizą objętości", error=str(e))
         return {
             'success': False,

@@ -503,10 +503,12 @@ def get_users():
 @quotes_bp.route("/api/quotes/<int:quote_id>")
 @login_required
 def get_quote_details(quote_id):
-    print(f"[get_quote_details] Pobieranie szczegółów dla wyceny ID {quote_id}", file=sys.stderr)
-
+    print(f"\n{'='*60}", file=sys.stderr)
+    print(f"[get_quote_details] 🎯 ROZPOCZĘCIE POBIERANIA WYCENY {quote_id}", file=sys.stderr)
+    print(f"{'='*60}", file=sys.stderr)
+    
     try:
-        # POPRAWKA: Usuń joinedload(Quote.items) bo lazy='dynamic' nie obsługuje eager loading
+        # Pobierz wycenę z relacjami
         quote = db.session.query(Quote)\
             .options(
                 joinedload(Quote.client),
@@ -517,13 +519,84 @@ def get_quote_details(quote_id):
             .filter_by(id=quote_id).first()
 
         if not quote:
+            print(f"[get_quote_details] ❌ Wycena {quote_id} nie znaleziona", file=sys.stderr)
             return jsonify({"error": "Wycena nie znaleziona"}), 404
+
+        print(f"[get_quote_details] ✅ Znaleziono wycenę: {quote.quote_number}", file=sys.stderr)
 
         # Pobierz szczegóły wykończenia
         finishing_details = db.session.query(QuoteItemDetails).filter_by(quote_id=quote_id).all()
+        print(f"[get_quote_details] 📋 Znaleziono {len(finishing_details)} szczegółów wykończenia", file=sys.stderr)
 
         # POPRAWKA: Pobierz items osobno (ponieważ lazy='dynamic')
         quote_items = quote.items.all()  # .all() na dynamic relationship
+        
+        print(f"\n[get_quote_details] 📊 ANALIZA POZYCJI Z BAZY DANYCH:", file=sys.stderr)
+        print(f"[get_quote_details] Znaleziono {len(quote_items)} pozycji w wycenie {quote_id}", file=sys.stderr)
+        
+        # Szczegółowa analiza każdej pozycji
+        for i, item in enumerate(quote_items):
+            print(f"[get_quote_details] 📦 POZYCJA {i+1}:", file=sys.stderr)
+            print(f"    - ID: {item.id}", file=sys.stderr)
+            print(f"    - variant_code: '{item.variant_code}'", file=sys.stderr)
+            print(f"    - product_index: {item.product_index}", file=sys.stderr)
+            print(f"    - show_on_client_page: {item.show_on_client_page} ({type(item.show_on_client_page).__name__})", file=sys.stderr)
+            print(f"    - is_selected: {item.is_selected} ({type(item.is_selected).__name__})", file=sys.stderr)
+        
+        # Analiza statystyczna
+        show_values = [item.show_on_client_page for item in quote_items]
+        selected_values = [item.is_selected for item in quote_items]
+        
+        print(f"\n[get_quote_details] 📈 STATYSTYKI DANYCH:", file=sys.stderr)
+        print(f"    - Unikalne wartości show_on_client_page: {list(set(show_values))}", file=sys.stderr)
+        print(f"    - Unikalne wartości is_selected: {list(set(selected_values))}", file=sys.stderr)
+        print(f"    - Pozycje widoczne (show=True/1): {sum(1 for v in show_values if v in [True, 1])}", file=sys.stderr)
+        print(f"    - Pozycje ukryte (show=False/0): {sum(1 for v in show_values if v in [False, 0])}", file=sys.stderr)
+        print(f"    - Pozycje wybrane (is_selected=True): {sum(1 for v in selected_values if v is True)}", file=sys.stderr)
+        
+        # Sprawdź warianty z badge "niewidoczny"
+        hidden_items = [item for item in quote_items if item.show_on_client_page in [False, 0, '0']]
+        if hidden_items:
+            print(f"\n[get_quote_details] 🚫 UKRYTE WARIANTY ({len(hidden_items)}):", file=sys.stderr)
+            for item in hidden_items:
+                print(f"    - {item.variant_code} (ID: {item.id})", file=sys.stderr)
+        else:
+            print(f"\n[get_quote_details] ⚠️ BRAK UKRYTYCH WARIANTÓW - wszystkie mają show_on_client_page = True/1", file=sys.stderr)
+        
+        # Sprawdź wybrane warianty
+        selected_items = [item for item in quote_items if item.is_selected is True]
+        if selected_items:
+            print(f"\n[get_quote_details] ✅ WYBRANE WARIANTY ({len(selected_items)}):", file=sys.stderr)
+            for item in selected_items:
+                print(f"    - {item.variant_code} (ID: {item.id})", file=sys.stderr)
+        else:
+            print(f"\n[get_quote_details] ⚠️ BRAK WYBRANYCH WARIANTÓW", file=sys.stderr)
+        
+        # DEBUGOWANIE: Sprawdź to_dict() dla każdej pozycji
+        print(f"\n[get_quote_details] 🔄 KONWERSJA DO JSON (to_dict()):", file=sys.stderr)
+        items_data = []
+        for i, item in enumerate(quote_items):
+            item_dict = item.to_dict()
+            print(f"[get_quote_details] JSON pozycja {i+1}:", file=sys.stderr)
+            print(f"    - variant_code: '{item_dict.get('variant_code')}'", file=sys.stderr)
+            print(f"    - id: {item_dict.get('id')}", file=sys.stderr)
+            print(f"    - show_on_client_page: {item_dict.get('show_on_client_page')} ({type(item_dict.get('show_on_client_page')).__name__})", file=sys.stderr)
+            print(f"    - is_selected: {item_dict.get('is_selected')} ({type(item_dict.get('is_selected')).__name__})", file=sys.stderr)
+            items_data.append(item_dict)
+
+        # Porównanie danych przed i po to_dict()
+        print(f"\n[get_quote_details] 🔍 PORÓWNANIE DANYCH PRZED/PO KONWERSJI:", file=sys.stderr)
+        for i, (item, item_dict) in enumerate(zip(quote_items, items_data)):
+            # Sprawdź czy wartości się zmieniły
+            show_changed = item.show_on_client_page != item_dict.get('show_on_client_page')
+            selected_changed = item.is_selected != item_dict.get('is_selected')
+            
+            if show_changed or selected_changed:
+                print(f"[get_quote_details] ⚠️ ZMIANA W POZYCJI {i+1} ({item.variant_code}):", file=sys.stderr)
+                if show_changed:
+                    print(f"    - show_on_client_page: {item.show_on_client_page} → {item_dict.get('show_on_client_page')}", file=sys.stderr)
+                if selected_changed:
+                    print(f"    - is_selected: {item.is_selected} → {item_dict.get('is_selected')}", file=sys.stderr)
 
         selected_items = [item for item in quote_items if item.is_selected]
         cost_products_netto = round(sum(item.get_total_price_netto() for item in selected_items), 2)
@@ -541,7 +614,58 @@ def get_quote_details(quote_id):
             quote.accepted_by_email.startswith('internal_user_')):
             accepted_by_user = quote.accepted_by_user
 
-        print(f"[get_quote_details] Wycena {quote.quote_number}, user akceptujący: {accepted_by_user.first_name if accepted_by_user else 'brak'}", file=sys.stderr)
+        print(f"[get_quote_details] 👤 User akceptujący: {accepted_by_user.first_name if accepted_by_user else 'brak'}", file=sys.stderr)
+
+        # KOŃCOWY PRZEGLĄD JSON
+        final_json_items = [item.to_dict() for item in quote_items]
+        print(f"\n[get_quote_details] 📤 KOŃCOWY JSON DO FRONTENDU:", file=sys.stderr)
+        print(f"[get_quote_details] Pozycji w JSON: {len(final_json_items)}", file=sys.stderr)
+        
+        # Analiza końcowego JSON
+        final_show_values = [item.get('show_on_client_page') for item in final_json_items]
+        final_selected_values = [item.get('is_selected') for item in final_json_items]
+        
+        print(f"[get_quote_details] 📊 STATYSTYKI KOŃCOWEGO JSON:", file=sys.stderr)
+        print(f"    - show_on_client_page wartości: {list(set(final_show_values))}", file=sys.stderr)
+        print(f"    - is_selected wartości: {list(set(final_selected_values))}", file=sys.stderr)
+        print(f"    - Pozycje widoczne w JSON: {sum(1 for v in final_show_values if v in [True, 1])}", file=sys.stderr)
+        print(f"    - Pozycje ukryte w JSON: {sum(1 for v in final_show_values if v in [False, 0])}", file=sys.stderr)
+        print(f"    - Pozycje wybrane w JSON: {sum(1 for v in final_selected_values if v is True)}", file=sys.stderr)
+        
+        print(f"\n[get_quote_details] ✅ ZWRACANIE ODPOWIEDZI DO FRONTENDU", file=sys.stderr)
+        print(f"{'='*60}\n", file=sys.stderr)
+
+        # ===== TEST SERIALIZACJI JSON =====
+        print(f"\n[get_quote_details] 🧪 TEST SERIALIZACJI JSON:", file=sys.stderr)
+        
+        # Test pojedynczej pozycji
+        test_item = quote_items[5]  # jes-micro-ab (show_on_client_page=False)
+        test_dict = test_item.to_dict()
+        
+        print(f"[get_quote_details] TEST ITEM: {test_item.variant_code}", file=sys.stderr)
+        print(f"[get_quote_details] Raw boolean: {test_item.show_on_client_page} ({type(test_item.show_on_client_page)})", file=sys.stderr)
+        print(f"[get_quote_details] to_dict() result: {test_dict['show_on_client_page']} ({type(test_dict['show_on_client_page'])})", file=sys.stderr)
+        
+        # Test serializacji przez Flask jsonify
+        import json
+        json_string = json.dumps(test_dict)
+        print(f"[get_quote_details] JSON string: {json_string}", file=sys.stderr)
+        
+        # Test deserializacji
+        parsed_back = json.loads(json_string)
+        print(f"[get_quote_details] Parsed back: {parsed_back['show_on_client_page']} ({type(parsed_back['show_on_client_page'])})", file=sys.stderr)
+        
+        # Test całej listy
+        all_items_dict = [item.to_dict() for item in quote_items]
+        all_json = json.dumps(all_items_dict)
+        all_parsed = json.loads(all_json)
+        
+        print(f"[get_quote_details] Wartości w pełnej liście po JSON:", file=sys.stderr)
+        for i, item_data in enumerate(all_parsed):
+            print(f"    {item_data['variant_code']}: show={item_data['show_on_client_page']} ({type(item_data['show_on_client_page'])})", file=sys.stderr)
+        
+        print(f"[get_quote_details] 🧪 KONIEC TESTU JSON\n", file=sys.stderr)
+        # ===== KONIEC TESTU SERIALIZACJI JSON =====
 
         return jsonify({
             "id": quote.id,
@@ -606,9 +730,11 @@ def get_quote_details(quote_id):
         })
 
     except Exception as e:
-        print(f"[get_quote_details] Błąd podczas budowania JSON: {e}", file=sys.stderr)
+        print(f"[get_quote_details] 💥 BŁĄD PODCZAS BUDOWANIA JSON:", file=sys.stderr)
+        print(f"[get_quote_details] Błąd: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
+        print(f"{'='*60}\n", file=sys.stderr)
         return jsonify({"error": "Błąd serwera"}), 500
 
 @quotes_bp.route("/api/quote_items/<int:item_id>/select", methods=["PATCH"])

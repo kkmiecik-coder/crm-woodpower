@@ -66,20 +66,22 @@ class BaselinkerReportOrder(db.Model):
     value_net = db.Column(db.Numeric(10, 2), nullable=True, comment="28. Wartość netto")
     volume_per_piece = db.Column(db.Numeric(10, 4), nullable=True, comment="29. Objętość 1 szt.")
     total_volume = db.Column(db.Numeric(10, 4), nullable=True, comment="30. Objętość TTL")
+    total_surface_m2 = db.Column(db.Numeric(10, 4), nullable=True, comment="30a. Powierzchnia całkowita produktu (m²)")
     price_per_m3 = db.Column(db.Numeric(10, 2), nullable=True, comment="31. Cena za m3")
-    realization_date = db.Column(db.Date, nullable=True, comment="32. Data realizacji")
+    avg_order_price_per_m3 = db.Column(db.Numeric(10, 2), nullable=True, comment="32. Średnia cena za m3 w zamówieniu")
+    realization_date = db.Column(db.Date, nullable=True, comment="33. Data realizacji")
     
     # === STATUS I PŁATNOŚCI (kolumny 33-37) ===
-    current_status = db.Column(db.String(100), nullable=True, comment="33. Status")
-    delivery_cost = db.Column(db.Numeric(10, 2), nullable=True, comment="34. Koszt kuriera dla klienta")
-    payment_method = db.Column(db.String(100), nullable=True, comment="35. Sposób płatności")
-    paid_amount_net = db.Column(db.Numeric(10, 2), default=0.00, comment="36. Zapłacono TTL netto")
-    balance_due = db.Column(db.Numeric(10, 2), nullable=True, comment="37. Saldo")
+    current_status = db.Column(db.String(100), nullable=True, comment="34. Status")
+    delivery_cost = db.Column(db.Numeric(10, 2), nullable=True, comment="35. Koszt kuriera dla klienta")
+    payment_method = db.Column(db.String(100), nullable=True, comment="36. Sposób płatności")
+    paid_amount_net = db.Column(db.Numeric(10, 2), default=0.00, comment="37. Zapłacono TTL netto")
+    balance_due = db.Column(db.Numeric(10, 2), nullable=True, comment="38. Saldo")
     
     # === PRODUKCJA I ODBIÓR (kolumny 38-40) ===
-    production_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="38. Ilość w produkcji")
-    production_value_net = db.Column(db.Numeric(10, 2), default=0.00, comment="39. Wartość netto w produkcji")
-    ready_pickup_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="40. Ilość gotowa do odbioru")
+    production_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="39. Ilość w produkcji")
+    production_value_net = db.Column(db.Numeric(10, 2), default=0.00, comment="40. Wartość netto w produkcji")
+    ready_pickup_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="41. Ilość gotowa do odbioru")
     
     # === POLA TECHNICZNE (nie wyświetlane w tabeli) ===
     baselinker_status_id = db.Column(db.Integer, nullable=True, comment="ID statusu z Baselinker")
@@ -201,7 +203,9 @@ class BaselinkerReportOrder(db.Model):
             'production_volume': 0.0,
             'production_value_net': 0.0,
             'ready_pickup_volume': 0.0,
-            'pickup_ready_volume': 0.0  # NOWA KOLUMNA: Do odebrania
+            'pickup_ready_volume': 0.0,
+            'unique_orders': 0,
+            'products_count': 0
         }
 
         if not orders:
@@ -309,6 +313,17 @@ class BaselinkerReportOrder(db.Model):
             if not isinstance(value, (int, float)) or value < 0:
                 stats[key] = 0.0
 
+
+        # Liczba unikalnych zamówień (grupowanie po baselinker_order_id lub ręcznych wpisach)
+        unique_orders = len(orders_by_unique_id)
+        
+        # Liczba produktów fizycznych (wykluczając usługi)
+        products_count = len([order for order in orders if order.group_type != 'usługa'])
+        
+        # Dodaj do statystyk
+        stats['unique_orders'] = unique_orders
+        stats['products_count'] = products_count
+
         return stats
     
     @classmethod
@@ -368,74 +383,162 @@ class BaselinkerReportOrder(db.Model):
                     }
         
         return comparison
+
+    def calculate_surface_area(self):
+        """
+        Oblicza powierzchnię całkowatą sześcianu (suma wszystkich 6 ścian)
+    
+        Returns:
+            float: Powierzchnia w m² lub 0 jeśli brak wymiarów
+        """
+        if not (self.length_cm and self.width_cm and self.thickness_cm):
+            return 0.0
+    
+        try:
+            # Konwersja z cm na m
+            length_m = float(self.length_cm) / 100
+            width_m = float(self.width_cm) / 100
+            thickness_m = float(self.thickness_cm) / 100
+        
+            # Powierzchnia sześcianu = 2 × (długość×szerokość + długość×grubość + szerokość×grubość)
+            surface_one_piece = 2 * (
+                length_m * width_m +      # 2 ściany: góra i dół
+                length_m * thickness_m +  # 2 ściany: przód i tył
+                width_m * thickness_m     # 2 ściany: lewo i prawo
+            )
+        
+            # Powierzchnia całkowita = powierzchnia 1 sztuki × ilość
+            quantity = float(self.quantity or 1)
+            total_surface = surface_one_piece * quantity
+        
+            return round(total_surface, 4)
+        
+        except (ValueError, TypeError) as e:
+            reports_logger.warning(f"Błąd obliczania powierzchni: {e}")
+            return 0.0
     
     def calculate_fields(self):
-        """
-        Oblicza pola pochodne (objętości, wartości, daty realizacji)
-        """
-        # Oblicz objętość 1 sztuki (długość × szerokość × grubość w m3)
-        if self.length_cm and self.width_cm and self.thickness_cm:
-            length = float(self.length_cm)
-            width = float(self.width_cm) 
-            thickness = float(self.thickness_cm)
-            self.volume_per_piece = (length * width * thickness) / 1000000
-        
-        # Oblicz całkowitą objętość
-        if self.volume_per_piece and self.quantity:
-            self.total_volume = self.volume_per_piece * self.quantity
-            
-        # Oblicz cenę netto z brutto (VAT 23%)
-        if self.price_gross:
-            self.price_net = float(self.price_gross) / 1.23
-            
-        # Oblicz wartości
-        if self.price_gross and self.quantity:
-            self.value_gross = float(self.price_gross) * self.quantity
-        if self.price_net and self.quantity:
-            self.value_net = float(self.price_net) * self.quantity
-            
-        # Oblicz cenę za m3
-        if self.price_net and self.volume_per_piece and self.volume_per_piece > 0:
-            self.price_per_m3 = float(self.price_net) / self.volume_per_piece
-            
-        # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
-        if self.date_created:
-            target_date = self.date_created + timedelta(days=14)
-            # Jeśli wypada w sobotę (5) lub niedzielę (6), przesuń na poniedziałek
-            while target_date.weekday() >= 5:  # 5=sobota, 6=niedziela
-                target_date += timedelta(days=1)
-            self.realization_date = target_date
-            
-        # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
-        if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
-            # POPRAWKA: Logika zależna od typu ceny zamówienia
-            
-            # Sprawdź typ ceny zamówienia
-            price_type = (self.price_type or '').strip().lower()
-            
-            if price_type == 'netto':
-                # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
-                total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
-            else:
-                # Zamówienia BRUTTO: porównujemy wszystko na netto
-                delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
-                total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
-        
-            # Saldo = całkowita kwota do zapłaty - zapłacono netto
-            self.balance_due = total_order_to_pay - float(self.paid_amount_net)
-            
-        # NOWE: Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
-        self.auto_fill_delivery_state()
-        
-        # Oblicz produkcję i odbiór na podstawie statusu
-        self.update_production_fields()
+        """Oblicza automatyczne pola w rekordzie"""
     
-        # Normalizuj województwo
-        self.normalize_delivery_state()
+        # NOWE: Sprawdź czy to usługa
+        if self.group_type == 'usługa':
+            # === OBSŁUGA USŁUG ===
+            # Dla usług: wyzeruj pola związane z wymiarami/objętością
+            self.volume_per_piece = None
+            self.total_volume = None
+            self.price_per_m3 = None
         
-        # Ustaw domyślny product_type na 'deska' jeśli nie ma
-        if not self.product_type:
-            self.product_type = 'klejonka'
+            # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
+            if self.date_created:
+                target_date = self.date_created + timedelta(days=14)
+                # Jeśli wypada w sobotę (5) lub niedzielę (6), przesuń na poniedziałek
+                while target_date.weekday() >= 5:  # 5=sobota, 6=niedziela
+                    target_date += timedelta(days=1)
+                self.realization_date = target_date
+            
+            # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
+            if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
+                # POPRAWKA: Logika zależna od typu ceny zamówienia
+                price_type = (self.price_type or '').strip().lower()
+            
+                if price_type == 'netto':
+                    # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
+                    total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
+                else:
+                    # Zamówienia BRUTTO: porównujemy wszystko na netto
+                    delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+                    total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
+        
+                # Saldo = całkowita kwota do zapłaty - zapłacono netto
+                self.balance_due = total_order_to_pay - float(self.paid_amount_net)
+            
+            # Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
+            self.auto_fill_delivery_state()
+        
+            # Oblicz produkcję i odbiór na podstawie statusu (bez objętości)
+            self.update_production_fields()
+    
+            # Normalizuj województwo
+            self.normalize_delivery_state()
+        
+            reports_logger.debug("Obliczono pola dla usługi",
+                           service_name=self.raw_product_name,
+                           balance_due=self.balance_due)
+        
+        else:
+            # === ULEPSZONA LOGIKA DLA PRODUKTÓW FIZYCZNYCH ===
+
+            # ✅ POPRAWKA: Oblicz objętość tylko jeśli NIE jest już ustawiona przez analizę objętości
+            # Jeśli volume_per_piece i total_volume są już ustawione (z analizy objętości),
+            # to NIE nadpisuj ich obliczeniami z wymiarów
+            has_existing_volume = (
+                self.volume_per_piece is not None and self.volume_per_piece > 0 and
+                self.total_volume is not None and self.total_volume > 0
+            )
+    
+            if not has_existing_volume and self.length_cm and self.width_cm and self.thickness_cm:
+                # Oblicz objętość pojedynczej sztuki z wymiarów (tylko jeśli nie ma już objętości)
+                length_m = float(self.length_cm) / 100
+                width_m = float(self.width_cm) / 100  
+                thickness_m = float(self.thickness_cm) / 100
+                self.volume_per_piece = length_m * width_m * thickness_m
+    
+                # Oblicz łączną objętość
+                if self.quantity:
+                    self.total_volume = self.volume_per_piece * float(self.quantity)
+
+            # Oblicz powierzchnię całkowitą (suma 6 ścian sześcianu)
+            self.total_surface_m2 = self.calculate_surface_area()
+        
+            # Oblicz cenę za m³ (tylko jeśli jest objętość)
+            if self.price_net and self.volume_per_piece and self.volume_per_piece > 0:
+                self.price_per_m3 = float(self.price_net) / self.volume_per_piece
+            
+            # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
+            if self.date_created:
+                target_date = self.date_created + timedelta(days=14)
+                # Jeśli wypada w sobotę (5) lub niedzielę (6), przesuń na poniedziałek
+                while target_date.weekday() >= 5:  # 5=sobota, 6=niedziela
+                    target_date += timedelta(days=1)
+                self.realization_date = target_date
+            
+            # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
+            if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
+                # POPRAWKA: Logika zależna od typu ceny zamówienia
+                price_type = (self.price_type or '').strip().lower()
+            
+                if price_type == 'netto':
+                    # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
+                    total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
+                else:
+                    # Zamówienia BRUTTO: porównujemy wszystko na netto
+                    delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
+                    total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
+        
+                # Saldo = całkowita kwota do zapłaty - zapłacono netto
+                self.balance_due = total_order_to_pay - float(self.paid_amount_net)
+            
+            # Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
+            self.auto_fill_delivery_state()
+        
+            # Oblicz produkcję i odbiór na podstawie statusu
+            self.update_production_fields()
+    
+            # Normalizuj województwo
+            self.normalize_delivery_state()
+        
+            # Ustaw domyślny product_type na 'klejonka' jeśli nie ma
+            if not self.product_type:
+                self.product_type = 'klejonka'
+
+            # NOWE: Zachowaj avg_order_price_per_m3 jeśli już jest ustawione
+            # (nie nadpisuj wartości ustawionej przez service.py)
+            if not hasattr(self, 'avg_order_price_per_m3') or self.avg_order_price_per_m3 is None:
+                # Dla pojedynczych rekordów ustaw na podstawie price_per_m3
+                if hasattr(self, 'price_per_m3') and self.price_per_m3:
+                    self.avg_order_price_per_m3 = self.price_per_m3
+                else:
+                    self.avg_order_price_per_m3 = 0.0
 
     def auto_fill_delivery_state(self):
         """
@@ -586,7 +689,9 @@ class BaselinkerReportOrder(db.Model):
             'value_net': float(self.value_net or 0),
             'volume_per_piece': float(self.volume_per_piece or 0),
             'total_volume': float(self.total_volume or 0),
+            'total_surface_m2': float(self.total_surface_m2 or 0),
             'price_per_m3': float(self.price_per_m3 or 0),
+            'avg_order_price_per_m3': float(self.avg_order_price_per_m3 or 0),
             'realization_date': self.realization_date.strftime('%d-%m-%Y') if self.realization_date else None,
             'current_status': self.current_status,
             'delivery_cost': float(self.delivery_cost or 0),

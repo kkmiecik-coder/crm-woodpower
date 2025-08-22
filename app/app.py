@@ -8,8 +8,10 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from functools import wraps
 from flask_mail import Mail, Message
 from jinja2 import ChoiceLoader, FileSystemLoader
-from modules.calculator import calculator_bp
 from extensions import db, mail
+import threading
+
+from modules.calculator import calculator_bp
 from modules.calculator.models import User, Invitation, Price, Multiplier
 from modules.clients import clients_bp
 from modules.public_calculator import public_calculator_bp
@@ -18,9 +20,58 @@ from modules.quotes.routers import quotes_bp
 from modules.baselinker import baselinker_bp
 from modules.preview3d_ar import preview3d_ar_bp
 from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
-from sqlalchemy.exc import ResourceClosedError, OperationalError
 from modules.reports import reports_bp
+from modules.production import production_bp
+from sqlalchemy.exc import ResourceClosedError, OperationalError
+
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
+from modules.scheduler import scheduler_bp
+try:
+    from modules.scheduler.scheduler_service import init_scheduler, get_scheduler_status
+    from modules.scheduler.jobs.quote_reminders import get_quote_reminders_stats
+    SCHEDULER_AVAILABLE = True
+except ImportError as e:
+    print(f"[WARNING] Scheduler niedostępny: {e}", file=sys.stderr)
+    SCHEDULER_AVAILABLE = False
+    init_scheduler = lambda app: None
+    get_scheduler_status = lambda: {'running': False, 'jobs': []}
+    get_quote_reminders_stats = lambda: {
+        'sent_last_30_days': 0, 
+        'failed_last_30_days': 0, 
+        'pending_reminders': 0, 
+        'success_rate': 0
+    }
+
+_scheduler_lock = threading.Lock()
+_scheduler_initialized = False
+
+def initialize_scheduler_safely(app):
+    """
+    Thread-safe inicjalizacja schedulera - wywoływana tylko raz
+    """
+    global _scheduler_initialized
+    
+    if not SCHEDULER_AVAILABLE:
+        print("[Scheduler] Scheduler niedostępny - pomijam inicjalizację", file=sys.stderr)
+        return
+    
+    # Double-checked locking pattern
+    if not _scheduler_initialized:
+        with _scheduler_lock:
+            if not _scheduler_initialized:
+                try:
+                    print(f"[Scheduler] Inicjalizacja schedulera w procesie PID: {os.getpid()}", file=sys.stderr)
+                    init_scheduler(app)
+                    _scheduler_initialized = True
+                    print("[Scheduler] ✅ Scheduler zainicjalizowany pomyślnie", file=sys.stderr)
+                except Exception as e:
+                    print(f"[Scheduler] ❌ Błąd inicjalizacji schedulera: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+            else:
+                print("[Scheduler] Scheduler już zainicjalizowany - pomijam", file=sys.stderr)
+    else:
+        print("[Scheduler] Scheduler już zainicjalizowany - pomijam", file=sys.stderr)
 
 def create_admin():
     """Tworzy użytkownika admina, jeśli nie istnieje."""
@@ -101,6 +152,8 @@ def create_app():
     app.register_blueprint(logging_bp, url_prefix='/logging')
     app.register_blueprint(preview3d_ar_bp)
     app.register_blueprint(reports_bp, url_prefix='/reports')
+    app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
+    app.register_blueprint(production_bp)
 
     @app.before_request
     def extend_session():
@@ -314,10 +367,48 @@ def create_app():
             all_users = User.query.all()
             all_prices = Price.query.order_by(Price.species, Price.wood_class).all()
             multipliers = Multiplier.query.all()
+        
+            # DODAJ DANE SCHEDULERA
+            try:
+                from modules.scheduler.scheduler_service import get_scheduler_status
+                from modules.scheduler.jobs.quote_reminders import get_quote_reminders_stats
+                from modules.scheduler.models import EmailLog, EmailSchedule, SchedulerConfig
+                from datetime import datetime, timedelta
+            
+                # Pobierz dane schedulera
+                scheduler_status = get_scheduler_status()
+                quote_stats = get_quote_reminders_stats()
+                recent_logs = EmailLog.query.order_by(EmailLog.sent_at.desc()).limit(10).all()
+            
+                # Konfiguracje
+                configs = {}
+                config_records = SchedulerConfig.query.all()
+                for config in config_records:
+                    configs[config.key] = config.value
+            
+                # Statystyki
+                pending_emails = EmailSchedule.query.filter_by(status='pending').count()
+            
+            
+            except Exception as e:
+                print(f"[Settings] Błąd ładowania danych schedulera: {e}", file=sys.stderr)
+                # Ustaw wartości domyślne jeśli scheduler nie działa
+                scheduler_status = {'running': False, 'jobs': []}
+                quote_stats = {'sent_last_30_days': 0, 'failed_last_30_days': 0}
+                recent_logs = []
+                configs = {}
+                pending_emails = 0
+        
             return render_template("settings_page/admin_settings.html",
                                    users_list=all_users,
                                    prices=all_prices,
-                                   multipliers=multipliers)
+                                   multipliers=multipliers,
+                                   # DODAJ DANE SCHEDULERA DO TEMPLATE
+                                   scheduler_status=scheduler_status,
+                                   quote_stats=quote_stats,
+                                   recent_logs=recent_logs,
+                                   configs=configs,
+                                   pending_emails=pending_emails)
         else:
             return render_template("settings_page/user_settings.html")
 
@@ -551,6 +642,16 @@ def create_app():
                         data_records=len(all_prices))
         
         return render_template("settings_page/admin_settings.html", prices=all_prices)
+
+    @app.route('/settings/logs')
+    @login_required
+    def settings_logs():
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+        if not user or user.role != 'admin':
+            flash('Brak uprawnień. Tylko administrator ma dostęp do logów.', 'error')
+            return redirect(url_for('settings'))
+        return render_template('settings_page/logs_console.html')
 
     @app.route("/invite_user", methods=["POST"])
     @login_required
@@ -951,6 +1052,10 @@ def create_app():
 
     if wycena_routes:
         app_logger.debug("Wycena routes registered", routes_count=len(wycena_routes))
+
+    # Inicjalizacja schedulera (na końcu po wszystkich konfiguracjach)
+    if not app.config.get('TESTING', False):
+        initialize_scheduler_safely(app)
 
     return app
 

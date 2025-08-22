@@ -60,6 +60,7 @@ class ReportsManager {
 
             // Statystyki
             statTotalM3: document.getElementById('statTotalM3'),
+            statOrdersProducts: document.getElementById('statOrdersProducts'),
             statOrderAmountNet: document.getElementById('statOrderAmountNet'),
             statValueNet: document.getElementById('statValueNet'),
             statPricePerM3: document.getElementById('statPricePerM3'),
@@ -69,6 +70,8 @@ class ReportsManager {
             statProductionVolume: document.getElementById('statProductionVolume'),
             statProductionValueNet: document.getElementById('statProductionValueNet'),
             statReadyPickupVolume: document.getElementById('statReadyPickupVolume'),
+            statOlejowanieVolume: document.getElementById('statOlejowanieVolume'),
+            statLakierowanieVolume: document.getElementById('statLakierowanieVolume'),
 
             // Statystyki porównawcze
             compTotalM3: document.getElementById('compTotalM3'),
@@ -294,6 +297,8 @@ class ReportsManager {
         };
 
         this.updateStatistics(emptyStats);
+        this.updateStat('statOlejowanieVolume', 0, 4, ' m³');
+        this.updateStat('statLakierowanieVolume', 0, 4, ' m³');
     }
 
     /**
@@ -304,6 +309,7 @@ class ReportsManager {
 
         const elementMap = {
             'total_m3': 'compTotalM3',
+            'unique_orders': 'compOrdersProducts',
             'order_amount_net': 'compOrderAmountNet',
             'avg_price_per_m3': 'compPricePerM3',
             'delivery_cost_net': 'compDeliveryCostNet',
@@ -319,6 +325,15 @@ class ReportsManager {
             const elementId = elementMap[field];
             const element = this.elements[elementId];
 
+            if (element) {
+                element.textContent = '';
+                element.className = 'stat-comparison';
+            }
+        });
+
+        const surfaceElements = ['compOlejowanieSurface', 'compLakierowanieSurface'];
+        surfaceElements.forEach(elementId => {
+            const element = document.getElementById(elementId);
             if (element) {
                 element.textContent = '';
                 element.className = 'stat-comparison';
@@ -549,6 +564,7 @@ class ReportsManager {
             <td class="cell-number">${this.formatNumber(order.volume_per_piece, 4)}</td>
             <td class="cell-number">${this.formatNumber(order.total_volume, 4)}</td>
             <td class="cell-currency">${this.formatCurrency(order.price_per_m3)}</td>
+            ${this.renderMergedCell(this.formatCurrency(order.avg_order_price_per_m3), orderCount, isFirst, 'cell-currency')}
             <td class="cell-date">${order.realization_date || ''}</td>
             <td class="cell-status ${this.getStatusClass(order.current_status)}">${order.current_status || ''}</td>
             ${this.renderMergedCell(this.formatCurrency(order.delivery_cost), orderCount, isFirst, 'cell-currency')}
@@ -1231,23 +1247,85 @@ class ReportsManager {
     }
 
     /**
+     * Oblicza statystyki powierzchni według wykończenia
+     */
+    calculateFinishStatistics(data) {
+        let olejowanieSurface = 0;
+        let lakierowanieSurface = 0;
+
+        console.log('[calculateFinishStatistics] Rozpoczynam obliczenia powierzchni dla', data.length, 'rekordów');
+
+        // Iteruj przez wszystkie rekordy danych
+        data.forEach(record => {
+            if (!record.finish_state || !record.total_surface_m2) {
+                return; // Pomiń rekordy bez wykończenia lub powierzchni
+            }
+
+            const finishState = String(record.finish_state).toLowerCase().trim();
+            const surface = parseFloat(record.total_surface_m2) || 0;
+
+            console.log(`[calculateFinishStatistics] Rekord ID ${record.id}: finish_state="${finishState}", surface=${surface}`);
+
+            // Sprawdź czy to olejowanie (różne warianty)
+            if (finishState.includes('olejowa') ||
+                finishState.includes('olejowanie') ||
+                finishState.includes('olej') ||
+                finishState.includes('olejowany')) {
+                olejowanieSurface += surface;
+                console.log(`[calculateFinishStatistics] Dodano olejowanie: ${surface} m² (${finishState})`);
+            }
+
+            // Sprawdź czy to lakierowanie (różne warianty)
+            if (finishState.includes('lakierowa') ||
+                finishState.includes('lakierowanie') ||
+                finishState.includes('lakier') ||
+                finishState.includes('lakierowany')) {
+                lakierowanieSurface += surface;
+                console.log(`[calculateFinishStatistics] Dodano lakierowanie: ${surface} m² (${finishState})`);
+            }
+        });
+
+        console.log(`[calculateFinishStatistics] Podsumowanie - Olejowanie: ${olejowanieSurface} m², Lakierowanie: ${lakierowanieSurface} m²`);
+
+        return {
+            olejowanie_surface: olejowanieSurface,
+            lakierowanie_surface: lakierowanieSurface
+        };
+    }
+
+    /**
      * Aktualizacja statystyk
      */
     updateStatistics(stats) {
         if (!stats) return;
 
-        // Aktualizuj wszystkie statystyki
-        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');              // ZMIANA: 4 zamiast 2
+        // Aktualizuj wszystkie standardowe statystyki
+        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
         this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
         this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
         this.updateStat('statDeliveryCostNet', stats.delivery_cost_net, 2, ' PLN');
         this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' PLN');
         this.updateStat('statBalanceDue', stats.balance_due, 2, ' PLN');
-        this.updateStat('statProductionVolume', stats.production_volume, 4, ' m³');     // ZMIANA: 4 zamiast 2
+        this.updateStat('statProductionVolume', stats.production_volume, 4, ' m³');
         this.updateStat('statProductionValueNet', stats.production_value_net, 2, ' PLN');
-        this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 4, ' m³');  // ZMIANA: 4 zamiast 2
-        this.updateStat('statPickupReady', stats.pickup_ready_volume, 4, ' m³');        // ZMIANA: 4 zamiast 2
+        this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 4, ' m³');
+        this.updateStat('statPickupReady', stats.pickup_ready_volume, 4, ' m³');
+
+        // NOWE - oblicz i aktualizuj statystyki wykończenia na podstawie aktualnych danych
+        if (this.currentData && this.currentData.length > 0) {
+            const finishStats = this.calculateFinishStatistics(this.currentData);
+            this.updateStat('statOlejowanieSurface', finishStats.olejowanie_surface, 4, ' m²');
+            this.updateStat('statLakierowanieSurface', finishStats.lakierowanie_surface, 4, ' m²');
+        } else {
+            // Jeśli brak danych, wyzeruj statystyki wykończenia
+            this.updateStat('statOlejowanieSurface', 0, 4, ' m²');
+            this.updateStat('statLakierowanieSurface', 0, 4, ' m²');
+        }
+
+        if (this.elements.statOrdersProducts) {
+            this.elements.statOrdersProducts.textContent = `${stats.unique_orders || 0} / ${stats.products_count || 0}`;
+        }
     }
 
     /**
@@ -1291,11 +1369,12 @@ class ReportsManager {
         const fields = [
             'total_m3', 'order_amount_net', 'value_net',
             'avg_price_per_m3', 'delivery_cost_net', 'paid_amount_net', 'balance_due',
-            'production_volume', 'production_value_net', 'ready_pickup_volume'
+            'production_volume', 'production_value_net', 'ready_pickup_volume', 'olejowanie_surface', 'lakierowanie_surface'
         ];
 
         const elementMap = {
             'total_m3': 'compTotalM3',
+            'unique_orders': 'compOrdersProducts',      // NOWE: mapowanie dla zamówień/produktów
             'order_amount_net': 'compOrderAmountNet',
             'avg_price_per_m3': 'compPricePerM3',
             'delivery_cost_net': 'compDeliveryCostNet',
@@ -1303,6 +1382,8 @@ class ReportsManager {
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
             'production_value_net': 'compProductionValueNet',
+            'olejowanie_surface': 'compOlejowanieSurface',
+            'lakierowanie_surface': 'compLakierowanieSurface',
             'ready_pickup_volume': 'compReadyPickupVolume'
         };
 

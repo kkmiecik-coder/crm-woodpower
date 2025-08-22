@@ -1,6 +1,7 @@
 // app/modules/reports/static/js/volume_manager.js
 // Ulepszona wersja z step-by-step workflow i auto-wypełnianiem
 
+
 class VolumeManager {
     constructor() {
         this.volumeModal = null;
@@ -11,6 +12,30 @@ class VolumeManager {
         this.isInitialized = false;
 
         this.init();
+    }
+
+    generateProductKey(orderId, product, productIndex = null) {
+        /**
+         * ✅ ZSYNCHRONIZOWANA FUNKCJA: Identyczna z Python generate_product_key
+         * PRIORYTET 1: product_index z prefiksem "idx_" (gdy podany)
+         */
+        // ✅ PRIORYTET 1: product_index z prefiksem "idx_" (gdy podany)
+        if (productIndex !== null && productIndex !== undefined) {
+            return `${orderId}_idx_${productIndex}`;
+        }
+
+        // PRIORYTET 2: order_product_id (najbardziej unikalne)
+        if (product.order_product_id && String(product.order_product_id).trim()) {
+            return `${orderId}_${product.order_product_id}`;
+        }
+
+        // PRIORYTET 3: product_id (jeśli nie jest pusty)
+        if (product.product_id && String(product.product_id).trim() && product.product_id !== "") {
+            return `${orderId}_${product.product_id}`;
+        }
+
+        // OSTATECZNOŚĆ: 'unknown' (może powodować konflikty)
+        return `${orderId}_unknown`;
     }
 
     init() {
@@ -98,13 +123,57 @@ class VolumeManager {
         }
 
         this.updateFooterButtons();
-        this.volumeModal.style.display = 'flex';
 
-        // Focus na pierwszy input
-        setTimeout(() => {
-            const firstInput = this.volumeModal.querySelector('.volume-input');
-            if (firstInput) firstInput.focus();
-        }, 100);
+        // POPRAWKA: Pokaż toast z informacją o auto-wykrytych wartościach
+        this.showAutoDetectedToast();
+
+        this.volumeModal.style.display = 'flex';
+    }
+
+    /**
+     * NOWA METODA: Pokazuje toast z informacją o automatycznie wykrytych wartościach
+     */
+    showAutoDetectedToast() {
+        const autoDetectedProducts = [];
+
+        this.productsNeedingVolume.forEach(product => {
+            const analysis = product.analysis || {};
+            const detectedValues = [];
+
+            if (analysis.volume) detectedValues.push('objętość');
+            if (analysis.wood_species) detectedValues.push('gatunek');
+            if (analysis.technology) detectedValues.push('technologia');
+            if (analysis.wood_class) detectedValues.push('klasa');
+
+            if (detectedValues.length > 0) {
+                autoDetectedProducts.push({
+                    name: product.product_name,
+                    values: detectedValues
+                });
+            }
+        });
+
+        if (autoDetectedProducts.length > 0) {
+            const productCount = autoDetectedProducts.length;
+            const message = productCount === 1
+                ? `Wykryto parametry dla produktu <strong>"${autoDetectedProducts[0].name}"</strong> i zostały one automatycznie uzupełnione.`
+                : `Wykryto parametry dla ${productCount} produktów`;
+
+            this.showInfoToast(message);
+        }
+    }
+
+    /**
+     * NOWA METODA: Pokazuje toast informacyjny
+     */
+    showInfoToast(message) {
+        // Sprawdź czy istnieje globalna funkcja toast
+        if (window.syncManager && typeof window.syncManager.showInfoToast === 'function') {
+            window.syncManager.showInfoToast(message);
+        } else {
+            // Fallback - prosty alert jeśli brak toast systemu
+            console.log(`[VolumeManager] INFO: ${message}`);
+        }
     }
 
     /**
@@ -135,27 +204,29 @@ class VolumeManager {
      * Auto-wypełnia wykryte objętości z analizy nazw produktów
      */
     prePopulateDetectedVolumes() {
-        this.productsNeedingVolume.forEach(product => {
-            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        console.log('[VolumeManager] Auto-wypełnianie wykrytych objętości');
+
+        this.productsNeedingVolume.forEach((product, index) => {
+            // ✅ UŻYJ INDEKSU Z PĘTLI JAKO product_index
+            const productKey = this.generateProductKey(product.order_id, product, product.product_index || index);
             const analysis = product.analysis || {};
 
-            // Jeśli wykryto objętość w nazwie produktu
-            if (analysis.analysis_type === 'volume_only' && analysis.volume) {
-                let volume = parseFloat(analysis.volume);
-                
-                // Zaokrąglij do 4 miejsc po przecinku
-                volume = Math.round(volume * 10000) / 10000;
-                
-                // Zapisz auto-wykrytą objętość
-                this.volumeData[productKey] = {
-                    volume: volume,
-                    wood_species: analysis.wood_species || '',
-                    technology: analysis.technology || '',
-                    wood_class: analysis.wood_class || '',
-                    auto_detected: true // flaga oznaczająca auto-wykrycie
-                };
+            // ✅ POPRAWKA: Tylko ustaw dane które zostały wykryte DLA TEGO KONKRETNEGO PRODUKTU
+            if (analysis.volume || analysis.wood_species || analysis.technology || analysis.wood_class) {
+                // ✅ KLUCZOWA ZMIANA: Sprawdź czy klucz już istnieje (zapobiega duplikacji)
+                if (!this.volumeData[productKey]) {
+                    this.volumeData[productKey] = {
+                        volume: analysis.volume || '',
+                        wood_species: analysis.wood_species || '',
+                        technology: analysis.technology || '',
+                        wood_class: analysis.wood_class || '',
+                        auto_detected: true
+                    };
 
-                console.log(`[VolumeManager] Auto-wypełniono objętość ${volume} m³ dla produktu: ${product.product_name}`);
+                    console.log(`[VolumeManager] Auto-wypełniono dla produktu ${product.product_name}:`, this.volumeData[productKey]);
+                } else {
+                    console.log(`[VolumeManager] Klucz ${productKey} już istnieje - pomijam auto-wypełnianie dla ${product.product_name}`);
+                }
             }
         });
     }
@@ -232,7 +303,7 @@ class VolumeManager {
 
     createProductsChecklist() {
         return this.productsNeedingVolume.map((product, index) => {
-            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+            const productKey = this.generateProductKey(product.order_id, product);
             const isCompleted = this.volumeData[productKey] && this.volumeData[productKey].volume > 0;
             const isCurrent = index === this.currentProductIndex;
             
@@ -256,10 +327,10 @@ class VolumeManager {
         
         return `
             <div class="volume-info">
-                <div class="info-icon">📏</div>
+                <div class="info-icon">📦</div>
                 <div class="info-text">
                     <p><strong>Produkty wymagają uzupełnienia objętości.</strong></p>
-                    <p>Niektóre objętości zostały automatycznie wykryte i wypełnione - możesz je skorygować.</p>
+                    <p>Niektóre objętości zostały automatycznie wykryte i wypełnione.</p>
                 </div>
             </div>
             <div id="volumeProductsList" class="volume-products-list">
@@ -279,8 +350,14 @@ class VolumeManager {
         const container = document.getElementById('currentProductForm');
         if (!container) return;
 
-        const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
-        const savedData = this.volumeData[productKey] || {};
+        const productKey = this.generateProductKey(product.order_id, product);
+        const savedData = this.volumeData[productKey] || {
+            volume: '',
+            wood_species: '',
+            technology: '',
+            wood_class: '',
+            auto_detected: false
+        };
 
         container.innerHTML = `
             <div class="current-product-card">
@@ -296,60 +373,52 @@ class VolumeManager {
                     <div class="volume-input-group required">
                         <label>Objętość na 1 szt. (m³) *</label>
                         <input type="text"
-                               class="volume-input volume-required"
-                               data-field="volume"
-                               data-product-key="${productKey}"
-                               value="${savedData.volume || ''}"
-                               step="0.0001"
-                               min="0"
-                               placeholder="np. 0.1234">
-                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
+                           class="volume-input volume-required"
+                           data-field="volume"
+                           data-product-key="${productKey}"
+                           value="${this.getAnalysisValue(product, 'volume') || savedData.volume || ''}"
+                           step="0.0001"
+                           min="0"
+                           placeholder="np. 0.1234">
                         <div class="validation-message"></div>
                     </div>
 
                     <div class="volume-input-group">
                         <label>Gatunek drewna</label>
-                        <select class="volume-select" data-field="wood_species" data-product-key="${productKey}">
-                            <option value="">Wybierz gatunek...</option>
+                        <select class="volume-select volume-optional" data-field="wood_species" data-product-key="${productKey}">
+                            <option value="">Wybierz...</option>
                             <option value="dąb" ${savedData.wood_species === 'dąb' ? 'selected' : ''}>Dąb</option>
                             <option value="jesion" ${savedData.wood_species === 'jesion' ? 'selected' : ''}>Jesion</option>
                             <option value="buk" ${savedData.wood_species === 'buk' ? 'selected' : ''}>Buk</option>
+                            <option value="buk" ${savedData.wood_species === 'inny' ? 'selected' : ''}>Inny</option>
                         </select>
-                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
 
                     <div class="volume-input-group">
                         <label>Technologia</label>
                         <select class="volume-select" data-field="technology" data-product-key="${productKey}">
-                            <option value="">Wybierz technologię...</option>
+                            <option value="">Wybierz...</option>
                             <option value="lity" ${savedData.technology === 'lity' ? 'selected' : ''}>Lity</option>
                             <option value="mikrowczep" ${savedData.technology === 'mikrowczep' ? 'selected' : ''}>Mikrowczep</option>
                         </select>
-                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
 
                     <div class="volume-input-group">
                         <label>Klasa drewna</label>
                         <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
-                            <option value="">Wybierz klasę...</option>
+                            <option value="">Wybierz...</option>
                             <option value="A/A" ${savedData.wood_class === 'A/A' ? 'selected' : ''}>A/B</option>
                             <option value="A/B" ${savedData.wood_class === 'A/B' ? 'selected' : ''}>A/B</option>
                             <option value="B/B" ${savedData.wood_class === 'B/B' ? 'selected' : ''}>B/B</option>
-                            <option value="Rustic" ${savedData.wood_class === 'Rustic' ? 'selected' : ''}>B/B</option>
+                            <option value="Rustic" ${savedData.wood_class === 'Rustic' ? 'selected' : ''}>Rustic</option>
                         </select>
-                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
                     </div>
-                </div>
-
-                <div class="volume-summary">
-                    <strong>Objętość całkowita: <span id="totalVolumeDisplay">0.000 m³</span></strong>
                 </div>
             </div>
         `;
 
         // Bind events dla tego produktu
         this.bindCurrentProductEvents();
-        this.updateTotalVolume(productKey);
         this.updateChecklist();
     }
 
@@ -444,7 +513,6 @@ class VolumeManager {
                 this.volumeData[productKey] = {};
             }
             this.volumeData[productKey].volume = roundedValue;
-            this.updateTotalVolume(productKey);
         }
     }
 
@@ -496,38 +564,11 @@ class VolumeManager {
         // Zapisz wartość
         this.volumeData[productKey][field] = input.value;
 
-        // Dla objętości - aktualizuj obliczenia
-        if (field === 'volume' && !input.value.includes(',')) {
-            this.updateTotalVolume(productKey);
-        }
-
         // Aktualizuj stan przycisków
         if (this.isStepByStepMode) {
             this.updateFooterButtons();
         } else {
             this.updateSaveButtonState();
-        }
-    }
-
-    updateTotalVolume(productKey) {
-        const product = this.productsNeedingVolume.find(p =>
-            `${p.order_id}_${p.product_id || 'unknown'}` === productKey
-        );
-
-        if (!product) return;
-
-        // ✅ POPRAWKA: To już jest total_volume, nie mnóż przez quantity!
-        const totalVolume = parseFloat(this.volumeData[productKey]?.volume) || 0;
-
-        // Aktualizuj wyświetlanie
-        const totalDisplay = document.getElementById('totalVolumeDisplay');
-        if (totalDisplay) {
-            totalDisplay.textContent = `${totalVolume.toFixed(3)} m³`;
-        }
-
-        const batchDisplay = this.volumeModal.querySelector(`[data-product-key="${productKey}"] .total-volume`);
-        if (batchDisplay) {
-            batchDisplay.textContent = `${totalVolume.toFixed(3)} m³`;
         }
     }
 
@@ -551,7 +592,7 @@ class VolumeManager {
             const isFirst = this.currentProductIndex === 0;
             const isLast = this.currentProductIndex === total - 1;
             const currentProduct = this.productsNeedingVolume[this.currentProductIndex];
-            const productKey = `${currentProduct.order_id}_${currentProduct.product_id || 'unknown'}`;
+            const productKey = this.generateProductKey(currentProduct.order_id, currentProduct, currentProduct.product_index);
             const hasVolume = this.volumeData[productKey]?.volume > 0;
 
             footer.innerHTML = `
@@ -588,7 +629,7 @@ class VolumeManager {
 
     handleNext() {
         const currentProduct = this.productsNeedingVolume[this.currentProductIndex];
-        const productKey = `${currentProduct.order_id}_${currentProduct.product_id || 'unknown'}`;
+        const productKey = this.generateProductKey(currentProduct.order_id, currentProduct, currentProduct.product_index);
         
         if (!this.volumeData[productKey]?.volume || this.volumeData[productKey].volume <= 0) {
             alert('Proszę wprowadzić objętość przed przejściem dalej.');
@@ -664,8 +705,9 @@ class VolumeManager {
         // Wyczyść czas ostatniego kliknięcia
         this.lastSkipTime = null;
 
-        this.productsNeedingVolume.forEach(product => {
-            const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        this.productsNeedingVolume.forEach((product, productIndex) => {
+            // ✅ UŻYJ POPRAWNEJ LOGIKI GENEROWANIA KLUCZY
+            const productKey = this.generateProductKey(product.order_id, product, product.product_index || productIndex);
             this.volumeData[productKey] = { volume: 0 };
         });
 
@@ -680,15 +722,91 @@ class VolumeManager {
             return;
         }
 
+        // ✅ POPRAWKA: Zebierz dane z AKTUALNEGO STANU MODALA, nie z pamięci
+        this.collectVolumeDataFromModal();
+
         this.proceedWithSave();
     }
 
-    validateAllInputs() {
-        const requiredInputs = this.volumeModal.querySelectorAll('.volume-required');
-        return Array.from(requiredInputs).every(input => {
-            const value = parseFloat(input.value);
-            return input.value && value > 0;
+    // Zbiera dane bezpośrednio z elementów modala
+    collectVolumeDataFromModal() {
+        console.log('[VolumeManager] Zbieranie danych z modala objętości');
+
+        // Wyczyść poprzednie dane
+        this.volumeData = {};
+
+        // Zbierz dane z wszystkich inputów w modalu
+        const inputs = this.volumeModal.querySelectorAll('.volume-input, .volume-select');
+
+        inputs.forEach(input => {
+            const productKey = input.dataset.productKey;
+            const field = input.dataset.field;
+
+            if (productKey && field && input.value.trim() !== '') {
+                if (!this.volumeData[productKey]) {
+                    this.volumeData[productKey] = {};
+                }
+
+                // Dla objętości konwertuj na liczbę
+                if (field === 'volume') {
+                    this.volumeData[productKey][field] = parseFloat(input.value);
+                } else {
+                    this.volumeData[productKey][field] = input.value;
+                }
+            }
         });
+
+        console.log('[VolumeManager] Zebrane dane z modala:', this.volumeData);
+    }
+
+    validateAllInputs() {
+        // POPRAWKA: Tylko pola objętości są wymagane
+        const volumeInputs = this.volumeModal.querySelectorAll('.volume-input[data-field="volume"]');
+        return Array.from(volumeInputs).every(input => {
+            const value = parseFloat(input.value);
+            return input.value.trim() !== '' && value > 0;
+        });
+    }
+
+    /**
+     * NOWA METODA: Waliduje że każdy produkt ma swoje własne atrybuty
+     */
+    validateProductDataIntegrity() {
+        console.log('[VolumeManager] Walidacja integralności danych produktów');
+
+        let hasErrors = false;
+        const productKeys = Object.keys(this.volumeData);
+
+        productKeys.forEach(productKey => {
+            const productData = this.volumeData[productKey];
+            // ✅ UŻYJ POPRAWNEJ LOGIKI GENEROWANIA KLUCZY
+            const correspondingProduct = this.productsNeedingVolume.find((p, index) =>
+                this.generateProductKey(p.order_id, p, p.product_index || index) === productKey
+            );
+
+            if (!correspondingProduct) {
+                console.error(`[VolumeManager] Brak produktu dla klucza: ${productKey}`);
+                hasErrors = true;
+                return;
+            }
+
+            // Sprawdź czy atrybuty pochodzą z analizy nazwy tego konkretnego produktu
+            const originalAnalysis = correspondingProduct.analysis || {};
+
+            console.log(`[VolumeManager] Walidacja produktu: ${correspondingProduct.product_name}`, {
+                productKey,
+                savedData: productData,
+                originalAnalysis: originalAnalysis,
+                dataIntegrityCheck: {
+                    volume_matches: !productData.volume || productData.volume === originalAnalysis.volume,
+                    species_matches: !productData.wood_species || productData.wood_species === originalAnalysis.wood_species,
+                    technology_matches: !productData.technology || productData.technology === originalAnalysis.technology,
+                    class_matches: !productData.wood_class || productData.wood_class === originalAnalysis.wood_class
+                }
+            });
+        });
+
+        return !hasErrors;
     }
 
     updateSaveButtonState() {
@@ -697,10 +815,12 @@ class VolumeManager {
         const saveBtn = document.getElementById('volumeSave');
         if (!saveBtn) return;
 
-        const requiredInputs = this.volumeModal.querySelectorAll('.volume-required');
+        // ✅ POPRAWKA: Zdefiniuj requiredInputs lokalnie
+        const requiredInputs = this.volumeModal.querySelectorAll('.volume-input[data-field="volume"]');
+
         const allValid = Array.from(requiredInputs).every(input => {
             const value = parseFloat(input.value);
-            return input.value && value > 0;
+            return input.value.trim() !== '' && value > 0;
         });
 
         saveBtn.disabled = !allValid;
@@ -713,6 +833,13 @@ class VolumeManager {
     }
 
     async proceedWithSave() {
+        // POPRAWKA: Waliduj integralność danych przed zapisaniem
+        if (!this.validateProductDataIntegrity()) {
+            console.error('[VolumeManager] Błąd integralności danych produktów');
+            alert('Wykryto błąd w danych produktów. Odśwież stronę i spróbuj ponownie.');
+            return;
+        }
+
         // Wywołaj globalną funkcję zapisywania z danymi objętości
         if (window.syncManager) {
             await window.syncManager.saveOrdersWithVolumes(this.volumeData);
@@ -751,29 +878,7 @@ class VolumeManager {
 
     createOrderElement(orderId, orderData) {
         // ✅ POPRAWKA: Użyj tych samych dat co w kafelkach w kroku 2
-        const formatDate = (timestamp) => {
-            if (!timestamp) return 'Brak daty';
-
-            try {
-                let date;
-                if (typeof timestamp === 'number') {
-                    date = new Date(timestamp * 1000); // Unix timestamp
-                } else {
-                    date = new Date(timestamp);
-                }
-
-                if (isNaN(date.getTime())) return 'Błędna data';
-
-                return date.toLocaleDateString('pl-PL');
-            } catch (error) {
-                return 'Błędna data';
-            }
-        };
-
         const orderInfo = orderData.order_info || {};
-        const dateCreated = formatDate(orderInfo.date_add);
-        const paymentDate = formatDate(orderInfo.payment_date);
-        const status = orderInfo.order_status || 'Nieznany status';
 
         return `
             <div class="volume-order-item">
@@ -781,9 +886,6 @@ class VolumeManager {
                     <h4>Zamówienie #${orderId}</h4>
                     <div class="order-info">
                         <div>${orderInfo.customer_name || 'Nieznany klient'}</div>
-                        <div style="font-size: 12px; color: #6c757d; margin-top: 4px;">
-                            Złożone: ${dateCreated} | Płatność: ${paymentDate} | Status: ${status}
-                        </div>
                     </div>
                 </div>
                 <div class="volume-products-container">
@@ -794,77 +896,92 @@ class VolumeManager {
     }
 
     createProductElement(product) {
-        const productKey = `${product.order_id}_${product.product_id || 'unknown'}`;
+        const productIndex = product.product_index || this.productsNeedingVolume.indexOf(product);
+        const productKey = this.generateProductKey(product.order_id, product, productIndex);
+
         const savedData = this.volumeData[productKey] || {};
-        const totalVolume = parseFloat(savedData.volume || 0) || 0;
+        const analysis = product.analysis || {};
+
+        console.log(`[VolumeManager] Renderowanie produktu ${product.product_name}:`, {
+            productKey,
+            savedData,
+            analysis
+        });
 
         return `
-            <div class="volume-product-item" data-product-key="${productKey}">
-                <div class="volume-product-header">
-                    <div class="product-name">${product.product_name}</div>
-                    <div class="product-quantity">Ilość: <span class="quantity-value">${product.quantity}</span> szt.</div>
+        <div class="volume-product-item" data-product-key="${productKey}">
+            <div class="volume-product-header">
+                <div class="product-name">${product.product_name}</div>
+                <div class="product-quantity">Ilość: <span class="quantity-value">${product.quantity}</span> szt.</div>
+            </div>
+
+            <div class="volume-inputs-grid">
+                <!-- Objętość - pole wymagane -->
+                <div class="volume-input-group required">
+                    <label>Całkowita objętość (m³) *</label>
+                    <input type="text"
+                       class="volume-input volume-required"
+                       data-field="volume"
+                       data-product-key="${productKey}"
+                       value="${savedData.volume || analysis.volume || ''}"
+                       step="0.0001"
+                       min="0"
+                       placeholder="np. 0.1234">
+                    <div class="validation-message"></div>
                 </div>
 
-                <div class="volume-inputs-grid">
-                    <!-- Objętość - pole wymagane -->
-                    <div class="volume-input-group required">
-                        <label>Całkowita objętość (m³)</label>
-                        <input type="text"
-                               class="volume-input volume-required"
-                               data-field="volume"
-                               data-product-key="${productKey}"
-                               value="${savedData.volume || ''}"
-                               step="0.0001"
-                               min="0"
-                               placeholder="np. 0.1234">
-                        <div class="validation-message"></div>
-                        ${savedData.auto_detected ? '<span class="auto-detected-badge">Automatycznie wykryte</span>' : ''}
-                    </div>
-
-                    <!-- Gatunek drewna -->
-                    <div class="volume-input-group">
-                        <label>Gatunek</label>
-                        <select class="volume-select" data-field="wood_species" data-product-key="${productKey}">
-                            <option value="">Wybierz gatunek...</option>
-                            <option value="dąb" ${savedData.wood_species === 'dąb' ? 'selected' : ''}>Dąb</option>
-                            <option value="buk" ${savedData.wood_species === 'buk' ? 'selected' : ''}>Buk</option>
-                            <option value="jesion" ${savedData.wood_species === 'jesion' ? 'selected' : ''}>Jesion</option>
-                            <option value="sosna" ${savedData.wood_species === 'sosna' ? 'selected' : ''}>Sosna</option>
-                            <option value="brzoza" ${savedData.wood_species === 'brzoza' ? 'selected' : ''}>Brzoza</option>
-                        </select>
-                        ${savedData.auto_detected && savedData.wood_species ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
-                    </div>
-
-                    <!-- Technologia -->
-                    <div class="volume-input-group">
-                        <label>Technologia</label>
-                        <select class="volume-select" data-field="technology" data-product-key="${productKey}">
-                            <option value="">Wybierz technologię...</option>
-                            <option value="lity" ${savedData.technology === 'lity' ? 'selected' : ''}>Lity</option>
-                            <option value="klejony" ${savedData.technology === 'klejony' ? 'selected' : ''}>Klejony</option>
-                            <option value="mikrowczep" ${savedData.technology === 'mikrowczep' ? 'selected' : ''}>Mikrowczep</option>
-                            <option value="fornir" ${savedData.technology === 'fornir' ? 'selected' : ''}>Fornir</option>
-                        </select>
-                        ${savedData.auto_detected && savedData.technology ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
-                    </div>
-
-                    <!-- Klasa drewna -->
-                    <div class="volume-input-group">
-                        <label>Klasa</label>
-                        <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
-                            <option value="">Wybierz klasę...</option>
-                            <option value="A/B" ${savedData.wood_class === 'A/B' ? 'selected' : ''}>A/B</option>
-                            <option value="B/B" ${savedData.wood_class === 'B/B' ? 'selected' : ''}>B/B</option>
-                        </select>
-                        ${savedData.auto_detected && savedData.wood_class ? '<span class="auto-detected-badge">Wykryte</span>' : ''}
-                    </div>
+                <!-- Gatunek drewna -->
+                <div class="volume-input-group">
+                    <label>Gatunek drewna</label>
+                    <select class="volume-select volume-optional" data-field="wood_species" data-product-key="${productKey}">
+                        <option value="">Wybierz...</option>
+                        <option value="dąb" ${(savedData.wood_species || analysis.wood_species) === 'dąb' ? 'selected' : ''}>Dąb</option>
+                        <option value="buk" ${(savedData.wood_species || analysis.wood_species) === 'buk' ? 'selected' : ''}>Buk</option>
+                        <option value="jesion" ${(savedData.wood_species || analysis.wood_species) === 'jesion' ? 'selected' : ''}>Jesion</option>
+                        <option value="inny" ${(savedData.wood_species || analysis.wood_species) === 'inny' ? 'selected' : ''}>Inny</option>
+                    </select>
                 </div>
 
-                <div class="volume-summary">
-                    Objętość całkowita: <strong><span class="total-volume">${totalVolume.toFixed(3)} m³</span>
+                <!-- Technologia -->
+                <div class="volume-input-group">
+                    <label>Technologia</label>
+                    <select class="volume-select" data-field="technology" data-product-key="${productKey}">
+                        <option value="">Wybierz...</option>
+                        <option value="lity" ${(savedData.technology || analysis.technology) === 'lity' ? 'selected' : ''}>Lity</option>
+                        <option value="mikrowczep" ${(savedData.technology || analysis.technology) === 'mikrowczep' ? 'selected' : ''}>Mikrowczep</option>
+                    </select>
+                </div>
+
+                <!-- Klasa drewna -->
+                <div class="volume-input-group">
+                    <label>Klasa drewna</label>
+                    <select class="volume-select" data-field="wood_class" data-product-key="${productKey}">
+                        <option value="">Wybierz...</option>
+                        <option value="A/A" ${(savedData.wood_class || analysis.wood_class) === 'A/A' ? 'selected' : ''}>A/A</option>
+                        <option value="A/B" ${(savedData.wood_class || analysis.wood_class) === 'A/B' ? 'selected' : ''}>A/B</option>
+                        <option value="B/B" ${(savedData.wood_class || analysis.wood_class) === 'B/B' ? 'selected' : ''}>B/B</option>
+                        <option value="Rustic" ${(savedData.wood_class || analysis.wood_class) === 'Rustic' ? 'selected' : ''}>Rustic</option>
+                    </select>
                 </div>
             </div>
-        `;
+        </div>
+    `;
+    }
+
+    /**
+     * NOWA METODA: Pobiera wartość atrybutu z analizy produktu lub z volumeData
+     */
+    getAnalysisValue(product, field) {
+        const productKey = this.generateProductKey(product.order_id, product, product.product_index);
+
+        // ✅ POPRAWKA: Najpierw sprawdź dane z modala (ręcznie wprowadzone)
+        if (this.volumeData[productKey] && this.volumeData[productKey][field]) {
+            return this.volumeData[productKey][field];
+        }
+
+        // Potem sprawdź dane z analizy (wykryte automatycznie)
+        const analysis = product.analysis || {};
+        return analysis[field] || '';
     }
 
     truncateText(text, maxLength) {

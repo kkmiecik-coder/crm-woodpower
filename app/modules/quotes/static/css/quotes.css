@@ -3358,6 +3358,14 @@
     border-radius: 8px;
 }
 
+.edit-product-total-brutto {
+    font-weight: 600;
+    color: #1F2020;
+    text-align: right;
+    min-width: 80px;
+    font-size: inherit;
+}
+
 .finishing-section {
     flex: 0 0 280px;
     background: #f8f9fa;
@@ -3588,12 +3596,18 @@
 
         /* Ostatni wiersz (suma) - wyróżniony */
         .edit-quote-summary > div:last-child {
-            border-bottom: 2px solid #ED6B24;
-            border-top: 1px solid #ddd;
+            border-top: 2px solid #ED6B24;
+            border-bottom: none;
             font-weight: 600;
-            padding: 12px 0 8px 0;
+            padding-top: 12px;
             margin-top: 4px;
             font-size: 14px; /* WIĘKSZA CZCIONKA DLA SUMY */
+        }
+
+        .edit-quote-summary > div:first-child {
+            font-weight: 600;
+            padding-top: 0;
+            margin-top: 0;
         }
 
         /* Usuń border z przedostatniego elementu */
@@ -3625,7 +3639,8 @@
 .edit-quote-summary .edit-order-netto,
 .edit-quote-summary .edit-finishing-netto,
 .edit-quote-summary .edit-delivery-netto,
-.edit-quote-summary .edit-final-netto {
+.edit-quote-summary .edit-final-netto,
+.edit-quote-summary .edit-product-total-netto {
     font-weight: 400;
     color: #888; /* JAŚNIEJSZY KOLOR */
     text-align: right;
@@ -3930,6 +3945,10 @@
     flex: 1;
 }
 
+.product-card-actions {
+    display: flex;
+    gap: 4px;
+}
 /* Główne informacje o produkcie */
 .product-card-main-info {
     font-weight: 500;
@@ -3954,9 +3973,6 @@
 
 /* Przycisk usuwania produktu */
 .remove-product-btn {
-    position: absolute;
-    right: 8px;
-    top: 8px;
     width: 24px;
     height: 24px;
     border: none;
@@ -4405,3 +4421,529 @@
     outline: 2px solid #ED6B24;
     outline-offset: 2px;
 }
+
+/* Style dla informacji o objętości i wadze */
+
+/* Dodatkowe informacje o produkcie (objętość i waga) - szary kolor */
+.product-card-sub-info {
+    font-size: 10px;
+    color: #888888; /* Szary kolor, różny od nazwy produktu */
+    font-family: Poppins, sans-serif;
+    font-weight: 400;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+/* Style dla łącznego podsumowania objętości i wagi */
+.products-total-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    margin-top: auto; /* Wypchnij na sam dół */
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #F8F9FA;
+    font-size: 12px;
+    font-family: Poppins, sans-serif;
+    animation: slideInProduct 0.3s ease-out;
+    transition: all 0.2s ease;
+    flex-shrink: 0; /* Nie pozwól na zmniejszanie */
+    align-self: stretch; /* Rozciągnij na pełną szerokość */
+}
+
+    .products-total-summary:hover {
+        background: #F0F1F2;
+        border-color: #ED6B24;
+    }
+
+.products-total-title {
+    font-weight: 600;
+    color: #1F2020;
+    flex-shrink: 0;
+}
+
+/* Dodatkowy wrapper dla podsumowania jeśli potrzebny */
+.products-summary-footer {
+    margin-top: auto;
+    padding-top: 8px;
+    align-self: stretch;
+}
+
+.products-total-details {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-weight: 500;
+    color: #ED6B24;
+}
+
+.products-total-volume,
+.products-total-weight {
+    font-size: 11px;
+    padding: 2px 6px;
+    background: rgba(237, 107, 36, 0.1);
+    border-radius: 4px;
+    border: 1px solid rgba(237, 107, 36, 0.2);
+}
+
+/* Dodatkowy styling dla stanów error */
+.product-card.error .product-card-sub-info {
+    color: #999999; /* Nieco jaśniejszy szary dla kart z błędem */
+}
+
+/* Responsive design dla podsumowania */
+@media (max-width: 1200px) {
+    .products-total-summary {
+        padding: 8px 10px;
+        font-size: 11px;
+    }
+
+    .products-total-details {
+        gap: 8px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 10px;
+        padding: 1px 4px;
+    }
+
+    .product-card-sub-info {
+        font-size: 9px;
+    }
+}
+
+@media (max-width: 768px) {
+    .products-total-summary {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 6px 8px;
+        font-size: 10px;
+    }
+
+    .products-total-details {
+        align-self: stretch;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 9px;
+        padding: 1px 3px;
+    }
+
+    .product-card-sub-info {
+        font-size: 8px;
+    }
+}
+
+/* POPRAWKA: Główny kontener sekcji produktów - struktura z fixed footer */
+.edit-products-summary-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+    padding: 15px;
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    min-width: 0;
+    height: 100%;
+    max-height: 350px; /* Ograniczenie wysokości dla całej sekcji */
+    overflow: hidden; /* Zapobiega scrollowi na głównym kontenerze */
+}
+
+/* Nagłówek z przyciskiem dodaj produkt */
+.products-summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    flex-shrink: 0; /* Nie pozwól na zmniejszanie nagłówka */
+    margin-bottom: 10px;
+}
+
+/* POPRAWKA: Wrapper dla scrollowanej części + fixed podsumowanie */
+.products-summary-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    width: 100%;
+    min-height: 0; /* Ważne dla prawidłowego flex */
+}
+
+/* POPRAWKA: Kontener z kartami produktów - tylko scroll, bez podsumowania */
+.products-summary-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-self: stretch;
+    flex: 1; /* Zajmuj dostępne miejsce */
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #FFFFFF;
+    border-radius: 6px;
+    min-height: 60px;
+    padding: 4px 0;
+    /* USUNIĘTO max-height - teraz zajmuje dostępne miejsce */
+}
+
+    /* Custom scrollbar */
+    .products-summary-container::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .products-summary-container::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 3px;
+    }
+
+    .products-summary-container::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 3px;
+    }
+
+        .products-summary-container::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+
+/* POPRAWKA: Podsumowanie jako fixed footer - zawsze widoczne na dole */
+.products-total-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    margin-top: 10px; /* Odstęp od scroll area */
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #F8F9FA;
+    font-size: 12px;
+    font-family: Poppins, sans-serif;
+    animation: slideInProduct 0.3s ease-out;
+    transition: all 0.2s ease;
+    flex-shrink: 0; /* KLUCZOWE: Nie pozwól na zmniejszanie */
+    align-self: stretch; /* Rozciągnij na pełną szerokość */
+    width: 100%;
+}
+
+    .products-total-summary:hover {
+        background: #F0F1F2;
+        border-color: #ED6B24;
+    }
+
+.products-total-title {
+    font-weight: 600;
+    color: #1F2020;
+    flex-shrink: 0;
+}
+
+.products-total-details {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-weight: 500;
+    color: #ED6B24;
+}
+
+.products-total-volume,
+.products-total-weight {
+    font-size: 11px;
+    padding: 2px 6px;
+    background: rgba(237, 107, 36, 0.1);
+    border-radius: 4px;
+    border: 1px solid rgba(237, 107, 36, 0.2);
+}
+
+/* Karty produktów - bez zmian */
+.product-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    font-size: 12px;
+    animation: slideInProduct 0.3s ease-out;
+    flex-shrink: 0;
+}
+
+/* Style dla informacji o objętości i wadze */
+.product-card-sub-info {
+    font-size: 10px;
+    color: #888888;
+    font-family: Poppins, sans-serif;
+    font-weight: 400;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+/* Dodatkowy styling dla stanów error */
+.product-card.error .product-card-sub-info {
+    color: #999999;
+}
+
+/* Stan gdy brak produktów */
+.no-products {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: #999;
+    font-size: 14px;
+    font-style: italic;
+    text-align: center;
+    border: 2px dashed #ddd;
+    border-radius: 6px;
+    background: #fafafa;
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+    .edit-products-summary-main {
+        max-height: 350px;
+    }
+
+    .products-total-summary {
+        padding: 8px 10px;
+        font-size: 11px;
+    }
+
+    .products-total-details {
+        gap: 8px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 10px;
+        padding: 1px 4px;
+    }
+
+    .product-card-sub-info {
+        font-size: 9px;
+    }
+}
+
+@media (max-width: 768px) {
+    .edit-products-summary-main {
+        max-height: 300px;
+    }
+
+    .products-total-summary {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 6px 8px;
+        font-size: 10px;
+    }
+
+    .products-total-details {
+        align-self: stretch;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+
+    .products-total-volume,
+    .products-total-weight {
+        font-size: 9px;
+        padding: 1px 3px;
+    }
+
+    .product-card-sub-info {
+        font-size: 8px;
+    }
+}
+
+
+/* Karta pojedynczego produktu */
+.product-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    font-size: 12px;
+    animation: slideInProduct 0.3s ease-out;
+}
+
+    /* Hover effect dla kart produktów */
+    .product-card:hover {
+        border-color: #ED6B24;
+        background: #FFF8F5;
+        transform: translateY(-3px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Aktywna karta produktu */
+    .product-card.active {
+        border-color: #ED6B24;
+        background: #FFF8F5;
+        box-shadow: 0 0 0 2px rgba(237, 107, 36, 0.1);
+    }
+
+    /* Hover effect dla aktywnej karty */
+    .product-card:not(.error):hover .product-card-number {
+        background: #D45611;
+        transform: scale(1.05);
+    }
+
+    .product-card.active .product-card-number {
+        background: #D45611;
+        box-shadow: 0 0 0 2px rgba(237, 107, 36, 0.3);
+        margin-right: 12px;
+    }
+
+    /* Karta z błędem (niekompletny produkt) */
+    .product-card.error {
+        border-color: #E57373;
+        background: #FFEBEE;
+    }
+
+        .product-card.error:hover {
+            border-color: #F44336;
+            background: #FFCDD2;
+        }
+
+/* Zawartość karty produktu */
+.product-card-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+/* Numer produktu (kółko) */
+.product-card-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ED6B24;
+    color: #FFFFFF;
+    font-weight: 600;
+    font-size: 11px;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    margin-right: 12px;
+}
+
+.product-card.error .product-card-number {
+    background: #F44336;
+}
+
+/* Szczegóły produktu */
+.product-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+/* Główne informacje o produkcie */
+.product-card-main-info {
+    font-weight: 500;
+    font-size: 12px;
+    color: #1F2020;
+    font-family: Poppins, sans-serif;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    hyphens: auto;
+}
+
+.product-card.error .product-card-main-info {
+    color: #D32F2F;
+}
+
+/* Dodatkowe informacje o produkcie */
+.product-card-sub-info {
+    font-size: 10px;
+    color: #666666;
+    font-family: Poppins, sans-serif;
+}
+
+/* Status produktu */
+.product-card-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: #888888;
+}
+
+/* Przycisk dodania nowego produktu */
+.add-product-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border: 1px dashed #ED6B24;
+    border-radius: 6px;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    color: #ED6B24;
+    font-weight: 500;
+    font-size: 12px;
+    font-family: Poppins, sans-serif;
+}
+
+    .add-product-card:hover {
+        background: #FFF8F5;
+        border-color: #D45611;
+        color: #D45611;
+    }
+
+/* Style dla przycisku duplikowania produktu */
+.copy-product-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: #4CAF50;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    z-index: 5;
+    flex-shrink: 0;
+}
+
+    .copy-product-btn:hover {
+        background: #45a049;
+        transform: scale(1.05);
+    }
+
+    .copy-product-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+
