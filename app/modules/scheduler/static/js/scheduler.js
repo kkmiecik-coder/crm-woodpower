@@ -1528,6 +1528,530 @@ async function forceRestartScheduler() {
     }
 }
 
+// DODAJ DO app/static/js/main.js lub jako nowy plik admin_settings.js
+
+// === FUNKCJE KOLEJKI PRODUKCYJNEJ ===
+
+// Inicjalizacja po załadowaniu strony
+document.addEventListener('DOMContentLoaded', function() {
+    // Sprawdź czy jesteśmy na stronie ustawień
+    if (window.location.pathname === '/settings') {
+        initProductionQueueControls();
+    }
+});
+
+function initProductionQueueControls() {
+    console.log('[Settings] Inicjalizacja kontrolek kolejki produkcyjnej');
+    
+    // Event listenery dla przycisków
+    const manualRenumberBtn = document.getElementById('manualRenumberBtn');
+    const queueStructureBtn = document.getElementById('queueStructureBtn');
+    const refreshQueueStatsBtn = document.getElementById('refreshQueueStatsBtn');
+    
+    if (manualRenumberBtn) {
+        manualRenumberBtn.addEventListener('click', manualRenumberProductionQueue);
+    }
+    
+    if (queueStructureBtn) {
+        queueStructureBtn.addEventListener('click', showQueueStructure);
+    }
+    
+    if (refreshQueueStatsBtn) {
+        refreshQueueStatsBtn.addEventListener('click', refreshProductionQueueStats);
+    }
+    
+    // Załaduj początkowe dane
+    refreshProductionQueueStats();
+    refreshProductionJobStatus();
+    
+    // Auto-refresh co 30 sekund
+    setInterval(() => {
+        refreshProductionQueueStats();
+        refreshProductionJobStatus();
+    }, 30000);
+}
+
+function refreshProductionQueueStats() {
+    console.log('[Settings] Odświeżanie statystyk kolejki produkcyjnej');
+    
+    fetch('/scheduler/api/production-queue/stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateProductionQueueStats(data.data);
+            } else {
+                console.error('[Settings] Błąd pobierania statystyk kolejki:', data.error);
+                showErrorToast('Błąd pobierania statystyk kolejki');
+            }
+        })
+        .catch(error => {
+            console.error('[Settings] Błąd połączenia statystyk kolejki:', error);
+        });
+}
+
+function updateProductionQueueStats(stats) {
+    // Aktualizuj podstawowe statystyki
+    const queueLengthElement = document.getElementById('queueLength');
+    const lastRenumberElement = document.getElementById('lastRenumber');
+    const priorityRangeElement = document.getElementById('priorityRange');
+    
+    if (queueLengthElement) {
+        queueLengthElement.textContent = stats.queue_length || 0;
+    }
+    
+    if (lastRenumberElement) {
+        if (stats.last_renumber) {
+            const lastRenumberDate = new Date(stats.last_renumber);
+            lastRenumberElement.textContent = lastRenumberDate.toLocaleString('pl-PL');
+        } else {
+            lastRenumberElement.textContent = 'Nigdy';
+        }
+    }
+    
+    if (priorityRangeElement) {
+        if (stats.priority_range && stats.priority_range.min && stats.priority_range.max) {
+            const min = String(stats.priority_range.min).padStart(3, '0');
+            const max = String(stats.priority_range.max).padStart(3, '0');
+            priorityRangeElement.textContent = `${min} - ${max}`;
+        } else {
+            priorityRangeElement.textContent = 'Brak danych';
+        }
+    }
+    
+    console.log('[Settings] Statystyki kolejki zaktualizowane:', stats);
+}
+
+function manualRenumberProductionQueue() {
+    const btn = document.getElementById('manualRenumberBtn');
+    
+    // Potwierdzenie
+    if (!confirm('Czy na pewno chcesz przenumerować kolejkę produkcyjną?\n\nTa operacja może potrwać kilka sekund.')) {
+        return;
+    }
+    
+    // Wyłącz przycisk
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Przenumerowywanie...';
+    }
+    
+    console.log('[Settings] Ręczne przenumerowanie kolejki');
+    
+    fetch('/scheduler/api/production-queue/renumber', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('[Settings] Przenumerowanie zakończone:', data.result);
+            showSuccessToast(data.message);
+            
+            // Odśwież statystyki
+            setTimeout(() => {
+                refreshProductionQueueStats();
+            }, 1000);
+            
+        } else {
+            console.error('[Settings] Błąd przenumerowania:', data.error);
+            showErrorToast('Błąd przenumerowania: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('[Settings] Błąd połączenia przenumerowania:', error);
+        showErrorToast('Błąd połączenia podczas przenumerowania');
+    })
+    .finally(() => {
+        // Przywróć przycisk
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sort-numeric-down"></i> Przenumeruj kolejkę';
+        }
+    });
+}
+
+function showQueueStructure() {
+    console.log('[Settings] Pokazywanie struktury kolejki');
+    
+    fetch('/production/api/queue-structure')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayQueueStructureModal(data.data);
+            } else {
+                console.error('[Settings] Błąd pobierania struktury:', data.error);
+                showErrorToast('Błąd pobierania struktury kolejki');
+            }
+        })
+        .catch(error => {
+            console.error('[Settings] Błąd połączenia struktury:', error);
+            showErrorToast('Błąd połączenia');
+        });
+}
+
+function displayQueueStructureModal(structure) {
+    // Utwórz modal z strukturą kolejki
+    const modalContent = createQueueStructureContent(structure);
+    
+    // Usuń poprzedni modal jeśli istnieje
+    const existingModal = document.getElementById('queueStructureModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Utwórz nowy modal
+    const modal = document.createElement('div');
+    modal.id = 'queueStructureModal';
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Struktura kolejki produkcyjnej</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    ${modalContent}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Dodaj do strony i pokaż
+    document.body.appendChild(modal);
+    
+    // Inicjalizuj Bootstrap modal (jeśli używa Bootstrap)
+    if (typeof bootstrap !== 'undefined') {
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+    } else {
+        // Fallback - pokaż jako zwykły div
+        modal.style.display = 'block';
+        modal.style.position = 'fixed';
+        modal.style.top = '10%';
+        modal.style.left = '10%';
+        modal.style.width = '80%';
+        modal.style.height = '80%';
+        modal.style.backgroundColor = 'white';
+        modal.style.border = '1px solid #ccc';
+        modal.style.zIndex = '1000';
+        modal.style.padding = '20px';
+        modal.style.overflow = 'auto';
+        
+        // Dodaj przycisk zamknięcia
+        const closeBtn = modal.querySelector('.btn-close');
+        if (closeBtn) {
+            closeBtn.onclick = () => modal.remove();
+        }
+    }
+}
+
+function createQueueStructureContent(structure) {
+    if (!structure || Object.keys(structure).length === 0) {
+        return '<p class="text-muted">Brak danych w kolejce produkcyjnej.</p>';
+    }
+    
+    let content = '<div class="queue-structure-container">';
+    
+    // Sortuj grupy według nazwy
+    const sortedGroups = Object.entries(structure).sort(([a], [b]) => a.localeCompare(b));
+    
+    sortedGroups.forEach(([groupName, groupData]) => {
+        const [deadlineGroup, materialBatch] = groupName.split('_', 2);
+        const restOfName = groupName.substring(deadlineGroup.length + 1);
+        
+        // Kolor dla grupy deadline
+        const deadlineColor = getDeadlineColor(deadlineGroup);
+        
+        content += `
+            <div class="queue-group" style="border-left: 4px solid ${deadlineColor}; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+                <div class="group-header">
+                    <h6 style="margin: 0; color: #495057;">
+                        <span class="deadline-badge" style="background: ${deadlineColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; margin-right: 10px;">
+                            ${deadlineGroup}
+                        </span>
+                        ${restOfName.replace(/_/g, ' → ')}
+                    </h6>
+                    <div class="group-stats" style="font-size: 14px; color: #6c757d; margin-top: 5px;">
+                        Pozycje: ${groupData.range} | Produkty: ${groupData.count}
+                    </div>
+                </div>
+                
+                <div class="group-items" style="margin-top: 10px;">
+                    ${groupData.sample_items.map(item => `
+                        <div class="queue-item" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; margin: 3px 0; background: white; border-radius: 4px; font-size: 13px;">
+                            <span class="item-position" style="font-weight: 600; color: #007bff; min-width: 40px;">
+                                ${String(item.position).padStart(3, '0')}
+                            </span>
+                            <span class="item-name" style="flex: 1; margin-left: 15px;">
+                                ${item.product_name}
+                            </span>
+                        </div>
+                    `).join('')}
+                    ${groupData.count > 3 ? `
+                        <div style="text-align: center; padding: 8px; color: #6c757d; font-style: italic; font-size: 12px;">
+                            ... i ${groupData.count - 3} innych produktów
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    });
+    
+    content += '</div>';
+    
+    return content;
+}
+
+function getDeadlineColor(deadlineGroup) {
+    switch(deadlineGroup) {
+        case 'URGENT': return '#dc3545';    // Czerwony
+        case 'NORMAL': return '#ffc107';    // Żółty
+        case 'LATER': return '#28a745';     // Zielony
+        default: return '#6c757d';          // Szary
+    }
+}
+
+function refreshProductionJobStatus() {
+    console.log('[Settings] Odświeżanie statusu zadania kolejki');
+    
+    fetch('/scheduler/api/jobs/production-queue')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateProductionJobStatus(data.data);
+            } else {
+                console.error('[Settings] Błąd pobierania statusu zadania:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('[Settings] Błąd połączenia statusu zadania:', error);
+        });
+}
+
+function updateProductionJobStatus(jobData) {
+    const statusIndicator = document.getElementById('jobStatusIndicator');
+    const statusText = document.getElementById('jobStatusText');
+    const recentExecutions = document.getElementById('recentExecutions');
+    
+    // Aktualizuj status zadania
+    if (statusIndicator && statusText) {
+        if (!jobData.scheduler_running) {
+            statusIndicator.textContent = '❌';
+            statusText.textContent = 'Scheduler nie działa';
+            statusText.style.color = '#dc3545';
+        } else if (!jobData.job_configured) {
+            statusIndicator.textContent = '⚠️';
+            statusText.textContent = 'Zadanie nie skonfigurowane';
+            statusText.style.color = '#ffc107';
+        } else {
+            statusIndicator.textContent = '✅';
+            statusText.textContent = 'Zadanie aktywne';
+            statusText.style.color = '#28a745';
+        }
+    }
+    
+    // Aktualizuj ostatnie wykonania
+    if (recentExecutions) {
+        if (jobData.recent_executions && jobData.recent_executions.length > 0) {
+            const executionsHtml = jobData.recent_executions.map(execution => {
+                const executedDate = new Date(execution.executed_at);
+                const statusClass = execution.status === 'sent' ? 'success' : 'error';
+                
+                return `
+                    <div class="execution-item">
+                        <div class="execution-content">
+                            <div>${execution.content}</div>
+                            ${execution.error ? `<div style="color: #dc3545; font-size: 12px; margin-top: 3px;">${execution.error}</div>` : ''}
+                        </div>
+                        <div class="execution-meta">
+                            <div class="execution-status ${statusClass}">${execution.status}</div>
+                            <div class="execution-time">${executedDate.toLocaleString('pl-PL')}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            recentExecutions.innerHTML = `
+                <h5 style="margin: 15px 0 10px 0; font-size: 14px; color: #495057;">Ostatnie wykonania:</h5>
+                ${executionsHtml}
+            `;
+        } else {
+            recentExecutions.innerHTML = `
+                <h5 style="margin: 15px 0 10px 0; font-size: 14px; color: #495057;">Ostatnie wykonania:</h5>
+                <p class="text-muted" style="font-size: 14px;">Brak danych o wykonaniach</p>
+            `;
+        }
+    }
+    
+    console.log('[Settings] Status zadania zaktualizowany:', jobData);
+}
+
+// === FUNKCJE POMOCNICZE TOAST'ÓW ===
+
+function showSuccessToast(message) {
+    showToast(message, 'success');
+}
+
+function showErrorToast(message) {
+    showToast(message, 'error');
+}
+
+function showToast(message, type = 'info') {
+    // Usuń istniejące toasty
+    const existingToasts = document.querySelectorAll('.settings-toast');
+    existingToasts.forEach(toast => toast.remove());
+    
+    // Utwórz nowy toast
+    const toast = document.createElement('div');
+    toast.className = `settings-toast settings-toast-${type}`;
+    
+    const iconMap = {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: 'ℹ️'
+    };
+    
+    toast.innerHTML = `
+        <div class="settings-toast-content">
+            <span class="settings-toast-icon">${iconMap[type] || 'ℹ️'}</span>
+            <span class="settings-toast-message">${message}</span>
+            <button class="settings-toast-close">×</button>
+        </div>
+    `;
+    
+    // Style toast'a
+    const toastStyles = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        min-width: 300px;
+        max-width: 500px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        animation: slideInRight 0.3s ease;
+    `;
+    
+    toast.style.cssText = toastStyles;
+    
+    // Dodaj style dla typu
+    switch(type) {
+        case 'success':
+            toast.style.borderLeft = '4px solid #28a745';
+            break;
+        case 'error':
+            toast.style.borderLeft = '4px solid #dc3545';
+            break;
+        case 'warning':
+            toast.style.borderLeft = '4px solid #ffc107';
+            break;
+        case 'info':
+            toast.style.borderLeft = '4px solid #17a2b8';
+            break;
+    }
+    
+    // Style dla zawartości
+    const content = toast.querySelector('.settings-toast-content');
+    content.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+    `;
+    
+    const icon = toast.querySelector('.settings-toast-icon');
+    icon.style.fontSize = '20px';
+    
+    const messageEl = toast.querySelector('.settings-toast-message');
+    messageEl.style.cssText = `
+        flex: 1;
+        font-size: 14px;
+        color: #495057;
+    `;
+    
+    const closeBtn = toast.querySelector('.settings-toast-close');
+    closeBtn.style.cssText = `
+        background: none;
+        border: none;
+        font-size: 18px;
+        cursor: pointer;
+        color: #6c757d;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: background-color 0.2s ease;
+    `;
+    
+    // Event listenery
+    closeBtn.addEventListener('click', () => {
+        toast.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+    });
+    
+    // Dodaj style animacji jeśli nie istnieją
+    if (!document.getElementById('toast-animations')) {
+        const animationStyles = document.createElement('style');
+        animationStyles.id = 'toast-animations';
+        animationStyles.textContent = `
+            @keyframes slideInRight {
+                from {
+                    opacity: 0;
+                    transform: translateX(100%);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
+            
+            @keyframes slideOutRight {
+                from {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(100%);
+                }
+            }
+            
+            .settings-toast-close:hover {
+                background-color: rgba(0,0,0,0.1) !important;
+            }
+        `;
+        document.head.appendChild(animationStyles);
+    }
+    
+    // Dodaj toast do strony
+    document.body.appendChild(toast);
+    
+    // Auto-hide po 5 sekundach
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.style.animation = 'slideOutRight 0.3s ease';
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.remove();
+                }
+            }, 300);
+        }
+    }, 5000);
+    
+    console.log(`[Settings] Toast: ${type} - ${message}`);
+}
+
 // ==========================================
 // FUNKCJE DEBUGOWANIA (DEV ONLY)
 // ==========================================

@@ -173,40 +173,28 @@
                         <table class="prod-module-table" id="productionTable">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
+                                    <th style="width: 30px;">≡</th>
+                                    <th style="width: 80px;">Pozycja</th>
+                                    <th>Produkt</th>
                                     <th>Gatunek</th>
                                     <th>Technologia</th>
                                     <th>Klasa</th>
                                     <th>Wykończenie</th>
                                     <th>Wymiary</th>
                                     <th>Ilość</th>
-                                    <th>Priorytet</th>
                                     <th>Deadline</th>
                                     <th>Status</th>
-                                    <th>Akcje</th>
+                                    <th style="width: 50px;">Akcje</th>
                                 </tr>
                             </thead>
                             <tbody id="productionTableBody">
                                 <tr>
-                                    <td colspan="11" class="prod-module-table-loading">
+                                    <td colspan="12" class="prod-module-table-loading">
                                         Ładowanie danych...
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
-                    </div>
-
-                    <!-- Paginacja -->
-                    <div class="prod-module-pagination" id="pagination">
-                        <button class="prod-module-btn prod-module-btn-outline" id="prevPageBtn" disabled>
-                            ← Poprzednia
-                        </button>
-                        <span class="prod-module-page-info" id="pageInfo">
-                            Strona 1 z 1
-                        </span>
-                        <button class="prod-module-btn prod-module-btn-outline" id="nextPageBtn" disabled>
-                            Następna →
-                        </button>
                     </div>
                 </div>
 
@@ -327,7 +315,55 @@
         </div>
     </div>
 
-    <!-- Script imports -->
+    <!-- Dodatkowe funkcje pomocnicze -->
+    <script>
+        // Dodaj funkcję addModalStyles() dla modali
+        function addModalStyles() {
+            if (document.getElementById('prod-module-modal-styles')) {
+                return; // Style już dodane
+            }
+            
+            const styles = document.createElement('style');
+            styles.id = 'prod-module-modal-styles';
+            styles.textContent = `
+                .prod-module-modal * {
+                    box-sizing: border-box;
+                }
+            `;
+            document.head.appendChild(styles);
+        }
+        
+        // GLOBALNE funkcje dostępne z HTML (zachowaj istniejące)
+        window.showChangePositionModal = function(itemId, currentPosition) {
+            if (typeof showChangePositionModal === 'function') {
+                showChangePositionModal(itemId, currentPosition);
+            } else {
+                console.error('[Production] Funkcja showChangePositionModal nie jest dostępna');
+            }
+        };
+        
+        window.showPriorityExplanation = function(itemId) {
+            if (typeof showPriorityExplanation === 'function') {
+                showPriorityExplanation(itemId);
+            } else {
+                console.error('[Production] Funkcja showPriorityExplanation nie jest dostępna');
+            }
+        };
+        
+        // Aktualizuj globalną funkcję editPriority żeby używała nowego systemu
+        window.editPriority = function(itemId) {
+            // Użyj nowego modala zmiany pozycji
+            const currentRow = document.querySelector(`tr[data-item-id="${itemId}"]`);
+            if (currentRow) {
+                const currentPosition = parseInt(currentRow.getAttribute('data-priority-score'));
+                window.showChangePositionModal(itemId, currentPosition);
+            } else {
+                console.error('[Production] Nie znaleziono wiersza dla produktu:', itemId);
+            }
+        };
+    </script>
+
+    <!-- Script imports (zachowaj istniejące) -->
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/production.js') }}"></script>
 </body>

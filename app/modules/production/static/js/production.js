@@ -24,7 +24,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // === ZMIENNE GLOBALNE ===
     let refreshTimer = null;
     let refreshCountdown = 30;
-    let currentPage = 1;
     let currentFilters = {};
     
     // === INICJALIZACJA ===
@@ -381,15 +380,17 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    // modules/production/static/js/production.js - ZAKTUALIZOWANE FUNKCJE LISTY PRODUKCYJNEJ
+
+    // ZASTĄP SEKCJĘ "LISTA PRODUKCYJNA" (około linia 200-400) tym kodem:
+
     // ============================================================================
-    // LISTA PRODUKCYJNA
+    // LISTA PRODUKCYJNA - NOWA WERSJA BEZ PAGINACJI Z DRAG&DROP
     // ============================================================================
-    
+
     function initProductionList() {
         const applyFiltersBtn = document.getElementById('applyFiltersBtn');
         const clearFiltersBtn = document.getElementById('clearFiltersBtn');
-        const prevPageBtn = document.getElementById('prevPageBtn');
-        const nextPageBtn = document.getElementById('nextPageBtn');
         
         if (applyFiltersBtn) {
             applyFiltersBtn.addEventListener('click', applyFilters);
@@ -399,47 +400,42 @@ document.addEventListener('DOMContentLoaded', function() {
             clearFiltersBtn.addEventListener('click', clearFilters);
         }
         
-        if (prevPageBtn) {
-            prevPageBtn.addEventListener('click', () => {
-                if (currentPage > 1) {
-                    currentPage--;
-                    loadProductionList();
-                }
-            });
-        }
-        
-        if (nextPageBtn) {
-            nextPageBtn.addEventListener('click', () => {
-                currentPage++;
-                loadProductionList();
-            });
-        }
+        // Załaduj listę bez paginacji
+        loadProductionList();
     }
-    
+
     function loadProductionList() {
-        console.log('[Production] Ładowanie listy produkcyjnej...');
+        console.log('[Production] Ładowanie pełnej listy produkcyjnej...');
         
         const params = new URLSearchParams({
-            page: currentPage,
-            per_page: 50,
             ...currentFilters
         });
+        
+        // Pokazuj loading
+        showTableLoading();
         
         fetch(`/production/api/items?${params}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     updateProductionTable(data.data);
-                    updatePagination(data.pagination);
+                    updateFiltersInfo(data);
+                    
+                    // Inicjalizuj drag&drop po załadowaniu danych
+                    if (data.data.length > 0) {
+                        initDragAndDrop();
+                    }
                 } else {
                     console.error('[Production] Błąd ładowania listy:', data.error);
+                    showTableError('Błąd ładowania danych: ' + data.error);
                 }
             })
             .catch(error => {
                 console.error('[Production] Błąd połączenia listy:', error);
+                showTableError('Błąd połączenia z serwerem');
             });
     }
-    
+
     function updateProductionTable(items) {
         const tableBody = document.getElementById('productionTableBody');
         if (!tableBody) return;
@@ -447,8 +443,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!items || items.length === 0) {
             tableBody.innerHTML = `
                 <tr>
-                    <td colspan="11" class="prod-module-table-loading">
-                        Brak produktów spełniających kryteria
+                    <td colspan="12" class="prod-module-table-loading">
+                        ${Object.keys(currentFilters).length > 0 ? 
+                            'Brak produktów spełniających kryteria filtrowania' : 
+                            'Brak produktów w kolejce produkcyjnej'
+                        }
                     </td>
                 </tr>
             `;
@@ -457,61 +456,450 @@ document.addEventListener('DOMContentLoaded', function() {
         
         tableBody.innerHTML = '';
         
-        items.forEach(item => {
-            const row = createProductionTableRow(item);
+        items.forEach((item, index) => {
+            const row = createProductionTableRow(item, index);
             tableBody.appendChild(row);
         });
         
-        console.log('[Production] Tabela produkcyjna zaktualizowana:', items.length);
+        console.log('[Production] Tabela produkcyjna zaktualizowana:', items.length, 'produktów');
     }
-    
-    function createProductionTableRow(item) {
+
+    function createProductionTableRow(item, index) {
         const row = document.createElement('tr');
         const statusClass = getStatusClass(item.status?.name);
         
+        // Dodaj data attributes dla drag&drop
+        row.setAttribute('data-item-id', item.id);
+        row.setAttribute('data-priority-score', item.priority_score);
+        row.className = 'prod-module-table-row';
+        
+        // Ikona drag handle
+        const dragHandle = `
+            <span class="prod-module-drag-handle" title="Przeciągnij aby zmienić pozycję">
+                ≡
+            </span>
+        `;
+        
+        // Sformatowana pozycja (001, 002, 003...)
+        const formattedPosition = item.formatted_priority || String(item.priority_score || 0).padStart(3, '0');
+        
         row.innerHTML = `
-            <td>${item.id}</td>
-            <td title="${item.product_name}">${item.product_name.substring(0, 40)}${item.product_name.length > 40 ? '...' : ''}</td>
+            <td class="prod-module-drag-cell">${dragHandle}</td>
+            <td class="prod-module-priority-cell">
+                <span class="prod-module-priority-number">${formattedPosition}</span>
+                <button class="prod-module-btn-icon prod-module-change-position-btn" 
+                        onclick="showChangePositionModal(${item.id}, ${item.priority_score})" 
+                        title="Zmień pozycję">
+                    ✏️
+                </button>
+            </td>
+            <td class="prod-module-product-name-cell" title="${item.product_name}">
+                ${item.product_name.length > 40 ? item.product_name.substring(0, 40) + '...' : item.product_name}
+            </td>
             <td>${item.wood_species || '-'}</td>
             <td>${item.wood_technology || '-'}</td>
             <td>${item.wood_class || '-'}</td>
+            <td>${item.finish_type || '-'}</td>
             <td>${formatDimensions(item)}</td>
             <td>${item.quantity}</td>
-            <td>${item.priority_score}</td>
             <td>${formatDate(item.deadline_date)}</td>
             <td>
                 <span class="prod-module-status-badge prod-module-status-${statusClass}">
                     ${item.status?.display_name || 'N/A'}
                 </span>
             </td>
-            <td>
-                <button class="prod-module-btn-icon" onclick="editPriority(${item.id})" title="Edytuj priorytet">
-                    ✏️
+            <td class="prod-module-actions-cell">
+                <button class="prod-module-btn-icon" 
+                        onclick="showPriorityExplanation(${item.id})" 
+                        title="Wyjaśnienie priorytetu">
+                    ℹ️
                 </button>
             </td>
         `;
         
         return row;
     }
-    
-    function updatePagination(pagination) {
-        const pageInfo = document.getElementById('pageInfo');
-        const prevBtn = document.getElementById('prevPageBtn');
-        const nextBtn = document.getElementById('nextPageBtn');
-        
-        if (pageInfo) {
-            pageInfo.textContent = `Strona ${pagination.page} z ${pagination.pages}`;
+
+    function initDragAndDrop() {
+        const tableBody = document.getElementById('productionTableBody');
+        if (!tableBody) {
+            console.warn('[Production] Nie znaleziono tabeli do drag&drop');
+            return;
         }
         
-        if (prevBtn) {
-            prevBtn.disabled = !pagination.has_prev;
+        // Sprawdź czy SortableJS jest dostępne
+        if (typeof Sortable === 'undefined') {
+            console.warn('[Production] SortableJS nie jest załadowany - drag&drop wyłączony');
+            addSortableJSScript();
+            return;
         }
         
-        if (nextBtn) {
-            nextBtn.disabled = !pagination.has_next;
+        // Zniszcz poprzednie instancje Sortable
+        if (tableBody._sortable) {
+            tableBody._sortable.destroy();
+        }
+        
+        // Inicjalizuj nową instancję Sortable
+        const sortable = new Sortable(tableBody, {
+            handle: '.prod-module-drag-handle',
+            animation: 150,
+            ghostClass: 'prod-module-sortable-ghost',
+            chosenClass: 'prod-module-sortable-chosen',
+            dragClass: 'prod-module-sortable-drag',
+            
+            onStart: function(evt) {
+                console.log('[Production] Rozpoczęto przeciąganie produktu', evt.oldIndex + 1);
+            },
+            
+            onEnd: function(evt) {
+                const oldIndex = evt.oldIndex;
+                const newIndex = evt.newIndex;
+                
+                if (oldIndex === newIndex) {
+                    console.log('[Production] Pozycja nie zmieniła się');
+                    return;
+                }
+                
+                const itemId = parseInt(evt.item.getAttribute('data-item-id'));
+                const newPosition = newIndex + 1; // Pozycje są 1-indexed
+                
+                console.log('[Production] Przeniesiono produkt', {
+                    itemId: itemId,
+                    oldPosition: oldIndex + 1,
+                    newPosition: newPosition
+                });
+                
+                // Wyślij żądanie do API
+                reorderItemByDragDrop(itemId, newPosition, evt);
+            }
+        });
+        
+        // Zapisz referencję dla przyszłego czyszczenia
+        tableBody._sortable = sortable;
+        
+        console.log('[Production] Drag&Drop zainicjalizowany pomyślnie');
+    }
+
+    function addSortableJSScript() {
+        // Sprawdź czy script już istnieje
+        if (document.querySelector('script[src*="sortable"]')) {
+            return;
+        }
+        
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js';
+        script.onload = function() {
+            console.log('[Production] SortableJS załadowany - inicjalizacja drag&drop');
+            initDragAndDrop();
+        };
+        script.onerror = function() {
+            console.error('[Production] Nie można załadować SortableJS');
+            showNotification('Nie można załadować biblioteki drag&drop', 'warning');
+        };
+        document.head.appendChild(script);
+    }
+
+    function reorderItemByDragDrop(itemId, newPosition, dragEvent) {
+        // Pokazuj loading na przeciąganym elemencie
+        const draggedRow = dragEvent.item;
+        const originalContent = draggedRow.innerHTML;
+        
+        // Tymczasowo pokaż loading
+        const priorityCell = draggedRow.querySelector('.prod-module-priority-cell');
+        if (priorityCell) {
+            priorityCell.innerHTML = '<span class="prod-module-loading-small">⏳</span>';
+        }
+        
+        fetch(`/production/api/items/${itemId}/reorder`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                new_position: newPosition
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('[Production] Pozycja zmieniona pomyślnie:', data.result);
+                showNotification(`Produkt przeniesiony na pozycję ${newPosition}`, 'success');
+                
+                // Odśwież całą listę żeby pokazać nowe pozycje wszystkich produktów
+                setTimeout(() => {
+                    loadProductionList();
+                }, 500);
+                
+            } else {
+                console.error('[Production] Błąd zmiany pozycji:', data.error);
+                showNotification('Błąd zmiany pozycji: ' + data.error, 'error');
+                
+                // Przywróć oryginalną zawartość i pozycję
+                draggedRow.innerHTML = originalContent;
+                loadProductionList(); // Przywróć oryginalną kolejność
+            }
+        })
+        .catch(error => {
+            console.error('[Production] Błąd połączenia zmiany pozycji:', error);
+            showNotification('Błąd połączenia podczas zmiany pozycji', 'error');
+            
+            // Przywróć oryginalną zawartość i pozycję
+            draggedRow.innerHTML = originalContent;
+            loadProductionList(); // Przywróć oryginalną kolejność
+        });
+    }
+
+    function showChangePositionModal(itemId, currentPosition) {
+        const newPosition = prompt(`Wprowadź nową pozycję w kolejce:\n\n(Aktualnie: ${currentPosition})`);
+        
+        if (newPosition === null) return; // Anulowano
+        
+        const positionNum = parseInt(newPosition);
+        if (isNaN(positionNum) || positionNum < 1) {
+            showNotification('Pozycja musi być liczbą większą od 0', 'warning');
+            return;
+        }
+        
+        if (positionNum === currentPosition) {
+            showNotification('Nowa pozycja jest taka sama jak aktualna', 'info');
+            return;
+        }
+        
+        console.log('[Production] Zmiana pozycji przez modal:', {itemId, currentPosition, newPosition: positionNum});
+        
+        fetch(`/production/api/items/${itemId}/reorder`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                new_position: positionNum
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('[Production] Pozycja zmieniona pomyślnie:', data.result);
+                showNotification(`Produkt przeniesiony z pozycji ${data.result.old_position} na ${data.result.new_position}`, 'success');
+                
+                // Odśwież listę
+                loadProductionList();
+                
+            } else {
+                console.error('[Production] Błąd zmiany pozycji:', data.error);
+                showNotification('Błąd zmiany pozycji: ' + data.error, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('[Production] Błąd połączenia zmiany pozycji:', error);
+            showNotification('Błąd połączenia podczas zmiany pozycji', 'error');
+        });
+    }
+
+    function showPriorityExplanation(itemId) {
+        console.log('[Production] Pokazywanie wyjaśnienia priorytetu:', itemId);
+        
+        fetch(`/production/api/priority-explanation/${itemId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayPriorityExplanationModal(data.item, data.explanation);
+                } else {
+                    console.error('[Production] Błąd pobierania wyjaśnienia:', data.error);
+                    showNotification('Błąd pobierania wyjaśnienia priorytetu', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('[Production] Błąd połączenia wyjaśnienia:', error);
+                showNotification('Błąd połączenia', 'error');
+            });
+    }
+
+    function displayPriorityExplanationModal(item, explanation) {
+        // Utwórz modal z wyjaśnieniem priorytetu
+        const modalContent = createPriorityExplanationContent(item, explanation);
+        
+        // Usuń poprzedni modal jeśli istnieje
+        const existingModal = document.getElementById('priorityExplanationModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Utwórz nowy modal
+        const modal = document.createElement('div');
+        modal.id = 'priorityExplanationModal';
+        modal.className = 'prod-module-modal';
+        modal.innerHTML = `
+            <div class="prod-module-modal-backdrop">
+                <div class="prod-module-modal-content">
+                    <div class="prod-module-modal-header">
+                        <h3>Wyjaśnienie priorytetu</h3>
+                        <button class="prod-module-modal-close">&times;</button>
+                    </div>
+                    <div class="prod-module-modal-body">
+                        ${modalContent}
+                    </div>
+                    <div class="prod-module-modal-footer">
+                        <button class="prod-module-btn prod-module-btn-secondary prod-module-modal-close">
+                            Zamknij
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Dodaj style modala jeśli nie istnieją
+        addModalStyles();
+        
+        // Event listenery zamknięcia
+        const closeButtons = modal.querySelectorAll('.prod-module-modal-close');
+        closeButtons.forEach(btn => {
+            btn.addEventListener('click', () => modal.remove());
+        });
+        
+        // Zamknij po kliknięciu w backdrop
+        modal.querySelector('.prod-module-modal-backdrop').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                modal.remove();
+            }
+        });
+        
+        // Dodaj do strony i pokaż
+        document.body.appendChild(modal);
+        
+        // Animacja pojawienia się
+        setTimeout(() => modal.classList.add('show'), 10);
+    }
+
+    function createPriorityExplanationContent(item, explanation) {
+        if (explanation.error) {
+            return `<p class="prod-module-error">Błąd: ${explanation.error}</p>`;
+        }
+        
+        const currentPosition = String(item.current_priority_score || 0).padStart(3, '0');
+        
+        let content = `
+            <div class="prod-module-explanation-container">
+                <div class="prod-module-explanation-header">
+                    <h4>${item.product_name}</h4>
+                    <div class="prod-module-current-position">
+                        Aktualna pozycja: <span class="prod-module-position-number">${currentPosition}</span>
+                    </div>
+                    <div class="prod-module-priority-group">
+                        Grupa: <code>${explanation.priority_group}</code>
+                    </div>
+                </div>
+                
+                <div class="prod-module-explanation-sections">
+                    <div class="prod-module-explanation-section">
+                        <h5>📅 Deadline</h5>
+                        <div class="prod-module-explanation-content">
+                            <strong>${explanation.deadline_group.value}</strong>: ${explanation.deadline_group.explanation}
+                            ${explanation.deadline_group.days_to_deadline !== null ? 
+                                `<br><small>Dni do deadline: ${explanation.deadline_group.days_to_deadline}</small>` : 
+                                '<br><small>Brak ustawionego deadline</small>'
+                            }
+                        </div>
+                    </div>
+                    
+                    <div class="prod-module-explanation-section">
+                        <h5>🪵 Materiał</h5>
+                        <div class="prod-module-explanation-content">
+                            <strong>Batch:</strong> ${explanation.material_batch.key}<br>
+                            <strong>Gatunek:</strong> ${explanation.material_batch.species}<br>
+                            <strong>Technologia:</strong> ${explanation.material_batch.technology}<br>
+                            <strong>Klasa:</strong> ${explanation.material_batch.wood_class}<br>
+                            <strong>Pozycja w hierarchii:</strong> ${explanation.material_batch.rank}
+                        </div>
+                    </div>
+                    
+                    <div class="prod-module-explanation-section">
+                        <h5>🔢 Sub-priorytet</h5>
+                        <div class="prod-module-explanation-content">
+                            <strong>Wartość:</strong> ${explanation.sub_priority.value}<br>
+                            ${explanation.sub_priority.explanation}
+                        </div>
+                    </div>
+                    
+                    <div class="prod-module-explanation-section">
+                        <h5>📋 Algorytm sortowania</h5>
+                        <div class="prod-module-explanation-content">
+                            ${explanation.sorting_explanation}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        return content;
+    }
+
+    function updateFiltersInfo(data) {
+        // Pokaż informacje o filtrach
+        const filtersInfo = document.getElementById('filtersInfo');
+        if (!filtersInfo) {
+            // Utwórz element info jeśli nie istnieje
+            const infoDiv = document.createElement('div');
+            infoDiv.id = 'filtersInfo';
+            infoDiv.className = 'prod-module-filters-info';
+            
+            const tableContainer = document.querySelector('.prod-module-table-container');
+            if (tableContainer) {
+                tableContainer.parentNode.insertBefore(infoDiv, tableContainer);
+            }
+        }
+        
+        const info = document.getElementById('filtersInfo');
+        if (info) {
+            if (data.has_filters) {
+                const activeFilters = [];
+                if (data.applied_filters.status) activeFilters.push(`Status: ${data.applied_filters.status}`);
+                if (data.applied_filters.wood_species) activeFilters.push(`Gatunek: ${data.applied_filters.wood_species}`);
+                if (data.applied_filters.wood_technology) activeFilters.push(`Technologia: ${data.applied_filters.wood_technology}`);
+                
+                info.innerHTML = `
+                    <div class="prod-module-filters-active">
+                        <span class="prod-module-filters-label">🔍 Aktywne filtry:</span>
+                        <span class="prod-module-filters-list">${activeFilters.join(' • ')}</span>
+                        <span class="prod-module-filters-count">(${data.total_count} produktów)</span>
+                    </div>
+                `;
+            } else {
+                info.innerHTML = `
+                    <div class="prod-module-filters-inactive">
+                        <span class="prod-module-filters-count">📋 Wszystkie produkty w kolejce: ${data.total_count}</span>
+                    </div>
+                `;
+            }
         }
     }
-    
+
+    function showTableLoading() {
+        const tableBody = document.getElementById('productionTableBody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="12" class="prod-module-table-loading">
+                        <span class="prod-module-loading"></span> Ładowanie danych...
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    function showTableError(message) {
+        const tableBody = document.getElementById('productionTableBody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="12" class="prod-module-table-loading prod-module-table-error">
+                        ❌ ${message}
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
     function applyFilters() {
         const statusFilter = document.getElementById('statusFilter');
         const speciesFilter = document.getElementById('speciesFilter');
@@ -545,12 +933,11 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
-        currentPage = 1;
         loadProductionList();
         
         console.log('[Production] Filtry zastosowane:', currentFilters);
     }
-    
+
     function clearFilters() {
         const statusFilter = document.getElementById('statusFilter');
         const speciesFilter = document.getElementById('speciesFilter');
@@ -567,7 +954,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         currentFilters = {};
-        currentPage = 1;
         loadProductionList();
         
         console.log('[Production] Filtry wyczyszczone');
