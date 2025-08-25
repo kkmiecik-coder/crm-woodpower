@@ -199,11 +199,7 @@ def api_reports_stations():
         production_logger.error("Błąd API raportu stanowisk", error=str(e))
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@production_bp.route('/work')
-def work():
-    """Widok wyboru stanowiska produkcyjnego"""
-    production_logger.info("Dostęp do wyboru stanowiska")
-    return render_template('work.html')
+
 
 # ============================================================================
 # STANOWISKO SKLEJANIA - VIEWS
@@ -252,7 +248,7 @@ def station_queue():
             is_active=True
         ).all()
         
-        return render_template('production/station/queue.html',
+        return render_template('station/queue.html',
                              worker=worker,
                              queue_items=queue_items,
                              available_stations=available_stations)
