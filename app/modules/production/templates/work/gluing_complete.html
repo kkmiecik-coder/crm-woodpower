@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sklejanie Ukończone - Wood Power</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 20px;
+            background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Główny kontener */
+        .completion-container {
+            background: white;
+            border-radius: 20px;
+            padding: 50px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            max-width: 800px;
+            width: 100%;
+            text-align: center;
+        }
+
+        /* Ikona sukcesu */
+        .success-icon {
+            font-size: 80px;
+            color: #00b894;
+            margin-bottom: 30px;
+            animation: bounce 2s ease-in-out;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {
+                transform: translateY(0);
+            }
+
+            40% {
+                transform: translateY(-10px);
+            }
+
+            60% {
+                transform: translateY(-5px);
+            }
+        }
+
+        /* Tytuł */
+        .completion-title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #2d3436;
+            margin-bottom: 20px;
+        }
+
+        .completion-subtitle {
+            font-size: 18px;
+            color: #636e72;
+            margin-bottom: 40px;
+            line-height: 1.4;
+        }
+
+        /* Podsumowanie produkcji */
+        .production-summary {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 40px;
+            border-left: 5px solid #00b894;
+        }
+
+        .summary-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #2d3436;
+            margin-bottom: 20px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .summary-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .summary-label {
+            font-size: 14px;
+            color: #636e72;
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .summary-value {
+            font-size: 20px;
+            color: #2d3436;
+            font-weight: 500;
+        }
+
+            .summary-value.time {
+                font-family: 'Courier New', monospace;
+                font-size: 24px;
+                font-weight: bold;
+            }
+
+            .summary-value.overtime {
+                color: #e74c3c;
+            }
+
+            .summary-value.on-time {
+                color: #00b894;
+            }
+
+        /* Informacja o następnym produkcie */
+        .next-product {
+            background: #e3f2fd;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 40px;
+            border-left: 5px solid #2196f3;
+        }
+
+        .next-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1565c0;
+            margin-bottom: 15px;
+        }
+
+        .next-details {
+            color: #1976d2;
+            font-size: 16px;
+            line-height: 1.4;
+        }
+
+        /* Przyciski akcji */
+        .action-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        .action-button {
+            background: #0984e3;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 20px 40px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 200px;
+            justify-content: center;
+        }
+
+            .action-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(9,132,227,0.4);
+            }
+
+            .action-button:active {
+                transform: translateY(0);
+            }
+
+            .action-button.secondary {
+                background: #74b9ff;
+            }
+
+                .action-button.secondary:hover {
+                    background: #0984e3;
+                    box-shadow: 0 5px 15px rgba(116,185,255,0.4);
+                }
+
+            .action-button.loading {
+                background: #6c757d;
+                cursor: not-allowed;
+                position: relative;
+            }
+
+                .action-button.loading::after {
+                    content: '';
+                    position: absolute;
+                    top: 50%;
+                    right: 20px;
+                    width: 20px;
+                    height: 20px;
+                    border: 2px solid transparent;
+                    border-top: 2px solid white;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    transform: translateY(-50%);
+                }
+
+        @keyframes spin {
+            0% {
+                transform: translateY(-50%) rotate(0deg);
+            }
+
+            100% {
+                transform: translateY(-50%) rotate(360deg);
+            }
+        }
+
+        /* Brak następnego produktu */
+        .no-next-product {
+            background: #fff3cd;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 40px;
+            border-left: 5px solid #ffc107;
+            color: #856404;
+        }
+
+        .no-next-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        /* Responsywność */
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+
+            .completion-container {
+                padding: 30px 25px;
+            }
+
+            .success-icon {
+                font-size: 60px;
+                margin-bottom: 25px;
+            }
+
+            .completion-title {
+                font-size: 26px;
+            }
+
+            .completion-subtitle {
+                font-size: 16px;
+                margin-bottom: 30px;
+            }
+
+            .production-summary, .next-product, .no-next-product {
+                padding: 20px;
+            }
+
+            .summary-grid {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .action-button {
+                width: 100%;
+                padding: 18px 30px;
+                font-size: 18px;
+                min-width: auto;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .completion-container {
+                padding: 25px 20px;
+            }
+
+            .success-icon {
+                font-size: 50px;
+            }
+
+            .completion-title {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="completion-container">
+        <!-- Ikona sukcesu -->
+        <div class="success-icon">✅</div>
+
+        <!-- Tytuł -->
+        <h1 class="completion-title">Sklejanie Ukończone!</h1>
+        <p class="completion-subtitle">
+            Produkt został pomyślnie ukończony i zapisany w systemie.<br>
+            Dziękujemy za wykonaną pracę.
+        </p>
+
+        <!-- Podsumowanie produkcji -->
+        <div class="production-summary">
+            <div class="summary-title">📊 Podsumowanie produkcji</div>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="summary-label">Produkt</span>
+                    <span class="summary-value">
+                        {{ item.wood_species or 'Nieokreślony' }} • {{ item.wood_technology or 'Nieokreślona' }}
+                    </span>
+                </div>
+
+                <div class="summary-item">
+                    <span class="summary-label">Klasa</span>
+                    <span class="summary-value">{{ item.wood_class or 'Nieokreślona' }}</span>
+                </div>
+
+                <div class="summary-item">
+                    <span class="summary-label">Wymiary</span>
+                    <span class="summary-value">
+                        {% if item.dimensions_length and item.dimensions_width and item.dimensions_thickness %}
+                        {{ item.dimensions_length }}×{{ item.dimensions_width }}×{{ item.dimensions_thickness }} cm
+                        {% else %}
+                        Nieokreślone
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="summary-item">
+                    <span class="summary-label">Ilość</span>
+                    <span class="summary-value">{{ item.quantity }} szt.</span>
+                </div>
+
+                <div class="summary-item">
+                    <span class="summary-label">Czas wykonania</span>
+                    <span class="summary-value time {% if item.gluing_overtime_seconds and item.gluing_overtime_seconds > 0 %}overtime{% else %}on-time{% endif %}">
+                        {% if item.gluing_duration_seconds %}
+                        {{ '%02d' % (item.gluing_duration_seconds // 60) }}:{{ '%02d' % (item.gluing_duration_seconds % 60) }}
+                        {% else %}
+                        --:--
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="summary-item">
+                    <span class="summary-label">Status czasowy</span>
+                    <span class="summary-value {% if item.gluing_overtime_seconds and item.gluing_overtime_seconds > 0 %}overtime{% else %}on-time{% endif %}">
+                        {% if item.gluing_overtime_seconds and item.gluing_overtime_seconds > 0 %}
+                        Przekroczenie o {{ '%02d' % (item.gluing_overtime_seconds // 60) }}:{{ '%02d' % (item.gluing_overtime_seconds % 60) }}
+                        {% else %}
+                        W normie czasowej
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Informacja o następnym produkcie -->
+        {% if next_item %}
+        <div class="next-product">
+            <div class="next-title">🔄 Następny produkt w kolejce</div>
+            <div class="next-details">
+                <strong>Pozycja #{{ '%03d' % (next_item.priority_score or 0) }}</strong><br>
+                {{ next_item.wood_species or 'Nieokreślony' }} •
+                {{ next_item.wood_technology or 'Nieokreślona' }} •
+                {{ next_item.wood_class or 'Nieokreślona' }}
+                {% if next_item.dimensions_length and next_item.dimensions_width and next_item.dimensions_thickness %}
+                <br>{{ next_item.dimensions_length }}×{{ next_item.dimensions_width }}×{{ next_item.dimensions_thickness }} cm
+                {% endif %}
+                • {{ next_item.quantity }} szt.
+            </div>
+        </div>
+        {% else %}
+        <div class="no-next-product">
+            <div class="no-next-title">🎉 Gratulacje!</div>
+            <div>Wszystkie produkty w kolejce zostały ukończone.</div>
+        </div>
+        {% endif %}
+
+        <!-- Przyciski akcji -->
+        <div class="action-buttons">
+            <a href="/production/work/gluing" class="action-button secondary">
+                📋 Widok listy
+            </a>
+
+            {% if next_item %}
+            <a href="/production/work/gluing/start/{{ next_item.id }}" class="action-button" id="nextProductButton">
+                ▶️ Kolejny produkt
+            </a>
+            {% else %}
+            <a href="/production/work" class="action-button">
+                🏠 Wybór stanowiska
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <script src="{{ url_for('production.static', filename='js/work_gluing_complete.js') }}"></script>
+</body>
+</html>

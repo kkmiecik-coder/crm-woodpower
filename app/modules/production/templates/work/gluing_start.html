@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rozpocznij Sklejanie - Wood Power</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 20px;
+            background-color: #f5f5f5;
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        /* Header z logo i czasem */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            height: 50px;
+            width: auto;
+        }
+
+        .datetime {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
+            text-align: right;
+        }
+
+        /* Informacje o wybranym produkcie */
+        .product-info {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 3px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid #28a745;
+        }
+
+        .product-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .product-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            font-size: 18px;
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detail-label {
+            font-size: 16px;
+            color: #666;
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .detail-value {
+            font-size: 20px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        /* Sekcje wyboru */
+        .selection-section {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 3px 15px rgba(0,0,0,0.1);
+        }
+
+        .section-title {
+            font-size: 22px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .section-subtitle {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        /* Siatka przycisków wyboru */
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .option-button {
+            background: #f8f9fa;
+            border: 3px solid #dee2e6;
+            border-radius: 12px;
+            padding: 25px 20px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s ease;
+            font-size: 18px;
+        }
+
+            .option-button:hover {
+                background: #e9ecef;
+                border-color: #007bff;
+                transform: translateY(-2px);
+            }
+
+            .option-button.selected {
+                background: #007bff;
+                color: white;
+                border-color: #007bff;
+                box-shadow: 0 4px 15px rgba(0,123,255,0.3);
+            }
+
+            .option-button.disabled {
+                background: #f5f5f5;
+                color: #999;
+                border-color: #ddd;
+                cursor: not-allowed;
+            }
+
+                .option-button.disabled:hover {
+                    transform: none;
+                    background: #f5f5f5;
+                    border-color: #ddd;
+                }
+
+        .option-name {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .option-details {
+            font-size: 16px;
+            opacity: 0.8;
+        }
+
+        .option-status {
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 8px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+
+        .status-free {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-busy {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        /* Przycisk rozpocznij */
+        .start-button-container {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #eee;
+        }
+
+        .start-button {
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 20px 60px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            min-width: 300px;
+        }
+
+            .start-button:hover {
+                background: #218838;
+                transform: scale(1.05);
+            }
+
+            .start-button:active {
+                transform: scale(0.95);
+            }
+
+            .start-button:disabled {
+                background: #6c757d;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+            .start-button.loading {
+                background: #ffc107;
+                position: relative;
+            }
+
+                .start-button.loading::after {
+                    content: '';
+                    position: absolute;
+                    top: 50%;
+                    right: 20px;
+                    width: 24px;
+                    height: 24px;
+                    border: 3px solid transparent;
+                    border-top: 3px solid white;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    transform: translateY(-50%);
+                }
+
+        @keyframes spin {
+            0% {
+                transform: translateY(-50%) rotate(0deg);
+            }
+
+            100% {
+                transform: translateY(-50%) rotate(360deg);
+            }
+        }
+
+        /* Walidacja */
+        .validation-message {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border: 1px solid #ffeaa7;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        /* Responsywność */
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+
+            .header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+
+            .product-details {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            .options-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .start-button {
+                padding: 15px 40px;
+                font-size: 20px;
+                min-width: 250px;
+            }
+
+            .selection-section {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header z logo i czasem -->
+    <div class="header">
+        <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Wood Power CRM" class="logo">
+        <div class="datetime" id="currentTime">--:--:--</div>
+    </div>
+
+    <!-- Informacje o wybranym produkcie -->
+    <div class="product-info">
+        <div class="product-title">
+            🔧 Wybrany produkt do sklejenia
+        </div>
+        <div class="product-details">
+            <div class="detail-item">
+                <span class="detail-label">Pozycja</span>
+                <span class="detail-value">#{{ '%03d' % (item.priority_score or 0) }}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Gatunek</span>
+                <span class="detail-value">{{ item.wood_species or 'Nieokreślony' }}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Technologia</span>
+                <span class="detail-value">{{ item.wood_technology or 'Nieokreślona' }}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Klasa</span>
+                <span class="detail-value">{{ item.wood_class or 'Nieokreślona' }}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Wymiary</span>
+                <span class="detail-value">
+                    {% if item.dimensions_length and item.dimensions_width and item.dimensions_thickness %}
+                    {{ item.dimensions_length }}×{{ item.dimensions_width }}×{{ item.dimensions_thickness }} cm
+                    {% else %}
+                    Nieokreślone
+                    {% endif %}
+                </span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Ilość</span>
+                <span class="detail-value">{{ item.quantity }} szt.</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wybór stanowiska -->
+    <div class="selection-section">
+        <div class="section-title">
+            🏭 Wybierz stanowisko sklejania
+        </div>
+        <div class="section-subtitle">
+            Kliknij na dostępne stanowisko robocze
+        </div>
+
+        <div class="options-grid" id="stationsGrid">
+            {% for station in stations %}
+            <div class="option-button {% if station.is_busy %}disabled{% endif %}"
+                 data-station-id="{{ station.id }}"
+                 onclick="{% if not station.is_busy %}selectStation({{ station.id }}){% endif %}">
+
+                <div class="option-name">{{ station.name }}</div>
+                <div class="option-details">Stanowisko {{ station.station_type }}</div>
+
+                {% if station.is_busy %}
+                <div class="option-status status-busy">ZAJĘTE</div>
+                {% else %}
+                <div class="option-status status-free">WOLNE</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Wybór pracownika -->
+    <div class="selection-section">
+        <div class="section-title">
+            👷‍♂️ Wybierz pracownika
+        </div>
+        <div class="section-subtitle">
+            Kliknij na pracownika który będzie wykonywał zadanie
+        </div>
+
+        <div class="options-grid" id="workersGrid">
+            {% for worker in workers %}
+            <div class="option-button"
+                 data-worker-id="{{ worker.id }}"
+                 onclick="selectWorker({{ worker.id }})">
+
+                <div class="option-name">{{ worker.name }}</div>
+                <div class="option-details">
+                    Preferencje:
+                    {% if worker.station_type_preference == 'gluing' %}Sklejanie{%
+                    elif worker.station_type_preference == 'packaging' %}Pakowanie{%
+                    else %}Uniwersalny{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Przycisk rozpocznij -->
+    <div class="start-button-container">
+        <button class="start-button" id="startButton" onclick="startProduction()" disabled>
+            Rozpocznij odliczanie
+        </button>
+
+        <div class="validation-message" id="validationMessage" style="display: none;">
+            Wybierz stanowisko i pracownika aby kontynuować
+        </div>
+    </div>
+
+    <script src="{{ url_for('production.static', filename='js/work_gluing_start.js') }}"></script>
+</body>
+</html>

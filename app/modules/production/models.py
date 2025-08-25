@@ -116,9 +116,15 @@ class ProductionStation(db.Model):
     last_activity_at = db.Column(db.DateTime, nullable=True, comment="Ostatnia aktywność")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
-    # Relacje
-    current_item = db.relationship('ProductionItem', foreign_keys=[current_item_id], post_update=True)
+    # Relacje - POPRAWIONE BEZ REKURSJI
     glued_items = db.relationship('ProductionItem', foreign_keys='ProductionItem.glued_at_station_id', backref='glued_at_station', lazy=True)
+
+    @property
+    def current_item(self):
+        """Pobiera aktualny produkt bez rekursji"""
+        if self.current_item_id:
+            return ProductionItem.query.get(self.current_item_id)
+        return None
     
     def __repr__(self):
         return f'<ProductionStation {self.name} ({self.station_type})>'
@@ -130,7 +136,7 @@ class ProductionStation(db.Model):
             'station_type': self.station_type,
             'is_active': self.is_active,
             'current_item_id': self.current_item_id,
-            'current_item': self.current_item.to_dict() if self.current_item else None,
+            'is_busy': self.current_item_id is not None,
             'last_activity_at': self.last_activity_at.isoformat() if self.last_activity_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
@@ -139,35 +145,6 @@ class ProductionStation(db.Model):
     def is_busy(self):
         """Sprawdza czy stanowisko jest zajęte"""
         return self.current_item_id is not None
-    
-    def set_current_item(self, item_id):
-        """Ustawia aktualny produkt na stanowisku"""
-        try:
-            self.current_item_id = item_id
-            self.last_activity_at = datetime.utcnow()
-            db.session.commit()
-            production_logger.info("Ustawiono produkt na stanowisku", 
-                                 station_id=self.id, station_name=self.name, item_id=item_id)
-        except Exception as e:
-            production_logger.error("Błąd podczas ustawiania produktu na stanowisku",
-                                  station_id=self.id, item_id=item_id, error=str(e))
-            db.session.rollback()
-            raise
-    
-    def clear_current_item(self):
-        """Czyści aktualny produkt ze stanowiska"""
-        try:
-            old_item_id = self.current_item_id
-            self.current_item_id = None
-            self.last_activity_at = datetime.utcnow()
-            db.session.commit()
-            production_logger.info("Wyczyszczono produkt ze stanowiska",
-                                 station_id=self.id, station_name=self.name, old_item_id=old_item_id)
-        except Exception as e:
-            production_logger.error("Błąd podczas czyszczenia produktu ze stanowiska",
-                                  station_id=self.id, error=str(e))
-            db.session.rollback()
-            raise
 
 
 class Worker(db.Model):

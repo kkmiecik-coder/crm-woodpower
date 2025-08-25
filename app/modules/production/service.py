@@ -488,16 +488,17 @@ class ProductionService:
             item.start_gluing(worker_id, station_id)
             item.status_id = in_progress_status.id
             
-            # Ustaw produkt na stanowisku
-            station.set_current_item(item_id)
+            # Ustaw produkt na stanowisku - bezpośrednio bez rekursji
+            station.current_item_id = item_id
+            station.last_activity_at = datetime.utcnow()
             
             db.session.commit()
             
             result = {
-                'item': item.to_dict(),
-                'worker': worker.to_dict(),
-                'station': station.to_dict(),
-                'started_at': item.gluing_started_at.isoformat()
+                'item_id': item.id,
+                'worker_name': worker.name,
+                'station_name': station.name,
+                'started_at': item.gluing_started_at.isoformat() if item.gluing_started_at else None
             }
             
             self.logger.info("Produkcja rozpoczęta pomyślnie",
@@ -544,7 +545,8 @@ class ProductionService:
             if item.glued_at_station_id:
                 station = ProductionStation.query.get(item.glued_at_station_id)
                 if station and station.current_item_id == item_id:
-                    station.clear_current_item()
+                    station.current_item_id = None
+                    station.last_activity_at = datetime.utcnow()
             
             # Zaktualizuj podsumowanie zamówienia
             order_summary = ProductionOrderSummary.query.filter_by(

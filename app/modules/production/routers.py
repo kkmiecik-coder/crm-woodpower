@@ -200,130 +200,283 @@ def api_reports_stations():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-
 # ============================================================================
-# STANOWISKO SKLEJANIA - VIEWS
+# STANOWISKO PRACY - VIEWS (NOWA LOGIKA)
 # ============================================================================
 
-@production_bp.route('/station/gluing/')
-@production_bp.route('/station/gluing/select-worker')
-def station_select_worker():
-    """Wybór pracownika na stanowisku sklejania"""
-    production_logger.info("Dostęp do wyboru pracownika stanowiska sklejania")
+@production_bp.route('/work')
+def work_station_select():
+    """Ekran 1: Wybór typu stanowiska (sklejanie/pakowanie)"""
+    production_logger.info("Dostęp do wyboru typu stanowiska")
+    
+    return render_template('work/station_select.html')
+
+
+@production_bp.route('/work/gluing')
+def work_gluing_queue():
+    """Ekran 2: Lista produktów do sklejenia z przyciskami ROZPOCZNIJ"""
+    production_logger.info("Dostęp do listy produktów do sklejenia")
     
     try:
-        # Pobierz aktywnych pracowników preferujących sklejanie
-        workers = Worker.get_active_workers('gluing')
+        # Pobierz kolejkę produktów (wszystkie oczekujące)
+        pending_status = ProductionStatus.query.filter_by(name='pending').first()
+        completed_status = ProductionStatus.query.filter_by(name='completed').first()
         
-        return render_template('production/station/select_worker.html', 
-                             workers=workers)
+        if not pending_status:
+            production_logger.error("Brak statusu 'pending' w bazie danych")
+            return render_template('work/error.html', 
+                                 error="Błąd konfiguracji systemu - brak statusów")
+        
+        # Pobierz wszystkie produkty (pending i completed dla wyświetlenia)
+        all_items = ProductionItem.query.join(ProductionStatus).filter(
+            ProductionStatus.name.in_(['pending', 'completed'])
+        ).order_by(ProductionItem.priority_score.asc()).all()
+        
+        # Podziel na aktywne (do wykonania) i ukończone (wyszarzałe)
+        pending_items = [item for item in all_items if item.status.name == 'pending']
+        completed_items = [item for item in all_items if item.status.name == 'completed']
+        
+        return render_template('work/gluing_queue.html', 
+                             pending_items=pending_items,
+                             completed_items=completed_items,
+                             total_pending=len(pending_items))
         
     except Exception as e:
-        production_logger.error("Błąd podczas ładowania wyboru pracownika", error=str(e))
-        return render_template('production/station/select_worker.html', 
-                             workers=[], error="Błąd ładowania danych")
+        production_logger.error("Błąd podczas ładowania listy produktów do sklejenia", error=str(e))
+        return render_template('work/error.html', 
+                             error="Błąd ładowania danych")
 
 
-@production_bp.route('/station/gluing/queue')
-def station_queue():
-    """Lista produktów do sklejenia"""
-    worker_id = request.args.get('worker_id')
-    
-    if not worker_id:
-        production_logger.warning("Próba dostępu do kolejki bez ID pracownika")
-        return redirect(url_for('production.station_select_worker'))
-    
-    production_logger.info("Dostęp do kolejki sklejania", worker_id=worker_id)
+@production_bp.route('/work/gluing/start/<int:item_id>')
+def work_gluing_start(item_id):
+    """Ekran 3: Wybór stanowiska i pracownika dla konkretnego produktu"""
+    production_logger.info("Dostęp do wyboru stanowiska i pracownika", item_id=item_id)
     
     try:
-        # Pobierz pracownika
-        worker = Worker.query.get_or_404(worker_id)
+        # Pobierz produkt
+        item = ProductionItem.query.get_or_404(item_id)
         
-        # Pobierz produkty z kolejki (posortowane według priorytetów)
-        queue_items = ProductionItem.get_queue_items(limit=20)
+        # Sprawdź czy produkt można rozpocząć
+        if item.status.name != 'pending':
+            production_logger.warning("Próba rozpoczęcia produktu o niewłaściwym statusie",
+                                    item_id=item_id, status=item.status.name)
+            return render_template('work/error.html',
+                                 error="Ten produkt nie może być rozpoczęty")
         
-        # Pobierz dostępne stanowiska sklejania
+        # Pobierz dostępne stanowiska sklejania (aktywne)
         available_stations = ProductionStation.query.filter_by(
             station_type='gluing',
             is_active=True
         ).all()
         
-        return render_template('station/queue.html',
-                             worker=worker,
-                             queue_items=queue_items,
-                             available_stations=available_stations)
+        # Pobierz aktywnych pracowników (preferujących sklejanie lub oba)
+        available_workers = Worker.query.filter_by(is_active=True).filter(
+            (Worker.station_type_preference == 'gluing') | 
+            (Worker.station_type_preference == 'both')
+        ).all()
+        
+        if not available_stations:
+            return render_template('work/error.html',
+                                 error="Brak dostępnych stanowisk sklejania")
+        
+        if not available_workers:
+            return render_template('work/error.html',
+                                 error="Brak dostępnych pracowników")
+        
+        return render_template('work/gluing_start.html',
+                             item=item,
+                             stations=available_stations,
+                             workers=available_workers)
         
     except Exception as e:
-        production_logger.error("Błąd podczas ładowania kolejki sklejania",
-                              worker_id=worker_id, error=str(e))
-        return redirect(url_for('production.station_select_worker'))
+        production_logger.error("Błąd podczas ładowania ekranu startowego",
+                              item_id=item_id, error=str(e))
+        return render_template('work/error.html',
+                             error="Błąd ładowania danych")
 
 
-@production_bp.route('/station/gluing/production/<int:item_id>/<int:station_id>')
-def station_production(item_id, station_id):
-    """Ekran produkcji z licznikiem czasu"""
+@production_bp.route('/work/gluing/timer/<int:item_id>')
+def work_gluing_timer(item_id):
+    """Ekran 4: Odliczanie czasu dla sklejenia"""
+    station_id = request.args.get('station_id')
     worker_id = request.args.get('worker_id')
     
-    if not worker_id:
-        production_logger.warning("Próba dostępu do produkcji bez ID pracownika")
-        return redirect(url_for('production.station_select_worker'))
+    if not station_id or not worker_id:
+        production_logger.warning("Próba dostępu do timera bez wybrania stanowiska/pracownika")
+        return redirect(url_for('production.work_gluing_start', item_id=item_id))
     
-    production_logger.info("Dostęp do ekranu produkcji",
+    production_logger.info("Dostęp do timera sklejania",
                          item_id=item_id, station_id=station_id, worker_id=worker_id)
     
     try:
-        # Pobierz dane
+        # Pobierz obiekty
         item = ProductionItem.query.get_or_404(item_id)
         station = ProductionStation.query.get_or_404(station_id)
         worker = Worker.query.get_or_404(worker_id)
         
-        # Sprawdź czy stanowisko jest dostępne
+        # Sprawdź czy można rozpocząć na tym stanowisku
         if station.is_busy and station.current_item_id != item_id:
-            production_logger.warning("Stanowisko zajęte przez inny produkt",
-                                    station_id=station_id, 
-                                    current_item=station.current_item_id,
-                                    requested_item=item_id)
-            flash('Stanowisko jest zajęte przez inny produkt', 'error')
-            return redirect(url_for('production.station_queue', worker_id=worker_id))
+            return render_template('work/error.html',
+                                 error="Stanowisko jest już zajęte przez inny produkt")
         
         # Pobierz czas sklejania z konfiguracji
         gluing_time_minutes = int(ProductionConfig.get_value('gluing_time_minutes', '20'))
         
-        production_data = {
-            'item': item.to_dict(),
-            'station': station.to_dict(),
-            'worker': worker.to_dict(),
-            'gluing_time_minutes': gluing_time_minutes
-        }
-        
-        return render_template('production/station/production.html', data=production_data)
+        return render_template('work/gluing_timer.html',
+                             item=item,
+                             station=station,
+                             worker=worker,
+                             gluing_time_minutes=gluing_time_minutes)
         
     except Exception as e:
-        production_logger.error("Błąd podczas ładowania ekranu produkcji",
-                              item_id=item_id, station_id=station_id, 
-                              worker_id=worker_id, error=str(e))
-        return redirect(url_for('production.station_queue', worker_id=worker_id))
+        production_logger.error("Błąd podczas ładowania timera",
+                              item_id=item_id, error=str(e))
+        return render_template('work/error.html',
+                             error="Błąd ładowania timera")
 
 
-@production_bp.route('/station/gluing/complete/<int:item_id>')
-def station_complete(item_id):
-    """Potwierdzenie zakończenia sklejania"""
-    worker_id = request.args.get('worker_id')
-    
-    production_logger.info("Dostęp do potwierdzenia zakończenia",
-                         item_id=item_id, worker_id=worker_id)
+@production_bp.route('/work/gluing/complete/<int:item_id>')
+def work_gluing_complete(item_id):
+    """Ekran 5: Podsumowanie ukończonej produkcji"""
+    production_logger.info("Dostęp do podsumowania produkcji", item_id=item_id)
     
     try:
+        # Pobierz ukończony produkt
         item = ProductionItem.query.get_or_404(item_id)
-        worker = Worker.query.get(worker_id) if worker_id else None
         
-        return render_template('production/station/complete.html',
-                             item=item, worker=worker)
+        # Znajdź następny produkt w kolejce (następny w priorytecie)
+        next_item = ProductionItem.query.join(ProductionStatus).filter(
+            ProductionStatus.name == 'pending',
+            ProductionItem.priority_score > item.priority_score
+        ).order_by(ProductionItem.priority_score.asc()).first()
+        
+        # Jeśli brak następnego o wyższym priorytecie, weź pierwszy dostępny
+        if not next_item:
+            next_item = ProductionItem.query.join(ProductionStatus).filter(
+                ProductionStatus.name == 'pending'
+            ).order_by(ProductionItem.priority_score.asc()).first()
+        
+        return render_template('work/gluing_complete.html',
+                             item=item,
+                             next_item=next_item)
         
     except Exception as e:
-        production_logger.error("Błąd podczas ładowania potwierdzenia",
+        production_logger.error("Błąd podczas ładowania podsumowania",
                               item_id=item_id, error=str(e))
-        return redirect(url_for('production.station_select_worker'))
+        return render_template('work/error.html',
+                             error="Błąd ładowania podsumowania")
+
+
+# ============================================================================
+# STANOWISKO PRACY - API ENDPOINTS
+# ============================================================================
+
+@production_bp.route('/api/work/gluing/start', methods=['POST'])
+def api_work_start_gluing():
+    """API rozpoczęcia sklejania (z ekranu 3 do 4)"""
+    try:
+        data = request.get_json()
+        item_id = data.get('item_id')
+        station_id = data.get('station_id')
+        worker_id = data.get('worker_id')
+        
+        if not all([item_id, station_id, worker_id]):
+            return jsonify({
+                'success': False,
+                'error': 'Brak wymaganych parametrów'
+            }), 400
+        
+        production_logger.info("API rozpoczęcia sklejania",
+                             item_id=item_id, station_id=station_id, worker_id=worker_id)
+        
+        # Rozpocznij produkcję
+        service = ProductionService()
+        result = service.start_production(item_id, worker_id, station_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Sklejanie rozpoczęte pomyślnie',
+            'redirect_url': url_for('production.work_gluing_timer', 
+                                  item_id=item_id, 
+                                  station_id=station_id, 
+                                  worker_id=worker_id)
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API rozpoczęcia sklejania", error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@production_bp.route('/api/work/gluing/complete', methods=['POST'])
+def api_work_complete_gluing():
+    """API zakończenia sklejania (z ekranu 4 do 5)"""
+    try:
+        data = request.get_json()
+        item_id = data.get('item_id')
+        
+        if not item_id:
+            return jsonify({
+                'success': False,
+                'error': 'Brak item_id'
+            }), 400
+        
+        production_logger.info("API zakończenia sklejania", item_id=item_id)
+        
+        # Zakończ produkcję
+        service = ProductionService()
+        result = service.complete_production(item_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Sklejanie zakończone pomyślnie',
+            'result': result,
+            'redirect_url': url_for('production.work_gluing_complete', item_id=item_id)
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API zakończenia sklejania", error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@production_bp.route('/api/work/timer-status/<int:item_id>')
+def api_work_timer_status(item_id):
+    """API status timera (dla odświeżania czasu)"""
+    try:
+        item = ProductionItem.query.get_or_404(item_id)
+        
+        if not item.gluing_started_at:
+            return jsonify({
+                'success': False,
+                'error': 'Produkcja nie została rozpoczęta'
+            }), 400
+        
+        from datetime import datetime
+        now = datetime.utcnow()
+        elapsed_seconds = int((now - item.gluing_started_at).total_seconds())
+        
+        # Pobierz czas standardowy z konfiguracji
+        standard_time_seconds = int(ProductionConfig.get_value('gluing_time_minutes', '20')) * 60
+        
+        return jsonify({
+            'success': True,
+            'elapsed_seconds': elapsed_seconds,
+            'standard_time_seconds': standard_time_seconds,
+            'is_overtime': elapsed_seconds > standard_time_seconds,
+            'overtime_seconds': max(0, elapsed_seconds - standard_time_seconds)
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API statusu timera", item_id=item_id, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 # ============================================================================
