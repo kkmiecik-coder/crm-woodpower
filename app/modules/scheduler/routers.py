@@ -668,3 +668,136 @@ def force_restart_scheduler():
             'success': False,
             'message': f'Błąd restartu schedulera: {str(e)}'
         }), 500
+    
+
+# modules/scheduler/routers.py - NOWE ENDPOINTY
+
+# Dodaj te endpointy na końcu pliku (przed końcowymi komentarzami):
+
+@scheduler_bp.route('/api/production-queue/stats')
+@login_required
+def api_production_queue_stats():
+    """API statystyki kolejki produkcyjnej"""
+    user_email = session.get('user_email')
+    
+    # Sprawdź uprawnienia administratora
+    from modules.calculator.models import User
+    user = User.query.filter_by(email=user_email).first()
+    if not user or user.role != 'admin':
+        return jsonify({'success': False, 'error': 'Brak uprawnień administratora'}), 403
+    
+    try:
+        from modules.scheduler.jobs.production_queue_renumber import get_production_queue_stats
+        stats = get_production_queue_stats()
+        
+        return jsonify({
+            'success': True,
+            'data': stats
+        })
+        
+    except Exception as e:
+        scheduler_logger.error("Błąd pobierania statystyk kolejki produkcyjnej", 
+                             user_email=user_email, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@scheduler_bp.route('/api/production-queue/renumber', methods=['POST'])
+@login_required
+def api_manual_production_queue_renumber():
+    """API ręczne przenumerowanie kolejki produkcyjnej"""
+    user_email = session.get('user_email')
+    
+    # Sprawdź uprawnienia administratora
+    from modules.calculator.models import User
+    user = User.query.filter_by(email=user_email).first()
+    if not user or user.role != 'admin':
+        return jsonify({'success': False, 'error': 'Brak uprawnień administratora'}), 403
+    
+    try:
+        scheduler_logger.info("Ręczne przenumerowanie kolejki produkcyjnej", user_email=user_email)
+        
+        from modules.scheduler.jobs.production_queue_renumber import manual_renumber_production_queue
+        result = manual_renumber_production_queue()
+        
+        if result['success']:
+            scheduler_logger.info("Ręczne przenumerowanie zakończone pomyślnie", 
+                                user_email=user_email, result=result)
+            return jsonify({
+                'success': True,
+                'message': result['message'],
+                'result': result['result']
+            })
+        else:
+            scheduler_logger.error("Błąd ręcznego przenumerowania", 
+                                 user_email=user_email, error=result['error'])
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+            
+    except Exception as e:
+        scheduler_logger.error("Błąd API ręcznego przenumerowania", 
+                             user_email=user_email, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@scheduler_bp.route('/api/jobs/production-queue')
+@login_required  
+def api_production_queue_job_status():
+    """API status zadania przenumerowania kolejki"""
+    user_email = session.get('user_email')
+    
+    # Sprawdź uprawnienia administratora
+    from modules.calculator.models import User
+    user = User.query.filter_by(email=user_email).first()
+    if not user or user.role != 'admin':
+        return jsonify({'success': False, 'error': 'Brak uprawnień administratora'}), 403
+    
+    try:
+        from modules.scheduler.scheduler_service import get_scheduler_status
+        scheduler_status = get_scheduler_status()
+        
+        # Znajdź zadanie production_queue_renumber
+        production_job = None
+        if scheduler_status['running'] and 'jobs' in scheduler_status:
+            for job in scheduler_status['jobs']:
+                if job.get('id') == 'production_queue_renumber':
+                    production_job = job
+                    break
+        
+        # Pobierz ostatnie logi zadania
+        from modules.scheduler.models import EmailLog
+        recent_logs = EmailLog.query.filter_by(
+            job_type='production_queue_renumber'
+        ).order_by(EmailLog.sent_at.desc()).limit(10).all()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'scheduler_running': scheduler_status['running'],
+                'job_configured': production_job is not None,
+                'job_details': production_job,
+                'recent_executions': [
+                    {
+                        'executed_at': log.sent_at.isoformat(),
+                        'status': log.status,
+                        'content': log.content,
+                        'error': log.error_message
+                    } for log in recent_logs
+                ]
+            }
+        })
+        
+    except Exception as e:
+        scheduler_logger.error("Błąd pobierania statusu zadania kolejki", 
+                             user_email=user_email, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

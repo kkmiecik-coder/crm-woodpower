@@ -222,14 +222,22 @@ class ProductionService:
                     deadline_date=deadline_date,
                     order_size=len(products)
                 )
-                
+
+                # DODAJ NOWY KOD - automatyczne ustawienie pozycji w kolejce:
+                # Znajdź ostatnią pozycję w kolejce i dodaj 1
+                last_item = ProductionItem.query.join(ProductionStatus).filter(
+                    ProductionStatus.name == 'pending'
+                ).order_by(ProductionItem.priority_score.desc()).first()
+
+                next_position = (last_item.priority_score + 1) if last_item else 1
+
                 # Utwórz ProductionItem
                 production_item = ProductionItem(
                     baselinker_order_id=order_id,
                     baselinker_order_product_id=product_id,
                     product_name=product_name,
                     quantity=product.get('quantity', 1),
-                    
+    
                     # Parsowane dane
                     wood_species=parsed_data.get('wood_species'),
                     wood_technology=parsed_data.get('wood_technology'),
@@ -238,15 +246,15 @@ class ProductionService:
                     dimensions_width=parsed_data.get('dimensions_width'),
                     dimensions_thickness=parsed_data.get('dimensions_thickness'),
                     finish_type=parsed_data.get('finish_type'),
-                    
-                    # Priorytety
+    
+                    # Priorytety - ZMIENIONE
                     deadline_date=deadline_date,
-                    priority_score=priority_data['priority_score'],
+                    priority_score=next_position,  # Kolejna pozycja zamiast obliczonego priority_score
                     priority_group=priority_data['priority_group'],
-                    
+    
                     # Status
                     status_id=pending_status.id,
-                    
+    
                     # Metadane
                     imported_from_baselinker_at=datetime.utcnow()
                 )
@@ -360,6 +368,32 @@ class ProductionService:
         
         self.logger.info("Synchronizacja nowych zamówień zakończona",
                        stats=total_stats)
+
+        # Jeśli dodano nowe produkty, przenumeruj całą kolejkę
+        if total_stats.get('items_added', 0) > 0:
+            try:
+                self.logger.info("Przenumerowywanie kolejki po synchronizacji",
+                               items_added=total_stats['items_added'])
+            
+                # Użyj kalkulatora priorytetów do przenumerowania
+                result = self.priority_calculator.renumber_production_queue()
+            
+                if result.get('success'):
+                    total_stats['queue_renumbered'] = True
+                    total_stats['renumbered_items'] = result.get('renumbered', 0)
+                    self.logger.info("Kolejka przenumerowana po synchronizacji",
+                                   renumbered=result.get('renumbered', 0))
+                else:
+                    self.logger.warning("Nie udało się przenumerować kolejki",
+                                      error=result.get('error'))
+                
+            except Exception as e:
+                self.logger.error("Błąd podczas przenumerowania kolejki po synchronizacji",
+                                error=str(e))
+                # Nie przerywamy procesu - synchronizacja się udała
+    
+        self.logger.info("Synchronizacja nowych zamówień zakończona",
+                       stats=total_stats)
         
         return total_stats
     
@@ -401,6 +435,16 @@ class ProductionService:
         self.logger.info("Synchronizacja zamówień według dat zakończona",
                        date_from=date_from, date_to=date_to, stats=total_stats)
         
+        if total_stats.get('items_added', 0) > 0:
+            try:
+                self.logger.info("Przenumerowywanie kolejki po synchronizacji według dat")
+                result = self.priority_calculator.renumber_production_queue()
+                if result.get('success'):
+                    total_stats['queue_renumbered'] = True
+                    total_stats['renumbered_items'] = result.get('renumbered', 0)
+            except Exception as e:
+                self.logger.error("Błąd przenumerowania po synchronizacji", error=str(e))
+    
         return total_stats
     
     def start_production(self, item_id: int, worker_id: int, station_id: int) -> dict:

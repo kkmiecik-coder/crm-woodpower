@@ -288,83 +288,103 @@ class ProductionPriorityCalculator:
                           wood_class: str = None, deadline_date: date = None, 
                           order_size: int = 1) -> Dict:
         """
-        Oblicza priorytet produktu na podstawie różnych kryteriów
-        
-        Args:
-            wood_species: Gatunek drewna
-            wood_technology: Technologia
-            wood_class: Klasa drewna
-            deadline_date: Data realizacji
-            order_size: Wielkość zamówienia
-            
-        Returns:
-            Dict: Wynik priorytetu i grupa
+        Oblicza priorytet produktu - POPRAWIONA LOGIKA
+        Im MNIEJSZY priority_score, tym WYŻSZY priorytet w kolejce (001, 002, 003...)
         """
         try:
-            priority_score = 0
-            
-            # 1. DEADLINE (najważniejsze)
+            # Zaczynamy od 5000 i odejmujemy punkty za pilne sprawy
+            priority_score = 5000
+        
+            # 1. DEADLINE - NAJWAŻNIEJSZE (duże odejmowanie za opóźnienia)
             if deadline_date:
                 days_to_deadline = (deadline_date - date.today()).days
-                # Im bliżej deadline, tym wyższy priorytet
-                if days_to_deadline <= 0:
-                    deadline_score = self.deadline_weight * 2  # Przekroczony deadline
+            
+                if days_to_deadline <= -30:
+                    # Bardzo stare opóźnienia (ponad miesiąc)
+                    priority_score -= 4500
+                elif days_to_deadline <= -14:
+                    # Duże opóźnienia (2+ tygodnie)
+                    priority_score -= 4000
+                elif days_to_deadline <= -7:
+                    # Tygodniowe opóźnienia
+                    priority_score -= 3500
+                elif days_to_deadline <= -1:
+                    # Świeże opóźnienia (1-7 dni temu)
+                    priority_score -= 3000
+                elif days_to_deadline == 0:
+                    # Dzisiaj deadline
+                    priority_score -= 2500
                 elif days_to_deadline <= 3:
-                    deadline_score = self.deadline_weight * 1.5  # Bardzo pilne
+                    # Za 1-3 dni deadline
+                    priority_score -= 2000
                 elif days_to_deadline <= 7:
-                    deadline_score = self.deadline_weight * 1.2  # Pilne
+                    # Za tydzień deadline
+                    priority_score -= 1500
+                elif days_to_deadline <= 14:
+                    # Za 2 tygodnie
+                    priority_score -= 1000
                 else:
-                    deadline_score = max(0, self.deadline_weight - (days_to_deadline * 10))
-                
-                priority_score += deadline_score
-            
-            # 2. GATUNEK DREWNA
-            species_score = self.species_values.get(wood_species, 0) * self.species_weight / 100
-            priority_score += species_score
-            
-            # 3. TECHNOLOGIA
-            technology_score = self.technology_values.get(wood_technology, 0) * self.technology_weight / 100
-            priority_score += technology_score
-            
-            # 4. KLASA DREWNA
-            class_score = self.class_values.get(wood_class, 0) * self.class_weight / 100
-            priority_score += class_score
-            
-            # 5. WIELKOŚĆ ZAMÓWIENIA (małe zamówienia mają wyższy priorytet)
-            if order_size == 1:
-                size_score = self.order_size_weight  # Pojedyncze produkty
-            elif order_size <= 3:
-                size_score = self.order_size_weight * 0.8  # Małe zamówienia
-            elif order_size <= 5:
-                size_score = self.order_size_weight * 0.6  # Średnie zamówienia
+                    # Dalekie terminy - mniejszy priorytet
+                    priority_score -= max(0, 500 - (days_to_deadline * 5))
             else:
-                size_score = self.order_size_weight * 0.4  # Duże zamówienia
-            
-            priority_score += size_score
-            
-            # Grupa priorytetowa do grupowania podobnych produktów
-            priority_group = self._create_priority_group(
-                wood_species, wood_technology, wood_class, deadline_date
-            )
-            
+                # Brak deadline = średni priorytet
+                priority_score -= 500
+        
+            # 2. GATUNEK DREWNA - mniejsze znaczenie
+            species_bonus = self.species_values.get(wood_species, 0)
+            priority_score -= (species_bonus * 2)  # Zmniejszona waga
+        
+            # 3. TECHNOLOGIA - mniejsze znaczenie
+            tech_bonus = self.technology_values.get(wood_technology, 0)
+            priority_score -= tech_bonus
+        
+            # 4. KLASA DREWNA - małe znaczenie
+            class_bonus = self.class_values.get(wood_class, 0)
+            priority_score -= (class_bonus // 2)  # Jeszcze mniejsza waga
+        
+            # 5. WIELKOŚĆ ZAMÓWIENIA - bardzo małe znaczenie
+            if order_size == 1:
+                priority_score -= 50   # Małe zamówienia nieco wyższy priorytet
+            elif order_size <= 3:
+                priority_score -= 25
+            # Większe zamówienia bez bonusu
+        
+            # Upewnij się, że wynik jest dodatni i w rozsądnym zakresie
+            priority_score = max(1, min(priority_score, 9999))
+        
+            # Grupa priorytetowa na podstawie deadline
+            if deadline_date:
+                days_to_deadline = (deadline_date - date.today()).days
+                if days_to_deadline <= -7:
+                    priority_group = f'expired_critical_{abs(days_to_deadline)}d'
+                elif days_to_deadline <= 0:
+                    priority_group = f'expired_urgent_{abs(days_to_deadline)}d'
+                elif days_to_deadline <= 7:
+                    priority_group = f'upcoming_{days_to_deadline}d'
+                else:
+                    priority_group = f'future_{days_to_deadline}d'
+            else:
+                priority_group = 'no_deadline'
+        
             result = {
                 'priority_score': int(priority_score),
                 'priority_group': priority_group
             }
-            
-            self.logger.debug("Obliczono priorytet produktu",
-                            wood_species=wood_species, wood_technology=wood_technology,
-                            wood_class=wood_class, deadline_date=deadline_date.isoformat() if deadline_date else None,
-                            order_size=order_size, result=result)
-            
+        
+            self.logger.debug("Obliczono priorytet - DEADLINE FIRST",
+                            wood_species=wood_species, 
+                            deadline_date=deadline_date.isoformat() if deadline_date else None,
+                            days_to_deadline=days_to_deadline if deadline_date else None,
+                            result=result)
+        
             return result
-            
+        
         except Exception as e:
             self.logger.error("Błąd podczas obliczania priorytetu",
                             wood_species=wood_species, error=str(e))
             return {
-                'priority_score': 0,
-                'priority_group': 'unknown'
+                'priority_score': 8000,  # Średni priorytet przy błędzie
+                'priority_group': 'error'
             }
     
     def _create_priority_group(self, wood_species: str = None, wood_technology: str = None,
@@ -460,6 +480,174 @@ class ProductionPriorityCalculator:
         except Exception as e:
             self.logger.error("Błąd podczas tworzenia wyjaśnienia priorytetu", error=str(e))
             return explanation
+        
+    def renumber_production_queue(self):
+        """
+        NOWA WERSJA: Przelicza priorytety według nowej logiki, a potem przenumerowuje
+        """
+        try:
+            from .models import ProductionItem, ProductionStatus
+            from extensions import db
+        
+            # Pobierz wszystkie produkty oczekujące
+            pending_items = ProductionItem.query.join(ProductionStatus).filter(
+                ProductionStatus.name == 'pending'
+            ).all()
+        
+            updated_count = 0
+        
+            # KROK 1: Przelicz priorytety według NOWEJ LOGIKI
+            for item in pending_items:
+                # Pobierz wielkość zamówienia
+                order_size = ProductionItem.query.filter_by(
+                    baselinker_order_id=item.baselinker_order_id
+                ).count()
+            
+                # UŻYJ NOWEJ LOGIKI calculate_priority
+                priority_data = self.calculate_priority(
+                    wood_species=item.wood_species,
+                    wood_technology=item.wood_technology,
+                    wood_class=item.wood_class,
+                    deadline_date=item.deadline_date,
+                    order_size=order_size
+                )
+            
+                # Zapisz nowy priorytet
+                old_score = item.priority_score
+                item.priority_score = priority_data['priority_score']
+                item.priority_group = priority_data['priority_group']
+            
+                if old_score != item.priority_score:
+                    updated_count += 1
+                    self.logger.debug("Zaktualizowano priorytet produktu",
+                                    item_id=item.id, 
+                                    old_score=old_score,
+                                    new_score=item.priority_score,
+                                    deadline=item.deadline_date.isoformat() if item.deadline_date else None)
+        
+            # KROK 2: Posortuj według nowych priorytetów (niższy score = wyższy priorytet)
+            pending_items.sort(key=lambda x: (x.priority_score, x.created_at))
+        
+            # KROK 3: Przenumeruj pozycje 1, 2, 3, 4...
+            for i, item in enumerate(pending_items, start=1):
+                item.priority_score = i
+        
+            db.session.commit()
+        
+            self.logger.info("Przeliczono i przenumerowano kolejkę produkcyjną",
+                           total_items=len(pending_items),
+                           updated_count=updated_count)
+        
+            return {
+                'total_items': len(pending_items),
+                'renumbered': len(pending_items),  # Wszystkie zostały przenumerowane
+                'updated_count': updated_count,    # Ile miało zmienione priorytety
+                'success': True
+            }
+        
+        except Exception as e:
+            self.logger.error("Błąd podczas przeliczania kolejki", error=str(e))
+            from extensions import db
+            db.session.rollback()
+            return {
+                'error': str(e),
+                'success': False
+            }
+    
+    def reorder_item_to_position(self, item_id, new_position):
+        """
+        Przenosi produkt na nową pozycję w kolejce
+        
+        Args:
+            item_id (int): ID produktu do przeniesienia
+            new_position (int): Nowa pozycja (1 = najwyższy priorytet)
+            
+        Returns:
+            dict: Rezultat operacji
+        """
+        try:
+            from .models import ProductionItem, ProductionStatus
+            from extensions import db
+            
+            # Pobierz produkt
+            item = ProductionItem.query.get(item_id)
+            if not item:
+                raise ValueError(f"Produkt o ID {item_id} nie istnieje")
+            
+            # Sprawdź czy to produkt oczekujący
+            if item.status.name != 'pending':
+                raise ValueError(f"Można zmieniać pozycję tylko produktów oczekujących")
+            
+            old_position = item.priority_score
+            
+            # Pobierz wszystkie produkty oczekujące
+            pending_items = ProductionItem.query.join(ProductionStatus).filter(
+                ProductionStatus.name == 'pending'
+            ).order_by(ProductionItem.priority_score.asc()).all()
+            
+            if new_position < 1 or new_position > len(pending_items):
+                raise ValueError(f"Pozycja {new_position} jest poza zakresem 1-{len(pending_items)}")
+            
+            # Usuń produkt z obecnej pozycji
+            pending_items.remove(item)
+            
+            # Wstaw na nową pozycję
+            pending_items.insert(new_position - 1, item)
+            
+            # Przenumeruj wszystkie pozycje
+            for i, pending_item in enumerate(pending_items, start=1):
+                pending_item.priority_score = i
+            
+            db.session.commit()
+            
+            self.logger.info("Przeniesiono produkt w kolejce",
+                           item_id=item_id,
+                           old_position=old_position,
+                           new_position=new_position)
+            
+            return {
+                'success': True,
+                'item_id': item_id,
+                'old_position': old_position,
+                'new_position': new_position,
+                'total_items': len(pending_items)
+            }
+            
+        except Exception as e:
+            self.logger.error("Błąd podczas zmiany pozycji produktu",
+                            item_id=item_id, new_position=new_position, error=str(e))
+            from extensions import db
+            db.session.rollback()
+            raise
+    
+    def _get_queue_structure_summary(self):
+        """Zwraca podsumowanie struktury kolejki (dla debugowania)"""
+        try:
+            from .models import ProductionItem, ProductionStatus
+            
+            pending_items = ProductionItem.query.join(ProductionStatus).filter(
+                ProductionStatus.name == 'pending'
+            ).order_by(ProductionItem.priority_score.asc()).all()
+            
+            return {
+                'total_items': len(pending_items),
+                'priority_range': {
+                    'min': pending_items[0].priority_score if pending_items else None,
+                    'max': pending_items[-1].priority_score if pending_items else None
+                },
+                'first_5_items': [
+                    {
+                        'id': item.id,
+                        'position': item.priority_score,
+                        'product_name': item.product_name[:50] + '...' if len(item.product_name) > 50 else item.product_name,
+                        'deadline': item.deadline_date.isoformat() if item.deadline_date else None
+                    } for item in pending_items[:5]
+                ]
+            }
+            
+        except Exception as e:
+            self.logger.error("Błąd podczas pobierania struktury kolejki", error=str(e))
+            return {'error': str(e)}
 
 
 class ProductionStatsCalculator:

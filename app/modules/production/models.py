@@ -368,18 +368,23 @@ class ProductionItem(db.Model):
     @classmethod
     def get_queue_items(cls, limit=None):
         """Pobiera produkty z kolejki do sklejania (posortowane według priorytetów)"""
-        query = cls.query.join(ProductionStatus).filter(
-            ProductionStatus.name == 'pending'
-        ).order_by(
-            cls.priority_score.desc(),
-            cls.deadline_date.asc(),
-            cls.created_at.asc()
-        )
-        
-        if limit:
-            query = query.limit(limit)
+        try:
+            query = cls.query.join(ProductionStatus).filter(
+                ProductionStatus.name == 'pending'
+            ).order_by(
+                cls.priority_score.asc(),  # Zmienione z desc() na asc() - niższy wynik = wyższy priorytet
+                cls.deadline_date.asc(),
+                cls.created_at.asc()
+            )
             
-        return query.all()
+            if limit:
+                query = query.limit(limit)
+                
+            return query.all()
+            
+        except Exception as e:
+            production_logger.error("Błąd podczas pobierania kolejki produktów", error=str(e))
+            return []
     
     @classmethod
     def get_by_baselinker_order_product(cls, order_id, product_id):

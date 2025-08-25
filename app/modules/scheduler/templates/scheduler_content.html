@@ -350,6 +350,54 @@
     </div>
 </div>
 
+<!-- === SEKCJA KOLEJKI PRODUKCYJNEJ === -->
+<div class="settings-section">
+    <h3 class="settings-section-title">
+        <i class="fas fa-industry"></i> Kolejka Produkcyjna
+    </h3>
+    
+    <div class="production-queue-controls">
+        <div class="production-queue-stats" id="productionQueueStats">
+            <div class="stat-item">
+                <span class="stat-label">Produkty w kolejce:</span>
+                <span class="stat-value" id="queueLength">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Ostatnie przenumerowanie:</span>
+                <span class="stat-value" id="lastRenumber">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Pozycje:</span>
+                <span class="stat-value" id="priorityRange">-</span>
+            </div>
+        </div>
+        
+        <div class="production-queue-actions">
+            <button type="button" class="btn btn-primary" id="manualRenumberBtn">
+                <i class="fas fa-sort-numeric-down"></i> Przenumeruj kolejkę
+            </button>
+            <button type="button" class="btn btn-info" id="queueStructureBtn">
+                <i class="fas fa-list-ol"></i> Pokaż strukturę
+            </button>
+            <button type="button" class="btn btn-secondary" id="refreshQueueStatsBtn">
+                <i class="fas fa-sync-alt"></i> Odśwież
+            </button>
+        </div>
+        
+        <!-- Automatyczne zadanie schedulera -->
+        <div class="scheduler-job-status" id="productionJobStatus">
+            <h4>Automatyczne przenumerowanie (00:01 codziennie)</h4>
+            <div class="job-status-info">
+                <span class="status-indicator" id="jobStatusIndicator">⏳</span>
+                <span class="status-text" id="jobStatusText">Sprawdzanie statusu...</span>
+            </div>
+            <div class="recent-executions" id="recentExecutions">
+                <!-- Ostatnie wykonania zadania -->
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Akcje -->
 <div class="scheduler-section">
     <h2 class="title-with-underline-h2">Akcje testowe</h2>

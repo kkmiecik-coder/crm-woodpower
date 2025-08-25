@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moduł Produkcyjny - Wood Power CRM</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Include sidebar -->
+        {% include 'sidebar/sidebar.html' %}
+
+        <div class="main-content">
+            <div class="prod-module-header">
+                <h1 class="prod-module-title">
+                    <span class="prod-module-icon">🏭</span>
+                    Moduł Produkcyjny
+                </h1>
+                <div class="prod-module-sync-actions">
+                    <button class="prod-module-btn prod-module-btn-secondary" id="refreshButton">
+                        <span class="prod-module-refresh-icon">🔄</span>
+                        Odśwież
+                        <span class="prod-module-timer" id="refreshTimer">(30s)</span>
+                    </button>
+                    <button class="prod-module-btn prod-module-btn-primary" id="syncOrdersBtn">
+                        📥 Synchronizuj zamówienia
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tabs Navigation -->
+            <div class="prod-module-tabs">
+                <button class="prod-module-tab active" data-tab="dashboard">
+                    📊 Dashboard
+                </button>
+                <button class="prod-module-tab" data-tab="production-list">
+                    📋 Lista produkcyjna
+                </button>
+                <button class="prod-module-tab" data-tab="settings">
+                    ⚙️ Ustawienia
+                </button>
+                <button class="prod-module-tab" data-tab="reports">
+                    📈 Raporty
+                </button>
+            </div>
+
+            <!-- Tab Contents -->
+            <div class="prod-module-content">
+                
+                <!-- TAB 1: DASHBOARD -->
+                <div class="prod-module-tab-content active" id="dashboard">
+                    
+                    <!-- Statystyki główne -->
+                    <div class="prod-module-stats-grid">
+                        <div class="prod-module-stat-card prod-module-stat-pending">
+                            <div class="prod-module-stat-icon">⏳</div>
+                            <div class="prod-module-stat-info">
+                                <div class="prod-module-stat-number" id="pendingItems">-</div>
+                                <div class="prod-module-stat-label">Oczekujące</div>
+                            </div>
+                        </div>
+                        
+                        <div class="prod-module-stat-card prod-module-stat-progress">
+                            <div class="prod-module-stat-icon">🔧</div>
+                            <div class="prod-module-stat-info">
+                                <div class="prod-module-stat-number" id="inProgressItems">-</div>
+                                <div class="prod-module-stat-label">W trakcie</div>
+                            </div>
+                        </div>
+                        
+                        <div class="prod-module-stat-card prod-module-stat-completed">
+                            <div class="prod-module-stat-icon">✅</div>
+                            <div class="prod-module-stat-info">
+                                <div class="prod-module-stat-number" id="completedItems">-</div>
+                                <div class="prod-module-stat-label">Ukończone</div>
+                            </div>
+                        </div>
+                        
+                        <div class="prod-module-stat-card prod-module-stat-overdue">
+                            <div class="prod-module-stat-icon">🚨</div>
+                            <div class="prod-module-stat-info">
+                                <div class="prod-module-stat-number" id="overdueItems">-</div>
+                                <div class="prod-module-stat-label">Opóźnione</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sekcja stanowisk i kolejki -->
+                    <div class="prod-module-dashboard-grid">
+                        
+                        <!-- Stanowiska produkcyjne -->
+                        <div class="prod-module-section">
+                            <h2 class="prod-module-section-title">
+                                🏭 Stanowiska produkcyjne
+                            </h2>
+                            <div class="prod-module-stations-grid" id="stationsGrid">
+                                <!-- Stanowiska będą dodawane dynamicznie -->
+                                <div class="prod-module-station-placeholder">
+                                    Ładowanie stanowisk...
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Zamówienia do produkcji -->
+                        <div class="prod-module-section">
+                            <h2 class="prod-module-section-title">
+                                📋 Zamówienia do produkcji (TOP 10)
+                                <button class="prod-module-btn-icon" id="refreshQueueBtn" title="Odśwież zamówienia">
+                                    🔄
+                                </button>
+                            </h2>
+                            <div class="prod-module-queue-container" id="queueContainer">
+                                <!-- Zamówienia będą dodawane dynamicznie -->
+                                <div class="prod-module-queue-placeholder">
+                                    Ładowanie zamówień...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: LISTA PRODUKCYJNA -->
+                <div class="prod-module-tab-content" id="production-list">
+                    
+                    <!-- Filtry -->
+                    <div class="prod-module-filters">
+                        <div class="prod-module-filter-group">
+                            <label for="statusFilter">Status:</label>
+                            <select id="statusFilter" class="prod-module-select">
+                                <option value="">Wszystkie</option>
+                                <option value="pending">Oczekujące</option>
+                                <option value="in_progress">W trakcie</option>
+                                <option value="completed">Ukończone</option>
+                                <option value="on_hold">Wstrzymane</option>
+                            </select>
+                        </div>
+                        
+                        <div class="prod-module-filter-group">
+                            <label for="speciesFilter">Gatunek:</label>
+                            <select id="speciesFilter" class="prod-module-select">
+                                <option value="">Wszystkie</option>
+                                <option value="dąb">Dąb</option>
+                                <option value="buk">Buk</option>
+                                <option value="jesion">Jesion</option>
+                                <option value="sosna">Sosna</option>
+                                <option value="brzoza">Brzoza</option>
+                            </select>
+                        </div>
+                        
+                        <div class="prod-module-filter-group">
+                            <label for="technologyFilter">Technologia:</label>
+                            <select id="technologyFilter" class="prod-module-select">
+                                <option value="">Wszystkie</option>
+                                <option value="lita">Lita</option>
+                                <option value="mikrowczep">Mikrowczep</option>
+                            </select>
+                        </div>
+                        
+                        <div class="prod-module-filter-group filter-actions">
+                            <button class="prod-module-btn prod-module-btn-secondary" id="applyFiltersBtn">
+                                🔍 Zastosuj filtry
+                            </button>
+                            <button class="prod-module-btn prod-module-btn-outline prod-module-hidden" id="clearFiltersBtn">
+                                🗑️ Wyczyść
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tabela produktów -->
+                    <div class="prod-module-table-container">
+                        <table class="prod-module-table" id="productionTable">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30px;">≡</th>
+                                    <th style="width: 80px;">Pozycja</th>
+                                    <th>Produkt</th>
+                                    <th>Gatunek</th>
+                                    <th>Technologia</th>
+                                    <th>Klasa</th>
+                                    <th>Wykończenie</th>
+                                    <th>Wymiary</th>
+                                    <th>Ilość</th>
+                                    <th>Deadline</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productionTableBody">
+                                <tr>
+                                    <td colspan="12" class="prod-module-table-loading">
+                                        Ładowanie danych...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB 3: USTAWIENIA -->
+                <div class="prod-module-tab-content" id="settings">
+                    
+                    <!-- Sekcje ustawień -->
+                    <div class="prod-module-settings-grid">
+                        
+                        <!-- Konfiguracja czasów -->
+                        <div class="prod-module-settings-section">
+                            <h3 class="prod-module-settings-title">⏱️ Ustawienia czasów</h3>
+                            <div class="prod-module-settings-form">
+                                <div class="prod-module-form-group">
+                                    <label for="gluingTime">Czas sklejania (minuty):</label>
+                                    <input type="number" id="gluingTime" class="prod-module-input" value="20" min="1" max="120">
+                                </div>
+                                <div class="prod-module-form-group">
+                                    <label for="maxOvertime">Maksymalny overtime (minuty):</label>
+                                    <input type="number" id="maxOvertime" class="prod-module-input" value="60" min="1" max="180">
+                                </div>
+                                <button class="prod-module-btn prod-module-btn-primary" id="saveTimeSettingsBtn">
+                                    💾 Zapisz ustawienia czasów
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Zarządzanie pracownikami -->
+                        <div class="prod-module-settings-section">
+                            <h3 class="prod-module-settings-title">
+                                👷‍♂️ Pracownicy
+                                <button class="prod-module-btn-icon" id="addWorkerBtn" title="Dodaj pracownika">
+                                    ➕
+                                </button>
+                            </h3>
+                            <div class="prod-module-workers-list" id="workersList">
+                                <!-- Lista pracowników będzie dodawana dynamicznie -->
+                                <div class="prod-module-list-placeholder">
+                                    Ładowanie pracowników...
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Narzędzia administracyjne -->
+                        <div class="prod-module-settings-section">
+                            <h3 class="prod-module-settings-title">🔧 Narzędzia</h3>
+                            <div class="prod-module-tools-grid">
+                                <button class="prod-module-btn prod-module-btn-warning" id="recalculatePrioritiesBtn">
+                                    🔄 Przelicz priorytety
+                                </button>
+                                <button class="prod-module-btn prod-module-btn-info" id="reparseProductsBtn">
+                                    🔍 Ponownie parsuj produkty
+                                </button>
+                                <button class="prod-module-btn prod-module-btn-danger" id="testBaselinkerBtn">
+                                    🔗 Test Baselinker API
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 4: RAPORTY -->
+                <div class="prod-module-tab-content" id="reports">
+                    
+                    <!-- Filtry raportów -->
+                    <div class="prod-module-reports-filters">
+                        <div class="prod-module-filter-group">
+                            <label for="reportDateFrom">Data od:</label>
+                            <input type="date" id="reportDateFrom" class="prod-module-input">
+                        </div>
+                        <div class="prod-module-filter-group">
+                            <label for="reportDateTo">Data do:</label>
+                            <input type="date" id="reportDateTo" class="prod-module-input">
+                        </div>
+                        <div class="prod-module-filter-group">
+                            <button class="prod-module-btn prod-module-btn-primary" id="generateReportsBtn">
+                                📊 Generuj raporty
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Sekcje raportów -->
+                    <div class="prod-module-reports-grid">
+                        
+                        <!-- Wydajność pracowników -->
+                        <div class="prod-module-report-section">
+                            <h3 class="prod-module-section-title">👷‍♂️ Wydajność pracowników</h3>
+                            <div class="prod-module-report-content" id="workersReport">
+                                <div class="prod-module-report-placeholder">
+                                    Wybierz zakres dat i kliknij "Generuj raporty"
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Wydajność stanowisk -->
+                        <div class="prod-module-report-section">
+                            <h3 class="prod-module-section-title">🏭 Wydajność stanowisk</h3>
+                            <div class="prod-module-report-content" id="stationsReport">
+                                <div class="prod-module-report-placeholder">
+                                    Wybierz zakres dat i kliknij "Generuj raporty"
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Analiza opóźnień -->
+                        <div class="prod-module-report-section">
+                            <h3 class="prod-module-section-title">🚨 Analiza opóźnień</h3>
+                            <div class="prod-module-report-content" id="delaysReport">
+                                <div class="prod-module-report-placeholder">
+                                    Wybierz zakres dat i kliknij "Generuj raporty"
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Dodatkowe funkcje pomocnicze -->
+    <script>
+        // Dodaj funkcję addModalStyles() dla modali
+        function addModalStyles() {
+            if (document.getElementById('prod-module-modal-styles')) {
+                return; // Style już dodane
+            }
+            
+            const styles = document.createElement('style');
+            styles.id = 'prod-module-modal-styles';
+            styles.textContent = `
+                .prod-module-modal * {
+                    box-sizing: border-box;
+                }
+            `;
+            document.head.appendChild(styles);
+        }
+        
+        // GLOBALNE funkcje dostępne z HTML (zachowaj istniejące)
+        window.showChangePositionModal = function(itemId, currentPosition) {
+            if (typeof showChangePositionModal === 'function') {
+                showChangePositionModal(itemId, currentPosition);
+            } else {
+                console.error('[Production] Funkcja showChangePositionModal nie jest dostępna');
+            }
+        };
+        
+        window.showPriorityExplanation = function (itemId) {
+            // Znajdź funkcję z production.js
+            if (window.productionModule && window.productionModule.showPriorityExplanation) {
+                window.productionModule.showPriorityExplanation(itemId);
+            } else {
+                console.log('[Production] Funkcja wyjaśnienia priorytetu w przygotowaniu');
+                alert('Funkcja wyjaśnienia priorytetu będzie dostępna wkrótce');
+            }
+        };
+
+        window.clearFilters = function () {
+            // Wywołaj funkcję z production.js jeśli dostępna
+            if (window.productionModule && window.productionModule.clearFilters) {
+                window.productionModule.clearFilters();
+            } else {
+                // Fallback - wyczyść filtry bezpośrednio
+                const statusFilter = document.getElementById('statusFilter');
+                const speciesFilter = document.getElementById('speciesFilter');
+                const technologyFilter = document.getElementById('technologyFilter');
+                const clearBtn = document.getElementById('clearFiltersBtn');
+
+                if (statusFilter) statusFilter.value = '';
+                if (speciesFilter) speciesFilter.value = '';
+                if (technologyFilter) technologyFilter.value = '';
+
+                if (clearBtn) clearBtn.classList.add('prod-module-hidden');
+
+                // Wywołaj reload listy jeśli dostępne
+                if (window.productionModule && window.productionModule.loadProductionList) {
+                    window.productionModule.loadProductionList();
+                }
+            }
+        };
+
+        // Aktualizuj globalną funkcję editPriority żeby używała nowego systemu
+        window.editPriority = function(itemId) {
+            // Użyj nowego modala zmiany pozycji
+            const currentRow = document.querySelector(`tr[data-item-id="${itemId}"]`);
+            if (currentRow) {
+                const currentPosition = parseInt(currentRow.getAttribute('data-priority-score'));
+                window.showChangePositionModal(itemId, currentPosition);
+            } else {
+                console.error('[Production] Nie znaleziono wiersza dla produktu:', itemId);
+            }
+        };
+    </script>
+
+    <!-- Script imports (zachowaj istniejące) -->
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/production.js') }}"></script>
+</body>
+</html>

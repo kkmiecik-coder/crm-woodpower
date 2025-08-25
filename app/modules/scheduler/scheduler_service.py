@@ -95,6 +95,9 @@ def init_scheduler(app):
             
             # ZADANIE 2: Wysyłka emaili (co godzinę)
             add_email_send_job(app)
+
+            # ZADANIE 3: Przenumerowanie kolejki produkcyjnej (codziennie o 00:01)
+            add_production_queue_job(app)
             
             # NOWE: Przywróć stany zadań z bazy danych
             restore_job_states_from_db()
@@ -149,6 +152,131 @@ def init_scheduler(app):
             pass
         # Nie re-raise błędu - aplikacja powinna działać nawet bez schedulera
         scheduler = None
+
+def add_production_queue_job(app):
+    """
+    Dodaje job przenumerowania kolejki produkcyjnej
+    """
+    try:
+        # Import datetime na początku
+        from datetime import datetime, timedelta
+        
+        # Stałe ustawienia - codziennie o 00:01
+        production_hour = 0
+        production_minute = 1
+        
+        print(f"[Scheduler] Konfiguracja przenumerowania kolejki: {production_hour:02d}:{production_minute:02d}", file=sys.stderr)
+        
+        # Wrapper funkcji z kontekstem aplikacji
+        def production_queue_job_wrapper():
+            with app.app_context():
+                try:
+                    print(f"[SCHEDULER JOB] === URUCHOMIENIE PRZENUMEROWANIA KOLEJKI ===", file=sys.stderr)
+                    print(f"[SCHEDULER JOB] Czas uruchomienia: {datetime.now()}", file=sys.stderr)
+                    print(f"[SCHEDULER JOB] Zadanie: production_queue_renumber", file=sys.stderr)
+                    
+                    # Import tutaj żeby uniknąć circular imports
+                    from modules.scheduler.jobs.production_queue_renumber import renumber_production_queue_job
+                    
+                    result = renumber_production_queue_job()
+                    
+                    if result['success']:
+                        print(f"[SCHEDULER JOB] ✅ Kolejka przenumerowana pomyślnie: {result['message']}", file=sys.stderr)
+                    else:
+                        print(f"[SCHEDULER JOB] ❌ Błąd przenumerowania: {result['error']}", file=sys.stderr)
+                    
+                    print(f"[SCHEDULER JOB] === ZAKOŃCZENIE PRZENUMEROWANIA KOLEJKI ===", file=sys.stderr)
+                    
+                    # Aktualizuj last_run w bazie danych
+                    from modules.scheduler.models import update_job_last_run
+                    update_job_last_run('production_queue_renumber')
+                    
+                except Exception as e:
+                    print(f"[SCHEDULER JOB] BŁĄD w zadaniu przenumerowania kolejki: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+        
+        # Dodanie zadania do schedulera
+        scheduler.add_job(
+            func=production_queue_job_wrapper,
+            trigger=CronTrigger(hour=production_hour, minute=production_minute),
+            id='production_queue_renumber',
+            name='Przenumerowanie kolejki produkcyjnej',
+            replace_existing=True
+        )
+        
+        print(f"[Scheduler] Dodano zadanie: przenumerowanie kolejki codziennie o {production_hour:02d}:{production_minute:02d}", file=sys.stderr)
+        
+        # Sprawdź czy uruchomić zadanie natychmiast (po uruchomieniu schedulera)
+        def check_production_queue_immediate_run():
+            """Sprawdza czy uruchomić przenumerowanie kolejki natychmiast"""
+            try:
+                from threading import Timer
+                
+                def delayed_production_check():
+                    try:
+                        with app.app_context():
+                            job = scheduler.get_job('production_queue_renumber')
+                            if not job:
+                                print(f"[Scheduler] ❌ Nie znaleziono zadania production_queue_renumber", file=sys.stderr)
+                                return
+                            
+                            print(f"[Scheduler] Sprawdzam czy uruchomić przenumerowanie kolejki natychmiast...", file=sys.stderr)
+                            
+                            current_time = datetime.now()
+                            today_scheduled_time = current_time.replace(hour=production_hour, minute=production_minute, second=0, microsecond=0)
+                            
+                            print(f"[Scheduler] Obecny czas: {current_time.strftime('%H:%M:%S')}", file=sys.stderr)
+                            print(f"[Scheduler] Zaplanowany czas dzisiaj: {today_scheduled_time.strftime('%H:%M:%S')}", file=sys.stderr)
+                            
+                            # Sprawdź czy już minęliśmy dzisiejszą godzinę uruchomienia
+                            should_run_immediately = current_time > today_scheduled_time
+                            
+                            if should_run_immediately:
+                                print(f"[Scheduler] ⚠️ Minęliśmy dzisiejszą godzinę przenumerowania", file=sys.stderr)
+                                
+                                # Sprawdź last_run z bazy danych
+                                from modules.scheduler.models import get_job_state
+                                job_state = get_job_state('production_queue_renumber')
+                                
+                                already_run_today = False
+                                if job_state and job_state['last_run']:
+                                    last_run = job_state['last_run']
+                                    if last_run.date() == current_time.date():
+                                        already_run_today = True
+                                        print(f"[Scheduler] ✅ Przenumerowanie już uruchomione dzisiaj o {last_run.strftime('%H:%M:%S')}", file=sys.stderr)
+                                    else:
+                                        print(f"[Scheduler] ❌ Ostatnie przenumerowanie: {last_run.strftime('%Y-%m-%d %H:%M:%S')} - nie dzisiaj", file=sys.stderr)
+                                else:
+                                    print(f"[Scheduler] ❌ Brak informacji o ostatnim przenumerowaniu", file=sys.stderr)
+                                
+                                # Jeśli zadanie się dziś nie uruchomiło, uruchom natychmiast
+                                if not already_run_today:
+                                    print(f"[Scheduler] 🚀 URUCHAMIAM PRZENUMEROWANIE KOLEJKI NATYCHMIAST", file=sys.stderr)
+                                    production_queue_job_wrapper()
+                            else:
+                                print(f"[Scheduler] ✅ Przenumerowanie zostanie uruchomione o zaplanowanej godzinie", file=sys.stderr)
+                                
+                    except Exception as e:
+                        print(f"[Scheduler] Błąd sprawdzania natychmiastowego przenumerowania: {e}", file=sys.stderr)
+                
+                # Uruchom sprawdzenie za 15 sekund (po pełnym starcie aplikacji)
+                timer = Timer(15.0, delayed_production_check)
+                timer.daemon = True
+                timer.start()
+                
+                print(f"[Scheduler] ⏰ Sprawdzenie natychmiastowego przenumerowania za 15 sekund", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[Scheduler] Błąd ustawienia opóźnionego sprawdzenia przenumerowania: {e}", file=sys.stderr)
+        
+        # Uruchom sprawdzenie po inicjalizacji
+        check_production_queue_immediate_run()
+        
+    except Exception as e:
+        print(f"[Scheduler] Błąd dodawania zadania przenumerowania kolejki: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
 
 def restore_job_states_from_db():
     """
@@ -663,6 +791,8 @@ def update_job_schedule(job_id, new_hour=None, new_minute=None):
                         print(f"[Scheduler] Zaktualizowano harmonogram sprawdzania: {hour:02d}:{minute:02d}", file=sys.stderr)
                         print(f"[Scheduler] Zaktualizowano harmonogram wysyłki: {send_hour:02d}:{send_minute:02d}", file=sys.stderr)
                     
+                    return True  # DODANO
+                    
                 elif job_id == 'email_send_daily':
                     # Bezpośrednia aktualizacja wysyłki
                     hour = new_hour if new_hour is not None else job.trigger.fields[2].expressions[0].value
@@ -672,14 +802,36 @@ def update_job_schedule(job_id, new_hour=None, new_minute=None):
                     scheduler.modify_job(job_id, trigger=new_trigger)
                     
                     print(f"[Scheduler] Zaktualizowano harmonogram {job_id}: {hour:02d}:{minute:02d}", file=sys.stderr)
+                    
+                    return True  # DODANO
                 
-                return True
+                elif job_id == 'production_queue_renumber':
+                    # Aktualizacja przenumerowania kolejki produkcyjnej
+                    hour = new_hour if new_hour is not None else 0  # Domyślnie 00:01
+                    minute = new_minute if new_minute is not None else 1
+                    
+                    new_trigger = CronTrigger(hour=hour, minute=minute)
+                    scheduler.modify_job(job_id, trigger=new_trigger)
+                    
+                    print(f"[Scheduler] Zaktualizowano harmonogram przenumerowania kolejki: {hour:02d}:{minute:02d}", file=sys.stderr)
+                    
+                    return True
+                
+                else:
+                    # DODANO - obsługa innych zadań
+                    print(f"[Scheduler] Nieobsługiwane zadanie do aktualizacji: {job_id}", file=sys.stderr)
+                    return False
+
             else:
                 print(f"[Scheduler] Nie znaleziono zadania: {job_id}", file=sys.stderr)
                 return False
+        else:
+            print(f"[Scheduler] Scheduler nie działa", file=sys.stderr)
+            return False
     except Exception as e:
         print(f"[Scheduler] Błąd aktualizacji harmonogramu {job_id}: {e}", file=sys.stderr)
         return False
+    
 
 def format_trigger_for_display(trigger_str):
     """

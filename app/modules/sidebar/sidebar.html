@@ -66,6 +66,22 @@
                         <span class="option-txt">Klienci</span>
                     </a>
                 </li>
+                <!-- Produkcja -->
+                <li class="menu-options {% if request.endpoint == 'production.dashboard' %}active{% endif %}">
+                    <a href="{{ url_for('production.dashboard') }}">
+                        <span class="sidebar-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                                <!-- Deska -->
+                                <rect class="st0" x="3" y="11" width="18" height="2"/>
+                                <!-- Ostrze piły z ząbkami -->
+                                <path class="st0" d="M5,10 L6,9 L7,10 L8,9 L9,10 L10,9 L11,10 L12,9 L13,10 L14,9 L15,10 L16,9 L17,10 L18,9 L19,10 L19,11 L5,11 Z"/>
+                                <!-- Rękojeść -->
+                                <rect class="st0" x="19" y="8" width="2" height="8" rx="1"/>
+                            </svg>
+                        </span>
+                        <span class="option-txt">Produkcja</span>
+                    </a>
+                </li>
                 <!-- Statystyki -->
                 <li class="menu-options {% if request.endpoint == 'analytics' %}active{% endif %}">
                     <a href="{{ url_for('analytics.analytics_dashboard') }}">

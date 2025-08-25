@@ -117,6 +117,28 @@ def settings():
         return render_template('production/settings.html', data={})
 
 
+@production_bp.route('/api/settings')
+@login_required
+def api_settings():
+    """API dane do ustawień"""
+    try:
+        # Pobierz konfigurację
+        configs = ProductionConfig.query.all()
+        workers = Worker.query.filter_by(is_active=True).all()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'configs': [config.to_dict() for config in configs],
+                'workers': [worker.to_dict() for worker in workers]
+            }
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API ustawień", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @production_bp.route('/reports')
 @login_required
 def reports():
@@ -406,20 +428,22 @@ def api_sync_orders():
 @production_bp.route('/api/recalculate-priorities', methods=['POST'])
 @login_required
 def api_recalculate_priorities():
-    """Przelicza priorytety wszystkich produktów oczekujących"""
+    """Przelicza priorytety wszystkich produktów oczekujących - NOWA WERSJA"""
     user_email = session.get('user_email')
     production_logger.info("Przeliczanie priorytetów", user_email=user_email)
     
     try:
-        service = ProductionService()
-        result = service.recalculate_priorities()
+        # Użyj nowego systemu przenumerowania kolejki
+        from .utils import ProductionPriorityCalculator
+        calculator = ProductionPriorityCalculator()
+        result = calculator.renumber_production_queue()
         
         production_logger.info("Przeliczanie priorytetów zakończone",
                              user_email=user_email, result=result)
         
         return jsonify({
             'success': True,
-            'message': 'Priorytety przeliczone pomyślnie',
+            'message': f'Kolejka produkcyjna przeliczona pomyślnie. Przenumerowano {result["renumbered"]} produktów.',
             'result': result
         })
         
@@ -606,7 +630,7 @@ def api_dashboard():
 @production_bp.route('/api/items')
 @login_required
 def api_items():
-    """API lista produktów z filtrami"""
+    """API lista produktów z filtrami - NOWA WERSJA BEZ PAGINACJI"""
     try:
         # Pobierz parametry filtrów
         status_name = request.args.get('status')
@@ -614,8 +638,9 @@ def api_items():
         wood_technology = request.args.get('wood_technology')
         station_id = request.args.get('station_id')
         worker_id = request.args.get('worker_id')
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 50))
+        
+        # Parametry paginacji - ignorowane dla pełnej listy
+        limit = request.args.get('limit')  # Opcjonalny limit dla testów
         
         # Buduj query z filtrami
         query = ProductionItem.query
@@ -631,68 +656,44 @@ def api_items():
         if worker_id:
             query = query.filter(ProductionItem.glued_by_worker_id == int(worker_id))
         
-        # Sortowanie według priorytetów
-        query = query.order_by(
-            ProductionItem.priority_score.desc(),
-            ProductionItem.deadline_date.asc(),
-            ProductionItem.created_at.asc()
-        )
+        # Sortowanie według priority_score (pozycja w kolejce)
+        query = query.order_by(ProductionItem.priority_score.asc())
         
-        # Paginacja
-        paginated = query.paginate(
-            page=page, per_page=per_page, error_out=False
-        )
+        # Opcjonalny limit (dla testów/debugowania)
+        if limit:
+            try:
+                limit_int = int(limit)
+                query = query.limit(limit_int)
+            except ValueError:
+                pass  # Ignoruj nieprawidłowy limit
+        
+        # Pobierz wszystkie wyniki
+        items = query.all()
+        
+        # Format odpowiedzi
+        items_data = []
+        for item in items:
+            item_dict = item.to_dict()
+            # Dodaj sformatowaną pozycję w kolejce
+            item_dict['formatted_priority'] = f"{item.priority_score:03d}" if item.priority_score else "000"
+            items_data.append(item_dict)
         
         return jsonify({
             'success': True,
-            'data': [item.to_dict() for item in paginated.items],
-            'pagination': {
-                'page': page,
-                'per_page': per_page,
-                'total': paginated.total,
-                'pages': paginated.pages,
-                'has_next': paginated.has_next,
-                'has_prev': paginated.has_prev
+            'data': items_data,
+            'total_count': len(items),
+            'has_filters': bool(status_name or wood_species or wood_technology or station_id or worker_id),
+            'applied_filters': {
+                'status': status_name,
+                'wood_species': wood_species,
+                'wood_technology': wood_technology,
+                'station_id': station_id,
+                'worker_id': worker_id
             }
         })
         
     except Exception as e:
         production_logger.error("Błąd API listy produktów", error=str(e))
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@production_bp.route('/api/items/<int:item_id>/priority', methods=['PUT'])
-@login_required
-def api_update_priority(item_id):
-    """API aktualizacja priorytetu produktu"""
-    user_email = session.get('user_email')
-    
-    try:
-        data = request.get_json()
-        new_priority = data.get('priority_score')
-        
-        if new_priority is None:
-            return jsonify({'success': False, 'error': 'Brak priority_score'}), 400
-        
-        item = ProductionItem.query.get_or_404(item_id)
-        old_priority = item.priority_score
-        
-        item.priority_score = int(new_priority)
-        db.session.commit()
-        
-        production_logger.info("Zaktualizowano priorytet produktu",
-                             user_email=user_email, item_id=item_id,
-                             old_priority=old_priority, new_priority=new_priority)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Priorytet zaktualizowany',
-            'item': item.to_dict()
-        })
-        
-    except Exception as e:
-        production_logger.error("Błąd aktualizacji priorytetu",
-                              user_email=user_email, item_id=item_id, error=str(e))
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -833,3 +834,148 @@ def api_stations_status():
     except Exception as e:
         production_logger.error("Błąd API statusu stanowisk", error=str(e))
         return jsonify({'success': False, 'error': str(e)}), 500
+    
+@production_bp.route('/api/renumber-queue', methods=['POST'])
+@login_required
+def api_renumber_queue():
+    """API przenumerowanie całej kolejki produkcyjnej"""
+    user_email = session.get('user_email')
+    production_logger.info("Ręczne przenumerowanie kolejki", user_email=user_email)
+    
+    try:
+        from .utils import ProductionPriorityCalculator
+        calculator = ProductionPriorityCalculator()
+        result = calculator.renumber_production_queue()
+        
+        production_logger.info("Przenumerowanie kolejki zakończone",
+                             user_email=user_email, result=result)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Kolejka przenumerowana pomyślnie. Zaktualizowano {result["renumbered"]} produktów.',
+            'result': result
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd przenumerowania kolejki",
+                              user_email=user_email, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@production_bp.route('/api/items/<int:item_id>/reorder', methods=['POST'])
+@login_required
+def api_reorder_item(item_id):
+    """API zmiana pozycji produktu w kolejce"""
+    user_email = session.get('user_email')
+    
+    try:
+        data = request.get_json()
+        new_position = data.get('new_position')
+        
+        if not new_position or not isinstance(new_position, int) or new_position < 1:
+            return jsonify({
+                'success': False,
+                'error': 'new_position musi być liczbą dodatnią'
+            }), 400
+        
+        production_logger.info("Zmiana pozycji produktu",
+                             user_email=user_email, item_id=item_id, new_position=new_position)
+        
+        from .utils import ProductionPriorityCalculator
+        calculator = ProductionPriorityCalculator()
+        result = calculator.reorder_item_to_position(item_id, new_position)
+        
+        production_logger.info("Zmiana pozycji produktu zakończona",
+                             user_email=user_email, result=result)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Produkt przeniesiony z pozycji {result["old_position"]} na {result["new_position"]}',
+            'result': result
+        })
+        
+    except ValueError as e:
+        production_logger.warning("Nieprawidłowe dane zmiany pozycji",
+                                user_email=user_email, item_id=item_id, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+        
+    except Exception as e:
+        production_logger.error("Błąd zmiany pozycji produktu",
+                              user_email=user_email, item_id=item_id, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@production_bp.route('/api/queue-structure')
+@login_required
+def api_queue_structure():
+    """API struktura kolejki produkcyjnej (dla debugowania)"""
+    try:
+        from .utils import ProductionPriorityCalculator
+        calculator = ProductionPriorityCalculator()
+        structure = calculator._get_queue_structure_summary()
+        
+        return jsonify({
+            'success': True,
+            'data': structure
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd pobierania struktury kolejki", error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@production_bp.route('/api/priority-explanation/<int:item_id>')
+@login_required
+def api_priority_explanation(item_id):
+    """API wyjaśnienie priorytetu konkretnego produktu"""
+    try:
+        # Pobierz produkt
+        item = ProductionItem.query.get_or_404(item_id)
+        
+        # Pobierz wielkość zamówienia
+        order_size = ProductionItem.query.filter_by(
+            baselinker_order_id=item.baselinker_order_id
+        ).count()
+        
+        # Wygeneruj wyjaśnienie
+        from .utils import ProductionPriorityCalculator
+        calculator = ProductionPriorityCalculator()
+        explanation = calculator.get_priority_explanation(
+            wood_species=item.wood_species,
+            wood_technology=item.wood_technology,
+            wood_class=item.wood_class,
+            deadline_date=item.deadline_date,
+            order_size=order_size,
+            created_at=item.created_at
+        )
+        
+        return jsonify({
+            'success': True,
+            'item': {
+                'id': item.id,
+                'product_name': item.product_name,
+                'current_priority_score': item.priority_score,
+                'priority_group': item.priority_group
+            },
+            'explanation': explanation
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd wyjaśnienia priorytetu",
+                              item_id=item_id, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

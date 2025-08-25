@@ -3708,24 +3708,27 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
                 saved_records = []
                 
                 # ✅ PRZETWARZAJ KAŻDY PRODUKT INDYWIDUALNIE Z ZACHOWANIEM product_index
-                for product in products:
+                for product_index, product in enumerate(products):
                     try:
-                        # ✅ UŻYJ product_index Z DANYCH FRONTENDU
-                        product_index = product.get('product_index')
-                        if product_index is None:
-                            reports_logger.warning(f"Brak product_index dla produktu {product.get('name', 'unknown')} w zamówieniu {order_id}")
-                            continue
+                        # ✅ POPRAWKA: Użyj product_index z frontendu jeśli dostępny, w przeciwnym razie enumerate
+                        frontend_product_index = product.get('product_index')
+                        if frontend_product_index is not None:
+                            actual_product_index = frontend_product_index
+                            reports_logger.debug(f"Używam product_index z frontendu: {actual_product_index} dla produktu {product.get('name', 'unknown')}")
+                        else:
+                            actual_product_index = product_index
+                            reports_logger.warning(f"Brak product_index dla produktu {product.get('name', 'unknown')} w zamówieniu {order_id} - używam enumerate: {actual_product_index}")
                         
                         # ✅ UŻYJ FUNKCJI Z service.py KTÓRA UŻYWA product_index
                         record_data = service.prepare_order_record_data_with_volume_analysis(
-                            order_data, product, product_index
+                            order_data, product, actual_product_index
                         )
                         
                         # Zapisz rekord
                         record = service.create_report_record(record_data)
                         saved_records.append(record)
                         
-                        reports_logger.debug(f"Zapisano produkt: {product.get('name', 'unknown')} z indeksem {product_index}")
+                        reports_logger.debug(f"Zapisano produkt: {product.get('name', 'unknown')} z indeksem {actual_product_index}")
                         
                     except Exception as e:
                         error_msg = f"Błąd zapisywania produktu {product.get('name', 'unknown')}: {str(e)}"

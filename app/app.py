@@ -8,8 +8,10 @@ from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from functools import wraps
 from flask_mail import Mail, Message
 from jinja2 import ChoiceLoader, FileSystemLoader
-from modules.calculator import calculator_bp
 from extensions import db, mail
+import threading
+
+from modules.calculator import calculator_bp
 from modules.calculator.models import User, Invitation, Price, Multiplier
 from modules.clients import clients_bp
 from modules.public_calculator import public_calculator_bp
@@ -18,9 +20,9 @@ from modules.quotes.routers import quotes_bp
 from modules.baselinker import baselinker_bp
 from modules.preview3d_ar import preview3d_ar_bp
 from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
-from sqlalchemy.exc import ResourceClosedError, OperationalError
 from modules.reports import reports_bp
-import threading
+from modules.production import production_bp
+from sqlalchemy.exc import ResourceClosedError, OperationalError
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
 from modules.scheduler import scheduler_bp
@@ -151,6 +153,7 @@ def create_app():
     app.register_blueprint(preview3d_ar_bp)
     app.register_blueprint(reports_bp, url_prefix='/reports')
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
+    app.register_blueprint(production_bp)
 
     @app.before_request
     def extend_session():
