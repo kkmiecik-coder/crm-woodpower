@@ -1152,7 +1152,7 @@
 
 /* === PRODUCT NAME CELL === */
 .prod-module-product-name-cell {
-    max-width: 300px;
+    max-width: 330px;
     word-wrap: break-word;
 }
 
@@ -1630,7 +1630,6 @@
     padding: 16px 20px;
     border-radius: 12px;
     text-align: center;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     min-width: 200px;
     margin-left: auto;
 }
@@ -1740,4 +1739,190 @@
         align-items: flex-start;
         gap: 8px;
     }
+}
+
+/* Style dla linku do zamówienia Baselinker */
+.prod-module-baselinker-link {
+    font-family: 'Poppins', Arial, sans-serif;
+    font-weight: 600; /* Lekko pogrubione */
+    text-decoration: none; /* Bez podkreślenia */
+    color: #2563eb; /* Niebieski kolor linku */
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: color 0.2s ease;
+}
+
+    .prod-module-baselinker-link:hover {
+        color: #1d4ed8; /* Ciemniejszy niebieski przy hover */
+        text-decoration: none; /* Upewniamy się że nie ma podkreślenia przy hover */
+    }
+
+    .prod-module-baselinker-link:visited {
+        color: #7c3aed; /* Fioletowy dla odwiedzonych linków */
+        text-decoration: none;
+    }
+
+.prod-module-link-icon {
+    font-size: 12px;
+    opacity: 0.7;
+    margin-left: 2px;
+}
+
+.prod-module-order-cell {
+    text-align: center;
+    padding: 8px;
+    vertical-align: middle;
+}
+
+/* Style dla kolorowych pasków zamówień */
+.prod-module-table-row {
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+    .prod-module-table-row::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 5px; /* Domyślna szerokość paska */
+        background-color: var(--order-color, #e5e7eb); /* Domyślny kolor lub z CSS custom property */
+        transition: width 0.2s ease;
+        z-index: 1;
+    }
+
+    /* Hover effect - rozszerz pasek do 10px dla wszystkich pozycji z tego zamówienia */
+    .prod-module-table-row.order-hover::before {
+        width: 14px;
+    }
+
+    /* Domyślny padding dla komórek - bez przesuwania */
+    .prod-module-table-row td {
+        padding-left: 8px;
+    }
+
+    /* Paleta kolorów dla różnych zamówień (16 kolorów w cyklu) */
+    .prod-module-table-row[data-order-color="0"]::before {
+        background-color: #ef4444;
+    }
+    /* Red */
+    .prod-module-table-row[data-order-color="1"]::before {
+        background-color: #f97316;
+    }
+    /* Orange */
+    .prod-module-table-row[data-order-color="2"]::before {
+        background-color: #eab308;
+    }
+    /* Yellow */
+    .prod-module-table-row[data-order-color="3"]::before {
+        background-color: #22c55e;
+    }
+    /* Green */
+    .prod-module-table-row[data-order-color="4"]::before {
+        background-color: #06b6d4;
+    }
+    /* Cyan */
+    .prod-module-table-row[data-order-color="5"]::before {
+        background-color: #3b82f6;
+    }
+    /* Blue */
+    .prod-module-table-row[data-order-color="6"]::before {
+        background-color: #8b5cf6;
+    }
+    /* Violet */
+    .prod-module-table-row[data-order-color="7"]::before {
+        background-color: #ec4899;
+    }
+    /* Pink */
+    .prod-module-table-row[data-order-color="8"]::before {
+        background-color: #64748b;
+    }
+    /* Slate */
+    .prod-module-table-row[data-order-color="9"]::before {
+        background-color: #dc2626;
+    }
+    /* Dark Red */
+    .prod-module-table-row[data-order-color="10"]::before {
+        background-color: #ea580c;
+    }
+    /* Dark Orange */
+    .prod-module-table-row[data-order-color="11"]::before {
+        background-color: #ca8a04;
+    }
+    /* Dark Yellow */
+    .prod-module-table-row[data-order-color="12"]::before {
+        background-color: #16a34a;
+    }
+    /* Dark Green */
+    .prod-module-table-row[data-order-color="13"]::before {
+        background-color: #0891b2;
+    }
+    /* Dark Cyan */
+    .prod-module-table-row[data-order-color="14"]::before {
+        background-color: #2563eb;
+    }
+    /* Dark Blue */
+    .prod-module-table-row[data-order-color="15"]::before {
+        background-color: #7c3aed;
+    }
+    /* Dark Violet */
+
+    /* Specjalny styl dla pierwszego td (drag handle) - bez dodatkowego paddingu */
+    .prod-module-table-row td:first-child {
+        padding-left: 8px !important;
+    }
+
+/* Style dla hover tooltip */
+.prod-module-order-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    top: -30px;
+    left: 15px;
+}
+
+.prod-module-table-row:hover .prod-module-order-tooltip {
+    opacity: 1;
+}
+
+.prod-module-before-date,
+.prod-module-today-date,
+.prod-module-tommorow-date,
+.prod-module-future-date {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.prod-module-before-date {
+    font-weight: 600;
+    background-color: #AF0000;
+    color: white;
+}
+
+.prod-module-today-date {
+    font-weight: 500;
+    background-color: #ED6B24;
+    color: white;
+}
+
+.prod-module-tommorow-date {
+    background-color: #A324ED;
+    color: white;
+}
+
+.prod-module-future-date {
+    background-color: #248CED;
+    color: white;
 }

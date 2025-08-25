@@ -7,10 +7,11 @@ from flask import render_template, request, jsonify, session, redirect, url_for,
 from functools import wraps
 from . import production_bp
 from .models import (
-    ProductionItem, ProductionStatus, ProductionStation, 
-    Worker, ProductionConfig, ProductionOrderSummary
+    ProductionItem, ProductionStatus, ProductionStation,
+    Worker, ProductionConfig
 )
 from .service import ProductionService
+from .utils import ProductionStatsCalculator
 from extensions import db
 from modules.logging import get_structured_logger
 
@@ -80,13 +81,13 @@ def dashboard():
 
 
 @production_bp.route('/production-list')
+@production_bp.route('/settings')
+@production_bp.route('/reports')
 @login_required
-def production_list():
-    """Lista produkcyjna - wszystkie produkty"""
-    user_email = session.get('user_email')
-    production_logger.info("Dostęp do listy produkcyjnej", user_email=user_email)
-    
-    return render_template('production/production_list.html')
+def redirect_to_dashboard():
+    """Przekierowanie legacy tras do dashboardu"""
+    production_logger.info("Przekierowanie do dashboardu", path=request.path)
+    return redirect(url_for('production.dashboard'))
 
 
 @production_bp.route('/settings')
@@ -139,15 +140,70 @@ def api_settings():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@production_bp.route('/reports')
-@login_required
-def reports():
-    """Raporty wydajności"""
-    user_email = session.get('user_email')
-    production_logger.info("Dostęp do raportów produkcji", user_email=user_email)
-    
-    return render_template('production/reports.html')
+# ============================================================================
+# API ENDPOINTS - RAPORTY
+# ============================================================================
 
+
+@production_bp.route('/api/reports/workers')
+@login_required
+def api_reports_workers():
+    """API raport wydajności pracowników"""
+    try:
+        from datetime import datetime
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date() if date_from_str else None
+        date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date() if date_to_str else None
+
+        calculator = ProductionStatsCalculator()
+        workers = Worker.query.filter_by(is_active=True).all()
+
+        workers_data = []
+        for worker in workers:
+            stats = calculator.calculate_worker_stats(worker.id, date_from, date_to)
+            stats['worker_name'] = worker.name
+            workers_data.append(stats)
+
+        return jsonify({'success': True, 'data': workers_data})
+
+    except Exception as e:
+        production_logger.error("Błąd API raportu pracowników", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/reports/stations')
+@login_required
+def api_reports_stations():
+    """API raport wydajności stanowisk"""
+    try:
+        from datetime import datetime
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date() if date_from_str else None
+        date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date() if date_to_str else None
+
+        calculator = ProductionStatsCalculator()
+        stations = ProductionStation.query.filter_by(is_active=True).all()
+
+        stations_data = []
+        for station in stations:
+            stats = calculator.calculate_station_stats(station.id, date_from, date_to)
+            stats['station_name'] = station.name
+            stats['station_type'] = station.station_type
+            stations_data.append(stats)
+
+        return jsonify({'success': True, 'data': stations_data})
+
+    except Exception as e:
+        production_logger.error("Błąd API raportu stanowisk", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@production_bp.route('/work')
+def work():
+    """Widok wyboru stanowiska produkcyjnego"""
+    production_logger.info("Dostęp do wyboru stanowiska")
+    return render_template('work.html')
 
 # ============================================================================
 # STANOWISKO SKLEJANIA - VIEWS
@@ -273,10 +329,6 @@ def station_complete(item_id):
                               item_id=item_id, error=str(e))
         return redirect(url_for('production.station_select_worker'))
 
-
-# ============================================================================
-# API ENDPOINTS - WEBHOOK I SYNCHRONIZACJA
-# ============================================================================
 
 # ============================================================================
 # API ENDPOINTS - WEBHOOK I SYNCHRONIZACJA

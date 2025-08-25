@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 if (refreshCountdown <= 0) {
                     refreshAllData();
-                    refreshCountdown = 30;
+                    refreshCountdown = 300;
                 }
             }, 1000);
         }
@@ -107,7 +107,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 loadTabData(activeTab.getAttribute('data-tab'));
             }
             
-            refreshCountdown = 30;
+            refreshCountdown = 300;
         }
     }
     
@@ -427,85 +427,146 @@ document.addEventListener('DOMContentLoaded', function() {
                 showTableError('Błąd połączenia z serwerem');
             });
     }
+    // Tworzy mapę kolorów dla zamówień
+    function createOrderColorMap(items) {
+        const uniqueOrders = [...new Set(items.map(item => item.baselinker_order_id))];
+        const orderColors = {};
+
+        uniqueOrders.forEach((orderId, index) => {
+            orderColors[orderId] = index % 16; // Cykl 16 kolorów
+        });
+
+        return orderColors;
+    }
 
     function updateProductionTable(items) {
         const tableBody = document.getElementById('productionTableBody');
         if (!tableBody) return;
-        
-        // NOWE: Zapisz aktualną pozycję scroll
-        const scrollPosition = window.scrollY || window.pageYOffset;
-        
+
         if (!items || items.length === 0) {
             tableBody.innerHTML = `
-                <tr>
-                    <td colspan="12" class="prod-module-table-loading">
-                        ${Object.keys(currentFilters).length > 0 ? 
-                            'Brak produktów spełniających kryteria filtrowania' : 
-                            'Brak produktów w kolejce produkcyjnej'
-                        }
-                    </td>
-                </tr>
-            `;
+            <tr>
+                <td colspan="13" class="prod-module-table-loading">
+                    ${Object.keys(currentFilters).length > 0 ?
+                    'Brak produktów spełniających kryteria filtrowania' :
+                    'Brak produktów w kolejce produkcyjnej'
+                }
+                </td>
+            </tr>
+        `;
             return;
         }
-        
+
         tableBody.innerHTML = '';
-        
+
+        // Stwórz mapę kolorów dla zamówień
+        const orderColors = createOrderColorMap(items);
+
         items.forEach((item, index) => {
-            const row = createProductionTableRow(item, index);
+            const row = createProductionTableRow(item, index, orderColors);
             tableBody.appendChild(row);
         });
-        
+
+        // Dodaj event listenery dla hover efektów
+        addOrderHoverEffects();
+
         console.log('[Production] Tabela produkcyjna zaktualizowana:', items.length, 'produktów');
-        
-        // NOWE: Przywróć pozycję scroll po krótkim opóźnieniu
-        setTimeout(() => {
-            window.scrollTo(0, scrollPosition);
-        }, 10);
     }
 
-    function createProductionTableRow(item, index) {
+    function createProductionTableRow(item, index, orderColors) {
         const row = document.createElement('tr');
         const statusClass = getStatusClass(item.status?.name);
-        
-        // Dodaj data attributes dla drag&drop
+
+        // Dodaj data attributes dla drag&drop i grupowania
         row.setAttribute('data-item-id', item.id);
         row.setAttribute('data-priority-score', item.priority_score);
+        row.setAttribute('data-order-id', item.baselinker_order_id);
+        row.setAttribute('data-order-color', orderColors[item.baselinker_order_id] || 0);
         row.className = 'prod-module-table-row';
-        
+
         // Ikona drag handle
         const dragHandle = `
-            <span class="prod-module-drag-handle" title="Przeciągnij aby zmienić pozycję">
-                ☰
-            </span>
-        `;
-        
+        <span class="prod-module-drag-handle" title="Przeciągnij aby zmienić pozycję">
+            ≡
+        </span>
+    `;
+
         // Sformatowana pozycja (001, 002, 003...)
         const formattedPosition = item.formatted_priority || String(item.priority_score || 0).padStart(3, '0');
-        
+
+        // Link do zamówienia w Baselinker
+        const baselinkerOrderLink = item.baselinker_order_id ? `
+        <a href="https://panel-f.baselinker.com/orders.php#order:${item.baselinker_order_id}" 
+           target="_blank" 
+           class="prod-module-baselinker-link"
+           title="Otwórz zamówienie ${item.baselinker_order_id} w Baselinker">
+            ${item.baselinker_order_id}
+            <span class="prod-module-link-icon">🔗</span>
+        </a>
+    ` : '-';
+
+        // Tooltip z informacją o zamówieniu
+        const orderTooltip = `
+        <div class="prod-module-order-tooltip">
+            Zamówienie #${item.baselinker_order_id}
+        </div>
+    `;
+
         row.innerHTML = `
-            <td class="prod-module-drag-cell">${dragHandle}</td>
-            <td class="prod-module-priority-cell">
-                <span class="prod-module-priority-number">${formattedPosition}</span>
-            </td>
-            <td class="prod-module-product-name-cell" title="${item.product_name}">
-                ${item.product_name.length > 40 ? item.product_name.substring(0, 40) + '...' : item.product_name}
-            </td>
-            <td>${item.wood_species || '-'}</td>
-            <td>${item.wood_technology || '-'}</td>
-            <td>${item.wood_class || '-'}</td>
-            <td>${item.finish_type || '-'}</td>
-            <td>${formatDimensions(item)}</td>
-            <td>${item.quantity}</td>
-            <td>${formatDate(item.deadline_date)}</td>
-            <td>
-                <span class="prod-module-status-badge prod-module-status-${statusClass}">
-                    ${item.status?.display_name || 'N/A'}
-                </span>
-            </td>
-        `;
-        
+        <td class="prod-module-drag-cell">${dragHandle}</td>
+        <td class="prod-module-priority-cell">
+            ${orderTooltip}
+            <span class="prod-module-priority-number">${formattedPosition}</span>
+        </td>
+        <td class="prod-module-order-cell">${baselinkerOrderLink}</td>
+        <td class="prod-module-product-name-cell" title="${item.product_name}">
+            ${item.product_name.length > 60 ?
+                item.product_name.substring(0, 60) + '...' : item.product_name}
+        </td>
+        <td>${item.wood_species || '-'}</td>
+        <td>${item.wood_technology || '-'}</td>
+        <td>${item.wood_class || '-'}</td>
+        <td>${item.finish_type || '-'}</td>
+        <td>${formatDimensions(item)}</td>
+        <td>${item.quantity}</td>
+        <td>${formatDate(item.deadline_date)}</td>
+        <td>
+            <span class="prod-module-status-badge prod-module-status-${statusClass}">
+                ${item.status?.display_name || 'N/A'}
+            </span>
+        </td>
+    `;
+
         return row;
+    }
+
+    // Dodaje event listenery dla hover efektów
+    function addOrderHoverEffects() {
+        const rows = document.querySelectorAll('.prod-module-table-row[data-order-id]');
+
+        rows.forEach(row => {
+            const orderId = row.getAttribute('data-order-id');
+
+            row.addEventListener('mouseenter', () => {
+                // Znajdź wszystkie wiersze z tym samym zamówieniem
+                const sameOrderRows = document.querySelectorAll(`[data-order-id="${orderId}"]`);
+
+                // Dodaj klasę hover do wszystkich pozycji z tego zamówienia
+                sameOrderRows.forEach(orderRow => {
+                    orderRow.classList.add('order-hover');
+                });
+            });
+
+            row.addEventListener('mouseleave', () => {
+                // Znajdź wszystkie wiersze z tym samym zamówieniem
+                const sameOrderRows = document.querySelectorAll(`[data-order-id="${orderId}"]`);
+
+                // Usuń klasę hover ze wszystkich pozycji z tego zamówienia
+                sameOrderRows.forEach(orderRow => {
+                    orderRow.classList.remove('order-hover');
+                });
+            });
+        });
     }
 
     function initDragAndDrop() {
@@ -1398,138 +1459,100 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function generateWorkersReport(dateFrom, dateTo) {
         return new Promise((resolve, reject) => {
-            // Na razie symulacja - w przyszłości będzie API call
-            setTimeout(() => {
-                const workersReport = document.getElementById('workersReport');
-                if (workersReport) {
-                    // Sprawdź czy są dane w systemie
-                    fetch('/production/api/dashboard')
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success && data.data.stats.completed_items > 0) {
-                                // Są ukończone produkty - pokaż przykładowe dane
-                                workersReport.innerHTML = `
-                                    <div class="prod-module-report-content-filled">
-                                        <h4>Wydajność pracowników</h4>
-                                        <div class="prod-module-report-notice">
-                                            <p><strong>Uwaga:</strong> To są przykładowe dane. Pełne raporty wydajności będą dostępne po wdrożeniu stanowisk sklejania.</p>
-                                        </div>
-                                        <div class="prod-module-workers-stats">
-                                            <div class="prod-module-worker-stat">
-                                                <div class="prod-module-worker-name">Pracownik A</div>
-                                                <div class="prod-module-worker-metrics">
-                                                    <span>Produkty: 12</span>
-                                                    <span>Średni czas: 18 min</span>
-                                                    <span>Wydajność: 111%</span>
-                                                </div>
-                                            </div>
-                                            <div class="prod-module-worker-stat">
-                                                <div class="prod-module-worker-name">Pracownik B</div>
-                                                <div class="prod-module-worker-metrics">
-                                                    <span>Produkty: 8</span>
-                                                    <span>Średni czas: 22 min</span>
-                                                    <span>Wydajność: 91%</span>
-                                                </div>
-                                            </div>
-                                        </div>
+            const workersReport = document.getElementById('workersReport');
+            if (!workersReport) { resolve(); return; }
+
+            fetch(`/production/api/reports/workers?date_from=${dateFrom}&date_to=${dateTo}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data.length > 0) {
+                        let content = '<div class="prod-module-report-content-filled">';
+                        content += '<h4>Wydajność pracowników</h4>';
+                        content += '<div class="prod-module-workers-stats">';
+                        data.data.forEach(stat => {
+                            content += `
+                                <div class="prod-module-worker-stat">
+                                    <div class="prod-module-worker-name">${stat.worker_name}</div>
+                                    <div class="prod-module-worker-metrics">
+                                        <span>Produkty: ${stat.completed_items_count}</span>
+                                        <span>Średni czas: ${Math.round(stat.average_time_seconds / 60)} min</span>
+                                        <span>Wydajność: ${stat.efficiency_percentage}%</span>
                                     </div>
-                                `;
-                            } else {
-                                // Brak ukończonych produktów
-                                workersReport.innerHTML = `
-                                    <div class="prod-module-report-empty">
-                                        <div class="prod-module-report-icon">📊</div>
-                                        <h4>Raport wydajności pracowników</h4>
-                                        <p>Brak danych do wyświetlenia w wybranym okresie</p>
-                                        <small>Raporty będą dostępne po ukończeniu pierwszych produktów</small>
-                                    </div>
-                                `;
-                            }
-                            resolve();
-                        })
-                        .catch(error => {
-                            workersReport.innerHTML = `
-                                <div class="prod-module-report-error">
-                                    <h4>Błąd ładowania danych</h4>
-                                    <p>Nie można pobrać danych dla raportu pracowników</p>
                                 </div>
                             `;
-                            reject(error);
                         });
-                } else {
+                        content += '</div></div>';
+                        workersReport.innerHTML = content;
+                    } else {
+                        workersReport.innerHTML = `
+                            <div class="prod-module-report-empty">
+                                <div class="prod-module-report-icon">📊</div>
+                                <h4>Raport wydajności pracowników</h4>
+                                <p>Brak danych do wyświetlenia w wybranym okresie</p>
+                                <small>Raporty będą dostępne po ukończeniu pierwszych produktów</small>
+                            </div>
+                        `;
+                    }
                     resolve();
-                }
-            }, 500);
+                })
+                .catch(error => {
+                    workersReport.innerHTML = `
+                        <div class="prod-module-report-error">
+                            <h4>Błąd ładowania danych</h4>
+                            <p>Nie można pobrać danych dla raportu pracowników</p>
+                        </div>
+                    `;
+                    reject(error);
+                });
         });
     }
-    
+
     function generateStationsReport(dateFrom, dateTo) {
         return new Promise((resolve, reject) => {
-            setTimeout(() => {
-                const stationsReport = document.getElementById('stationsReport');
-                if (stationsReport) {
-                    // Pobierz dane stanowisk
-                    fetch('/production/api/dashboard')
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success && data.data.length > 0) {
-                                let stationsHtml = '<h4>Wydajność stanowisk</h4>';
-                                
-                                // Sprawdź czy są aktywne stanowiska
-                                const activeStations = data.data.filter(station => station.is_active);
-                                
-                                if (activeStations.length > 0) {
-                                    stationsHtml += `
-                                        <div class="prod-module-report-notice">
-                                            <p><strong>Uwaga:</strong> Raporty wykorzystania będą dostępne po rozpoczęciu produkcji na stanowiskach.</p>
-                                        </div>
-                                        <div class="prod-module-stations-stats">
-                                    `;
-                                    
-                                    activeStations.forEach(station => {
-                                        const utilizationPercent = Math.floor(Math.random() * 40) + 60; // 60-100%
-                                        stationsHtml += `
-                                            <div class="prod-module-station-stat">
-                                                <div class="prod-module-station-name">${station.name}</div>
-                                                <div class="prod-module-station-metrics">
-                                                    <span>Status: ${station.current_item_id ? 'Zajęte' : 'Wolne'}</span>
-                                                    <span>Wykorzystanie: ${utilizationPercent}%</span>
-                                                    <span>Typ: ${station.station_type === 'gluing' ? 'Sklejanie' : 'Pakowanie'}</span>
-                                                </div>
-                                            </div>
-                                        `;
-                                    });
-                                    
-                                    stationsHtml += '</div>';
-                                } else {
-                                    stationsHtml += '<p>Brak aktywnych stanowisk</p>';
-                                }
-                                
-                                stationsReport.innerHTML = `<div class="prod-module-report-content-filled">${stationsHtml}</div>`;
-                            } else {
-                                stationsReport.innerHTML = `
-                                    <div class="prod-module-report-empty">
-                                        <div class="prod-module-report-icon">🏭</div>
-                                        <h4>Raport wydajności stanowisk</h4>
-                                        <p>Brak danych stanowisk</p>
+            const stationsReport = document.getElementById('stationsReport');
+            if (!stationsReport) { resolve(); return; }
+
+            fetch(`/production/api/reports/stations?date_from=${dateFrom}&date_to=${dateTo}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data.length > 0) {
+                        let content = '<div class="prod-module-report-content-filled">';
+                        content += '<h4>Wydajność stanowisk</h4>';
+                        content += '<div class="prod-module-stations-stats">';
+                        data.data.forEach(stat => {
+                            content += `
+                                <div class="prod-module-station-stat">
+                                    <div class="prod-module-station-name">${stat.station_name}</div>
+                                    <div class="prod-module-station-metrics">
+                                        <span>Produkty: ${stat.completed_items_count}</span>
+                                        <span>Średnio dziennie: ${stat.average_items_per_day}</span>
+                                        <span>Wykorzystanie: ${stat.utilization_percentage}%</span>
                                     </div>
-                                `;
-                            }
-                            resolve();
-                        })
-                        .catch(error => {
-                            stationsReport.innerHTML = `
-                                <div class="prod-module-report-error">
-                                    <h4>Błąd ładowania danych</h4>
-                                    <p>Nie można pobrać danych stanowisk</p>
                                 </div>
                             `;
-                            reject(error);
                         });
-                } else {
+                        content += '</div></div>';
+                        stationsReport.innerHTML = content;
+                    } else {
+                        stationsReport.innerHTML = `
+                            <div class="prod-module-report-empty">
+                                <div class="prod-module-report-icon">🏭</div>
+                                <h4>Raport wydajności stanowisk</h4>
+                                <p>Brak danych stanowisk</p>
+                            </div>
+                        `;
+                    }
                     resolve();
-                }
-            }, 800);
+                })
+                .catch(error => {
+                    stationsReport.innerHTML = `
+                        <div class="prod-module-report-error">
+                            <h4>Błąd ładowania danych</h4>
+                            <p>Nie można pobrać danych stanowisk</p>
+                        </div>
+                    `;
+                    reject(error);
+                });
         });
     }
     
@@ -1639,13 +1662,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const formattedDate = date.toLocaleDateString('pl-PL');
         
         if (diffDays < 0) {
-            return `${formattedDate} (${Math.abs(diffDays)}d temu)`;
+            return `<span class="prod-module-before-date">${formattedDate} (${Math.abs(diffDays)} dni temu)</span>`;
         } else if (diffDays === 0) {
-            return `${formattedDate} (dziś)`;
+            return `<span class="prod-module-today-date">${formattedDate} (dziś)</span>`;
         } else if (diffDays === 1) {
-            return `${formattedDate} (jutro)`;
+            return `<span class="prod-module-tommorow-date">${formattedDate} (jutro)</span>`;
         } else {
-            return `${formattedDate} (za ${diffDays}d)`;
+            return `<span class="prod-module-future-date">${formattedDate} (za ${diffDays} dni)</span>`;
         }
     }
     
