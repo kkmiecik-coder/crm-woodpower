@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Klejenie - Wood Power CRM</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('production.static', filename='css/gluing.css') }}" rel="stylesheet">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+</head>
+<body class="prod-work-body">
+    <div class="prod-work-container">
+        <!-- Header z nazwą stanowiska -->
+        <div class="prod-work-header">
+            <h1 class="prod-work-title">
+                <i class="fas fa-industry"></i>
+                Stanowisko Sklejania
+            </h1>
+            <div class="prod-work-sync-info">
+                <span class="prod-work-last-sync">Ostatnia synchronizacja: <span id="lastSyncTime">--:--</span></span>
+                <button type="button" class="prod-work-refresh-btn" id="refreshBtn">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Sekcja stanowisk (sticky) -->
+        <div class="prod-work-stations-section sticky" id="stationsSection">
+            <h2 class="prod-work-section-title">Stanowiska</h2>
+            <div class="prod-work-stations-grid" id="stationsGrid">
+                <!-- Stanowiska będą generowane dynamicznie przez JS -->
+                <div class="prod-work-station-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Ładowanie stanowisk...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sekcja produktów (dół) -->
+        <div class="prod-work-products-section">
+            <h2 class="prod-work-section-title">
+                Kolejka Produktów
+                <span class="prod-work-queue-count" id="queueCount">0</span>
+            </h2>
+
+            <!-- Lista produktów -->
+            <div class="prod-work-products-grid" id="productsGrid">
+                <!-- Produkty będą generowane dynamicznie przez JS -->
+                <div class="prod-work-products-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Ładowanie produktów...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% include 'modals/station_worker_modal.html' %}
+
+    <!-- Modal podsumowania zakończenia -->
+    <div class="modal fade" id="completionModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content prod-work-modal">
+                <div class="modal-header prod-work-modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-check-circle text-success"></i>
+                        Produkcja Zakończona
+                    </h5>
+                </div>
+                <div class="modal-body prod-work-modal-body" id="completionModalBody">
+                    <!-- Zawartość generowana przez JS -->
+                </div>
+                <div class="modal-footer prod-work-modal-footer">
+                    <button type="button" class="prod-work-btn prod-work-btn-secondary" data-bs-dismiss="modal">
+                        Zamknij
+                    </button>
+                    <button type="button" class="prod-work-btn prod-work-btn-primary" id="nextProductBtn">
+                        <i class="fas fa-arrow-right"></i>
+                        Następny Produkt
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer">
+        <!-- Toasty będą generowane dynamicznie -->
+    </div>
+
+    <!-- Konfiguracja czasu sklejania z bazy -->
+    <input type="hidden" id="gluingTimeConfig" data-config-gluing-time="{{ config_gluing_time or 20 }}" value="{{ config_gluing_time or 20 }}">
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('production.static', filename='js/gluing.js') }}"></script>
+</body>
+</html>
