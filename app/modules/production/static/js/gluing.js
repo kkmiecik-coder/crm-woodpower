@@ -43,11 +43,15 @@ function initializeGluingDashboard() {
     // Binduj eventy
     bindEvents();
 
+    bindEventsAddition();
+
     // Załaduj dane początkowe
     loadInitialData();
 
     // Uruchom odświeżanie
     startAutoRefresh();
+
+
 }
 
 /**
@@ -219,6 +223,38 @@ function updateProductsData(newProductsData) {
 }
 
 /**
+ * DODAJ OBSŁUGĘ EVENT LISTENERA dla przycisków akcji
+ */
+function bindEventsAddition() {
+    // Dodaj do istniejącej funkcji bindEvents() - na końcu tej funkcji
+    
+    // Obsługa przycisków rozpocznij z loading state
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('prod-mod-prod-card-action-button') || 
+            e.target.closest('.prod-mod-prod-card-action-button')) {
+            
+            const button = e.target.classList.contains('prod-mod-prod-card-action-button') ? 
+                          e.target : e.target.closest('.prod-mod-prod-card-action-button');
+            
+            // Dodaj loading state
+            const originalContent = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ŁADOWANIE...';
+            button.disabled = true;
+            button.style.background = '#6c757d';
+            
+            // Przywróć oryginalny stan po 2 sekundach (gdyby coś poszło nie tak)
+            setTimeout(() => {
+                if (button.disabled) {
+                    button.innerHTML = originalContent;
+                    button.disabled = false;
+                    button.style.background = '#28a745';
+                }
+            }, 2000);
+        }
+    });
+}
+
+/**
  * Dodaj produkt do gridu
  */
 function addProductToGrid(product, prepend = false) {
@@ -226,30 +262,56 @@ function addProductToGrid(product, prepend = false) {
     if (!container) return;
 
     const priorityClass = getPriorityClass(product);
-
+    const priorityNumber = product.priority_score || 0;
+    
+    // Określ klasy CSS dla specyfikacji
+    const woodSpeciesClass = getWoodSpeciesClass(product.wood_species);
+    const technologyClass = getTechnologyClass(product.wood_technology);
+    const classTypeClass = getClassTypeClass(product.wood_class);
+    const deadlineClass = getDeadlineClass(product.deadline_date);
+    
+    // Formatuj wymiary
+    const dimensions = formatProductDimensions(product);
+    
     const productHTML = `
-        <div class="prod-work-product ${priorityClass}" data-product-id="${product.id}">
-            <div class="prod-work-product-header">
-                <div class="prod-work-product-priority">${product.priority_score || 0}</div>
-            </div>
+        <div class="prod-mod-prod-card-product-box prod-mod-prod-card-${priorityClass}" data-product-id="${product.id}">
+            <div class="prod-mod-prod-card-priority-box">${priorityNumber}</div>
             
-            <div class="prod-work-product-name">${product.product_name || 'Produkt bez nazwy'}</div>
+            <div class="prod-mod-prod-card-product-name">${product.product_name || 'Produkt bez nazwy'}</div>
             
-            <div class="prod-work-product-badges">
-                ${renderProductBadges(product)}
-            </div>
-            
-            <div class="prod-work-product-quantity">
-                Ilość: ${product.quantity || 1} szt.
-            </div>
-            
-            ${product.deadline_date ? `
-                <div class="prod-work-product-deadline">
-                    ${formatDate(product.deadline_date)}
+            <div class="prod-mod-prod-card-specifications-container">
+                <div class="prod-mod-prod-card-info-column ${woodSpeciesClass}">
+                    <div class="prod-mod-prod-card-info-label">GATUNEK</div>
+                    <div class="prod-mod-prod-card-info-value">${product.wood_species || '-'}</div>
                 </div>
-            ` : ''}
+                
+                <div class="prod-mod-prod-card-info-column ${technologyClass}">
+                    <div class="prod-mod-prod-card-info-label">TECHNOLOGIA</div>
+                    <div class="prod-mod-prod-card-info-value">${product.wood_technology || '-'}</div>
+                </div>
+                
+                <div class="prod-mod-prod-card-info-column ${classTypeClass}">
+                    <div class="prod-mod-prod-card-info-label">KLASA</div>
+                    <div class="prod-mod-prod-card-info-value">${product.wood_class || '-'}</div>
+                </div>
+                
+                <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions">
+                    <div class="prod-mod-prod-card-info-label">WYMIARY</div>
+                    <div class="prod-mod-prod-card-info-value">${dimensions}</div>
+                </div>
+                
+                <div class="prod-mod-prod-card-info-column prod-mod-prod-card-quantity-column">
+                    <div class="prod-mod-prod-card-info-label">ILOŚĆ</div>
+                    <div class="prod-mod-prod-card-info-value">${product.quantity || 1} szt.</div>
+                </div>
+                
+                <div class="prod-mod-prod-card-info-column ${deadlineClass}">
+                    <div class="prod-mod-prod-card-info-label">TERMIN</div>
+                    <div class="prod-mod-prod-card-info-value">${formatDeadlineText(product.deadline_date)}</div>
+                </div>
+            </div>
             
-            <button type="button" class="prod-work-start-btn" onclick="showStationWorkerModal(${product.id})">
+            <button type="button" class="prod-mod-prod-card-action-button" onclick="showStationWorkerModal(${product.id})">
                 <i class="fas fa-play"></i>
                 ROZPOCZNIJ
             </button>
@@ -260,6 +322,125 @@ function addProductToGrid(product, prepend = false) {
         container.insertAdjacentHTML('afterbegin', productHTML);
     } else {
         container.insertAdjacentHTML('beforeend', productHTML);
+    }
+}
+
+/**
+ * NOWY KOD - Określa klasę CSS dla gatunku drewna
+ */
+function getWoodSpeciesClass(species) {
+    if (!species) return '';
+    
+    const speciesLower = species.toLowerCase();
+    if (speciesLower.includes('dąb') || speciesLower.includes('dab')) {
+        return 'prod-mod-prod-card-spec-wood-dab';
+    }
+    if (speciesLower.includes('buk')) {
+        return 'prod-mod-prod-card-spec-wood-buk';
+    }
+    if (speciesLower.includes('jesion')) {
+        return 'prod-mod-prod-card-spec-wood-jesion';
+    }
+    if (speciesLower.includes('sosna')) {
+        return 'prod-mod-prod-card-spec-wood-sosna';
+    }
+    return '';
+}
+
+/**
+ * NOWY KOD - Określa klasę CSS dla technologii
+ */
+function getTechnologyClass(technology) {
+    if (!technology) return '';
+    
+    const techLower = technology.toLowerCase();
+    if (techLower.includes('lita') || techLower.includes('lity')) {
+        return 'prod-mod-prod-card-spec-tech-lita';
+    }
+    if (techLower.includes('mikrowczep')) {
+        return 'prod-mod-prod-card-spec-tech-mikrowczep';
+    }
+    return '';
+}
+
+/**
+ * NOWY KOD - Określa klasę CSS dla klasy drewna
+ */
+function getClassTypeClass(woodClass) {
+    if (!woodClass) return '';
+    
+    const classLower = woodClass.toLowerCase().replace(/[\/\s]/g, '');
+    if (classLower === 'aa' || classLower === 'a/a') {
+        return 'prod-mod-prod-card-spec-class-aa';
+    }
+    if (classLower === 'ab' || classLower === 'a/b') {
+        return 'prod-mod-prod-card-spec-class-ab';
+    }
+    if (classLower === 'bb' || classLower === 'b/b') {
+        return 'prod-mod-prod-card-spec-class-bb';
+    }
+    if (classLower.includes('rustic')) {
+        return 'prod-mod-prod-card-spec-class-rustic';
+    }
+    return '';
+}
+
+/**
+ * NOWY KOD - Określa klasę CSS dla terminu realizacji
+ */
+function getDeadlineClass(deadlineDate) {
+    if (!deadlineDate) return 'prod-mod-prod-card-deadline-future';
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const deadline = new Date(deadlineDate);
+    deadline.setHours(0, 0, 0, 0);
+    
+    const diffTime = deadline.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) {
+        return 'prod-mod-prod-card-deadline-past';
+    } else if (diffDays === 0) {
+        return 'prod-mod-prod-card-deadline-today';
+    } else if (diffDays === 1) {
+        return 'prod-mod-prod-card-deadline-tomorrow';
+    } else {
+        return 'prod-mod-prod-card-deadline-future';
+    }
+}
+
+/**
+ * NOWY KOD - Formatuje tekst terminu realizacji
+ */
+function formatDeadlineText(deadlineDate) {
+    if (!deadlineDate) return 'brak terminu';
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const deadline = new Date(deadlineDate);
+    deadline.setHours(0, 0, 0, 0);
+    
+    const diffTime = deadline.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) {
+        const daysPast = Math.abs(diffDays);
+        if (daysPast === 1) {
+            return 'wczoraj';
+        } else {
+            return `${daysPast} dni temu`;
+        }
+    } else if (diffDays === 0) {
+        return 'DZIŚ';
+    } else if (diffDays === 1) {
+        return 'jutro';
+    } else if (diffDays <= 7) {
+        return `za ${diffDays} dni`;
+    } else {
+        return formatDate(deadlineDate);
     }
 }
 
@@ -540,32 +721,59 @@ function renderProducts() {
         return;
     }
 
+    // Renderuj wszystkie produkty używając nowego designu
     container.innerHTML = gluingState.products.map(product => {
         const priorityClass = getPriorityClass(product);
-
+        const priorityNumber = product.priority_score || 0;
+        
+        // Określ klasy CSS dla specyfikacji
+        const woodSpeciesClass = getWoodSpeciesClass(product.wood_species);
+        const technologyClass = getTechnologyClass(product.wood_technology);
+        const classTypeClass = getClassTypeClass(product.wood_class);
+        const deadlineClass = getDeadlineClass(product.deadline_date);
+        
+        // Formatuj wymiary
+        const dimensions = formatProductDimensions(product);
+        
         return `
-            <div class="prod-work-product ${priorityClass}" data-product-id="${product.id}">
-                <div class="prod-work-product-header">
-                    <div class="prod-work-product-priority">${product.priority_score || 0}</div>
-                </div>
+            <div class="prod-mod-prod-card-product-box prod-mod-prod-card-${priorityClass}" data-product-id="${product.id}">
+                <div class="prod-mod-prod-card-priority-box">${priorityNumber}</div>
                 
-                <div class="prod-work-product-name">${product.product_name || 'Produkt bez nazwy'}</div>
+                <div class="prod-mod-prod-card-product-name">${product.product_name || 'Produkt bez nazwy'}</div>
                 
-                <div class="prod-work-product-badges">
-                    ${renderProductBadges(product)}
-                </div>
-                
-                <div class="prod-work-product-quantity">
-                    ${product.quantity || 1} szt.
-                </div>
-                
-                ${product.deadline_date ? `
-                    <div class="prod-work-product-deadline">
-                        ${formatDate(product.deadline_date)}
+                <div class="prod-mod-prod-card-specifications-container">
+                    <div class="prod-mod-prod-card-info-column ${woodSpeciesClass}">
+                        <div class="prod-mod-prod-card-info-label">GATUNEK</div>
+                        <div class="prod-mod-prod-card-info-value">${product.wood_species || '-'}</div>
                     </div>
-                ` : ''}
+                    
+                    <div class="prod-mod-prod-card-info-column ${technologyClass}">
+                        <div class="prod-mod-prod-card-info-label">TECHNOLOGIA</div>
+                        <div class="prod-mod-prod-card-info-value">${product.wood_technology || '-'}</div>
+                    </div>
+                    
+                    <div class="prod-mod-prod-card-info-column ${classTypeClass}">
+                        <div class="prod-mod-prod-card-info-label">KLASA</div>
+                        <div class="prod-mod-prod-card-info-value">${product.wood_class || '-'}</div>
+                    </div>
+                    
+                    <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions">
+                        <div class="prod-mod-prod-card-info-label">WYMIARY</div>
+                        <div class="prod-mod-prod-card-info-value">${dimensions}</div>
+                    </div>
+                    
+                    <div class="prod-mod-prod-card-info-column prod-mod-prod-card-quantity-column">
+                        <div class="prod-mod-prod-card-info-label">ILOŚĆ</div>
+                        <div class="prod-mod-prod-card-info-value">${product.quantity || 1} szt.</div>
+                    </div>
+                    
+                    <div class="prod-mod-prod-card-info-column ${deadlineClass}">
+                        <div class="prod-mod-prod-card-info-label">TERMIN</div>
+                        <div class="prod-mod-prod-card-info-value">${formatDeadlineText(product.deadline_date)}</div>
+                    </div>
+                </div>
                 
-                <button type="button" class="prod-work-start-btn" onclick="showStationWorkerModal(${product.id})">
+                <button type="button" class="prod-mod-prod-card-action-button" onclick="showStationWorkerModal(${product.id})">
                     <i class="fas fa-play"></i>
                     ROZPOCZNIJ
                 </button>
@@ -574,24 +782,30 @@ function renderProducts() {
     }).join('');
 }
 
+
 /**
  * Formatowanie wymiarów produktu
  */
 function formatProductDimensions(product) {
-    if (product.dimensions) {
+    // Sprawdź czy jest pole dimensions
+    if (product.dimensions && product.dimensions !== 'Brak wymiarów') {
         return product.dimensions;
     }
 
     // Stwórz wymiary z poszczególnych pól
     const length = product.dimensions_length || 0;
-    const width = product.dimensions_width || 0;
+    const width = product.dimensions_width || 0;  
     const thickness = product.dimensions_thickness || 0;
 
     if (length && width && thickness) {
-        return `${length}×${width}×${thickness} cm`;
+        return `${length}×${width}×${thickness}`;
+    }
+    
+    if (length && width) {
+        return `${length}×${width}`;
     }
 
-    return 'Brak wymiarów';
+    return '-';
 }
 
 /**

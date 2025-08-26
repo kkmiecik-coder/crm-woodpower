@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wybór Stanowiska - Wood Power</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 20px;
+            background-color: #f0f0f0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            color: #333;
+        }
+
+        /* Header z logo i tytułem */
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            height: 80px;
+            width: auto;
+            margin-bottom: 20px;
+        }
+
+        .title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 22px;
+            color: #666;
+        }
+
+        /* Przyciski stanowisk */
+        .stations-container {
+            flex: 1;
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            justify-content: center;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .station-button {
+            flex: 1;
+            background: white;
+            border: 3px solid #ddd;
+            border-radius: 15px;
+            padding: 50px 30px;
+            text-align: center;
+            cursor: pointer;
+            text-decoration: none;
+            display: block;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .station-button:hover {
+            background: #f8f8f8;
+            border-color: #007bff;
+            transform: translateY(-2px);
+        }
+
+        .station-button.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .station-button.active:hover {
+            background: #0056b3;
+            border-color: #0056b3;
+        }
+
+        .station-button.disabled {
+            background: #f5f5f5;
+            color: #999;
+            cursor: not-allowed;
+            border-color: #ccc;
+        }
+
+        .station-button.disabled:hover {
+            transform: none;
+            background: #f5f5f5;
+            border-color: #ccc;
+        }
+
+        .station-icon {
+            font-size: 100px;
+            margin-bottom: 25px;
+            line-height: 1;
+        }
+
+        .station-name {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .station-description {
+            font-size: 18px;
+            line-height: 1.4;
+        }
+
+        .disabled-badge {
+            background: #dc3545;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            position: absolute;
+            top: 15px;
+            right: 15px;
+        }
+
+        .station-button {
+            position: relative;
+        }
+
+        /* Responsywność dla tabletów */
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+
+            .header {
+                margin-bottom: 40px;
+                padding: 20px;
+            }
+
+            .logo {
+                height: 60px;
+            }
+
+            .title {
+                font-size: 28px;
+            }
+
+            .subtitle {
+                font-size: 20px;
+            }
+
+            .stations-container {
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            .station-button {
+                min-height: 250px;
+                padding: 40px 20px;
+            }
+
+            .station-icon {
+                font-size: 80px;
+                margin-bottom: 20px;
+            }
+
+            .station-name {
+                font-size: 24px;
+            }
+
+            .station-description {
+                font-size: 16px;
+            }
+        }
+
+        /* Bardzo małe ekrany (telefony) */
+        @media (max-width: 480px) {
+            .station-button {
+                min-height: 200px;
+                padding: 30px 15px;
+            }
+
+            .station-icon {
+                font-size: 60px;
+            }
+
+            .station-name {
+                font-size: 22px;
+            }
+        }
+
+        /* Loading state */
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            transform: translate(-50%, -50%);
+        }
+
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="{{ url_for('static', filename='images/crm-logo.svg') }}" alt="Wood Power CRM" class="logo">
+        <h1 class="title">Wood Power CRM</h1>
+        <p class="subtitle">Wybierz stanowisko pracy</p>
+    </div>
+
+    <div class="stations-container">
+        <!-- Stanowisko sklejania - aktywne -->
+        <a href="{{ url_for('production.work_gluing_queue') }}" class="station-button active" id="gluingStation">
+            <div class="station-icon">🔧</div>
+            <div class="station-name">SKLEJANIE</div>
+            <div class="station-description">
+                Stanowisko produkcji<br>
+                produktów drewnianych
+            </div>
+        </a>
+
+        <!-- Stanowisko pakowania - wyłączone -->
+        <div class="station-button disabled" id="packagingStation">
+            <div class="disabled-badge">WKRÓTCE</div>
+            <div class="station-icon">📦</div>
+            <div class="station-name">PAKOWANIE</div>
+            <div class="station-description">
+                Stanowisko kompletacji<br>
+                i wysyłki zamówień
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('production.static', filename='js/work_station_select.js') }}"></script>
+</body>
+</html>
