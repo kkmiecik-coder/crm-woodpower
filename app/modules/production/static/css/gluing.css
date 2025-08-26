@@ -739,3 +739,24 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     margin-bottom: 25px;
 }
+
+/* === DEADLINE COLORS === */
+.deadline-past {
+    color: #dc3545 !important;
+    font-weight: 600;
+}
+
+.deadline-today {
+    color: #ffc107 !important;
+    font-weight: 600;
+}
+
+.deadline-tomorrow {
+    color: #ffc107 !important;
+    font-weight: 600;
+}
+
+.deadline-future {
+    color: #007bff !important;
+    font-weight: 600;
+}

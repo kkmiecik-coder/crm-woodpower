@@ -225,7 +225,7 @@ function addProductToGrid(product, prepend = false) {
     const container = document.getElementById('productsGrid');
     if (!container) return;
 
-    const priorityClass = getPriorityClass(product.priority_group);
+    const priorityClass = getPriorityClass(product);
 
     const productHTML = `
         <div class="prod-work-product ${priorityClass}" data-product-id="${product.id}">
@@ -245,7 +245,7 @@ function addProductToGrid(product, prepend = false) {
             
             ${product.deadline_date ? `
                 <div class="prod-work-product-deadline">
-                    Termin: ${formatDate(product.deadline_date)}
+                    ${formatDate(product.deadline_date)}
                 </div>
             ` : ''}
             
@@ -541,7 +541,7 @@ function renderProducts() {
     }
 
     container.innerHTML = gluingState.products.map(product => {
-        const priorityClass = getPriorityClass(product.priority_group);
+        const priorityClass = getPriorityClass(product);
 
         return `
             <div class="prod-work-product ${priorityClass}" data-product-id="${product.id}">
@@ -561,7 +561,7 @@ function renderProducts() {
                 
                 ${product.deadline_date ? `
                     <div class="prod-work-product-deadline">
-                        Termin: ${formatDate(product.deadline_date)}
+                        ${formatDate(product.deadline_date)}
                     </div>
                 ` : ''}
                 
@@ -667,9 +667,6 @@ function renderStationWorkerModal(product) {
                      data-worker-id="${worker.id}" 
                      ${isAvailable ? 'onclick="selectWorker(' + worker.id + ')"' : ''}>
                     <div class="prod-work-selection-item-name">${worker.name}</div>
-                    <div class="prod-work-selection-item-status">
-                        ${isAvailable ? 'Dostępny' : 'Zajęty'}
-                    </div>
                 </div>
             `;
         }).join('');
@@ -750,22 +747,16 @@ function selectWorker(workerId) {
 }
 
 /**
- * Aktualizacja podsumowania w modalu
+ * Aktualizacja stanu przycisku po wyborach w modalu
  */
 function updateModalSummary() {
-    const summaryElement = document.getElementById('selectionSummary');
     const startButton = document.getElementById('startProductionBtn');
 
     if (gluingState.selectedStation && gluingState.selectedWorker) {
-        // Pokaż podsumowanie
-        document.getElementById('selectedStationName').textContent = gluingState.selectedStation.name;
-        document.getElementById('selectedWorkerName').textContent = gluingState.selectedWorker.name;
-        document.getElementById('estimatedTime').textContent = '20:00'; // Z konfiguracji
-
-        summaryElement.style.display = 'block';
+        // Aktywuj przycisk start
         startButton.disabled = false;
     } else {
-        summaryElement.style.display = 'none';
+        // Deaktywuj przycisk start
         startButton.disabled = true;
     }
 }
@@ -912,12 +903,43 @@ function formatTime(seconds) {
 }
 
 /**
- * Formatowanie daty
+ * Formatowanie daty na względny czas z kolorami
  */
 function formatDate(dateString) {
     if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('pl-PL');
+
+    const deadlineDate = new Date(dateString);
+    const today = new Date();
+
+    // Ustaw dzisiejszą datę na początek dnia
+    today.setHours(0, 0, 0, 0);
+    deadlineDate.setHours(0, 0, 0, 0);
+
+    const diffTime = deadlineDate.getTime() - today.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    let text, className;
+
+    if (diffDays < 0) {
+        // Przeszłe - czerwony
+        const daysPast = Math.abs(diffDays);
+        text = daysPast === 1 ? 'wczoraj' : `${daysPast} dni temu`;
+        className = 'deadline-past';
+    } else if (diffDays === 0) {
+        // Dziś - żółty
+        text = 'dziś';
+        className = 'deadline-today';
+    } else if (diffDays === 1) {
+        // Jutro - żółty
+        text = 'jutro';
+        className = 'deadline-tomorrow';
+    } else {
+        // Przyszłe - niebieski
+        text = `za ${diffDays} dni`;
+        className = 'deadline-future';
+    }
+
+    return `<span class="${className}">${text}</span>`;
 }
 
 /**
@@ -957,14 +979,32 @@ function getStationStatusText(status) {
 }
 
 /**
- * Pobieranie klasy CSS dla priorytetu
+ * Pobieranie klasy CSS dla priorytetu na podstawie daty deadline
  */
-function getPriorityClass(priorityGroup) {
-    switch (priorityGroup) {
-        case 'high': return 'priority-high';
-        case 'medium': return 'priority-medium';
-        case 'low': return 'priority-low';
-        default: return 'priority-low';
+function getPriorityClass(product) {
+    if (!product.deadline_date) {
+        return 'priority-low'; // Brak deadline = niski priorytet
+    }
+
+    const deadlineDate = new Date(product.deadline_date);
+    const today = new Date();
+
+    // Ustaw dzisiejszą datę na początek dnia
+    today.setHours(0, 0, 0, 0);
+    deadlineDate.setHours(0, 0, 0, 0);
+
+    const diffTime = deadlineDate.getTime() - today.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+        // Przeszłe - wysoki priorytet (czerwony)
+        return 'priority-high';
+    } else if (diffDays <= 1) {
+        // Dziś/jutro - średni priorytet (żółty)
+        return 'priority-medium';
+    } else {
+        // Przyszłe - niski priorytet (niebieski)
+        return 'priority-low';
     }
 }
 
