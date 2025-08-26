@@ -213,38 +213,21 @@ def work_station_select():
 
 
 @production_bp.route('/work/gluing')
-def work_gluing_queue():
-    """Ekran 2: Lista produktów do sklejenia z przyciskami ROZPOCZNIJ"""
-    production_logger.info("Dostęp do listy produktów do sklejenia")
+def work_gluing_dashboard():
+    """Nowy połączony interfejs stanowiska sklejania"""
+    production_logger.info("Dostęp do nowego interfejsu sklejania")
     
     try:
-        # Pobierz kolejkę produktów (wszystkie oczekujące)
-        pending_status = ProductionStatus.query.filter_by(name='pending').first()
-        completed_status = ProductionStatus.query.filter_by(name='completed').first()
+        # Pobierz czas sklejania z konfiguracji
+        config_gluing_time = ProductionConfig.get_value('gluing_time_minutes', '20')
         
-        if not pending_status:
-            production_logger.error("Brak statusu 'pending' w bazie danych")
-            return render_template('work/error.html', 
-                                 error="Błąd konfiguracji systemu - brak statusów")
-        
-        # Pobierz wszystkie produkty (pending i completed dla wyświetlenia)
-        all_items = ProductionItem.query.join(ProductionStatus).filter(
-            ProductionStatus.name.in_(['pending', 'completed'])
-        ).order_by(ProductionItem.priority_score.asc()).all()
-        
-        # Podziel na aktywne (do wykonania) i ukończone (wyszarzałe)
-        pending_items = [item for item in all_items if item.status.name == 'pending']
-        completed_items = [item for item in all_items if item.status.name == 'completed']
-        
-        return render_template('work/gluing_queue.html', 
-                             pending_items=pending_items,
-                             completed_items=completed_items,
-                             total_pending=len(pending_items))
+        return render_template('gluing_dashboard.html', 
+                             config_gluing_time=config_gluing_time)
         
     except Exception as e:
-        production_logger.error("Błąd podczas ładowania listy produktów do sklejenia", error=str(e))
-        return render_template('work/error.html', 
-                             error="Błąd ładowania danych")
+        production_logger.error("Błąd podczas ładowania interfejsu sklejania", error=str(e))
+        return render_template('error.html',
+                             error="Błąd ładowania interfejsu sklejania")
 
 
 @production_bp.route('/work/gluing/start/<int:item_id>')
@@ -260,7 +243,7 @@ def work_gluing_start(item_id):
         if item.status.name != 'pending':
             production_logger.warning("Próba rozpoczęcia produktu o niewłaściwym statusie",
                                     item_id=item_id, status=item.status.name)
-            return render_template('work/error.html',
+            return render_template('error.html',
                                  error="Ten produkt nie może być rozpoczęty")
         
         # Pobierz dostępne stanowiska sklejania (aktywne)
@@ -276,11 +259,11 @@ def work_gluing_start(item_id):
         ).all()
         
         if not available_stations:
-            return render_template('work/error.html',
+            return render_template('error.html',
                                  error="Brak dostępnych stanowisk sklejania")
         
         if not available_workers:
-            return render_template('work/error.html',
+            return render_template('error.html',
                                  error="Brak dostępnych pracowników")
         
         return render_template('work/gluing_start.html',
@@ -291,7 +274,7 @@ def work_gluing_start(item_id):
     except Exception as e:
         production_logger.error("Błąd podczas ładowania ekranu startowego",
                               item_id=item_id, error=str(e))
-        return render_template('work/error.html',
+        return render_template('error.html',
                              error="Błąd ładowania danych")
 
 
@@ -316,7 +299,7 @@ def work_gluing_timer(item_id):
         
         # Sprawdź czy można rozpocząć na tym stanowisku
         if station.is_busy and station.current_item_id != item_id:
-            return render_template('work/error.html',
+            return render_template('error.html',
                                  error="Stanowisko jest już zajęte przez inny produkt")
         
         # Pobierz czas sklejania z konfiguracji
@@ -331,7 +314,7 @@ def work_gluing_timer(item_id):
     except Exception as e:
         production_logger.error("Błąd podczas ładowania timera",
                               item_id=item_id, error=str(e))
-        return render_template('work/error.html',
+        return render_template('error.html',
                              error="Błąd ładowania timera")
 
 
@@ -363,13 +346,28 @@ def work_gluing_complete(item_id):
     except Exception as e:
         production_logger.error("Błąd podczas ładowania podsumowania",
                               item_id=item_id, error=str(e))
-        return render_template('work/error.html',
+        return render_template('error.html',
                              error="Błąd ładowania podsumowania")
 
 
 # ============================================================================
 # STANOWISKO PRACY - API ENDPOINTS
 # ============================================================================
+
+@production_bp.route('/api/workers')
+def api_workers():
+    """API lista pracowników"""
+    try:
+        workers = Worker.query.filter_by(is_active=True).all()
+        
+        return jsonify({
+            'success': True,
+            'workers': [worker.to_dict() for worker in workers]
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API pracowników", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @production_bp.route('/api/work/gluing/start', methods=['POST'])
 def api_work_start_gluing():
@@ -1024,6 +1022,26 @@ def api_stations_status():
                 # Sprawdź czy przekroczono czas
                 standard_time = int(ProductionConfig.get_value('gluing_time_minutes', '20')) * 60
                 station_dict['is_overtime'] = working_time.total_seconds() > standard_time
+                
+                # DODAJ: Informacje o aktualnym produkcie
+                station_dict['current_product'] = {
+                    'id': station.current_item.id,
+                    'product_name': station.current_item.product_name,
+                    'wood_species': station.current_item.wood_species,
+                    'wood_technology': station.current_item.wood_technology, 
+                    'wood_class': station.current_item.wood_class,
+                    'dimensions_length': station.current_item.dimensions_length,
+                    'dimensions_width': station.current_item.dimensions_width,
+                    'dimensions_thickness': station.current_item.dimensions_thickness,
+                    'dimensions': f"{station.current_item.dimensions_length or 0}×{station.current_item.dimensions_width or 0}×{station.current_item.dimensions_thickness or 0}"
+                }
+                
+                # DODAJ: Informacje o aktualnym pracowniku
+                if station.current_item.glued_by_worker:
+                    station_dict['current_worker'] = {
+                        'id': station.current_item.glued_by_worker.id,
+                        'name': station.current_item.glued_by_worker.name
+                    }
             
             stations_data.append(station_dict)
         
