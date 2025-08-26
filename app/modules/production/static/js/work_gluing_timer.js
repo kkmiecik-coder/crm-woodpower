@@ -111,9 +111,16 @@ function updateDisplay() {
     }
 
     // Aktualizuj wyświetlanie czasu
-    const minutes = Math.floor(displaySeconds / 60);
+    const hours = Math.floor(displaySeconds / 3600);
+    const minutes = Math.floor((displaySeconds % 3600) / 60);
     const seconds = displaySeconds % 60;
-    const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:00`;
+
+    let timeString;
+    if (hours > 0) {
+        timeString = `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    } else {
+        timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
 
     if (timerDisplay) {
         timerDisplay.textContent = timeString;
