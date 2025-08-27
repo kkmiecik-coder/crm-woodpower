@@ -2049,8 +2049,9 @@ class BaselinkerReportsService:
                 parameters = {
                     "include_custom_extra_fields": True,
                     "get_unconfirmed_orders": True,
-                    "date_confirmed_from": date_from_timestamp,
-                    "date_confirmed_to": date_to_timestamp
+                    # Filtrowanie po dacie złożenia zamówienia (date_add)
+                    "date_from": date_from_timestamp,
+                    "date_to": date_to_timestamp
                 }
 
                 # POPRAWKA: Domyślnie wykluczamy anulowane i nieopłacone (chyba że explicite żądamy wszystkich)
@@ -2074,7 +2075,32 @@ class BaselinkerReportsService:
 
                     if result.get('status') == 'SUCCESS':
                         batch_orders = result.get('orders', [])
-                    
+
+                        # Dodatkowe zabezpieczenie: odrzuć zamówienia spoza zakresu dat na podstawie date_add
+                        filtered_batch = []
+                        for order in batch_orders:
+                            order_date_add = order.get('date_add')
+                            if order_date_add is None:
+                                self.logger.debug("Pomijam zamówienie bez date_add",
+                                                  order_id=order.get('order_id'))
+                                continue
+                            try:
+                                order_date_add = int(order_date_add)
+                            except (TypeError, ValueError):
+                                self.logger.debug("Nieprawidłowe date_add",
+                                                  order_id=order.get('order_id'),
+                                                  date_add=order_date_add)
+                                continue
+
+                            if date_from_timestamp <= order_date_add <= date_to_timestamp:
+                                filtered_batch.append(order)
+                            else:
+                                self.logger.debug("Zamówienie poza zakresem date_add",
+                                                  order_id=order.get('order_id'),
+                                                  date_add=order_date_add)
+
+                        batch_orders = filtered_batch
+
                         if not batch_orders:
                             self.logger.info("Brak więcej zamówień - kończę pobieranie",
                                         page=page, total_collected=len(all_orders))

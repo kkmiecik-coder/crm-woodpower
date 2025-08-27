@@ -41,15 +41,6 @@
                             <i class="fas fa-download"></i>
                             Pobierz zamówienia
                         </button>
-                        {% if has_new_orders %}
-                        <div class="new-orders-badge">
-                            {% if api_limit_reached %}
-                            {{ new_orders_count }} lub więcej nowych zamówień
-                            {% else %}
-                            {{ new_orders_count }} nowych zamówień
-                            {% endif %}
-                        </div>
-                        {% endif %}
                     </div>
 
                     <!-- Synchronizacja statusów -->

@@ -41,7 +41,6 @@
 <!-- Aktywne zadania -->
 <div class="scheduler-section">
     <h2 class="title-with-underline-h2">⚙️ Zadania w harmonogramie</h2>
-
     {% if scheduler_status.jobs %}
     <div class="jobs-table-container">
         <table class="styled-table">
@@ -62,19 +61,19 @@
                         <br><small style="color: #666;">ID: {{ job.id }}</small>
                     </td>
                     <td>
-                        {% if job.is_paused %}
+                        {% if job.paused %}
                         <span style="color: #ff6b35; font-weight: 600;">
                             ⏸️ Wstrzymane
                         </span>
                         {% else %}
                         <span style="color: #28a745; font-weight: 600;">
-                            {{ job.next_run }}
+                            {{ job.next_run_time }}
                         </span>
                         {% endif %}
                     </td>
                     <td>{{ job.trigger }}</td>
                     <td>
-                        {% if job.is_paused %}
+                        {% if job.paused %}
                         <span class="status-badge" style="background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;">
                             ⏸️ Zatrzymane
                         </span>
@@ -86,7 +85,7 @@
                     </td>
                     <td>
                         <!-- Smart przyciski - pokazuj odpowiedni na podstawie statusu -->
-                        {% if job.is_paused %}
+                        {% if job.paused %}
                         <!-- Zadanie wstrzymane - pokaż tylko Wznów i Uruchom teraz -->
                         <button class="btn-small btn-orange" onclick="resumeJob('{{ job.id }}')">
                             ▶️ Wznów
@@ -355,7 +354,7 @@
     <h3 class="settings-section-title">
         <i class="fas fa-industry"></i> Kolejka Produkcyjna
     </h3>
-    
+
     <div class="production-queue-controls">
         <div class="production-queue-stats" id="productionQueueStats">
             <div class="stat-item">
@@ -371,7 +370,7 @@
                 <span class="stat-value" id="priorityRange">-</span>
             </div>
         </div>
-        
+
         <div class="production-queue-actions">
             <button type="button" class="btn btn-primary" id="manualRenumberBtn">
                 <i class="fas fa-sort-numeric-down"></i> Przenumeruj kolejkę
@@ -383,7 +382,7 @@
                 <i class="fas fa-sync-alt"></i> Odśwież
             </button>
         </div>
-        
+
         <!-- Automatyczne zadanie schedulera -->
         <div class="scheduler-job-status" id="productionJobStatus">
             <h4>Automatyczne przenumerowanie (00:01 codziennie)</h4>

@@ -637,44 +637,148 @@ def resume_job(job_id):
 
 def get_scheduler_status():
     """
-    Zwraca status schedulera i listę zadań
+    Pobiera status globalnego schedulera na podstawie aktywnych instancji APScheduler
+    i stanu zadań w bazie danych - nie polega na niestabilnym lock file
     
     Returns:
-        dict: Informacje o schedulerze
+        dict: Status schedulera z informacjami o running i jobs
     """
     try:
-        if not scheduler:
-            return {
-                'running': False,
-                'jobs': [],
-                'error': 'Scheduler nie został zainicjalizowany'
-            }
+        global scheduler
         
+        # 1. Sprawdź czy w OBECNYM procesie mamy aktywny scheduler
+        is_master = scheduler and isinstance(scheduler, BackgroundScheduler) and scheduler.running
+        
+        # 2. Sprawdź czy scheduler działa globalnie przez weryfikację zadań w bazie
+        scheduler_running = False
         jobs_info = []
-        for job in scheduler.get_jobs():
-            # Sprawdź czy zadanie jest aktywne (ma następne uruchomienie)
-            is_paused = job.next_run_time is None
+        
+        try:
+            from .models import JobState
+            job_states = JobState.query.all()
             
-            jobs_info.append({
-                'id': job.id,
-                'name': job.name,
-                'next_run': job.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if job.next_run_time else 'Wstrzymane',
-                'trigger': format_trigger_for_display(str(job.trigger)),
-                'func_name': job.func.__name__ if hasattr(job.func, '__name__') else 'Nieznana',
-                'is_paused': is_paused
-            })
+            # Jeśli mamy stany zadań w bazie, scheduler prawdopodobnie działa
+            if job_states:
+                scheduler_running = True
+                
+        except Exception as e:
+            print(f"[Scheduler Status] Błąd sprawdzania stanów zadań: {e}", file=sys.stderr)
+        
+        # 3. Pobierz informacje o zadaniach
+        if is_master and scheduler:
+            # Jesteśmy głównym procesem - pobierz z APScheduler
+            try:
+                jobs = scheduler.get_jobs()
+                for job in jobs:
+                    job_state = None
+                    is_paused = False
+                    
+                    try:
+                        from .models import JobState
+                        job_state = JobState.query.filter_by(job_id=job.id).first()
+                        if job_state:
+                            is_paused = job_state.state == 'paused'
+                    except Exception as e:
+                        print(f"[Scheduler Status] Błąd pobierania stanu zadania {job.id}: {e}", file=sys.stderr)
+                    
+                    job_info = {
+                        'id': job.id,
+                        'name': job.name,
+                        'next_run_time': job.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if job.next_run_time else 'Brak',
+                        'trigger': format_cron_to_readable(str(job.trigger)),
+                        'paused': is_paused,
+                        'status': 'WSTRZYMANE' if is_paused else 'AKTYWNE'
+                    }
+                    jobs_info.append(job_info)
+                    
+            except Exception as e:
+                print(f"[Scheduler Status] Błąd pobierania zadań z APScheduler: {e}", file=sys.stderr)
+        
+        elif scheduler_running:
+            # Nie jesteśmy głównym procesem - pobierz z bazy danych
+            try:
+                from .models import JobState, SchedulerConfig
+                job_states = JobState.query.all()
+                
+                # Pobierz konfigurację z bazy danych
+                configs = {}
+                config_records = SchedulerConfig.query.all()
+                for config in config_records:
+                    configs[config.key] = config.value
+                
+                # Pobierz godziny z konfiguracji
+                check_hour = int(configs.get('daily_check_hour', 9))
+                check_minute = int(configs.get('daily_check_minute', 30))
+                email_delay = int(configs.get('email_send_delay', 1))
+                
+                job_mapping = {
+                    'quote_check_daily': {
+                        'name': 'Sprawdzanie wycen do przypomnienia',
+                        'trigger': f'Codziennie o {check_hour:02d}:{check_minute:02d}'
+                    },
+                    'email_send_daily': {
+                        'name': 'Wysyłka zaplanowanych emaili', 
+                        'trigger': f'Codziennie o {check_hour + email_delay:02d}:{check_minute:02d}'
+                    },
+                    'production_queue_renumber': {
+                        'name': 'Przenumerowanie kolejki produkcyjnej',
+                        'trigger': 'Codziennie o 00:01'
+                    }
+                }
+                
+                for job_state in job_states:
+                    job_mapping_info = job_mapping.get(job_state.job_id, {})
+                    is_paused = job_state.state == 'paused'
+                    
+                    # Oblicz następne uruchomienie
+                    next_run = 'Brak'
+                    if not is_paused:
+                        from datetime import datetime, timedelta
+                        tomorrow = datetime.now() + timedelta(days=1)
+                        
+                        if job_state.job_id == 'quote_check_daily':
+                            next_run = tomorrow.strftime(f'%Y-%m-%d {check_hour:02d}:{check_minute:02d}:00')
+                        elif job_state.job_id == 'email_send_daily':
+                            email_hour = check_hour + email_delay
+                            next_run = tomorrow.strftime(f'%Y-%m-%d {email_hour:02d}:{check_minute:02d}:00')
+                        elif job_state.job_id == 'production_queue_renumber':
+                            next_run = tomorrow.strftime('%Y-%m-%d 00:01:00')
+                    
+                    job_info = {
+                        'id': job_state.job_id,
+                        'name': job_mapping_info.get('name', job_state.job_id),
+                        'next_run_time': next_run,
+                        'trigger': job_mapping_info.get('trigger', 'nieznany'),
+                        'paused': is_paused,
+                        'status': 'WSTRZYMANE' if is_paused else 'AKTYWNE'
+                    }
+                    jobs_info.append(job_info)
+                    
+            except Exception as e:
+                print(f"[Scheduler Status] Błąd pobierania stanów z bazy: {e}", file=sys.stderr)
+        
+        # 4. Określ czy scheduler działa globalnie
+        # Jeśli jesteśmy głównym procesem LUB mamy zadania w bazie, scheduler działa
+        final_running = is_master or (scheduler_running and len(jobs_info) > 0)
         
         return {
-            'running': scheduler.running,
+            'running': final_running,
+            'master_pid': os.getpid() if is_master else None,
+            'current_pid': os.getpid(),
+            'is_master': is_master,
             'jobs': jobs_info,
-            'timezone': str(scheduler.timezone)
+            'jobs_count': len(jobs_info)
         }
         
     except Exception as e:
-        print(f"[Scheduler] Błąd pobierania statusu: {e}", file=sys.stderr)
+        print(f"[Scheduler Status] Błąd sprawdzania statusu: {e}", file=sys.stderr)
         return {
-            'running': False,
+            'running': False, 
+            'master_pid': None,
+            'current_pid': os.getpid(),
+            'is_master': False,
             'jobs': [],
+            'jobs_count': 0,
             'error': str(e)
         }
 

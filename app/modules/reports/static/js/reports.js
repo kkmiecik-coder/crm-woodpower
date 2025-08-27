@@ -207,7 +207,7 @@ class ReportsManager {
     }
 
     /**
-     * Ustawienie domyślnych dat (ostatni miesiąc)
+     * Ustawienie domyślnych dat (początek bieżącego miesiąca)
      */
     setDefaultDates() {
         // Sprawdź czy są domyślne daty z serwera
