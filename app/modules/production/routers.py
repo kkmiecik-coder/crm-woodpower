@@ -209,7 +209,7 @@ def work_station_select():
     """Ekran 1: Wybór typu stanowiska (sklejanie/pakowanie)"""
     production_logger.info("Dostęp do wyboru typu stanowiska")
     
-    return render_template('work/station_select.html')
+    return render_template('station_select.html')
 
 
 @production_bp.route('/work/gluing')

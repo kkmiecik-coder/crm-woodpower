@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stanowiska Pracy - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .main-container {
+            width: 100%;
+            max-width: 1200px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 80vh;
+        }
+
+        .header {
+            margin-bottom: 60px;
+        }
+
+        .logo {
+            width: 300px;
+            height: auto;
+            margin-bottom: 25px;
+            filter: brightness(0) invert(1);
+            drop-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .title {
+            font-size: 42px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 0 3px 15px rgba(0,0,0,0.4);
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            font-size: 22px;
+            opacity: 0.9;
+            font-weight: 300;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .stations-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 40px;
+            width: 100%;
+            max-width: 1400px;
+            justify-items: center;
+        }
+
+        .station-button {
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            padding: 50px 40px;
+            border-radius: 25px;
+            text-decoration: none;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-align: center;
+            min-width: 350px;
+            min-height: 280px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+            border: 3px solid transparent;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .station-button-active {
+            overflow: hidden;
+        }
+
+        .station-button-active::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.6s ease;
+            z-index: 1;
+            border-radius: 25px;
+        }
+
+        .station-button-disabled {
+            overflow: visible;
+        }
+
+        .station-button-active {
+            cursor: pointer;
+        }
+
+        .station-button-active:hover {
+            transform: translateY(-12px) scale(1.02);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 1);
+        }
+
+        .station-button-active:hover::before {
+            left: 100%;
+        }
+
+        .station-button-active:active {
+            transform: translateY(-8px) scale(0.98);
+        }
+
+        .station-button-disabled {
+            background: rgba(255, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.8);
+            cursor: not-allowed;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .station-icon {
+            font-size: 72px;
+            margin-bottom: 20px;
+            line-height: 1;
+            z-index: 2;
+            position: relative;
+        }
+
+        .station-name {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            letter-spacing: 2px;
+            z-index: 2;
+            position: relative;
+        }
+
+        .station-description {
+            font-size: 16px;
+            opacity: 0.8;
+            line-height: 1.5;
+            max-width: 280px;
+            z-index: 2;
+            position: relative;
+        }
+
+        .disabled-badge {
+            position: absolute;
+            top: -15px;
+            right: -15px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 700;
+            transform: rotate(12deg);
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+            z-index: 3;
+            letter-spacing: 1px;
+            white-space: nowrap;
+            min-width: 80px;
+        }
+
+        /* Responsywność */
+        @media (max-width: 1200px) {
+            .stations-container {
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 30px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .stations-container {
+                grid-template-columns: 1fr;
+                gap: 25px;
+                max-width: 350px;
+            }
+            
+            .station-button {
+                min-width: 300px;
+                padding: 40px 30px;
+            }
+            
+            .title {
+                font-size: 32px;
+            }
+            
+            .subtitle {
+                font-size: 18px;
+            }
+            
+            .station-name {
+                font-size: 28px;
+            }
+            
+            .station-icon {
+                font-size: 64px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .station-button {
+                min-width: 280px;
+                min-height: 250px;
+                padding: 35px 25px;
+            }
+            
+            .disabled-badge {
+                top: -12px;
+                right: -12px;
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+        }
+
+        /* Animacje wejścia */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        .station-button:nth-child(1) {
+            animation: fadeInUp 0.8s ease-out 0.2s both;
+        }
+
+        .station-button:nth-child(2) {
+            animation: fadeInUp 0.8s ease-out 0.4s both;
+        }
+
+        .station-button:nth-child(3) {
+            animation: fadeInUp 0.8s ease-out 0.6s both;
+        }
+
+        .station-button:nth-child(4) {
+            animation: fadeInUp 0.8s ease-out 0.8s both;
+        }
+
+        .station-button:nth-child(5) {
+            animation: fadeInUp 0.8s ease-out 1.0s both;
+        }
+
+        /* Efekt pulsowania dla aktywnego przycisku */
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+            }
+            50% {
+                box-shadow: 0 15px 35px rgba(0,0,0,0.2), 0 0 30px rgba(255,255,255,0.3);
+            }
+            100% {
+                box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+            }
+        }
+
+        .station-button-active {
+            animation: pulse 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <img src="{{ url_for('static', filename='images/crm-logo.svg') }}" alt="Wood Power CRM" class="logo">
+            <h1 class="title">Wood Power CRM</h1>
+            <p class="subtitle">Wybierz stanowisko pracy</p>
+        </div>
+
+        <div class="stations-container">
+            <!-- Stanowisko optymizerka - wyłączone -->
+            <div class="station-button station-button-disabled" id="optimizerStation">
+                <div class="disabled-badge">WKRÓTCE</div>
+                <div class="station-icon">🎯</div>
+                <div class="station-name">OPTYMIZERKA</div>
+                <div class="station-description">
+                    Stanowisko optymalizacji<br>
+                    rozkroju materiałów
+                </div>
+            </div>
+
+            <!-- Stanowisko sklejania - aktywne -->
+            <a href="{{ url_for('production.work_gluing_dashboard') }}" class="station-button station-button-active" id="gluingStation">
+                <div class="station-icon">🔧</div>
+                <div class="station-name">SKLEJANIE</div>
+                <div class="station-description">
+                    Stanowisko produkcji<br>
+                    produktów drewnianych
+                </div>
+            </a>
+
+            <!-- Stanowisko szlifowanie - wyłączone -->
+            <div class="station-button station-button-disabled" id="sandingStation">
+                <div class="disabled-badge">WKRÓTCE</div>
+                <div class="station-icon">⚙️</div>
+                <div class="station-name">SZLIFOWANIE</div>
+                <div class="station-description">
+                    Stanowisko obróbki<br>
+                    powierzchni drewna
+                </div>
+            </div>
+
+            <!-- Stanowisko wykańczanie - wyłączone -->
+            <div class="station-button station-button-disabled" id="finishingStation">
+                <div class="disabled-badge">WKRÓTCE</div>
+                <div class="station-icon">✨</div>
+                <div class="station-name">WYKAŃCZANIE</div>
+                <div class="station-description">
+                    Stanowisko finalizacji<br>
+                    i kontroli jakości
+                </div>
+            </div>
+
+            <!-- Stanowisko pakowania - wyłączone -->
+            <div class="station-button station-button-disabled" id="packagingStation">
+                <div class="disabled-badge">WKRÓTCE</div>
+                <div class="station-icon">📦</div>
+                <div class="station-name">PAKOWANIE</div>
+                <div class="station-description">
+                    Stanowisko kompletacji<br>
+                    i wysyłki zamówień
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('production.static', filename='js/work_station_select.js') }}"></script>
+</body>
+</html>
