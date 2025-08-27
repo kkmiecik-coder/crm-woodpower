@@ -48,9 +48,12 @@ class EmailLog(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     schedule_id = db.Column(db.Integer, db.ForeignKey('scheduler_email_schedule.id'), nullable=True)
-    quote_id = db.Column(db.Integer, db.ForeignKey('quotes.id'), nullable=False)
+    quote_id = db.Column(db.Integer, db.ForeignKey('quotes.id'), nullable=True)  # ZMIENIONE: nullable=True dla system jobów
     email_type = db.Column(db.String(50), nullable=False)
+    job_type = db.Column(db.String(50), nullable=True)  # NOWE: typ zadania schedulera
     recipient_email = db.Column(db.String(255), nullable=False)
+    subject = db.Column(db.String(255), nullable=True)  # NOWE: temat emaila
+    content = db.Column(db.Text, nullable=True)  # NOWE: treść wiadomości
     status = db.Column(db.String(20), nullable=False)  # success/failed/error
     error_message = db.Column(db.Text, nullable=True)  # Opis błędu jeśli wystąpił
     sent_at = db.Column(db.DateTime, default=datetime.utcnow)

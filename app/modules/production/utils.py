@@ -362,7 +362,7 @@ class ProductionPriorityCalculator:
                 elif days_to_deadline <= 7:
                     priority_group = f'upcoming_{days_to_deadline}d'
                 else:
-                    priority_group = f'future_{days_to_deadline}d'
+                    priority_group = f'upcoming_{days_to_deadline}d'
             else:
                 priority_group = 'no_deadline'
         

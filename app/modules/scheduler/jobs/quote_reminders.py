@@ -350,7 +350,10 @@ def send_quote_reminder_email(quote):
             schedule_id=schedule_entry.id,
             quote_id=quote.id,
             email_type='quote_reminder_7_days',
+            job_type='quote_reminder',  # NOWE: typ zadania
             recipient_email=client_email,
+            subject=f'Przypomnienie o wycenie #{quote.quote_number}',  # NOWE: temat
+            content=f'Wysłano przypomnienie o wycenie {quote.quote_number} do {client_email}',  # NOWE: treść
             status='success',
             sent_at=datetime.now()
         )
@@ -412,7 +415,10 @@ def log_email_error(quote_id, email_type, recipient_email, error_message):
         log_entry = EmailLog(
             quote_id=quote_id,
             email_type=email_type,
+            job_type='quote_reminder',  # NOWE: typ zadania
             recipient_email=recipient_email,
+            subject='Błąd przypomnienia o wycenie',  # NOWE: temat
+            content=error_message,  # NOWE: treść błędu
             status='failed',
             error_message=error_message,
             sent_at=datetime.now()

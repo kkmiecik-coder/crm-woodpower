@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import sys
 
 scheduler_logger = get_structured_logger('scheduler.routers')
-scheduler_logger.info("✅ production_logger zainicjowany poprawnie w sheduler.py")
+scheduler_logger.info("✅ scheduler_logger zainicjowany poprawnie w scheduler routers.py")
 
 FRIENDLY_MESSAGES = {
     'jobs': {
@@ -777,8 +777,8 @@ def api_production_queue_job_status():
         
         # Pobierz ostatnie logi zadania
         from modules.scheduler.models import EmailLog
-        recent_logs = EmailLog.query.filter_by(
-            job_type='production_queue_renumber'
+        recent_logs = EmailLog.query.filter(
+            EmailLog.job_type == 'production_queue_renumber'
         ).order_by(EmailLog.sent_at.desc()).limit(10).all()
         
         return jsonify({
