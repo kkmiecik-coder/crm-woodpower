@@ -362,7 +362,7 @@ class ProductionPriorityCalculator:
                 elif days_to_deadline <= 7:
                     priority_group = f'upcoming_{days_to_deadline}d'
                 else:
-                    priority_group = f'future_{days_to_deadline}d'
+                    priority_group = f'upcoming_{days_to_deadline}d'
             else:
                 priority_group = 'no_deadline'
         
@@ -794,3 +794,508 @@ class ProductionStatsCalculator:
             self.logger.error("Błąd podczas obliczania statystyk stanowiska",
                             station_id=station_id, error=str(e))
             return {}
+
+def calculate_packaging_priority(products):
+    """
+    Oblicza priorytet pakowania na podstawie listy produktów
+    
+    Args:
+        products (list): Lista obiektów ProductionItem
+        
+    Returns:
+        dict: {
+            'priority': 'urgent'|'medium'|'normal',
+            'deadline': date|None,
+            'days_until_deadline': int|None,
+            'reason': str
+        }
+    """
+    try:
+        if not products:
+            return {
+                'priority': 'normal',
+                'deadline': None,
+                'days_until_deadline': None,
+                'reason': 'Brak produktów'
+            }
+        
+        # Znajdź najwcześniejszy deadline
+        deadlines = [p.deadline_date for p in products if p.deadline_date]
+        
+        if not deadlines:
+            return {
+                'priority': 'normal',
+                'deadline': None,
+                'days_until_deadline': None,
+                'reason': 'Brak deadline'
+            }
+        
+        earliest_deadline = min(deadlines)
+        today = date.today()
+        days_diff = (earliest_deadline - today).days
+        
+        # Logika priorytetyzacji
+        if days_diff < 0:
+            return {
+                'priority': 'urgent',
+                'deadline': earliest_deadline,
+                'days_until_deadline': days_diff,
+                'reason': f'Opóźnione o {abs(days_diff)} dni'
+            }
+        elif days_diff == 0:
+            return {
+                'priority': 'urgent',
+                'deadline': earliest_deadline,
+                'days_until_deadline': days_diff,
+                'reason': 'Deadline dziś'
+            }
+        elif days_diff == 1:
+            return {
+                'priority': 'urgent',
+                'deadline': earliest_deadline,
+                'days_until_deadline': days_diff,
+                'reason': 'Deadline jutro'
+            }
+        elif days_diff <= 3:
+            return {
+                'priority': 'medium',
+                'deadline': earliest_deadline,
+                'days_until_deadline': days_diff,
+                'reason': f'Deadline za {days_diff} dni'
+            }
+        else:
+            return {
+                'priority': 'normal',
+                'deadline': earliest_deadline,
+                'days_until_deadline': days_diff,
+                'reason': f'Deadline za {days_diff} dni'
+            }
+            
+    except Exception as e:
+        production_logger.error("Błąd obliczania priorytetu pakowania", error=str(e))
+        return {
+            'priority': 'normal',
+            'deadline': None,
+            'days_until_deadline': None,
+            'reason': f'Błąd: {str(e)}'
+        }
+
+
+def format_packaging_deadline(deadline_date):
+    """
+    Formatuje deadline na czytelny tekst dla interfejsu pakowania
+    
+    Args:
+        deadline_date (date): Data deadline
+        
+    Returns:
+        dict: {
+            'text': str,
+            'priority': 'urgent'|'medium'|'normal',
+            'css_class': str
+        }
+    """
+    try:
+        if not deadline_date:
+            return {
+                'text': 'BRAK',
+                'priority': 'normal',
+                'css_class': 'normal'
+            }
+        
+        today = date.today()
+        days_diff = (deadline_date - today).days
+        
+        if days_diff < 0:
+            return {
+                'text': f'OPÓŹNIONE ({abs(days_diff)} dni)',
+                'priority': 'urgent',
+                'css_class': 'urgent'
+            }
+        elif days_diff == 0:
+            return {
+                'text': 'DZIŚ',
+                'priority': 'urgent',
+                'css_class': 'urgent'
+            }
+        elif days_diff == 1:
+            return {
+                'text': 'JUTRO',
+                'priority': 'urgent',
+                'css_class': 'urgent'
+            }
+        elif days_diff <= 3:
+            return {
+                'text': f'{days_diff} DNI',
+                'priority': 'medium',
+                'css_class': 'medium'
+            }
+        elif days_diff <= 7:
+            return {
+                'text': f'{days_diff} DNI',
+                'priority': 'normal',
+                'css_class': 'normal'
+            }
+        else:
+            return {
+                'text': deadline_date.strftime('%d.%m'),
+                'priority': 'normal',
+                'css_class': 'normal'
+            }
+            
+    except Exception as e:
+        production_logger.error("Błąd formatowania deadline", error=str(e))
+        return {
+            'text': 'BŁĄD',
+            'priority': 'normal',
+            'css_class': 'normal'
+        }
+
+
+def validate_packaging_order(order_summary):
+    """
+    Waliduje czy zamówienie może być pakowane
+    
+    Args:
+        order_summary (ProductionOrderSummary): Zamówienie do walidacji
+        
+    Returns:
+        dict: {
+            'valid': bool,
+            'errors': list,
+            'warnings': list
+        }
+    """
+    errors = []
+    warnings = []
+    
+    try:
+        # Sprawdź podstawowe wymagania
+        if not order_summary.all_items_glued:
+            errors.append("Nie wszystkie produkty zostały sklejone")
+        
+        if order_summary.packaging_status == 'completed':
+            errors.append("Zamówienie zostało już spakowane")
+        
+        # Sprawdź produkty
+        from .models import ProductionItem
+        products = ProductionItem.query.filter_by(
+            baselinker_order_id=order_summary.baselinker_order_id
+        ).all()
+        
+        if not products:
+            errors.append("Zamówienie nie zawiera produktów")
+        else:
+            # Sprawdź statusy produktów
+            completed_products = [p for p in products if p.status.name == 'completed']
+            
+            if len(completed_products) != len(products):
+                errors.append(
+                    f"Nie wszystkie produkty ukończone: {len(completed_products)}/{len(products)}"
+                )
+            
+            # Sprawdź czasy sklejenia
+            products_without_gluing_time = [
+                p for p in completed_products 
+                if p.gluing_completed_at is None
+            ]
+            
+            if products_without_gluing_time:
+                warnings.append(
+                    f"{len(products_without_gluing_time)} produktów bez czasu sklejenia"
+                )
+        
+        # Sprawdź deadline
+        priority_info = calculate_packaging_priority(products)
+        if priority_info['priority'] == 'urgent' and priority_info['days_until_deadline'] is not None:
+            if priority_info['days_until_deadline'] < 0:
+                warnings.append(f"Zamówienie opóźnione o {abs(priority_info['days_until_deadline'])} dni")
+            elif priority_info['days_until_deadline'] <= 1:
+                warnings.append("Pilny deadline - należy spakować priorytetowo")
+        
+        return {
+            'valid': len(errors) == 0,
+            'errors': errors,
+            'warnings': warnings
+        }
+        
+    except Exception as e:
+        production_logger.error(f"Błąd walidacji zamówienia {order_summary.id}", error=str(e))
+        return {
+            'valid': False,
+            'errors': [f"Błąd walidacji: {str(e)}"],
+            'warnings': []
+        }
+
+
+def sort_packaging_queue(orders_data):
+    """
+    Sortuje kolejkę pakowania według priorytetów
+    
+    Args:
+        orders_data (list): Lista słowników z danymi zamówień
+        
+    Returns:
+        list: Posortowana lista zamówień
+    """
+    try:
+        def sort_key(order):
+            # Priorytet (urgent = 0, medium = 1, normal = 2)
+            priority_weight = {
+                'urgent': 0,
+                'medium': 1, 
+                'normal': 2
+            }.get(order.get('priority', 'normal'), 2)
+            
+            # Deadline (brak deadline = data maksymalna)
+            deadline = order.get('deadline')
+            if deadline:
+                try:
+                    deadline_date = datetime.fromisoformat(deadline.replace('Z', '+00:00')).date()
+                except:
+                    deadline_date = date.max
+            else:
+                deadline_date = date.max
+            
+            # Data utworzenia (starsze pierwsze)
+            created_at = order.get('created_at')
+            if created_at:
+                try:
+                    created_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                except:
+                    created_date = datetime.max
+            else:
+                created_date = datetime.max
+            
+            return (priority_weight, deadline_date, created_date)
+        
+        sorted_orders = sorted(orders_data, key=sort_key)
+        
+        production_logger.info(f"Posortowano {len(sorted_orders)} zamówień w kolejce pakowania")
+        
+        return sorted_orders
+        
+    except Exception as e:
+        production_logger.error("Błąd sortowania kolejki pakowania", error=str(e))
+        return orders_data  # Zwróć nieposortowaną listę
+
+
+def calculate_packaging_stats_summary(orders):
+    """
+    Oblicza statystyki podsumowujące dla kolejki pakowania
+    
+    Args:
+        orders (list): Lista zamówień do pakowania
+        
+    Returns:
+        dict: Statystyki kolejki
+    """
+    try:
+        if not orders:
+            return {
+                'total_orders': 0,
+                'total_products': 0,
+                'urgent_orders': 0,
+                'medium_orders': 0,
+                'normal_orders': 0,
+                'overdue_orders': 0,
+                'avg_products_per_order': 0
+            }
+        
+        stats = {
+            'total_orders': len(orders),
+            'total_products': 0,
+            'urgent_orders': 0,
+            'medium_orders': 0,
+            'normal_orders': 0,
+            'overdue_orders': 0
+        }
+        
+        for order in orders:
+            # Liczba produktów
+            products_count = order.get('total_items_count', 0)
+            stats['total_products'] += products_count
+            
+            # Priorytety
+            priority = order.get('priority', 'normal')
+            if priority == 'urgent':
+                stats['urgent_orders'] += 1
+            elif priority == 'medium':
+                stats['medium_orders'] += 1
+            else:
+                stats['normal_orders'] += 1
+            
+            # Opóźnienia
+            deadline = order.get('deadline')
+            if deadline:
+                try:
+                    deadline_date = datetime.fromisoformat(deadline.replace('Z', '+00:00')).date()
+                    if deadline_date < date.today():
+                        stats['overdue_orders'] += 1
+                except:
+                    pass
+        
+        # Średnia liczba produktów na zamówienie
+        stats['avg_products_per_order'] = round(
+            stats['total_products'] / stats['total_orders'], 1
+        ) if stats['total_orders'] > 0 else 0
+        
+        return stats
+        
+    except Exception as e:
+        production_logger.error("Błąd obliczania statystyk pakowania", error=str(e))
+        return {
+            'total_orders': 0,
+            'total_products': 0,
+            'urgent_orders': 0,
+            'medium_orders': 0,
+            'normal_orders': 0,
+            'overdue_orders': 0,
+            'avg_products_per_order': 0
+        }
+
+
+def format_packaging_duration(duration_seconds):
+    """
+    Formatuje czas pakowania na czytelny tekst
+    
+    Args:
+        duration_seconds (int): Czas w sekundach
+        
+    Returns:
+        str: Sformatowany czas (np. "15 min", "1h 23min", "2h")
+    """
+    try:
+        if duration_seconds is None or duration_seconds < 0:
+            return "---"
+        
+        hours = duration_seconds // 3600
+        minutes = (duration_seconds % 3600) // 60
+        
+        if hours == 0:
+            if minutes == 0:
+                return "< 1 min"
+            return f"{minutes} min"
+        elif hours < 24:
+            if minutes == 0:
+                return f"{hours}h"
+            return f"{hours}h {minutes}min"
+        else:
+            days = hours // 24
+            remaining_hours = hours % 24
+            if remaining_hours == 0:
+                return f"{days}d"
+            return f"{days}d {remaining_hours}h"
+            
+    except Exception as e:
+        production_logger.error("Błąd formatowania czasu pakowania", error=str(e))
+        return "---"
+
+
+def generate_packaging_report_data(date_from=None, date_to=None):
+    """
+    Generuje dane do raportu pakowania
+    
+    Args:
+        date_from (date): Data początkowa
+        date_to (date): Data końcowa
+        
+    Returns:
+        dict: Dane raportu
+    """
+    try:
+        from .models import ProductionOrderSummary, ProductionItem
+        from sqlalchemy import func
+        
+        if date_from is None:
+            date_from = date.today()
+        if date_to is None:
+            date_to = date.today()
+        
+        production_logger.info(f"Generowanie raportu pakowania {date_from} - {date_to}")
+        
+        # Zamówienia spakowane w okresie
+        packed_orders = ProductionOrderSummary.query.filter(
+            ProductionOrderSummary.packaging_status == 'completed',
+            func.date(ProductionOrderSummary.updated_at) >= date_from,
+            func.date(ProductionOrderSummary.updated_at) <= date_to
+        ).all()
+        
+        # Produkty spakowane w okresie
+        packed_products = ProductionItem.query.filter(
+            func.date(ProductionItem.packaging_completed_at) >= date_from,
+            func.date(ProductionItem.packaging_completed_at) <= date_to
+        ).all()
+        
+        # Statystyki podstawowe
+        report_data = {
+            'period': {
+                'date_from': date_from.isoformat(),
+                'date_to': date_to.isoformat(),
+                'days_count': (date_to - date_from).days + 1
+            },
+            'summary': {
+                'orders_packed': len(packed_orders),
+                'products_packed': len(packed_products),
+                'avg_orders_per_day': round(len(packed_orders) / ((date_to - date_from).days + 1), 1),
+                'avg_products_per_day': round(len(packed_products) / ((date_to - date_from).days + 1), 1)
+            },
+            'orders': [],
+            'products_by_species': {},
+            'packaging_times': []
+        }
+        
+        # Szczegóły zamówień
+        for order in packed_orders:
+            duration = order.get_packaging_duration()
+            
+            report_data['orders'].append({
+                'baselinker_order_id': order.baselinker_order_id,
+                'products_count': order.total_items_count,
+                'packaging_duration': duration,
+                'packaging_duration_formatted': format_packaging_duration(duration),
+                'completed_at': order.updated_at.isoformat() if order.updated_at else None
+            })
+        
+        # Analiza gatunków drewna
+        for product in packed_products:
+            species = product.wood_species or 'Nieznany'
+            if species not in report_data['products_by_species']:
+                report_data['products_by_species'][species] = 0
+            report_data['products_by_species'][species] += product.quantity
+        
+        # Czasy pakowania
+        packaging_durations = [
+            order.get_packaging_duration() 
+            for order in packed_orders 
+            if order.get_packaging_duration() is not None
+        ]
+        
+        if packaging_durations:
+            report_data['packaging_times'] = {
+                'avg_duration': round(sum(packaging_durations) / len(packaging_durations)),
+                'min_duration': min(packaging_durations),
+                'max_duration': max(packaging_durations),
+                'count': len(packaging_durations)
+            }
+        
+        production_logger.info("Raport pakowania wygenerowany", summary=report_data['summary'])
+        
+        return report_data
+        
+    except Exception as e:
+        production_logger.error("Błąd generowania raportu pakowania", error=str(e))
+        return {
+            'period': {
+                'date_from': date_from.isoformat() if date_from else None,
+                'date_to': date_to.isoformat() if date_to else None,
+                'days_count': 0
+            },
+            'summary': {
+                'orders_packed': 0,
+                'products_packed': 0,
+                'avg_orders_per_day': 0,
+                'avg_products_per_day': 0
+            },
+            'error': str(e)
+        }

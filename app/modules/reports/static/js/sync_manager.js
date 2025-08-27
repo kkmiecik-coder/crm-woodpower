@@ -398,12 +398,12 @@ class SyncManager {
 
         this.daysCancelBtn.addEventListener('click', () => {
             console.log('[SyncManager] ❌ Anulowanie wyboru dni');
-            this.hideDaysModal();
+            this.reset();
         });
 
         this.daysCloseBtn.addEventListener('click', () => {
             console.log('[SyncManager] ❌ Zamykanie modala dni (X)');
-            this.hideDaysModal();
+            this.reset();
         });
 
         // === KROK 2: Lista zamówień ===
@@ -415,12 +415,12 @@ class SyncManager {
 
         this.ordersCancelBtn.addEventListener('click', () => {
             console.log('[SyncManager] ❌ Anulowanie wyboru zamówień');
-            this.hideOrdersModal();
+            this.reset();
         });
 
         this.ordersCloseBtn.addEventListener('click', () => {
             console.log('[SyncManager] ❌ Zamykanie modala zamówień (X)');
-            this.hideOrdersModal();
+            this.reset();
         });
 
         // === PROGRESSIVE LOADING EVENT LISTENERS ===
@@ -459,7 +459,7 @@ class SyncManager {
         }
 
         if (this.dimensionsCloseBtn) {
-            this.dimensionsCloseBtn.addEventListener('click', () => this.hideDimensionsModal());
+            this.dimensionsCloseBtn.addEventListener('click', () => this.reset());
         }
 
         // === Globalne event listenery ===
@@ -467,10 +467,10 @@ class SyncManager {
             if (e.key === 'Escape') {
                 if (this.ordersModal && this.ordersModal.classList.contains('show')) {
                     console.log('[SyncManager] ⌨️ Escape - zamykanie modala zamówień');
-                    this.hideOrdersModal();
+                    this.reset();
                 } else if (this.daysModal && this.daysModal.classList.contains('show')) {
                     console.log('[SyncManager] ⌨️ Escape - zamykanie modala dni');
-                    this.hideDaysModal();
+                    this.reset();
                 }
             }
         });
@@ -479,14 +479,14 @@ class SyncManager {
         this.daysModal.addEventListener('click', (e) => {
             if (e.target === this.daysModal || e.target.classList.contains('sync-modal-overlay')) {
                 console.log('[SyncManager] 🖱️ Kliknięcie w overlay - zamykanie modala dni');
-                this.hideDaysModal();
+                this.reset();
             }
         });
 
         this.ordersModal.addEventListener('click', (e) => {
             if (e.target === this.ordersModal || e.target.classList.contains('sync-modal-overlay')) {
                 console.log('[SyncManager] 🖱️ Kliknięcie w overlay - zamykanie modala zamówień');
-                this.hideOrdersModal();
+                this.reset();
             }
         });
 
@@ -495,7 +495,7 @@ class SyncManager {
             this.dimensionsModal.addEventListener('click', (e) => {
                 if (e.target === this.dimensionsModal || e.target.classList.contains('sync-modal-overlay')) {
                     console.log('[SyncManager] 🖱️ Kliknięcie w overlay - zamykanie modala wymiarów');
-                    this.hideDimensionsModal();
+                    this.reset();
                 }
             });
         }
@@ -3342,13 +3342,13 @@ class SyncManager {
             this.showOrdersModal();
         };
 
-        closeBtn?.addEventListener('click', closeModal);
-        cancelBtn?.addEventListener('click', closeModal);
+        closeBtn?.addEventListener('click', () => this.reset());
+        cancelBtn?.addEventListener('click', () => this.reset());
         backBtn?.addEventListener('click', closeModal);
 
         const handleKeydown = (e) => {
             if (e.key === 'Escape') {
-                closeModal();
+                this.reset();
                 document.removeEventListener('keydown', handleKeydown);
             }
         };
@@ -3356,7 +3356,7 @@ class SyncManager {
 
         modal.addEventListener('click', (e) => {
             if (e.target === modal || e.target.classList.contains('sync-modal-overlay')) {
-                closeModal();
+                this.reset();
             }
         });
 
@@ -3574,6 +3574,17 @@ class SyncManager {
         this.hideDatePreview();
         this.ordersWithDimensionIssues.clear();
         this.dimensionFixes = {};
+
+        // Wyczyszczenie stanów i widoków modala zamówień
+        if (this.ordersList) this.ordersList.innerHTML = '';
+        if (this.ordersCount) this.ordersCount.textContent = '';
+        if (this.ordersListContainer) this.ordersListContainer.style.display = 'none';
+        if (this.ordersLoadingState) this.ordersLoadingState.style.display = 'none';
+        if (this.ordersEmptyState) this.ordersEmptyState.style.display = 'none';
+        if (this.ordersErrorState) this.ordersErrorState.style.display = 'none';
+
+        // Wyczyść listę wymiarów jeśli była używana
+        if (this.dimensionsList) this.dimensionsList.innerHTML = '';
     }
 
     formatDate(date) {
@@ -3813,6 +3824,37 @@ class SyncManager {
 
     // ============ NOWE METODY DO OBSŁUGI OBJĘTOŚCI ============
 
+    async loadDatabaseOrders() {
+        console.log('[SyncManager] 🔄 Odświeżanie listy zamówień z bazy danych');
+        try {
+            await this.fetchOrders();
+            if (window.reportsManager && typeof window.reportsManager.refreshData === 'function') {
+                window.reportsManager.refreshData();
+            }
+        } catch (error) {
+            console.error('[SyncManager] ❌ Błąd odświeżania zamówień:', error);
+            this.showNotification(`❌ Błąd odświeżania: ${error.message}`, 'error');
+        }
+    }
+
+    updateBulkActionsVisibility() {
+        if (typeof this.updateOrdersSaveButton === 'function') {
+            this.updateOrdersSaveButton();
+        }
+    }
+
+    updateSelectedOrdersDisplay() {
+        if (!this.ordersList) return;
+        const checkboxes = this.ordersList.querySelectorAll('.modal-bl-sync-checkbox');
+        checkboxes.forEach(checkbox => {
+            const id = String(checkbox.getAttribute('data-order-id'));
+            checkbox.checked = this.selectedOrderIds.has(id);
+        });
+        if (typeof this.updateOrdersCount === 'function') {
+            this.updateOrdersCount();
+        }
+    }
+
     saveOrdersWithVolumes(volumeData) {
         console.log('[SyncManager] 📥 Zapisywanie zamówień z objętościami');
 
@@ -3912,7 +3954,7 @@ class SyncManager {
 
             console.log('[SyncManager] 📤 Wysyłanie żądania zapisania zamówień:', payload);
 
-            fetch('/reports/api/save_orders_with_volumes', {
+            fetch('/reports/api/save-orders-with-volumes', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -3924,7 +3966,7 @@ class SyncManager {
                     console.log('[SyncManager] 📥 Odpowiedź z serwera:', data);
 
                     if (data.success) {
-                        this.showNotification('✅ Zamówienia zapisane pomyślnie!', 'success');
+                        window.showToast('✅ Zamówienia zapisane pomyślnie!', 'success');
                         this.hideSaveProgress();
 
                         // Odśwież listę zamówień z bazy danych
@@ -3943,13 +3985,13 @@ class SyncManager {
                 })
                 .catch(error => {
                     console.error('[SyncManager] ❌ Błąd zapisywania zamówień:', error);
-                    this.showNotification(`❌ Błąd zapisywania: ${error.message}`, 'error');
+                    window.showToast(`❌ Błąd zapisywania: ${error.message}`, 'error');
                     this.hideSaveProgress();
                 });
 
         } catch (error) {
             console.error('[SyncManager] ❌ Błąd przygotowania danych:', error);
-            this.showNotification(`❌ Błąd przygotowania danych: ${error.message}`, 'error');
+            window.showToast(`❌ Błąd przygotowania danych: ${error.message}`, 'error');
             this.hideSaveProgress();
         }
     }

@@ -235,9 +235,17 @@ def reports_home():
         # Pobierz ostatni log synchronizacji
         last_sync = ReportsSyncLog.query.order_by(ReportsSyncLog.sync_date.desc()).first()
         
-        # ZMIANA: Domyślne daty do wyświetlenia w interfejsie - ostatnie 30 dni dla wygody
-        default_date_from = datetime.now().date() - timedelta(days=30)
-        default_date_to = datetime.now().date()
+        # Domyślne daty do wyświetlenia w interfejsie
+        # Start: pierwszy dzień bieżącego miesiąca (lub poprzedniego, jeśli dziś jest 1.)
+        today = datetime.now().date()
+        first_day_current = today.replace(day=1)
+        if today.day == 1:
+            # Jeśli nowy miesiąc, sięgnij do początku poprzedniego
+            prev_month_last_day = first_day_current - timedelta(days=1)
+            default_date_from = prev_month_last_day.replace(day=1)
+        else:
+            default_date_from = first_day_current
+        default_date_to = today
         
         context = {
             'user_email': user_email,
@@ -2072,6 +2080,23 @@ def api_fetch_orders_for_selection():
         
         all_orders = result['orders']
         reports_logger.info(f"Fetched {len(all_orders)} orders from date range")
+
+        # Dodatkowe filtrowanie po dacie złożenia zamówienia (date_add)
+        start_ts = int(start_date.timestamp())
+        end_ts = int(end_date.timestamp()) + 86399
+        filtered_orders = []
+        for order in all_orders:
+            order_date_add = order.get('date_add')
+            try:
+                order_date_add = int(order_date_add)
+            except (TypeError, ValueError):
+                continue
+            if start_ts <= order_date_add <= end_ts:
+                filtered_orders.append(order)
+
+        reports_logger.info("Orders after date_add filtering",
+                             before=len(all_orders), after=len(filtered_orders))
+        all_orders = filtered_orders
         
         # ZMIANA: Filtruj zamówienia - pokaż TYLKO te które NIE istnieją w bazie danych
         processed_orders = []

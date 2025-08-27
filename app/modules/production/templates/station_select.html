@@ -49,14 +49,6 @@
             drop-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
 
-        .title {
-            font-size: 42px;
-            font-weight: 700;
-            margin-bottom: 10px;
-            text-shadow: 0 3px 15px rgba(0,0,0,0.4);
-            letter-spacing: 1px;
-        }
-
         .subtitle {
             font-size: 22px;
             opacity: 0.9;
@@ -294,7 +286,6 @@
     <div class="main-container">
         <div class="header">
             <img src="{{ url_for('static', filename='images/crm-logo.svg') }}" alt="Wood Power CRM" class="logo">
-            <h1 class="title">Wood Power CRM</h1>
             <p class="subtitle">Wybierz stanowisko pracy</p>
         </div>
 
@@ -343,15 +334,14 @@
             </div>
 
             <!-- Stanowisko pakowania - wyłączone -->
-            <div class="station-button station-button-disabled" id="packagingStation">
-                <div class="disabled-badge">WKRÓTCE</div>
+            <a href="{{ url_for('production.work_packaging_dashboard') }}" class="station-button station-button-active" id="packagingStation">
                 <div class="station-icon">📦</div>
                 <div class="station-name">PAKOWANIE</div>
                 <div class="station-description">
                     Stanowisko kompletacji<br>
                     i wysyłki zamówień
                 </div>
-            </div>
+            </a>
         </div>
     </div>
 

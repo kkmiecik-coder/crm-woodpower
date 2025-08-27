@@ -40,12 +40,14 @@ def renumber_production_queue_job():
         # Opcjonalnie: zapisz log do bazy danych (dla kompatybilności z systemem email logów)
         try:
             email_log = EmailLog(
-                recipient_email='system@woodpower.pl',
-                subject='Przenumerowanie kolejki produkcyjnej',
+                quote_id=None,  # Brak quote_id dla zadań systemowych
+                email_type='system_job',
+                job_type='production_queue_renumber',  # NOWE: typ zadania
+                recipient_email='admin@woodpower.pl',
+                subject='Przenumerowanie kolejki produkcyjnej',  # NOWE: temat
                 content=f"Kolejka przenumerowana pomyślnie. Zaktualizowano {result.get('renumbered', 0)} produktów z {result.get('total_items', 0)} w kolejce.",
                 status='sent',
-                sent_at=datetime.utcnow(),
-                job_type='production_queue_renumber'
+                sent_at=datetime.utcnow()
             )
             
             from extensions import db
@@ -131,9 +133,9 @@ def get_production_queue_stats():
             batch_groups[group] += 1
         
         # Znajdź ostatnie przenumerowanie (z logów)
-        last_renumber_log = EmailLog.query.filter_by(
-            job_type='production_queue_renumber',
-            status='sent'
+        last_renumber_log = EmailLog.query.filter(
+            EmailLog.job_type == 'production_queue_renumber',
+            EmailLog.status == 'sent'
         ).order_by(EmailLog.sent_at.desc()).first()
         
         stats = {

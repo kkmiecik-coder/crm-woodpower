@@ -1,5 +1,6 @@
 from flask import render_template, request, jsonify, flash, redirect, url_for, session
 from modules.scheduler import scheduler_bp
+from modules.logging import get_structured_logger
 from modules.scheduler.models import EmailSchedule, EmailLog, SchedulerConfig
 from modules.scheduler.scheduler_service import (
     get_scheduler_status, trigger_job_manually, pause_job, resume_job, 
@@ -9,6 +10,9 @@ from modules.scheduler.jobs.quote_reminders import get_quote_reminders_stats, ch
 from extensions import db
 from datetime import datetime, timedelta
 import sys
+
+scheduler_logger = get_structured_logger('scheduler.routers')
+scheduler_logger.info("✅ scheduler_logger zainicjowany poprawnie w scheduler routers.py")
 
 FRIENDLY_MESSAGES = {
     'jobs': {
@@ -773,8 +777,8 @@ def api_production_queue_job_status():
         
         # Pobierz ostatnie logi zadania
         from modules.scheduler.models import EmailLog
-        recent_logs = EmailLog.query.filter_by(
-            job_type='production_queue_renumber'
+        recent_logs = EmailLog.query.filter(
+            EmailLog.job_type == 'production_queue_renumber'
         ).order_by(EmailLog.sent_at.desc()).limit(10).all()
         
         return jsonify({

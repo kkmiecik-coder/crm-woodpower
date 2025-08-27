@@ -197,3 +197,6 @@ app/modules/.DS_Store
 app/.DS_Store
 app/modules/production/templates/.DS_Store
 app/modules/production/.DS_Store
+app/modules/scheduler/static/.DS_Store
+app/modules/scheduler/static/.DS_Store
+app/modules/scheduler/.DS_Store

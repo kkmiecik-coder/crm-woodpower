@@ -5,10 +5,11 @@ Routing i views dla modułu Production
 
 from flask import render_template, request, jsonify, session, redirect, url_for, flash
 from functools import wraps
+from datetime import datetime, date
 from . import production_bp
 from .models import (
     ProductionItem, ProductionStatus, ProductionStation,
-    Worker, ProductionConfig
+    Worker, ProductionConfig, ProductionOrderSummary
 )
 from .service import ProductionService
 from .utils import ProductionStatsCalculator
@@ -1194,6 +1195,258 @@ def api_priority_explanation(item_id):
     except Exception as e:
         production_logger.error("Błąd wyjaśnienia priorytetu",
                               item_id=item_id, error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ============================================================================
+# STANOWISKO PAKOWANIA
+# ============================================================================
+
+@production_bp.route('/work/packaging')
+def work_packaging_dashboard():
+    """Interfejs stanowiska pakowania"""
+    production_logger.info("Dostęp do interfejsu pakowania")
+    
+    try:
+        return render_template('packaging_dashboard.html')
+        
+    except Exception as e:
+        production_logger.error("Błąd podczas ładowania interfejsu pakowania", error=str(e))
+        return render_template('error.html',
+                             error="Błąd ładowania interfejsu pakowania")
+
+
+# ===== API ENDPOINTS DLA PAKOWANIA =====
+
+@production_bp.route('/api/packaging/queue')
+def api_packaging_queue():
+    """API: Lista zamówień gotowych do pakowania"""
+    production_logger.info("API: Pobieranie kolejki pakowania")
+    
+    try:
+        # Pobierz zamówienia gotowe do pakowania
+        orders_ready = ProductionOrderSummary.query.filter(
+            ProductionOrderSummary.all_items_glued == True,
+            ProductionOrderSummary.packaging_status.in_(['waiting', 'in_progress'])
+        ).order_by(
+            ProductionOrderSummary.created_at.asc()
+        ).all()
+        
+        orders_data = []
+        
+        for order in orders_ready:
+            # Pobierz produkty zamówienia
+            products = ProductionItem.query.filter_by(
+                baselinker_order_id=order.baselinker_order_id
+            ).all()
+            
+            # Oblicz priorytet na podstawie deadline
+            earliest_deadline = None
+            if products:
+                deadlines = [p.deadline_date for p in products if p.deadline_date]
+                if deadlines:
+                    earliest_deadline = min(deadlines)
+            
+            # Ustal priorytet
+            priority = 'normal'
+            if earliest_deadline:
+                today = date.today()
+                days_diff = (earliest_deadline - today).days
+                
+                if days_diff < 0:
+                    priority = 'urgent'  # Opóźnione
+                elif days_diff <= 1:
+                    priority = 'urgent'  # Dziś lub jutro
+                elif days_diff <= 3:
+                    priority = 'medium'  # Do 3 dni
+            
+            # Przygotuj dane produktów
+            products_data = []
+            for product in products:
+                products_data.append({
+                    'name': product.product_name,
+                    'qty': product.quantity,
+                    'wood_species': product.wood_species,
+                    'wood_technology': product.wood_technology,
+                    'wood_class': product.wood_class,
+                    'finish_type': product.finish_type
+                })
+            
+            order_data = {
+                'id': order.id,
+                'baselinker_order_id': order.baselinker_order_id,
+                'order_number': order.internal_order_number or f"#{order.baselinker_order_id}",
+                'customer_name': f"Zamówienie #{order.baselinker_order_id}",
+                'deadline': earliest_deadline.isoformat() if earliest_deadline else None,
+                'priority': priority,
+                'total_items_count': order.total_items_count,
+                'completed_items_count': order.completed_items_count,
+                'all_items_glued': order.all_items_glued,
+                'packaging_status': order.packaging_status,
+                'products': products_data,
+                'created_at': order.created_at.isoformat() if order.created_at else None
+            }
+            
+            orders_data.append(order_data)
+        
+        production_logger.info(f"API: Zwrócono {len(orders_data)} zamówień do pakowania")
+        
+        return jsonify({
+            'success': True,
+            'count': len(orders_data),
+            'orders': orders_data
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API kolejki pakowania", error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'orders': []
+        }), 500
+
+
+@production_bp.route('/api/packaging/complete/<int:order_id>', methods=['POST'])
+def api_packaging_complete(order_id):
+    """API: Oznacz zamówienie jako spakowane"""
+    production_logger.info(f"API: Pakowanie zamówienia {order_id}")
+    
+    try:
+        data = request.get_json() or {}
+        baselinker_order_id = data.get('baselinker_order_id')
+        update_baselinker = data.get('update_baselinker', True)
+        
+        # Pobierz zamówienie
+        order_summary = ProductionOrderSummary.query.get_or_404(order_id)
+        
+        # Sprawdź czy zamówienie można pakować
+        if not order_summary.all_items_glued:
+            production_logger.warning(f"Próba pakowania zamówienia {order_id} - nie wszystkie produkty sklejone")
+            return jsonify({
+                'success': False,
+                'error': 'Nie wszystkie produkty zostały sklejone'
+            }), 400
+        
+        if order_summary.packaging_status == 'completed':
+            production_logger.warning(f"Próba pakowania już spakowanego zamówienia {order_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Zamówienie zostało już spakowane'
+            }), 400
+        
+        # Aktualizuj status pakowania
+        order_summary.packaging_status = 'completed'
+        order_summary.updated_at = datetime.utcnow()
+        
+        # Aktualizuj czasy pakowania dla wszystkich produktów zamówienia
+        products = ProductionItem.query.filter_by(
+            baselinker_order_id=order_summary.baselinker_order_id
+        ).all()
+        
+        packaging_time = datetime.utcnow()
+        
+        for product in products:
+            if product.packaging_completed_at is None:
+                product.packaging_completed_at = packaging_time
+                if product.packaging_started_at is None:
+                    product.packaging_started_at = packaging_time
+        
+        # Zapisz zmiany w bazie danych
+        db.session.commit()
+        
+        production_logger.info(f"Zamówienie {order_id} oznaczone jako spakowane")
+        
+        # Aktualizuj status w Baselinker (jeśli wymagane)
+        baselinker_success = True
+        baselinker_error = None
+        
+        if update_baselinker and baselinker_order_id:
+            try:
+                from .service import ProductionService
+                service = ProductionService()
+                
+                baselinker_success = service.update_order_status_to_shipped(
+                    baselinker_order_id
+                )
+                
+                if baselinker_success:
+                    production_logger.info(f"Status zamówienia {baselinker_order_id} zaktualizowany w Baselinker")
+                else:
+                    baselinker_error = "Błąd aktualizacji statusu w Baselinker"
+                    production_logger.error(baselinker_error)
+                    
+            except Exception as e:
+                baselinker_success = False
+                baselinker_error = str(e)
+                production_logger.error("Błąd aktualizacji Baselinker", error=str(e))
+        
+        return jsonify({
+            'success': True,
+            'message': 'Zamówienie zostało spakowane',
+            'order_id': order_id,
+            'baselinker_order_id': baselinker_order_id,
+            'packaging_completed_at': packaging_time.isoformat(),
+            'baselinker_updated': baselinker_success,
+            'baselinker_error': baselinker_error
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        production_logger.error(f"Błąd podczas pakowania zamówienia {order_id}", error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@production_bp.route('/api/packaging/stats')
+def api_packaging_stats():
+    """API: Statystyki pakowania"""
+    production_logger.info("API: Pobieranie statystyk pakowania")
+    
+    try:
+        today = date.today()
+        
+        # Statystyki dzienne
+        orders_waiting = ProductionOrderSummary.query.filter(
+            ProductionOrderSummary.all_items_glued == True,
+            ProductionOrderSummary.packaging_status == 'waiting'
+        ).count()
+        
+        orders_in_progress = ProductionOrderSummary.query.filter(
+            ProductionOrderSummary.packaging_status == 'in_progress'
+        ).count()
+        
+        orders_completed_today = ProductionOrderSummary.query.filter(
+            ProductionOrderSummary.packaging_status == 'completed',
+            func.date(ProductionOrderSummary.updated_at) == today
+        ).count()
+        
+        # Produkty spakowane dzisiaj
+        products_packed_today = ProductionItem.query.filter(
+            func.date(ProductionItem.packaging_completed_at) == today
+        ).count()
+        
+        stats = {
+            'orders_waiting': orders_waiting,
+            'orders_in_progress': orders_in_progress,
+            'orders_completed_today': orders_completed_today,
+            'products_packed_today': products_packed_today,
+            'date': today.isoformat()
+        }
+        
+        production_logger.info("API: Statystyki pakowania pobrane", stats=stats)
+        
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API statystyk pakowania", error=str(e))
         return jsonify({
             'success': False,
             'error': str(e)
