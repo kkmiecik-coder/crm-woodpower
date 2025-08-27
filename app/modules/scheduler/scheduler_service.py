@@ -685,7 +685,7 @@ def get_scheduler_status():
                         'id': job.id,
                         'name': job.name,
                         'next_run_time': job.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if job.next_run_time else 'Brak',
-                        'trigger': format_cron_to_readable(str(job.trigger)),
+                        'trigger': format_trigger_for_display(str(job.trigger)),
                         'paused': is_paused,
                         'status': 'WSTRZYMANE' if is_paused else 'AKTYWNE'
                     }
