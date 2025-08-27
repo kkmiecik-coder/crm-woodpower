@@ -434,10 +434,10 @@ function formatDeadlineText(deadlineDate) {
             return `${daysPast} dni temu`;
         }
     } else if (diffDays === 0) {
-        return 'DZIŚ';
+        return 'DZIŚ!';
     } else if (diffDays === 1) {
-        return 'jutro';
-    } else if (diffDays <= 7) {
+        return 'JUTRO';
+    } else if (diffDays <= 90) {
         return `za ${diffDays} dni`;
     } else {
         return formatDate(deadlineDate);
