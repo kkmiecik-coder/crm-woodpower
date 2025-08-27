@@ -633,6 +633,430 @@ class ProductionService:
             db.session.rollback()
             raise
 
+    def get_orders_ready_for_packaging(self):
+        """
+        Pobiera zamówienia gotowe do pakowania
+        (wszystkie produkty sklejone, status waiting/in_progress)
+        """
+        try:
+            production_logger.info("Pobieranie zamówień gotowych do pakowania")
+            
+            # Zamówienia z wszystkimi produktami sklejonymi
+            orders = ProductionOrderSummary.query.filter(
+                ProductionOrderSummary.all_items_glued == True,
+                ProductionOrderSummary.packaging_status.in_(['waiting', 'in_progress'])
+            ).order_by(
+                ProductionOrderSummary.created_at.asc()
+            ).all()
+            
+            result = []
+            
+            for order in orders:
+                # Pobierz produkty zamówienia
+                products = ProductionItem.query.filter_by(
+                    baselinker_order_id=order.baselinker_order_id
+                ).all()
+                
+                # Weryfikuj czy rzeczywiście wszystkie produkty sklejone
+                completed_products = [p for p in products if p.status.name == 'completed']
+                
+                if len(completed_products) != len(products):
+                    production_logger.warning(
+                        f"Zamówienie {order.baselinker_order_id} ma błędny status all_items_glued"
+                    )
+                    # Popraw status
+                    order.all_items_glued = False
+                    db.session.commit()
+                    continue
+                
+                # Oblicz priorytet na podstawie deadline
+                priority_info = self._calculate_packaging_priority(products)
+                
+                order_data = {
+                    'order_summary': order,
+                    'products': products,
+                    'priority': priority_info['priority'],
+                    'deadline': priority_info['deadline'],
+                    'days_until_deadline': priority_info['days_until_deadline']
+                }
+                
+                result.append(order_data)
+            
+            # Sortuj według priorytetu i deadline
+            result.sort(key=lambda x: (
+                {'urgent': 0, 'medium': 1, 'normal': 2}[x['priority']],
+                x['deadline'] or date.max,
+                x['order_summary'].created_at
+            ))
+            
+            production_logger.info(f"Znaleziono {len(result)} zamówień gotowych do pakowania")
+            return result
+            
+        except Exception as e:
+            production_logger.error("Błąd pobierania zamówień do pakowania", error=str(e))
+            return []
+
+    def _calculate_packaging_priority(self, products):
+        """Oblicza priorytet pakowania na podstawie produktów zamówienia"""
+        
+        if not products:
+            return {
+                'priority': 'normal',
+                'deadline': None,
+                'days_until_deadline': None
+            }
+        
+        # Znajdź najwcześniejszy deadline
+        deadlines = [p.deadline_date for p in products if p.deadline_date]
+        
+        if not deadlines:
+            return {
+                'priority': 'normal', 
+                'deadline': None,
+                'days_until_deadline': None
+            }
+        
+        earliest_deadline = min(deadlines)
+        today = date.today()
+        days_diff = (earliest_deadline - today).days
+        
+        # Ustal priorytet
+        if days_diff < 0:
+            priority = 'urgent'  # Opóźnione
+        elif days_diff <= 1:
+            priority = 'urgent'  # Dziś lub jutro  
+        elif days_diff <= 3:
+            priority = 'medium'  # Do 3 dni
+        else:
+            priority = 'normal'  # Powyżej 3 dni
+        
+        return {
+            'priority': priority,
+            'deadline': earliest_deadline,
+            'days_until_deadline': days_diff
+        }
+
+    def complete_packaging(self, order_id, update_baselinker=True):
+        """
+        Oznacza zamówienie jako spakowane
+        
+        Args:
+            order_id (int): ID zamówienia w tabeli ProductionOrderSummary
+            update_baselinker (bool): Czy aktualizować status w Baselinker
+            
+        Returns:
+            dict: Wynik operacji
+        """
+        try:
+            production_logger.info(f"Rozpoczęcie pakowania zamówienia {order_id}")
+            
+            # Pobierz zamówienie
+            order_summary = ProductionOrderSummary.query.get(order_id)
+            if not order_summary:
+                return {
+                    'success': False,
+                    'error': f'Nie znaleziono zamówienia {order_id}'
+                }
+            
+            # Sprawdź czy można pakować
+            if not order_summary.all_items_glued:
+                return {
+                    'success': False,
+                    'error': 'Nie wszystkie produkty zostały sklejone'
+                }
+            
+            if order_summary.packaging_status == 'completed':
+                return {
+                    'success': False,
+                    'error': 'Zamówienie zostało już spakowane'
+                }
+            
+            # Pobierz wszystkie produkty zamówienia
+            products = ProductionItem.query.filter_by(
+                baselinker_order_id=order_summary.baselinker_order_id
+            ).all()
+            
+            # Aktualizuj status pakowania
+            packaging_time = datetime.utcnow()
+            
+            order_summary.packaging_status = 'completed'
+            order_summary.updated_at = packaging_time
+            
+            # Ustaw czasy pakowania dla produktów
+            for product in products:
+                if product.packaging_completed_at is None:
+                    product.packaging_completed_at = packaging_time
+                
+                if product.packaging_started_at is None:
+                    product.packaging_started_at = packaging_time
+            
+            # Zapisz zmiany
+            db.session.commit()
+            
+            production_logger.info(f"Zamówienie {order_id} oznaczone jako spakowane w bazie")
+            
+            # Aktualizuj status w Baselinker
+            baselinker_result = {'success': True, 'error': None}
+            
+            if update_baselinker:
+                try:
+                    baselinker_success = self.update_order_status_to_shipped(
+                        order_summary.baselinker_order_id
+                    )
+                    
+                    if baselinker_success:
+                        production_logger.info(
+                            f"Status zamówienia {order_summary.baselinker_order_id} "
+                            f"zaktualizowany w Baselinker"
+                        )
+                    else:
+                        baselinker_result = {
+                            'success': False,
+                            'error': 'Błąd aktualizacji statusu w Baselinker'
+                        }
+                        production_logger.error(baselinker_result['error'])
+                
+                except Exception as e:
+                    baselinker_result = {
+                        'success': False, 
+                        'error': f'Wyjątek podczas aktualizacji Baselinker: {str(e)}'
+                    }
+                    production_logger.error("Błąd aktualizacji Baselinker", error=str(e))
+            
+            return {
+                'success': True,
+                'message': 'Zamówienie zostało spakowane',
+                'order_id': order_id,
+                'baselinker_order_id': order_summary.baselinker_order_id,
+                'packaging_completed_at': packaging_time.isoformat(),
+                'products_count': len(products),
+                'baselinker_updated': baselinker_result['success'],
+                'baselinker_error': baselinker_result['error']
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            production_logger.error(f"Błąd podczas pakowania zamówienia {order_id}", error=str(e))
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def update_order_status_to_shipped(self, baselinker_order_id):
+        """
+        Aktualizuje status zamówienia w Baselinker na "Wysłane"
+        
+        Args:
+            baselinker_order_id (int): ID zamówienia w Baselinker
+            
+        Returns:
+            bool: True jeśli sukces, False jeśli błąd
+        """
+        try:
+            production_logger.info(f"Aktualizacja statusu zamówienia {baselinker_order_id} w Baselinker")
+            
+            # Status "Wysłane" w Baselinker (może się różnić - sprawdź w panelu)
+            SHIPPED_STATUS_ID = 138620  # TODO: Sprawdź prawidłowy ID statusu "Wysłane"
+            
+            # Przygotuj dane do API
+            api_data = {
+                'token': self.api_token,
+                'method': 'setOrderStatus',
+                'parameters': json.dumps({
+                    'order_id': baselinker_order_id,
+                    'status_id': SHIPPED_STATUS_ID
+                })
+            }
+            
+            # Wywołaj API Baselinker
+            response = requests.post(
+                self.api_url,
+                data=api_data,
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                production_logger.error(
+                    f"HTTP {response.status_code} podczas aktualizacji statusu zamówienia "
+                    f"{baselinker_order_id}"
+                )
+                return False
+            
+            result = response.json()
+            
+            if result.get('status') == 'SUCCESS':
+                production_logger.info(
+                    f"Status zamówienia {baselinker_order_id} zaktualizowany na 'Wysłane'"
+                )
+                return True
+            else:
+                error_msg = result.get('error_message', 'Nieznany błąd')
+                production_logger.error(
+                    f"Błąd API Baselinker przy aktualizacji statusu: {error_msg}"
+                )
+                return False
+                
+        except requests.exceptions.Timeout:
+            production_logger.error("Timeout podczas aktualizacji statusu w Baselinker")
+            return False
+            
+        except requests.exceptions.RequestException as e:
+            production_logger.error("Błąd połączenia z Baselinker", error=str(e))
+            return False
+            
+        except Exception as e:
+            production_logger.error("Nieoczekiwany błąd aktualizacji Baselinker", error=str(e))
+            return False
+
+    def get_packaging_stats(self, date_from=None, date_to=None):
+        """
+        Pobiera statystyki pakowania
+        
+        Args:
+            date_from (date): Data początkowa (domyślnie dzisiaj)
+            date_to (date): Data końcowa (domyślnie dzisiaj)
+            
+        Returns:
+            dict: Statystyki pakowania
+        """
+        try:
+            if date_from is None:
+                date_from = date.today()
+            if date_to is None:
+                date_to = date.today()
+                
+            production_logger.info(f"Pobieranie statystyk pakowania {date_from} - {date_to}")
+            
+            # Zamówienia oczekujące
+            orders_waiting = ProductionOrderSummary.query.filter(
+                ProductionOrderSummary.all_items_glued == True,
+                ProductionOrderSummary.packaging_status == 'waiting'
+            ).count()
+            
+            # Zamówienia w trakcie pakowania
+            orders_in_progress = ProductionOrderSummary.query.filter(
+                ProductionOrderSummary.packaging_status == 'in_progress'
+            ).count()
+            
+            # Zamówienia spakowane w okresie
+            orders_completed = ProductionOrderSummary.query.filter(
+                ProductionOrderSummary.packaging_status == 'completed',
+                func.date(ProductionOrderSummary.updated_at) >= date_from,
+                func.date(ProductionOrderSummary.updated_at) <= date_to
+            ).count()
+            
+            # Produkty spakowane w okresie
+            products_packed = ProductionItem.query.filter(
+                func.date(ProductionItem.packaging_completed_at) >= date_from,
+                func.date(ProductionItem.packaging_completed_at) <= date_to
+            ).count()
+            
+            # Średni czas od sklejenia do spakowania (w godzinach)
+            avg_waiting_time = None
+            try:
+                waiting_times = db.session.query(
+                    func.avg(
+                        func.extract('epoch', 
+                            ProductionItem.packaging_completed_at - 
+                            ProductionItem.gluing_completed_at
+                        ) / 3600.0
+                    )
+                ).filter(
+                    func.date(ProductionItem.packaging_completed_at) >= date_from,
+                    func.date(ProductionItem.packaging_completed_at) <= date_to,
+                    ProductionItem.gluing_completed_at.isnot(None),
+                    ProductionItem.packaging_completed_at.isnot(None)
+                ).scalar()
+                
+                if waiting_times:
+                    avg_waiting_time = round(float(waiting_times), 1)
+                    
+            except Exception as e:
+                production_logger.warning("Błąd obliczania średniego czasu oczekiwania", error=str(e))
+            
+            stats = {
+                'date_from': date_from.isoformat(),
+                'date_to': date_to.isoformat(),
+                'orders_waiting': orders_waiting,
+                'orders_in_progress': orders_in_progress,
+                'orders_completed': orders_completed,
+                'products_packed': products_packed,
+                'avg_waiting_time_hours': avg_waiting_time
+            }
+            
+            production_logger.info("Statystyki pakowania pobrane", stats=stats)
+            return stats
+            
+        except Exception as e:
+            production_logger.error("Błąd pobierania statystyk pakowania", error=str(e))
+            return {
+                'error': str(e),
+                'orders_waiting': 0,
+                'orders_in_progress': 0, 
+                'orders_completed': 0,
+                'products_packed': 0,
+                'avg_waiting_time_hours': None
+            }
+
+    def refresh_packaging_queue(self):
+        """
+        Odświeża kolejkę pakowania - sprawdza czy nowe zamówienia są gotowe
+        """
+        try:
+            production_logger.info("Odświeżanie kolejki pakowania")
+            
+            # Znajdź zamówienia które mogą być gotowe do pakowania
+            orders_to_check = ProductionOrderSummary.query.filter(
+                ProductionOrderSummary.all_items_glued == False,
+                ProductionOrderSummary.packaging_status == 'waiting'
+            ).all()
+            
+            updated_count = 0
+            
+            for order in orders_to_check:
+                # Sprawdź czy wszystkie produkty zamówienia są sklejone
+                total_products = ProductionItem.query.filter_by(
+                    baselinker_order_id=order.baselinker_order_id
+                ).count()
+                
+                completed_products = ProductionItem.query.join(ProductionStatus).filter(
+                    ProductionItem.baselinker_order_id == order.baselinker_order_id,
+                    ProductionStatus.name == 'completed'
+                ).count()
+                
+                if completed_products == total_products and total_products > 0:
+                    # Wszystkie produkty sklejone - oznacz jako gotowe do pakowania
+                    order.completed_items_count = completed_products
+                    order.all_items_glued = True
+                    order.updated_at = datetime.utcnow()
+                    updated_count += 1
+                    
+                    production_logger.info(
+                        f"Zamówienie {order.baselinker_order_id} gotowe do pakowania "
+                        f"({completed_products}/{total_products} produktów)"
+                    )
+                else:
+                    # Aktualizuj licznik ukończonych produktów
+                    order.completed_items_count = completed_products
+            
+            if updated_count > 0:
+                db.session.commit()
+                production_logger.info(f"Zaktualizowano {updated_count} zamówień w kolejce pakowania")
+            
+            return {
+                'success': True,
+                'updated_orders': updated_count
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            production_logger.error("Błąd odświeżania kolejki pakowania", error=str(e))
+            return {
+                'success': False,
+                'error': str(e),
+                'updated_orders': 0
+            }
+
 
 def get_production_service() -> ProductionService:
     """

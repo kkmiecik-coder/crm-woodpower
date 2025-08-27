@@ -69,25 +69,56 @@ function bindEvents() {
  */
 async function loadInitialData() {
     console.log('📡 Ładowanie danych początkowych...');
-    
+
     try {
         showLoadingState();
         const orders = await loadPackagingQueue();
-        
-        if (orders) {
+
+        if (orders !== null) {
+            // API odpowiedziało poprawnie
             packagingState.orders = orders;
             renderOrders(orders);
             updateLastSyncTime();
         } else {
-            // Fallback - użyj danych testowych jeśli API nie działa
-            console.warn('⚠️ API niedostępne, używam danych testowych');
+            // Błąd komunikacji z API
+            showApiError();
+            showNotification('Błąd komunikacji z API. Używam danych testowych.', 'warning');
+            console.warn('⚠️ Błąd komunikacji z API, używam danych testowych');
             loadMockData();
         }
-        
+
     } catch (error) {
         console.error('❌ Błąd ładowania danych:', error);
+        showApiError();
+        showNotification('Krytyczny błąd ładowania danych z serwera', 'error');
         loadMockData();
-        showNotification('Błąd połączenia z serwerem. Używam danych testowych.', 'warning');
+    }
+}
+
+/**
+ * Pokazanie błędu komunikacji z API
+ */
+function showApiError() {
+    const ordersGrid = document.getElementById('ordersGrid');
+    const queueCount = document.getElementById('queueCount');
+
+    if (ordersGrid) {
+        ordersGrid.innerHTML = `
+            <div class="prod-work-orders-empty">
+                <i class="fas fa-exclamation-triangle" style="color: #dc3545;"></i>
+                <h3>Błąd komunikacji z API</h3>
+                <p>Nie można pobrać aktualnych zamówień z serwera.<br>
+                Sprawdź połączenie internetowe i spróbuj ponownie.</p>
+                <button onclick="refreshAllData()" class="prod-work-pack-btn" style="margin-top: 20px; width: auto; padding: 10px 20px;">
+                    <i class="fas fa-sync-alt"></i> Spróbuj ponownie
+                </button>
+            </div>
+        `;
+    }
+
+    if (queueCount) {
+        queueCount.textContent = '?';
+        queueCount.style.backgroundColor = '#dc3545';
     }
 }
 
@@ -183,23 +214,28 @@ async function loadPackagingQueue() {
 function renderOrders(orders) {
     const ordersGrid = document.getElementById('ordersGrid');
     const queueCount = document.getElementById('queueCount');
-    
+
     if (!ordersGrid || !queueCount) {
         console.error('❌ Nie znaleziono elementów DOM');
         return;
     }
 
+    // Przywróć normalny kolor licznika
+    queueCount.style.backgroundColor = '#28a745';
+
     // Filtruj tylko zamówienia oczekujące na pakowanie
-    const waitingOrders = orders.filter(order => 
+    const waitingOrders = orders.filter(order =>
         order.all_items_glued === true && order.packaging_status !== 'completed'
     );
 
     if (waitingOrders.length === 0) {
+        // Brak zamówień do pakowania (nie błąd API!)
         ordersGrid.innerHTML = `
             <div class="prod-work-orders-empty">
-                <i class="fas fa-inbox"></i>
+                <i class="fas fa-inbox" style="color: #6c757d;"></i>
                 <h3>Brak zamówień do pakowania</h3>
-                <p>Wszystkie zamówienia zostały spakowane lub czekają na ukończenie produkcji.</p>
+                <p>Wszystkie zamówienia zostały spakowane lub czekają na ukończenie produkcji.<br>
+                Nowe zamówienia pojawią się tutaj automatycznie po ukończeniu produkcji.</p>
             </div>
         `;
         queueCount.textContent = '0';
@@ -210,9 +246,9 @@ function renderOrders(orders) {
     waitingOrders.sort((a, b) => {
         const priorityOrder = { 'urgent': 1, 'medium': 2, 'normal': 3 };
         const priorityDiff = (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3);
-        
+
         if (priorityDiff !== 0) return priorityDiff;
-        
+
         // Jeśli ten sam priorytet, sortuj według deadline
         return new Date(a.deadline) - new Date(b.deadline);
     });
