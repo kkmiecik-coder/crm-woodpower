@@ -805,7 +805,7 @@
     flex-direction: row;
     gap: 12px;
     padding: 0;
-    align-items: stretch;
+    align-items: center;
     margin-right: 30px;
 }
 
@@ -823,7 +823,7 @@
     justify-content: center;
     margin: 15px 0;
     flex: 0 0 120px;
-    min-width: 150px;
+    min-width: 140px;
 }
 
 /* Szersze pole dla wymiarów */
@@ -847,7 +847,7 @@
 }
 
 .prod-mod-prod-card-info-value {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
 }
 

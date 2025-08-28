@@ -283,31 +283,26 @@ function addProductToGrid(product, prepend = false) {
             
             <div class="prod-mod-prod-card-specifications-container">
                 <div class="prod-mod-prod-card-info-column ${woodSpeciesClass}">
-                    <div class="prod-mod-prod-card-info-label">GATUNEK</div>
                     <div class="prod-mod-prod-card-info-value">${product.wood_species || '-'}</div>
                 </div>
                 
                 <div class="prod-mod-prod-card-info-column ${technologyClass}">
-                    <div class="prod-mod-prod-card-info-label">TECHNOLOGIA</div>
                     <div class="prod-mod-prod-card-info-value">${product.wood_technology || '-'}</div>
                 </div>
                 
                 <div class="prod-mod-prod-card-info-column ${classTypeClass}">
-                    <div class="prod-mod-prod-card-info-label">KLASA</div>
                     <div class="prod-mod-prod-card-info-value">${product.wood_class || '-'}</div>
                 </div>
                 
-                <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions">
-                    <div class="prod-mod-prod-card-info-label">WYMIARY</div>
+                <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions" style="min-width: 210px;">
                     <div class="prod-mod-prod-card-info-value">${dimensions}</div>
                 </div>
                 
                 <div class="prod-mod-prod-card-info-column prod-mod-prod-card-quantity-column">
-                    <div class="prod-mod-prod-card-info-label">ILOŚĆ</div>
                     <div class="prod-mod-prod-card-info-value">${product.quantity || 1} szt.</div>
                 </div>
                 
-                <div class="prod-mod-prod-card-info-column ${deadlineClass}">
+                <div class="prod-mod-prod-card-info-column ${deadlineClass}" style="padding: 12px;">
                     <div class="prod-mod-prod-card-info-label">TERMIN</div>
                     <div class="prod-mod-prod-card-info-value">${formatDeadlineText(product.deadline_date)}</div>
                 </div>
@@ -793,31 +788,26 @@ function renderProducts() {
                 
                 <div class="prod-mod-prod-card-specifications-container">
                     <div class="prod-mod-prod-card-info-column ${woodSpeciesClass}">
-                        <div class="prod-mod-prod-card-info-label">GATUNEK</div>
                         <div class="prod-mod-prod-card-info-value">${product.wood_species || '-'}</div>
                     </div>
                     
                     <div class="prod-mod-prod-card-info-column ${technologyClass}">
-                        <div class="prod-mod-prod-card-info-label">TECHNOLOGIA</div>
                         <div class="prod-mod-prod-card-info-value">${product.wood_technology || '-'}</div>
                     </div>
                     
                     <div class="prod-mod-prod-card-info-column ${classTypeClass}">
-                        <div class="prod-mod-prod-card-info-label">KLASA</div>
                         <div class="prod-mod-prod-card-info-value">${product.wood_class || '-'}</div>
                     </div>
                     
-                    <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions">
-                        <div class="prod-mod-prod-card-info-label">WYMIARY</div>
+                    <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions" style="min-width: 210px;">
                         <div class="prod-mod-prod-card-info-value">${dimensions}</div>
                     </div>
                     
                     <div class="prod-mod-prod-card-info-column prod-mod-prod-card-quantity-column">
-                        <div class="prod-mod-prod-card-info-label">ILOŚĆ</div>
                         <div class="prod-mod-prod-card-info-value">${product.quantity || 1} szt.</div>
                     </div>
                     
-                    <div class="prod-mod-prod-card-info-column ${deadlineClass}">
+                    <div class="prod-mod-prod-card-info-column ${deadlineClass}" style="padding: 12px;">
                         <div class="prod-mod-prod-card-info-label">TERMIN</div>
                         <div class="prod-mod-prod-card-info-value">${formatDeadlineText(product.deadline_date)}</div>
                     </div>
