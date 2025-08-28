@@ -488,9 +488,13 @@ class ProductionService:
             item.start_gluing(worker_id, station_id)
             item.status_id = in_progress_status.id
             
-            # Ustaw produkt na stanowisku - bezpośrednio bez rekursji
+            # POPRAWKA: Ustaw produkt na stanowisku z lokalnym czasem
             station.current_item_id = item_id
-            station.last_activity_at = datetime.utcnow()
+            
+            # POPRAWKA STREFY CZASOWEJ: użyj czasu lokalnego
+            import pytz
+            poland_tz = pytz.timezone('Europe/Warsaw')
+            station.last_activity_at = datetime.now(poland_tz).replace(tzinfo=None)
             
             db.session.commit()
             

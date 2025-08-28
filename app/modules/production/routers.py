@@ -456,8 +456,14 @@ def api_work_timer_status(item_id):
                 'error': 'Produkcja nie została rozpoczęta'
             }), 400
         
+        # POPRAWKA: Użyj czasu lokalnego zamiast UTC
         from datetime import datetime
-        now = datetime.utcnow()
+        import pytz
+        
+        # Strefa czasowa dla Polski
+        poland_tz = pytz.timezone('Europe/Warsaw')
+        now = datetime.now(poland_tz).replace(tzinfo=None)
+        
         elapsed_seconds = int((now - item.gluing_started_at).total_seconds())
         
         # Pobierz czas standardowy z konfiguracji
@@ -795,8 +801,12 @@ def api_dashboard():
             
             # Dodaj informacje o czasie pracy
             if station.current_item and station.current_item.gluing_started_at:
-                from datetime import datetime
-                working_time = datetime.utcnow() - station.current_item.gluing_started_at
+                # Użyj lokalnego czasu zamiast UTC
+                import pytz
+                poland_tz = pytz.timezone('Europe/Warsaw')
+                now_local = datetime.now(poland_tz).replace(tzinfo=None)
+    
+                working_time = now_local - station.current_item.gluing_started_at
                 station_dict['working_time_seconds'] = int(working_time.total_seconds())
             
             # NOWY KOD: Dodaj szczegółowe informacje o aktualnym produkcie
@@ -1049,10 +1059,14 @@ def api_stations_status():
             
             # Dodaj informacje o czasie pracy
             if station.current_item and station.current_item.gluing_started_at:
-                from datetime import datetime
-                working_time = datetime.utcnow() - station.current_item.gluing_started_at
+                # Użyj lokalnego czasu zamiast UTC
+                import pytz
+                poland_tz = pytz.timezone('Europe/Warsaw')
+                now_local = datetime.now(poland_tz).replace(tzinfo=None)
+    
+                working_time = now_local - station.current_item.gluing_started_at
                 station_dict['working_time_seconds'] = int(working_time.total_seconds())
-                
+    
                 # Sprawdź czy przekroczono czas
                 standard_time = int(ProductionConfig.get_value('gluing_time_minutes', '20')) * 60
                 station_dict['is_overtime'] = working_time.total_seconds() > standard_time

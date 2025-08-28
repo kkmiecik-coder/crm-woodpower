@@ -9,6 +9,13 @@ from sqlalchemy import Index
 from decimal import Decimal
 from modules.logging import get_structured_logger
 
+# NOWY KOD - funkcja pomocnicza dla lokalnego czasu
+def get_local_datetime():
+    """Zwraca aktualny czas dla Polski"""
+    import pytz
+    poland_tz = pytz.timezone('Europe/Warsaw')
+    return datetime.now(poland_tz).replace(tzinfo=None)
+
 # Inicjalizacja loggera
 production_logger = get_structured_logger('production.models')
 production_logger.info("✅ production_logger zainicjowany poprawnie w module Productions w models.py")
@@ -24,7 +31,7 @@ class ProductionStatus(db.Model):
     name = db.Column(db.String(50), nullable=False, unique=True, comment="Nazwa systemowa statusu")
     display_name = db.Column(db.String(100), nullable=False, comment="Nazwa wyświetlana")
     color_code = db.Column(db.String(7), nullable=False, comment="Kod koloru hex")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
     
     # Relacje
     items = db.relationship('ProductionItem', backref='status', lazy=True)
@@ -52,7 +59,7 @@ class ProductionConfig(db.Model):
     config_key = db.Column(db.String(100), nullable=False, unique=True, comment="Klucz konfiguracji")
     config_value = db.Column(db.Text, nullable=False, comment="Wartość konfiguracji")
     description = db.Column(db.Text, nullable=True, comment="Opis konfiguracji")
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime, nullable=False)
     
     def __repr__(self):
         return f'<ProductionConfig {self.config_key}: {self.config_value}>'
@@ -81,7 +88,9 @@ class ProductionConfig(db.Model):
                 config.config_value = value
                 if description:
                     config.description = description
-                config.updated_at = datetime.utcnow()
+                import pytz
+                poland_tz = pytz.timezone('Europe/Warsaw')
+                config.updated_at = datetime.now(poland_tz).replace(tzinfo=None)
                 production_logger.info("Zaktualizowano konfigurację", config_key=key, value=value)
             else:
                 config = cls(
@@ -114,7 +123,7 @@ class ProductionStation(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False, comment="Czy stanowisko aktywne")
     current_item_id = db.Column(db.Integer, db.ForeignKey('production_items.id'), nullable=True, comment="Aktualnie produkowany item")
     last_activity_at = db.Column(db.DateTime, nullable=True, comment="Ostatnia aktywność")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
     
     # Relacje - POPRAWIONE BEZ REKURSJI
     glued_items = db.relationship('ProductionItem', foreign_keys='ProductionItem.glued_at_station_id', backref='glued_at_station', lazy=True)
@@ -157,7 +166,7 @@ class Worker(db.Model):
     name = db.Column(db.String(100), nullable=False, comment="Imię i nazwisko pracownika")
     is_active = db.Column(db.Boolean, default=True, nullable=False, comment="Czy pracownik aktywny")
     station_type_preference = db.Column(db.Enum('gluing', 'packaging', 'both', name='worker_preference_enum'), default='both', comment="Preferowany typ stanowiska")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
     
     # Relacje
     glued_items = db.relationship('ProductionItem', foreign_keys='ProductionItem.glued_by_worker_id', backref='glued_by_worker', lazy=True)
@@ -227,8 +236,8 @@ class ProductionItem(db.Model):
     packaging_completed_at = db.Column(db.DateTime, nullable=True, comment="Zakończenie pakowania")
     
     # === METADANE ===
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime, nullable=False)
     imported_from_baselinker_at = db.Column(db.DateTime, nullable=True, comment="Kiedy pobrano z Baselinker")
     
     # === INDEKSY ===
@@ -300,13 +309,23 @@ class ProductionItem(db.Model):
     def start_gluing(self, worker_id, station_id):
         """Rozpoczyna proces sklejania"""
         try:
-            self.gluing_started_at = datetime.utcnow()
+            # POPRAWKA: Użyj czasu lokalnego zamiast UTC dla Polski
+            from datetime import datetime
+            import pytz
+        
+            # Strefa czasowa dla Polski
+            poland_tz = pytz.timezone('Europe/Warsaw')
+        
+            # Zapisz czas lokalny Polski
+            self.gluing_started_at = datetime.now(poland_tz).replace(tzinfo=None)
+        
             self.glued_by_worker_id = worker_id
             self.glued_at_station_id = station_id
             db.session.commit()
             production_logger.info("Rozpoczęto sklejanie produktu",
                                  item_id=self.id, product_name=self.product_name,
-                                 worker_id=worker_id, station_id=station_id)
+                                 worker_id=worker_id, station_id=station_id,
+                                 started_at=self.gluing_started_at.isoformat())
         except Exception as e:
             production_logger.error("Błąd podczas rozpoczynania sklejania",
                                   item_id=self.id, worker_id=worker_id, station_id=station_id,
@@ -318,24 +337,34 @@ class ProductionItem(db.Model):
         """Kończy proces sklejania"""
         try:
             if self.gluing_started_at:
-                self.gluing_completed_at = datetime.utcnow()
+                # POPRAWKA: Użyj czasu lokalnego zamiast UTC dla Polski
+                from datetime import datetime
+                import pytz
+            
+                # Strefa czasowa dla Polski
+                poland_tz = pytz.timezone('Europe/Warsaw')
+            
+                # Zapisz czas lokalny Polski
+                self.gluing_completed_at = datetime.now(poland_tz).replace(tzinfo=None)
+            
                 duration = self.gluing_completed_at - self.gluing_started_at
                 self.gluing_duration_seconds = int(duration.total_seconds())
-                
+            
                 # Oblicz overtime jeśli przekroczył normę
                 standard_time = int(ProductionConfig.get_value('gluing_time_minutes', '20')) * 60
                 if self.gluing_duration_seconds > standard_time:
                     self.gluing_overtime_seconds = self.gluing_duration_seconds - standard_time
-                
+            
                 db.session.commit()
                 production_logger.info("Zakończono sklejanie produktu",
                                      item_id=self.id, product_name=self.product_name,
                                      duration_seconds=self.gluing_duration_seconds,
-                                     overtime_seconds=self.gluing_overtime_seconds)
+                                     overtime_seconds=self.gluing_overtime_seconds,
+                                     completed_at=self.gluing_completed_at.isoformat())
             else:
                 production_logger.warning("Próba zakończenia sklejania bez rozpoczęcia",
                                         item_id=self.id, product_name=self.product_name)
-                
+            
         except Exception as e:
             production_logger.error("Błąd podczas kończenia sklejania",
                                   item_id=self.id, error=str(e), error_type=type(e).__name__)
@@ -490,7 +519,7 @@ class ProductionOrderSummary(db.Model):
     all_items_glued = db.Column(db.Boolean, default=False, nullable=False, comment="Czy wszystkie produkty sklejone")
     packaging_status = db.Column(db.Enum('waiting', 'in_progress', 'completed', name='packaging_status_enum'), default='waiting', comment="Status pakowania")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime, nullable=False)
     
     def __repr__(self):
         return f'<ProductionOrderSummary {self.baselinker_order_id}: {self.customer_name}>'

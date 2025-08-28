@@ -26,7 +26,9 @@ let gluingState = {
     selectedWorker: null,
     timers: {},
     refreshTimer: null,
-    lastSync: null
+    uiTimer: null,
+    lastSync: null,
+    lastActiveStationsCount: 0
 };
 
 // === INICJALIZACJA ===
@@ -455,16 +457,49 @@ function removeProductFromGrid(productId) {
 }
 
 /**
- * Inteligentne odświeżanie danych
+ * Inteligentne odświeżanie danych - POPRAWIONA WERSJA z zachowaniem timerów
  */
 async function refreshDataIncrementally() {
-    console.log('🔄 Inteligentne odświeżanie danych...');
+    console.log('🔄 [API] Rozpoczęcie inteligentnego odświeżania...');
 
     try {
+        // Zapisz aktualny stan timerów przed aktualizacją
+        const currentTimerStates = {};
+        gluingState.stations.forEach(station => {
+            if (station.status === 'busy' && station.current_item_id) {
+                currentTimerStates[station.id] = {
+                    working_time_seconds: station.working_time_seconds,
+                    current_item_id: station.current_item_id,
+                    start_time: station.start_time
+                };
+            }
+        });
+
+        console.log(`💾 [TIMER] Zapisano stan ${Object.keys(currentTimerStates).length} aktywnych stacji`);
+
         // 1. Odśwież statusy stanowisk (zawsze)
         const stationsResult = await fetchStations();
         if (stationsResult.success) {
-            updateStationsData(stationsResult.data);
+            // Przywróć lokalne timery dla stacji, które nadal pracują nad tym samym produktem
+            const updatedStations = stationsResult.data.map(station => {
+                const savedTimer = currentTimerStates[station.id];
+
+                if (savedTimer &&
+                    station.status === 'busy' &&
+                    station.current_item_id === savedTimer.current_item_id &&
+                    station.start_time === savedTimer.start_time) {
+
+                    // Zachowaj lokalny stan timera
+                    station.working_time_seconds = savedTimer.working_time_seconds;
+                    console.log(`⏱️ [TIMER] Przywrócono lokalny timer dla stacji ${station.id}`);
+                } else if (station.status === 'busy' && station.current_item_id) {
+                    console.log(`🔄 [TIMER] Nowy timer dla stacji ${station.id} (produkt: ${station.current_item_id})`);
+                }
+
+                return station;
+            });
+
+            updateStationsData(updatedStations);
         }
 
         // 2. Sprawdź czy są nowe produkty
@@ -474,9 +509,10 @@ async function refreshDataIncrementally() {
         }
 
         updateLastSyncTime();
+        console.log('✅ [API] Inteligentne odświeżanie zakończone');
 
     } catch (error) {
-        console.error('❌ Błąd inteligentnego odświeżania:', error);
+        console.error('❌ [API] Błąd inteligentnego odświeżania:', error);
     }
 }
 
@@ -484,17 +520,31 @@ async function refreshDataIncrementally() {
  * Automatyczne odświeżanie
  */
 function startAutoRefresh() {
+    console.log('🚀 [TIMER] Uruchamianie automatycznego odświeżania...');
+
+    // Zatrzymaj wszystkie poprzednie timery
     if (gluingState.refreshTimer) {
         clearInterval(gluingState.refreshTimer);
+        console.log('⏹️ [TIMER] Zatrzymano poprzedni timer odświeżania danych');
     }
 
+    if (gluingState.uiTimer) {
+        clearInterval(gluingState.uiTimer);
+        console.log('⏹️ [TIMER] Zatrzymano poprzedni timer UI');
+    }
+
+    // Timer 1: Odświeżanie danych z API co 3 minuty
     gluingState.refreshTimer = setInterval(() => {
-        // Inteligentne odświeżanie co 3 minuty
+        console.log('🔄 [API] Rozpoczęcie inteligentnego odświeżania danych...');
         refreshDataIncrementally();
     }, GLUING_CONFIG.refreshInterval);
 
-    // Timery aktualizuj co sekundę
-    setInterval(updateStationTimers, GLUING_CONFIG.timerInterval);
+    // Timer 2: Aktualizacja UI (liczniki) co sekundę
+    gluingState.uiTimer = setInterval(() => {
+        updateStationTimers();
+    }, GLUING_CONFIG.timerInterval);
+
+    console.log(`✅ [TIMER] Timery uruchomione - API: ${GLUING_CONFIG.refreshInterval / 1000}s, UI: ${GLUING_CONFIG.timerInterval / 1000}s`);
 }
 
 // === API CALLS ===
@@ -782,32 +832,6 @@ function renderProducts() {
     }).join('');
 }
 
-
-/**
- * Formatowanie wymiarów produktu
- */
-function formatProductDimensions(product) {
-    // Sprawdź czy jest pole dimensions
-    if (product.dimensions && product.dimensions !== 'Brak wymiarów') {
-        return product.dimensions;
-    }
-
-    // Stwórz wymiary z poszczególnych pól
-    const length = product.dimensions_length || 0;
-    const width = product.dimensions_width || 0;  
-    const thickness = product.dimensions_thickness || 0;
-
-    if (length && width && thickness) {
-        return `${length}×${width}×${thickness}`;
-    }
-    
-    if (length && width) {
-        return `${length}×${width}`;
-    }
-
-    return '-';
-}
-
 /**
  * Renderowanie badge'ów produktu z wymiarami
  */
@@ -1019,21 +1043,21 @@ function formatProductDimensions(product) {
     const thickness = product.dimensions_thickness;
 
     if (length && width && thickness) {
-        return `${length} × ${width} × ${thickness} cm`;
+        return `${length} × ${width} × ${thickness}`;
     }
 
     if (length && width) {
-        return `${length} × ${width} cm`;
+        return `${length} × ${width}`;
     }
 
     if (length) {
-        return `${length} cm`;
+        return `${length}`;
     }
 
     // Sprawdź czy wymiary są w nazwie produktu
     const dimensionMatch = product.product_name?.match(/(\d+(?:\.\d+)?)\s*×\s*(\d+(?:\.\d+)?)\s*×\s*(\d+(?:\.\d+)?)/);
     if (dimensionMatch) {
-        return `${dimensionMatch[1]} × ${dimensionMatch[2]} × ${dimensionMatch[3]} cm`;
+        return `${dimensionMatch[1]} × ${dimensionMatch[2]} × ${dimensionMatch[3]}`;
     }
 
     return 'Brak wymiarów';
@@ -1239,15 +1263,24 @@ function resetModalState() {
 // === TIMERY ===
 
 /**
- * Aktualizacja timerów stanowisk
+ * Aktualizuje timery na stanowiskach - UPROSZCZONA WERSJA
  */
 function updateStationTimers() {
-    const standardTimeMinutes = parseInt(document.querySelector('[data-config-gluing-time]')?.value) || 2;
-    const standardTimeSeconds = standardTimeMinutes * 60;
+    const currentTime = Math.floor(Date.now() / 1000);
+    let activeStations = 0;
 
     gluingState.stations.forEach(station => {
-        if (station.is_busy && station.working_time_seconds !== undefined) {
-            station.working_time_seconds++;
+        // Sprawdzaj current_item zamiast is_busy
+        if (station.current_item_id && station.current_item && station.current_item.gluing_started_at) {
+            activeStations++;
+
+            // Oblicz czas pracy na podstawie gluing_started_at z serwera (już poprawiony)
+            const startTimestamp = Math.floor(new Date(station.current_item.gluing_started_at).getTime() / 1000);
+            station.working_time_seconds = currentTime - startTimestamp;
+
+            // Użyj konfiguracji czasu z HTML
+            const standardTimeMinutes = parseInt(document.querySelector('#gluingTimeConfig')?.getAttribute('data-config-gluing-time')) || 2;
+            const standardTimeSeconds = standardTimeMinutes * 60;
             const remainingSeconds = standardTimeSeconds - station.working_time_seconds;
 
             const timerElement = document.getElementById(`timer-${station.id}`);
@@ -1255,23 +1288,58 @@ function updateStationTimers() {
                 timerElement.textContent = formatCountdownTimer(remainingSeconds);
 
                 const stationElement = timerElement.closest('.prod-work-station');
+                if (stationElement) {
+                    // Usuń poprzednie klasy
+                    stationElement.classList.remove('active', 'overtime-warning', 'overtime');
 
-                // Usuń poprzednie klasy
-                stationElement.classList.remove('active', 'overtime-warning', 'overtime');
-
-                if (remainingSeconds <= 0) {
-                    stationElement.classList.add('overtime');
-                } else if (remainingSeconds <= 60) {
-                    stationElement.classList.add('overtime-warning');
-                } else {
-                    stationElement.classList.add('active');
+                    if (remainingSeconds <= 0) {
+                        stationElement.classList.add('overtime');
+                    } else if (remainingSeconds <= 60) {
+                        stationElement.classList.add('overtime-warning');
+                    } else {
+                        stationElement.classList.add('active');
+                    }
                 }
             }
         }
     });
+
+    // Loguj tylko co minutę
+    if (currentTime % 60 === 0 || (gluingState.lastActiveStationsCount !== activeStations)) {
+        console.log(`⏱️ [UI] Aktualizacja timerów - aktywnych stacji: ${activeStations}`);
+        gluingState.lastActiveStationsCount = activeStations;
+    }
 }
 
-// === UTILITY FUNCTIONS ===
+/**
+ * NOWY KOD - Zatrzymanie wszystkich timerów
+ */
+function stopAllTimers() {
+    console.log('⏹️ [TIMER] Zatrzymywanie wszystkich timerów...');
+
+    if (gluingState.refreshTimer) {
+        clearInterval(gluingState.refreshTimer);
+        gluingState.refreshTimer = null;
+        console.log('⏹️ [TIMER] Timer odświeżania danych zatrzymany');
+    }
+
+    if (gluingState.uiTimer) {
+        clearInterval(gluingState.uiTimer);
+        gluingState.uiTimer = null;
+        console.log('⏹️ [TIMER] Timer UI zatrzymany');
+    }
+}
+
+/**
+ * NOWY KOD - Restart timerów (przydatne przy debugowaniu)
+ */
+function restartTimers() {
+    console.log('🔄 [TIMER] Restart timerów...');
+    stopAllTimers();
+    setTimeout(() => {
+        startAutoRefresh();
+    }, 100);
+}
 
 /**
  * Formatowanie timera (sekundy -> MM:SS)
