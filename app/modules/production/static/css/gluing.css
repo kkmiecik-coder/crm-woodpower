@@ -700,36 +700,111 @@
     animation: prod-work-fade-in 0.3s ease-out;
 }
 
-/* === TOAST STYLES === */
-.toast {
-    background: white;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
+/* === TOAST NOTIFICATIONS === */
+.toast-container {
+    position: fixed;
+    right: 20px;
+    z-index: 2000;
+    max-width: 400px;
+    display: grid;
+    gap: 8px;
 }
 
-    .toast.success {
-        border-left: 4px solid #28a745;
+.prod-work-toast {
+    min-width: 300px;
+    max-width: 500px;
+    margin-bottom: 10px;
+    padding: 1rem 1.5rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border-left: 4px solid;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.3s ease;
+}
+
+    .prod-work-toast.show {
+        opacity: 1;
+        transform: translateX(0);
     }
 
-    .toast.error {
-        border-left: 4px solid #dc3545;
+    .prod-work-toast.success {
+        border-left-color: #28a745;
     }
 
-    .toast.warning {
-        border-left: 4px solid #ffc107;
+    .prod-work-toast.error {
+        border-left-color: #dc3545;
     }
 
-    .toast.info {
-        border-left: 4px solid #007bff;
+    .prod-work-toast.warning {
+        border-left-color: #ffc107;
     }
 
-.prod-work-stations-section.sticky {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    background: #f8f9fa;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    margin-bottom: 25px;
+    .prod-work-toast.info {
+        border-left-color: #17a2b8;
+    }
+
+.prod-work-toast-content {
+    display: flex;
+    align-items: center;
+}
+
+.prod-work-toast-icon {
+    margin-right: 0.75rem;
+    font-size: 1.2rem;
+}
+
+.prod-work-toast.success .prod-work-toast-icon {
+    color: #28a745;
+}
+
+.prod-work-toast.error .prod-work-toast-icon {
+    color: #dc3545;
+}
+
+.prod-work-toast.warning .prod-work-toast-icon {
+    color: #ffc107;
+}
+
+.prod-work-toast.info .prod-work-toast-icon {
+    color: #17a2b8;
+}
+
+.prod-work-toast-message {
+    flex: 1;
+    font-weight: 500;
+    color: #333;
+    font-size: 0.95rem;
+}
+
+.prod-work-toast-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: #999;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 1rem;
+    transition: color 0.2s ease;
+}
+
+    .prod-work-toast-close:hover {
+        color: #666;
+    }
+
+/* Responsywność */
+@media (max-width: 768px) {
+    .toast-container {
+        left: 10px;
+        right: 10px;
+        top: 10px;
+    }
+
+    .prod-work-toast {
+        min-width: auto;
+        max-width: 100%;
+    }
 }
 
 /* === DEADLINE COLORS === */
@@ -1309,3 +1384,4 @@
         padding: 10px;
     }
 }
+

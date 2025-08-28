@@ -16,6 +16,24 @@ const GLUING_CONFIG = {
     }
 };
 
+// === WALIDACJA STANU ===
+function validateAndRefreshData() {
+    console.log('🔍 Walidacja stanu danych...');
+
+    // Sprawdź czy mamy podstawowe dane
+    if (!gluingState.stations.length || !gluingState.workers.length) {
+        console.warn('Debug info:', {
+            stations: gluingState.stations,
+            workers: gluingState.workers,
+            lastSync: new Date(gluingState.lastSync),
+            timeDiff: gluingState.lastSync ? Date.now() - gluingState.lastSync : 'brak'
+        });
+        return loadInitialData();
+    }
+
+    return Promise.resolve();
+}
+
 // === ZMIENNE GLOBALNE ===
 let gluingState = {
     stations: [],
@@ -37,23 +55,150 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 /**
- * Główna funkcja inicjalizująca
+ * Obsługa zmiany widoczności strony
+ */
+document.addEventListener('visibilitychange', function () {
+    if (document.hidden) {
+        console.log('⏸️ Strona przeszła w tło - wstrzymuję niektóre operacje');
+    } else {
+        console.log('▶️ Strona wróciła na pierwszy plan - wznawiam operacje');
+
+        // Sprawdź czy dane nie są za stare
+        if (gluingState.lastSync) {
+            const timeDiff = Date.now() - gluingState.lastSync;
+            const threshold = 5 * 60 * 1000; // 5 minut
+
+            if (timeDiff > threshold) {
+                console.log('🔄 Dane przestarzałe - odświeżam...');
+                refreshAllData();
+            }
+        }
+    }
+});
+
+// NOWY KOD - dodaj funkcję resetowania stanu
+/**
+ * Resetowanie stanu aplikacji
+ */
+function resetGluingState() {
+    gluingState.stations = [];
+    gluingState.workers = [];
+    gluingState.products = [];
+    gluingState.selectedProduct = null;
+    gluingState.selectedStation = null;
+    gluingState.selectedWorker = null;
+    gluingState.timers = {};
+    gluingState.lastSync = null;
+    gluingState.lastActiveStationsCount = 0;
+
+    console.log('🔄 Stan aplikacji zresetowany');
+}
+
+// NOWY KOD - dodaj funkcję ładowania z retry
+/**
+ * Ładowanie danych z mechanizmem retry
+ */
+async function loadInitialDataWithRetry(maxRetries = 3) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`🔄 Próba ładowania danych: ${attempt}/${maxRetries}`);
+
+        try {
+            await loadInitialData();
+            console.log('✅ Dane załadowane pomyślnie');
+            return; // Sukces - wyjdź z pętli
+
+        } catch (error) {
+            console.error(`❌ Próba ${attempt} nieudana:`, error);
+
+            if (attempt === maxRetries) {
+                // Ostatnia próba nieudana
+                console.error('❌ Wszystkie próby nieudane - przechodzę w tryb offline');
+                showOfflineMode();
+                return;
+            }
+
+            // Czekaj przed kolejną próbą
+            const delay = attempt * 2000; // 2s, 4s, 6s
+            console.log(`⏳ Czekam ${delay}ms przed kolejną próbą...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+// NOWY KOD - dodaj tryb offline
+/**
+ * Pokazanie trybu offline z możliwością odświeżenia
+ */
+function showOfflineMode() {
+    const container = document.querySelector('.prod-work-container');
+    if (container) {
+        container.innerHTML = `
+            <div class="prod-work-offline-mode">
+                <div class="prod-work-offline-content">
+                    <i class="fas fa-wifi-slash fa-3x"></i>
+                    <h3>Brak połączenia z serwerem</h3>
+                    <p>Nie można pobrać danych ze stanowisk i pracowników.</p>
+                    <div class="prod-work-offline-actions">
+                        <button class="prod-work-btn prod-work-btn-primary" onclick="window.location.reload()">
+                            <i class="fas fa-refresh"></i>
+                            Odśwież stronę
+                        </button>
+                        <button class="prod-work-btn prod-work-btn-secondary" onclick="retryConnection()">
+                            <i class="fas fa-sync"></i>
+                            Spróbuj ponownie
+                        </button>
+                    </div>
+                    <small class="text-muted">
+                        Sprawdź połączenie internetowe lub skontaktuj się z administratorem
+                    </small>
+                </div>
+            </div>
+        `;
+    }
+
+    showToast('error', 'Brak połączenia z serwerem', 10000);
+}
+
+// NOWY KOD - dodaj funkcję ponowienia połączenia
+/**
+ * Ponowienie próby połączenia
+ */
+function retryConnection() {
+    showToast('info', 'Próba ponownego połączenia...');
+    showLoadingState();
+    loadInitialDataWithRetry();
+}
+
+/**
+ * Główna funkcja inicjalizująca - POPRAWIONA WERSJA
  */
 function initializeGluingDashboard() {
-    console.log('🚀 Inicjalizacja Gluing Dashboard');
+    console.log('🚀 Inicjalizacja Gluing Dashboard v2.0');
+
+    // Wyczyść poprzednie timery jeśli istnieją
+    if (gluingState.refreshTimer) {
+        clearInterval(gluingState.refreshTimer);
+    }
+    if (gluingState.uiTimer) {
+        clearInterval(gluingState.uiTimer);
+    }
+
+    // Reset stanu
+    resetGluingState();
 
     // Binduj eventy
     bindEvents();
-
     bindEventsAddition();
 
-    // Załaduj dane początkowe
-    loadInitialData();
+    // Załaduj dane początkowe z retry
+    loadInitialDataWithRetry();
 
-    // Uruchom odświeżanie
-    startAutoRefresh();
+    // Uruchom odświeżanie z opóźnieniem
+    setTimeout(() => {
+        startAutoRefresh();
+    }, 2000);
 
-
+    console.log('✅ Gluing Dashboard zainicjalizowany');
 }
 
 /**
@@ -88,42 +233,88 @@ function bindEvents() {
 }
 
 /**
- * Ładowanie danych początkowych
+ * Ładowanie danych początkowych - POPRAWIONA WERSJA z lepszym error handling
  */
 async function loadInitialData() {
+    console.log('🔄 Ładowanie danych początkowych...');
     showLoadingState();
 
     try {
-        // Równoległe ładowanie wszystkich danych
-        const [stationsResult, workersResult, productsResult] = await Promise.all([
+        // Równoległe ładowanie wszystkich danych z timeout
+        const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout - zbyt długie oczekiwanie na dane')), 15000)
+        );
+
+        const dataPromise = Promise.all([
             fetchStations(),
             fetchWorkers(),
             fetchProducts()
         ]);
 
-        if (stationsResult.success && workersResult.success && productsResult.success) {
-            gluingState.stations = stationsResult.data;
-            gluingState.workers = workersResult.data;
-            gluingState.products = productsResult.data;
+        const [stationsResult, workersResult, productsResult] = await Promise.race([
+            dataPromise,
+            timeout
+        ]);
+
+        // Sprawdź czy wszystkie żądania zakończyły się sukcesem
+        const allSuccess = stationsResult.success && workersResult.success && productsResult.success;
+
+        if (allSuccess) {
+            gluingState.stations = stationsResult.data || [];
+            gluingState.workers = workersResult.data || [];
+            gluingState.products = productsResult.data || [];
+
+            // Walidacja krytycznych danych
+            const hasStations = gluingState.stations.filter(s => s.station_type === 'gluing').length > 0;
+            const hasWorkers = gluingState.workers.filter(w =>
+                w.station_type_preference === 'gluing' || w.station_type_preference === 'both'
+            ).length > 0;
+
+            if (!hasStations) {
+                showToast('warning', 'Brak stanowisk sklejania - skontaktuj się z administratorem');
+            }
+            if (!hasWorkers) {
+                showToast('warning', 'Brak pracowników dla sklejania - skontaktuj się z administratorem');
+            }
 
             renderStations();
             renderProducts();
             updateLastSyncTime();
 
-            showToast('success', 'Dane zostały załadowane pomyślnie');
+            console.log('✅ Dane załadowane pomyślnie', {
+                stations: gluingState.stations.length,
+                workers: gluingState.workers.length,
+                products: gluingState.products.length
+            });
+
         } else {
-            throw new Error('Błąd podczas ładowania danych');
+            // Częściowy sukces - wyświetl konkretne błędy
+            const errors = [];
+            if (!stationsResult.success) errors.push('stanowiska');
+            if (!workersResult.success) errors.push('pracownicy');
+            if (!productsResult.success) errors.push('produkty');
+
+            throw new Error(`Błąd ładowania: ${errors.join(', ')}`);
         }
 
     } catch (error) {
         console.error('❌ Błąd ładowania danych:', error);
-        showToast('error', 'Błąd podczas ładowania danych');
+
+        if (error.message.includes('Timeout')) {
+            showToast('error', 'Przekroczono czas oczekiwania - sprawdź połączenie');
+        } else if (error.message.includes('401') || error.message.includes('403')) {
+            showToast('error', 'Sesja wygasła - strona zostanie odświeżona');
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showToast('error', 'Błąd podczas ładowania danych - spróbuj ponownie');
+        }
+
         showErrorState();
     }
 }
 
 /**
- * Odświeżanie wszystkich danych
+ * Odświeżanie wszystkich danych - POPRAWIONA WERSJA z walidacją
  */
 async function refreshAllData() {
     const refreshBtn = document.getElementById('refreshBtn');
@@ -134,11 +325,113 @@ async function refreshAllData() {
     }
 
     try {
-        await loadInitialData();
+        console.log('🔄 Odświeżanie wszystkich danych...');
+
+        // Sprawdź czy stanowiska i pracownicy nadal istnieją
+        const validationResult = await validateExistingData();
+
+        if (!validationResult.valid) {
+            console.warn('⚠️ Dane nieważne:', validationResult.reason);
+            showToast('warning', 'Odnawianie danych: ' + validationResult.reason);
+        }
+
+        // Pobierz świeże dane
+        const [stationsResult, workersResult, productsResult] = await Promise.all([
+            fetchStations(),
+            fetchWorkers(),
+            fetchProducts()
+        ]);
+
+        let hasChanges = false;
+        let successCount = 0;
+
+        // Aktualizuj stanowiska jeśli sukces
+        if (stationsResult.success) {
+            const oldCount = gluingState.stations.length;
+            gluingState.stations = stationsResult.data || [];
+
+            if (gluingState.stations.length !== oldCount) {
+                hasChanges = true;
+                console.log(`📊 Stanowiska: ${oldCount} → ${gluingState.stations.length}`);
+            }
+            successCount++;
+        }
+
+        // Aktualizuj pracowników jeśli sukces
+        if (workersResult.success) {
+            const oldCount = gluingState.workers.length;
+            gluingState.workers = workersResult.data || [];
+
+            if (gluingState.workers.length !== oldCount) {
+                hasChanges = true;
+                console.log(`👥 Pracownicy: ${oldCount} → ${gluingState.workers.length}`);
+            }
+            successCount++;
+        }
+
+        // Aktualizuj produkty jeśli sukces
+        if (productsResult.success) {
+            const oldCount = gluingState.products.length;
+            gluingState.products = productsResult.data || [];
+
+            if (gluingState.products.length !== oldCount) {
+                hasChanges = true;
+                console.log(`📦 Produkty: ${oldCount} → ${gluingState.products.length}`);
+            }
+            successCount++;
+        }
+
+        // Renderuj jeśli były zmiany lub if force refresh
+        if (hasChanges || successCount < 3) {
+            renderStations();
+            renderProducts();
+        }
+
+        updateLastSyncTime();
+
+        // Pokaż status odświeżania
+        if (successCount === 3) {
+            console.log('✅ Wszystkie dane odświeżone pomyślnie');
+        } else {
+            console.warn(`⚠️ Częściowe odświeżenie: ${successCount}/3`);
+            showToast('warning', `Częściowe odświeżenie danych (${successCount}/3)`);
+        }
+
+    } catch (error) {
+        console.error('❌ Błąd odświeżania danych:', error);
+        showToast('error', 'Błąd odświeżania: ' + error.message);
+
     } finally {
         if (originalIcon) {
             originalIcon.className = 'fas fa-sync-alt';
         }
+    }
+}
+
+/**
+ * Walidacja czy obecne dane są nadal aktualne
+ */
+async function validateExistingData() {
+    try {
+        // Sprawdź podstawowe warunki
+        if (!gluingState.stations.length || !gluingState.workers.length) {
+            return { valid: false, reason: 'Brak podstawowych danych' };
+        }
+
+        // Sprawdź czy minęło dużo czasu od ostatniej synchronizacji
+        if (gluingState.lastSync) {
+            const timeDiff = Date.now() - gluingState.lastSync;
+            const maxAge = 15 * 60 * 1000; // 15 minut
+
+            if (timeDiff > maxAge) {
+                return { valid: false, reason: 'Dane starsze niż 15 minut' };
+            }
+        }
+
+        return { valid: true };
+
+    } catch (error) {
+        return { valid: false, reason: 'Błąd walidacji' };
     }
 }
 
@@ -195,7 +488,7 @@ function updateSingleStation(station) {
  */
 function updateProductsData(newProductsData) {
     const oldProducts = [...gluingState.products];
-    gluingState.stations = newProductsData;
+    gluingState.products = newProductsData;
 
     // Sprawdź czy są nowe produkty
     const newProductIds = newProductsData.map(p => p.id);
@@ -512,66 +805,171 @@ async function refreshDataIncrementally() {
 }
 
 /**
- * Automatyczne odświeżanie
+ * Uruchomienie automatycznego odświeżania - POPRAWIONA WERSJA
  */
 function startAutoRefresh() {
-    console.log('🚀 [TIMER] Uruchamianie automatycznego odświeżania...');
+    console.log('🔄 Uruchamianie auto-refresh...');
 
-    // Zatrzymaj wszystkie poprzednie timery
+    // Wyczyść poprzednie timery
     if (gluingState.refreshTimer) {
         clearInterval(gluingState.refreshTimer);
-        console.log('⏹️ [TIMER] Zatrzymano poprzedni timer odświeżania danych');
     }
-
     if (gluingState.uiTimer) {
         clearInterval(gluingState.uiTimer);
-        console.log('⏹️ [TIMER] Zatrzymano poprzedni timer UI');
     }
 
-    // Timer 1: Odświeżanie danych z API co 3 minuty
-    gluingState.refreshTimer = setInterval(() => {
-        console.log('🔄 [API] Rozpoczęcie inteligentnego odświeżania danych...');
-        refreshDataIncrementally();
+    // Timer głównego odświeżania danych (co 3 minuty)
+    gluingState.refreshTimer = setInterval(async () => {
+        console.log('🔄 Auto-refresh danych...');
+
+        try {
+            // Sprawdź czy strona jest aktywna (nie w tle)
+            if (document.hidden) {
+                console.log('⏸️ Strona w tle - pomijam odświeżenie');
+                return;
+            }
+
+            await refreshAllData();
+
+        } catch (error) {
+            console.error('❌ Błąd auto-refresh:', error);
+
+            // Jeśli błąd 401/403, odśwież stronę
+            if (error.message && (error.message.includes('401') || error.message.includes('403'))) {
+                showToast('warning', 'Sesja wygasła - odświeżanie strony...');
+                setTimeout(() => window.location.reload(), 2000);
+            }
+        }
     }, GLUING_CONFIG.refreshInterval);
 
-    // Timer 2: Aktualizacja UI (liczniki) co sekundę
+    // ZMIANA: Timer UI (co 1 sekundę) - tylko liczniki czasu i aktualizacja sync time
     gluingState.uiTimer = setInterval(() => {
-        updateStationTimers();
-    }, GLUING_CONFIG.timerInterval);
+        if (!document.hidden) {
+            updateStationTimers(); // Aktualizuj liczniki co sekundę
 
-    console.log(`✅ [TIMER] Timery uruchomione - API: ${GLUING_CONFIG.refreshInterval / 1000}s, UI: ${GLUING_CONFIG.timerInterval / 1000}s`);
+            // Aktualizuj czas synchronizacji tylko co 5 sekund
+            const now = Math.floor(Date.now() / 1000);
+            if (now % 5 === 0) {
+                updateLastSyncTime();
+            }
+        }
+    }, 1000); // ZMIANA: 1000ms zamiast 5000ms
+
+    console.log('✅ Auto-refresh uruchomiony - dane co 3min, UI co 1s');
 }
 
 // === API CALLS ===
 
 /**
- * Pobieranie statusu stanowisk
+ * Pobieranie listy stanowisk - POPRAWIONA WERSJA z walidacją
  */
 async function fetchStations() {
     try {
-        const response = await fetch(GLUING_CONFIG.apiEndpoints.stations);
-        if (!response.ok) throw new Error('Network response was not ok');
+        console.log('📡 Pobieranie stanowisk...');
+        const response = await fetch('/production/api/stations/status', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
 
         const data = await response.json();
-        return { success: true, data: data.data || [] }; // ZMIANA: data.data zamiast data.stations
+        console.log('✅ Otrzymane dane stanowisk:', data);
+
+        if (data.data && Array.isArray(data.data)) {
+            console.log('Stations API response valid - count:', data.data.length);
+            if (data.data.length > 0) {
+                console.log('Sample station fields:', Object.keys(data.data[0]));
+            }
+        } else {
+            console.warn('Unexpected stations API response structure:', data);
+        }
+
+        // Walidacja struktury odpowiedzi
+        if (!data || !data.success) {
+            throw new Error('Nieprawidłowa struktura odpowiedzi API');
+        }
+
+        const stations = data.data || [];
+
+        // Walidacja czy są stanowiska sklejania
+        const gluingStations = stations.filter(s =>
+            s.station_type === 'gluing' && s.is_active !== false
+        );
+
+        if (gluingStations.length === 0) {
+            console.warn('⚠️ Brak dostępnych stanowisk sklejania');
+        }
+
+        return { success: true, data: stations };
+
     } catch (error) {
         console.error('❌ Błąd pobierania stanowisk:', error);
+
+        // Sprawdź czy to błąd sesji/autoryzacji
+        if (error.message.includes('401') || error.message.includes('403')) {
+            showToast('error', 'Sesja wygasła - odśwież stronę');
+            setTimeout(() => window.location.reload(), 2000);
+        }
+
         return { success: false, error: error.message };
     }
 }
 
 /**
- * Pobieranie listy pracowników - POPRAWIONA WERSJA
+ * Pobieranie listy pracowników - POPRAWIONA WERSJA z walidacją
  */
 async function fetchWorkers() {
     try {
-        const response = await fetch('/production/api/workers');
-        if (!response.ok) throw new Error('Network response was not ok');
+        console.log('👥 Pobieranie pracowników...');
+        const response = await fetch('/production/api/workers', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
 
         const data = await response.json();
-        return { success: true, data: data.data || [] }; // ZMIANA: data.data zamiast data.workers
+        console.log('✅ Otrzymane dane pracowników:', data);
+
+        // Walidacja struktury odpowiedzi
+        if (!data || !data.success) {
+            throw new Error('Nieprawidłowa struktura odpowiedzi API');
+        }
+
+        const workers = data.data || [];
+
+        // Walidacja czy są pracownicy dla sklejania
+        const gluingWorkers = workers.filter(w =>
+            w.is_active !== false &&
+            (w.station_type_preference === 'gluing' || w.station_type_preference === 'both')
+        );
+
+        if (gluingWorkers.length === 0) {
+            console.warn('⚠️ Brak dostępnych pracowników dla sklejania');
+        }
+
+        return { success: true, data: workers };
+
     } catch (error) {
         console.error('❌ Błąd pobierania pracowników:', error);
+
+        // Sprawdź czy to błąd sesji/autoryzacji
+        if (error.message.includes('401') || error.message.includes('403')) {
+            showToast('error', 'Sesja wygasła - odśwież stronę');
+            setTimeout(() => window.location.reload(), 2000);
+        }
+
         return { success: false, error: error.message };
     }
 }
@@ -667,7 +1065,8 @@ function renderStations() {
     }
 
     container.innerHTML = gluingStations.map(station => {
-        if (station.is_busy) {
+        const isWorking = station.current_item_id && station.current_item_id > 0;
+        if (isWorking) {
             // Aktywne stanowisko - tylko zawartość bez nazwy i statusu
             const statusClass = getStationStatusClass('active');
             return `
@@ -847,9 +1246,15 @@ function renderProductBadges(product) {
  * Renderowanie modala wyboru stanowiska i pracownika - NOWA WERSJA
  */
 function renderStationWorkerModal(product) {
-    // Informacje o produkcie - NOWA STRUKTURA
-    const productInfoElement = document.getElementById('modalProductInfo');
-    if (productInfoElement && product) {
+    console.log('🎨 Renderowanie modala...', {
+        product,
+        stationsCount: gluingState.stations.length,
+        workersCount: gluingState.workers.length
+    });
+
+    // Informacje o produkcie
+    const productInfoContainer = document.getElementById('modalProductInfo');
+    if (productInfoContainer && product) {
         // Nazwa produktu
         const productNameEl = document.getElementById('modalProductName');
         if (productNameEl) {
@@ -914,89 +1319,58 @@ function renderStationWorkerModal(product) {
         }
     }
 
-    // Stanowiska - POPRAWIONE z walidacją (bez zmian)
+    // STANOWISKA - POPRAWIONE z lepszą walidacją
     const stationsContainer = document.getElementById('modalStationsGrid');
     if (stationsContainer) {
+        // Waliduj dostępność danych stanowisk
         if (!gluingState.stations || gluingState.stations.length === 0) {
+            console.warn('⚠️ Brak danych stanowisk w modal render');
             stationsContainer.innerHTML = `
-                <div class="prod-work-modal-loading">
-                    <i class="fas fa-spinner fa-spin"></i>
-                    <span>Ładowanie stanowisk...</span>
+                <div class="prod-work-modal-error">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Brak dostępnych stanowisk</span>
+                    <button class="prod-work-btn prod-work-btn-sm" onclick="refreshAllData()">
+                        <i class="fas fa-sync"></i> Odśwież
+                    </button>
                 </div>
             `;
-            
-            setTimeout(() => {
-                fetchStations().then(result => {
-                    if (result.success) {
-                        gluingState.stations = result.data;
-                        renderStationWorkerModal(product);
-                    }
-                });
-            }, 500);
             return;
         }
 
-        const gluingStations = gluingState.stations.filter(station =>
-            station.station_type === 'gluing' && station.is_active
-        );
-
-        if (gluingStations.length === 0) {
-            stationsContainer.innerHTML = `
-                <div class="prod-work-empty-state">
-                    <i class="fas fa-exclamation-circle"></i>
-                    <span>Brak dostępnych stanowisk sklejania</span>
-                </div>
-            `;
-        } else {
-            stationsContainer.innerHTML = gluingStations.map(station => {
-                const isAvailable = !station.is_busy;
-                const disabledClass = isAvailable ? '' : 'disabled';
-
-                return `
-                    <div class="prod-work-selection-item ${disabledClass}" 
-                         data-station-id="${station.id}" 
-                         ${isAvailable ? 'onclick="selectStation(' + station.id + ')"' : ''}>
-                        <div class="prod-work-selection-item-name">${station.name}</div>
-                        <div class="prod-work-selection-item-status">
-                            ${isAvailable ? 'Dostępne' : 'Zajęte'}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
+        renderModalStations();
     }
 
-    // Pracownicy - POPRAWIONE z walidacją (bez zmian)
+    // PRACOWNICY - POPRAWIONE z lepszą walidacją
     const workersContainer = document.getElementById('modalWorkersGrid');
     if (workersContainer) {
+        // Waliduj dostępność danych pracowników
         if (!gluingState.workers || gluingState.workers.length === 0) {
+            console.warn('⚠️ Brak danych pracowników w modal render');
             workersContainer.innerHTML = `
-                <div class="prod-work-modal-loading">
-                    <i class="fas fa-spinner fa-spin"></i>
-                    <span>Ładowanie pracowników...</span>
+                <div class="prod-work-modal-error">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Brak dostępnych pracowników</span>
+                    <button class="prod-work-btn prod-work-btn-sm" onclick="refreshAllData()">
+                        <i class="fas fa-sync"></i> Odśwież
+                    </button>
                 </div>
             `;
-            
-            setTimeout(() => {
-                fetchWorkers().then(result => {
-                    if (result.success) {
-                        gluingState.workers = result.data;
-                        renderStationWorkerModal(product);
-                    }
-                });
-            }, 500);
             return;
         }
 
         const gluingWorkers = gluingState.workers.filter(worker =>
-            worker.station_type_preference === 'gluing' || worker.station_type_preference === 'both'
+            worker.is_active !== false &&
+            (worker.station_type_preference === 'gluing' || worker.station_type_preference === 'both')
         );
 
         if (gluingWorkers.length === 0) {
             workersContainer.innerHTML = `
-                <div class="prod-work-empty-state">
-                    <i class="fas fa-exclamation-circle"></i>
-                    <span>Brak dostępnych pracowników</span>
+                <div class="prod-work-modal-error">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Brak dostępnych pracowników dla sklejania</span>
+                    <button class="prod-work-btn prod-work-btn-sm" onclick="refreshAllData()">
+                        <i class="fas fa-sync"></i> Odśwież
+                    </button>
                 </div>
             `;
         } else {
@@ -1017,6 +1391,62 @@ function renderStationWorkerModal(product) {
             }).join('');
         }
     }
+}
+
+/**
+ * Renderowanie stanowisk w modalu
+ */
+function renderModalStations() {
+    const stationsContainer = document.getElementById('modalStationsGrid');
+    if (!stationsContainer) return;
+
+    if (!gluingState.stations || gluingState.stations.length === 0) {
+        stationsContainer.innerHTML = `
+            <div class="prod-work-modal-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>Brak dostępnych stanowisk - odśwież dane</span>
+                <button class="prod-work-btn prod-work-btn-sm" onclick="refreshAllData()">
+                    <i class="fas fa-sync"></i> Odśwież
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    const gluingStations = gluingState.stations.filter(station =>
+        station.station_type === 'gluing' && station.is_active !== false
+    );
+
+    if (gluingStations.length === 0) {
+        stationsContainer.innerHTML = `
+            <div class="prod-work-modal-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>Brak aktywnych stanowisk sklejania</span>
+                <button class="prod-work-btn prod-work-btn-sm" onclick="refreshAllData()">
+                    <i class="fas fa-sync"></i> Odśwież
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    stationsContainer.innerHTML = gluingStations.map(station => {
+        // Sprawdź różne sposoby oznaczania zajętości
+        const isBusy = station.is_busy || station.current_item_id || station.status === 'busy';
+        const isAvailable = !isBusy && station.is_active !== false;
+        const disabledClass = isAvailable ? '' : 'disabled';
+
+        return `
+            <div class="prod-work-selection-item ${disabledClass}" 
+                 data-station-id="${station.id}" 
+                 ${isAvailable ? 'onclick="selectStation(' + station.id + ')"' : ''}>
+                <div class="prod-work-selection-item-name">${station.name}</div>
+                <div class="prod-work-selection-item-status">
+                    ${isAvailable ? 'Dostępne' : 'Zajęte'}
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 /**
@@ -1056,9 +1486,23 @@ function formatProductDimensions(product) {
 // === EVENT HANDLERS ===
 
 /**
- * Pokazanie modala wyboru stanowiska i pracownika
+ * Pokazanie modala wyboru stanowiska i pracownika - POPRAWIONA WERSJA
  */
 function showStationWorkerModal(productId, preselectedStationId = null) {
+    console.log('🔄 Otwieranie modala wyboru...', { productId, preselectedStationId });
+
+    // Waliduj czy mamy dane
+    if (!gluingState.stations.length || !gluingState.workers.length) {
+        console.warn('⚠️ Brak danych - wymuszam odświeżenie przed otwarciem modala');
+        showToast('info', 'Odświeżanie danych...');
+
+        loadInitialData().then(() => {
+            // Spróbuj ponownie po załadowaniu
+            setTimeout(() => showStationWorkerModal(productId, preselectedStationId), 500);
+        });
+        return;
+    }
+
     const product = productId ? gluingState.products.find(p => p.id === productId) : null;
 
     if (productId && !product) {
@@ -1081,7 +1525,7 @@ function showStationWorkerModal(productId, preselectedStationId = null) {
         }
     }
 
-    // Render modala
+    // Render modala z walidacją
     renderStationWorkerModal(product);
 
     // Jeśli jest preselected station, wybierz go automatycznie
@@ -1096,19 +1540,42 @@ function showStationWorkerModal(productId, preselectedStationId = null) {
             const modal = new bootstrap.Modal(modalElement);
             modal.show();
         } else {
-            console.error('Modal element not found: stationWorkerModal');
-            showToast('error', 'Błąd: Nie można otworzyć modala');
+            console.error('❌ Modal element not found: stationWorkerModal');
+            showToast('error', 'Błąd: Nie można otworzyć modala - odśwież stronę');
         }
     } catch (error) {
-        console.error('Błąd otwierania modala:', error);
-        showToast('error', 'Błąd otwierania modala wyboru');
+        console.error('❌ Błąd otwierania modala:', error);
+        showToast('error', 'Błąd otwierania modala wyboru - odśwież stronę');
     }
 }
 
 /**
- * Wybór stanowiska
+ * Wybór stanowiska - POPRAWIONA WERSJA z walidacją
  */
 function selectStation(stationId) {
+    console.log('🏭 Wybór stanowiska:', stationId);
+
+    // Waliduj czy stanowisko istnieje i jest dostępne
+    const station = gluingState.stations.find(s => s.id == stationId);
+    if (!station) {
+        console.error('❌ Stanowisko nie znalezione:', stationId);
+        showToast('error', 'Stanowisko nie zostało znalezione');
+        return;
+    }
+
+    const isBusy = station.is_busy || station.current_item_id || station.status === 'busy';
+    if (isBusy) {
+        console.warn('⚠️ Stanowisko zajęte:', stationId);
+        showToast('warning', 'To stanowisko jest obecnie zajęte');
+        return;
+    }
+
+    if (!station.is_active) {
+        console.warn('⚠️ Stanowisko nieaktywne:', stationId);
+        showToast('warning', 'To stanowisko jest nieaktywne');
+        return;
+    }
+
     // Usuń poprzedni wybór
     document.querySelectorAll('#modalStationsGrid .prod-work-selection-item').forEach(item => {
         item.classList.remove('selected');
@@ -1118,17 +1585,109 @@ function selectStation(stationId) {
     const stationElement = document.querySelector(`#modalStationsGrid [data-station-id="${stationId}"]`);
     if (stationElement && !stationElement.classList.contains('disabled')) {
         stationElement.classList.add('selected');
-        gluingState.selectedStation = gluingState.stations.find(s => s.id == stationId);
-
+        gluingState.selectedStation = station;
         document.getElementById('selectedStationId').value = stationId;
-        updateModalSummary();
+
+        updateStartButtonState();
+        console.log('✅ Stanowisko wybrane:', station.name);
+    } else {
+        console.error('❌ Element stanowiska nie znaleziony lub jest wyłączony');
+        showToast('error', 'Nie można wybrać tego stanowiska');
     }
 }
 
 /**
- * Wybór pracownika
+ * Debounce function - opóźnia wykonanie funkcji
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+/**
+ * Throttle function - ogranicza częstotliwość wykonania funkcji
+ */
+function throttle(func, limit) {
+    let inThrottle;
+    return function () {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    }
+}
+
+/**
+ * Bezpieczne parsowanie JSON
+ */
+function safeJsonParse(str, defaultValue = null) {
+    try {
+        return JSON.parse(str);
+    } catch (error) {
+        console.warn('⚠️ Błąd parsowania JSON:', error);
+        return defaultValue;
+    }
+}
+
+/**
+ * Aktualizacja stanu przycisku rozpoczęcia produkcji
+ */
+function updateStartButtonState() {
+    const startButton = document.getElementById('startProductionBtn');
+    if (!startButton) return;
+
+    const hasStation = gluingState.selectedStation && gluingState.selectedStation.id;
+    const hasWorker = gluingState.selectedWorker && gluingState.selectedWorker.id;
+    const hasProduct = gluingState.selectedProduct && gluingState.selectedProduct.id;
+
+    const canStart = hasStation && hasWorker && (hasProduct || !gluingState.selectedProduct);
+
+    startButton.disabled = !canStart;
+
+    // Aktualizuj tekst przycisku
+    if (!hasStation && !hasWorker) {
+        startButton.innerHTML = '<i class="fas fa-exclamation-circle"></i> Wybierz stanowisko i pracownika';
+    } else if (!hasStation) {
+        startButton.innerHTML = '<i class="fas fa-exclamation-circle"></i> Wybierz stanowisko';
+    } else if (!hasWorker) {
+        startButton.innerHTML = '<i class="fas fa-exclamation-circle"></i> Wybierz pracownika';
+    } else {
+        startButton.innerHTML = '<i class="fas fa-play"></i> Rozpocznij Produkcję';
+    }
+
+    console.log('🔄 Stan przycisku start:', { canStart, hasStation, hasWorker, hasProduct });
+}
+
+/**
+ * Wybór pracownika - POPRAWIONA WERSJA z walidacją
  */
 function selectWorker(workerId) {
+    console.log('👤 Wybór pracownika:', workerId);
+
+    // Waliduj czy pracownik istnieje i jest dostępny
+    const worker = gluingState.workers.find(w => w.id == workerId);
+    if (!worker) {
+        console.error('❌ Pracownik nie znaleziony:', workerId);
+        showToast('error', 'Pracownik nie został znaleziony');
+        return;
+    }
+
+    if (worker.is_active === false) {
+        console.warn('⚠️ Pracownik nieaktywny:', workerId);
+        showToast('warning', 'Ten pracownik jest obecnie niedostępny');
+        return;
+    }
+
     // Usuń poprzedni wybór
     document.querySelectorAll('#modalWorkersGrid .prod-work-selection-item').forEach(item => {
         item.classList.remove('selected');
@@ -1138,10 +1697,14 @@ function selectWorker(workerId) {
     const workerElement = document.querySelector(`#modalWorkersGrid [data-worker-id="${workerId}"]`);
     if (workerElement && !workerElement.classList.contains('disabled')) {
         workerElement.classList.add('selected');
-        gluingState.selectedWorker = gluingState.workers.find(w => w.id == workerId);
-
+        gluingState.selectedWorker = worker;
         document.getElementById('selectedWorkerId').value = workerId;
-        updateModalSummary();
+
+        updateStartButtonState();
+        console.log('✅ Pracownik wybrany:', worker.name);
+    } else {
+        console.error('❌ Element pracownika nie znaleziony lub jest wyłączony');
+        showToast('error', 'Nie można wybrać tego pracownika');
     }
 }
 
@@ -1189,7 +1752,6 @@ async function startProduction() {
             showToast('info', 'Odświeżam dane...');
             await loadInitialData();
 
-            showToast('success', 'Produkcja została rozpoczęta');
         } else {
             throw new Error(result.error || 'Błąd rozpoczęcia produkcji');
         }
@@ -1264,17 +1826,41 @@ function updateStationTimers() {
         if (station.current_item_id && station.current_item && station.current_item.gluing_started_at) {
             activeStations++;
 
-            // Oblicz czas pracy na podstawie gluing_started_at z serwera (już poprawiony)
+            // Oblicz czas pracy na podstawie gluing_started_at z serwera
             const startTimestamp = Math.floor(new Date(station.current_item.gluing_started_at).getTime() / 1000);
-            station.working_time_seconds = currentTime - startTimestamp;
+            const workingTimeSeconds = currentTime - startTimestamp;
 
-            // Użyj konfiguracji czasu z HTML
-            const standardTimeMinutes = parseInt(document.querySelector('#gluingTimeConfig')?.getAttribute('data-config-gluing-time')) || 2;
+            // Aktualizuj czas pracy w stanie stanowiska
+            station.working_time_seconds = workingTimeSeconds;
+
+            // Użyj konfiguracji czasu z HTML - sprawdź różne możliwe selektory
+            let standardTimeMinutes = 20; // wartość domyślna
+
+            // Sprawdź różne sposoby przechowywania konfiguracji czasu
+            const configElements = [
+                document.querySelector('#gluingTimeConfig'),
+                document.querySelector('[data-config-gluing-time]'),
+                document.querySelector('[data-gluing-time]')
+            ];
+
+            for (const element of configElements) {
+                if (element) {
+                    const timeValue = element.getAttribute('data-config-gluing-time') ||
+                        element.getAttribute('data-gluing-time') ||
+                        element.value;
+                    if (timeValue) {
+                        standardTimeMinutes = parseInt(timeValue);
+                        break;
+                    }
+                }
+            }
+
             const standardTimeSeconds = standardTimeMinutes * 60;
-            const remainingSeconds = standardTimeSeconds - station.working_time_seconds;
+            const remainingSeconds = standardTimeSeconds - workingTimeSeconds;
 
             const timerElement = document.getElementById(`timer-${station.id}`);
             if (timerElement) {
+                // Aktualizuj tekst timera
                 timerElement.textContent = formatCountdownTimer(remainingSeconds);
 
                 const stationElement = timerElement.closest('.prod-work-station');
@@ -1282,6 +1868,7 @@ function updateStationTimers() {
                     // Usuń poprzednie klasy
                     stationElement.classList.remove('active', 'overtime-warning', 'overtime');
 
+                    // Dodaj odpowiednią klasę na podstawie czasu
                     if (remainingSeconds <= 0) {
                         stationElement.classList.add('overtime');
                     } else if (remainingSeconds <= 60) {
@@ -1294,9 +1881,9 @@ function updateStationTimers() {
         }
     });
 
-    // Loguj tylko co minutę
-    if (currentTime % 60 === 0 || (gluingState.lastActiveStationsCount !== activeStations)) {
-        console.log(`⏱️ [UI] Aktualizacja timerów - aktywnych stacji: ${activeStations}`);
+    // Loguj tylko co 30 sekund żeby nie zaśmiecać konsoli
+    if (currentTime % 30 === 0 || (gluingState.lastActiveStationsCount !== activeStations)) {
+        console.log(`⏱️ [UI] Timer update - aktywnych stacji: ${activeStations}, czas: ${new Date().toLocaleTimeString()}`);
         gluingState.lastActiveStationsCount = activeStations;
     }
 }
@@ -1466,11 +2053,11 @@ function getPriorityClass(product) {
  * Pokazanie stanu ładowania
  */
 function showLoadingState() {
-    const stationsContainer = document.getElementById('stationsGrid');
-    const productsContainer = document.getElementById('productsGrid');
+    const stationsGrid = document.getElementById('stationsGrid');
+    const productsGrid = document.getElementById('productsGrid');
 
-    if (stationsContainer) {
-        stationsContainer.innerHTML = `
+    if (stationsGrid) {
+        stationsGrid.innerHTML = `
             <div class="prod-work-station-loading">
                 <i class="fas fa-spinner fa-spin"></i>
                 <span>Ładowanie stanowisk...</span>
@@ -1478,92 +2065,175 @@ function showLoadingState() {
         `;
     }
 
-    if (productsContainer) {
-        productsContainer.innerHTML = `
+    if (productsGrid) {
+        productsGrid.innerHTML = `
             <div class="prod-work-products-loading">
                 <i class="fas fa-spinner fa-spin"></i>
                 <span>Ładowanie produktów...</span>
             </div>
         `;
     }
+
+    console.log('⏳ Pokazano stan ładowania');
 }
 
 /**
  * Pokazanie stanu błędu
  */
 function showErrorState() {
-    const stationsContainer = document.getElementById('stationsGrid');
-    const productsContainer = document.getElementById('productsGrid');
+    const stationsGrid = document.getElementById('stationsGrid');
+    const productsGrid = document.getElementById('productsGrid');
 
-    if (stationsContainer) {
-        stationsContainer.innerHTML = `
-            <div class="prod-work-station-loading">
-                <i class="fas fa-exclamation-triangle text-danger"></i>
+    if (stationsGrid) {
+        stationsGrid.innerHTML = `
+            <div class="prod-work-modal-error">
+                <i class="fas fa-exclamation-triangle"></i>
                 <span>Błąd ładowania stanowisk</span>
+                <button class="prod-work-btn prod-work-btn-primary" onclick="retryConnection()">
+                    <i class="fas fa-sync"></i>
+                    Spróbuj ponownie
+                </button>
             </div>
         `;
     }
 
-    if (productsContainer) {
-        productsContainer.innerHTML = `
-            <div class="prod-work-products-loading">
-                <i class="fas fa-exclamation-triangle text-danger"></i>
+    if (productsGrid) {
+        productsGrid.innerHTML = `
+            <div class="prod-work-modal-error">
+                <i class="fas fa-exclamation-triangle"></i>
                 <span>Błąd ładowania produktów</span>
+                <button class="prod-work-btn prod-work-btn-primary" onclick="retryConnection()">
+                    <i class="fas fa-sync"></i>
+                    Spróbuj ponownie
+                </button>
             </div>
         `;
     }
+
+    console.log('❌ Pokazano stan błędu');
 }
 
 /**
- * Aktualizacja czasu ostatniej synchronizacji
+ * Aktualizacja czasu ostatniej synchronizacji - POPRAWIONA WERSJA
  */
 function updateLastSyncTime() {
     const syncElement = document.getElementById('lastSyncTime');
     if (syncElement) {
         const now = new Date();
-        const timeString = now.toLocaleTimeString('pl-PL', {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-        syncElement.textContent = timeString;
-        gluingState.lastSync = now;
+        gluingState.lastSync = now.getTime();
+
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        const seconds = now.getSeconds().toString().padStart(2, '0');
+
+        syncElement.textContent = `${hours}:${minutes}:${seconds}`;
+        syncElement.title = `Ostatnia synchronizacja: ${now.toLocaleString()}`;
     }
 }
 
 /**
- * Pokazanie toast notification
+ * Sprawdzenie połączenia z serwerem
  */
-function showToast(type, message) {
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
+async function checkServerConnection() {
+    try {
+        const response = await fetch('/production/api/health-check', {
+            method: 'GET',
+            headers: { 'Cache-Control': 'no-cache' },
+            signal: AbortSignal.timeout(5000) // 5 sekund timeout
+        });
 
-    const toastId = 'toast-' + Date.now();
-    const iconClass = getToastIcon(type);
+        return response.ok;
 
-    const toastHTML = `
-        <div class="toast ${type}" role="alert" id="${toastId}" data-bs-autohide="true" data-bs-delay="5000">
-            <div class="toast-header">
-                <i class="${iconClass} me-2"></i>
-                <strong class="me-auto">${getToastTitle(type)}</strong>
-                <small class="text-muted">${new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</small>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body">
-                ${message}
-            </div>
+    } catch (error) {
+        console.error('❌ Błąd sprawdzania połączenia:', error);
+        return false;
+    }
+}
+
+/**
+ * Pokazanie stanu połączenia
+ */
+function showConnectionStatus(status) {
+    let statusElement = document.querySelector('.prod-work-connection-status');
+
+    if (!statusElement) {
+        statusElement = document.createElement('div');
+        statusElement.className = 'prod-work-connection-status';
+        document.body.appendChild(statusElement);
+    }
+
+    const messages = {
+        online: 'Połączono z serwerem',
+        offline: 'Brak połączenia',
+        reconnecting: 'Próba ponownego połączenia...'
+    };
+
+    statusElement.className = `prod-work-connection-status ${status}`;
+    statusElement.innerHTML = `
+        <i class="fas fa-${status === 'online' ? 'check' : status === 'offline' ? 'times' : 'sync fa-spin'}"></i>
+        ${messages[status]}
+    `;
+
+    // Auto-hide dla status online
+    if (status === 'online') {
+        setTimeout(() => {
+            if (statusElement.parentElement) {
+                statusElement.style.opacity = '0';
+                setTimeout(() => statusElement.remove(), 300);
+            }
+        }, 3000);
+    }
+}
+
+/**
+ * Pokazanie toast notification - POPRAWIONA WERSJA
+ */
+function showToast(type, message, duration = 3000) {
+    // Utwórz kontener jeśli nie istnieje
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    // Ikony dla różnych typów
+    const icons = {
+        success: 'fas fa-check-circle',
+        error: 'fas fa-exclamation-circle',
+        warning: 'fas fa-exclamation-triangle',
+        info: 'fas fa-info-circle'
+    };
+
+    // Utwórz toast
+    const toast = document.createElement('div');
+    toast.className = `prod-work-toast ${type}`;
+    toast.innerHTML = `
+        <div class="prod-work-toast-content">
+            <i class="prod-work-toast-icon ${icons[type] || icons.info}"></i>
+            <div class="prod-work-toast-message">${message}</div>
+            <button class="prod-work-toast-close" onclick="this.parentElement.parentElement.remove()">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
     `;
 
-    container.insertAdjacentHTML('beforeend', toastHTML);
+    container.appendChild(toast);
 
-    const toastElement = document.getElementById(toastId);
-    const toast = new bootstrap.Toast(toastElement);
-    toast.show();
+    // Pokaż toast
+    setTimeout(() => toast.classList.add('show'), 100);
 
-    // Usuń element po ukryciu
-    toastElement.addEventListener('hidden.bs.toast', function () {
-        toastElement.remove();
-    });
+    // Auto-remove
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.remove();
+            }
+        }, 300);
+    }, duration);
+
+    console.log(`📢 Toast [${type.toUpperCase()}]: ${message}`);
 }
 
 /**
@@ -1600,5 +2270,19 @@ function getToastTitle(type) {
 window.addEventListener('beforeunload', function () {
     if (gluingState.refreshTimer) {
         clearInterval(gluingState.refreshTimer);
+    }
+});
+
+/**
+ * Cleanup przy opuszczaniu strony
+ */
+window.addEventListener('beforeunload', function () {
+    console.log('🧹 Cleanup timers...');
+
+    if (gluingState.refreshTimer) {
+        clearInterval(gluingState.refreshTimer);
+    }
+    if (gluingState.uiTimer) {
+        clearInterval(gluingState.uiTimer);
     }
 });
