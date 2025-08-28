@@ -794,22 +794,46 @@ def trigger_job_manually(job_id):
         bool: True jeśli uruchomiono pomyślnie
     """
     try:
+        # Główny przypadek: scheduler działa w tym procesie
         if scheduler and scheduler.running:
             job = scheduler.get_job(job_id)
             if job:
-                # Uruchom zadanie w tle
+                # Uruchom zadanie w tle poprzez ustawienie natychmiastowego next_run_time
                 scheduler.modify_job(job_id, next_run_time=datetime.now())
-                
-                # NOWE: Aktualizuj last_run w bazie
+
+                # Aktualizuj last_run w bazie
                 from modules.scheduler.models import update_job_last_run
                 update_job_last_run(job_id)
-                
+
                 print(f"[Scheduler] Ręcznie uruchomiono zadanie: {job_id}", file=sys.stderr)
                 return True
             else:
                 print(f"[Scheduler] Nie znaleziono zadania: {job_id}", file=sys.stderr)
                 return False
-        return False
+
+        # Fallback: scheduler nie działa w tym procesie
+        print(f"[Scheduler] Brak aktywnego schedulera w tym procesie, wykonuję zadanie {job_id} bezpośrednio", file=sys.stderr)
+        with current_app.app_context():
+            # Mapowanie identyfikatorów zadań na funkcje
+            if job_id == 'quote_check_daily':
+                from modules.scheduler.jobs.quote_reminders import check_quote_reminders
+                check_quote_reminders()
+            elif job_id == 'production_queue_renumber':
+                from modules.scheduler.jobs.production_queue_renumber import manual_renumber_production_queue
+                manual_renumber_production_queue()
+            elif job_id == 'email_send_daily':
+                from modules.scheduler.jobs.quote_reminders import send_scheduled_emails
+                send_scheduled_emails()
+            else:
+                print(f"[Scheduler] Brak obsługi ręcznego uruchomienia dla zadania: {job_id}", file=sys.stderr)
+                return False
+
+            from modules.scheduler.models import update_job_last_run
+            update_job_last_run(job_id)
+
+            print(f"[Scheduler] ✅ Zadanie {job_id} wykonane bez aktywnego schedulera", file=sys.stderr)
+            return True
+
     except Exception as e:
         print(f"[Scheduler] Błąd ręcznego uruchomienia {job_id}: {e}", file=sys.stderr)
         return False

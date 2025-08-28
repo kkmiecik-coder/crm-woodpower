@@ -9,21 +9,97 @@
                 </h5>
             </div>
             <div class="modal-body prod-work-modal-body">
-                <!-- Informacje o produkcie -->
-                <div class="prod-work-product-info" id="modalProductInfo">
-                    <h6 class="prod-work-product-title">Wybrany produkt:</h6>
-                    <div class="prod-work-product-details">
+            <!-- Informacje o produkcie - PRZEPROJEKTOWANE -->
+            <div class="prod-work-product-card" id="modalProductInfo">
+                <div class="prod-work-product-header">
+                    <div class="prod-work-product-icon">
+                        <i class="fas fa-cube"></i>
+                    </div>
+                    <div class="prod-work-product-meta">
+                        <span class="prod-work-product-label">Wybrany produkt</span>
                         <div class="prod-work-product-name" id="modalProductName">
                             <!-- Nazwa produktu -->
                         </div>
-                        <div class="prod-work-product-badges" id="modalProductBadges">
-                            <!-- Badge'e z parametrami -->
+                    </div>
+                </div>
+                
+                <div class="prod-work-product-body">
+                    <!-- Parametry produktu w siatce -->
+                    <div class="prod-work-product-grid">
+                        <div class="prod-work-product-param">
+                            <div class="prod-work-param-icon">
+                                <i class="fas fa-ruler-combined"></i>
+                            </div>
+                            <div class="prod-work-param-content">
+                                <span class="prod-work-param-label">Wymiary</span>
+                                <span class="prod-work-param-value" id="modalProductDimensions">
+                                    <!-- Wymiary -->
+                                </span>
+                            </div>
                         </div>
-                        <div class="prod-work-product-dimensions" id="modalProductDimensions">
-                            <!-- Wymiary -->
+                        
+                        <div class="prod-work-product-param">
+                            <div class="prod-work-param-icon">
+                                <i class="fas fa-tree"></i>
+                            </div>
+                            <div class="prod-work-param-content">
+                                <span class="prod-work-param-label">Gatunek</span>
+                                <span class="prod-work-param-value" id="modalProductSpecies">
+                                    <!-- Gatunek drewna -->
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="prod-work-product-param">
+                            <div class="prod-work-param-icon">
+                                <i class="fas fa-cogs"></i>
+                            </div>
+                            <div class="prod-work-param-content">
+                                <span class="prod-work-param-label">Technologia</span>
+                                <span class="prod-work-param-value" id="modalProductTechnology">
+                                    <!-- Technologia -->
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="prod-work-product-param">
+                            <div class="prod-work-param-icon">
+                                <i class="fas fa-star"></i>
+                            </div>
+                            <div class="prod-work-param-content">
+                                <span class="prod-work-param-label">Klasa</span>
+                                <span class="prod-work-param-value" id="modalProductClass">
+                                    <!-- Klasa drewna -->
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="prod-work-product-param">
+                            <div class="prod-work-param-icon">
+                                <i class="fas fa-hashtag"></i>
+                            </div>
+                            <div class="prod-work-param-content">
+                                <span class="prod-work-param-label">Ilość</span>
+                                <span class="prod-work-param-value" id="modalProductQuantity">
+                                    <!-- Ilość -->
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="prod-work-product-param">
+                            <div class="prod-work-param-icon">
+                                <i class="fas fa-calendar-alt"></i>
+                            </div>
+                            <div class="prod-work-param-content">
+                                <span class="prod-work-param-label">Termin</span>
+                                <span class="prod-work-param-value" id="modalProductDeadline">
+                                    <!-- Deadline -->
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
+            </div>
 
                 <hr class="prod-work-divider">
 

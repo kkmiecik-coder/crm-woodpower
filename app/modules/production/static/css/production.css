@@ -1926,3 +1926,128 @@
     background-color: #248CED;
     color: white;
 }
+
+/* === SZCZEGÓŁY INFORMACJI O PRODUKCIE NA STANOWISKU === */
+.prod-module-station-product,
+.prod-module-station-order,
+.prod-module-station-worker {
+    font-size: 13px;
+    color: #34495e;
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+.prod-module-station-product strong,
+.prod-module-station-order strong,
+.prod-module-station-worker strong {
+    color: #2c3e50;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+/* Tooltip dla długich nazw produktów */
+.prod-module-station-product {
+    position: relative;
+    cursor: help;
+}
+
+.prod-module-station-product[title]:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: #2c3e50;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 300px;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    transform: translateY(-4px);
+}
+
+/* Wyróżnienie numeru zamówienia */
+.prod-module-station-order {
+    font-weight: 500;
+}
+
+/* Wyróżnienie pracownika */
+.prod-module-station-worker {
+    color: #27ae60;
+    font-weight: 500;
+}
+
+.prod-module-station-worker strong {
+    color: #1e8449;
+}
+
+/* Ostrzeżenie o braku danych */
+.text-warning {
+    color: #f39c12 !important;
+    font-style: italic;
+    font-size: 12px;
+}
+
+/* Poprawa wyglądu czasu pracy z overtime */
+.prod-module-station-time {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e67e22;
+    margin-top: 8px;
+    padding: 4px 8px;
+    background: #fef5e7;
+    border-radius: 4px;
+    border-left: 3px solid #e67e22;
+}
+
+.prod-module-station-time.overtime {
+    color: #e74c3c;
+    background: #fdf2f2;
+    border-left-color: #e74c3c;
+    animation: pulse-warning 2s infinite;
+}
+
+@keyframes pulse-warning {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* Ulepszenie layoutu dla zajętych stanowisk */
+.prod-module-station-card.busy .prod-module-station-current {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border-left: 3px solid #e74c3c;
+}
+
+/* Ulepszenie dla wolnych stanowisk */
+.prod-module-station-card.free .prod-module-station-current {
+    text-align: center;
+    font-style: italic;
+    color: #7f8c8d;
+    padding: 8px;
+}
+
+/* Responsywność dla mobilnych urządzeń */
+@media (max-width: 768px) {
+    .prod-module-station-product,
+    .prod-module-station-order,
+    .prod-module-station-worker {
+        font-size: 12px;
+        margin-bottom: 4px;
+    }
+    
+    .prod-module-station-time {
+        font-size: 12px;
+        padding: 3px 6px;
+    }
+    
+    .prod-module-station-card.busy .prod-module-station-current {
+        padding: 8px;
+        margin-bottom: 8px;
+    }
+}

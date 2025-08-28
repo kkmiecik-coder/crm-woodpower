@@ -516,7 +516,7 @@ async function fetchStations() {
 }
 
 /**
- * Pobieranie listy pracowników
+ * Pobieranie listy pracowników - POPRAWIONA WERSJA
  */
 async function fetchWorkers() {
     try {
@@ -524,7 +524,7 @@ async function fetchWorkers() {
         if (!response.ok) throw new Error('Network response was not ok');
 
         const data = await response.json();
-        return { success: true, data: data.workers || [] };
+        return { success: true, data: data.data || [] }; // ZMIANA: data.data zamiast data.workers
     } catch (error) {
         console.error('❌ Błąd pobierania pracowników:', error);
         return { success: false, error: error.message };
@@ -830,61 +830,213 @@ function renderProductBadges(product) {
 }
 
 /**
- * Renderowanie modala wyboru stanowiska i pracownika
+ * Renderowanie modala wyboru stanowiska i pracownika - NOWA WERSJA
  */
 function renderStationWorkerModal(product) {
-    // Informacje o produkcie
+    // Informacje o produkcie - NOWA STRUKTURA
     const productInfoElement = document.getElementById('modalProductInfo');
     if (productInfoElement && product) {
-        document.getElementById('modalProductName').textContent = product.product_name || 'Produkt bez nazwy';
-        document.getElementById('modalProductBadges').innerHTML = renderProductBadges(product);
-        document.getElementById('modalProductDimensions').textContent = product.dimensions || 'Brak wymiarów';
+        // Nazwa produktu
+        const productNameEl = document.getElementById('modalProductName');
+        if (productNameEl) {
+            productNameEl.textContent = product.product_name || 'Produkt bez nazwy';
+        }
+
+        // Wymiary
+        const productDimensionsEl = document.getElementById('modalProductDimensions');
+        if (productDimensionsEl) {
+            const dimensions = formatProductDimensions(product);
+            productDimensionsEl.textContent = dimensions;
+        }
+
+        // Gatunek drewna
+        const productSpeciesEl = document.getElementById('modalProductSpecies');
+        if (productSpeciesEl) {
+            productSpeciesEl.textContent = product.wood_species || 'Nieznany';
+        }
+
+        // Technologia
+        const productTechnologyEl = document.getElementById('modalProductTechnology');
+        if (productTechnologyEl) {
+            productTechnologyEl.textContent = product.wood_technology || 'Nieznana';
+        }
+
+        // Klasa drewna
+        const productClassEl = document.getElementById('modalProductClass');
+        if (productClassEl) {
+            productClassEl.textContent = product.wood_class || 'Nieznana';
+        }
+
+        // Ilość
+        const productQuantityEl = document.getElementById('modalProductQuantity');
+        if (productQuantityEl) {
+            productQuantityEl.textContent = `${product.quantity || 0} szt.`;
+        }
+
+        // Deadline
+        const productDeadlineEl = document.getElementById('modalProductDeadline');
+        if (productDeadlineEl) {
+            if (product.deadline_date) {
+                const deadline = new Date(product.deadline_date);
+                const today = new Date();
+                const diffTime = deadline.getTime() - today.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                let deadlineText;
+                if (diffDays < 0) {
+                    deadlineText = `${Math.abs(diffDays)} dni temu`;
+                } else if (diffDays === 0) {
+                    deadlineText = 'Dziś';
+                } else if (diffDays === 1) {
+                    deadlineText = 'Jutro';
+                } else {
+                    deadlineText = `Za ${diffDays} dni`;
+                }
+                
+                productDeadlineEl.textContent = deadlineText;
+            } else {
+                productDeadlineEl.textContent = 'Brak terminu';
+            }
+        }
     }
 
-    // Stanowiska - TYLKO stanowiska sklejania
+    // Stanowiska - POPRAWIONE z walidacją (bez zmian)
     const stationsContainer = document.getElementById('modalStationsGrid');
     if (stationsContainer) {
+        if (!gluingState.stations || gluingState.stations.length === 0) {
+            stationsContainer.innerHTML = `
+                <div class="prod-work-modal-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Ładowanie stanowisk...</span>
+                </div>
+            `;
+            
+            setTimeout(() => {
+                fetchStations().then(result => {
+                    if (result.success) {
+                        gluingState.stations = result.data;
+                        renderStationWorkerModal(product);
+                    }
+                });
+            }, 500);
+            return;
+        }
+
         const gluingStations = gluingState.stations.filter(station =>
             station.station_type === 'gluing' && station.is_active
         );
 
-        stationsContainer.innerHTML = gluingStations.map(station => {
-            const isAvailable = !station.is_busy; // ZMIANA: logika dostępności
-            const disabledClass = isAvailable ? '' : 'disabled';
-
-            return `
-                <div class="prod-work-selection-item ${disabledClass}" 
-                     data-station-id="${station.id}" 
-                     ${isAvailable ? 'onclick="selectStation(' + station.id + ')"' : ''}>
-                    <div class="prod-work-selection-item-name">${station.name}</div>
-                    <div class="prod-work-selection-item-status">
-                        ${isAvailable ? 'Dostępne' : 'Zajęte'}
-                    </div>
+        if (gluingStations.length === 0) {
+            stationsContainer.innerHTML = `
+                <div class="prod-work-empty-state">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>Brak dostępnych stanowisk sklejania</span>
                 </div>
             `;
-        }).join('');
+        } else {
+            stationsContainer.innerHTML = gluingStations.map(station => {
+                const isAvailable = !station.is_busy;
+                const disabledClass = isAvailable ? '' : 'disabled';
+
+                return `
+                    <div class="prod-work-selection-item ${disabledClass}" 
+                         data-station-id="${station.id}" 
+                         ${isAvailable ? 'onclick="selectStation(' + station.id + ')"' : ''}>
+                        <div class="prod-work-selection-item-name">${station.name}</div>
+                        <div class="prod-work-selection-item-status">
+                            ${isAvailable ? 'Dostępne' : 'Zajęte'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
     }
 
-    // Pracownicy - TYLKO pracownicy sklejania
+    // Pracownicy - POPRAWIONE z walidacją (bez zmian)
     const workersContainer = document.getElementById('modalWorkersGrid');
     if (workersContainer) {
+        if (!gluingState.workers || gluingState.workers.length === 0) {
+            workersContainer.innerHTML = `
+                <div class="prod-work-modal-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Ładowanie pracowników...</span>
+                </div>
+            `;
+            
+            setTimeout(() => {
+                fetchWorkers().then(result => {
+                    if (result.success) {
+                        gluingState.workers = result.data;
+                        renderStationWorkerModal(product);
+                    }
+                });
+            }, 500);
+            return;
+        }
+
         const gluingWorkers = gluingState.workers.filter(worker =>
             worker.station_type_preference === 'gluing' || worker.station_type_preference === 'both'
         );
 
-        workersContainer.innerHTML = gluingWorkers.map(worker => {
-            const isAvailable = worker.is_active !== false;
-            const disabledClass = isAvailable ? '' : 'disabled';
-
-            return `
-                <div class="prod-work-selection-item ${disabledClass}" 
-                     data-worker-id="${worker.id}" 
-                     ${isAvailable ? 'onclick="selectWorker(' + worker.id + ')"' : ''}>
-                    <div class="prod-work-selection-item-name">${worker.name}</div>
+        if (gluingWorkers.length === 0) {
+            workersContainer.innerHTML = `
+                <div class="prod-work-empty-state">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>Brak dostępnych pracowników</span>
                 </div>
             `;
-        }).join('');
+        } else {
+            workersContainer.innerHTML = gluingWorkers.map(worker => {
+                const isAvailable = worker.is_active !== false;
+                const disabledClass = isAvailable ? '' : 'disabled';
+
+                return `
+                    <div class="prod-work-selection-item ${disabledClass}" 
+                         data-worker-id="${worker.id}" 
+                         ${isAvailable ? 'onclick="selectWorker(' + worker.id + ')"' : ''}>
+                        <div class="prod-work-selection-item-name">${worker.name}</div>
+                        <div class="prod-work-selection-item-status">
+                            ${isAvailable ? 'Dostępny' : 'Niedostępny'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
     }
+}
+
+/**
+ * NOWA FUNKCJA: Formatowanie wymiarów produktu
+ */
+function formatProductDimensions(product) {
+    // Sprawdź różne sposoby przechowywania wymiarów
+    if (product.dimensions && product.dimensions !== '-') {
+        return product.dimensions;
+    }
+
+    const length = product.dimensions_length;
+    const width = product.dimensions_width; 
+    const thickness = product.dimensions_thickness;
+
+    if (length && width && thickness) {
+        return `${length} × ${width} × ${thickness} cm`;
+    }
+
+    if (length && width) {
+        return `${length} × ${width} cm`;
+    }
+
+    if (length) {
+        return `${length} cm`;
+    }
+
+    // Sprawdź czy wymiary są w nazwie produktu
+    const dimensionMatch = product.product_name?.match(/(\d+(?:\.\d+)?)\s*×\s*(\d+(?:\.\d+)?)\s*×\s*(\d+(?:\.\d+)?)/);
+    if (dimensionMatch) {
+        return `${dimensionMatch[1]} × ${dimensionMatch[2]} × ${dimensionMatch[3]} cm`;
+    }
+
+    return 'Brak wymiarów';
 }
 
 // === EVENT HANDLERS ===
@@ -896,19 +1048,26 @@ function showStationWorkerModal(productId, preselectedStationId = null) {
     const product = productId ? gluingState.products.find(p => p.id === productId) : null;
 
     if (productId && !product) {
-        showToast('error', 'Nie znaleziono produktu');
+        showToast('error', 'Nie znaleziono produktu o ID: ' + productId);
+        console.error('Produkt nie znaleziony:', productId, 'Dostępne produkty:', gluingState.products);
         return;
     }
 
+    // Reset stanu modala
+    resetModalState();
+
+    // Ustaw nowe wartości
     gluingState.selectedProduct = product;
-    gluingState.selectedStation = null;
-    gluingState.selectedWorker = null;
 
     // Ustaw ID produktu w ukrytym polu
     if (productId) {
-        document.getElementById('selectedProductId').value = productId;
+        const productIdField = document.getElementById('selectedProductId');
+        if (productIdField) {
+            productIdField.value = productId;
+        }
     }
 
+    // Render modala
     renderStationWorkerModal(product);
 
     // Jeśli jest preselected station, wybierz go automatycznie
@@ -916,8 +1075,20 @@ function showStationWorkerModal(productId, preselectedStationId = null) {
         setTimeout(() => selectStation(preselectedStationId), 100);
     }
 
-    const modal = new bootstrap.Modal(document.getElementById('stationWorkerModal'));
-    modal.show();
+    // Pokaż modal
+    try {
+        const modalElement = document.getElementById('stationWorkerModal');
+        if (modalElement) {
+            const modal = new bootstrap.Modal(modalElement);
+            modal.show();
+        } else {
+            console.error('Modal element not found: stationWorkerModal');
+            showToast('error', 'Błąd: Nie można otworzyć modala');
+        }
+    } catch (error) {
+        console.error('Błąd otwierania modala:', error);
+        showToast('error', 'Błąd otwierania modala wyboru');
+    }
 }
 
 /**
@@ -1046,12 +1217,23 @@ function resetModalState() {
     gluingState.selectedStation = null;
     gluingState.selectedWorker = null;
 
-    document.getElementById('selectedProductId').value = '';
-    document.getElementById('selectedStationId').value = '';
-    document.getElementById('selectedWorkerId').value = '';
+    // Bezpieczne resetowanie pól formularza
+    const productIdField = document.getElementById('selectedProductId');
+    const stationIdField = document.getElementById('selectedStationId');
+    const workerIdField = document.getElementById('selectedWorkerId');
+    const startButton = document.getElementById('startProductionBtn');
 
-    document.getElementById('selectionSummary').style.display = 'none';
-    document.getElementById('startProductionBtn').disabled = true;
+    if (productIdField) productIdField.value = '';
+    if (stationIdField) stationIdField.value = '';
+    if (workerIdField) workerIdField.value = '';
+    if (startButton) startButton.disabled = true;
+
+    // Usuń zaznaczenia z elementów
+    document.querySelectorAll('.prod-work-selection-item.selected').forEach(item => {
+        item.classList.remove('selected');
+    });
+
+    console.log('Modal state reset');
 }
 
 // === TIMERY ===

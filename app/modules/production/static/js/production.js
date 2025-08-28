@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let refreshTimer = null;
     let refreshCountdown = 30;
     let currentFilters = {};
+    let stationsRefreshTimer = null;
+    let isStationsRefreshing = false;
     
     // === INICJALIZACJA ===
     initTabs();
@@ -48,14 +50,22 @@ document.addEventListener('DOMContentLoaded', function() {
         switch(tabName) {
             case 'dashboard':
                 loadDashboardData();
+                // NOWY KOD: Uruchom odświeżanie stanowisk gdy wchodzimy na dashboard
+                initStationsRealTimeRefresh();
                 break;
             case 'production-list':
+                // NOWY KOD: Zatrzymaj odświeżanie stanowisk gdy opuszczamy dashboard
+                stopStationsRealTimeRefresh();
                 loadProductionList();
                 break;
             case 'settings':
+                // NOWY KOD: Zatrzymaj odświeżanie stanowisk
+                stopStationsRealTimeRefresh();
                 loadSettingsData();
                 break;
             case 'reports':
+                // NOWY KOD: Zatrzymaj odświeżanie stanowisk
+                stopStationsRealTimeRefresh();
                 // Raporty ładują się na żądanie
                 break;
         }
@@ -114,7 +124,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // ============================================================================
     // DASHBOARD
     // ============================================================================
-    
+
+    // === AKTUALIZACJA ISTNIEJĄCEJ FUNKCJI initDashboard ===
     function initDashboard() {
         const refreshQueueBtn = document.getElementById('refreshQueueBtn');
         const syncOrdersBtn = document.getElementById('syncOrdersBtn');
@@ -129,7 +140,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Załaduj dane dashboardu przy starcie
         loadDashboardData();
+        
+        // NOWY KOD: Uruchom odświeżanie stanowisk co 1 sekundę
+        initStationsRealTimeRefresh();
     }
+    
     
     function loadDashboardData() {
         console.log('[Production] Ładowanie danych dashboardu...');
@@ -203,36 +218,92 @@ document.addEventListener('DOMContentLoaded', function() {
         const statusClass = isBusy ? 'busy' : 'free';
         const statusText = isBusy ? 'Zajęte' : 'Wolne';
         
+        // Podstawowa struktura karty stanowiska
         card.className = `prod-module-station-card ${statusClass}`;
         
-        let workingTimeHtml = '';
-        if (isBusy && station.working_time_seconds) {
-            const minutes = Math.floor(station.working_time_seconds / 60);
-            const seconds = station.working_time_seconds % 60;
-            const timeClass = station.is_overtime ? 'overtime' : '';
-            workingTimeHtml = `
-                <div class="prod-module-station-time ${timeClass}">
-                    Czas pracy: ${minutes}:${seconds.toString().padStart(2, '0')}
-                    ${station.is_overtime ? ' (NADGODZINY!)' : ''}
-                </div>
-            `;
-        }
-        
-        card.innerHTML = `
+        let cardHTML = `
             <div class="prod-module-station-header">
                 <div class="prod-module-station-name">${station.name}</div>
                 <div class="prod-module-station-status ${statusClass}">${statusText}</div>
             </div>
-            <div class="prod-module-station-current">
-                ${isBusy && station.current_item ? 
-                    `Produkuje: ${station.current_item.product_name.substring(0, 40)}...` : 
-                    'Brak aktywnej produkcji'
-                }
-            </div>
-            ${workingTimeHtml}
         `;
         
+        // NOWY KOD: Jeśli stanowisko jest zajęte, wyświetl informacje o produkcie i zamówieniu
+        if (isBusy && station.current_item) {
+            const currentItem = station.current_item;
+            
+            // Informacje o produkcie
+            const productInfo = currentItem.product_name || 'Nieznany produkt';
+            const orderNumber = currentItem.baselinker_order_id || 'Nieznane';
+            const workerName = currentItem.glued_by_worker ? currentItem.glued_by_worker.name : 'Nieznany pracownik';
+            
+            cardHTML += `
+                <div class="prod-module-station-current">
+                    <div class="prod-module-station-product">
+                        <strong>Produkt:</strong> ${truncateText(productInfo, 40)}
+                    </div>
+                    <div class="prod-module-station-order">
+                        <strong>Zamówienie:</strong> #${orderNumber}
+                    </div>
+                    <div class="prod-module-station-worker">
+                        <strong>Pracownik:</strong> ${workerName}
+                    </div>
+                </div>
+            `;
+            
+            // Timer pracy (jeśli dostępny)
+            if (station.working_time_seconds) {
+                const workingTime = formatWorkingTime(station.working_time_seconds);
+                const isOvertime = station.working_time_seconds > 1200; // 20 minut = 1200 sekund
+                const timeClass = isOvertime ? 'overtime' : '';
+                
+                cardHTML += `
+                    <div class="prod-module-station-time ${timeClass}">
+                        ⏱️ Czas pracy: ${workingTime}
+                    </div>
+                `;
+            }
+        } else if (!isBusy) {
+            // Stanowisko wolne
+            cardHTML += `
+                <div class="prod-module-station-current">
+                    Stanowisko gotowe do pracy
+                </div>
+            `;
+        } else {
+            // Stanowisko zajęte ale brak danych o produkcie (błąd)
+            cardHTML += `
+                <div class="prod-module-station-current">
+                    <span class="text-warning">Brak danych o produkcie</span>
+                </div>
+            `;
+        }
+        
+        card.innerHTML = cardHTML;
         return card;
+    }
+
+    // NOWA FUNKCJA POMOCNICZA: Skracanie tekstu
+    function truncateText(text, maxLength) {
+        if (!text) return 'N/A';
+        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    }
+
+    // NOWA FUNKCJA POMOCNICZA: Formatowanie czasu pracy
+    function formatWorkingTime(seconds) {
+        if (!seconds || seconds < 0) return '00:00';
+        
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        
+        // Jeśli przekraczamy 20 minut (1200 sekund), pokaż jako overtime
+        if (seconds > 1200) {
+            const overtimeMinutes = minutes - 20;
+            const overtimeSecs = secs;
+            return `20:00 + ${overtimeMinutes}:${overtimeSecs.toString().padStart(2, '0')}`;
+        }
+        
+        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
     
     function updateQueue(queueItems) {
@@ -1629,12 +1700,67 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Usuń starą funkcję updateReportsContent
-    
     // ============================================================================
     // FUNKCJE POMOCNICZE
     // ============================================================================
-    
+
+    // === NOWA FUNKCJA: INICJALIZACJA ODŚWIEŻANIA STANOWISK ===
+    function initStationsRealTimeRefresh() {
+        console.log('[Production] Inicjalizacja odświeżania stanowisk co 1 sekundę...');
+        
+        // Zatrzymaj poprzedni timer jeśli istnieje
+        if (stationsRefreshTimer) {
+            clearInterval(stationsRefreshTimer);
+        }
+        
+        // Uruchom timer odświeżania stanowisk co 1 sekundę
+        stationsRefreshTimer = setInterval(refreshStationsOnly, 1000);
+    }
+
+    // === NOWA FUNKCJA: ZATRZYMANIE ODŚWIEŻANIA STANOWISK ===
+    function stopStationsRealTimeRefresh() {
+        console.log('[Production] Zatrzymanie odświeżania stanowisk...');
+        
+        if (stationsRefreshTimer) {
+            clearInterval(stationsRefreshTimer);
+            stationsRefreshTimer = null;
+        }
+    }
+
+    // === NOWA FUNKCJA: ODŚWIEŻANIE TYLKO STANOWISK ===
+    function refreshStationsOnly() {
+        // Sprawdź czy jesteśmy na tabie dashboard
+        const activeTab = document.querySelector('.prod-module-tab.active');
+        if (!activeTab || activeTab.getAttribute('data-tab') !== 'dashboard') {
+            return; // Nie odświeżaj jeśli nie jesteśmy na dashboardzie
+        }
+        
+        // Sprawdź czy już trwa odświeżanie (unikaj równoczesnych requestów)
+        if (isStationsRefreshing) {
+            return;
+        }
+        
+        isStationsRefreshing = true;
+        
+        // Wywołaj API tylko dla statusu stanowisk
+        fetch('/production/api/stations/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStations(data.data);
+                    console.log('[Production] Stanowiska odświeżone (1s timer)');
+                } else {
+                    console.error('[Production] Błąd odświeżania stanowisk:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('[Production] Błąd połączenia odświeżania stanowisk:', error);
+            })
+            .finally(() => {
+                isStationsRefreshing = false;
+            });
+    }
+
     function getPriorityLevel(priorityScore) {
         if (priorityScore >= 800) return 'high';
         if (priorityScore >= 400) return 'medium';
@@ -1877,7 +2003,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Production] Zmiana statusu pracownika:', workerId, !currentStatus);
         showNotification('Funkcja zmiany statusu w przygotowaniu', 'info');
     };
-    
+
     // ============================================================================
     // CLEANUP
     // ============================================================================
@@ -1898,4 +2024,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
     console.log('[Production] Funkcje wyeksportowane do globalnego zasięgu');
     
+});
+
+// === NOWY ENDPOINT API - DODAJ DO KOŃCA PLIKU ===
+// Funkcja pomocnicza sprawdzająca czy strona jest widoczna (tab przeglądarki aktywny)
+function isPageVisible() {
+    return !document.hidden;
+}
+
+// Zatrzymaj odświeżanie gdy tab nie jest aktywny (oszczędność zasobów)
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        console.log('[Production] Strona ukryta - zatrzymanie odświeżania stanowisk');
+        stopStationsRealTimeRefresh();
+    } else {
+        console.log('[Production] Strona widoczna - wznowienie odświeżania stanowisk');
+        const activeTab = document.querySelector('.prod-module-tab.active');
+        if (activeTab && activeTab.getAttribute('data-tab') === 'dashboard') {
+            initStationsRealTimeRefresh();
+        }
+    }
 });

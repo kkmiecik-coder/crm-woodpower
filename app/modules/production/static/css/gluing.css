@@ -295,14 +295,6 @@
     text-align: center;
 }
 
-.prod-work-product-name {
-    font-size: 16px;
-    font-weight: 600;
-    color: #212529;
-    line-height: 1.4;
-    width: 360px;
-}
-
 .prod-work-product-badges {
     display: flex;
     align-items: flex-start;
@@ -1014,5 +1006,306 @@
         justify-content: space-between;
         align-items: center;
         margin-top: 20px;
+    }
+}
+
+/* === POPRAWIONY LAYOUT PRZYCISKÓW STANOWISK === */
+.prod-work-stations-selection {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px;
+    width: 100%;
+}
+
+.prod-work-workers-selection {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px;
+    width: 100%;
+}
+
+/* === POPRAWIONE STYLOWANIE PRZYCISKÓW === */
+.prod-work-selection-item {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: 0;
+    text-align: center;
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.prod-work-selection-item:hover:not(.disabled):not(.selected) {
+    border-color: #007bff;
+    background: #e3f2fd;
+}
+
+.prod-work-selection-item.selected {
+    border-color: #007bff;
+    background: #007bff;
+    color: white;
+}
+
+/* NOWY: Ciemniejszy niebieski hover dla wybranego elementu */
+.prod-work-selection-item.selected:hover {
+    background: #0056b3;
+    border-color: #004085;
+}
+
+.prod-work-selection-item.disabled {
+    background: #f8f9fa;
+    border-color: #dee2e6;
+    cursor: not-allowed;
+    opacity: 0.6;
+    color: #6c757d;
+}
+
+.prod-work-selection-item-name {
+    font-weight: 500;
+    margin-bottom: 2px;
+    font-size: 22px;
+}
+
+.prod-work-selection-item.selected .prod-work-selection-item-name {
+    color: white;
+    font-weight: 600;
+}
+
+.prod-work-selection-item-status {
+    font-size: 18px;
+    opacity: 0.8;
+    margin-top: 2px;
+}
+
+.prod-work-selection-item.selected .prod-work-selection-item-status {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* === RESPONSIVE BEHAVIOR === */
+@media (max-width: 500px) {
+    .prod-work-stations-selection,
+    .prod-work-workers-selection {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* === PRZEPROJEKTOWANA KARTA PRODUKTU === */
+.prod-work-product-card {
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+}
+
+.prod-work-product-header {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: white;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.prod-work-product-icon {
+    background: rgba(255, 255, 255, 0.2);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+.prod-work-product-meta {
+    flex: 1;
+}
+
+.prod-work-product-label {
+    display: block;
+    font-size: 12px;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.prod-work-product-name {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 0;
+}
+
+.prod-work-product-body {
+    padding: 20px;
+}
+
+.prod-work-product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.prod-work-product-param {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 3px solid #dee2e6;
+    transition: all 0.2s ease;
+}
+
+.prod-work-product-param:hover {
+    border-left-color: #007bff;
+    background: #f0f8ff;
+}
+
+.prod-work-param-icon {
+    width: 32px;
+    height: 32px;
+    background: #e9ecef;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #495057;
+    flex-shrink: 0;
+}
+
+.prod-work-param-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.prod-work-param-label {
+    display: block;
+    font-size: 11px;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 2px;
+    font-weight: 500;
+}
+
+.prod-work-param-value {
+    display: block;
+    font-size: 13px;
+    color: #212529;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+/* === SPECJALNE KOLORY DLA RÓŻNYCH PARAMETRÓW === */
+.prod-work-product-param:nth-child(1) { /* Wymiary */
+    border-left-color: #28a745;
+}
+
+.prod-work-product-param:nth-child(1):hover {
+    border-left-color: #28a745;
+    background: #f0fff4;
+}
+
+.prod-work-product-param:nth-child(1) .prod-work-param-icon {
+    background: #d4edda;
+    color: #155724;
+}
+
+.prod-work-product-param:nth-child(2) { /* Gatunek */
+    border-left-color: #fd7e14;
+}
+
+.prod-work-product-param:nth-child(2):hover {
+    border-left-color: #fd7e14;
+    background: #fff8f0;
+}
+
+.prod-work-product-param:nth-child(2) .prod-work-param-icon {
+    background: #ffeaa7;
+    color: #856404;
+}
+
+.prod-work-product-param:nth-child(3) { /* Technologia */
+    border-left-color: #6f42c1;
+}
+
+.prod-work-product-param:nth-child(3):hover {
+    border-left-color: #6f42c1;
+    background: #f8f4ff;
+}
+
+.prod-work-product-param:nth-child(3) .prod-work-param-icon {
+    background: #e2d9f3;
+    color: #4a2c7a;
+}
+
+.prod-work-product-param:nth-child(4) { /* Klasa */
+    border-left-color: #ffc107;
+}
+
+.prod-work-product-param:nth-child(4):hover {
+    border-left-color: #ffc107;
+    background: #fffbf0;
+}
+
+.prod-work-product-param:nth-child(4) .prod-work-param-icon {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.prod-work-product-param:nth-child(5) { /* Ilość */
+    border-left-color: #17a2b8;
+}
+
+.prod-work-product-param:nth-child(5):hover {
+    border-left-color: #17a2b8;
+    background: #f0fcff;
+}
+
+.prod-work-product-param:nth-child(5) .prod-work-param-icon {
+    background: #bee5eb;
+    color: #0c5460;
+}
+
+.prod-work-product-param:nth-child(6) { /* Termin */
+    border-left-color: #dc3545;
+}
+
+.prod-work-product-param:nth-child(6):hover {
+    border-left-color: #dc3545;
+    background: #fff5f5;
+}
+
+.prod-work-product-param:nth-child(6) .prod-work-param-icon {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 768px) {
+    .prod-work-product-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .prod-work-product-header {
+        padding: 12px 16px;
+    }
+    
+    .prod-work-product-body {
+        padding: 16px;
+    }
+    
+    .prod-work-product-param {
+        padding: 10px;
     }
 }

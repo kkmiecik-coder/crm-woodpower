@@ -355,15 +355,16 @@ def work_gluing_complete(item_id):
 # STANOWISKO PRACY - API ENDPOINTS
 # ============================================================================
 
+
 @production_bp.route('/api/workers')
 def api_workers():
-    """API lista pracowników"""
+    """API lista pracowników - POPRAWIONA WERSJA"""
     try:
         workers = Worker.query.filter_by(is_active=True).all()
         
         return jsonify({
             'success': True,
-            'workers': [worker.to_dict() for worker in workers]
+            'data': [worker.to_dict() for worker in workers]  # ZMIANA: 'data' zamiast 'workers'
         })
         
     except Exception as e:
@@ -785,17 +786,50 @@ def api_dashboard():
             ProductionStatus.name == 'completed'
         ).count()
         
-        # Statusy stanowisk
+        # Statusy stanowisk - ZAKTUALIZOWANE
         stations = ProductionStation.query.filter_by(is_active=True).all()
         stations_data = []
         
         for station in stations:
             station_dict = station.to_dict()
-            # Dodaj dodatkowe informacje o czasie pracy
+            
+            # Dodaj informacje o czasie pracy
             if station.current_item and station.current_item.gluing_started_at:
                 from datetime import datetime
                 working_time = datetime.utcnow() - station.current_item.gluing_started_at
                 station_dict['working_time_seconds'] = int(working_time.total_seconds())
+            
+            # NOWY KOD: Dodaj szczegółowe informacje o aktualnym produkcie
+            if station.current_item_id and station.current_item:
+                current_item = station.current_item
+                
+                # Podstawowe informacje o produkcie
+                station_dict['current_item'] = {
+                    'id': current_item.id,
+                    'product_name': current_item.product_name,
+                    'baselinker_order_id': current_item.baselinker_order_id,
+                    'quantity': current_item.quantity,
+                    'wood_species': current_item.wood_species,
+                    'wood_technology': current_item.wood_technology,
+                    'wood_class': current_item.wood_class,
+                    'dimensions_length': current_item.dimensions_length,
+                    'dimensions_width': current_item.dimensions_width,
+                    'dimensions_thickness': current_item.dimensions_thickness,
+                    'gluing_started_at': current_item.gluing_started_at.isoformat() if current_item.gluing_started_at else None,
+                    'deadline_date': current_item.deadline_date.isoformat() if current_item.deadline_date else None
+                }
+                
+                # Informacje o pracowniku
+                if current_item.glued_by_worker_id and current_item.glued_by_worker:
+                    station_dict['current_item']['glued_by_worker'] = {
+                        'id': current_item.glued_by_worker.id,
+                        'name': current_item.glued_by_worker.name
+                    }
+                else:
+                    station_dict['current_item']['glued_by_worker'] = None
+            else:
+                station_dict['current_item'] = None
+                
             stations_data.append(station_dict)
         
         # Kolejka produktów (top 10)
@@ -828,7 +862,6 @@ def api_dashboard():
 
 
 @production_bp.route('/api/items')
-@login_required
 def api_items():
     """API lista produktów z filtrami - NOWA WERSJA BEZ PAGINACJI"""
     try:
@@ -1006,7 +1039,7 @@ def api_complete_item(item_id):
 
 @production_bp.route('/api/stations/status')
 def api_stations_status():
-    """API status wszystkich stanowisk"""
+    """API status wszystkich stanowisk - dla odświeżania co 1 sekundę"""
     try:
         stations = ProductionStation.query.filter_by(is_active=True).all()
         
@@ -1023,27 +1056,38 @@ def api_stations_status():
                 # Sprawdź czy przekroczono czas
                 standard_time = int(ProductionConfig.get_value('gluing_time_minutes', '20')) * 60
                 station_dict['is_overtime'] = working_time.total_seconds() > standard_time
+            
+            # NOWY KOD: Dodaj szczegółowe informacje o aktualnym produkcie
+            if station.current_item_id and station.current_item:
+                current_item = station.current_item
                 
-                # DODAJ: Informacje o aktualnym produkcie
-                station_dict['current_product'] = {
-                    'id': station.current_item.id,
-                    'product_name': station.current_item.product_name,
-                    'wood_species': station.current_item.wood_species,
-                    'wood_technology': station.current_item.wood_technology, 
-                    'wood_class': station.current_item.wood_class,
-                    'dimensions_length': station.current_item.dimensions_length,
-                    'dimensions_width': station.current_item.dimensions_width,
-                    'dimensions_thickness': station.current_item.dimensions_thickness,
-                    'dimensions': f"{station.current_item.dimensions_length or 0}×{station.current_item.dimensions_width or 0}×{station.current_item.dimensions_thickness or 0}"
+                # Podstawowe informacje o produkcie
+                station_dict['current_item'] = {
+                    'id': current_item.id,
+                    'product_name': current_item.product_name,
+                    'baselinker_order_id': current_item.baselinker_order_id,
+                    'quantity': current_item.quantity,
+                    'wood_species': current_item.wood_species,
+                    'wood_technology': current_item.wood_technology,
+                    'wood_class': current_item.wood_class,
+                    'dimensions_length': current_item.dimensions_length,
+                    'dimensions_width': current_item.dimensions_width,
+                    'dimensions_thickness': current_item.dimensions_thickness,
+                    'gluing_started_at': current_item.gluing_started_at.isoformat() if current_item.gluing_started_at else None,
+                    'deadline_date': current_item.deadline_date.isoformat() if current_item.deadline_date else None
                 }
                 
-                # DODAJ: Informacje o aktualnym pracowniku
-                if station.current_item.glued_by_worker:
-                    station_dict['current_worker'] = {
-                        'id': station.current_item.glued_by_worker.id,
-                        'name': station.current_item.glued_by_worker.name
+                # Informacje o pracowniku
+                if current_item.glued_by_worker_id and current_item.glued_by_worker:
+                    station_dict['current_item']['glued_by_worker'] = {
+                        'id': current_item.glued_by_worker.id,
+                        'name': current_item.glued_by_worker.name
                     }
-            
+                else:
+                    station_dict['current_item']['glued_by_worker'] = None
+            else:
+                station_dict['current_item'] = None
+                
             stations_data.append(station_dict)
         
         return jsonify({
