@@ -15,6 +15,7 @@ from .service import ProductionService
 from .utils import ProductionStatsCalculator
 from extensions import db
 from modules.logging import get_structured_logger
+from .models import ProdGluingItem, ProdGluingStation, ProdGluingAssignment, ProdGluingConfig
 
 # Inicjalizacja loggera
 production_logger = get_structured_logger('production.routers')
@@ -1184,3 +1185,492 @@ def api_packaging_stats():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# ===================================================================
+# NOWE API ENDPOINTS GLUING - DO DODANIA W routers.py
+# Obsługa tabel: prod_gluing_items, prod_gluing_stations, prod_gluing_assignments
+# ===================================================================
+# ============================================================================
+# GLUING: GŁÓWNE ENDPOINTY
+# ============================================================================
+
+@production_bp.route('/work/gluing')
+def work_gluing():
+    """NOWY interfejs tabletu klejenia - główna strona"""
+    try:
+        # Sprawdzenie IP - tylko z hali produkcyjnej
+        client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
+        allowed_ips = ProdGluingConfig.get_value('tablet_ip_whitelist', '').split(',')
+        
+        if allowed_ips and client_ip not in [ip.strip() for ip in allowed_ips if ip.strip()]:
+            production_logger.warning("Dostęp zablokowany - nieprawidłowy IP", 
+                                    client_ip=client_ip, allowed_ips=allowed_ips)
+            return render_template('error.html', 
+                                 error_message="Dostęp tylko z tabletu produkcyjnego"), 403
+        
+        # Sprawdzenie trybu konserwacji
+        maintenance_mode = ProdGluingConfig.get_value('maintenance_mode', '0') == '1'
+        if maintenance_mode:
+            return render_template('error.html', 
+                                 error_message="System w trybie konserwacji"), 503
+        
+        production_logger.info("Dostęp do interfejsu gluing", client_ip=client_ip)
+        
+        return render_template('gluing_dashboard.html')
+        
+    except Exception as e:
+        production_logger.error("Błąd interfejsu gluing", error=str(e))
+        return render_template('error.html', error_message="Błąd systemu"), 500
+
+
+# ============================================================================
+# GLUING API: ZARZĄDZANIE PRODUKTAMI
+# ============================================================================
+
+@production_bp.route('/api/gluing/items')
+def api_gluing_items():
+    """API lista produktów do klejenia z filtrami"""
+    try:
+        # Parametry filtrów
+        status = request.args.get('status', 'pending')
+        wood_species = request.args.get('wood_species')
+        wood_technology = request.args.get('wood_technology')
+        limit = request.args.get('limit', 50, type=int)
+        
+        # Buduj query
+        query = ProdGluingItem.query.filter_by(status=status)
+        
+        if wood_species:
+            query = query.filter(ProdGluingItem.wood_species == wood_species)
+        if wood_technology:
+            query = query.filter(ProdGluingItem.wood_technology == wood_technology)
+        
+        # Sortowanie według priorytetu
+        query = query.order_by(ProdGluingItem.priority_score.asc())
+        
+        if limit:
+            query = query.limit(limit)
+        
+        items = query.all()
+        
+        return jsonify({
+            'success': True,
+            'data': [item.to_dict() for item in items],
+            'total_count': len(items),
+            'applied_filters': {
+                'status': status,
+                'wood_species': wood_species,
+                'wood_technology': wood_technology
+            }
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API listy produktów gluing", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/items/<int:item_id>')
+def api_gluing_item_detail(item_id):
+    """API szczegóły produktu gluing"""
+    try:
+        item = ProdGluingItem.query.get_or_404(item_id)
+        
+        return jsonify({
+            'success': True,
+            'data': item.to_dict()
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API szczegółów produktu", item_id=item_id, error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/items/<int:item_id>/priority', methods=['PUT'])
+def api_gluing_update_priority(item_id):
+    """API zmiana priorytetu produktu"""
+    try:
+        data = request.get_json()
+        new_priority = data.get('priority_score')
+        
+        if not isinstance(new_priority, int) or new_priority < 1:
+            return jsonify({'success': False, 'error': 'Nieprawidłowy priorytet'}), 400
+        
+        item = ProdGluingItem.query.get_or_404(item_id)
+        old_priority = item.priority_score
+        item.priority_score = new_priority
+        
+        db.session.commit()
+        
+        production_logger.info("Zaktualizowano priorytet produktu", 
+                             item_id=item_id, old_priority=old_priority, new_priority=new_priority)
+        
+        return jsonify({
+            'success': True,
+            'data': item.to_dict()
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd aktualizacji priorytetu", item_id=item_id, error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# GLUING API: ZARZĄDZANIE STANOWISKAMI
+# ============================================================================
+
+@production_bp.route('/api/gluing/stations')
+def api_gluing_stations():
+    """API status wszystkich stanowisk klejenia"""
+    try:
+        stations = ProdGluingStation.get_stations_with_stats()
+        
+        return jsonify({
+            'success': True,
+            'data': stations
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API stanowisk gluing", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/stations/<int:station_id>/layout')
+def api_gluing_station_layout(station_id):
+    """API mapa zajętości stanowiska"""
+    try:
+        station = ProdGluingStation.query.get_or_404(station_id)
+        
+        # Pobierz aktywne przypisania
+        active_assignments = ProdGluingAssignment.get_active_assignments_for_station(station_id)
+        
+        layout_data = {
+            'station': station.to_dict(),
+            'active_assignments': [assignment.to_dict() for assignment in active_assignments],
+            'total_occupied_area': sum([
+                float(a.width_occupied * a.height_occupied) for a in active_assignments 
+                if a.width_occupied and a.height_occupied
+            ]),
+            'available_areas': []  # TODO: Implementacja algorytmu wolnych obszarów
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': layout_data
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API layoutu stanowiska", station_id=station_id, error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# GLUING API: OPERACJE PRODUKCYJNE
+# ============================================================================
+
+@production_bp.route('/api/gluing/assign', methods=['POST'])
+def api_gluing_assign():
+    """API przypisanie produktu do stanowiska"""
+    try:
+        data = request.get_json()
+        item_id = data.get('item_id')
+        station_id = data.get('station_id')
+        position_x = data.get('position_x', 0)
+        position_y = data.get('position_y', 0)
+        
+        if not item_id or not station_id:
+            return jsonify({'success': False, 'error': 'Brak item_id lub station_id'}), 400
+        
+        # Utwórz przypisanie
+        assignment = ProdGluingAssignment.create_assignment(
+            item_id=item_id,
+            station_id=station_id, 
+            position_x=position_x,
+            position_y=position_y
+        )
+        
+        production_logger.info("Utworzono przypisanie gluing", 
+                             assignment_id=assignment.id, item_id=item_id, station_id=station_id)
+        
+        return jsonify({
+            'success': True,
+            'data': assignment.to_dict()
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd tworzenia przypisania", 
+                              item_id=data.get('item_id'), station_id=data.get('station_id'), error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/assignments/<int:assignment_id>/start', methods=['POST'])
+def api_gluing_start_production(assignment_id):
+    """API rozpoczęcie produkcji"""
+    try:
+        data = request.get_json()
+        worker_name = data.get('worker_name', 'Nieznany')
+        
+        assignment = ProdGluingAssignment.query.get_or_404(assignment_id)
+        assignment.start_production(worker_name)
+        
+        production_logger.info("Rozpoczęto produkcję gluing", 
+                             assignment_id=assignment_id, worker_name=worker_name)
+        
+        return jsonify({
+            'success': True,
+            'data': assignment.to_dict()
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd rozpoczynania produkcji", 
+                              assignment_id=assignment_id, error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/assignments/<int:assignment_id>/complete', methods=['POST'])
+def api_gluing_complete_production(assignment_id):
+    """API zakończenie produkcji"""
+    try:
+        assignment = ProdGluingAssignment.query.get_or_404(assignment_id)
+        assignment.complete_production()
+        
+        production_logger.info("Zakończono produkcję gluing", 
+                             assignment_id=assignment_id, duration_seconds=assignment.duration_seconds)
+        
+        return jsonify({
+            'success': True,
+            'data': assignment.to_dict()
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd kończenia produkcji", 
+                              assignment_id=assignment_id, error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# GLUING API: FUNKCJE POMOCNICZE
+# ============================================================================
+
+@production_bp.route('/api/gluing/suggest-placement', methods=['POST'])
+def api_gluing_suggest_placement():
+    """API sugestie najlepszych pozycji dla produktu"""
+    try:
+        data = request.get_json()
+        item_id = data.get('item_id')
+        
+        if not item_id:
+            return jsonify({'success': False, 'error': 'Brak item_id'}), 400
+        
+        item = ProdGluingItem.query.get_or_404(item_id)
+        stations = ProdGluingStation.get_active_stations()
+        
+        suggestions = []
+        for station in stations:
+            can_fit, reason = station.can_fit_product(item)
+            if can_fit:
+                suggestions.append({
+                    'station_id': station.id,
+                    'station_name': station.name,
+                    'occupancy_percent': station.get_occupancy_percent(),
+                    'suggested_position': {'x': 0, 'y': 0},  # TODO: Algorytm bottom-left
+                    'score': 100 - station.get_occupancy_percent()  # Im mniej zajęte, tym lepsze
+                })
+        
+        # Sortuj według score (najlepsze pierwsze)
+        suggestions.sort(key=lambda x: x['score'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'item': item.to_dict(),
+                'suggestions': suggestions[:3]  # Top 3 sugestie
+            }
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd sugestii pozycji", item_id=item_id, error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/validate-placement', methods=['POST'])
+def api_gluing_validate_placement():
+    """API walidacja możliwości umieszczenia"""
+    try:
+        data = request.get_json()
+        item_id = data.get('item_id')
+        station_id = data.get('station_id')
+        position_x = data.get('position_x', 0)
+        position_y = data.get('position_y', 0)
+        
+        if not item_id or not station_id:
+            return jsonify({'success': False, 'error': 'Brak item_id lub station_id'}), 400
+        
+        item = ProdGluingItem.query.get_or_404(item_id)
+        station = ProdGluingStation.query.get_or_404(station_id)
+        
+        can_fit, reason = station.can_fit_product(item)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'can_place': can_fit,
+                'reason': reason,
+                'item': item.to_dict(),
+                'station': station.to_dict()
+            }
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd walidacji pozycji", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# GLUING API: DASHBOARD I STATYSTYKI
+# ============================================================================
+
+@production_bp.route('/api/gluing/dashboard')
+def api_gluing_dashboard():
+    """API dane dla dashboardu tabletu gluing"""
+    try:
+        # Pobierz pomocniczą funkcję z modeli
+        from .models import get_gluing_dashboard_data
+        dashboard_data = get_gluing_dashboard_data()
+        
+        return jsonify({
+            'success': True,
+            'data': dashboard_data
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API dashboardu gluing", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/stats')
+def api_gluing_stats():
+    """API statystyki produkcji gluing"""
+    try:
+        # Parametry daty
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        # Konwertuj daty
+        from datetime import datetime
+        date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date() if date_from else None
+        date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date() if date_to else None
+        
+        # Pobierz statystyki
+        stats = ProdGluingAssignment.get_production_stats(date_from_obj, date_to_obj)
+        
+        return jsonify({
+            'success': True,
+            'data': stats
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API statystyk gluing", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# GLUING API: SYNCHRONIZACJA Z BASELINKER
+# ============================================================================
+
+@production_bp.route('/api/gluing/sync-baselinker', methods=['POST'])
+def api_gluing_sync_baselinker():
+    """API synchronizacja produktów z Baselinker"""
+    try:
+        # Wywołaj funkcję synchronizacji
+        from .models import sync_items_from_baselinker
+        result = sync_items_from_baselinker()
+        
+        if result['success']:
+            production_logger.info("Synchronizacja gluing zakończona", result=result)
+            return jsonify({
+                'success': True,
+                'message': 'Synchronizacja zakończona',
+                'data': result
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['message']
+            }), 500
+            
+    except Exception as e:
+        production_logger.error("Błąd synchronizacji gluing", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/recalculate-priorities', methods=['POST'])
+def api_gluing_recalculate_priorities():
+    """API przeliczenie priorytetów wszystkich produktów"""
+    try:
+        from .models import recalculate_all_priorities
+        result = recalculate_all_priorities()
+        
+        production_logger.info("Przeliczono priorytety gluing", result=result)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Zaktualizowano {result["updated_count"]} produktów',
+            'data': result
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd przeliczania priorytetów gluing", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# GLUING API: KONFIGURACJA
+# ============================================================================
+
+@production_bp.route('/api/gluing/config')
+def api_gluing_config():
+    """API pobieranie konfiguracji gluing"""
+    try:
+        # Pobierz wszystkie ustawienia gluing
+        configs = ProdGluingConfig.query.all()
+        
+        config_dict = {}
+        for config in configs:
+            config_dict[config.config_key] = config.config_value
+        
+        return jsonify({
+            'success': True,
+            'data': config_dict
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd API konfiguracji gluing", error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@production_bp.route('/api/gluing/config/<key>', methods=['PUT'])
+def api_gluing_update_config(key):
+    """API aktualizacja konfiguracji gluing"""
+    try:
+        data = request.get_json()
+        value = data.get('value')
+        description = data.get('description')
+        
+        if value is None:
+            return jsonify({'success': False, 'error': 'Brak wartości'}), 400
+        
+        config = ProdGluingConfig.set_value(key, str(value), description)
+        
+        production_logger.info("Zaktualizowano konfigurację gluing", 
+                             config_key=key, value=value)
+        
+        return jsonify({
+            'success': True,
+            'data': config.to_dict()
+        })
+        
+    except Exception as e:
+        production_logger.error("Błąd aktualizacji konfiguracji gluing", 
+                              config_key=key, error=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
