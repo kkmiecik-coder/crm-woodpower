@@ -4,7 +4,7 @@ Modele bazy danych dla modułu Production
 """
 
 from extensions import db
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from sqlalchemy import Index
 from decimal import Decimal
 from modules.logging import get_structured_logger
@@ -125,9 +125,6 @@ class ProductionStation(db.Model):
     last_activity_at = db.Column(db.DateTime, nullable=True, comment="Ostatnia aktywność")
     created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
     
-    # Relacje - POPRAWIONE BEZ REKURSJI
-    glued_items = db.relationship('ProductionItem', foreign_keys='ProductionItem.glued_at_station_id', backref='glued_at_station', lazy=True)
-
     @property
     def current_item(self):
         """Pobiera aktualny produkt bez rekursji"""
@@ -167,9 +164,6 @@ class Worker(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False, comment="Czy pracownik aktywny")
     station_type_preference = db.Column(db.Enum('gluing', 'packaging', 'both', name='worker_preference_enum'), default='both', comment="Preferowany typ stanowiska")
     created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
-    
-    # Relacje
-    glued_items = db.relationship('ProductionItem', foreign_keys='ProductionItem.glued_by_worker_id', backref='glued_by_worker', lazy=True)
     
     def __repr__(self):
         return f'<Worker {self.name}>'
@@ -224,14 +218,8 @@ class ProductionItem(db.Model):
     
     # === STATUS I PRZYPISANIA ===
     status_id = db.Column(db.Integer, db.ForeignKey('production_statuses.id'), nullable=False, comment="Aktualny status")
-    glued_at_station_id = db.Column(db.Integer, db.ForeignKey('production_stations.id'), nullable=True, comment="Stanowisko sklejania")
-    glued_by_worker_id = db.Column(db.Integer, db.ForeignKey('workers.id'), nullable=True, comment="Pracownik który sklejał")
     
     # === CZASY REALIZACJI ===
-    gluing_started_at = db.Column(db.DateTime, nullable=True, comment="Rozpoczęcie sklejania")
-    gluing_completed_at = db.Column(db.DateTime, nullable=True, comment="Zakończenie sklejania")
-    gluing_duration_seconds = db.Column(db.Integer, nullable=True, comment="Rzeczywisty czas sklejania")
-    gluing_overtime_seconds = db.Column(db.Integer, nullable=True, comment="Czas przekroczenia")
     packaging_started_at = db.Column(db.DateTime, nullable=True, comment="Rozpoczęcie pakowania")
     packaging_completed_at = db.Column(db.DateTime, nullable=True, comment="Zakończenie pakowania")
     
@@ -270,12 +258,6 @@ class ProductionItem(db.Model):
             'priority_score': self.priority_score,
             'priority_group': self.priority_group,
             'status': self.status.to_dict() if self.status else None,
-            'glued_at_station': self.glued_at_station.to_dict() if self.glued_at_station else None,
-            'glued_by_worker': self.glued_by_worker.to_dict() if self.glued_by_worker else None,
-            'gluing_started_at': self.gluing_started_at.isoformat() if self.gluing_started_at else None,
-            'gluing_completed_at': self.gluing_completed_at.isoformat() if self.gluing_completed_at else None,
-            'gluing_duration_seconds': self.gluing_duration_seconds,
-            'gluing_overtime_seconds': self.gluing_overtime_seconds,
             'packaging_started_at': self.packaging_started_at.isoformat() if self.packaging_started_at else None,
             'packaging_completed_at': self.packaging_completed_at.isoformat() if self.packaging_completed_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -296,84 +278,10 @@ class ProductionItem(db.Model):
         if self.deadline_date:
             return datetime.now().date() > self.deadline_date
         return False
-    
-    @property
-    def gluing_time_formatted(self):
-        """Sformatowany czas sklejania"""
-        if self.gluing_duration_seconds:
-            minutes = self.gluing_duration_seconds // 60
-            seconds = self.gluing_duration_seconds % 60
-            return f"{minutes}:{seconds:02d}"
-        return None
-    
-    def start_gluing(self, worker_id, station_id):
-        """Rozpoczyna proces sklejania"""
-        try:
-            # POPRAWKA: Użyj czasu lokalnego zamiast UTC dla Polski
-            from datetime import datetime
-            import pytz
-        
-            # Strefa czasowa dla Polski
-            poland_tz = pytz.timezone('Europe/Warsaw')
-        
-            # Zapisz czas lokalny Polski
-            self.gluing_started_at = datetime.now(poland_tz).replace(tzinfo=None)
-        
-            self.glued_by_worker_id = worker_id
-            self.glued_at_station_id = station_id
-            db.session.commit()
-            production_logger.info("Rozpoczęto sklejanie produktu",
-                                 item_id=self.id, product_name=self.product_name,
-                                 worker_id=worker_id, station_id=station_id,
-                                 started_at=self.gluing_started_at.isoformat())
-        except Exception as e:
-            production_logger.error("Błąd podczas rozpoczynania sklejania",
-                                  item_id=self.id, worker_id=worker_id, station_id=station_id,
-                                  error=str(e), error_type=type(e).__name__)
-            db.session.rollback()
-            raise
-    
-    def complete_gluing(self):
-        """Kończy proces sklejania"""
-        try:
-            if self.gluing_started_at:
-                # POPRAWKA: Użyj czasu lokalnego zamiast UTC dla Polski
-                from datetime import datetime
-                import pytz
-            
-                # Strefa czasowa dla Polski
-                poland_tz = pytz.timezone('Europe/Warsaw')
-            
-                # Zapisz czas lokalny Polski
-                self.gluing_completed_at = datetime.now(poland_tz).replace(tzinfo=None)
-            
-                duration = self.gluing_completed_at - self.gluing_started_at
-                self.gluing_duration_seconds = int(duration.total_seconds())
-            
-                # Oblicz overtime jeśli przekroczył normę
-                standard_time = int(ProductionConfig.get_value('gluing_time_minutes', '20')) * 60
-                if self.gluing_duration_seconds > standard_time:
-                    self.gluing_overtime_seconds = self.gluing_duration_seconds - standard_time
-            
-                db.session.commit()
-                production_logger.info("Zakończono sklejanie produktu",
-                                     item_id=self.id, product_name=self.product_name,
-                                     duration_seconds=self.gluing_duration_seconds,
-                                     overtime_seconds=self.gluing_overtime_seconds,
-                                     completed_at=self.gluing_completed_at.isoformat())
-            else:
-                production_logger.warning("Próba zakończenia sklejania bez rozpoczęcia",
-                                        item_id=self.id, product_name=self.product_name)
-            
-        except Exception as e:
-            production_logger.error("Błąd podczas kończenia sklejania",
-                                  item_id=self.id, error=str(e), error_type=type(e).__name__)
-            db.session.rollback()
-            raise
-    
+
     @classmethod
     def get_queue_items(cls, limit=None):
-        """Pobiera produkty z kolejki do sklejania (posortowane według priorytetów)"""
+        """Pobiera produkty z bazy do panelu zarządzania"""
         try:
             query = cls.query.join(ProductionStatus).filter(
                 ProductionStatus.name == 'pending'
@@ -391,23 +299,13 @@ class ProductionItem(db.Model):
         except Exception as e:
             production_logger.error("Błąd podczas pobierania kolejki produktów", error=str(e))
             return []
-    
-    @classmethod
-    def get_by_baselinker_order_product(cls, order_id, product_id):
-        """Znajduje produkt po ID zamówienia i produktu z Baselinker"""
-        return cls.query.filter_by(
-            baselinker_order_id=order_id,
-            baselinker_order_product_id=product_id
-        ).first()
 
     def is_ready_for_packaging(self):
         """
-        Sprawdza czy produkt jest gotowy do pakowania (sklejony)
+        Sprawdza czy produkt jest gotowy do pakowania
+        POPRAWKA: usuń referencję do gluing_completed_at
         """
-        return (
-            self.status.name == 'completed' and 
-            self.gluing_completed_at is not None
-        )
+        return self.status.name == 'completed'
 
     def start_packaging_process(self):
         """
@@ -466,23 +364,10 @@ class ProductionItem(db.Model):
 
     def get_waiting_time_after_gluing_hours(self):
         """
-        Oblicza czas oczekiwania od sklejenia do pakowania w godzinach
+        POPRAWKA: Czasowo zwraca None - funkcja będzie niepotrzebna bez gluing_completed_at
+        W przyszłości będzie pobierać dane z nowych tabel gluing_assignments
         """
-        try:
-            if not self.gluing_completed_at:
-                return None
-            
-            reference_time = self.packaging_started_at or datetime.utcnow()
-            
-            waiting_time = (reference_time - self.gluing_completed_at).total_seconds() / 3600.0
-            return round(waiting_time, 1) if waiting_time >= 0 else None
-            
-        except Exception as e:
-            production_logger.error(
-                f"Błąd obliczania czasu oczekiwania produktu {self.id}", 
-                error=str(e)
-            )
-            return None
+        return None
 
     def to_packaging_dict(self):
         """

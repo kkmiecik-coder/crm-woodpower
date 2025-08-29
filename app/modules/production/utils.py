@@ -13,12 +13,6 @@ from modules.logging import get_structured_logger
 production_logger = get_structured_logger('production.utils')
 production_logger.info("✅ production_logger zainicjowany poprawnie w utils.py")
 
-
-# modules/production/utils.py
-"""
-Funkcje pomocnicze dla modułu Production
-"""
-
 import re
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, date, timedelta
@@ -33,11 +27,6 @@ except ImportError:
     REPORTS_PARSER_AVAILABLE = False
     production_logger = get_structured_logger('production.utils')
     production_logger.warning("Nie można zaimportować ProductNameParser z modułu Reports")
-
-# Inicjalizacja loggera
-production_logger = get_structured_logger('production.utils')
-production_logger.info("✅ production_logger zainicjowany poprawnie w utils.py")
-
 
 class ProductionNameParser:
     """
@@ -63,8 +52,6 @@ class ProductionNameParser:
             'dąb': ['dębowa', 'dąb', 'dab'],
             'buk': ['bukowa', 'buk'],
             'jesion': ['jesionowa', 'jesion'],
-            'sosna': ['sosnowa', 'sosna'],
-            'brzoza': ['brzozowa', 'brzoza']
         }
         
         self.technology_patterns = {
@@ -266,8 +253,6 @@ class ProductionPriorityCalculator:
             'dąb': 100,      # Najwyższy priorytet
             'jesion': 80,
             'buk': 60,
-            'sosna': 40,
-            'brzoza': 20
         }
         
         # Wartości dla technologii

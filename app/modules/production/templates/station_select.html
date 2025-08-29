@@ -302,14 +302,15 @@
             </div>
 
             <!-- Stanowisko sklejania - aktywne -->
-            <a href="{{ url_for('production.work_gluing_dashboard') }}" class="station-button station-button-active" id="gluingStation">
+            <div class="station-button station-button-disabled" id="sandingStation">
+                <div class="disabled-badge">WKRÓTCE</div>
                 <div class="station-icon">🔧</div>
                 <div class="station-name">SKLEJANIE</div>
                 <div class="station-description">
                     Stanowisko produkcji<br>
                     produktów drewnianych
                 </div>
-            </a>
+            </div>
 
             <!-- Stanowisko szlifowanie - wyłączone -->
             <div class="station-button station-button-disabled" id="sandingStation">
