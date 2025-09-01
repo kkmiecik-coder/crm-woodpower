@@ -3,7 +3,7 @@
 Routing i views dla modułu Production
 """
 
-from flask import render_template, request, jsonify, session, redirect, url_for, flash
+from flask import render_template, request, jsonify, session, redirect, url_for, flash, current_app
 from functools import wraps
 from datetime import datetime, date
 from . import production_bp
@@ -16,6 +16,7 @@ from .utils import ProductionStatsCalculator
 from extensions import db
 from modules.logging import get_structured_logger
 from .models import ProdGluingItem, ProdGluingStation, ProdGluingAssignment, ProdGluingConfig
+from sqlalchemy import text
 
 # Inicjalizacja loggera
 production_logger = get_structured_logger('production.routers')
@@ -1673,3 +1674,23 @@ def api_gluing_update_config(key):
         production_logger.error("Błąd aktualizacji konfiguracji gluing", 
                               config_key=key, error=str(e))
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@production_bp.route('/timer')
+def timer():
+    """
+    Strona licznika czasu dla stanowisk sklejania
+    Bez wymagania logowania - dostępna dla wszystkich pracowników produkcji
+    """
+    try:
+        production_logger.info("Dostęp do strony licznika czasu", 
+                             ip=request.remote_addr,
+                             user_agent=request.headers.get('User-Agent'))
+        
+        return render_template('production/timer.html')
+        
+    except Exception as e:
+        production_logger.error("Błąd podczas ładowania strony licznika",
+                              error=str(e),
+                              ip=request.remote_addr)
+        # W przypadku błędu też zwracamy stronę - to narzędzie produkcyjne
+        return render_template('timer.html')
