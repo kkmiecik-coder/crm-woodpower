@@ -264,6 +264,10 @@
             animation: fadeInUp 0.8s ease-out 1.0s both;
         }
 
+        .station-button:nth-child(6) {
+            animation: fadeInUp 0.8s ease-out 1.2s both;
+        }
+
         /* Efekt pulsowania dla aktywnego przycisku */
         @keyframes pulse {
             0% {
@@ -300,6 +304,17 @@
                     rozkroju materiałów
                 </div>
             </div>
+
+            <!-- Stanowisko timer - aktywne -->
+            <a href="{{ url_for('production.timer') }}"
+               class="station-button station-button-active" id="timerStation">
+                <div class="station-icon">⏱️</div>
+                <div class="station-name">TIMER</div>
+                <div class="station-description">
+                    Moduł odliczania<br>
+                    dla stanowisk produkcyjnych
+                </div>
+            </a>
 
             <!-- Stanowisko sklejania - aktywne -->
             <div class="station-button station-button-disabled" id="sandingStation">

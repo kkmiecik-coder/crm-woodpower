@@ -70,7 +70,6 @@
             justify-content: center;
             position: relative;
             transition: all .3s ease;
-            cursor: pointer
         }
 
             .station.inactive {
@@ -112,11 +111,14 @@
         }
 
         .station-label {
-            font-size: 1rem;
+            font-size: 3rem;
             font-weight: bold;
             margin-bottom: 10px;
-            color: #fff;
-            text-shadow: 0 0 3px rgba(0,0,0,.8)
+            background-color: #fff;
+            padding: 6px 25px;
+            border-radius: 8px;
+            color: #000;
+            font-family: 'Courier New',monospace;
         }
 
         .timer-display {
@@ -130,19 +132,19 @@
         .controls {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 15px;
             justify-content: center
         }
 
         .controls-row, .controls-combined {
             display: flex;
-            gap: 10px;
+            gap: 20px;
             justify-content: center
         }
 
         .btn {
             padding: 15px 25px;
-            font-size: 1.2rem;
+            font-size: 3rem;
             font-weight: bold;
             border: none;
             border-radius: 8px;
