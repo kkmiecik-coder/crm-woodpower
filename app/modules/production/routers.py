@@ -1186,7 +1186,6 @@ def api_packaging_stats():
             'error': str(e)
         }), 500
 
-
 # ===================================================================
 # NOWE API ENDPOINTS GLUING - DO DODANIA W routers.py
 # Obsługa tabel: prod_gluing_items, prod_gluing_stations, prod_gluing_assignments
