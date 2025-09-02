@@ -3,14 +3,12 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta
-import traceback
 from flask import current_app, session, request
 from extensions import db
 from .models import RegisterCompany, RegisterPkdCode, RegisterApiLog, RegisterIntegrationConfig
 
 # Konfiguracja loggera
 register_logger = logging.getLogger('company_register_module')
-register_logger.info("✅ company_register_logger zainicjowany poprawnie w service.py")
 
 
 class RegisterIntegrationService:
@@ -52,61 +50,63 @@ class RegisterIntegrationService:
                 ip_address=request.remote_addr if request else None
             )
         except Exception as e:
-            # Fallback do logowania bezpośrednio przez logger
             self.logger.error(f"Błąd logowania API: {str(e)}")
     
     def _check_rate_limit(self):
-        """Sprawdza czy nie przekroczono limitu zapytań"""
-        if not self.config:
-            return False
+        """
+        Sprawdza limity API dla CEIDG:
+        - 50 zapytań w 3 minuty
+        - 1000 zapytań w 60 minut
+        """
+        if not self.config or self.register_type != 'CEIDG':
+            return True  # KRS nie ma takich limitów
         
-        # Sprawdzenie limitów zapytań (50 na 3 minuty i 1000 na 60 minut)
-        # Pobieramy liczbę zapytań w ostatnich 3 minutach
+        # CEIDG - sprawdzenie limitów
         three_min_ago = datetime.utcnow() - timedelta(minutes=3)
         three_min_count = RegisterApiLog.query.filter(
-            RegisterApiLog.register_type == self.register_type,
+            RegisterApiLog.register_type == 'CEIDG',
             RegisterApiLog.created_at >= three_min_ago
         ).count()
     
-        # Pobieramy liczbę zapytań w ostatnich 60 minutach
         hour_ago = datetime.utcnow() - timedelta(minutes=60)
         hour_count = RegisterApiLog.query.filter(
-            RegisterApiLog.register_type == self.register_type,
+            RegisterApiLog.register_type == 'CEIDG',
             RegisterApiLog.created_at >= hour_ago
         ).count()
     
-        # Sprawdzamy oba limity
         if three_min_count >= 50:
-            self.logger.warning(f"Przekroczono limit 50 zapytań na 3 minuty ({three_min_count})")
+            self.logger.warning(f"CEIDG: Przekroczono limit 50 zapytań na 3 minuty ({three_min_count})")
             return False
         
         if hour_count >= 1000:
-            self.logger.warning(f"Przekroczono limit 1000 zapytań na godzinę ({hour_count})")
+            self.logger.warning(f"CEIDG: Przekroczono limit 1000 zapytań na godzinę ({hour_count})")
             return False
     
         return True
+
+
+class CEIDGIntegrationService(RegisterIntegrationService):
+    """
+    Klasa serwisowa do obsługi integracji z CEIDG API v2
+    """
+    def __init__(self):
+        super().__init__(register_type='CEIDG')
+        # URL API zgodne z dokumentacją
+        self.api_base_url = "https://dane.biznes.gov.pl/api/ceidg/v2"
+        self.test_api_base_url = "https://test-dane.biznes.gov.pl/api/ceidg/v2"
     
-    def _make_api_request(self, endpoint, params, timeout=30):
+    def _make_api_request(self, endpoint, params, timeout=30, use_test=False):
         """
-        Bazowa metoda do wykonywania zapytań API
-        
-        Args:
-            endpoint (str): Endpoint API
-            params (dict): Parametry zapytania
-            timeout (int): Limit czasu w sekundach
-            
-        Returns:
-            dict: Odpowiedź API lub słownik z błędem
+        Wykonuje zapytanie do API CEIDG zgodnie z dokumentacją
         """
-        # Sprawdzenie czy konfiguracja jest dostępna
         if not self.config:
-            error_msg = f"Brak konfiguracji dla rejestru {self.register_type}"
+            error_msg = f"Brak konfiguracji dla rejestru CEIDG"
             self.logger.error(error_msg)
             return {'error': error_msg, 'success': False}
         
         # Sprawdzenie limitu zapytań
         if not self._check_rate_limit():
-            error_msg = f"Przekroczono limit zapytań dla rejestru {self.register_type}"
+            error_msg = f"Przekroczono limit zapytań dla CEIDG"
             self.logger.warning(error_msg)
             self._log_api_call(
                 operation=endpoint,
@@ -116,75 +116,65 @@ class RegisterIntegrationService:
             )
             return {'error': error_msg, 'success': False}
         
-        # Dodanie klucza API do parametrów
-        api_params = params.copy()
-        api_params['api_key'] = self.config.api_key
+        # Wybór URL (test vs produkcja)
+        base_url = self.test_api_base_url if use_test else self.api_base_url
+        url = f"{base_url}/{endpoint}"
         
-        # Przygotowanie URL
-        url = f"{self.config.api_url}/{endpoint}"
+        # Przygotowanie nagłówków z JWT tokenem
+        headers = {
+            'Authorization': f'Bearer {self.config.api_key}',
+            'Content-Type': 'application/json'
+        }
         
-        # Pomiar czasu
         start_time = time.time()
         
         try:
             # Wykonanie zapytania
-            response = requests.get(url, params=api_params, timeout=timeout)
-            response_time = int((time.time() - start_time) * 1000)  # Czas w ms
+            response = requests.get(url, params=params, headers=headers, timeout=timeout)
+            response_time = int((time.time() - start_time) * 1000)
             
             # Logowanie zapytania
             self._log_api_call(
                 operation=endpoint,
                 status='success' if response.status_code == 200 else 'error',
-                request_params=params,  # Bez klucza API
+                request_params=params,
                 response_code=response.status_code,
                 response_time_ms=response_time,
                 error_details=None if response.status_code == 200 else response.text
             )
             
-            # Sprawdzenie odpowiedzi
-            if response.status_code != 200:
-                error_msg = f"Błąd API {self.register_type}: {response.status_code} - {response.text}"
+            # Obsługa odpowiedzi zgodnie z dokumentacją
+            if response.status_code == 200:
+                result = response.json()
+                # Aktualizacja ostatniej synchronizacji
+                if self.config:
+                    self.config.last_sync = datetime.utcnow()
+                    try:
+                        db.session.commit()
+                    except:
+                        db.session.rollback()
+                return result
+            elif response.status_code == 204:
+                # Brak danych - zgodnie z dokumentacją
+                return {'success': True, 'results': [], 'message': 'Brak danych spełniających kryteria'}
+            elif response.status_code == 429:
+                error_msg = "Zbyt wiele zapytań - przekroczono limit API CEIDG"
+                self.logger.warning(error_msg)
+                return {'error': error_msg, 'success': False, 'rate_limit_exceeded': True}
+            else:
+                error_msg = f"Błąd API CEIDG: {response.status_code} - {response.text}"
                 self.logger.error(error_msg)
                 return {'error': error_msg, 'success': False}
                 
-            # Parsowanie odpowiedzi JSON
-            result = response.json()
-            
-            # Aktualizacja daty ostatniej synchronizacji
-            if self.config:
-                self.config.last_sync = datetime.utcnow()
-                try:
-                    db.session.commit()
-                except:
-                    db.session.rollback()
-            
-            return result
-            
         except requests.RequestException as e:
             response_time = int((time.time() - start_time) * 1000)
-            error_msg = f"Błąd połączenia z API {self.register_type}: {str(e)}"
+            error_msg = f"Błąd połączenia z API CEIDG: {str(e)}"
             self.logger.error(error_msg)
             
-            # Logowanie błędu
             self._log_api_call(
                 operation=endpoint,
                 status='error',
-                request_params=params,  # Bez klucza API
-                response_time_ms=response_time,
-                error_details=str(e)
-            )
-            
-            return {'error': error_msg, 'success': False}
-        except Exception as e:
-            response_time = int((time.time() - start_time) * 1000)
-            error_msg = f"Nieoczekiwany błąd podczas zapytania do API {self.register_type}: {str(e)}"
-            self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
-            
-            # Logowanie błędu
-            self._log_api_call(
-                operation=endpoint,
-                status='error',
-                request_params=params,  # Bez klucza API
+                request_params=params,
                 response_time_ms=response_time,
                 error_details=str(e)
             )
@@ -193,272 +183,102 @@ class RegisterIntegrationService:
     
     def search_companies(self, params):
         """
-        Wyszukuje firmy na podstawie podanych parametrów
-        
-        Args:
-            params (dict): Parametry wyszukiwania
-            
-        Returns:
-            dict: Wyniki wyszukiwania
+        Wyszukuje firmy w CEIDG zgodnie z dokumentacją API v2
+        Endpoint: /firmy
         """
-        # Ta metoda powinna być nadpisana przez podklasy
-        raise NotImplementedError("Metoda powinna być zaimplementowana przez podklasę")
-    
-    def get_company_details(self, identifier_type, identifier_value):
-        """
-        Pobiera szczegóły firmy na podstawie identyfikatora
-        
-        Args:
-            identifier_type (str): Typ identyfikatora ('nip', 'regon', 'company_id')
-            identifier_value (str): Wartość identyfikatora
-            
-        Returns:
-            dict: Szczegóły firmy
-        """
-        # Ta metoda powinna być nadpisana przez podklasy
-        raise NotImplementedError("Metoda powinna być zaimplementowana przez podklasę")
-    
-    def validate_company_data(self, company_data):
-        """
-        Waliduje dane firmy przed zapisem do bazy
-        
-        Args:
-            company_data (dict): Dane firmy
-            
-        Returns:
-            tuple: (bool, str) - (czy dane są poprawne, komunikat błędu)
-        """
-        required_fields = ['nip', 'company_name']
-        
-        for field in required_fields:
-            if field not in company_data or not company_data[field]:
-                return False, f"Brak wymaganego pola: {field}"
-        
-        return True, ""
-    
-    def save_company(self, company_data, update_existing=False):
-        """
-        Zapisuje dane firmy do bazy
-        
-        Args:
-            company_data (dict): Dane firmy
-            update_existing (bool): Czy aktualizować istniejące firmy
-            
-        Returns:
-            tuple: (bool, RegisterCompany, str) - (sukces, obiekt firmy, komunikat)
-        """
-        # Walidacja danych
-        is_valid, error_msg = self.validate_company_data(company_data)
-        
-        if not is_valid:
-            return False, None, error_msg
-        
-        try:
-            # Sprawdzenie czy firma już istnieje
-            existing_company = RegisterCompany.get_by_nip(company_data['nip'])
-            
-            if existing_company:
-                # Firma już istnieje
-                if update_existing:
-                    # Aktualizacja istniejącej firmy
-                    
-                    # Aktualizacja podstawowych pól
-                    existing_company.register_type = company_data.get('register_type', existing_company.register_type)
-                    existing_company.company_id = company_data.get('company_id', existing_company.company_id)
-                    existing_company.regon = company_data.get('regon', existing_company.regon)
-                    existing_company.company_name = company_data.get('company_name', existing_company.company_name)
-                    existing_company.address = company_data.get('address', existing_company.address)
-                    existing_company.postal_code = company_data.get('postal_code', existing_company.postal_code)
-                    existing_company.city = company_data.get('city', existing_company.city)
-                    existing_company.legal_form = company_data.get('legal_form', existing_company.legal_form)
-                    existing_company.status = company_data.get('status', existing_company.status)
-                    existing_company.pkd_main = company_data.get('pkd_main', existing_company.pkd_main)
-                    
-                    # Aktualizacja kodów PKD
-                    if 'pkd_codes' in company_data:
-                        existing_company.pkd_codes = json.dumps(company_data['pkd_codes'])
-                    
-                    existing_company.industry_desc = company_data.get('industry_desc', existing_company.industry_desc)
-                    
-                    # Aktualizacja dat
-                    if 'foundation_date' in company_data and company_data['foundation_date']:
-                        try:
-                            if isinstance(company_data['foundation_date'], str):
-                                existing_company.foundation_date = datetime.strptime(company_data['foundation_date'], '%Y-%m-%d').date()
-                            else:
-                                existing_company.foundation_date = company_data['foundation_date']
-                        except ValueError:
-                            # Ignorowanie nieprawidłowej daty
-                            pass
-                    
-                    if 'last_update_date' in company_data and company_data['last_update_date']:
-                        try:
-                            if isinstance(company_data['last_update_date'], str):
-                                existing_company.last_update_date = datetime.strptime(company_data['last_update_date'], '%Y-%m-%d').date()
-                            else:
-                                existing_company.last_update_date = company_data['last_update_date']
-                        except ValueError:
-                            # Ignorowanie nieprawidłowej daty
-                            pass
-                    
-                    # Aktualizacja pełnych danych
-                    if 'full_data' in company_data:
-                        existing_company.full_data = json.dumps(company_data['full_data'])
-                    
-                    # Zapis zmian
-                    db.session.commit()
-                    return True, existing_company, "Zaktualizowano istniejącą firmę"
-                else:
-                    # Firma już istnieje, ale nie aktualizujemy
-                    return False, existing_company, "Firma już istnieje w bazie"
-            else:
-                # Tworzenie nowej firmy
-                new_company = RegisterCompany(
-                    register_type=company_data.get('register_type'),
-                    company_id=company_data.get('company_id'),
-                    nip=company_data.get('nip'),
-                    regon=company_data.get('regon'),
-                    company_name=company_data.get('company_name'),
-                    address=company_data.get('address'),
-                    postal_code=company_data.get('postal_code'),
-                    city=company_data.get('city'),
-                    legal_form=company_data.get('legal_form'),
-                    status=company_data.get('status'),
-                    pkd_main=company_data.get('pkd_main'),
-                    pkd_codes=json.dumps(company_data.get('pkd_codes', [])),
-                    industry_desc=company_data.get('industry_desc'),
-                    full_data=json.dumps(company_data.get('full_data', {})),
-                    created_by=session.get('user_id') if session else None
-                )
-                
-                # Obsługa dat
-                if 'foundation_date' in company_data and company_data['foundation_date']:
-                    try:
-                        if isinstance(company_data['foundation_date'], str):
-                            new_company.foundation_date = datetime.strptime(company_data['foundation_date'], '%Y-%m-%d').date()
-                        else:
-                            new_company.foundation_date = company_data['foundation_date']
-                    except ValueError:
-                        # Ignorowanie nieprawidłowej daty
-                        pass
-                
-                if 'last_update_date' in company_data and company_data['last_update_date']:
-                    try:
-                        if isinstance(company_data['last_update_date'], str):
-                            new_company.last_update_date = datetime.strptime(company_data['last_update_date'], '%Y-%m-%d').date()
-                        else:
-                            new_company.last_update_date = company_data['last_update_date']
-                    except ValueError:
-                        # Ignorowanie nieprawidłowej daty
-                        pass
-                
-                # Zapis do bazy
-                db.session.add(new_company)
-                db.session.commit()
-                return True, new_company, "Zapisano nową firmę"
-                
-        except Exception as e:
-            db.session.rollback()
-            error_msg = f"Błąd podczas zapisywania firmy: {str(e)}"
-            self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
-            return False, None, error_msg
-
-
-class CEIDGIntegrationService(RegisterIntegrationService):
-    """
-    Klasa serwisowa do obsługi integracji z CEIDG
-    """
-    def __init__(self):
-        super().__init__(register_type='CEIDG')
-        # Zmiana adresu URL z v1 na v2
-        if self.config and self.config.api_url:
-            if '/v1' in self.config.api_url:
-                self.config.api_url = self.config.api_url.replace('/v1', '/v2')
-    
-    def search_companies(self, params):
-        """
-        Wyszukuje firmy w CEIDG na podstawie podanych parametrów
-        
-        Args:
-            params (dict): Parametry wyszukiwania
-            
-        Returns:
-            dict: Wyniki wyszukiwania
-        """
-        # Mapowanie parametrów na format API CEIDG
+        # Mapowanie parametrów zgodnie z dokumentacją CEIDG
         ceidg_params = {}
-    
-        # Mapowanie podstawowych parametrów (nip jako pojedynczy parametr zamiast tablicy)
+        
+        # CEIDG wymaga tablic dla niektórych parametrów
         if 'nip' in params:
-            ceidg_params['nip'] = params['nip']
+            # NIP jako tablica zgodnie z dokumentacją: nip[]=value
+            ceidg_params['nip[]'] = params['nip']
+        
         if 'regon' in params:
-            ceidg_params['regon'] = params['regon']
+            ceidg_params['regon[]'] = params['regon']
+            
         if 'company_name' in params:
-            ceidg_params['nazwa'] = params['company_name']
-    
-        # Mapowanie parametrów branżowych
+            # nazwa[] zgodnie z dokumentacją
+            ceidg_params['nazwa[]'] = params['company_name']
+            
+        # Parametry PKD
         if 'pkd_code' in params:
-            ceidg_params['pkd'] = params['pkd_code']
-    
-        # Mapowanie dat
+            ceidg_params['pkd[]'] = params['pkd_code']
+            
+        # Parametry dat - format YYYY-MM-DD
         if 'foundation_date_from' in params:
             ceidg_params['dataod'] = params['foundation_date_from']
         if 'foundation_date_to' in params:
             ceidg_params['datado'] = params['foundation_date_to']
-    
-        # Status działalności
+            
+        # Status jako tablica
         if 'status' in params:
-            ceidg_params['status'] = params['status']
-    
+            # Mapowanie statusów zgodnie z CEIDG
+            status_map = {
+                'ACTIVE': 'AKTYWNY',
+                'SUSPENDED': 'ZAWIESZONY',
+                'CLOSED': 'WYKRESLONY',
+                'PENDING': 'OCZEKUJE_NA_ROZPOCZECIE_DZIALANOSCI'
+            }
+            mapped_status = status_map.get(params['status'], params['status'])
+            ceidg_params['status[]'] = mapped_status
+            
         # Paginacja
         ceidg_params['page'] = params.get('page', 1)
-        ceidg_params['limit'] = params.get('limit', 50)
-    
+        ceidg_params['limit'] = min(params.get('limit', 25), 50)  # Max 50 zgodnie z dokumentacją
+        
         # Wywołanie API
-        result = self._make_api_request('firmy', ceidg_params)
+        result = self._make_api_request('firmy', ceidg_params, use_test=params.get('use_test', False))
         
         if 'error' in result:
             return result
         
-        # Przetwarzanie wyników
+        # Przetwarzanie wyników zgodnie ze strukturą CEIDG
         processed_results = []
         
-        if 'results' in result and result['results']:
-            for company in result['results']:
+        if 'firmy' in result and result['firmy']:
+            for company in result['firmy']:
                 processed_company = self._process_company_data(company)
                 processed_results.append(processed_company)
         
         return {
             'success': True,
             'results': processed_results,
-            'total': result.get('total', len(processed_results)),
-            'page': result.get('page', 1),
-            'pages': result.get('pages', 1)
+            'total': result.get('count', len(processed_results)),
+            'page': ceidg_params.get('page', 1),
+            'links': result.get('links', {})
         }
     
     def get_company_details(self, identifier_type, identifier_value):
         """
-        Pobiera szczegóły firmy z CEIDG na podstawie identyfikatora
-        
-        Args:
-            identifier_type (str): Typ identyfikatora ('nip', 'regon', 'company_id')
-            identifier_value (str): Wartość identyfikatora
-            
-        Returns:
-            dict: Szczegóły firmy
+        Pobiera szczegóły firmy z CEIDG
+        Endpoint: /firma lub /firma/{id}
         """
-        # Przygotowanie parametrów
-        params = {identifier_type: identifier_value}
+        params = {}
         
-        # Wywołanie API
-        result = self._make_api_request('company-details', params)
+        if identifier_type == 'company_id':
+            # Bezpośredni endpoint z ID
+            endpoint = f"firma/{identifier_value}"
+        else:
+            # Endpoint z parametrami query
+            endpoint = "firma"
+            if identifier_type == 'nip':
+                params['nip'] = identifier_value
+            elif identifier_type == 'regon':
+                params['regon'] = identifier_value
+            elif identifier_type == 'ids':
+                params['ids[]'] = identifier_value
+        
+        result = self._make_api_request(endpoint, params)
         
         if 'error' in result:
             return result
         
         # Przetwarzanie wyniku
-        if 'company' in result:
-            processed_company = self._process_company_data(result['company'])
+        if 'firma' in result and result['firma']:
+            # CEIDG zwraca tablicę firm nawet dla jednej firmy
+            company_data = result['firma'][0] if isinstance(result['firma'], list) else result['firma']
+            processed_company = self._process_company_data(company_data)
             return {
                 'success': True,
                 'company': processed_company
@@ -466,190 +286,205 @@ class CEIDGIntegrationService(RegisterIntegrationService):
         else:
             return {
                 'success': False,
-                'error': 'Nie znaleziono firmy'
+                'error': 'Nie znaleziono firmy w CEIDG'
             }
     
     def _process_company_data(self, company_data):
         """
-        Przetwarza dane firmy z CEIDG na format używany w aplikacji
-        
-        Args:
-            company_data (dict): Dane firmy z CEIDG
-            
-        Returns:
-            dict: Przetworzone dane firmy
+        Przetwarza dane firmy z CEIDG zgodnie ze strukturą API v2
         """
+        # Podstawowe dane
         processed_data = {
             'register_type': 'CEIDG',
             'company_id': company_data.get('id'),
-            'nip': company_data.get('nip'),
-            'regon': company_data.get('regon'),
-            'company_name': company_data.get('name'),
-            'address': self._format_address(company_data),
-            'postal_code': company_data.get('postal_code'),
-            'city': company_data.get('city'),
-            'legal_form': 'Jednoosobowa działalność gospodarcza',
+            'company_name': company_data.get('nazwa'),
             'status': self._map_status(company_data.get('status')),
-            'pkd_codes': self._extract_pkd_codes(company_data),
-            'pkd_main': self._extract_main_pkd(company_data),
-            'industry_desc': self._extract_industry_desc(company_data),
-            'foundation_date': company_data.get('start_date'),
-            'last_update_date': company_data.get('last_update_date'),
-            'full_data': company_data
+            'foundation_date': company_data.get('dataRozpoczecia'),
+            'last_update_date': None,  # CEIDG nie zwraca tej informacji bezpośrednio
         }
+        
+        # Dane właściciela
+        if 'wlasciciel' in company_data:
+            owner = company_data['wlasciciel']
+            processed_data.update({
+                'nip': owner.get('nip'),
+                'regon': owner.get('regon'),
+                'owner_name': f"{owner.get('imie', '')} {owner.get('nazwisko', '')}".strip()
+            })
+        
+        # Adres działalności
+        if 'adresDzialalnosci' in company_data:
+            address = company_data['adresDzialalnosci']
+            address_parts = []
+            
+            if address.get('ulica'):
+                address_parts.append(address.get('ulica'))
+            if address.get('budynek'):
+                address_parts.append(address.get('budynek'))
+            if address.get('lokal'):
+                address_parts.append(f"/{address.get('lokal')}")
+                
+            processed_data.update({
+                'address': ' '.join(address_parts),
+                'postal_code': address.get('kod'),
+                'city': address.get('miasto'),
+                'voivodeship': address.get('wojewodztwo')
+            })
+        
+        # Kody PKD
+        if 'pkd' in company_data:
+            processed_data['pkd_codes'] = company_data['pkd']
+        if 'pkdGlowny' in company_data:
+            processed_data['pkd_main'] = company_data['pkdGlowny']
+            
+        # Kontakt
+        processed_data.update({
+            'phone': company_data.get('telefon'),
+            'email': company_data.get('email'),
+            'www': company_data.get('www')
+        })
+        
+        # Pełne dane dla przechowania
+        processed_data['full_data'] = company_data
         
         return processed_data
     
-    def _format_address(self, company_data):
-        """Formatuje adres firmy"""
-        address_parts = []
-        
-        if 'street' in company_data and company_data['street']:
-            address_parts.append(company_data['street'])
-        
-        if 'house_number' in company_data and company_data['house_number']:
-            address_parts.append(company_data['house_number'])
-        
-        if 'flat_number' in company_data and company_data['flat_number']:
-            address_parts.append('/' + company_data['flat_number'])
-        
-        return ' '.join(address_parts)
-    
     def _map_status(self, status):
-        """Mapuje status firmy z CEIDG na format aplikacji"""
+        """Mapuje statusy z CEIDG na polskie nazwy"""
         status_map = {
-            'ACTIVE': 'Aktywna',
-            'SUSPENDED': 'Zawieszona',
-            'CLOSED': 'Zamknięta',
-            'LIQUIDATED': 'Zlikwidowana',
-            'BANKRUPTCY': 'W upadłości'
+            'AKTYWNY': 'Aktywna',
+            'WYKRESLONY': 'Wykreślona',
+            'ZAWIESZONY': 'Zawieszona',
+            'OCZEKUJE_NA_ROZPOCZECIE_DZIALANOSCI': 'Oczekuje na rozpoczęcie',
+            'WYLACZNIE_W_FORMIE_SPOLKI': 'Wyłącznie w formie spółki'
         }
-        
         return status_map.get(status, status)
-    
-    def _extract_pkd_codes(self, company_data):
-        """Wyciąga kody PKD z danych firmy"""
-        pkd_codes = []
-        
-        if 'pkd_codes' in company_data and company_data['pkd_codes']:
-            for pkd_item in company_data['pkd_codes']:
-                if 'code' in pkd_item:
-                    pkd_codes.append(pkd_item['code'])
-        
-        return pkd_codes
-    
-    def _extract_main_pkd(self, company_data):
-        """Wyciąga główny kod PKD z danych firmy"""
-        if 'pkd_codes' in company_data and company_data['pkd_codes']:
-            for pkd_item in company_data['pkd_codes']:
-                if 'code' in pkd_item and pkd_item.get('is_main', False):
-                    return pkd_item['code']
-        
-        return None
-    
-    def _extract_industry_desc(self, company_data):
-        """Wyciąga opis branży z danych firmy"""
-        if 'pkd_codes' in company_data and company_data['pkd_codes']:
-            for pkd_item in company_data['pkd_codes']:
-                if 'code' in pkd_item and 'description' in pkd_item and pkd_item.get('is_main', False):
-                    return pkd_item['description']
-        
-        return None
 
 
 class KRSIntegrationService(RegisterIntegrationService):
     """
-    Klasa serwisowa do obsługi integracji z KRS
+    Klasa serwisowa do obsługi integracji z otwartym API KRS
     """
     def __init__(self):
         super().__init__(register_type='KRS')
+        # Otwarte API KRS - nie wymaga tokenów
+        self.api_base_url = "https://api-v3.mojepanstwo.pl/dane"
+    
+    def _make_api_request(self, endpoint, params, timeout=30):
+        """
+        Wykonuje zapytanie do otwartego API KRS
+        """
+        url = f"{self.api_base_url}/{endpoint}"
+        
+        # API KRS nie wymaga autoryzacji
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        start_time = time.time()
+        
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=timeout)
+            response_time = int((time.time() - start_time) * 1000)
+            
+            # Logowanie zapytania
+            self._log_api_call(
+                operation=endpoint,
+                status='success' if response.status_code == 200 else 'error',
+                request_params=params,
+                response_code=response.status_code,
+                response_time_ms=response_time,
+                error_details=None if response.status_code == 200 else response.text
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                error_msg = f"Błąd API KRS: {response.status_code} - {response.text}"
+                self.logger.error(error_msg)
+                return {'error': error_msg, 'success': False}
+                
+        except requests.RequestException as e:
+            response_time = int((time.time() - start_time) * 1000)
+            error_msg = f"Błąd połączenia z API KRS: {str(e)}"
+            self.logger.error(error_msg)
+            
+            self._log_api_call(
+                operation=endpoint,
+                status='error',
+                request_params=params,
+                response_time_ms=response_time,
+                error_details=str(e)
+            )
+            
+            return {'error': error_msg, 'success': False}
     
     def search_companies(self, params):
         """
-        Wyszukuje firmy w KRS na podstawie podanych parametrów
-        
-        Args:
-            params (dict): Parametry wyszukiwania
-            
-        Returns:
-            dict: Wyniki wyszukiwania
+        Wyszukuje firmy w KRS przez otwarte API
         """
-        # Mapowanie parametrów na format API KRS
-        krs_params = {}
+        # Mapowanie parametrów dla API KRS
+        krs_params = {
+            'limit': min(params.get('limit', 25), 100),
+            'offset': (params.get('page', 1) - 1) * params.get('limit', 25)
+        }
         
-        # Mapowanie podstawowych parametrów
+        # Budowanie warunków wyszukiwania
+        conditions = []
+        
         if 'nip' in params:
-            krs_params['nip'] = params['nip']
+            conditions.append(f"krs_podmioty.nip:{params['nip']}")
         if 'regon' in params:
-            krs_params['regon'] = params['regon']
+            conditions.append(f"krs_podmioty.regon:{params['regon']}")
         if 'company_name' in params:
-            krs_params['name'] = params['company_name']
+            conditions.append(f"krs_podmioty.nazwa:*{params['company_name']}*")
+            
+        if conditions:
+            krs_params['conditions'] = ' AND '.join(conditions)
         
-        # Mapowanie parametrów branżowych
-        if 'pkd_code' in params:
-            krs_params['pkd'] = params['pkd_code']
-        
-        # Mapowanie dat
-        if 'foundation_date_from' in params:
-            krs_params['register_date_from'] = params['foundation_date_from']
-        if 'foundation_date_to' in params:
-            krs_params['register_date_to'] = params['foundation_date_to']
-        
-        # Dodatkowe parametry
-        krs_params['page'] = params.get('page', 1)
-        krs_params['limit'] = params.get('limit', 50)
-        
-        # Wywołanie API
-        result = self._make_api_request('search', krs_params)
+        # Wywołanie API KRS
+        result = self._make_api_request('krs_podmioty', krs_params)
         
         if 'error' in result:
             return result
         
-        # Przetwarzanie wyników
+        # Przetwarzanie wyników KRS
         processed_results = []
         
-        if 'results' in result and result['results']:
-            for company in result['results']:
-                processed_company = self._process_company_data(company)
+        if 'Dataobject' in result and result['Dataobject']:
+            for company in result['Dataobject']:
+                processed_company = self._process_krs_company_data(company)
                 processed_results.append(processed_company)
         
         return {
             'success': True,
             'results': processed_results,
-            'total': result.get('total', len(processed_results)),
-            'page': result.get('page', 1),
-            'pages': result.get('pages', 1)
+            'total': result.get('Count', len(processed_results))
         }
     
     def get_company_details(self, identifier_type, identifier_value):
         """
-        Pobiera szczegóły firmy z KRS na podstawie identyfikatora
-        
-        Args:
-            identifier_type (str): Typ identyfikatora ('nip', 'regon', 'krs')
-            identifier_value (str): Wartość identyfikatora
-            
-        Returns:
-            dict: Szczegóły firmy
+        Pobiera szczegóły firmy z KRS
         """
-        # Przygotowanie parametrów
         params = {}
         
-        # Mapowanie typów identyfikatorów
-        if identifier_type == 'company_id':
-            params['krs'] = identifier_value
-        else:
-            params[identifier_type] = identifier_value
+        if identifier_type == 'nip':
+            params['conditions'] = f"krs_podmioty.nip:{identifier_value}"
+        elif identifier_type == 'regon':
+            params['conditions'] = f"krs_podmioty.regon:{identifier_value}"
+        elif identifier_type == 'krs':
+            params['conditions'] = f"krs_podmioty.id:{identifier_value}"
         
-        # Wywołanie API
-        result = self._make_api_request('company-details', params)
+        params['limit'] = 1
+        
+        result = self._make_api_request('krs_podmioty', params)
         
         if 'error' in result:
             return result
         
-        # Przetwarzanie wyniku
-        if 'company' in result:
-            processed_company = self._process_company_data(result['company'])
+        if 'Dataobject' in result and result['Dataobject']:
+            company_data = result['Dataobject'][0]
+            processed_company = self._process_krs_company_data(company_data)
             return {
                 'success': True,
                 'company': processed_company
@@ -657,480 +492,202 @@ class KRSIntegrationService(RegisterIntegrationService):
         else:
             return {
                 'success': False,
-                'error': 'Nie znaleziono firmy'
+                'error': 'Nie znaleziono firmy w KRS'
             }
     
-    def _process_company_data(self, company_data):
+    def _process_krs_company_data(self, company_data):
         """
-        Przetwarza dane firmy z KRS na format używany w aplikacji
+        Przetwarza dane firmy z KRS
+        """
+        data = company_data.get('data', {})
         
-        Args:
-            company_data (dict): Dane firmy z KRS
-            
-        Returns:
-            dict: Przetworzone dane firmy
-        """
         processed_data = {
             'register_type': 'KRS',
-            'company_id': company_data.get('krs'),
-            'nip': company_data.get('nip'),
-            'regon': company_data.get('regon'),
-            'company_name': company_data.get('name'),
-            'address': self._format_address(company_data),
-            'postal_code': company_data.get('postal_code'),
-            'city': company_data.get('city'),
-            'legal_form': self._extract_legal_form(company_data),
-            'status': self._map_status(company_data.get('status')),
-            'pkd_codes': self._extract_pkd_codes(company_data),
-            'pkd_main': self._extract_main_pkd(company_data),
-            'industry_desc': self._extract_industry_desc(company_data),
-            'foundation_date': company_data.get('register_date'),
-            'last_update_date': company_data.get('last_update_date'),
+            'company_id': data.get('id'),
+            'nip': data.get('nip'),
+            'regon': data.get('regon'),
+            'company_name': data.get('nazwa'),
+            'legal_form': data.get('forma_prawna_str'),
+            'status': self._map_krs_status(data.get('status')),
+            'address': data.get('adres'),
+            'postal_code': data.get('kod_pocztowy'),
+            'city': data.get('miasto'),
+            'foundation_date': data.get('data_rejestracji'),
+            'pkd_main': data.get('pkd_przewazajace'),
+            'pkd_codes': data.get('pkd', '').split(',') if data.get('pkd') else [],
             'full_data': company_data
         }
         
         return processed_data
     
-    def _format_address(self, company_data):
-        """Formatuje adres firmy"""
-        address_parts = []
-        
-        if 'street' in company_data and company_data['street']:
-            address_parts.append(company_data['street'])
-        
-        if 'house_number' in company_data and company_data['house_number']:
-            address_parts.append(company_data['house_number'])
-        
-        if 'flat_number' in company_data and company_data['flat_number']:
-            address_parts.append('/' + company_data['flat_number'])
-        
-        return ' '.join(address_parts)
-    
-    def _extract_legal_form(self, company_data):
-        """Wyciąga formę prawną firmy z danych KRS"""
-        if 'legal_form' in company_data:
-            return company_data['legal_form']
-            
-        # Domyślne mapowanie na podstawie typu spółki
-        company_type = company_data.get('company_type')
-        if company_type:
-            type_map = {
-                'SP_ZOO': 'Spółka z ograniczoną odpowiedzialnością',
-                'SA': 'Spółka akcyjna',
-                'SJ': 'Spółka jawna',
-                'SK': 'Spółka komandytowa',
-                'SKA': 'Spółka komandytowo-akcyjna',
-                'SP': 'Spółka partnerska',
-                'SC': 'Spółka cywilna'
-            }
-            return type_map.get(company_type, company_type)
-        
-        return 'Nieznana forma prawna'
-    
-    def _map_status(self, status):
-        """Mapuje status firmy z KRS na format aplikacji"""
-        status_map = {
-            'ACTIVE': 'Aktywna',
-            'PENDING_LIQUIDATION': 'W likwidacji',
-            'LIQUIDATED': 'Zlikwidowana',
-            'BANKRUPTCY': 'W upadłości',
-            'DELETED': 'Wykreślona z rejestru'
-        }
-        
-        return status_map.get(status, status)
-    
-    def _extract_pkd_codes(self, company_data):
-       """Wyciąga kody PKD z danych firmy"""
-       pkd_codes = []
-       
-       if 'pkd_codes' in company_data and company_data['pkd_codes']:
-           for pkd_item in company_data['pkd_codes']:
-               if 'code' in pkd_item:
-                   pkd_codes.append(pkd_item['code'])
-       
-       return pkd_codes
-   
-   def _extract_main_pkd(self, company_data):
-       """Wyciąga główny kod PKD z danych firmy"""
-       if 'pkd_codes' in company_data and company_data['pkd_codes']:
-           for pkd_item in company_data['pkd_codes']:
-               if 'code' in pkd_item and pkd_item.get('is_main', False):
-                   return pkd_item['code']
-           
-           # Jeśli nie znaleziono głównego kodu, zwracamy pierwszy
-           if company_data['pkd_codes'] and 'code' in company_data['pkd_codes'][0]:
-               return company_data['pkd_codes'][0]['code']
-       
-       return None
-   
-   def _extract_industry_desc(self, company_data):
-       """Wyciąga opis branży z danych firmy"""
-       if 'pkd_codes' in company_data and company_data['pkd_codes']:
-           for pkd_item in company_data['pkd_codes']:
-               if 'code' in pkd_item and 'description' in pkd_item and pkd_item.get('is_main', False):
-                   return pkd_item['description']
-           
-           # Jeśli nie znaleziono głównego kodu, zwracamy opis pierwszego
-           if company_data['pkd_codes'] and 'description' in company_data['pkd_codes'][0]:
-               return company_data['pkd_codes'][0]['description']
-       
-       return None
+    def _map_krs_status(self, status):
+        """Mapuje statusy KRS"""
+        if not status:
+            return 'Nieznany'
+        return status
 
 
 class RegisterService:
-   """
-   Główna klasa serwisowa do obsługi rejestrów - fasada dla obu typów rejestrów
-   """
-   def __init__(self):
-       self.ceidg_service = CEIDGIntegrationService()
-       self.krs_service = KRSIntegrationService()
-       self.logger = register_logger
-   
-   def search_in_registers(self, params, register_type=None):
-       """
-       Wyszukuje firmy w rejestrach CEIDG i KRS
-       
-       Args:
-           params (dict): Parametry wyszukiwania
-           register_type (str): Typ rejestru ('CEIDG', 'KRS' lub None dla obu)
-           
-       Returns:
-           dict: Wyniki wyszukiwania i statusy operacji
-       """
-       results = []
-       errors = []
-       sources = []
-       
-       # Sprawdzenie parametrów wyszukiwania
-       if not params:
-           return {
-               'success': False,
-               'error': 'Brak parametrów wyszukiwania'
-           }
-       
-       # Wyszukiwanie w CEIDG
-       if register_type is None or register_type == 'CEIDG':
-           try:
-               ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
-               if ceidg_config and ceidg_config.active:
-                   ceidg_result = self.ceidg_service.search_companies(params)
-                   
-                   if ceidg_result.get('success', False) and 'results' in ceidg_result:
-                       for company in ceidg_result['results']:
-                           # Dodanie źródła danych
-                           company['register_type'] = 'CEIDG'
-                           results.append(company)
-                       
-                       sources.append('CEIDG')
-                   elif 'error' in ceidg_result:
-                       errors.append(f"CEIDG: {ceidg_result['error']}")
-               else:
-                   errors.append("Integracja z CEIDG nie jest aktywna")
-           except Exception as e:
-               error_msg = f"Błąd wyszukiwania w CEIDG: {str(e)}"
-               self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
-               errors.append(f"CEIDG: {str(e)}")
-       
-       # Wyszukiwanie w KRS
-       if register_type is None or register_type == 'KRS':
-           try:
-               krs_config = RegisterIntegrationConfig.get_config('KRS')
-               if krs_config and krs_config.active:
-                   krs_result = self.krs_service.search_companies(params)
-                   
-                   if krs_result.get('success', False) and 'results' in krs_result:
-                       for company in krs_result['results']:
-                           # Dodanie źródła danych
-                           company['register_type'] = 'KRS'
-                           results.append(company)
-                       
-                       sources.append('KRS')
-                   elif 'error' in krs_result:
-                       errors.append(f"KRS: {krs_result['error']}")
-               else:
-                   errors.append("Integracja z KRS nie jest aktywna")
-           except Exception as e:
-               error_msg = f"Błąd wyszukiwania w KRS: {str(e)}"
-               self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
-               errors.append(f"KRS: {str(e)}")
-       
-       # Przygotowanie odpowiedzi
-       if not sources:
-           # Żaden rejestr nie był dostępny
-           return {
-               'success': False,
-               'error': "Brak dostępu do rejestrów: " + ", ".join(errors)
-           }
-       
-       # Zwracanie wyników i informacji o błędach (jeśli były)
-       return {
-           'success': True,
-           'data': results,
-           'sources': sources,
-           'partial_errors': errors if errors else None,
-           'total': len(results)
-       }
-   
-   def get_company_details(self, register_type, identifier_type, identifier_value):
-       """
-       Pobiera szczegóły firmy z rejestru
-       
-       Args:
-           register_type (str): Typ rejestru ('CEIDG' lub 'KRS')
-           identifier_type (str): Typ identyfikatora ('nip', 'regon', 'company_id')
-           identifier_value (str): Wartość identyfikatora
-           
-       Returns:
-           dict: Szczegóły firmy
-       """
-       if not register_type or not identifier_type or not identifier_value:
-           return {
-               'success': False,
-               'error': 'Brak wymaganych parametrów'
-           }
-       
-       try:
-           if register_type == 'CEIDG':
-               return self.ceidg_service.get_company_details(identifier_type, identifier_value)
-           elif register_type == 'KRS':
-               return self.krs_service.get_company_details(identifier_type, identifier_value)
-           else:
-               return {
-                   'success': False,
-                   'error': f"Nieznany typ rejestru: {register_type}"
-               }
-       except Exception as e:
-           error_msg = f"Błąd pobierania szczegółów firmy: {str(e)}"
-           self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
-           return {
-               'success': False,
-               'error': error_msg
-           }
-   
-   def save_companies(self, companies, update_existing=False):
-       """
-       Zapisuje firmy do bazy danych
-       
-       Args:
-           companies (list): Lista firm do zapisania
-           update_existing (bool): Czy aktualizować istniejące firmy
-           
-       Returns:
-           dict: Statystyki zapisywania
-       """
-       if not companies:
-           return {
-               'success': False,
-               'error': 'Brak firm do zapisania'
-           }
-       
-       stats = {
-           'saved': 0,
-           'updated': 0,
-           'failed': 0,
-           'already_exists': 0
-       }
-       
-       for company_data in companies:
-           try:
-               register_type = company_data.get('register_type')
-               
-               if register_type == 'CEIDG':
-                   service = self.ceidg_service
-               elif register_type == 'KRS':
-                   service = self.krs_service
-               else:
-                   # Nieznany typ rejestru
-                   stats['failed'] += 1
-                   continue
-               
-               # Zapisanie firmy
-               success, company, message = service.save_company(company_data, update_existing)
-               
-               if success:
-                   if 'zaktualizowano' in message.lower():
-                       stats['updated'] += 1
-                   else:
-                       stats['saved'] += 1
-               else:
-                   if company and 'już istnieje' in message.lower():
-                       stats['already_exists'] += 1
-                   else:
-                       stats['failed'] += 1
-                       self.logger.warning(f"Nie udało się zapisać firmy: {message}")
-           except Exception as e:
-               stats['failed'] += 1
-               error_msg = f"Błąd zapisywania firmy: {str(e)}"
-               self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
-       
-       return {
-           'success': True,
-           'stats': stats,
-           'message': f"Zapisano {stats['saved']} firm, zaktualizowano {stats['updated']}, pominięto {stats['already_exists']}, błędy: {stats['failed']}"
-       }
-   
-   def test_connections(self):
-       """
-       Testuje połączenia z API rejestrów
-       
-       Returns:
-           dict: Wyniki testów
-       """
-       results = {
-           'CEIDG': {
-               'success': False,
-               'message': 'Nie przetestowano'
-           },
-           'KRS': {
-               'success': False,
-               'message': 'Nie przetestowano'
-           }
-       }
-       
-       # Test CEIDG
-       try:
-           ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
-           if ceidg_config and ceidg_config.active:
-               ceidg_result = self.ceidg_service._make_api_request('test', {})
-               
-               if not 'error' in ceidg_result:
-                   results['CEIDG'] = {
-                       'success': True,
-                       'message': 'Połączenie działa poprawnie'
-                   }
-               else:
-                   results['CEIDG'] = {
-                       'success': False,
-                       'message': ceidg_result['error']
-                   }
-           else:
-               results['CEIDG'] = {
-                   'success': False,
-                   'message': 'Integracja nie jest aktywna'
-               }
-       except Exception as e:
-           results['CEIDG'] = {
-               'success': False,
-               'message': f"Błąd: {str(e)}"
-           }
-       
-       # Test KRS
-       try:
-           krs_config = RegisterIntegrationConfig.get_config('KRS')
-           if krs_config and krs_config.active:
-               krs_result = self.krs_service._make_api_request('test', {})
-               
-               if not 'error' in krs_result:
-                   results['KRS'] = {
-                       'success': True,
-                       'message': 'Połączenie działa poprawnie'
-                   }
-               else:
-                   results['KRS'] = {
-                       'success': False,
-                       'message': krs_result['error']
-                   }
-           else:
-               results['KRS'] = {
-                   'success': False,
-                   'message': 'Integracja nie jest aktywna'
-               }
-       except Exception as e:
-           results['KRS'] = {
-               'success': False,
-               'message': f"Błąd: {str(e)}"
-           }
-       
-       return {
-           'success': results['CEIDG']['success'] or results['KRS']['success'],
-           'results': results
-       }
-   
-   def create_client_from_company(self, company_id):
-       """
-       Tworzy klienta na podstawie danych firmy
-       
-       Args:
-           company_id (int): ID firmy
-           
-       Returns:
-           dict: Informacje o utworzonym kliencie
-       """
-       from modules.clients.models import Client
-       
-       try:
-           # Pobranie firmy
-           company = RegisterCompany.query.get(company_id)
-           
-           if not company:
-               return {
-                   'success': False,
-                   'error': 'Firma nie istnieje'
-               }
-           
-           # Sprawdzenie czy klient z tym NIP już istnieje
-           existing_client = Client.query.filter_by(invoice_nip=company.nip).first()
-           
-           if existing_client:
-               return {
-                   'success': False,
-                   'error': f"Klient z NIP {company.nip} już istnieje (ID: {existing_client.id})",
-                   'client_id': existing_client.id
-               }
-           
-           # Generowanie numeru klienta
-           import random
-           import string
-           
-           # Generowanie losowego numeru klienta
-           client_number = ''.join(random.choices(string.digits, k=6))
-           
-           # Tworzenie nowego klienta
-           new_client = Client(
-               client_number=client_number,
-               client_name=company.company_name,
-               client_delivery_name=company.company_name,
-               email="",  # Brak w danych rejestru
-               phone="",  # Brak w danych rejestru
-               
-               # Adres dostawy
-               delivery_company=company.company_name,
-               delivery_address=company.address,
-               delivery_zip=company.postal_code,
-               delivery_city=company.city,
-               delivery_region="",  # Brak w danych rejestru
-               delivery_country="Polska",
-               
-               # Adres faktury
-               invoice_company=company.company_name,
-               invoice_address=company.address,
-               invoice_zip=company.postal_code,
-               invoice_city=company.city,
-               invoice_region="",  # Brak w danych rejestru
-               invoice_nip=company.nip,
-               
-               # Źródło klienta
-               source=f"Register:{company.register_type}"
-           )
-           
-           # Zapisanie klienta
-           db.session.add(new_client)
-           db.session.commit()
-           
-           return {
-               'success': True,
-               'client': {
-                   'id': new_client.id,
-                   'client_number': new_client.client_number,
-                   'client_name': new_client.client_name
-               },
-               'message': f"Utworzono klienta: {new_client.client_name}"
-           }
-       except Exception as e:
-           db.session.rollback()
-           error_msg = f"Błąd tworzenia klienta: {str(e)}"
-           self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
-           return {
-               'success': False,
-               'error': error_msg
-           }
+    """
+    Główna klasa serwisowa - fasada dla CEIDG i KRS
+    """
+    def __init__(self):
+        self.ceidg_service = CEIDGIntegrationService()
+        self.krs_service = KRSIntegrationService()
+        self.logger = register_logger
+    
+    def search_in_registers(self, params, register_type=None):
+        """
+        Wyszukuje firmy w rejestrach CEIDG i/lub KRS
+        """
+        results = []
+        errors = []
+        sources = []
+        
+        # Walidacja parametrów
+        if not params:
+            return {
+                'success': False,
+                'error': 'Brak parametrów wyszukiwania'
+            }
+        
+        # Wyszukiwanie w CEIDG
+        if register_type is None or register_type == 'CEIDG':
+            try:
+                ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
+                if ceidg_config and ceidg_config.active:
+                    ceidg_result = self.ceidg_service.search_companies(params)
+                    
+                    if ceidg_result.get('success', False) and 'results' in ceidg_result:
+                        results.extend(ceidg_result['results'])
+                        sources.append('CEIDG')
+                        self.logger.info(f"CEIDG: Znaleziono {len(ceidg_result['results'])} firm")
+                    elif 'error' in ceidg_result:
+                        errors.append(f"CEIDG: {ceidg_result['error']}")
+                else:
+                    errors.append("Integracja z CEIDG nie jest aktywna")
+            except Exception as e:
+                error_msg = f"Błąd wyszukiwania w CEIDG: {str(e)}"
+                self.logger.error(error_msg)
+                errors.append(f"CEIDG: {str(e)}")
+        
+        # Wyszukiwanie w KRS
+        if register_type is None or register_type == 'KRS':
+            try:
+                # KRS nie wymaga konfiguracji tokenu
+                krs_result = self.krs_service.search_companies(params)
+                
+                if krs_result.get('success', False) and 'results' in krs_result:
+                    results.extend(krs_result['results'])
+                    sources.append('KRS')
+                    self.logger.info(f"KRS: Znaleziono {len(krs_result['results'])} firm")
+                elif 'error' in krs_result:
+                    errors.append(f"KRS: {krs_result['error']}")
+            except Exception as e:
+                error_msg = f"Błąd wyszukiwania w KRS: {str(e)}"
+                self.logger.error(error_msg)
+                errors.append(f"KRS: {str(e)}")
+        
+        # Przygotowanie odpowiedzi
+        if not sources:
+            return {
+                'success': False,
+                'error': "Brak dostępu do rejestrów: " + ", ".join(errors)
+            }
+        
+        return {
+            'success': True,
+            'data': results,
+            'sources': sources,
+            'partial_errors': errors if errors else None,
+            'total': len(results)
+        }
+    
+    def get_company_details(self, register_type, identifier_type, identifier_value):
+        """
+        Pobiera szczegóły firmy z wybranego rejestru
+        """
+        if not register_type or not identifier_type or not identifier_value:
+            return {
+                'success': False,
+                'error': 'Brak wymaganych parametrów'
+            }
+        
+        try:
+            if register_type == 'CEIDG':
+                return self.ceidg_service.get_company_details(identifier_type, identifier_value)
+            elif register_type == 'KRS':
+                return self.krs_service.get_company_details(identifier_type, identifier_value)
+            else:
+                return {
+                    'success': False,
+                    'error': f"Nieznany typ rejestru: {register_type}"
+                }
+        except Exception as e:
+            error_msg = f"Błąd pobierania szczegółów firmy: {str(e)}"
+            self.logger.error(error_msg)
+            return {
+                'success': False,
+                'error': error_msg
+            }
+    
+    def test_connections(self):
+        """
+        Testuje połączenia z API rejestrów
+        """
+        results = {
+            'CEIDG': {'success': False, 'message': 'Nie przetestowano'},
+            'KRS': {'success': False, 'message': 'Nie przetestowano'}
+        }
+        
+        # Test CEIDG - prosty test z limitem 1
+        try:
+            ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
+            if ceidg_config and ceidg_config.active:
+                test_result = self.ceidg_service._make_api_request('firmy', {'limit': 1, 'page': 1}, use_test=True)
+                
+                if not 'error' in test_result:
+                    results['CEIDG'] = {
+                        'success': True,
+                        'message': 'Połączenie działa poprawnie'
+                    }
+                else:
+                    results['CEIDG'] = {
+                        'success': False,
+                        'message': test_result['error']
+                    }
+            else:
+                results['CEIDG'] = {
+                    'success': False,
+                    'message': 'Integracja nie jest aktywna'
+                }
+        except Exception as e:
+            results['CEIDG'] = {
+                'success': False,
+                'message': f"Błąd: {str(e)}"
+            }
+        
+        # Test KRS - prosty test
+        try:
+            test_result = self.krs_service._make_api_request('krs_podmioty', {'limit': 1})
+            
+            if not 'error' in test_result:
+                results['KRS'] = {
+                    'success': True,
+                    'message': 'Połączenie działa poprawnie'
+                }
+            else:
+                results['KRS'] = {
+                    'success': False,
+                    'message': test_result['error']
+                }
+        except Exception as e:
+            results['KRS'] = {
+                'success': False,
+                'message': f"Błąd: {str(e)}"
+            }
+        
+        return {
+            'success': results['CEIDG']['success'] or results['KRS']['success'],
+            'results': results
+        }

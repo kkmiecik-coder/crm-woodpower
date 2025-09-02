@@ -1,60 +1,46 @@
 from flask import render_template, request, jsonify, current_app, session
 from . import register_bp
 from .models import RegisterCompany, RegisterPkdCode, RegisterApiLog, RegisterIntegrationConfig
+from .services import RegisterService
 from extensions import db
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
-import requests
-from functools import wraps
 import traceback
+from functools import wraps
 
 # Konfiguracja loggera
 register_logger = logging.getLogger('company_register_module')
 register_logger.info("✅ company_register_logger zainicjowany poprawnie w routers.py")
 
 
-# Funkcja pomocnicza do tworzenia odpowiedzi JSON
 def api_response(success, data=None, message=None, error=None, status_code=200):
     """
     Tworzy ustandaryzowaną odpowiedź API
-    
-    Args:
-        success (bool): Czy operacja zakończyła się sukcesem
-        data (any): Dane do zwrócenia (opcjonalne)
-        message (str): Komunikat sukcesu (opcjonalny)
-        error (str): Komunikat błędu (opcjonalny)
-        status_code (int): Kod statusu HTTP
-        
-    Returns:
-        tuple: (odpowiedź JSON, kod statusu)
     """
     response = {'success': success}
     
     if data is not None:
         response['data'] = data
-        
     if message is not None:
         response['message'] = message
-        
     if error is not None:
         response['error'] = error
         
     return jsonify(response), status_code
 
-# Dekorator do obsługi wyjątków
+
 def handle_exceptions(f):
+    """Dekorator do obsługi wyjątków"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         try:
             return f(*args, **kwargs)
         except Exception as e:
-            # Logowanie błędu
             error_details = traceback.format_exc()
             register_logger.error(f"Błąd w module rejestrów: {str(e)}\n{error_details}")
             
-            # Zwracanie odpowiedzi błędu
             return api_response(
                 success=False,
                 error=f"Wystąpił błąd: {str(e)}",
@@ -62,206 +48,13 @@ def handle_exceptions(f):
             )
     return decorated_function
 
-# Funkcja do komunikacji z API CEIDG
-def call_ceidg_api(endpoint, params, timeout=30):
-    """
-    Wywołuje API CEIDG
-    
-    Args:
-        endpoint (str): Endpoint API
-        params (dict): Parametry zapytania
-        timeout (int): Limit czasu w sekundach
-        
-    Returns:
-        dict: Odpowiedź API
-    """
-    start_time = time.time()
-    config = RegisterIntegrationConfig.get_config('CEIDG')
-    
-    if not config or not config.active:
-        raise Exception("Integracja z CEIDG nie jest skonfigurowana lub jest nieaktywna")
-    
-    # Dodanie klucza API do parametrów
-    params['api_key'] = config.api_key
-    
-    try:
-        # Wykonanie zapytania do API
-        url = f"{config.api_url}/{endpoint}"
-        response = requests.get(url, params=params, timeout=timeout)
-        response_time = int((time.time() - start_time) * 1000)  # Czas w ms
-        
-        # Logowanie zapytania
-        RegisterApiLog.log_api_call(
-            register_type='CEIDG',
-            operation=endpoint,
-            status='success' if response.status_code == 200 else 'error',
-            request_params=params,
-            response_code=response.status_code,
-            response_time_ms=response_time,
-            error_details=None if response.status_code == 200 else response.text,
-            user_id=session.get('user_id'),
-            ip_address=request.remote_addr
-        )
-        
-        # Sprawdzenie odpowiedzi
-        if response.status_code != 200:
-            raise Exception(f"Błąd API CEIDG: {response.status_code} - {response.text}")
-            
-        # Parsowanie odpowiedzi JSON
-        return response.json()
-        
-    except requests.RequestException as e:
-        # Logowanie błędu
-        RegisterApiLog.log_api_call(
-            register_type='CEIDG',
-            operation=endpoint,
-            status='error',
-            request_params=params,
-            response_code=None,
-            response_time_ms=int((time.time() - start_time) * 1000),
-            error_details=str(e),
-            user_id=session.get('user_id'),
-            ip_address=request.remote_addr
-        )
-        raise Exception(f"Błąd połączenia z API CEIDG: {str(e)}")
-
-# Funkcja do komunikacji z API KRS
-def call_krs_api(endpoint, params, timeout=30):
-    """
-    Wywołuje API KRS
-    
-    Args:
-        endpoint (str): Endpoint API
-        params (dict): Parametry zapytania
-        timeout (int): Limit czasu w sekundach
-        
-    Returns:
-        dict: Odpowiedź API
-    """
-    start_time = time.time()
-    config = RegisterIntegrationConfig.get_config('KRS')
-    
-    if not config or not config.active:
-        raise Exception("Integracja z KRS nie jest skonfigurowana lub jest nieaktywna")
-    
-    # Dodanie klucza API do parametrów
-    params['api_key'] = config.api_key
-    
-    try:
-        # Wykonanie zapytania do API
-        url = f"{config.api_url}/{endpoint}"
-        response = requests.get(url, params=params, timeout=timeout)
-        response_time = int((time.time() - start_time) * 1000)  # Czas w ms
-        
-        # Logowanie zapytania
-        RegisterApiLog.log_api_call(
-            register_type='KRS',
-            operation=endpoint,
-            status='success' if response.status_code == 200 else 'error',
-            request_params=params,
-            response_code=response.status_code,
-            response_time_ms=response_time,
-            error_details=None if response.status_code == 200 else response.text,
-            user_id=session.get('user_id'),
-            ip_address=request.remote_addr
-        )
-        
-        # Sprawdzenie odpowiedzi
-        if response.status_code != 200:
-            raise Exception(f"Błąd API KRS: {response.status_code} - {response.text}")
-            
-        # Parsowanie odpowiedzi JSON
-        return response.json()
-        
-    except requests.RequestException as e:
-        # Logowanie błędu
-        RegisterApiLog.log_api_call(
-            register_type='KRS',
-            operation=endpoint,
-            status='error',
-            request_params=params,
-            response_code=None,
-            response_time_ms=int((time.time() - start_time) * 1000),
-            error_details=str(e),
-            user_id=session.get('user_id'),
-            ip_address=request.remote_addr
-        )
-        raise Exception(f"Błąd połączenia z API KRS: {str(e)}")
-
-# Funkcja do wyszukiwania w obu rejestrach
-def search_in_registers(search_params):
-    """
-    Wyszukuje firmy w obu rejestrach (CEIDG i KRS)
-    
-    Args:
-        search_params (dict): Parametry wyszukiwania
-        
-    Returns:
-        dict: Wyniki wyszukiwania i statusy operacji
-    """
-    results = []
-    errors = []
-    sources = []
-    
-    # Próba wyszukiwania w CEIDG
-    try:
-        config_ceidg = RegisterIntegrationConfig.get_config('CEIDG')
-        if config_ceidg and config_ceidg.active:
-            ceidg_params = {k: v for k, v in search_params.items() if k not in ['register_type']}
-            ceidg_response = call_ceidg_api('search', ceidg_params)
-            
-            if 'results' in ceidg_response and ceidg_response['results']:
-                for company in ceidg_response['results']:
-                    # Dodanie źródła danych
-                    company['register_type'] = 'CEIDG'
-                    results.append(company)
-                
-                sources.append('CEIDG')
-        else:
-            errors.append("Integracja z CEIDG nie jest aktywna")
-    except Exception as e:
-        errors.append(f"CEIDG: {str(e)}")
-    
-    # Próba wyszukiwania w KRS
-    try:
-        config_krs = RegisterIntegrationConfig.get_config('KRS')
-        if config_krs and config_krs.active:
-            krs_params = {k: v for k, v in search_params.items() if k not in ['register_type']}
-            krs_response = call_krs_api('search', krs_params)
-            
-            if 'results' in krs_response and krs_response['results']:
-                for company in krs_response['results']:
-                    # Dodanie źródła danych
-                    company['register_type'] = 'KRS'
-                    results.append(company)
-                
-                sources.append('KRS')
-        else:
-            errors.append("Integracja z KRS nie jest aktywna")
-    except Exception as e:
-        errors.append(f"KRS: {str(e)}")
-    
-    # Przygotowanie odpowiedzi
-    if not sources:
-        # Żaden rejestr nie był dostępny
-        return {
-            'success': False,
-            'error': "Brak dostępu do rejestrów: " + ", ".join(errors)
-        }
-    
-    # Zwracanie wyników i informacji o błędach (jeśli były)
-    return {
-        'success': True,
-        'data': results,
-        'sources': sources,
-        'partial_errors': errors if errors else None
-    }
 
 # Endpoint renderujący główny widok modułu
 @register_bp.route('/')
 def index():
     """Renderuje główny widok modułu rejestrów"""
     return render_template('register/index.html')
+
 
 # Endpoint do pobierania listy zapisanych firm
 @register_bp.route('/api/companies')
@@ -328,27 +121,23 @@ def api_companies():
         if key not in ['sort_by', 'sort_dir', 'limit', 'offset'] and hasattr(RegisterCompany, key):
             column = getattr(RegisterCompany, key)
             
-            # Obsługa różnych typów filtrów
             if key.endswith('_from'):
-                base_key = key[:-5]  # Usunięcie '_from'
+                base_key = key[:-5]
                 if hasattr(RegisterCompany, base_key):
                     base_column = getattr(RegisterCompany, base_key)
                     query = query.filter(base_column >= value)
             elif key.endswith('_to'):
-                base_key = key[:-3]  # Usunięcie '_to'
+                base_key = key[:-3]
                 if hasattr(RegisterCompany, base_key):
                     base_column = getattr(RegisterCompany, base_key)
                     query = query.filter(base_column <= value)
             elif isinstance(value, str) and '%' in value:
-                # Filtrowanie LIKE
                 query = query.filter(column.like(value))
             else:
-                # Dokładne dopasowanie
                 query = query.filter(column == value)
     
     total_count = query.count()
     
-    # Przygotowanie odpowiedzi
     return api_response(
         success=True,
         data={
@@ -359,6 +148,7 @@ def api_companies():
         }
     )
 
+
 # Endpoint do wyszukiwania firm w rejestrach
 @register_bp.route('/api/search', methods=['POST'])
 @handle_exceptions
@@ -366,32 +156,32 @@ def api_search():
     """
     API do wyszukiwania firm w rejestrach CEIDG i KRS
     """
-    # Pobranie danych z żądania
     data = request.json
     
     if not data:
         return api_response(False, error="Brak danych wyszukiwania", status_code=400)
     
-    # Przygotowanie parametrów wyszukiwania
+    # Walidacja podstawowa
     search_params = {}
     
-    # Obsługa różnych parametrów wyszukiwania
     for param in ['nip', 'regon', 'company_name', 'pkd_code', 'foundation_date_from', 'foundation_date_to', 'status']:
         if param in data and data[param]:
             search_params[param] = data[param]
     
-    # Sprawdzenie czy podano co najmniej jeden parametr wyszukiwania
     if not search_params:
         return api_response(False, error="Podaj co najmniej jeden parametr wyszukiwania", status_code=400)
     
-    # Wyszukiwanie w rejestrach
-    result = search_in_registers(search_params)
+    # Dodanie parametrów paginacji i testowania
+    search_params['page'] = data.get('page', 1)
+    search_params['limit'] = min(data.get('limit', 25), 50)
+    search_params['use_test'] = data.get('use_test', False)  # Dla testów CEIDG
+    
+    # Wykorzystanie nowego serwisu
+    register_service = RegisterService()
+    result = register_service.search_in_registers(search_params, data.get('register_type'))
     
     if result['success']:
-        # Sukces - zwracamy wyniki
         message = None
-        
-        # Informacja o częściowych błędach
         if 'partial_errors' in result and result['partial_errors']:
             if len(result['sources']) == 1:
                 message = f"Wyniki tylko z {', '.join(result['sources'])}. Błędy: {', '.join(result['partial_errors'])}"
@@ -404,12 +194,12 @@ def api_search():
             message=message
         )
     else:
-        # Błąd - zwracamy komunikat
         return api_response(
             success=False,
             error=result['error'],
             status_code=500
         )
+
 
 # Endpoint do pobierania szczegółów firmy z rejestru
 @register_bp.route('/api/company-details', methods=['GET'])
@@ -418,7 +208,6 @@ def api_company_details():
     """
     API do pobierania szczegółów firmy z rejestru
     """
-    # Parametry
     register_type = request.args.get('register_type')
     nip = request.args.get('nip')
     regon = request.args.get('regon')
@@ -430,55 +219,49 @@ def api_company_details():
     if not (nip or regon or company_id):
         return api_response(False, error="Podaj NIP, REGON lub ID firmy", status_code=400)
     
-    # Przygotowanie parametrów
-    params = {}
+    # Określenie typu identyfikatora
+    identifier_type = None
+    identifier_value = None
     
     if nip:
-        params['nip'] = nip
+        identifier_type = 'nip'
+        identifier_value = nip
     elif regon:
-        params['regon'] = regon
+        identifier_type = 'regon'
+        identifier_value = regon
     elif company_id:
-        params['company_id'] = company_id
+        identifier_type = 'company_id'
+        identifier_value = company_id
     
-    try:
-        # Wywołanie odpowiedniego API
-        if register_type == 'CEIDG':
-            result = call_ceidg_api('company-details', params)
-        elif register_type == 'KRS':
-            result = call_krs_api('company-details', params)
-        else:
-            return api_response(False, error="Nieznany typ rejestru", status_code=400)
-        
-        # Sprawdzenie odpowiedzi
-        if 'company' in result:
-            # Dodanie źródła danych
-            result['company']['register_type'] = register_type
-            return api_response(True, data=result['company'])
-        else:
-            return api_response(False, error="Nie znaleziono firmy", status_code=404)
-            
-    except Exception as e:
-        return api_response(False, error=str(e), status_code=500)
+    # Wykorzystanie nowego serwisu
+    register_service = RegisterService()
+    result = register_service.get_company_details(register_type, identifier_type, identifier_value)
+    
+    if result['success']:
+        return api_response(True, data=result['company'])
+    else:
+        status_code = 404 if "nie znaleziono" in result['error'].lower() else 500
+        return api_response(False, error=result['error'], status_code=status_code)
+
 
 # Endpoint do zapisywania firm do bazy
 @register_bp.route('/api/save-companies', methods=['POST'])
 @handle_exceptions
 def api_save_companies():
     """
-    API do zapisywania firm do bazy danych
+    API do zapisywania firm do bazy danych z wykorzystaniem nowego serwisu
     """
-    # Pobranie danych z żądania
     data = request.json
     
     if not data or 'companies' not in data:
         return api_response(False, error="Brak danych do zapisania", status_code=400)
     
     companies = data['companies']
-    
     if not companies:
         return api_response(False, error="Lista firm jest pusta", status_code=400)
     
-    # Statystyki zapisywania
+    # Wykorzystanie metod z serwisu bazowego
+    register_service = RegisterService()
     stats = {
         'saved': 0,
         'updated': 0,
@@ -486,158 +269,75 @@ def api_save_companies():
         'already_exists': 0
     }
     
-    # Zapisywanie firm
+    update_existing = data.get('update_existing', False)
+    
     for company_data in companies:
         try:
-            # Sprawdzenie czy firma już istnieje (po NIP)
-            if 'nip' not in company_data or not company_data['nip']:
+            # Walidacja typu rejestru
+            register_type = company_data.get('register_type')
+            if not register_type or register_type not in ['CEIDG', 'KRS']:
                 stats['failed'] += 1
                 continue
-                
-            existing_company = RegisterCompany.get_by_nip(company_data['nip'])
             
-            if existing_company:
-                # Firma już istnieje
-                
-                # Sprawdzenie czy dane się różnią i czy mamy aktualizować
-                update_existing = data.get('update_existing', False)
-                
-                if update_existing:
-                    # Aktualizacja istniejącej firmy
-                    
-                    # Aktualizacja podstawowych pól
-                    existing_company.register_type = company_data.get('register_type', existing_company.register_type)
-                    existing_company.company_id = company_data.get('company_id', existing_company.company_id)
-                    existing_company.regon = company_data.get('regon', existing_company.regon)
-                    existing_company.company_name = company_data.get('company_name', existing_company.company_name)
-                    existing_company.address = company_data.get('address', existing_company.address)
-                    existing_company.postal_code = company_data.get('postal_code', existing_company.postal_code)
-                    existing_company.city = company_data.get('city', existing_company.city)
-                    existing_company.legal_form = company_data.get('legal_form', existing_company.legal_form)
-                    existing_company.status = company_data.get('status', existing_company.status)
-                    existing_company.pkd_main = company_data.get('pkd_main', existing_company.pkd_main)
-                    
-                    # Aktualizacja kodów PKD
-                    if 'pkd_codes' in company_data:
-                        existing_company.pkd_codes = json.dumps(company_data['pkd_codes'])
-                    
-                    existing_company.industry_desc = company_data.get('industry_desc', existing_company.industry_desc)
-                    
-                    # Aktualizacja dat
-                    if 'foundation_date' in company_data and company_data['foundation_date']:
-                        try:
-                            existing_company.foundation_date = datetime.strptime(company_data['foundation_date'], '%Y-%m-%d').date()
-                        except ValueError:
-                            # Ignorowanie nieprawidłowej daty
-                            pass
-                    
-                    if 'last_update_date' in company_data and company_data['last_update_date']:
-                        try:
-                            existing_company.last_update_date = datetime.strptime(company_data['last_update_date'], '%Y-%m-%d').date()
-                        except ValueError:
-                            # Ignorowanie nieprawidłowej daty
-                            pass
-                    
-                    # Aktualizacja pełnych danych
-                    if 'full_data' in company_data:
-                        existing_company.full_data = json.dumps(company_data['full_data'])
-                    
-                    # Zapis zmian
-                    db.session.commit()
+            # Wykorzystanie metody serwisu do zapisu
+            if register_type == 'CEIDG':
+                service = register_service.ceidg_service
+            else:
+                service = register_service.krs_service
+            
+            success, company, message = service.save_company(company_data, update_existing)
+            
+            if success:
+                if 'zaktualizowano' in message.lower():
                     stats['updated'] += 1
                 else:
-                    # Firma już istnieje, ale nie aktualizujemy
-                    stats['already_exists'] += 1
+                    stats['saved'] += 1
             else:
-                # Tworzenie nowej firmy
-                new_company = RegisterCompany(
-                    register_type=company_data.get('register_type'),
-                    company_id=company_data.get('company_id'),
-                    nip=company_data.get('nip'),
-                    regon=company_data.get('regon'),
-                    company_name=company_data.get('company_name'),
-                    address=company_data.get('address'),
-                    postal_code=company_data.get('postal_code'),
-                    city=company_data.get('city'),
-                    legal_form=company_data.get('legal_form'),
-                    status=company_data.get('status'),
-                    pkd_main=company_data.get('pkd_main'),
-                    pkd_codes=json.dumps(company_data.get('pkd_codes', [])),
-                    industry_desc=company_data.get('industry_desc'),
-                    full_data=json.dumps(company_data.get('full_data', {})),
-                    created_by=session.get('user_id')
-                )
-                
-                # Obsługa dat
-                if 'foundation_date' in company_data and company_data['foundation_date']:
-                    try:
-                        new_company.foundation_date = datetime.strptime(company_data['foundation_date'], '%Y-%m-%d').date()
-                    except ValueError:
-                        # Ignorowanie nieprawidłowej daty
-                        pass
-                
-                if 'last_update_date' in company_data and company_data['last_update_date']:
-                    try:
-                        new_company.last_update_date = datetime.strptime(company_data['last_update_date'], '%Y-%m-%d').date()
-                    except ValueError:
-                        # Ignorowanie nieprawidłowej daty
-                        pass
-                
-                # Zapis do bazy
-                db.session.add(new_company)
-                db.session.commit()
-                stats['saved'] += 1
-                
+                if company and 'już istnieje' in message.lower():
+                    stats['already_exists'] += 1
+                else:
+                    stats['failed'] += 1
+                    
         except Exception as e:
-            # Logowanie błędu
-            register_logger.error(f"Błąd zapisywania firmy: {str(e)}\n{traceback.format_exc()}")
             stats['failed'] += 1
+            register_logger.error(f"Błąd zapisywania firmy: {str(e)}")
     
-    # Przygotowanie odpowiedzi
     return api_response(
         success=True,
         data=stats,
         message=f"Zapisano {stats['saved']} firm, zaktualizowano {stats['updated']}, pominięto {stats['already_exists']}, błędy: {stats['failed']}"
     )
 
+
 # Endpoint do pobierania kodów PKD
 @register_bp.route('/api/pkd-codes')
 @handle_exceptions
 def api_pkd_codes():
-    """
-    API do pobierania kodów PKD
-    """
-    # Parametry
+    """API do pobierania kodów PKD"""
     search_term = request.args.get('search')
     section = request.args.get('section')
     only_common = request.args.get('common', 'false').lower() == 'true'
     
-    # Wyszukiwanie kodów PKD
     pkd_codes = RegisterPkdCode.search(search_term, section, only_common)
     
-    # Przygotowanie odpowiedzi
     return api_response(
         success=True,
         data=[code.to_dict() for code in pkd_codes]
     )
 
-# Endpoint do pobierania konfiguracji integracji
+
+# Endpoint do zarządzania konfiguracją integracji
 @register_bp.route('/api/integration-config', methods=['GET', 'POST'])
 @handle_exceptions
 def api_integration_config():
-    """
-    API do zarządzania konfiguracją integracji
-    """
-    # Sprawdzenie uprawnień - tylko admin może zarządzać konfiguracją
+    """API do zarządzania konfiguracją integracji"""
     if session.get('role') != 'admin':
         return api_response(False, error="Brak uprawnień", status_code=403)
     
     if request.method == 'GET':
-        # Pobranie konfiguracji
         ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
         krs_config = RegisterIntegrationConfig.get_config('KRS')
         
-        # Przygotowanie odpowiedzi
         configs = []
         
         if ceidg_config:
@@ -665,17 +365,14 @@ def api_integration_config():
         return api_response(True, data=configs)
     
     elif request.method == 'POST':
-        # Aktualizacja konfiguracji
         data = request.json
         
         if not data or 'register_type' not in data:
             return api_response(False, error="Brak danych konfiguracji", status_code=400)
         
-        # Pobranie istniejącej konfiguracji
         config = RegisterIntegrationConfig.get_config(data['register_type'])
         
         if not config:
-            # Tworzenie nowej konfiguracji
             config = RegisterIntegrationConfig(
                 register_type=data['register_type'],
                 api_key=data.get('api_key'),
@@ -686,23 +383,17 @@ def api_integration_config():
             )
             db.session.add(config)
         else:
-            # Aktualizacja istniejącej konfiguracji
             if 'api_key' in data and data['api_key']:
                 config.api_key = data['api_key']
-            
             if 'api_url' in data:
                 config.api_url = data['api_url']
-            
             if 'rate_limit' in data:
                 config.rate_limit = data['rate_limit']
-            
             if 'rate_limit_period' in data:
                 config.rate_limit_period = data['rate_limit_period']
-            
             if 'active' in data:
                 config.active = data['active']
         
-        # Zapis zmian
         db.session.commit()
         
         return api_response(
@@ -710,163 +401,169 @@ def api_integration_config():
             message=f"Konfiguracja {data['register_type']} została zaktualizowana"
         )
 
-# Endpoint do usuwania firmy z bazy
-@register_bp.route('/api/delete-company/<int:company_id>', methods=['DELETE'])
-@handle_exceptions
-def api_delete_company(company_id):
-    """
-    API do usuwania firmy z bazy danych
-    """
-    # Sprawdzenie uprawnień - tylko admin może usuwać firmy
-    if session.get('role') != 'admin':
-        return api_response(False, error="Brak uprawnień", status_code=403)
-    
-    # Pobranie firmy
-    company = RegisterCompany.query.get(company_id)
-    
-    if not company:
-        return api_response(False, error="Firma nie istnieje", status_code=404)
-    
-    # Usunięcie firmy
-    db.session.delete(company)
-    db.session.commit()
-    
-    return api_response(
-        success=True,
-        message=f"Firma {company.company_name} została usunięta"
-    )
 
-# Endpoint do czyszczenia logów API
-@register_bp.route('/api/clear-api-logs', methods=['POST'])
+# Endpoint do testowania połączeń z API
+@register_bp.route('/api/test-connections', methods=['POST'])
 @handle_exceptions
-def api_clear_api_logs():
-   """
-   API do czyszczenia logów zapytań API
-   """
-   # Sprawdzenie uprawnień - tylko admin może czyścić logi
-   if session.get('role') != 'admin':
-       return api_response(False, error="Brak uprawnień", status_code=403)
-   
-   # Pobranie parametrów
-   data = request.json or {}
-   days = data.get('days', 30)  # Domyślnie usuwamy logi starsze niż 30 dni
-   
-   # Obliczenie daty granicznej
-   if days <= 0:
-       return api_response(False, error="Parametr days musi być większy od 0", status_code=400)
-   
-   cutoff_date = datetime.utcnow() - timedelta(days=days)
-   
-   try:
-       # Usunięcie starych logów
-       result = db.session.query(RegisterApiLog).filter(RegisterApiLog.created_at < cutoff_date).delete()
-       db.session.commit()
-       
-       return api_response(
-           success=True,
-           message=f"Usunięto {result} logów starszych niż {days} dni"
-       )
-   except Exception as e:
-       db.session.rollback()
-       return api_response(False, error=f"Błąd podczas czyszczenia logów: {str(e)}", status_code=500)
+def api_test_connections():
+    """
+    API do testowania połączeń z rejestrami
+    """
+    register_service = RegisterService()
+    result = register_service.test_connections()
+    
+    if result['success']:
+        return api_response(
+            success=True,
+            data=result['results'],
+            message="Testy połączeń zakończone"
+        )
+    else:
+        return api_response(
+            success=False,
+            data=result['results'],
+            error="Wszystkie testy połączeń nie powiodły się"
+        )
+
 
 # Endpoint do tworzenia klienta z firmy
 @register_bp.route('/api/create-client', methods=['POST'])
 @handle_exceptions
 def api_create_client():
-   """
-   API do tworzenia klienta w systemie na podstawie danych firmy z rejestru
-   """
-   from modules.clients.models import Client
-   
-   # Pobranie danych
-   data = request.json
-   
-   if not data or 'company_id' not in data:
-       return api_response(False, error="Brak ID firmy", status_code=400)
-   
-   # Pobranie firmy
-   company = RegisterCompany.query.get(data['company_id'])
-   
-   if not company:
-       return api_response(False, error="Firma nie istnieje", status_code=404)
-   
-   # Sprawdzenie czy klient z tym NIP już istnieje
-   existing_client = Client.query.filter_by(invoice_nip=company.nip).first()
-   
-   if existing_client:
-       return api_response(
-           success=False,
-           error=f"Klient z NIP {company.nip} już istnieje (ID: {existing_client.id})",
-           status_code=409
-       )
-   
-   try:
-       # Generowanie numeru klienta
-       import random
-       import string
-       
-       # Generowanie losowego numeru klienta (można dostosować do istniejącego formatu)
-       client_number = ''.join(random.choices(string.digits, k=6))
-       
-       # Tworzenie nowego klienta
-       new_client = Client(
-           client_number=client_number,
-           client_name=company.company_name,
-           client_delivery_name=company.company_name,
-           email="",  # Brak w danych rejestru
-           phone="",  # Brak w danych rejestru
-           
-           # Adres dostawy
-           delivery_company=company.company_name,
-           delivery_address=company.address,
-           delivery_zip=company.postal_code,
-           delivery_city=company.city,
-           delivery_region="",  # Brak w danych rejestru
-           delivery_country="Polska",
-           
-           # Adres faktury
-           invoice_company=company.company_name,
-           invoice_address=company.address,
-           invoice_zip=company.postal_code,
-           invoice_city=company.city,
-           invoice_region="",  # Brak w danych rejestru
-           invoice_nip=company.nip,
-           
-           # Źródło klienta
-           source=f"Register:{company.register_type}"
-       )
-       
-       # Zapisanie klienta
-       db.session.add(new_client)
-       db.session.commit()
-       
-       return api_response(
-           success=True,
-           data={
-               'client_id': new_client.id,
-               'client_number': new_client.client_number
-           },
-           message=f"Utworzono klienta: {new_client.client_name}"
-       )
-   except Exception as e:
-       db.session.rollback()
-       register_logger.error(f"Błąd tworzenia klienta: {str(e)}\n{traceback.format_exc()}")
-       return api_response(False, error=f"Błąd podczas tworzenia klienta: {str(e)}", status_code=500)
+    """API do tworzenia klienta w systemie na podstawie danych firmy z rejestru"""
+    from modules.clients.models import Client
+    
+    data = request.json
+    
+    if not data or 'company_id' not in data:
+        return api_response(False, error="Brak ID firmy", status_code=400)
+    
+    company = RegisterCompany.query.get(data['company_id'])
+    if not company:
+        return api_response(False, error="Firma nie istnieje", status_code=404)
+    
+    # Sprawdzenie czy klient już istnieje
+    existing_client = Client.query.filter_by(invoice_nip=company.nip).first()
+    if existing_client:
+        return api_response(
+            success=False,
+            error=f"Klient z NIP {company.nip} już istnieje (ID: {existing_client.id})",
+            status_code=409
+        )
+    
+    try:
+        # Generowanie numeru klienta
+        import random
+        import string
+        
+        client_number = ''.join(random.choices(string.digits, k=6))
+        
+        # Tworzenie nowego klienta
+        new_client = Client(
+            client_number=client_number,
+            client_name=company.company_name,
+            client_delivery_name=company.company_name,
+            email="",
+            phone="",
+            
+            # Adres dostawy
+            delivery_company=company.company_name,
+            delivery_address=company.address,
+            delivery_zip=company.postal_code,
+            delivery_city=company.city,
+            delivery_region="",
+            delivery_country="Polska",
+            
+            # Adres faktury
+            invoice_company=company.company_name,
+            invoice_address=company.address,
+            invoice_zip=company.postal_code,
+            invoice_city=company.city,
+            invoice_region="",
+            invoice_nip=company.nip,
+            
+            # Źródło klienta
+            source=f"Register:{company.register_type}"
+        )
+        
+        db.session.add(new_client)
+        db.session.commit()
+        
+        return api_response(
+            success=True,
+            data={
+                'client_id': new_client.id,
+                'client_number': new_client.client_number
+            },
+            message=f"Utworzono klienta: {new_client.client_name}"
+        )
+    except Exception as e:
+        db.session.rollback()
+        register_logger.error(f"Błąd tworzenia klienta: {str(e)}\n{traceback.format_exc()}")
+        return api_response(False, error=f"Błąd podczas tworzenia klienta: {str(e)}", status_code=500)
+
+
+# Endpoint do usuwania firmy z bazy
+@register_bp.route('/api/delete-company/<int:company_id>', methods=['DELETE'])
+@handle_exceptions
+def api_delete_company(company_id):
+    """API do usuwania firmy z bazy danych"""
+    if session.get('role') != 'admin':
+        return api_response(False, error="Brak uprawnień", status_code=403)
+    
+    company = RegisterCompany.query.get(company_id)
+    if not company:
+        return api_response(False, error="Firma nie istnieje", status_code=404)
+    
+    company_name = company.company_name
+    db.session.delete(company)
+    db.session.commit()
+    
+    return api_response(
+        success=True,
+        message=f"Firma {company_name} została usunięta"
+    )
+
+
+# Endpoint do czyszczenia logów API
+@register_bp.route('/api/clear-api-logs', methods=['POST'])
+@handle_exceptions
+def api_clear_api_logs():
+    """API do czyszczenia logów zapytań API"""
+    if session.get('role') != 'admin':
+        return api_response(False, error="Brak uprawnień", status_code=403)
+    
+    data = request.json or {}
+    days = data.get('days', 30)
+    
+    if days <= 0:
+        return api_response(False, error="Parametr days musi być większy od 0", status_code=400)
+    
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    
+    try:
+        result = db.session.query(RegisterApiLog).filter(RegisterApiLog.created_at < cutoff_date).delete()
+        db.session.commit()
+        
+        return api_response(
+            success=True,
+            message=f"Usunięto {result} logów starszych niż {days} dni"
+        )
+    except Exception as e:
+        db.session.rollback()
+        return api_response(False, error=f"Błąd podczas czyszczenia logów: {str(e)}", status_code=500)
+
 
 # Endpoint do inicjalizacji słownika kodów PKD
 @register_bp.route('/api/initialize-pkd-codes', methods=['POST'])
 @handle_exceptions
 def api_initialize_pkd_codes():
-   """
-   API do inicjalizacji słownika kodów PKD (podstawowe kody)
-   """
-   # Sprawdzenie uprawnień - tylko admin może inicjalizować dane
-   if session.get('role') != 'admin':
-       return api_response(False, error="Brak uprawnień", status_code=403)
-   
-   # Lista podstawowych kodów PKD
-   common_pkd_codes = [
+    """API do inicjalizacji słownika kodów PKD"""
+    if session.get('role') != 'admin':
+        return api_response(False, error="Brak uprawnień", status_code=403)
+    
+    # Lista podstawowych kodów PKD (skrócona dla przykładu)
+    common_pkd_codes = [
         # Branża drzewna i meblarska
         {'code': '02.20.Z', 'name': 'Pozyskiwanie drewna', 'category': 'Leśnictwo', 'section': 'A', 'is_common': True},
         {'code': '16.10.Z', 'name': 'Produkcja wyrobów tartacznych', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
@@ -882,7 +579,7 @@ def api_initialize_pkd_codes():
         {'code': '46.13.Z', 'name': 'Działalność agentów zajmujących się sprzedażą drewna i materiałów budowlanych', 'category': 'Handel', 'section': 'G', 'is_common': True},
         {'code': '46.73.Z', 'name': 'Sprzedaż hurtowa drewna, materiałów budowlanych i wyposażenia sanitarnego', 'category': 'Handel', 'section': 'G', 'is_common': True},
         {'code': '47.59.Z', 'name': 'Sprzedaż detaliczna mebli, sprzętu oświetleniowego i pozostałych artykułów użytku domowego', 'category': 'Handel', 'section': 'G', 'is_common': True},
-    
+ 
         # Budownictwo i architektura
         {'code': '41.10.Z', 'name': 'Realizacja projektów budowlanych związanych ze wznoszeniem budynków', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
         {'code': '41.20.Z', 'name': 'Roboty budowlane związane ze wznoszeniem budynków mieszkalnych i niemieszkalnych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
@@ -894,7 +591,7 @@ def api_initialize_pkd_codes():
         {'code': '43.11.Z', 'name': 'Rozbiórka i burzenie obiektów budowlanych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
         {'code': '43.12.Z', 'name': 'Przygotowanie terenu pod budowę', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
         {'code': '43.13.Z', 'name': 'Wykonywanie wykopów i wierceń geologiczno-inżynierskich', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-    
+ 
         # Wykończenia i remonty
         {'code': '43.21.Z', 'name': 'Wykonywanie instalacji elektrycznych', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
         {'code': '43.22.Z', 'name': 'Wykonywanie instalacji wodno-kanalizacyjnych, cieplnych, gazowych i klimatyzacyjnych', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
@@ -906,125 +603,69 @@ def api_initialize_pkd_codes():
         {'code': '43.39.Z', 'name': 'Wykonywanie pozostałych robót budowlanych wykończeniowych', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
         {'code': '43.91.Z', 'name': 'Wykonywanie konstrukcji i pokryć dachowych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
         {'code': '43.99.Z', 'name': 'Pozostałe specjalistyczne roboty budowlane, gdzie indziej niesklasyfikowane', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-    
+ 
         # Architektura i projektowanie
         {'code': '71.11.Z', 'name': 'Działalność w zakresie architektury', 'category': 'Architektura', 'section': 'M', 'is_common': True},
         {'code': '71.12.Z', 'name': 'Działalność w zakresie inżynierii i związane z nią doradztwo techniczne', 'category': 'Architektura', 'section': 'M', 'is_common': True},
         {'code': '74.10.Z', 'name': 'Działalność w zakresie specjalistycznego projektowania', 'category': 'Projektowanie', 'section': 'M', 'is_common': True},
-    
+ 
         # Nieruchomości
         {'code': '68.10.Z', 'name': 'Kupno i sprzedaż nieruchomości na własny rachunek', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
         {'code': '68.20.Z', 'name': 'Wynajem i zarządzanie nieruchomościami własnymi lub dzierżawionymi', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
         {'code': '68.31.Z', 'name': 'Pośrednictwo w obrocie nieruchomościami', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
         {'code': '68.32.Z', 'name': 'Zarządzanie nieruchomościami wykonywane na zlecenie', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
-    
+ 
         # Pozostałe powiązane
         {'code': '81.21.Z', 'name': 'Niespecjalistyczne sprzątanie budynków i obiektów przemysłowych', 'category': 'Usługi', 'section': 'N', 'is_common': True},
         {'code': '81.22.Z', 'name': 'Specjalistyczne sprzątanie budynków i obiektów przemysłowych', 'category': 'Usługi', 'section': 'N', 'is_common': True},
         {'code': '81.30.Z', 'name': 'Działalność usługowa związana z zagospodarowaniem terenów zieleni', 'category': 'Usługi', 'section': 'N', 'is_common': True},
-    
+ 
         # IT i technologia (zachowane z poprzedniej listy)
         {'code': '62.01.Z', 'name': 'Działalność związana z oprogramowaniem', 'category': 'IT', 'section': 'J', 'is_common': True},
         {'code': '62.02.Z', 'name': 'Działalność związana z doradztwem w zakresie informatyki', 'category': 'IT', 'section': 'J', 'is_common': True},
         {'code': '62.03.Z', 'name': 'Działalność związana z zarządzaniem urządzeniami informatycznymi', 'category': 'IT', 'section': 'J', 'is_common': True},
-    
+ 
         # Handel (zachowane z poprzedniej listy)
         {'code': '46.90.Z', 'name': 'Sprzedaż hurtowa niewyspecjalizowana', 'category': 'Handel', 'section': 'G', 'is_common': True},
         {'code': '47.91.Z', 'name': 'Sprzedaż detaliczna prowadzona przez Internet', 'category': 'Handel', 'section': 'G', 'is_common': True},
-    
+ 
         # Transport (zachowane z poprzedniej listy)
         {'code': '49.41.Z', 'name': 'Transport drogowy towarów', 'category': 'Transport', 'section': 'H', 'is_common': True},
-    
+ 
         # Usługi finansowe (zachowane z poprzedniej listy)
         {'code': '69.20.Z', 'name': 'Działalność rachunkowo-księgowa; doradztwo podatkowe', 'category': 'Finanse', 'section': 'M', 'is_common': True},
     ]
-   
-   # Liczniki
-   count_added = 0
-   count_updated = 0
-   
-   try:
-       # Dodanie kodów PKD
-       for pkd_data in common_pkd_codes:
-           # Sprawdzenie czy kod już istnieje
-           existing_code = RegisterPkdCode.query.filter_by(pkd_code=pkd_data['code']).first()
-           
-           if existing_code:
-               # Aktualizacja istniejącego kodu
-               existing_code.pkd_name = pkd_data['name']
-               existing_code.pkd_category = pkd_data['category']
-               existing_code.pkd_section = pkd_data['section']
-               existing_code.is_common = pkd_data['is_common']
-               count_updated += 1
-           else:
-               # Dodanie nowego kodu
-               new_code = RegisterPkdCode(
-                   pkd_code=pkd_data['code'],
-                   pkd_name=pkd_data['name'],
-                   pkd_category=pkd_data['category'],
-                   pkd_section=pkd_data['section'],
-                   is_common=pkd_data['is_common']
-               )
-               db.session.add(new_code)
-               count_added += 1
-       
-       # Zapis zmian
-       db.session.commit()
-       
-       return api_response(
-           success=True,
-           message=f"Zainicjalizowano słownik kodów PKD: dodano {count_added}, zaktualizowano {count_updated}"
-       )
-   except Exception as e:
-       db.session.rollback()
-       return api_response(False, error=f"Błąd inicjalizacji kodów PKD: {str(e)}", status_code=500)
-
-# Endpoint do testowania połączenia z API rejestrów
-@register_bp.route('/api/test-connection', methods=['POST'])
-@handle_exceptions
-def api_test_connection():
-   """
-   API do testowania połączenia z API rejestrów
-   """
-   # Pobranie danych
-   data = request.json
-   
-   if not data or 'register_type' not in data:
-       return api_response(False, error="Brak typu rejestru", status_code=400)
-   
-   register_type = data['register_type']
-   
-   # Test połączenia
-   try:
-       if register_type == 'CEIDG':
-           # Test połączenia z CEIDG
-           result = call_ceidg_api('test', {})
-           
-           if 'status' in result and result['status'] == 'ok':
-               return api_response(
-                   success=True,
-                   message="Połączenie z API CEIDG działa poprawnie"
-               )
-           else:
-               return api_response(
-                   success=False,
-                   error=f"Błąd połączenia z API CEIDG: {result.get('message', 'Nieznany błąd')}"
-               )
-       elif register_type == 'KRS':
-           # Test połączenia z KRS
-           result = call_krs_api('test', {})
-           
-           if 'status' in result and result['status'] == 'ok':
-               return api_response(
-                   success=True,
-                   message="Połączenie z API KRS działa poprawnie"
-               )
-           else:
-               return api_response(
-                   success=False,
-                   error=f"Błąd połączenia z API KRS: {result.get('message', 'Nieznany błąd')}"
-               )
-       else:
-           return api_response(False, error="Nieznany typ rejestru", status_code=400)
-   except Exception as e:
-       return api_response(False, error=f"Błąd testowania połączenia: {str(e)}", status_code=500)
+    
+    count_added = 0
+    count_updated = 0
+    
+    try:
+        for pkd_data in common_pkd_codes:
+            existing_code = RegisterPkdCode.query.filter_by(pkd_code=pkd_data['code']).first()
+            
+            if existing_code:
+                existing_code.pkd_name = pkd_data['name']
+                existing_code.pkd_category = pkd_data['category']
+                existing_code.pkd_section = pkd_data['section']
+                existing_code.is_common = pkd_data['is_common']
+                count_updated += 1
+            else:
+                new_code = RegisterPkdCode(
+                    pkd_code=pkd_data['code'],
+                    pkd_name=pkd_data['name'],
+                    pkd_category=pkd_data['category'],
+                    pkd_section=pkd_data['section'],
+                    is_common=pkd_data['is_common']
+                )
+                db.session.add(new_code)
+                count_added += 1
+        
+        db.session.commit()
+        
+        return api_response(
+            success=True,
+            message=f"Zainicjalizowano słownik kodów PKD: dodano {count_added}, zaktualizowano {count_updated}"
+        )
+    except Exception as e:
+        db.session.rollback()
+        return api_response(False, error=f"Błąd inicjalizacji kodów PKD: {str(e)}", status_code=500)
