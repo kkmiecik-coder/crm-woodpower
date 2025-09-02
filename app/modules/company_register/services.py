@@ -224,7 +224,7 @@ class CEIDGIntegrationService(RegisterIntegrationService):
             ceidg_params['status[]'] = mapped_status
             
         # Paginacja i limit
-        limit = min(params.get('limit', 50), 50)  # Domyślnie 50, maksymalnie 50
+        limit = min(params.get('limit', 25), 25)  # Domyślnie 50, maksymalnie 50
         page = params.get('page', 1)
         foundation_date_to = params.get('foundation_date_to')
         foundation_date_to_dt = (

@@ -179,7 +179,7 @@ def api_search():
 
     # Dodanie parametrów paginacji i testowania
     search_params['page'] = data.get('page', 1)
-    search_params['limit'] = 50
+    search_params['limit'] = 25
     search_params['use_test'] = data.get('use_test', False)  # Dla testów CEIDG
     
     # Wykorzystanie nowego serwisu
