@@ -492,7 +492,7 @@ class BaselinkerReportOrder(db.Model):
         
             # Oblicz cenę za m³ (tylko jeśli jest objętość)
             if self.price_net and self.volume_per_piece and self.volume_per_piece > 0:
-                self.price_per_m3 = float(self.price_net) / self.volume_per_piece
+                self.price_per_m3 = float(self.price_net) / float(self.volume_per_piece)
             
             # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
             if self.date_created:

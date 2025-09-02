@@ -17,6 +17,7 @@ from extensions import db
 from modules.logging import get_structured_logger
 from .models import ProdGluingItem, ProdGluingStation, ProdGluingAssignment, ProdGluingConfig
 from sqlalchemy import text
+from datetime import datetime
 
 # Inicjalizacja loggera
 production_logger = get_structured_logger('production.routers')
@@ -253,6 +254,187 @@ def api_test_baselinker():
             'error': str(e)
         }), 500
 
+@production_bp.route('/api/gluing/start-station/<int:station_id>', methods=['POST'])
+@login_required
+def api_gluing_start_station(station_id):
+    """API rozpoczęcia produkcji dla wszystkich produktów na stanowisku"""
+    user_email = session.get('user_email')
+    
+    try:
+        production_logger.info("Rozpoczynanie produkcji na stanowisku", 
+                             station_id=station_id, user=user_email)
+        
+        # Pobierz dane z requestu
+        data = request.get_json() or {}
+        worker_name = data.get('worker_name', 'Operator')
+        
+        # Sprawdź czy stanowisko istnieje
+        station = ProdGluingStation.query.filter_by(id=station_id).first()
+        if not station:
+            return jsonify({
+                'success': False,
+                'error': 'Stanowisko nie istnieje'
+            }), 404
+        
+        # Znajdź wszystkie nierozpoczęte assignments dla tego stanowiska
+        assignments = ProdGluingAssignment.query.filter_by(
+            station_id=station_id,
+            started_at=None,
+            completed_at=None
+        ).all()
+        
+        if not assignments:
+            return jsonify({
+                'success': False,
+                'error': 'Brak produktów do rozpoczęcia na tym stanowisku'
+            }), 404
+        
+        # Rozpocznij produkcję dla wszystkich
+        started_count = 0
+        current_time = datetime.now()
+        
+        for assignment in assignments:
+            assignment.worker_name = worker_name
+            assignment.started_at = current_time
+            started_count += 1
+            
+            production_logger.info("Rozpoczęto produkcję produktu", 
+                                 assignment_id=assignment.id,
+                                 item_id=assignment.item_id,
+                                 station_id=station_id,
+                                 worker=worker_name)
+        
+        # Aktualizuj status produktów na 'in_progress'
+        item_ids = [a.item_id for a in assignments]
+        ProdGluingItem.query.filter(ProdGluingItem.id.in_(item_ids)).update(
+            {'status': 'in_progress', 'updated_at': current_time},
+            synchronize_session=False
+        )
+        
+        db.session.commit()
+        
+        production_logger.info("Pomyślnie rozpoczęto produkcję na stanowisku",
+                             station_id=station_id, 
+                             started_count=started_count)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Rozpoczęto produkcję {started_count} produktów na stanowisku {station.name}',
+            'data': {
+                'station_id': station_id,
+                'station_name': station.name,
+                'started_assignments': started_count,
+                'started_at': current_time.isoformat(),
+                'worker_name': worker_name
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        production_logger.error("Błąd rozpoczynania produkcji na stanowisku", 
+                              station_id=station_id, 
+                              user=user_email, 
+                              error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@production_bp.route('/api/gluing/complete-station/<int:station_id>', methods=['POST'])
+@login_required
+def api_gluing_complete_station(station_id):
+    """API zakończenia produkcji dla wszystkich produktów na stanowisku"""
+    user_email = session.get('user_email')
+    
+    try:
+        production_logger.info("Zakończenie produkcji na stanowisku", 
+                             station_id=station_id, user=user_email)
+        
+        # Sprawdź czy stanowisko istnieje
+        station = ProdGluingStation.query.filter_by(id=station_id).first()
+        if not station:
+            return jsonify({
+                'success': False,
+                'error': 'Stanowisko nie istnieje'
+            }), 404
+        
+        # Znajdź wszystkie rozpoczęte ale niezakończone assignments
+        assignments = ProdGluingAssignment.query.filter_by(
+            station_id=station_id,
+            completed_at=None
+        ).filter(
+            ProdGluingAssignment.started_at.isnot(None)
+        ).all()
+        
+        if not assignments:
+            return jsonify({
+                'success': False,
+                'error': 'Brak produktów w trakcie produkcji na tym stanowisku'
+            }), 404
+        
+        # Zakończ produkcję dla wszystkich
+        completed_count = 0
+        current_time = get_local_datetime()
+        
+        for assignment in assignments:
+            if assignment.started_at:
+                # Oblicz czas trwania
+                duration = (current_time - assignment.started_at).total_seconds()
+                assignment.duration_seconds = int(duration)
+                
+                # Sprawdź czy przekroczono standardowy czas
+                standard_time_minutes = ProdGluingConfig.get_value('gluing_time_minutes', '20')
+                standard_time_seconds = int(standard_time_minutes) * 60
+                
+                if duration > standard_time_seconds:
+                    assignment.overtime_seconds = int(duration - standard_time_seconds)
+                else:
+                    assignment.overtime_seconds = 0
+            
+            assignment.completed_at = current_time
+            completed_count += 1
+            
+            production_logger.info("Zakończono produkcję produktu", 
+                                 assignment_id=assignment.id,
+                                 item_id=assignment.item_id,
+                                 duration_seconds=assignment.duration_seconds,
+                                 overtime_seconds=assignment.overtime_seconds)
+        
+        # Aktualizuj status produktów na 'completed'
+        item_ids = [a.item_id for a in assignments]
+        ProdGluingItem.query.filter(ProdGluingItem.id.in_(item_ids)).update(
+            {'status': 'completed', 'updated_at': current_time},
+            synchronize_session=False
+        )
+        
+        db.session.commit()
+        
+        production_logger.info("Pomyślnie zakończono produkcję na stanowisku",
+                             station_id=station_id, 
+                             completed_count=completed_count)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Zakończono produkcję {completed_count} produktów na stanowisku {station.name}',
+            'data': {
+                'station_id': station_id,
+                'station_name': station.name,
+                'completed_assignments': completed_count,
+                'completed_at': current_time.isoformat()
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        production_logger.error("Błąd zakończenia produkcji na stanowisku", 
+                              station_id=station_id, 
+                              user=user_email, 
+                              error=str(e))
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @production_bp.route('/api/sync-test', methods=['POST'])
 @login_required  

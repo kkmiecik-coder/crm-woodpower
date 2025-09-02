@@ -801,10 +801,19 @@ def _update_product_fields(record, product_data):
             if field == 'price_net' and value:
                 # Konwersja price_net na price_gross
                 price_net = float(value)
-                setattr(record, 'price_gross', price_net * 1.23)
+                setattr(record, 'price_net', price_net)
+
+                price_gross = round(price_net * 1.23, 2)
+                setattr(record, 'price_gross', price_gross)
+
                 # Ustaw order_amount_net na podstawie price_net i quantity
                 quantity = int(product_data.get('quantity', record.quantity or 1))
-                setattr(record, 'order_amount_net', price_net * quantity)
+                order_amount_net = round(price_net * quantity, 2)
+                setattr(record, 'order_amount_net', order_amount_net)
+
+                # Dodatkowo aktualizuj wartości netto/brutto produktu
+                setattr(record, 'value_net', order_amount_net)
+                setattr(record, 'value_gross', round(price_gross * quantity, 2))
             elif field == 'original_amount_from_baselinker' and value:
                 # NOWE: Obsługa oryginalnej kwoty z Baselinker
                 setattr(record, field, float(value))

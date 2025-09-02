@@ -207,10 +207,10 @@
    STATISTICS BOXES
    =================================== */
 .stats-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    display: flex;
     gap: var(--spacing-base);
     margin-bottom: var(--spacing-xl);
+    flex-wrap: wrap;
 }
 
 .stat-box {
@@ -220,6 +220,7 @@
     padding: var(--spacing-base);
     text-align: center;
     transition: var(--transition-base);
+    min-width: 230px;
 }
 
     .stat-box:hover {

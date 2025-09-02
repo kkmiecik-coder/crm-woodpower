@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sklejanie - Wood Power CRM</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/gluing.css') }}">
+</head>
+<body>
+    <div class="gluing-main-container">
+
+        <!-- GÓRNA SEKCJA: Symulacja maszyn (40% wysokości) -->
+        <div class="gluing-machines-section">
+            <div class="gluing-machines-header">
+                <h1 class="gluing-page-title">
+                    <span class="gluing-icon">🔧</span>
+                    Sklejanie - Stanowiska Produkcyjne
+                </h1>
+                <div class="gluing-status-info">
+                    <span class="gluing-status-indicator" id="connectionStatus">
+                        <span class="gluing-status-dot"></span>
+                        Połączenie z bazą
+                    </span>
+                    <button class="gluing-refresh-btn" id="refreshDataBtn">
+                        <span class="gluing-refresh-icon">🔄</span>
+                        Odśwież
+                        <span class="prod-module-timer">(30s)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Siatka maszyn: 3 kolumny × 2 wiersze -->
+            <div class="gluing-machines-grid">
+                <!-- Maszyna 1 - Stanowiska 1, 2, 3 (górny rząd) -->
+                <div class="gluing-station" data-machine="1" data-station="1" data-station-id="">
+                    <div class="gluing-station-header">
+                        <span class="gluing-station-label">M1-S1</span>
+                        <span class="gluing-station-status free" id="status-1-1">Wolne</span>
+                    </div>
+                    <div class="gluing-station-content" id="content-1-1">
+                        <div class="gluing-empty-station">
+                            Kliknij, aby przypisać produkt
+                        </div>
+                    </div>
+                    <div class="gluing-station-footer">
+                        <span class="gluing-station-capacity" id="capacity-1-1">0%</span>
+                    </div>
+                </div>
+
+                <div class="gluing-station" data-machine="1" data-station="2" data-station-id="">
+                    <div class="gluing-station-header">
+                        <span class="gluing-station-label">M1-S2</span>
+                        <span class="gluing-station-status free" id="status-1-2">Wolne</span>
+                    </div>
+                    <div class="gluing-station-content" id="content-1-2">
+                        <div class="gluing-empty-station">
+                            Kliknij, aby przypisać produkt
+                        </div>
+                    </div>
+                    <div class="gluing-station-footer">
+                        <span class="gluing-station-capacity" id="capacity-1-2">0%</span>
+                    </div>
+                </div>
+
+                <div class="gluing-station" data-machine="1" data-station="3" data-station-id="">
+                    <div class="gluing-station-header">
+                        <span class="gluing-station-label">M1-S3</span>
+                        <span class="gluing-station-status free" id="status-1-3">Wolne</span>
+                    </div>
+                    <div class="gluing-station-content" id="content-1-3">
+                        <div class="gluing-empty-station">
+                            Kliknij, aby przypisać produkt
+                        </div>
+                    </div>
+                    <div class="gluing-station-footer">
+                        <span class="gluing-station-capacity" id="capacity-1-3">0%</span>
+                    </div>
+                </div>
+
+                <!-- Maszyna 2 - Stanowiska 1, 2, 3 (dolny rząd) -->
+                <div class="gluing-station" data-machine="2" data-station="1" data-station-id="">
+                    <div class="gluing-station-header">
+                        <span class="gluing-station-label">M2-S1</span>
+                        <span class="gluing-station-status free" id="status-2-1">Wolne</span>
+                    </div>
+                    <div class="gluing-station-content" id="content-2-1">
+                        <div class="gluing-empty-station">
+                            Kliknij, aby przypisać produkt
+                        </div>
+                    </div>
+                    <div class="gluing-station-footer">
+                        <span class="gluing-station-capacity" id="capacity-2-1">0%</span>
+                    </div>
+                </div>
+
+                <div class="gluing-station" data-machine="2" data-station="2" data-station-id="">
+                    <div class="gluing-station-header">
+                        <span class="gluing-station-label">M2-S2</span>
+                        <span class="gluing-station-status free" id="status-2-2">Wolne</span>
+                    </div>
+                    <div class="gluing-station-content" id="content-2-2">
+                        <div class="gluing-empty-station">
+                            Kliknij, aby przypisać produkt
+                        </div>
+                    </div>
+                    <div class="gluing-station-footer">
+                        <span class="gluing-station-capacity" id="capacity-2-2">0%</span>
+                    </div>
+                </div>
+
+                <div class="gluing-station" data-machine="2" data-station="3" data-station-id="">
+                    <div class="gluing-station-header">
+                        <span class="gluing-station-label">M2-S3</span>
+                        <span class="gluing-station-status free" id="status-2-3">Wolne</span>
+                    </div>
+                    <div class="gluing-station-content" id="content-2-3">
+                        <div class="gluing-empty-station">
+                            Kliknij, aby przypisać produkt
+                        </div>
+                    </div>
+                    <div class="gluing-station-footer">
+                        <span class="gluing-station-capacity" id="capacity-2-3">0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DOLNA SEKCJA: Lista produktów (60% wysokości) -->
+        <div class="gluing-products-section">
+            <div class="gluing-products-header">
+                <h2 class="gluing-products-title">
+                    📋 Produkty do Sklejania
+                </h2>
+                <div class="gluing-products-summary">
+                    <span class="gluing-total-count" id="totalProductsCount">Ładowanie...</span>
+                    <span class="gluing-selected-indicator" id="selectedProductIndicator">
+                        Wybierz produkt, a następnie kliknij na wolne stanowisko
+                    </span>
+                </div>
+            </div>
+
+            <!-- Filtry dynamiczne -->
+            <div class="gluing-filters-container" id="filtersContainer">
+                <div class="gluing-filters-loading">
+                    Ładowanie filtrów...
+                </div>
+
+                <!-- Filtry będą generowane dynamicznie przez JavaScript
+                Przykładowa struktura (zostanie zastąpiona):
+                <div class="gluing-filter-group">
+                    <label class="gluing-filter-label">Gatunek:</label>
+                    <div class="gluing-filter-buttons" data-filter-type="species">
+                        <button class="gluing-filter-btn" data-filter="species" data-value="dąb">Dąb</button>
+                        <button class="gluing-filter-btn active" data-filter="species" data-value="buk">Buk</button>
+                    </div>
+                </div>
+                -->
+            </div>
+
+            <!-- Grid produktów z przewijaniem -->
+            <div class="gluing-products-grid-container">
+                <div class="gluing-products-grid" id="productsGrid">
+                    <!-- Produkty będą dodawane dynamicznie -->
+                    <div class="gluing-products-loading">
+                        <div class="gluing-loading-spinner"></div>
+                        <p>Ładowanie produktów...</p>
+                    </div>
+
+                    <!-- Przykładowe karty produktu (zostaną zastąpione dynamiczną zawartością) -->
+                    <!--
+                    <div class="gluing-product-card" data-product-id="123" data-priority="1">
+                        <div class="gluing-product-priority">
+                            <span class="gluing-priority-number">1</span>
+                        </div>
+                        <div class="gluing-product-info">
+                            <h3 class="gluing-product-name">Parkiet trójwarstwowy dębowy</h3>
+                            <div class="gluing-product-params">
+                                <span class="gluing-param-badge">Dąb</span>
+                                <span class="gluing-param-badge">Mikrowczep</span>
+                                <span class="gluing-param-badge">A/A</span>
+                                <span class="gluing-param-badge">15×180×2200</span>
+                            </div>
+                        </div>
+                        <div class="gluing-product-actions">
+                            <span class="gluing-product-quantity">5 szt.</span>
+                        </div>
+                    </div>
+                    -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal do potwierdzenia przypisania produktu -->
+        <div class="gluing-modal hidden" id="assignmentModal">
+            <div class="gluing-modal-content">
+                <div class="gluing-modal-header">
+                    <h3>Potwierdzenie przypisania</h3>
+                    <button class="gluing-modal-close" id="closeAssignmentModal" type="button" aria-label="Zamknij modal">✖️</button>
+                </div>
+                <div class="gluing-modal-body">
+                    <p>Czy chcesz przypisać produkt do stanowiska?</p>
+                    <div class="gluing-assignment-details">
+                        <div class="gluing-assignment-product" id="assignmentProductDetails">
+                            <h4>Nazwa produktu</h4>
+                            <p>Parametry produktu</p>
+                        </div>
+                        <div class="gluing-assignment-arrow" aria-hidden="true">➡️</div>
+                        <div class="gluing-assignment-station" id="assignmentStationDetails">
+                            <h4>Stanowisko</h4>
+                            <p>Szczegóły stanowiska</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="gluing-modal-actions">
+                    <button class="gluing-btn gluing-btn-secondary" id="cancelAssignment" type="button">
+                        Anuluj
+                    </button>
+                    <button class="gluing-btn gluing-btn-primary" id="confirmAssignment" type="button">
+                        Potwierdź przypisanie
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast notifications container -->
+        <div class="gluing-toast-container" id="toastContainer" role="alert" aria-live="polite">
+            <!-- Powiadomienia będą dodawane dynamicznie przez JavaScript -->
+        </div>
+
+        <!-- Loading overlay dla długich operacji -->
+        <div class="gluing-loading-overlay hidden" id="loadingOverlay">
+            <div class="gluing-loading-content">
+                <div class="gluing-loading-spinner"></div>
+                <p>Przetwarzanie...</p>
+            </div>
+        </div>
+
+        <!-- Sekcja diagnostyczna (ukryta w produkcji) -->
+        <div class="gluing-debug-info hidden" id="debugInfo">
+            <h4>Debug Info</h4>
+            <div class="gluing-debug-content">
+                <p>Produkty: <span id="debugProductsCount">0</span></p>
+                <p>Stanowiska: <span id="debugStationsCount">0</span></p>
+                <p>Filtry aktywne: <span id="debugActiveFilters">0</span></p>
+                <p>Status połączenia: <span id="debugConnectionStatus">unknown</span></p>
+                <p>Ostatnie odświeżenie: <span id="debugLastRefresh">nigdy</span></p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('production.static', filename='js/gluing.js') }}"></script>
+
+    <!-- Debug mode - tylko dla developera -->
+    <script>
+        // Włącz debug mode w console
+        if (localStorage.getItem('gluing_debug') === 'true') {
+            document.getElementById('debugInfo')?.classList.remove('hidden');
+        }
+
+        // Dodaj do window dla debugowania z console
+        window.enableDebug = () => {
+            localStorage.setItem('gluing_debug', 'true');
+            location.reload();
+        };
+
+        window.disableDebug = () => {
+            localStorage.removeItem('gluing_debug');
+            location.reload();
+        };
+    </script>
+</body>
+</html>

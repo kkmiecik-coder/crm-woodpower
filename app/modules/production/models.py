@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, date
 from sqlalchemy import Index
 from decimal import Decimal
 from modules.logging import get_structured_logger
+import json
+import requests
 
 # NOWY KOD - funkcja pomocnicza dla lokalnego czasu
 def get_local_datetime():
@@ -1520,25 +1522,603 @@ class ProdGluingAssignment(db.Model):
 # POMOCNICZE FUNKCJE GLUING
 # ===================================================================
 
-def sync_items_from_baselinker():
+def sync_items_from_baselinker(days_back=7):
     """
     Synchronizuje produkty z Baselinker do tabeli prod_gluing_items
-    TODO: Implementacja schedulera
+    
+    Args:
+        days_back (int): Ile dni wstecz pobierać zamówienia (domyślnie 7)
+        
+    Returns:
+        dict: Wynik synchronizacji z statistykami
     """
     try:
-        # TODO: Implementacja synchronizacji z Baselinker API
-        # 1. Pobierz zamówienia z ostatnich X dni
-        # 2. Filtruj produkty wymagające sklejenia  
-        # 3. Parsuj nazwy produktów
-        # 4. Utwórz rekordy w prod_gluing_items
-        # 5. Oblicz priorytety
+        production_logger.info("Rozpoczęcie synchronizacji gluing z Baselinker", days_back=days_back)
         
-        production_logger.warning("sync_items_from_baselinker - TODO: implementacja")
-        return {'success': False, 'message': 'TODO: implementacja'}
+        from flask import current_app
+        from datetime import datetime, timedelta
+        import requests
+        import json
+        from .utils import ProductionNameParser
+        
+        # Sprawdź konfigurację API
+        api_config = current_app.config.get('API_BASELINKER', {})
+        api_key = api_config.get('api_key')
+        api_endpoint = api_config.get('endpoint')
+        
+        if not api_key or not api_endpoint:
+            raise ValueError("Brak konfiguracji API Baselinker")
+        
+        # Inicjalizuj parser nazw produktów
+        name_parser = ProductionNameParser()
+        
+        # Statusy zamówień do pobierania (te same co w ProductionService)
+        target_statuses = [138619, 155824]  # W produkcji - surowe, Nowe - opłacone
+        
+        # Statystyki
+        stats = {
+            'success': True,
+            'orders_processed': 0,
+            'products_found': 0,
+            'items_created': 0,
+            'items_updated': 0,
+            'items_skipped': 0,
+            'errors': []
+        }
+        
+        # Oblicz zakres dat
+        date_to = datetime.now()
+        date_from = date_to - timedelta(days=days_back)
+        
+        production_logger.info("Zakres synchronizacji", 
+                             date_from=date_from.strftime('%Y-%m-%d'),
+                             date_to=date_to.strftime('%Y-%m-%d'))
+        
+        # Przetwórz każdy status
+        for status_id in target_statuses:
+            try:
+                production_logger.info("Przetwarzanie statusu", status_id=status_id)
+                
+                # Pobierz zamówienia dla tego statusu
+                orders = _get_orders_from_baselinker(
+                    api_key, api_endpoint, status_id, 
+                    date_from.strftime('%Y-%m-%d'), 
+                    date_to.strftime('%Y-%m-%d')
+                )
+                
+                production_logger.info("Pobrano zamówienia", status_id=status_id, count=len(orders))
+                
+                # Przetwórz każde zamówienie
+                for order in orders:
+                    try:
+                        order_stats = _process_order_for_gluing(order, name_parser)
+                        
+                        # Aktualizuj statystyki
+                        stats['orders_processed'] += 1
+                        stats['products_found'] += order_stats['products_found']
+                        stats['items_created'] += order_stats['items_created']
+                        stats['items_updated'] += order_stats['items_updated']
+                        stats['items_skipped'] += order_stats['items_skipped']
+                        
+                    except Exception as e:
+                        error_msg = f"Błąd przetwarzania zamówienia {order.get('order_id', 'unknown')}: {str(e)}"
+                        production_logger.error("Błąd zamówienia", 
+                                              order_id=order.get('order_id'), error=str(e))
+                        stats['errors'].append(error_msg)
+                        continue
+                        
+            except Exception as e:
+                error_msg = f"Błąd przetwarzania statusu {status_id}: {str(e)}"
+                production_logger.error("Błąd statusu", status_id=status_id, error=str(e))
+                stats['errors'].append(error_msg)
+                continue
+        
+        # Zapisz zmiany w bazie
+        if stats['items_created'] > 0 or stats['items_updated'] > 0:
+            db.session.commit()
+            production_logger.info("Zapisano zmiany w bazie danych")
+        
+        # Przelicz priorytety dla nowo dodanych/zaktualizowanych produktów
+        if stats['items_created'] > 0 or stats['items_updated'] > 0:
+            try:
+                priority_stats = recalculate_all_priorities()
+                stats['priorities_recalculated'] = priority_stats.get('updated_count', 0)
+            except Exception as e:
+                production_logger.warning("Błąd przeliczania priorytetów", error=str(e))
+                stats['priorities_recalculated'] = 0
+        
+        production_logger.info("Synchronizacja gluing zakończona", stats=stats)
+        
+        return stats
         
     except Exception as e:
-        production_logger.error("Błąd synchronizacji z Baselinker", error=str(e))
-        raise
+        production_logger.error("Krytyczny błąd synchronizacji gluing", error=str(e))
+        
+        # Rollback w przypadku błędu
+        try:
+            db.session.rollback()
+        except:
+            pass
+            
+        return {
+            'success': False,
+            'error': str(e),
+            'orders_processed': 0,
+            'products_found': 0,
+            'items_created': 0,
+            'items_updated': 0,
+            'items_skipped': 0,
+            'errors': [str(e)]
+        }
+
+
+def _get_orders_from_baselinker(api_key, endpoint, status_id, date_from, date_to):
+    """
+    Pobiera zamówienia z Baselinker API dla konkretnego statusu
+    
+    Args:
+        api_key (str): Klucz API Baselinker
+        endpoint (str): URL endpoint API
+        status_id (int): ID statusu zamówienia
+        date_from (str): Data od (YYYY-MM-DD)
+        date_to (str): Data do (YYYY-MM-DD)
+        
+    Returns:
+        list: Lista zamówień
+    """
+    # Konwertuj daty na timestampy
+    from datetime import datetime
+    date_from_ts = int(datetime.strptime(date_from, '%Y-%m-%d').timestamp())
+    date_to_ts = int(datetime.strptime(date_to, '%Y-%m-%d').timestamp())
+    
+    parameters = {
+        'status_id': status_id,
+        'get_unconfirmed_orders': True,
+        'include_custom_extra_fields': True,
+        'date_confirmed_from': date_from_ts,
+        'date_confirmed_to': date_to_ts
+    }
+    
+    data = {
+        'token': api_key,
+        'method': 'getOrders',
+        'parameters': json.dumps(parameters)
+    }
+    
+    try:
+        response = requests.post(endpoint, data=data, timeout=30)
+        response.raise_for_status()
+        
+        result = response.json()
+        
+        if result.get('status') == 'ERROR':
+            error_message = result.get('error_message', 'Nieznany błąd API')
+            raise Exception(f"Baselinker API error: {error_message}")
+        
+        return result.get('orders', [])
+        
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Błąd połączenia z Baselinker: {str(e)}")
+
+
+def _process_order_for_gluing(order, name_parser):
+    """
+    Przetwarza pojedyncze zamówienie - tworzy rekordy w prod_gluing_items
+    
+    Args:
+        order (dict): Dane zamówienia z Baselinker
+        name_parser (ProductionNameParser): Instance parsera
+        
+    Returns:
+        dict: Statystyki przetwarzania
+    """
+    from flask import current_app
+    
+    order_id = int(order.get('order_id'))
+    customer_name = order.get('delivery_fullname', '') or order.get('invoice_fullname', '')
+    internal_order_number = order.get('user_comments', '').split('\n')[0] if order.get('user_comments') else ''
+    
+    # Pobierz konfigurację API
+    api_config = current_app.config.get('API_BASELINKER', {})
+    api_key = api_config.get('api_key')
+    api_endpoint = api_config.get('endpoint')
+    
+    # Pobierz produkty z zamówienia (Baselinker zawiera je w strukturze zamówienia)
+    products = order.get('products', [])
+
+    # Jeśli nie ma produktów w zamówieniu, spróbuj alternatywnej struktury
+    if not products:
+        # Sprawdź inne możliwe lokalizacje produktów w strukturze
+        products = order.get('order_products', []) or order.get('items', [])
+    
+    if not products:
+        production_logger.warning(f"Brak produktów w zamówieniu {order_id}")
+        # Dla debugowania - wyświetl strukturę zamówienia
+        production_logger.debug(f"Struktura zamówienia {order_id}: {list(order.keys())}")
+    
+    stats = {
+        'products_found': len(products),
+        'items_created': 0,
+        'items_updated': 0,
+        'items_skipped': 0
+    }
+    
+    production_logger.info("Przetwarzanie zamówienia", 
+                         order_id=order_id, products_count=len(products))
+    
+    for product in products:
+        try:
+            product_stats = _process_product_for_gluing(order, product, name_parser)
+            stats['items_created'] += product_stats['items_created']
+            stats['items_updated'] += product_stats['items_updated']
+            stats['items_skipped'] += product_stats['items_skipped']
+            
+        except Exception as e:
+            production_logger.error("Błąd przetwarzania produktu", 
+                                  order_id=order_id, 
+                                  product_id=product.get('product_id'), 
+                                  error=str(e))
+            stats['items_skipped'] += 1
+            continue
+    
+    return stats
+
+
+def _process_product_for_gluing(order, product, name_parser):
+    """
+    Przetwarza pojedynczy produkt - tworzy/aktualizuje rekord w prod_gluing_items
+    
+    Args:
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu
+        name_parser (ProductionNameParser): Instance parsera
+        
+    Returns:
+        dict: Statystyki przetwarzania produktu
+    """
+    baselinker_order_id = int(order.get('order_id'))
+    product_id = int(product.get('product_id'))
+    product_name = product.get('name', '')
+    quantity = int(product.get('quantity', 1))
+    
+    stats = {
+        'items_created': 0,
+        'items_updated': 0,
+        'items_skipped': 0
+    }
+    
+    # Sprawdź czy produkt wymaga klejenia (heurystyka na podstawie nazwy)
+    if not _requires_gluing(product_name):
+        production_logger.debug("Produkt nie wymaga klejenia", 
+                              product_name=product_name)
+        stats['items_skipped'] = quantity
+        return stats
+    
+    # Parsuj nazwę produktu
+    try:
+        parsed_params = name_parser.parse_product_name(product_name)
+        production_logger.debug("Sparsowano parametry produktu", 
+                              product_name=product_name, 
+                              params=parsed_params)
+    except Exception as e:
+        production_logger.warning("Błąd parsowania nazwy produktu", 
+                                product_name=product_name, error=str(e))
+        # Fallback - podstawowe parametry
+        parsed_params = {
+            'wood_species': None,
+            'wood_technology': None,
+            'wood_class': None,
+            'dimensions_length': None,
+            'dimensions_width': None,
+            'dimensions_thickness': None,
+            'finish_type': None
+        }
+    
+    # Sprawdź czy produkty już istnieją w bazie
+    existing_items = ProdGluingItem.query.filter_by(
+        baselinker_order_id=baselinker_order_id,
+        baselinker_order_product_id=product_id
+    ).all()
+    
+    # Utwórz lub zaktualizuj produkty (quantity określa ile sztuk)
+    for seq in range(1, quantity + 1):
+        existing = None
+        for item in existing_items:
+            if item.item_sequence == seq:
+                existing = item
+                break
+        
+        if existing:
+            # Aktualizuj istniejący
+            updated = _update_gluing_item(existing, order, product, parsed_params)
+            if updated:
+                stats['items_updated'] += 1
+        else:
+            # Utwórz nowy
+            new_item = _create_gluing_item(order, product, parsed_params, seq)
+            if new_item:
+                stats['items_created'] += 1
+    
+    return stats
+
+
+def _requires_gluing(product_name):
+    """
+    Sprawdza czy produkt wymaga klejenia na podstawie nazwy
+    
+    Args:
+        product_name (str): Nazwa produktu
+        
+    Returns:
+        bool: True jeśli wymaga klejenia
+    """
+    product_name_lower = product_name.lower()
+    
+    # Słowa kluczowe wskazujące na produkty wymagające klejenia
+    gluing_keywords = [
+        'parkiet', 'deska', 'blat', 'panel', 'płyta',
+        'mikrowczep', 'trójwarstwowy', 'wielowarstwowy',
+        'laminowany', 'klejony'
+    ]
+    
+    # Słowa kluczowe wykluczające (gotowe produkty)
+    exclude_keywords = [
+        'akcesoria', 'klej', 'lakier', 'olej', 'wkręty',
+        'listwy', 'profiles', 'uszczelka', 'folia'
+    ]
+    
+    # Sprawdź wykluczenia
+    if any(keyword in product_name_lower for keyword in exclude_keywords):
+        return False
+    
+    # Sprawdź czy zawiera słowa kluczowe klejenia
+    return any(keyword in product_name_lower for keyword in gluing_keywords)
+
+
+def _create_gluing_item(order, product, parsed_params, sequence):
+    """
+    Tworzy nowy rekord ProdGluingItem
+    
+    Args:
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu  
+        parsed_params (dict): Sparsowane parametry
+        sequence (int): Numer sekwencyjny produktu
+        
+    Returns:
+        ProdGluingItem: Nowy rekord lub None w przypadku błędu
+    """
+    try:
+        # Przygotuj dane podstawowe
+        baselinker_order_id = int(order.get('order_id'))
+        product_id = int(product.get('product_id'))
+        product_name = product.get('name', '')
+        
+        # Utwórz display_name (skrócona nazwa)
+        display_name = _create_display_name(product_name, parsed_params)
+        
+        # Oblicz priorytet (podstawowy)
+        priority_score = _calculate_initial_priority(order, product, parsed_params)
+        priority_group = _get_priority_group(priority_score)
+        
+        # Utwórz rekord
+        new_item = ProdGluingItem(
+            baselinker_order_id=baselinker_order_id,
+            baselinker_order_product_id=product_id,
+            product_name=product_name,
+            display_name=display_name,
+            item_sequence=sequence,
+            
+            # Parametry drewna
+            wood_species=parsed_params.get('wood_species'),
+            wood_technology=parsed_params.get('wood_technology'), 
+            wood_class=parsed_params.get('wood_class'),
+            
+            # Wymiary
+            dimensions_length=parsed_params.get('dimensions_length'),
+            dimensions_width=parsed_params.get('dimensions_width'),
+            dimensions_thickness=parsed_params.get('dimensions_thickness'),
+            
+            # Wykończenie
+            finish_type=parsed_params.get('finish_type'),
+            
+            # Priorytety
+            priority_score=priority_score,
+            priority_group=priority_group,
+            
+            # Status
+            status='pending',
+            
+            # Metadane
+            imported_from_baselinker_at=get_local_datetime()
+        )
+        
+        db.session.add(new_item)
+        
+        production_logger.debug("Utworzono nowy produkt gluing", 
+                              order_id=baselinker_order_id,
+                              product_name=display_name,
+                              sequence=sequence)
+        
+        return new_item
+        
+    except Exception as e:
+        production_logger.error("Błąd tworzenia produktu gluing", 
+                              order_id=order.get('order_id'),
+                              product_id=product.get('product_id'),
+                              error=str(e))
+        return None
+
+
+def _update_gluing_item(item, order, product, parsed_params):
+    """
+    Aktualizuje istniejący rekord ProdGluingItem
+    
+    Args:
+        item (ProdGluingItem): Istniejący rekord
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu
+        parsed_params (dict): Sparsowane parametry
+        
+    Returns:
+        bool: True jeśli zaktualizowano
+    """
+    try:
+        updated = False
+        
+        # Zaktualizuj podstawowe dane jeśli się zmieniły
+        product_name = product.get('name', '')
+        if item.product_name != product_name:
+            item.product_name = product_name
+            item.display_name = _create_display_name(product_name, parsed_params)
+            updated = True
+        
+        # Zaktualizuj parametry drewna jeśli nie były ustawione
+        if not item.wood_species and parsed_params.get('wood_species'):
+            item.wood_species = parsed_params.get('wood_species')
+            updated = True
+            
+        if not item.wood_technology and parsed_params.get('wood_technology'):
+            item.wood_technology = parsed_params.get('wood_technology')
+            updated = True
+            
+        if not item.wood_class and parsed_params.get('wood_class'):
+            item.wood_class = parsed_params.get('wood_class')
+            updated = True
+        
+        # Zaktualizuj wymiary jeśli nie były ustawione
+        if not item.dimensions_length and parsed_params.get('dimensions_length'):
+            item.dimensions_length = parsed_params.get('dimensions_length')
+            updated = True
+            
+        if not item.dimensions_width and parsed_params.get('dimensions_width'):
+            item.dimensions_width = parsed_params.get('dimensions_width')
+            updated = True
+            
+        if not item.dimensions_thickness and parsed_params.get('dimensions_thickness'):
+            item.dimensions_thickness = parsed_params.get('dimensions_thickness')
+            updated = True
+        
+        # Zaktualizuj wykończenie
+        if not item.finish_type and parsed_params.get('finish_type'):
+            item.finish_type = parsed_params.get('finish_type')
+            updated = True
+        
+        # Zawsze aktualizuj timestamp synchronizacji
+        item.imported_from_baselinker_at = get_local_datetime()
+        item.updated_at = get_local_datetime()
+        
+        if updated:
+            production_logger.debug("Zaktualizowano produkt gluing", 
+                                  item_id=item.id,
+                                  product_name=item.display_name)
+        
+        return updated
+        
+    except Exception as e:
+        production_logger.error("Błąd aktualizacji produktu gluing", 
+                              item_id=item.id, error=str(e))
+        return False
+
+
+def _create_display_name(product_name, parsed_params):
+    """
+    Tworzy skróconą nazwę wyświetlaną na podstawie parametrów
+    
+    Args:
+        product_name (str): Pełna nazwa produktu
+        parsed_params (dict): Sparsowane parametry
+        
+    Returns:
+        str: Nazwa wyświetlana
+    """
+    try:
+        # Jeśli mamy sparsowane parametry, skonstruuj nazwę
+        if parsed_params.get('wood_species'):
+            parts = []
+            
+            # Typ produktu (pierwsze słowo)
+            first_word = product_name.split()[0] if product_name else 'Produkt'
+            parts.append(first_word.capitalize())
+            
+            # Gatunek
+            if parsed_params.get('wood_species'):
+                parts.append(parsed_params['wood_species'])
+            
+            # Klasa
+            if parsed_params.get('wood_class'):
+                parts.append(parsed_params['wood_class'])
+                
+            return ' '.join(parts)
+        
+        # Fallback - skróć oryginalną nazwę do 50 znaków
+        if len(product_name) > 50:
+            return product_name[:47] + '...'
+        
+        return product_name
+        
+    except Exception:
+        return product_name[:50] if product_name else 'Nieznany produkt'
+
+
+def _calculate_initial_priority(order, product, parsed_params):
+    """
+    Oblicza początkowy priorytet produktu
+    
+    Args:
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu
+        parsed_params (dict): Sparsowane parametry
+        
+    Returns:
+        int: Wynik priorytetu (0-100)
+    """
+    try:
+        priority = 50  # Bazowy priorytet
+        
+        # Zwiększ priorytet dla wysokiej klasy
+        wood_class = parsed_params.get('wood_class', '')
+        if 'A/A' in wood_class:
+            priority += 20
+        elif 'A/B' in wood_class:
+            priority += 10
+        elif 'B/B' in wood_class:
+            priority += 5
+        
+        # Zwiększ priorytet dla dużych wymiarów (blaty)
+        thickness = parsed_params.get('dimensions_thickness', 0) or 0
+        width = parsed_params.get('dimensions_width', 0) or 0
+        
+        if thickness >= 3.0:  # Grube blaty
+            priority += 15
+        if width >= 40:  # Szerokie blaty
+            priority += 10
+            
+        # Ograniczenia
+        priority = max(0, min(100, priority))
+        
+        return priority
+        
+    except Exception:
+        return 50  # Domyślny priorytet
+
+
+def _get_priority_group(priority_score):
+    """
+    Określa grupę priorytetową na podstawie wyniku
+    
+    Args:
+        priority_score (int): Wynik priorytetu
+        
+    Returns:
+        str: Grupa priorytetowa
+    """
+    if priority_score >= 80:
+        return 'PRIORITY_HIGH'
+    elif priority_score >= 60:
+        return 'PRIORITY_MEDIUM'
+    else:
+        return 'PRIORITY_LOW'
 
 def recalculate_all_priorities():
     """
