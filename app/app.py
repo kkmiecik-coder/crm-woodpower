@@ -22,6 +22,7 @@ from modules.preview3d_ar import preview3d_ar_bp
 from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
 from modules.reports import reports_bp
 from modules.production import production_bp
+from modules.company_register import register_bp
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
@@ -154,6 +155,7 @@ def create_app():
     app.register_blueprint(reports_bp, url_prefix='/reports')
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
     app.register_blueprint(production_bp)
+    app.register_blueprint(register_bp)
 
     @app.before_request
     def extend_session():
