@@ -4,10 +4,19 @@ Modele bazy danych dla modułu Production
 """
 
 from extensions import db
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from sqlalchemy import Index
 from decimal import Decimal
 from modules.logging import get_structured_logger
+import json
+import requests
+
+# NOWY KOD - funkcja pomocnicza dla lokalnego czasu
+def get_local_datetime():
+    """Zwraca aktualny czas dla Polski"""
+    import pytz
+    poland_tz = pytz.timezone('Europe/Warsaw')
+    return datetime.now(poland_tz).replace(tzinfo=None)
 
 # Inicjalizacja loggera
 production_logger = get_structured_logger('production.models')
@@ -24,7 +33,7 @@ class ProductionStatus(db.Model):
     name = db.Column(db.String(50), nullable=False, unique=True, comment="Nazwa systemowa statusu")
     display_name = db.Column(db.String(100), nullable=False, comment="Nazwa wyświetlana")
     color_code = db.Column(db.String(7), nullable=False, comment="Kod koloru hex")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
     
     # Relacje
     items = db.relationship('ProductionItem', backref='status', lazy=True)
@@ -52,7 +61,7 @@ class ProductionConfig(db.Model):
     config_key = db.Column(db.String(100), nullable=False, unique=True, comment="Klucz konfiguracji")
     config_value = db.Column(db.Text, nullable=False, comment="Wartość konfiguracji")
     description = db.Column(db.Text, nullable=True, comment="Opis konfiguracji")
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime, nullable=False)
     
     def __repr__(self):
         return f'<ProductionConfig {self.config_key}: {self.config_value}>'
@@ -81,7 +90,9 @@ class ProductionConfig(db.Model):
                 config.config_value = value
                 if description:
                     config.description = description
-                config.updated_at = datetime.utcnow()
+                import pytz
+                poland_tz = pytz.timezone('Europe/Warsaw')
+                config.updated_at = datetime.now(poland_tz).replace(tzinfo=None)
                 production_logger.info("Zaktualizowano konfigurację", config_key=key, value=value)
             else:
                 config = cls(
@@ -114,11 +125,8 @@ class ProductionStation(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False, comment="Czy stanowisko aktywne")
     current_item_id = db.Column(db.Integer, db.ForeignKey('production_items.id'), nullable=True, comment="Aktualnie produkowany item")
     last_activity_at = db.Column(db.DateTime, nullable=True, comment="Ostatnia aktywność")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
     
-    # Relacje - POPRAWIONE BEZ REKURSJI
-    glued_items = db.relationship('ProductionItem', foreign_keys='ProductionItem.glued_at_station_id', backref='glued_at_station', lazy=True)
-
     @property
     def current_item(self):
         """Pobiera aktualny produkt bez rekursji"""
@@ -157,10 +165,7 @@ class Worker(db.Model):
     name = db.Column(db.String(100), nullable=False, comment="Imię i nazwisko pracownika")
     is_active = db.Column(db.Boolean, default=True, nullable=False, comment="Czy pracownik aktywny")
     station_type_preference = db.Column(db.Enum('gluing', 'packaging', 'both', name='worker_preference_enum'), default='both', comment="Preferowany typ stanowiska")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    
-    # Relacje
-    glued_items = db.relationship('ProductionItem', foreign_keys='ProductionItem.glued_by_worker_id', backref='glued_by_worker', lazy=True)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
     
     def __repr__(self):
         return f'<Worker {self.name}>'
@@ -215,20 +220,14 @@ class ProductionItem(db.Model):
     
     # === STATUS I PRZYPISANIA ===
     status_id = db.Column(db.Integer, db.ForeignKey('production_statuses.id'), nullable=False, comment="Aktualny status")
-    glued_at_station_id = db.Column(db.Integer, db.ForeignKey('production_stations.id'), nullable=True, comment="Stanowisko sklejania")
-    glued_by_worker_id = db.Column(db.Integer, db.ForeignKey('workers.id'), nullable=True, comment="Pracownik który sklejał")
     
     # === CZASY REALIZACJI ===
-    gluing_started_at = db.Column(db.DateTime, nullable=True, comment="Rozpoczęcie sklejania")
-    gluing_completed_at = db.Column(db.DateTime, nullable=True, comment="Zakończenie sklejania")
-    gluing_duration_seconds = db.Column(db.Integer, nullable=True, comment="Rzeczywisty czas sklejania")
-    gluing_overtime_seconds = db.Column(db.Integer, nullable=True, comment="Czas przekroczenia")
     packaging_started_at = db.Column(db.DateTime, nullable=True, comment="Rozpoczęcie pakowania")
     packaging_completed_at = db.Column(db.DateTime, nullable=True, comment="Zakończenie pakowania")
     
     # === METADANE ===
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime, nullable=False)
     imported_from_baselinker_at = db.Column(db.DateTime, nullable=True, comment="Kiedy pobrano z Baselinker")
     
     # === INDEKSY ===
@@ -261,12 +260,6 @@ class ProductionItem(db.Model):
             'priority_score': self.priority_score,
             'priority_group': self.priority_group,
             'status': self.status.to_dict() if self.status else None,
-            'glued_at_station': self.glued_at_station.to_dict() if self.glued_at_station else None,
-            'glued_by_worker': self.glued_by_worker.to_dict() if self.glued_by_worker else None,
-            'gluing_started_at': self.gluing_started_at.isoformat() if self.gluing_started_at else None,
-            'gluing_completed_at': self.gluing_completed_at.isoformat() if self.gluing_completed_at else None,
-            'gluing_duration_seconds': self.gluing_duration_seconds,
-            'gluing_overtime_seconds': self.gluing_overtime_seconds,
             'packaging_started_at': self.packaging_started_at.isoformat() if self.packaging_started_at else None,
             'packaging_completed_at': self.packaging_completed_at.isoformat() if self.packaging_completed_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -287,64 +280,10 @@ class ProductionItem(db.Model):
         if self.deadline_date:
             return datetime.now().date() > self.deadline_date
         return False
-    
-    @property
-    def gluing_time_formatted(self):
-        """Sformatowany czas sklejania"""
-        if self.gluing_duration_seconds:
-            minutes = self.gluing_duration_seconds // 60
-            seconds = self.gluing_duration_seconds % 60
-            return f"{minutes}:{seconds:02d}"
-        return None
-    
-    def start_gluing(self, worker_id, station_id):
-        """Rozpoczyna proces sklejania"""
-        try:
-            self.gluing_started_at = datetime.utcnow()
-            self.glued_by_worker_id = worker_id
-            self.glued_at_station_id = station_id
-            db.session.commit()
-            production_logger.info("Rozpoczęto sklejanie produktu",
-                                 item_id=self.id, product_name=self.product_name,
-                                 worker_id=worker_id, station_id=station_id)
-        except Exception as e:
-            production_logger.error("Błąd podczas rozpoczynania sklejania",
-                                  item_id=self.id, worker_id=worker_id, station_id=station_id,
-                                  error=str(e), error_type=type(e).__name__)
-            db.session.rollback()
-            raise
-    
-    def complete_gluing(self):
-        """Kończy proces sklejania"""
-        try:
-            if self.gluing_started_at:
-                self.gluing_completed_at = datetime.utcnow()
-                duration = self.gluing_completed_at - self.gluing_started_at
-                self.gluing_duration_seconds = int(duration.total_seconds())
-                
-                # Oblicz overtime jeśli przekroczył normę
-                standard_time = int(ProductionConfig.get_value('gluing_time_minutes', '20')) * 60
-                if self.gluing_duration_seconds > standard_time:
-                    self.gluing_overtime_seconds = self.gluing_duration_seconds - standard_time
-                
-                db.session.commit()
-                production_logger.info("Zakończono sklejanie produktu",
-                                     item_id=self.id, product_name=self.product_name,
-                                     duration_seconds=self.gluing_duration_seconds,
-                                     overtime_seconds=self.gluing_overtime_seconds)
-            else:
-                production_logger.warning("Próba zakończenia sklejania bez rozpoczęcia",
-                                        item_id=self.id, product_name=self.product_name)
-                
-        except Exception as e:
-            production_logger.error("Błąd podczas kończenia sklejania",
-                                  item_id=self.id, error=str(e), error_type=type(e).__name__)
-            db.session.rollback()
-            raise
-    
+
     @classmethod
     def get_queue_items(cls, limit=None):
-        """Pobiera produkty z kolejki do sklejania (posortowane według priorytetów)"""
+        """Pobiera produkty z bazy do panelu zarządzania"""
         try:
             query = cls.query.join(ProductionStatus).filter(
                 ProductionStatus.name == 'pending'
@@ -362,23 +301,13 @@ class ProductionItem(db.Model):
         except Exception as e:
             production_logger.error("Błąd podczas pobierania kolejki produktów", error=str(e))
             return []
-    
-    @classmethod
-    def get_by_baselinker_order_product(cls, order_id, product_id):
-        """Znajduje produkt po ID zamówienia i produktu z Baselinker"""
-        return cls.query.filter_by(
-            baselinker_order_id=order_id,
-            baselinker_order_product_id=product_id
-        ).first()
 
     def is_ready_for_packaging(self):
         """
-        Sprawdza czy produkt jest gotowy do pakowania (sklejony)
+        Sprawdza czy produkt jest gotowy do pakowania
+        POPRAWKA: usuń referencję do gluing_completed_at
         """
-        return (
-            self.status.name == 'completed' and 
-            self.gluing_completed_at is not None
-        )
+        return self.status.name == 'completed'
 
     def start_packaging_process(self):
         """
@@ -437,23 +366,10 @@ class ProductionItem(db.Model):
 
     def get_waiting_time_after_gluing_hours(self):
         """
-        Oblicza czas oczekiwania od sklejenia do pakowania w godzinach
+        POPRAWKA: Czasowo zwraca None - funkcja będzie niepotrzebna bez gluing_completed_at
+        W przyszłości będzie pobierać dane z nowych tabel gluing_assignments
         """
-        try:
-            if not self.gluing_completed_at:
-                return None
-            
-            reference_time = self.packaging_started_at or datetime.utcnow()
-            
-            waiting_time = (reference_time - self.gluing_completed_at).total_seconds() / 3600.0
-            return round(waiting_time, 1) if waiting_time >= 0 else None
-            
-        except Exception as e:
-            production_logger.error(
-                f"Błąd obliczania czasu oczekiwania produktu {self.id}", 
-                error=str(e)
-            )
-            return None
+        return None
 
     def to_packaging_dict(self):
         """
@@ -490,7 +406,7 @@ class ProductionOrderSummary(db.Model):
     all_items_glued = db.Column(db.Boolean, default=False, nullable=False, comment="Czy wszystkie produkty sklejone")
     packaging_status = db.Column(db.Enum('waiting', 'in_progress', 'completed', name='packaging_status_enum'), default='waiting', comment="Status pakowania")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime, nullable=False)
     
     def __repr__(self):
         return f'<ProductionOrderSummary {self.baselinker_order_id}: {self.customer_name}>'
@@ -882,3 +798,1399 @@ class ProductionOrderSummary(db.Model):
                 error=str(e)
             )
             return self.to_dict()  # Fallback do podstawowej metody
+
+
+# ===================================================================
+# NOWE MODELE GLUING - DO DODANIA NA KOŃCU PLIKU models.py
+# Tabele: prod_gluing_items, prod_gluing_stations, prod_gluing_assignments, prod_gluing_config
+# ===================================================================
+
+class ProdGluingConfig(db.Model):
+    """
+    Model dla konfiguracji modułu gluing
+    """
+    __tablename__ = 'prod_gluing_config'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    config_key = db.Column(db.String(100), nullable=False, unique=True, comment="Klucz konfiguracji")
+    config_value = db.Column(db.Text, nullable=True, comment="Wartość konfiguracji")
+    description = db.Column(db.Text, nullable=True, comment="Opis konfiguracji")
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime, nullable=False)
+    
+    def __repr__(self):
+        return f'<ProdGluingConfig {self.config_key}: {self.config_value}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'config_key': self.config_key,
+            'config_value': self.config_value,
+            'description': self.description,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+    
+    @classmethod
+    def get_value(cls, key, default=None):
+        """Pobiera wartość konfiguracji gluing"""
+        try:
+            config = cls.query.filter_by(config_key=key).first()
+            if config:
+                production_logger.debug("Pobrano konfigurację gluing", config_key=key, value=config.config_value)
+                return config.config_value
+            else:
+                production_logger.warning("Nie znaleziono konfiguracji gluing", config_key=key, default=default)
+                return default
+        except Exception as e:
+            production_logger.error("Błąd podczas pobierania konfiguracji gluing", 
+                                  config_key=key, error=str(e), error_type=type(e).__name__)
+            return default
+    
+    @classmethod
+    def set_value(cls, key, value, description=None):
+        """Ustawia wartość konfiguracji gluing"""
+        try:
+            config = cls.query.filter_by(config_key=key).first()
+            if config:
+                config.config_value = value
+                if description:
+                    config.description = description
+                config.updated_at = get_local_datetime()
+                production_logger.info("Zaktualizowano konfigurację gluing", config_key=key, value=value)
+            else:
+                config = cls(
+                    config_key=key,
+                    config_value=value,
+                    description=description
+                )
+                db.session.add(config)
+                production_logger.info("Utworzono nową konfigurację gluing", config_key=key, value=value)
+            
+            db.session.commit()
+            return config
+            
+        except Exception as e:
+            production_logger.error("Błąd podczas ustawiania konfiguracji gluing", 
+                                  config_key=key, error=str(e), error_type=type(e).__name__)
+            db.session.rollback()
+            raise
+
+
+class ProdGluingStation(db.Model):
+    """
+    Model dla stanowisk klejenia
+    """
+    __tablename__ = 'prod_gluing_stations'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, comment="Nazwa stanowiska")
+    machine_number = db.Column(db.Integer, nullable=False, comment="1 lub 2 (numer maszyny)")
+    station_number = db.Column(db.Integer, nullable=False, comment="1, 2, lub 3 (numer stanowiska)")
+    
+    # Wymiary fizyczne
+    width_cm = db.Column(db.Numeric(8, 2), nullable=False, comment="Szerokość stanowiska w cm")
+    height_cm = db.Column(db.Numeric(8, 2), nullable=False, comment="Wysokość stanowiska w cm")
+    max_thickness_cm = db.Column(db.Numeric(8, 2), default=10.0, comment="Maksymalna grubość produktów")
+    
+    # Pozycjonowanie w UI
+    display_x = db.Column(db.Integer, default=0, comment="Pozycja X w Canvas")
+    display_y = db.Column(db.Integer, default=0, comment="Pozycja Y w Canvas")
+    display_color = db.Column(db.String(7), default='#2ecc71', comment="Kolor stanowiska")
+    display_order = db.Column(db.Integer, default=0, comment="Kolejność wyświetlania")
+    
+    # Status i konfiguracja
+    is_active = db.Column(db.Boolean, default=True, nullable=False, comment="Czy stanowisko aktywne")
+    is_blocked = db.Column(db.Boolean, default=False, comment="Czy stanowisko zablokowane")
+    block_reason = db.Column(db.Text, comment="Powód zablokowania")
+    
+    # Metadane
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime)
+    last_maintenance_at = db.Column(db.DateTime, comment="Ostatnia konserwacja")
+    
+    # Relacje
+    assignments = db.relationship('ProdGluingAssignment', backref='station', lazy=True)
+    
+    def __repr__(self):
+        return f'<ProdGluingStation {self.name} (M{self.machine_number}-S{self.station_number})>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'machine_number': self.machine_number,
+            'station_number': self.station_number,
+            'dimensions': {
+                'width': float(self.width_cm) if self.width_cm else 0,
+                'height': float(self.height_cm) if self.height_cm else 0,
+                'max_thickness': float(self.max_thickness_cm) if self.max_thickness_cm else 10.0
+            },
+            'display': {
+                'x': self.display_x,
+                'y': self.display_y,
+                'color': self.display_color,
+                'order': self.display_order
+            },
+            'status': {
+                'is_active': self.is_active,
+                'is_blocked': self.is_blocked,
+                'block_reason': self.block_reason,
+                'is_busy': self.is_busy()
+            },
+            'occupancy_percent': self.get_occupancy_percent(),
+            'current_thickness': self.get_current_thickness(),
+            'last_maintenance_at': self.last_maintenance_at.isoformat() if self.last_maintenance_at else None
+        }
+    
+    def is_busy(self):
+        """Sprawdza czy stanowisko ma aktywne przypisania"""
+        active_assignments = ProdGluingAssignment.query.filter_by(
+            station_id=self.id
+        ).filter(
+            ProdGluingAssignment.completed_at.is_(None)
+        ).count()
+        return active_assignments > 0
+    
+    def get_occupancy_percent(self):
+        """Oblicza procentowe zajęcie stanowiska"""
+        try:
+            total_area = float(self.width_cm * self.height_cm) if (self.width_cm and self.height_cm) else 0
+            if total_area == 0:
+                return 0
+                
+            occupied_area = db.session.query(
+                db.func.sum(ProdGluingAssignment.width_occupied * ProdGluingAssignment.height_occupied)
+            ).filter(
+                ProdGluingAssignment.station_id == self.id,
+                ProdGluingAssignment.completed_at.is_(None)
+            ).scalar() or 0
+            
+            return min(100, (float(occupied_area) / total_area) * 100)
+            
+        except Exception as e:
+            production_logger.error("Błąd obliczania zajętości stanowiska", 
+                                  station_id=self.id, error=str(e))
+            return 0
+    
+    def get_current_thickness(self):
+        """Zwraca aktualną grubość produktów na stanowisku"""
+        try:
+            current_assignment = ProdGluingAssignment.query.join(ProdGluingItem).filter(
+                ProdGluingAssignment.station_id == self.id,
+                ProdGluingAssignment.completed_at.is_(None)
+            ).first()
+            
+            if current_assignment and current_assignment.item:
+                return float(current_assignment.item.dimensions_thickness) if current_assignment.item.dimensions_thickness else 0
+            return 0
+            
+        except Exception as e:
+            production_logger.error("Błąd pobierania grubości stanowiska", 
+                                  station_id=self.id, error=str(e))
+            return 0
+    
+    def can_fit_product(self, item):
+        """Sprawdza czy produkt zmieści się na stanowisku"""
+        try:
+            if not item or not item.dimensions_length or not item.dimensions_width:
+                return False, "Brak wymiarów produktu"
+                
+            if not self.is_active:
+                return False, "Stanowisko nieaktywne"
+                
+            if self.is_blocked:
+                return False, f"Stanowisko zablokowane: {self.block_reason}"
+            
+            # Sprawdź grubość
+            current_thickness = self.get_current_thickness()
+            if current_thickness > 0 and item.dimensions_thickness:
+                thickness_diff = abs(current_thickness - float(item.dimensions_thickness))
+                tolerance = float(ProdGluingConfig.get_value('thickness_tolerance', 0.5))
+                if thickness_diff > tolerance:
+                    return False, f"Różna grubość: {current_thickness}cm vs {item.dimensions_thickness}cm"
+            
+            # Sprawdź czy się zmieści (uproszczona logika)
+            occupancy = self.get_occupancy_percent()
+            item_area = float(item.dimensions_length * item.dimensions_width)
+            station_area = float(self.width_cm * self.height_cm)
+            required_percent = (item_area / station_area) * 100
+            
+            if occupancy + required_percent > 95:  # 5% margin
+                return False, f"Za mało miejsca: {occupancy:.1f}% + {required_percent:.1f}% > 95%"
+            
+            return True, "OK"
+            
+        except Exception as e:
+            production_logger.error("Błąd sprawdzania czy produkt się zmieści", 
+                                  station_id=self.id, item_id=item.id if item else None, error=str(e))
+            return False, f"Błąd sprawdzania: {str(e)}"
+    
+    @classmethod
+    def get_active_stations(cls):
+        """Pobiera aktywne stanowiska klejenia"""
+        return cls.query.filter_by(is_active=True, is_blocked=False).order_by(cls.display_order).all()
+    
+    @classmethod
+    def get_stations_with_stats(cls):
+        """Pobiera stanowiska z podstawowymi statystykami"""
+        stations = cls.get_active_stations()
+        return [
+            {
+                **station.to_dict(),
+                'current_items_count': ProdGluingAssignment.query.filter_by(
+                    station_id=station.id
+                ).filter(ProdGluingAssignment.completed_at.is_(None)).count()
+            } for station in stations
+        ]
+
+
+class ProdGluingItem(db.Model):
+    """
+    Model dla produktów do sklejenia
+    """
+    __tablename__ = 'prod_gluing_items'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Podstawowe dane z Baselinker
+    baselinker_order_id = db.Column(db.Integer, nullable=False, comment="ID zamówienia z Baselinker")
+    baselinker_order_product_id = db.Column(db.Integer, nullable=False, comment="ID produktu w zamówieniu")
+    product_name = db.Column(db.String(500), comment="Pełna nazwa produktu z Baselinker")
+    display_name = db.Column(db.String(200), comment="Uproszczona nazwa dla pracowników")
+    item_sequence = db.Column(db.Integer, default=1, comment="1,2,3 jeśli produkt ma wiele sztuk")
+    
+    # Parsowane dane produktu
+    wood_species = db.Column(db.String(50), comment="Gatunek drewna")
+    wood_technology = db.Column(db.String(50), comment="Technologia")
+    wood_class = db.Column(db.String(10), comment="Klasa drewna")
+    dimensions_length = db.Column(db.Numeric(8, 2), comment="Długość w cm")
+    dimensions_width = db.Column(db.Numeric(8, 2), comment="Szerokość w cm")
+    dimensions_thickness = db.Column(db.Numeric(8, 2), comment="Grubość w cm")
+    finish_type = db.Column(db.String(50), comment="Typ wykończenia")
+    
+    # Priorytety i kolejkowanie
+    deadline_date = db.Column(db.Date, comment="Termin deadline")
+    priority_score = db.Column(db.Integer, comment="Wynik priorytetowy")
+    priority_group = db.Column(db.String(100), comment="Grupa priorytetowa")
+    requires_stabilization = db.Column(db.Boolean, default=False, comment="Czy wymaga stabilizacji")
+    stabilization_length = db.Column(db.Numeric(8, 2), comment="Długość lameli stabilizującej")
+    
+    # Status i workflow
+    status = db.Column(db.Enum('pending', 'assigned', 'in_progress', 'completed', name='gluing_status_enum'), 
+                       default='pending', comment="Status w workflow gluing")
+    
+    # Metadane
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime)
+    imported_from_baselinker_at = db.Column(db.DateTime, comment="Kiedy zaimportowano z Baselinker")
+    notes = db.Column(db.Text, comment="Notatki specjalne")
+    
+    # Relacje
+    assignments = db.relationship('ProdGluingAssignment', backref='item', lazy=True)
+    
+    def __repr__(self):
+        return f'<ProdGluingItem {self.id}: {self.display_name or self.product_name[:50]}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'baselinker_order_id': self.baselinker_order_id,
+            'baselinker_order_product_id': self.baselinker_order_product_id,
+            'product_name': self.product_name,
+            'display_name': self.display_name,
+            'item_sequence': self.item_sequence,
+            'wood_info': {
+                'species': self.wood_species,
+                'technology': self.wood_technology,
+                'class': self.wood_class
+            },
+            'dimensions': {
+                'length': float(self.dimensions_length) if self.dimensions_length else 0,
+                'width': float(self.dimensions_width) if self.dimensions_width else 0,
+                'thickness': float(self.dimensions_thickness) if self.dimensions_thickness else 0,
+                'area': self.get_area()
+            },
+            'finish_type': self.finish_type,
+            'deadline_date': self.deadline_date.isoformat() if self.deadline_date else None,
+            'priority_score': self.priority_score,
+            'priority_group': self.priority_group,
+            'requires_stabilization': self.requires_stabilization,
+            'stabilization_length': float(self.stabilization_length) if self.stabilization_length else None,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'notes': self.notes,
+            'current_assignment': self.get_current_assignment()
+        }
+    
+    def get_area(self):
+        """Oblicza powierzchnię produktu w cm²"""
+        if self.dimensions_length and self.dimensions_width:
+            return float(self.dimensions_length * self.dimensions_width)
+        return 0
+    
+    def get_current_assignment(self):
+        """Pobiera aktualne przypisanie (jeśli jest)"""
+        assignment = ProdGluingAssignment.query.filter_by(
+            item_id=self.id
+        ).filter(
+            ProdGluingAssignment.completed_at.is_(None)
+        ).first()
+        
+        return assignment.to_dict() if assignment else None
+    
+    def calculate_priority_score(self):
+        """Oblicza wynik priorytetowy na podstawie deadline i innych czynników"""
+        try:
+            if not self.deadline_date:
+                return 999999  # Najniższy priorytet
+            
+            today = date.today()
+            days_to_deadline = (self.deadline_date - today).days
+            
+            # Bazowy wynik (im mniej dni, tym wyższy priorytet = niższy score)
+            base_score = max(1, days_to_deadline * 100)
+            
+            # Modyfikatory
+            if self.requires_stabilization:
+                base_score += 50  # Produkty ze stabilizacją nieco później
+                
+            # Powierzchnia - większe produkty mają wyższy priorytet
+            area = self.get_area()
+            if area > 5000:  # Duże produkty
+                base_score -= 25
+            elif area < 1000:  # Małe produkty
+                base_score += 25
+            
+            self.priority_score = max(1, base_score)
+            production_logger.debug("Obliczono priorytet", 
+                                  item_id=self.id, priority_score=self.priority_score, days_to_deadline=days_to_deadline)
+            
+            return self.priority_score
+            
+        except Exception as e:
+            production_logger.error("Błąd obliczania priorytetu", 
+                                  item_id=self.id, error=str(e))
+            return 999999
+    
+    @classmethod
+    def get_queue_items(cls, limit=None):
+        """Pobiera produkty w kolejce (status pending) posortowane po priorytecie"""
+        query = cls.query.filter_by(status='pending').order_by(cls.priority_score.asc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+    
+    @classmethod
+    def get_items_by_status(cls, status):
+        """Pobiera produkty o danym statusie"""
+        return cls.query.filter_by(status=status).order_by(cls.priority_score.asc()).all()
+    
+    @classmethod
+    def parse_product_name(cls, product_name):
+        """
+        Parsuje nazwę produktu używając parsera z modułu reports
+        Fallback: zwraca podstawowe dane z nazwy
+        """
+        try:
+            # TODO: Import i użycie parsera z modułu reports
+            # from modules.reports.utils import parse_product_name as reports_parser
+            # parsed_data = reports_parser(product_name)
+            
+            # Tymczasowy fallback - prosty parsing
+            production_logger.warning("Używam fallback parsera nazw", product_name=product_name)
+            
+            # Uproszczony parsing (do zastąpienia parserem z reports)
+            parts = product_name.split()
+            parsed = {
+                'wood_species': None,
+                'wood_technology': None,
+                'wood_class': None,
+                'dimensions_length': None,
+                'dimensions_width': None,
+                'dimensions_thickness': None,
+                'finish_type': None,
+                'display_name': product_name[:200]  # Skrócona nazwa
+            }
+            
+            # Podstawowe wykrywanie wymiarów (format: 30x40x4)
+            import re
+            dimension_pattern = r'(\d+)x(\d+)x(\d+(?:\.\d+)?)'
+            match = re.search(dimension_pattern, product_name)
+            if match:
+                parsed['dimensions_length'] = Decimal(match.group(1))
+                parsed['dimensions_width'] = Decimal(match.group(2))  
+                parsed['dimensions_thickness'] = Decimal(match.group(3))
+            
+            # Wykrywanie gatunku drewna
+            wood_species = ['dąb', 'jesion', 'sosna', 'buk', 'brzoza', 'klon']
+            for species in wood_species:
+                if species.lower() in product_name.lower():
+                    parsed['wood_species'] = species
+                    break
+            
+            production_logger.debug("Sparsowano nazwę produktu", 
+                                  product_name=product_name, parsed_data=parsed)
+            return parsed
+            
+        except Exception as e:
+            production_logger.error("Błąd parsowania nazwy produktu", 
+                                  product_name=product_name, error=str(e))
+            return {
+                'display_name': product_name[:200],
+                'wood_species': None,
+                'wood_technology': None,
+                'wood_class': None,
+                'dimensions_length': None,
+                'dimensions_width': None,
+                'dimensions_thickness': None,
+                'finish_type': None
+            }
+
+
+class ProdGluingAssignment(db.Model):
+    """
+    Model dla przypisań produktów do stanowisk klejenia
+    """
+    __tablename__ = 'prod_gluing_assignments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Relacje
+    item_id = db.Column(db.Integer, db.ForeignKey('prod_gluing_items.id'), nullable=False, comment="ID produktu")
+    station_id = db.Column(db.Integer, db.ForeignKey('prod_gluing_stations.id'), nullable=False, comment="ID stanowiska")
+    
+    # Pozycjonowanie na stanowisku
+    position_x = db.Column(db.Numeric(8, 2), default=0, comment="Pozycja X na stanowisku")
+    position_y = db.Column(db.Numeric(8, 2), default=0, comment="Pozycja Y na stanowisku") 
+    width_occupied = db.Column(db.Numeric(8, 2), comment="Zajmowana szerokość")
+    height_occupied = db.Column(db.Numeric(8, 2), comment="Zajmowana wysokość")
+    
+    # Status produkcji
+    worker_name = db.Column(db.String(100), comment="Imię pracownika")
+    started_at = db.Column(db.DateTime, comment="Czas rozpoczęcia")
+    completed_at = db.Column(db.DateTime, comment="Czas zakończenia")
+    duration_seconds = db.Column(db.Integer, comment="Rzeczywisty czas w sekundach")
+    overtime_seconds = db.Column(db.Integer, default=0, comment="Czas przekroczenia")
+    
+    # Specjalne flagi
+    requires_stabilization = db.Column(db.Boolean, default=False, comment="Czy użyto stabilizacji")
+    stabilization_length = db.Column(db.Numeric(8, 2), comment="Długość użytej lameli")
+    
+    # Metadane
+    created_at = db.Column(db.DateTime, default=get_local_datetime, nullable=False)
+    updated_at = db.Column(db.DateTime, default=get_local_datetime, onupdate=get_local_datetime)
+    notes = db.Column(db.Text, comment="Notatki do przypisania")
+    
+    def __repr__(self):
+        return f'<ProdGluingAssignment {self.id}: Item{self.item_id}→Station{self.station_id}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'item_id': self.item_id,
+            'station_id': self.station_id,
+            'position': {
+                'x': float(self.position_x) if self.position_x else 0,
+                'y': float(self.position_y) if self.position_y else 0
+            },
+            'occupied_size': {
+                'width': float(self.width_occupied) if self.width_occupied else 0,
+                'height': float(self.height_occupied) if self.height_occupied else 0
+            },
+            'worker_name': self.worker_name,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'duration_seconds': self.duration_seconds,
+            'overtime_seconds': self.overtime_seconds,
+            'requires_stabilization': self.requires_stabilization,
+            'stabilization_length': float(self.stabilization_length) if self.stabilization_length else None,
+            'notes': self.notes,
+            'status': self.get_status(),
+            'time_remaining': self.get_time_remaining()
+        }
+    
+    def get_status(self):
+        """Zwraca aktualny status przypisania"""
+        if self.completed_at:
+            return 'completed'
+        elif self.started_at:
+            return 'in_progress'
+        else:
+            return 'assigned'
+    
+    def get_time_remaining(self):
+        """Zwraca pozostały czas w sekundach (może być ujemny = overtime)"""
+        if not self.started_at or self.completed_at:
+            return None
+            
+        try:
+            standard_time_minutes = int(ProdGluingConfig.get_value('gluing_time_minutes', 20))
+            standard_time_seconds = standard_time_minutes * 60
+            
+            elapsed = (get_local_datetime() - self.started_at).total_seconds()
+            remaining = standard_time_seconds - elapsed
+            
+            return int(remaining)
+            
+        except Exception as e:
+            production_logger.error("Błąd obliczania pozostałego czasu", 
+                                  assignment_id=self.id, error=str(e))
+            return None
+    
+    def start_production(self, worker_name):
+        """Rozpoczyna produkcję na stanowisku"""
+        try:
+            if self.started_at:
+                raise ValueError(f"Produkcja już rozpoczęta o {self.started_at}")
+                
+            self.worker_name = worker_name
+            self.started_at = get_local_datetime()
+            
+            # Update status produktu
+            if self.item:
+                self.item.status = 'in_progress'
+            
+            db.session.commit()
+            production_logger.info("Rozpoczęto produkcję", 
+                                 assignment_id=self.id, worker_name=worker_name, 
+                                 item_id=self.item_id, station_id=self.station_id)
+            
+            return self
+            
+        except Exception as e:
+            production_logger.error("Błąd rozpoczynania produkcji", 
+                                  assignment_id=self.id, worker_name=worker_name, error=str(e))
+            db.session.rollback()
+            raise
+    
+    def complete_production(self):
+        """Kończy produkcję i oblicza statystyki"""
+        try:
+            if self.completed_at:
+                raise ValueError(f"Produkcja już zakończona o {self.completed_at}")
+                
+            if not self.started_at:
+                raise ValueError("Nie można zakończyć - produkcja nie była rozpoczęta")
+            
+            now = get_local_datetime()
+            self.completed_at = now
+            
+            # Oblicz czasy
+            duration = (now - self.started_at).total_seconds()
+            self.duration_seconds = int(duration)
+            
+            # Oblicz overtime
+            standard_time_minutes = int(ProdGluingConfig.get_value('gluing_time_minutes', 20))
+            standard_time_seconds = standard_time_minutes * 60
+            
+            if duration > standard_time_seconds:
+                self.overtime_seconds = int(duration - standard_time_seconds)
+            
+            # Update status produktu
+            if self.item:
+                self.item.status = 'completed'
+            
+            db.session.commit()
+            production_logger.info("Zakończono produkcję", 
+                                 assignment_id=self.id, duration_seconds=self.duration_seconds,
+                                 overtime_seconds=self.overtime_seconds)
+            
+            return self
+            
+        except Exception as e:
+            production_logger.error("Błąd kończenia produkcji", 
+                                  assignment_id=self.id, error=str(e))
+            db.session.rollback()
+            raise
+    
+    @classmethod
+    def create_assignment(cls, item_id, station_id, position_x=0, position_y=0):
+        """Tworzy nowe przypisanie produktu do stanowiska"""
+        try:
+            # Sprawdź czy item i station istnieją
+            item = ProdGluingItem.query.get(item_id)
+            station = ProdGluingStation.query.get(station_id)
+            
+            if not item:
+                raise ValueError(f"Nie znaleziono produktu ID: {item_id}")
+            if not station:
+                raise ValueError(f"Nie znaleziono stanowiska ID: {station_id}")
+            
+            # Sprawdź czy można umieścić produkt
+            can_fit, reason = station.can_fit_product(item)
+            if not can_fit:
+                raise ValueError(f"Nie można umieścić produktu: {reason}")
+            
+            # Sprawdź czy produkt nie jest już przypisany
+            existing = cls.query.filter_by(item_id=item_id).filter(
+                cls.completed_at.is_(None)
+            ).first()
+            if existing:
+                raise ValueError(f"Produkt już przypisany do stanowiska {existing.station_id}")
+            
+            # Oblicz zajmowane wymiary
+            width_occupied = item.dimensions_length if item.dimensions_length else 0
+            height_occupied = item.dimensions_width if item.dimensions_width else 0
+            
+            # Utwórz przypisanie
+            assignment = cls(
+                item_id=item_id,
+                station_id=station_id,
+                position_x=position_x,
+                position_y=position_y,
+                width_occupied=width_occupied,
+                height_occupied=height_occupied,
+                requires_stabilization=item.requires_stabilization
+            )
+            
+            # Update status produktu
+            item.status = 'assigned'
+            
+            db.session.add(assignment)
+            db.session.commit()
+            
+            production_logger.info("Utworzono przypisanie", 
+                                 assignment_id=assignment.id, item_id=item_id, 
+                                 station_id=station_id, position_x=position_x, position_y=position_y)
+            
+            return assignment
+            
+        except Exception as e:
+            production_logger.error("Błąd tworzenia przypisania", 
+                                  item_id=item_id, station_id=station_id, error=str(e))
+            db.session.rollback()
+            raise
+    
+    @classmethod
+    def get_active_assignments_for_station(cls, station_id):
+        """Pobiera aktywne przypisania dla stanowiska"""
+        return cls.query.filter_by(station_id=station_id).filter(
+            cls.completed_at.is_(None)
+        ).order_by(cls.created_at.asc()).all()
+    
+    @classmethod
+    def get_production_stats(cls, date_from=None, date_to=None):
+        """Pobiera statystyki produkcji dla danego okresu"""
+        try:
+            query = cls.query.filter(cls.completed_at.is_not(None))
+            
+            if date_from:
+                query = query.filter(cls.completed_at >= date_from)
+            if date_to:
+                query = query.filter(cls.completed_at <= date_to)
+            
+            assignments = query.all()
+            
+            if not assignments:
+                return {
+                    'total_completed': 0,
+                    'avg_duration_minutes': 0,
+                    'max_duration_minutes': 0,
+                    'min_duration_minutes': 0,
+                    'overtime_count': 0,
+                    'overtime_percent': 0
+                }
+            
+            durations = [a.duration_seconds for a in assignments if a.duration_seconds]
+            overtime_count = len([a for a in assignments if a.overtime_seconds > 0])
+            
+            stats = {
+                'total_completed': len(assignments),
+                'avg_duration_minutes': round(sum(durations) / len(durations) / 60, 1) if durations else 0,
+                'max_duration_minutes': round(max(durations) / 60, 1) if durations else 0,
+                'min_duration_minutes': round(min(durations) / 60, 1) if durations else 0,
+                'overtime_count': overtime_count,
+                'overtime_percent': round((overtime_count / len(assignments)) * 100, 1) if assignments else 0
+            }
+            
+            production_logger.debug("Obliczono statystyki produkcji", stats=stats)
+            return stats
+            
+        except Exception as e:
+            production_logger.error("Błąd obliczania statystyk", error=str(e))
+            return {
+                'total_completed': 0,
+                'avg_duration_minutes': 0,
+                'max_duration_minutes': 0,
+                'min_duration_minutes': 0,
+                'overtime_count': 0,
+                'overtime_percent': 0
+            }
+
+
+# ===================================================================
+# POMOCNICZE FUNKCJE GLUING
+# ===================================================================
+
+def sync_items_from_baselinker(days_back=7):
+    """
+    Synchronizuje produkty z Baselinker do tabeli prod_gluing_items
+    
+    Args:
+        days_back (int): Ile dni wstecz pobierać zamówienia (domyślnie 7)
+        
+    Returns:
+        dict: Wynik synchronizacji z statistykami
+    """
+    try:
+        production_logger.info("Rozpoczęcie synchronizacji gluing z Baselinker", days_back=days_back)
+        
+        from flask import current_app
+        from datetime import datetime, timedelta
+        import requests
+        import json
+        from .utils import ProductionNameParser
+        
+        # Sprawdź konfigurację API
+        api_config = current_app.config.get('API_BASELINKER', {})
+        api_key = api_config.get('api_key')
+        api_endpoint = api_config.get('endpoint')
+        
+        if not api_key or not api_endpoint:
+            raise ValueError("Brak konfiguracji API Baselinker")
+        
+        # Inicjalizuj parser nazw produktów
+        name_parser = ProductionNameParser()
+        
+        # Statusy zamówień do pobierania (te same co w ProductionService)
+        target_statuses = [138619, 155824]  # W produkcji - surowe, Nowe - opłacone
+        
+        # Statystyki
+        stats = {
+            'success': True,
+            'orders_processed': 0,
+            'products_found': 0,
+            'items_created': 0,
+            'items_updated': 0,
+            'items_skipped': 0,
+            'errors': []
+        }
+        
+        # Oblicz zakres dat
+        date_to = datetime.now()
+        date_from = date_to - timedelta(days=days_back)
+        
+        production_logger.info("Zakres synchronizacji", 
+                             date_from=date_from.strftime('%Y-%m-%d'),
+                             date_to=date_to.strftime('%Y-%m-%d'))
+        
+        # Przetwórz każdy status
+        for status_id in target_statuses:
+            try:
+                production_logger.info("Przetwarzanie statusu", status_id=status_id)
+                
+                # Pobierz zamówienia dla tego statusu
+                orders = _get_orders_from_baselinker(
+                    api_key, api_endpoint, status_id, 
+                    date_from.strftime('%Y-%m-%d'), 
+                    date_to.strftime('%Y-%m-%d')
+                )
+                
+                production_logger.info("Pobrano zamówienia", status_id=status_id, count=len(orders))
+                
+                # Przetwórz każde zamówienie
+                for order in orders:
+                    try:
+                        order_stats = _process_order_for_gluing(order, name_parser)
+                        
+                        # Aktualizuj statystyki
+                        stats['orders_processed'] += 1
+                        stats['products_found'] += order_stats['products_found']
+                        stats['items_created'] += order_stats['items_created']
+                        stats['items_updated'] += order_stats['items_updated']
+                        stats['items_skipped'] += order_stats['items_skipped']
+                        
+                    except Exception as e:
+                        error_msg = f"Błąd przetwarzania zamówienia {order.get('order_id', 'unknown')}: {str(e)}"
+                        production_logger.error("Błąd zamówienia", 
+                                              order_id=order.get('order_id'), error=str(e))
+                        stats['errors'].append(error_msg)
+                        continue
+                        
+            except Exception as e:
+                error_msg = f"Błąd przetwarzania statusu {status_id}: {str(e)}"
+                production_logger.error("Błąd statusu", status_id=status_id, error=str(e))
+                stats['errors'].append(error_msg)
+                continue
+        
+        # Zapisz zmiany w bazie
+        if stats['items_created'] > 0 or stats['items_updated'] > 0:
+            db.session.commit()
+            production_logger.info("Zapisano zmiany w bazie danych")
+        
+        # Przelicz priorytety dla nowo dodanych/zaktualizowanych produktów
+        if stats['items_created'] > 0 or stats['items_updated'] > 0:
+            try:
+                priority_stats = recalculate_all_priorities()
+                stats['priorities_recalculated'] = priority_stats.get('updated_count', 0)
+            except Exception as e:
+                production_logger.warning("Błąd przeliczania priorytetów", error=str(e))
+                stats['priorities_recalculated'] = 0
+        
+        production_logger.info("Synchronizacja gluing zakończona", stats=stats)
+        
+        return stats
+        
+    except Exception as e:
+        production_logger.error("Krytyczny błąd synchronizacji gluing", error=str(e))
+        
+        # Rollback w przypadku błędu
+        try:
+            db.session.rollback()
+        except:
+            pass
+            
+        return {
+            'success': False,
+            'error': str(e),
+            'orders_processed': 0,
+            'products_found': 0,
+            'items_created': 0,
+            'items_updated': 0,
+            'items_skipped': 0,
+            'errors': [str(e)]
+        }
+
+
+def _get_orders_from_baselinker(api_key, endpoint, status_id, date_from, date_to):
+    """
+    Pobiera zamówienia z Baselinker API dla konkretnego statusu
+    
+    Args:
+        api_key (str): Klucz API Baselinker
+        endpoint (str): URL endpoint API
+        status_id (int): ID statusu zamówienia
+        date_from (str): Data od (YYYY-MM-DD)
+        date_to (str): Data do (YYYY-MM-DD)
+        
+    Returns:
+        list: Lista zamówień
+    """
+    # Konwertuj daty na timestampy
+    from datetime import datetime
+    date_from_ts = int(datetime.strptime(date_from, '%Y-%m-%d').timestamp())
+    date_to_ts = int(datetime.strptime(date_to, '%Y-%m-%d').timestamp())
+    
+    parameters = {
+        'status_id': status_id,
+        'get_unconfirmed_orders': True,
+        'include_custom_extra_fields': True,
+        'date_confirmed_from': date_from_ts,
+        'date_confirmed_to': date_to_ts
+    }
+    
+    data = {
+        'token': api_key,
+        'method': 'getOrders',
+        'parameters': json.dumps(parameters)
+    }
+    
+    try:
+        response = requests.post(endpoint, data=data, timeout=30)
+        response.raise_for_status()
+        
+        result = response.json()
+        
+        if result.get('status') == 'ERROR':
+            error_message = result.get('error_message', 'Nieznany błąd API')
+            raise Exception(f"Baselinker API error: {error_message}")
+        
+        return result.get('orders', [])
+        
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Błąd połączenia z Baselinker: {str(e)}")
+
+
+def _process_order_for_gluing(order, name_parser):
+    """
+    Przetwarza pojedyncze zamówienie - tworzy rekordy w prod_gluing_items
+    
+    Args:
+        order (dict): Dane zamówienia z Baselinker
+        name_parser (ProductionNameParser): Instance parsera
+        
+    Returns:
+        dict: Statystyki przetwarzania
+    """
+    from flask import current_app
+    
+    order_id = int(order.get('order_id'))
+    customer_name = order.get('delivery_fullname', '') or order.get('invoice_fullname', '')
+    internal_order_number = order.get('user_comments', '').split('\n')[0] if order.get('user_comments') else ''
+    
+    # Pobierz konfigurację API
+    api_config = current_app.config.get('API_BASELINKER', {})
+    api_key = api_config.get('api_key')
+    api_endpoint = api_config.get('endpoint')
+    
+    # Pobierz produkty z zamówienia (Baselinker zawiera je w strukturze zamówienia)
+    products = order.get('products', [])
+
+    # Jeśli nie ma produktów w zamówieniu, spróbuj alternatywnej struktury
+    if not products:
+        # Sprawdź inne możliwe lokalizacje produktów w strukturze
+        products = order.get('order_products', []) or order.get('items', [])
+    
+    if not products:
+        production_logger.warning(f"Brak produktów w zamówieniu {order_id}")
+        # Dla debugowania - wyświetl strukturę zamówienia
+        production_logger.debug(f"Struktura zamówienia {order_id}: {list(order.keys())}")
+    
+    stats = {
+        'products_found': len(products),
+        'items_created': 0,
+        'items_updated': 0,
+        'items_skipped': 0
+    }
+    
+    production_logger.info("Przetwarzanie zamówienia", 
+                         order_id=order_id, products_count=len(products))
+    
+    for product in products:
+        try:
+            product_stats = _process_product_for_gluing(order, product, name_parser)
+            stats['items_created'] += product_stats['items_created']
+            stats['items_updated'] += product_stats['items_updated']
+            stats['items_skipped'] += product_stats['items_skipped']
+            
+        except Exception as e:
+            production_logger.error("Błąd przetwarzania produktu", 
+                                  order_id=order_id, 
+                                  product_id=product.get('product_id'), 
+                                  error=str(e))
+            stats['items_skipped'] += 1
+            continue
+    
+    return stats
+
+
+def _process_product_for_gluing(order, product, name_parser):
+    """
+    Przetwarza pojedynczy produkt - tworzy/aktualizuje rekord w prod_gluing_items
+    
+    Args:
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu
+        name_parser (ProductionNameParser): Instance parsera
+        
+    Returns:
+        dict: Statystyki przetwarzania produktu
+    """
+    baselinker_order_id = int(order.get('order_id'))
+    product_id = int(product.get('product_id'))
+    product_name = product.get('name', '')
+    quantity = int(product.get('quantity', 1))
+    
+    stats = {
+        'items_created': 0,
+        'items_updated': 0,
+        'items_skipped': 0
+    }
+    
+    # Sprawdź czy produkt wymaga klejenia (heurystyka na podstawie nazwy)
+    if not _requires_gluing(product_name):
+        production_logger.debug("Produkt nie wymaga klejenia", 
+                              product_name=product_name)
+        stats['items_skipped'] = quantity
+        return stats
+    
+    # Parsuj nazwę produktu
+    try:
+        parsed_params = name_parser.parse_product_name(product_name)
+        production_logger.debug("Sparsowano parametry produktu", 
+                              product_name=product_name, 
+                              params=parsed_params)
+    except Exception as e:
+        production_logger.warning("Błąd parsowania nazwy produktu", 
+                                product_name=product_name, error=str(e))
+        # Fallback - podstawowe parametry
+        parsed_params = {
+            'wood_species': None,
+            'wood_technology': None,
+            'wood_class': None,
+            'dimensions_length': None,
+            'dimensions_width': None,
+            'dimensions_thickness': None,
+            'finish_type': None
+        }
+    
+    # Sprawdź czy produkty już istnieją w bazie
+    existing_items = ProdGluingItem.query.filter_by(
+        baselinker_order_id=baselinker_order_id,
+        baselinker_order_product_id=product_id
+    ).all()
+    
+    # Utwórz lub zaktualizuj produkty (quantity określa ile sztuk)
+    for seq in range(1, quantity + 1):
+        existing = None
+        for item in existing_items:
+            if item.item_sequence == seq:
+                existing = item
+                break
+        
+        if existing:
+            # Aktualizuj istniejący
+            updated = _update_gluing_item(existing, order, product, parsed_params)
+            if updated:
+                stats['items_updated'] += 1
+        else:
+            # Utwórz nowy
+            new_item = _create_gluing_item(order, product, parsed_params, seq)
+            if new_item:
+                stats['items_created'] += 1
+    
+    return stats
+
+
+def _requires_gluing(product_name):
+    """
+    Sprawdza czy produkt wymaga klejenia na podstawie nazwy
+    
+    Args:
+        product_name (str): Nazwa produktu
+        
+    Returns:
+        bool: True jeśli wymaga klejenia
+    """
+    product_name_lower = product_name.lower()
+    
+    # Słowa kluczowe wskazujące na produkty wymagające klejenia
+    gluing_keywords = [
+        'parkiet', 'deska', 'blat', 'panel', 'płyta',
+        'mikrowczep', 'trójwarstwowy', 'wielowarstwowy',
+        'laminowany', 'klejony'
+    ]
+    
+    # Słowa kluczowe wykluczające (gotowe produkty)
+    exclude_keywords = [
+        'akcesoria', 'klej', 'lakier', 'olej', 'wkręty',
+        'listwy', 'profiles', 'uszczelka', 'folia'
+    ]
+    
+    # Sprawdź wykluczenia
+    if any(keyword in product_name_lower for keyword in exclude_keywords):
+        return False
+    
+    # Sprawdź czy zawiera słowa kluczowe klejenia
+    return any(keyword in product_name_lower for keyword in gluing_keywords)
+
+
+def _create_gluing_item(order, product, parsed_params, sequence):
+    """
+    Tworzy nowy rekord ProdGluingItem
+    
+    Args:
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu  
+        parsed_params (dict): Sparsowane parametry
+        sequence (int): Numer sekwencyjny produktu
+        
+    Returns:
+        ProdGluingItem: Nowy rekord lub None w przypadku błędu
+    """
+    try:
+        # Przygotuj dane podstawowe
+        baselinker_order_id = int(order.get('order_id'))
+        product_id = int(product.get('product_id'))
+        product_name = product.get('name', '')
+        
+        # Utwórz display_name (skrócona nazwa)
+        display_name = _create_display_name(product_name, parsed_params)
+        
+        # Oblicz priorytet (podstawowy)
+        priority_score = _calculate_initial_priority(order, product, parsed_params)
+        priority_group = _get_priority_group(priority_score)
+        
+        # Utwórz rekord
+        new_item = ProdGluingItem(
+            baselinker_order_id=baselinker_order_id,
+            baselinker_order_product_id=product_id,
+            product_name=product_name,
+            display_name=display_name,
+            item_sequence=sequence,
+            
+            # Parametry drewna
+            wood_species=parsed_params.get('wood_species'),
+            wood_technology=parsed_params.get('wood_technology'), 
+            wood_class=parsed_params.get('wood_class'),
+            
+            # Wymiary
+            dimensions_length=parsed_params.get('dimensions_length'),
+            dimensions_width=parsed_params.get('dimensions_width'),
+            dimensions_thickness=parsed_params.get('dimensions_thickness'),
+            
+            # Wykończenie
+            finish_type=parsed_params.get('finish_type'),
+            
+            # Priorytety
+            priority_score=priority_score,
+            priority_group=priority_group,
+            
+            # Status
+            status='pending',
+            
+            # Metadane
+            imported_from_baselinker_at=get_local_datetime()
+        )
+        
+        db.session.add(new_item)
+        
+        production_logger.debug("Utworzono nowy produkt gluing", 
+                              order_id=baselinker_order_id,
+                              product_name=display_name,
+                              sequence=sequence)
+        
+        return new_item
+        
+    except Exception as e:
+        production_logger.error("Błąd tworzenia produktu gluing", 
+                              order_id=order.get('order_id'),
+                              product_id=product.get('product_id'),
+                              error=str(e))
+        return None
+
+
+def _update_gluing_item(item, order, product, parsed_params):
+    """
+    Aktualizuje istniejący rekord ProdGluingItem
+    
+    Args:
+        item (ProdGluingItem): Istniejący rekord
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu
+        parsed_params (dict): Sparsowane parametry
+        
+    Returns:
+        bool: True jeśli zaktualizowano
+    """
+    try:
+        updated = False
+        
+        # Zaktualizuj podstawowe dane jeśli się zmieniły
+        product_name = product.get('name', '')
+        if item.product_name != product_name:
+            item.product_name = product_name
+            item.display_name = _create_display_name(product_name, parsed_params)
+            updated = True
+        
+        # Zaktualizuj parametry drewna jeśli nie były ustawione
+        if not item.wood_species and parsed_params.get('wood_species'):
+            item.wood_species = parsed_params.get('wood_species')
+            updated = True
+            
+        if not item.wood_technology and parsed_params.get('wood_technology'):
+            item.wood_technology = parsed_params.get('wood_technology')
+            updated = True
+            
+        if not item.wood_class and parsed_params.get('wood_class'):
+            item.wood_class = parsed_params.get('wood_class')
+            updated = True
+        
+        # Zaktualizuj wymiary jeśli nie były ustawione
+        if not item.dimensions_length and parsed_params.get('dimensions_length'):
+            item.dimensions_length = parsed_params.get('dimensions_length')
+            updated = True
+            
+        if not item.dimensions_width and parsed_params.get('dimensions_width'):
+            item.dimensions_width = parsed_params.get('dimensions_width')
+            updated = True
+            
+        if not item.dimensions_thickness and parsed_params.get('dimensions_thickness'):
+            item.dimensions_thickness = parsed_params.get('dimensions_thickness')
+            updated = True
+        
+        # Zaktualizuj wykończenie
+        if not item.finish_type and parsed_params.get('finish_type'):
+            item.finish_type = parsed_params.get('finish_type')
+            updated = True
+        
+        # Zawsze aktualizuj timestamp synchronizacji
+        item.imported_from_baselinker_at = get_local_datetime()
+        item.updated_at = get_local_datetime()
+        
+        if updated:
+            production_logger.debug("Zaktualizowano produkt gluing", 
+                                  item_id=item.id,
+                                  product_name=item.display_name)
+        
+        return updated
+        
+    except Exception as e:
+        production_logger.error("Błąd aktualizacji produktu gluing", 
+                              item_id=item.id, error=str(e))
+        return False
+
+
+def _create_display_name(product_name, parsed_params):
+    """
+    Tworzy skróconą nazwę wyświetlaną na podstawie parametrów
+    
+    Args:
+        product_name (str): Pełna nazwa produktu
+        parsed_params (dict): Sparsowane parametry
+        
+    Returns:
+        str: Nazwa wyświetlana
+    """
+    try:
+        # Jeśli mamy sparsowane parametry, skonstruuj nazwę
+        if parsed_params.get('wood_species'):
+            parts = []
+            
+            # Typ produktu (pierwsze słowo)
+            first_word = product_name.split()[0] if product_name else 'Produkt'
+            parts.append(first_word.capitalize())
+            
+            # Gatunek
+            if parsed_params.get('wood_species'):
+                parts.append(parsed_params['wood_species'])
+            
+            # Klasa
+            if parsed_params.get('wood_class'):
+                parts.append(parsed_params['wood_class'])
+                
+            return ' '.join(parts)
+        
+        # Fallback - skróć oryginalną nazwę do 50 znaków
+        if len(product_name) > 50:
+            return product_name[:47] + '...'
+        
+        return product_name
+        
+    except Exception:
+        return product_name[:50] if product_name else 'Nieznany produkt'
+
+
+def _calculate_initial_priority(order, product, parsed_params):
+    """
+    Oblicza początkowy priorytet produktu
+    
+    Args:
+        order (dict): Dane zamówienia
+        product (dict): Dane produktu
+        parsed_params (dict): Sparsowane parametry
+        
+    Returns:
+        int: Wynik priorytetu (0-100)
+    """
+    try:
+        priority = 50  # Bazowy priorytet
+        
+        # Zwiększ priorytet dla wysokiej klasy
+        wood_class = parsed_params.get('wood_class', '')
+        if 'A/A' in wood_class:
+            priority += 20
+        elif 'A/B' in wood_class:
+            priority += 10
+        elif 'B/B' in wood_class:
+            priority += 5
+        
+        # Zwiększ priorytet dla dużych wymiarów (blaty)
+        thickness = parsed_params.get('dimensions_thickness', 0) or 0
+        width = parsed_params.get('dimensions_width', 0) or 0
+        
+        if thickness >= 3.0:  # Grube blaty
+            priority += 15
+        if width >= 40:  # Szerokie blaty
+            priority += 10
+            
+        # Ograniczenia
+        priority = max(0, min(100, priority))
+        
+        return priority
+        
+    except Exception:
+        return 50  # Domyślny priorytet
+
+
+def _get_priority_group(priority_score):
+    """
+    Określa grupę priorytetową na podstawie wyniku
+    
+    Args:
+        priority_score (int): Wynik priorytetu
+        
+    Returns:
+        str: Grupa priorytetowa
+    """
+    if priority_score >= 80:
+        return 'PRIORITY_HIGH'
+    elif priority_score >= 60:
+        return 'PRIORITY_MEDIUM'
+    else:
+        return 'PRIORITY_LOW'
+
+def recalculate_all_priorities():
+    """
+    Przelicza priorytety wszystkich produktów pending
+    """
+    try:
+        items = ProdGluingItem.get_items_by_status('pending')
+        updated_count = 0
+        
+        for item in items:
+            old_priority = item.priority_score
+            new_priority = item.calculate_priority_score()
+            if old_priority != new_priority:
+                updated_count += 1
+        
+        if updated_count > 0:
+            db.session.commit()
+            production_logger.info("Przeliczono priorytety", updated_count=updated_count)
+        
+        return {'success': True, 'updated_count': updated_count}
+        
+    except Exception as e:
+        production_logger.error("Błąd przeliczania priorytetów", error=str(e))
+        db.session.rollback()
+        raise
+
+def get_gluing_dashboard_data():
+    """
+    Pobiera dane dla dashboardu gluing (tablet interface)
+    """
+    try:
+        # Statystyki ogólne
+        total_items = ProdGluingItem.query.count()
+        pending_items = ProdGluingItem.query.filter_by(status='pending').count()
+        in_progress_items = ProdGluingItem.query.filter_by(status='in_progress').count()
+        completed_today = ProdGluingItem.query.join(ProdGluingAssignment).filter(
+            ProdGluingAssignment.completed_at >= date.today()
+        ).count()
+        
+        # Stanowiska z danymi
+        stations = ProdGluingStation.get_stations_with_stats()
+        
+        # Kolejka (top 20)
+        queue_items = ProdGluingItem.get_queue_items(limit=20)
+        
+        # Aktywne przypisania
+        active_assignments = ProdGluingAssignment.query.filter(
+            ProdGluingAssignment.completed_at.is_(None)
+        ).all()
+        
+        dashboard_data = {
+            'stats': {
+                'total_items': total_items,
+                'pending_items': pending_items,
+                'in_progress_items': in_progress_items,
+                'completed_today': completed_today
+            },
+            'stations': stations,
+            'queue_items': [item.to_dict() for item in queue_items],
+            'active_assignments': [assignment.to_dict() for assignment in active_assignments],
+            'config': {
+                'gluing_time_minutes': int(ProdGluingConfig.get_value('gluing_time_minutes', 20)),
+                'auto_suggest_enabled': ProdGluingConfig.get_value('auto_suggest_enabled', '1') == '1',
+                'show_priority_numbers': ProdGluingConfig.get_value('show_priority_numbers', '1') == '1'
+            }
+        }
+        
+        production_logger.debug("Wygenerowano dane dashboardu gluing", 
+                              total_items=total_items, pending_items=pending_items)
+        
+        return dashboard_data
+        
+    except Exception as e:
+        production_logger.error("Błąd generowania danych dashboardu", error=str(e))
+        raise

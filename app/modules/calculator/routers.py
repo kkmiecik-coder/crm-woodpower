@@ -46,7 +46,7 @@ def calculator_home():
     # Pobieranie mnożników z bazy
     multipliers_query = Multiplier.query.all()
     multipliers_list = [
-        {"label": m.client_type, "value": m.multiplier}
+        {"id": m.id, "label": m.client_type, "value": m.multiplier}
         for m in multipliers_query
     ]
     multipliers_json = json.dumps(multipliers_list)

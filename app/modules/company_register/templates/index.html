@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Rejestr firm - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('register.static', filename='css/register.css') }}">
+</head>
+<body>
+    <div class="app-container register-app">
+        {% include 'sidebar/sidebar.html' %}
+
+        <main class="main-content">
+            <!-- Header Section -->
+            <div class="page-header">
+                <div class="header-content">
+                    <h1 class="page-title">Rejestry firm</h1>
+                    <button id="openSearchModal" class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+                        </svg>
+                        Szukaj firmy
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters Section -->
+            <div class="filters-card">
+                <div class="filters-row">
+                    <input type="text" id="filterNip" placeholder="NIP" class="filter-input">
+                    <input type="text" id="filterName" placeholder="Nazwa firmy" class="filter-input">
+                    <input type="text" id="filterPkd" placeholder="Kod PKD / Branża" class="filter-input">
+                    <div class="date-filters">
+                        <label class="date-label">
+                            <span>Data od:</span>
+                            <input type="date" id="filterDateFrom" class="filter-input">
+                        </label>
+                        <label class="date-label">
+                            <span>Data do:</span>
+                            <input type="date" id="filterDateTo" class="filter-input">
+                        </label>
+                    </div>
+                    <button id="applyFilters" class="btn btn-secondary">Filtruj</button>
+                </div>
+            </div>
+
+            <!-- Table Section -->
+            <div class="table-card">
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="nip" class="sortable">
+                                    NIP
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th data-sort="company_name" class="sortable">
+                                    Nazwa firmy
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th data-sort="pkd_main" class="sortable">
+                                    PKD
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th data-sort="industry_desc" class="sortable">
+                                    Branża
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th data-sort="phone" class="sortable">
+                                    Telefon
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th data-sort="email" class="sortable">
+                                    Email
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th data-sort="foundation_date" class="sortable">
+                                    Data utworzenia
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th data-sort="status" class="sortable">
+                                    Status
+                                    <svg class="sort-icon" width="12" height="12" viewBox="0 0 24 24">
+                                        <path d="M7 14l5-5 5 5z" />
+                                    </svg>
+                                </th>
+                                <th class="actions-col">Akcje</th>
+                            </tr>
+                        </thead>
+                        <tbody id="companiesTableBody">
+                            <!-- Dane będą wstawione przez JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination-wrapper">
+                    <div id="pagination" class="pagination"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Search Modal -->
+    <div id="searchModal" class="modal" style="display:none;">
+        <div class="modal-backdrop" id="modalBackdrop"></div>
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2 id="modalTitle">Wyszukaj firmę</h2>
+                <button id="modalClose" class="close-btn" aria-label="Zamknij">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Step 1: Search Form -->
+            <div id="searchStep1" class="modal-body">
+                <div class="search-form">
+                    <div class="form-group">
+                        <label for="searchRegister">Rejestr</label>
+                        <select id="searchRegister" class="form-select">
+                            <option value="">Wybierz rejestr</option>
+                            <option value="CEIDG">CEIDG</option>
+                            <option value="KRS">KRS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="searchNip">NIP</label>
+                        <input type="text" id="searchNip" placeholder="Numer NIP" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="searchRegon">REGON</label>
+                        <input type="text" id="searchRegon" placeholder="Numer REGON" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="searchName">Nazwa firmy</label>
+                        <input type="text" id="searchName" placeholder="Nazwa firmy" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="searchPkd">Kod PKD</label>
+                        <input type="text" id="searchPkd" placeholder="Kod PKD" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="searchDateFrom">Data od</label>
+                        <input type="date" id="searchDateFrom" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="searchDateTo">Data do</label>
+                        <input type="date" id="searchDateTo" class="form-input">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="startSearch" class="btn btn-primary">Wyszukaj</button>
+                    <button id="cancelSearch" class="btn btn-secondary">Anuluj</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Search Results -->
+            <div id="searchStep2" class="modal-body" style="display:none;">
+                <div id="searchInfo" class="search-info"></div>
+                <div class="results-table-wrapper">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th class="checkbox-col">
+                                    <input type="checkbox" id="selectAllResults" checked>
+                                </th>
+                                <th>NIP</th>
+                                <th>Nazwa</th>
+                                <th>PKD</th>
+                                <th>Branża</th>
+                                <th>Data utworzenia</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="searchResultsBody">
+                            <!-- Wyniki wyszukiwania -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-actions">
+                    <button id="saveSelected" class="btn btn-success">Zapisz wybrane</button>
+                    <button id="backToSearch" class="btn btn-secondary">Wróć do wyszukiwania</button>
+                    <button id="closeModal" class="btn btn-secondary">Anuluj</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="detailsModal" class="modal" style="display:none;">
+        <div class="modal-backdrop" id="detailsBackdrop"></div>
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2>Szczegóły firmy</h2>
+                <button id="detailsClose" class="close-btn" aria-label="Zamknij">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="details-wrapper">
+                    <table class="details-table">
+                        <tbody id="detailsTableBody">
+                            <!-- Szczegóły firmy -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display:none;">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <span class="loading-text">Ładowanie...</span>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast" style="display:none;"></div>
+
+    <script src="{{ url_for('register.static', filename='js/register.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+</body>
+</html>

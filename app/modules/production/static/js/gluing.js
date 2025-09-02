@@ -1,1364 +1,1266 @@
 /**
- * GLUING DASHBOARD - JavaScript Logic
- * Obsługuje interfejs stanowiska sklejania
+ * GLUING DASHBOARD - JavaScript dla nowego interfejsu tabletu klejenia
+ * Wykorzystuje API endpoints z backendu: /production/api/gluing/*
  */
 
-// === KONFIGURACJA ===
-const GLUING_CONFIG = {
-    refreshInterval: 180000, // ZMIANA: 3 minuty zamiast 30 sekund
-    timerInterval: 1000,     // 1 sekunda - aktualizacja timerów
-    apiEndpoints: {
-        queue: '/production/api/queue',
-        stations: '/production/api/stations/status',
-        workers: '/production/api/workers',
-        startProduction: '/production/api/item/{itemId}/start',
-        completeProduction: '/production/api/item/{itemId}/complete'
+class GluingDashboard {
+    constructor() {
+        // Stan aplikacji
+        this.products = [];
+        this.stations = [];
+        this.filteredProducts = [];
+        this.selectedProduct = null;
+        this.activeFilters = {
+            species: [],
+            technology: [],
+            wood_class: [],
+            thickness: []
+        };
+        this.connectionStatus = 'connected';
+        this.refreshInterval = null;
+        this.autoRefreshSeconds = 30;
+
+        // Konfiguracja API
+        this.apiBase = '/production/api/gluing';
+
+        // Elementy DOM
+        this.elements = {};
+
+        // Bind methods
+        this.refreshData = this.refreshData.bind(this);
+        this.handleProductClick = this.handleProductClick.bind(this);
+        this.handleStationClick = this.handleStationClick.bind(this);
     }
-};
 
-// === ZMIENNE GLOBALNE ===
-let gluingState = {
-    stations: [],
-    workers: [],
-    products: [],
-    selectedProduct: null,
-    selectedStation: null,
-    selectedWorker: null,
-    timers: {},
-    refreshTimer: null,
-    lastSync: null
-};
+    /**
+     * Inicjalizacja aplikacji
+     */
+    async init() {
+        console.log('🚀 Inicjalizacja Gluing Dashboard');
 
-// === INICJALIZACJA ===
-document.addEventListener('DOMContentLoaded', function () {
-    initializeGluingDashboard();
-});
+        try {
+            // Znajdź elementy DOM
+            this.findDOMElements();
 
-/**
- * Główna funkcja inicjalizująca
- */
-function initializeGluingDashboard() {
-    console.log('🚀 Inicjalizacja Gluing Dashboard');
+            // Ustaw event listenery
+            this.setupEventListeners();
 
-    // Binduj eventy
-    bindEvents();
+            // Załaduj początkowe dane
+            await this.loadInitialData();
 
-    bindEventsAddition();
+            // Uruchom auto-refresh
+            this.startAutoRefresh();
 
-    // Załaduj dane początkowe
-    loadInitialData();
+            console.log('✅ Gluing Dashboard zainicjalizowany');
 
-    // Uruchom odświeżanie
-    startAutoRefresh();
+        } catch (error) {
+            console.error('❌ Błąd inicjalizacji:', error);
+            this.showToast('Błąd inicjalizacji aplikacji', 'error');
+        }
+    }
 
+    /**
+     * Znajdź wszystkie potrzebne elementy DOM
+     */
+    findDOMElements() {
+        // Status połączenia
+        this.elements.connectionStatus = document.getElementById('connectionStatus');
+        this.elements.refreshBtn = document.getElementById('refreshDataBtn');
 
-}
+        // Sekcja maszyn
+        this.elements.machinesGrid = document.querySelector('.gluing-machines-grid');
 
-/**
- * Bindowanie eventów do elementów
- */
-function bindEvents() {
-    // Przycisk odświeżania
-    document.getElementById('refreshBtn')?.addEventListener('click', function () {
-        refreshAllData();
-    });
+        // Sekcja produktów
+        this.elements.productsGrid = document.getElementById('productsGrid');
+        this.elements.filtersContainer = document.getElementById('filtersContainer');
+        this.elements.clearFiltersBtn = document.getElementById('clearFiltersBtn');
+        this.elements.totalCount = document.getElementById('totalProductsCount');
+        this.elements.selectedIndicator = document.getElementById('selectedProductIndicator');
 
-    // Modal - przycisk rozpoczęcia produkcji
-    document.getElementById('startProductionBtn')?.addEventListener('click', startProduction);
+        // Modal
+        this.elements.modal = document.getElementById('assignmentModal');
+        this.elements.modalClose = document.getElementById('closeAssignmentModal');
+        this.elements.modalCancel = document.getElementById('cancelAssignment');
+        this.elements.modalConfirm = document.getElementById('confirmAssignment');
+        this.elements.modalProductDetails = document.getElementById('assignmentProductDetails');
+        this.elements.modalStationDetails = document.getElementById('assignmentStationDetails');
 
-    // Modal - przycisk następnego produktu
-    document.getElementById('nextProductBtn')?.addEventListener('click', function () {
-        const modal = bootstrap.Modal.getInstance(document.getElementById('completionModal'));
-        modal.hide();
+        // Toast container
+        this.elements.toastContainer = document.getElementById('toastContainer');
 
-        // Otwórz modal wyboru dla kolejnego produktu
-        setTimeout(() => {
-            if (gluingState.selectedStation) {
-                showStationWorkerModal(null, gluingState.selectedStation.id);
+        // Sprawdź czy wszystkie kluczowe elementy istnieją
+        const required = ['machinesGrid', 'productsGrid', 'filtersContainer'];
+        for (const key of required) {
+            if (!this.elements[key]) {
+                throw new Error(`Nie znaleziono elementu: ${key}`);
             }
-        }, 300);
-    });
-
-    // Obsługa zamknięcia modali
-    document.getElementById('stationWorkerModal')?.addEventListener('hidden.bs.modal', function () {
-        resetModalState();
-    });
-}
-
-/**
- * Ładowanie danych początkowych
- */
-async function loadInitialData() {
-    showLoadingState();
-
-    try {
-        // Równoległe ładowanie wszystkich danych
-        const [stationsResult, workersResult, productsResult] = await Promise.all([
-            fetchStations(),
-            fetchWorkers(),
-            fetchProducts()
-        ]);
-
-        if (stationsResult.success && workersResult.success && productsResult.success) {
-            gluingState.stations = stationsResult.data;
-            gluingState.workers = workersResult.data;
-            gluingState.products = productsResult.data;
-
-            renderStations();
-            renderProducts();
-            updateLastSyncTime();
-
-            showToast('success', 'Dane zostały załadowane pomyślnie');
-        } else {
-            throw new Error('Błąd podczas ładowania danych');
-        }
-
-    } catch (error) {
-        console.error('❌ Błąd ładowania danych:', error);
-        showToast('error', 'Błąd podczas ładowania danych');
-        showErrorState();
-    }
-}
-
-/**
- * Odświeżanie wszystkich danych
- */
-async function refreshAllData() {
-    const refreshBtn = document.getElementById('refreshBtn');
-    const originalIcon = refreshBtn?.querySelector('i');
-
-    if (originalIcon) {
-        originalIcon.className = 'fas fa-spinner fa-spin';
-    }
-
-    try {
-        await loadInitialData();
-    } finally {
-        if (originalIcon) {
-            originalIcon.className = 'fas fa-sync-alt';
         }
     }
-}
 
-/**
- * Aktualizuj dane stanowisk bez przeładowania
- */
-function updateStationsData(newStationsData) {
-    const oldStations = [...gluingState.stations];
-    gluingState.stations = newStationsData;
-
-    // Sprawdź zmiany i aktualizuj tylko różniące się stanowiska
-    newStationsData.forEach(newStation => {
-        const oldStation = oldStations.find(s => s.id === newStation.id);
-
-        if (!oldStation || hasStationChanged(oldStation, newStation)) {
-            updateSingleStation(newStation);
+    /**
+     * Ustaw event listenery
+     */
+    setupEventListeners() {
+        // Przycisk odświeżania
+        if (this.elements.refreshBtn) {
+            this.elements.refreshBtn.addEventListener('click', this.refreshData);
         }
-    });
-}
 
-/**
- * Sprawdź czy stanowisko się zmieniło
- */
-function hasStationChanged(oldStation, newStation) {
-    return (
-        oldStation.is_busy !== newStation.is_busy ||
-        oldStation.current_item_id !== newStation.current_item_id ||
-        oldStation.working_time_seconds !== newStation.working_time_seconds
-    );
-}
+        // Przycisk czyszczenia filtrów
+        if (this.elements.clearFiltersBtn) {
+            this.elements.clearFiltersBtn.addEventListener('click', () => {
+                this.clearAllFilters();
+            });
+        }
 
-/**
- * Aktualizuj pojedyncze stanowisko
- */
-function updateSingleStation(station) {
-    const stationElement = document.querySelector(`[data-station-id="${station.id}"]`);
-    if (!stationElement) return;
+        // Modal - zamknięcie
+        if (this.elements.modalClose) {
+            this.elements.modalClose.addEventListener('click', () => {
+                this.hideModal();
+            });
+        }
 
-    if (station.is_busy) {
-        const statusClass = getStationStatusClass('active');
-        stationElement.className = `prod-work-station ${statusClass}`;
-        stationElement.innerHTML = renderActiveStationContent(station);
-    } else {
-        stationElement.className = 'prod-work-station idle';
-        stationElement.innerHTML = `
-            <div class="prod-work-station-name">${station.name}</div>
-            <div class="prod-work-station-status">Bezczynny</div>
-        `;
-    }
-}
+        if (this.elements.modalCancel) {
+            this.elements.modalCancel.addEventListener('click', () => {
+                this.hideModal();
+            });
+        }
 
-/**
- * Aktualizuj dane produktów bez przeładowania
- */
-function updateProductsData(newProductsData) {
-    const oldProducts = [...gluingState.products];
-    gluingState.stations = newProductsData;
+        // Modal - potwierdzenie przypisania
+        if (this.elements.modalConfirm) {
+            this.elements.modalConfirm.addEventListener('click', () => {
+                this.confirmAssignment();
+            });
+        }
 
-    // Sprawdź czy są nowe produkty
-    const newProductIds = newProductsData.map(p => p.id);
-    const oldProductIds = oldProducts.map(p => p.id);
-
-    const addedProducts = newProductsData.filter(p => !oldProductIds.includes(p.id));
-    const removedProductIds = oldProductIds.filter(id => !newProductIds.includes(id));
-
-    // Dodaj nowe produkty na początku listy
-    if (addedProducts.length > 0) {
-        addedProducts.forEach(product => {
-            addProductToGrid(product, true); // true = dodaj na początku
+        // Zamknięcie modala na ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !this.elements.modal.classList.contains('hidden')) {
+                this.hideModal();
+            }
         });
-        showToast('info', `Dodano ${addedProducts.length} nowych produktów`);
-    }
 
-    // Usuń zakończone produkty
-    if (removedProductIds.length > 0) {
-        removedProductIds.forEach(productId => {
-            removeProductFromGrid(productId);
-        });
-    }
-
-    // Aktualizuj licznik
-    document.getElementById('queueCount').textContent = newProductsData.length;
-    gluingState.products = newProductsData;
-}
-
-/**
- * DODAJ OBSŁUGĘ EVENT LISTENERA dla przycisków akcji
- */
-function bindEventsAddition() {
-    // Dodaj do istniejącej funkcji bindEvents() - na końcu tej funkcji
-    
-    // Obsługa przycisków rozpocznij z loading state
-    document.addEventListener('click', function(e) {
-        if (e.target.classList.contains('prod-mod-prod-card-action-button') || 
-            e.target.closest('.prod-mod-prod-card-action-button')) {
-            
-            const button = e.target.classList.contains('prod-mod-prod-card-action-button') ? 
-                          e.target : e.target.closest('.prod-mod-prod-card-action-button');
-            
-            // Dodaj loading state
-            const originalContent = button.innerHTML;
-            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ŁADOWANIE...';
-            button.disabled = true;
-            button.style.background = '#6c757d';
-            
-            // Przywróć oryginalny stan po 2 sekundach (gdyby coś poszło nie tak)
-            setTimeout(() => {
-                if (button.disabled) {
-                    button.innerHTML = originalContent;
-                    button.disabled = false;
-                    button.style.background = '#28a745';
+        // Zamknięcie modala na klik w tło
+        if (this.elements.modal) {
+            this.elements.modal.addEventListener('click', (e) => {
+                if (e.target === this.elements.modal) {
+                    this.hideModal();
                 }
-            }, 2000);
+            });
         }
-    });
-}
+    }
 
-/**
- * Dodaj produkt do gridu
- */
-function addProductToGrid(product, prepend = false) {
-    const container = document.getElementById('productsGrid');
-    if (!container) return;
+    /**
+     * Załaduj początkowe dane z API
+     */
+    async loadInitialData() {
+        console.log('📡 Ładowanie danych początkowych');
 
-    const priorityClass = getPriorityClass(product);
-    const priorityNumber = product.priority_score || 0;
-    
-    // Określ klasy CSS dla specyfikacji
-    const woodSpeciesClass = getWoodSpeciesClass(product.wood_species);
-    const technologyClass = getTechnologyClass(product.wood_technology);
-    const classTypeClass = getClassTypeClass(product.wood_class);
-    const deadlineClass = getDeadlineClass(product.deadline_date);
-    
-    // Formatuj wymiary
-    const dimensions = formatProductDimensions(product);
-    
-    const productHTML = `
-        <div class="prod-mod-prod-card-product-box prod-mod-prod-card-${priorityClass}" data-product-id="${product.id}">
-            <div class="prod-mod-prod-card-priority-box">${priorityNumber}</div>
-            
-            <div class="prod-mod-prod-card-product-name">${product.product_name || 'Produkt bez nazwy'}</div>
-            
-            <div class="prod-mod-prod-card-specifications-container">
-                <div class="prod-mod-prod-card-info-column ${woodSpeciesClass}">
-                    <div class="prod-mod-prod-card-info-label">GATUNEK</div>
-                    <div class="prod-mod-prod-card-info-value">${product.wood_species || '-'}</div>
-                </div>
-                
-                <div class="prod-mod-prod-card-info-column ${technologyClass}">
-                    <div class="prod-mod-prod-card-info-label">TECHNOLOGIA</div>
-                    <div class="prod-mod-prod-card-info-value">${product.wood_technology || '-'}</div>
-                </div>
-                
-                <div class="prod-mod-prod-card-info-column ${classTypeClass}">
-                    <div class="prod-mod-prod-card-info-label">KLASA</div>
-                    <div class="prod-mod-prod-card-info-value">${product.wood_class || '-'}</div>
-                </div>
-                
-                <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions">
-                    <div class="prod-mod-prod-card-info-label">WYMIARY</div>
-                    <div class="prod-mod-prod-card-info-value">${dimensions}</div>
-                </div>
-                
-                <div class="prod-mod-prod-card-info-column prod-mod-prod-card-quantity-column">
-                    <div class="prod-mod-prod-card-info-label">ILOŚĆ</div>
-                    <div class="prod-mod-prod-card-info-value">${product.quantity || 1} szt.</div>
-                </div>
-                
-                <div class="prod-mod-prod-card-info-column ${deadlineClass}">
-                    <div class="prod-mod-prod-card-info-label">TERMIN</div>
-                    <div class="prod-mod-prod-card-info-value">${formatDeadlineText(product.deadline_date)}</div>
-                </div>
-            </div>
-            
-            <button type="button" class="prod-mod-prod-card-action-button" onclick="showStationWorkerModal(${product.id})">
-                <i class="fas fa-play"></i>
-                ROZPOCZNIJ
-            </button>
-        </div>
-    `;
+        try {
+            // Pokaż loading
+            this.setConnectionStatus('loading', 'Ładowanie danych...');
 
-    if (prepend && container.firstChild) {
-        container.insertAdjacentHTML('afterbegin', productHTML);
-    } else {
-        container.insertAdjacentHTML('beforeend', productHTML);
-    }
-}
+            // Ładuj równolegle produkty i stanowiska
+            const [productsResponse, stationsResponse] = await Promise.all([
+                this.apiCall('/items'),
+                this.apiCall('/stations')
+            ]);
 
-/**
- * NOWY KOD - Określa klasę CSS dla gatunku drewna
- */
-function getWoodSpeciesClass(species) {
-    if (!species) return '';
-    
-    const speciesLower = species.toLowerCase();
-    if (speciesLower.includes('dąb') || speciesLower.includes('dab')) {
-        return 'prod-mod-prod-card-spec-wood-dab';
-    }
-    if (speciesLower.includes('buk')) {
-        return 'prod-mod-prod-card-spec-wood-buk';
-    }
-    if (speciesLower.includes('jesion')) {
-        return 'prod-mod-prod-card-spec-wood-jesion';
-    }
-    if (speciesLower.includes('sosna')) {
-        return 'prod-mod-prod-card-spec-wood-sosna';
-    }
-    return '';
-}
+            // Przetwórz dane
+            this.products = productsResponse || [];
+            this.stations = stationsResponse || [];
+            this.filteredProducts = [...this.products];
 
-/**
- * NOWY KOD - Określa klasę CSS dla technologii
- */
-function getTechnologyClass(technology) {
-    if (!technology) return '';
-    
-    const techLower = technology.toLowerCase();
-    if (techLower.includes('lita') || techLower.includes('lity')) {
-        return 'prod-mod-prod-card-spec-tech-lita';
-    }
-    if (techLower.includes('mikrowczep')) {
-        return 'prod-mod-prod-card-spec-tech-mikrowczep';
-    }
-    return '';
-}
+            console.log(`📦 Załadowano ${this.products.length} produktów`);
+            console.log(`🏭 Załadowano ${this.stations.length} stanowisk`);
 
-/**
- * NOWY KOD - Określa klasę CSS dla klasy drewna
- */
-function getClassTypeClass(woodClass) {
-    if (!woodClass) return '';
-    
-    const classLower = woodClass.toLowerCase().replace(/[\/\s]/g, '');
-    if (classLower === 'aa' || classLower === 'a/a') {
-        return 'prod-mod-prod-card-spec-class-aa';
-    }
-    if (classLower === 'ab' || classLower === 'a/b') {
-        return 'prod-mod-prod-card-spec-class-ab';
-    }
-    if (classLower === 'bb' || classLower === 'b/b') {
-        return 'prod-mod-prod-card-spec-class-bb';
-    }
-    if (classLower.includes('rustic')) {
-        return 'prod-mod-prod-card-spec-class-rustic';
-    }
-    return '';
-}
+            // Renderuj interfejs
+            this.renderStations();
+            this.generateFilters();
+            this.renderProducts();
+            this.updateProductsCount();
 
-/**
- * NOWY KOD - Określa klasę CSS dla terminu realizacji
- */
-function getDeadlineClass(deadlineDate) {
-    if (!deadlineDate) return 'prod-mod-prod-card-deadline-future';
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const deadline = new Date(deadlineDate);
-    deadline.setHours(0, 0, 0, 0);
-    
-    const diffTime = deadline.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays < 0) {
-        return 'prod-mod-prod-card-deadline-past';
-    } else if (diffDays === 0) {
-        return 'prod-mod-prod-card-deadline-today';
-    } else if (diffDays === 1) {
-        return 'prod-mod-prod-card-deadline-tomorrow';
-    } else {
-        return 'prod-mod-prod-card-deadline-future';
-    }
-}
+            this.setConnectionStatus('connected', 'Połączono z bazą');
 
-/**
- * NOWY KOD - Formatuje tekst terminu realizacji
- */
-function formatDeadlineText(deadlineDate) {
-    if (!deadlineDate) return 'brak terminu';
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const deadline = new Date(deadlineDate);
-    deadline.setHours(0, 0, 0, 0);
-    
-    const diffTime = deadline.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays < 0) {
-        const daysPast = Math.abs(diffDays);
-        if (daysPast === 1) {
-            return 'wczoraj';
-        } else {
-            return `${daysPast} dni temu`;
+        } catch (error) {
+            console.error('❌ Błąd ładowania danych:', error);
+            this.setConnectionStatus('error', 'Błąd połączenia');
+            this.showToast('Błąd ładowania danych', 'error');
         }
-    } else if (diffDays === 0) {
-        return 'DZIŚ!';
-    } else if (diffDays === 1) {
-        return 'JUTRO';
-    } else if (diffDays <= 90) {
-        return `za ${diffDays} dni`;
-    } else {
-        return formatDate(deadlineDate);
     }
-}
 
-/**
- * Usuń produkt z gridu
- */
-function removeProductFromGrid(productId) {
-    const productElement = document.querySelector(`[data-product-id="${productId}"]`);
-    if (productElement) {
-        productElement.remove();
-    }
-}
+    /**
+     * Odświeżanie danych
+     */
+    async refreshData() {
+        console.log('🔄 Odświeżanie danych');
 
-/**
- * Inteligentne odświeżanie danych
- */
-async function refreshDataIncrementally() {
-    console.log('🔄 Inteligentne odświeżanie danych...');
+        try {
+            // Animacja przycisku
+            const refreshIcon = this.elements.refreshBtn?.querySelector('.gluing-refresh-icon');
+            if (refreshIcon) {
+                refreshIcon.style.transform = 'rotate(360deg)';
+                setTimeout(() => {
+                    refreshIcon.style.transform = 'rotate(0deg)';
+                }, 300);
+            }
 
-    try {
-        // 1. Odśwież statusy stanowisk (zawsze)
-        const stationsResult = await fetchStations();
-        if (stationsResult.success) {
-            updateStationsData(stationsResult.data);
+            await this.loadInitialData();
+
+        } catch (error) {
+            console.error('❌ Błąd odświeżania:', error);
+            this.showToast('Błąd odświeżania danych', 'error');
         }
-
-        // 2. Sprawdź czy są nowe produkty
-        const productsResult = await fetchProducts();
-        if (productsResult.success) {
-            updateProductsData(productsResult.data);
-        }
-
-        updateLastSyncTime();
-
-    } catch (error) {
-        console.error('❌ Błąd inteligentnego odświeżania:', error);
-    }
-}
-
-/**
- * Automatyczne odświeżanie
- */
-function startAutoRefresh() {
-    if (gluingState.refreshTimer) {
-        clearInterval(gluingState.refreshTimer);
     }
 
-    gluingState.refreshTimer = setInterval(() => {
-        // Inteligentne odświeżanie co 3 minuty
-        refreshDataIncrementally();
-    }, GLUING_CONFIG.refreshInterval);
+    /**
+     * Wywołanie API
+     */
+    async apiCall(endpoint, options = {}) {
+        const url = `${this.apiBase}${endpoint}`;
 
-    // Timery aktualizuj co sekundę
-    setInterval(updateStationTimers, GLUING_CONFIG.timerInterval);
-}
-
-// === API CALLS ===
-
-/**
- * Pobieranie statusu stanowisk
- */
-async function fetchStations() {
-    try {
-        const response = await fetch(GLUING_CONFIG.apiEndpoints.stations);
-        if (!response.ok) throw new Error('Network response was not ok');
-
-        const data = await response.json();
-        return { success: true, data: data.data || [] }; // ZMIANA: data.data zamiast data.stations
-    } catch (error) {
-        console.error('❌ Błąd pobierania stanowisk:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Pobieranie listy pracowników
- */
-async function fetchWorkers() {
-    try {
-        const response = await fetch('/production/api/workers');
-        if (!response.ok) throw new Error('Network response was not ok');
-
-        const data = await response.json();
-        return { success: true, data: data.workers || [] };
-    } catch (error) {
-        console.error('❌ Błąd pobierania pracowników:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Pobieranie kolejki produktów (wszystkie nieukończone)
- */
-async function fetchProducts() {
-    try {
-        // Pobierz wszystkie produkty oprócz completed
-        const response = await fetch('/production/api/items?status=pending&status=in_progress');
-        if (!response.ok) throw new Error('Network response was not ok');
-
-        const data = await response.json();
-        return { success: true, data: data.data || [] };
-    } catch (error) {
-        console.error('❌ Błąd pobierania produktów:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Rozpoczęcie produkcji
- */
-async function startProductionAPI(itemId, stationId, workerId) {
-    try {
-        const url = GLUING_CONFIG.apiEndpoints.startProduction.replace('{itemId}', itemId);
-        const response = await fetch(url, {
-            method: 'POST',
+        const defaultOptions = {
+            method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                station_id: stationId,
-                worker_id: workerId
-            })
+            ...options
+        };
+
+        console.log(`📡 API Call: ${defaultOptions.method} ${url}`);
+
+        try {
+            const response = await fetch(url, defaultOptions);
+
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            // Sprawdź czy odpowiedź ma format success/data
+            if (data.hasOwnProperty('success')) {
+                if (data.success) {
+                    return data.data || data;
+                } else {
+                    throw new Error(data.message || 'API zwróciło błąd');
+                }
+            }
+
+            return data;
+
+        } catch (error) {
+            console.error(`❌ API Call failed: ${url}`, error);
+
+            // Ustaw status połączenia na błąd
+            this.setConnectionStatus('error', 'Błąd połączenia z API');
+
+            throw error;
+        }
+    }
+
+    /**
+     * Renderowanie stanowisk
+     */
+    renderStations() {
+        if (!this.stations || this.stations.length === 0) {
+            console.log('⚠️ Brak danych stanowisk');
+            return;
+        }
+
+        console.log('🏭 Renderowanie stanowisk');
+
+        // Sortuj stanowiska według display_order lub machine/station number
+        const sortedStations = [...this.stations].sort((a, b) => {
+            if (a.display_order && b.display_order) {
+                return a.display_order - b.display_order;
+            }
+            // Fallback: sortuj według machine i station number
+            if (a.machine_number !== b.machine_number) {
+                return a.machine_number - b.machine_number;
+            }
+            return a.station_number - b.station_number;
         });
 
-        if (!response.ok) throw new Error('Network response was not ok');
+        // Znajdź wszystkie elementy stanowisk
+        const stationElements = this.elements.machinesGrid.querySelectorAll('.gluing-station');
 
-        const data = await response.json();
-        return { success: true, data: data };
-    } catch (error) {
-        console.error('❌ Błąd rozpoczęcia produkcji:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Zakończenie produkcji
- */
-async function completeProductionAPI(itemId) {
-    try {
-        const url = GLUING_CONFIG.apiEndpoints.completeProduction.replace('{itemId}', itemId);
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
+        sortedStations.forEach((station, index) => {
+            if (index < stationElements.length) {
+                this.renderSingleStation(station, stationElements[index]);
             }
         });
-
-        if (!response.ok) throw new Error('Network response was not ok');
-
-        const data = await response.json();
-        return { success: true, data: data };
-    } catch (error) {
-        console.error('❌ Błąd zakończenia produkcji:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// === RENDERING ===
-
-/**
- * Renderowanie stanowisk
- */
-function renderStations() {
-    const container = document.getElementById('stationsGrid');
-    if (!container) return;
-
-    const gluingStations = gluingState.stations.filter(station =>
-        station.station_type === 'gluing' && station.is_active
-    );
-
-    if (!gluingStations.length) {
-        container.innerHTML = `
-            <div class="prod-work-station-loading">
-                <i class="fas fa-exclamation-circle"></i>
-                <span>Brak dostępnych stanowisk sklejania</span>
-            </div>
-        `;
-        return;
     }
 
-    container.innerHTML = gluingStations.map(station => {
-        if (station.is_busy) {
-            // Aktywne stanowisko - tylko zawartość bez nazwy i statusu
-            const statusClass = getStationStatusClass('active');
-            return `
-                <div class="prod-work-station ${statusClass}" data-station-id="${station.id}">
-                    ${renderActiveStationContent(station)}
-                </div>
-            `;
+    /**
+     * Renderowanie pojedynczego stanowiska
+     */
+    renderSingleStation(station, element) {
+        if (!station || !element) return;
+
+        // Ustaw ID stanowiska
+        element.dataset.stationId = station.id;
+        element.dataset.machine = station.machine_number;
+        element.dataset.station = station.station_number;
+
+        // Znajdź elementy wewnętrzne
+        const label = element.querySelector('.gluing-station-label');
+        const status = element.querySelector('.gluing-station-status');
+        const content = element.querySelector('.gluing-station-content');
+        const capacity = element.querySelector('.gluing-station-capacity');
+
+        // Ustaw nazwę stanowiska
+        if (label) {
+            label.textContent = station.name;
+        }
+
+        // Sprawdź status stanowiska
+        const stationStatus = this.getStationStatus(station);
+
+        // Ustaw status
+        if (status) {
+            status.textContent = stationStatus.text;
+            status.className = `gluing-station-status ${stationStatus.class}`;
+        }
+
+        // Ustaw klasy CSS dla stanowiska
+        element.className = `gluing-station ${stationStatus.class}`;
+
+        // Ustaw pojemność
+        if (capacity) {
+            const occupancyPercent = this.calculateStationOccupancy(station);
+            capacity.textContent = `${occupancyPercent}%`;
+        }
+
+        // Ustaw zawartość
+        if (content) {
+            if (stationStatus.class === 'available') {
+                content.innerHTML = '<div class="gluing-empty-station">Kliknij, aby przypisać produkt</div>';
+            } else {
+                // Pokaż przypisane produkty (jeśli są)
+                content.innerHTML = this.renderStationProducts(station);
+            }
+        }
+
+        // Dodaj event listener
+        element.removeEventListener('click', this.handleStationClick);
+        element.addEventListener('click', (e) => this.handleStationClick(e, station));
+    }
+
+    /**
+     * Oblicz zajętość stanowiska
+     */
+    calculateStationOccupancy(station) {
+        // Tu będzie logika obliczania zajętości na podstawie przypisanych produktów
+        // Na razie zwracamy 0 - będzie rozwinięte gdy będą dane o assignments
+        return 0;
+    }
+
+    /**
+     * Sprawdź status stanowiska
+     */
+    getStationStatus(station) {
+        if (!station.status?.is_active) {
+            return { class: 'inactive', text: 'Nieaktywne' };
+        }
+        
+        if (station.status?.is_blocked) {
+            return { class: 'blocked', text: 'Zablokowane' };
+        }
+        
+        // GŁÓWNA POPRAWKA - sprawdź is_busy
+        if (station.status?.is_busy && station.current_items_count > 0) {
+            return { class: 'occupied', text: 'Zajęte' };
+        }
+        
+        // Sprawdź zajętość
+        const occupancy = station.occupancy_percent || 0;
+        
+        if (occupancy === 0) {
+            return { class: 'available', text: 'Wolne' };
+        } else if (occupancy < 100) {
+            return { class: 'occupied', text: 'Zajęte' };
         } else {
-            // Bezczynne stanowisko - z nazwą i statusem
+            return { class: 'full', text: 'Pełne' };
+        }
+    }
+
+    /**
+     * Renderuj produkty przypisane do stanowiska
+     */
+    renderStationProducts(station) {
+        if (station.current_items_count > 0) {
+            const occupancy = Math.round(station.occupancy_percent || 0);
             return `
-                <div class="prod-work-station idle" data-station-id="${station.id}">
-                    <div class="prod-work-station-name">${station.name}</div>
-                    <div class="prod-work-station-status">Bezczynny</div>
+                <div class="gluing-assigned-products">
+                    <div class="gluing-product-info">
+                        ${station.current_items_count} szt. • ${station.current_thickness}cm • ${occupancy}%
+                    </div>
+                    <button class="gluing-start-btn" 
+                            data-action="start-production" 
+                            data-station-id="${station.id}">
+                        ROZPOCZNIJ
+                    </button>
                 </div>
             `;
         }
-    }).join('');
-}
-
-/**
- * Renderowanie zawartości aktywnego stanowiska (bez nazwy stanowiska)
- */
-function renderActiveStationContent(station) {
-    const standardTimeMinutes = parseInt(document.querySelector('[data-config-gluing-time]')?.value) || 2;
-    const standardTimeSeconds = standardTimeMinutes * 60;
-
-    const workingSeconds = station.working_time_seconds || 0;
-    const remainingSeconds = standardTimeSeconds - workingSeconds;
-
-    // Format produktu z dużej litery na początku gatunku
-    let productInfo = 'Produkt';
-    if (station.current_product) {
-        const product = station.current_product;
-        const species = product.wood_species ? product.wood_species.charAt(0).toUpperCase() + product.wood_species.slice(1) : '';
-        const technology = product.wood_technology || '';
-        const woodClass = product.wood_class || '';
-        const dimensions = product.dimensions || `${product.dimensions_length || 0}×${product.dimensions_width || 0}×${product.dimensions_thickness || 0}`;
-
-        productInfo = `${species} ${technology} ${woodClass} ${dimensions} cm`.trim();
-    }
-
-    const workerName = station.current_worker ? station.current_worker.name : 'Pracownik';
-
-    return `
-        <div class="prod-work-station-header">
-            <div class="prod-work-station-product-info">${productInfo}</div>
-            <div class="prod-work-station-worker-info">${workerName}</div>
-        </div>
-        <div class="prod-work-station-timer" id="timer-${station.id}">
-            ${formatCountdownTimer(remainingSeconds)}
-        </div>
-        <button type="button" class="prod-work-station-btn" onclick="completeProduction(${station.current_item_id || 0})">
-            ZAKOŃCZ
-        </button>
-    `;
-}
-
-/**
- * Formatowanie timera odliczającego (MM:SS lub +MM:SS dla overtime)
- */
-function formatCountdownTimer(remainingSeconds) {
-    if (remainingSeconds > 0) {
-        // Normalny czas - odliczanie w dół
-        const minutes = Math.floor(remainingSeconds / 60);
-        const seconds = remainingSeconds % 60;
-        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    } else {
-        // Overtime - liczenie czasu przekroczenia
-        const overtimeSeconds = Math.abs(remainingSeconds);
-        const minutes = Math.floor(overtimeSeconds / 60);
-        const seconds = overtimeSeconds % 60;
-        return `+${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
-}
-
-/**
- * Renderowanie produktów
- */
-function renderProducts() {
-    const container = document.getElementById('productsGrid');
-    const countElement = document.getElementById('queueCount');
-
-    if (!container) return;
-
-    if (countElement) {
-        countElement.textContent = gluingState.products.length;
-    }
-
-    if (!gluingState.products.length) {
-        container.innerHTML = `
-            <div class="prod-work-products-loading">
-                <i class="fas fa-inbox"></i>
-                <span>Brak produktów w kolejce</span>
-            </div>
-        `;
-        return;
-    }
-
-    // Renderuj wszystkie produkty używając nowego designu
-    container.innerHTML = gluingState.products.map(product => {
-        const priorityClass = getPriorityClass(product);
-        const priorityNumber = product.priority_score || 0;
         
-        // Określ klasy CSS dla specyfikacji
-        const woodSpeciesClass = getWoodSpeciesClass(product.wood_species);
-        const technologyClass = getTechnologyClass(product.wood_technology);
-        const classTypeClass = getClassTypeClass(product.wood_class);
-        const deadlineClass = getDeadlineClass(product.deadline_date);
-        
-        // Formatuj wymiary
-        const dimensions = formatProductDimensions(product);
-        
-        return `
-            <div class="prod-mod-prod-card-product-box prod-mod-prod-card-${priorityClass}" data-product-id="${product.id}">
-                <div class="prod-mod-prod-card-priority-box">${priorityNumber}</div>
-                
-                <div class="prod-mod-prod-card-product-name">${product.product_name || 'Produkt bez nazwy'}</div>
-                
-                <div class="prod-mod-prod-card-specifications-container">
-                    <div class="prod-mod-prod-card-info-column ${woodSpeciesClass}">
-                        <div class="prod-mod-prod-card-info-label">GATUNEK</div>
-                        <div class="prod-mod-prod-card-info-value">${product.wood_species || '-'}</div>
+        return '<div class="gluing-empty-station">Kliknij, aby przypisać produkt</div>';
+    }
+
+    /**
+     * Generowanie dynamicznych filtrów
+     */
+    generateFilters() {
+        if (!this.products || this.products.length === 0) {
+            this.elements.filtersContainer.innerHTML = '<div class="gluing-filters-loading">Brak produktów do filtrowania</div>';
+            return;
+        }
+
+        console.log('🔧 Generowanie filtrów');
+
+        // Zbierz unikalne wartości dla każdego typu filtra
+        const filterData = {
+            species: new Set(),
+            technology: new Set(),
+            wood_class: new Set(),
+            thickness: new Set()
+        };
+
+        this.products.forEach(product => {
+            if (product.wood_species) filterData.species.add(product.wood_species);
+            if (product.wood_technology) filterData.technology.add(product.wood_technology);
+            if (product.wood_class) filterData.wood_class.add(product.wood_class);
+            if (product.dimensions_thickness) filterData.thickness.add(product.dimensions_thickness.toString());
+        });
+
+        // Generuj HTML filtrów
+        let filtersHTML = '';
+
+        const filterLabels = {
+            species: 'Gatunek',
+            technology: 'Technologia',
+            wood_class: 'Klasa',
+            thickness: 'Grubość (cm)'
+        };
+
+        Object.keys(filterData).forEach(filterType => {
+            const values = Array.from(filterData[filterType]).sort();
+
+            if (values.length > 0) {
+                filtersHTML += `
+                    <div class="gluing-filter-group">
+                        <label class="gluing-filter-label">${filterLabels[filterType]}:</label>
+                        <div class="gluing-filter-buttons" data-filter-type="${filterType}">
+                            ${values.map(value => `
+                                <button class="gluing-filter-btn" 
+                                        data-filter="${filterType}" 
+                                        data-value="${value}">
+                                    ${value}
+                                </button>
+                            `).join('')}
+                        </div>
                     </div>
-                    
-                    <div class="prod-mod-prod-card-info-column ${technologyClass}">
-                        <div class="prod-mod-prod-card-info-label">TECHNOLOGIA</div>
-                        <div class="prod-mod-prod-card-info-value">${product.wood_technology || '-'}</div>
-                    </div>
-                    
-                    <div class="prod-mod-prod-card-info-column ${classTypeClass}">
-                        <div class="prod-mod-prod-card-info-label">KLASA</div>
-                        <div class="prod-mod-prod-card-info-value">${product.wood_class || '-'}</div>
-                    </div>
-                    
-                    <div class="prod-mod-prod-card-info-column prod-mod-prod-card-spec-dimensions">
-                        <div class="prod-mod-prod-card-info-label">WYMIARY</div>
-                        <div class="prod-mod-prod-card-info-value">${dimensions}</div>
-                    </div>
-                    
-                    <div class="prod-mod-prod-card-info-column prod-mod-prod-card-quantity-column">
-                        <div class="prod-mod-prod-card-info-label">ILOŚĆ</div>
-                        <div class="prod-mod-prod-card-info-value">${product.quantity || 1} szt.</div>
-                    </div>
-                    
-                    <div class="prod-mod-prod-card-info-column ${deadlineClass}">
-                        <div class="prod-mod-prod-card-info-label">TERMIN</div>
-                        <div class="prod-mod-prod-card-info-value">${formatDeadlineText(product.deadline_date)}</div>
-                    </div>
-                </div>
-                
-                <button type="button" class="prod-mod-prod-card-action-button" onclick="showStationWorkerModal(${product.id})">
-                    <i class="fas fa-play"></i>
-                    ROZPOCZNIJ
+                `;
+            }
+        });
+
+        // Dodaj przycisk czyszczenia
+        filtersHTML += `
+            <div class="gluing-clear-filters">
+                <button class="gluing-clear-btn hidden" id="clearFiltersBtn">
+                    ✖️ Wyczyść wszystkie filtry
                 </button>
             </div>
         `;
-    }).join('');
-}
 
+        this.elements.filtersContainer.innerHTML = filtersHTML;
 
-/**
- * Formatowanie wymiarów produktu
- */
-function formatProductDimensions(product) {
-    // Sprawdź czy jest pole dimensions
-    if (product.dimensions && product.dimensions !== 'Brak wymiarów') {
-        return product.dimensions;
-    }
+        // Przypisz event listenery do przycisków filtrów
+        this.setupFilterListeners();
 
-    // Stwórz wymiary z poszczególnych pól
-    const length = product.dimensions_length || 0;
-    const width = product.dimensions_width || 0;  
-    const thickness = product.dimensions_thickness || 0;
-
-    if (length && width && thickness) {
-        return `${length}×${width}×${thickness}`;
-    }
-    
-    if (length && width) {
-        return `${length}×${width}`;
-    }
-
-    return '-';
-}
-
-/**
- * Renderowanie badge'ów produktu z wymiarami
- */
-function renderProductBadges(product) {
-    const badges = [];
-
-    if (product.wood_species) {
-        badges.push(`<span class="prod-work-badge species-${normalizeValue(product.wood_species)}">${product.wood_species}</span>`);
-    }
-
-    if (product.wood_technology) {
-        badges.push(`<span class="prod-work-badge tech-${normalizeValue(product.wood_technology)}">${product.wood_technology}</span>`);
-    }
-
-    if (product.wood_class) {
-        badges.push(`<span class="prod-work-badge class-${normalizeValue(product.wood_class)}">${product.wood_class}</span>`);
-    }
-
-    return badges.join('');
-}
-
-/**
- * Renderowanie modala wyboru stanowiska i pracownika
- */
-function renderStationWorkerModal(product) {
-    // Informacje o produkcie
-    const productInfoElement = document.getElementById('modalProductInfo');
-    if (productInfoElement && product) {
-        document.getElementById('modalProductName').textContent = product.product_name || 'Produkt bez nazwy';
-        document.getElementById('modalProductBadges').innerHTML = renderProductBadges(product);
-        document.getElementById('modalProductDimensions').textContent = product.dimensions || 'Brak wymiarów';
-    }
-
-    // Stanowiska - TYLKO stanowiska sklejania
-    const stationsContainer = document.getElementById('modalStationsGrid');
-    if (stationsContainer) {
-        const gluingStations = gluingState.stations.filter(station =>
-            station.station_type === 'gluing' && station.is_active
-        );
-
-        stationsContainer.innerHTML = gluingStations.map(station => {
-            const isAvailable = !station.is_busy; // ZMIANA: logika dostępności
-            const disabledClass = isAvailable ? '' : 'disabled';
-
-            return `
-                <div class="prod-work-selection-item ${disabledClass}" 
-                     data-station-id="${station.id}" 
-                     ${isAvailable ? 'onclick="selectStation(' + station.id + ')"' : ''}>
-                    <div class="prod-work-selection-item-name">${station.name}</div>
-                    <div class="prod-work-selection-item-status">
-                        ${isAvailable ? 'Dostępne' : 'Zajęte'}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // Pracownicy - TYLKO pracownicy sklejania
-    const workersContainer = document.getElementById('modalWorkersGrid');
-    if (workersContainer) {
-        const gluingWorkers = gluingState.workers.filter(worker =>
-            worker.station_type_preference === 'gluing' || worker.station_type_preference === 'both'
-        );
-
-        workersContainer.innerHTML = gluingWorkers.map(worker => {
-            const isAvailable = worker.is_active !== false;
-            const disabledClass = isAvailable ? '' : 'disabled';
-
-            return `
-                <div class="prod-work-selection-item ${disabledClass}" 
-                     data-worker-id="${worker.id}" 
-                     ${isAvailable ? 'onclick="selectWorker(' + worker.id + ')"' : ''}>
-                    <div class="prod-work-selection-item-name">${worker.name}</div>
-                </div>
-            `;
-        }).join('');
-    }
-}
-
-// === EVENT HANDLERS ===
-
-/**
- * Pokazanie modala wyboru stanowiska i pracownika
- */
-function showStationWorkerModal(productId, preselectedStationId = null) {
-    const product = productId ? gluingState.products.find(p => p.id === productId) : null;
-
-    if (productId && !product) {
-        showToast('error', 'Nie znaleziono produktu');
-        return;
-    }
-
-    gluingState.selectedProduct = product;
-    gluingState.selectedStation = null;
-    gluingState.selectedWorker = null;
-
-    // Ustaw ID produktu w ukrytym polu
-    if (productId) {
-        document.getElementById('selectedProductId').value = productId;
-    }
-
-    renderStationWorkerModal(product);
-
-    // Jeśli jest preselected station, wybierz go automatycznie
-    if (preselectedStationId) {
-        setTimeout(() => selectStation(preselectedStationId), 100);
-    }
-
-    const modal = new bootstrap.Modal(document.getElementById('stationWorkerModal'));
-    modal.show();
-}
-
-/**
- * Wybór stanowiska
- */
-function selectStation(stationId) {
-    // Usuń poprzedni wybór
-    document.querySelectorAll('#modalStationsGrid .prod-work-selection-item').forEach(item => {
-        item.classList.remove('selected');
-    });
-
-    // Zaznacz nowe stanowisko
-    const stationElement = document.querySelector(`#modalStationsGrid [data-station-id="${stationId}"]`);
-    if (stationElement && !stationElement.classList.contains('disabled')) {
-        stationElement.classList.add('selected');
-        gluingState.selectedStation = gluingState.stations.find(s => s.id == stationId);
-
-        document.getElementById('selectedStationId').value = stationId;
-        updateModalSummary();
-    }
-}
-
-/**
- * Wybór pracownika
- */
-function selectWorker(workerId) {
-    // Usuń poprzedni wybór
-    document.querySelectorAll('#modalWorkersGrid .prod-work-selection-item').forEach(item => {
-        item.classList.remove('selected');
-    });
-
-    // Zaznacz nowego pracownika
-    const workerElement = document.querySelector(`#modalWorkersGrid [data-worker-id="${workerId}"]`);
-    if (workerElement && !workerElement.classList.contains('disabled')) {
-        workerElement.classList.add('selected');
-        gluingState.selectedWorker = gluingState.workers.find(w => w.id == workerId);
-
-        document.getElementById('selectedWorkerId').value = workerId;
-        updateModalSummary();
-    }
-}
-
-/**
- * Aktualizacja stanu przycisku po wyborach w modalu
- */
-function updateModalSummary() {
-    const startButton = document.getElementById('startProductionBtn');
-
-    if (gluingState.selectedStation && gluingState.selectedWorker) {
-        // Aktywuj przycisk start
-        startButton.disabled = false;
-    } else {
-        // Deaktywuj przycisk start
-        startButton.disabled = true;
-    }
-}
-
-/**
- * Rozpoczęcie produkcji
- */
-async function startProduction() {
-    const productId = document.getElementById('selectedProductId').value;
-    const stationId = document.getElementById('selectedStationId').value;
-    const workerId = document.getElementById('selectedWorkerId').value;
-
-    if (!productId || !stationId || !workerId) {
-        showToast('error', 'Wybierz wszystkie wymagane opcje');
-        return;
-    }
-
-    const startButton = document.getElementById('startProductionBtn');
-    startButton.disabled = true;
-    startButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Rozpoczynam...';
-
-    try {
-        const result = await startProductionAPI(productId, stationId, workerId);
-
-        if (result.success) {
-            // Zamknij modal
-            const modal = bootstrap.Modal.getInstance(document.getElementById('stationWorkerModal'));
-            modal.hide();
-
-            // NOWE: Odśwież wszystkie dane
-            showToast('info', 'Odświeżam dane...');
-            await loadInitialData();
-
-            showToast('success', 'Produkcja została rozpoczęta');
-        } else {
-            throw new Error(result.error || 'Błąd rozpoczęcia produkcji');
+        // Znajdź ponownie przycisk czyszczenia
+        this.elements.clearFiltersBtn = document.getElementById('clearFiltersBtn');
+        if (this.elements.clearFiltersBtn) {
+            this.elements.clearFiltersBtn.addEventListener('click', () => {
+                this.clearAllFilters();
+            });
         }
-
-    } catch (error) {
-        console.error('❌ Błąd rozpoczęcia produkcji:', error);
-        showToast('error', 'Błąd: ' + error.message);
-    } finally {
-        startButton.disabled = false;
-        startButton.innerHTML = '<i class="fas fa-play"></i> Rozpocznij Produkcję';
     }
-}
 
-/**
- * Zakończenie produkcji (bez modali)
- */
-async function completeProduction(itemId) {
-    try {
-        const result = await completeProductionAPI(itemId);
+    /**
+     * Ustaw event listenery dla filtrów
+     */
+    setupFilterListeners() {
+        const filterButtons = this.elements.filtersContainer.querySelectorAll('.gluing-filter-btn');
 
-        if (result.success) {
-            await loadInitialData();
-            showToast('success', 'Produkcja zakończona');
+        filterButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                const filterType = e.target.dataset.filter;
+                const filterValue = e.target.dataset.value;
+
+                this.toggleFilter(filterType, filterValue, e.target);
+            });
+        });
+    }
+
+    /**
+     * Przełącz filtr
+     */
+    toggleFilter(filterType, filterValue, buttonElement) {
+        const isActive = buttonElement.classList.contains('active');
+
+        if (isActive) {
+            // Usuń filtr
+            buttonElement.classList.remove('active');
+            const index = this.activeFilters[filterType].indexOf(filterValue);
+            if (index > -1) {
+                this.activeFilters[filterType].splice(index, 1);
+            }
         } else {
-            throw new Error(result.error || 'Błąd zakończenia produkcji');
-        }
-
-    } catch (error) {
-        console.error('❌ Błąd zakończenia produkcji:', error);
-        showToast('error', 'Błąd: ' + error.message);
-    }
-}
-
-/**
- * Reset stanu modala
- */
-function resetModalState() {
-    gluingState.selectedProduct = null;
-    gluingState.selectedStation = null;
-    gluingState.selectedWorker = null;
-
-    document.getElementById('selectedProductId').value = '';
-    document.getElementById('selectedStationId').value = '';
-    document.getElementById('selectedWorkerId').value = '';
-
-    document.getElementById('selectionSummary').style.display = 'none';
-    document.getElementById('startProductionBtn').disabled = true;
-}
-
-// === TIMERY ===
-
-/**
- * Aktualizacja timerów stanowisk
- */
-function updateStationTimers() {
-    const standardTimeMinutes = parseInt(document.querySelector('[data-config-gluing-time]')?.value) || 2;
-    const standardTimeSeconds = standardTimeMinutes * 60;
-
-    gluingState.stations.forEach(station => {
-        if (station.is_busy && station.working_time_seconds !== undefined) {
-            station.working_time_seconds++;
-            const remainingSeconds = standardTimeSeconds - station.working_time_seconds;
-
-            const timerElement = document.getElementById(`timer-${station.id}`);
-            if (timerElement) {
-                timerElement.textContent = formatCountdownTimer(remainingSeconds);
-
-                const stationElement = timerElement.closest('.prod-work-station');
-
-                // Usuń poprzednie klasy
-                stationElement.classList.remove('active', 'overtime-warning', 'overtime');
-
-                if (remainingSeconds <= 0) {
-                    stationElement.classList.add('overtime');
-                } else if (remainingSeconds <= 60) {
-                    stationElement.classList.add('overtime-warning');
-                } else {
-                    stationElement.classList.add('active');
-                }
+            // Dodaj filtr
+            buttonElement.classList.add('active');
+            if (!this.activeFilters[filterType].includes(filterValue)) {
+                this.activeFilters[filterType].push(filterValue);
             }
         }
-    });
-}
 
-// === UTILITY FUNCTIONS ===
+        // Filtruj produkty
+        this.applyFilters();
 
-/**
- * Formatowanie timera (sekundy -> MM:SS)
- */
-function formatTimer(seconds) {
-    if (seconds <= 0) {
-        const overtime = Math.abs(seconds);
-        const minutes = Math.floor(overtime / 60);
-        const secs = overtime % 60;
-        return `+${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        // Pokaż/ukryj przycisk czyszczenia
+        this.updateClearFiltersButton();
     }
 
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-/**
- * Formatowanie czasu (sekundy -> tekst)
- */
-function formatTime(seconds) {
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
-}
-
-/**
- * Formatowanie daty na względny czas z kolorami
- */
-function formatDate(dateString) {
-    if (!dateString) return '';
-
-    const deadlineDate = new Date(dateString);
-    const today = new Date();
-
-    // Ustaw dzisiejszą datę na początek dnia
-    today.setHours(0, 0, 0, 0);
-    deadlineDate.setHours(0, 0, 0, 0);
-
-    const diffTime = deadlineDate.getTime() - today.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    let text, className;
-
-    if (diffDays < 0) {
-        // Przeszłe - czerwony
-        const daysPast = Math.abs(diffDays);
-        text = daysPast === 1 ? 'wczoraj' : `${daysPast} dni temu`;
-        className = 'deadline-past';
-    } else if (diffDays === 0) {
-        // Dziś - żółty
-        text = 'dziś';
-        className = 'deadline-today';
-    } else if (diffDays === 1) {
-        // Jutro - żółty
-        text = 'jutro';
-        className = 'deadline-tomorrow';
-    } else {
-        // Przyszłe - niebieski
-        text = `za ${diffDays} dni`;
-        className = 'deadline-future';
-    }
-
-    return `<span class="${className}">${text}</span>`;
-}
-
-/**
- * Normalizacja wartości do klasy CSS
- */
-function normalizeValue(value) {
-    if (!value) return '';
-    return value.toLowerCase()
-        .replace(/ą/g, 'a').replace(/ć/g, 'c').replace(/ę/g, 'e')
-        .replace(/ł/g, 'l').replace(/ń/g, 'n').replace(/ó/g, 'o')
-        .replace(/ś/g, 's').replace(/ź/g, 'z').replace(/ż/g, 'z')
-        .replace(/[^a-z0-9]/g, '');
-}
-
-/**
- * Pobieranie klasy CSS dla statusu stanowiska
- */
-function getStationStatusClass(status) {
-    switch (status) {
-        case 'active': return 'active';
-        case 'maintenance': return 'maintenance';
-        case 'idle':
-        default: return 'idle';
-    }
-}
-
-/**
- * Pobieranie tekstu statusu stanowiska
- */
-function getStationStatusText(status) {
-    switch (status) {
-        case 'active': return 'W produkcji';
-        case 'maintenance': return 'Konserwacja';
-        case 'idle':
-        default: return 'Bezczynny';
-    }
-}
-
-/**
- * Pobieranie klasy CSS dla priorytetu na podstawie daty deadline
- */
-function getPriorityClass(product) {
-    if (!product.deadline_date) {
-        return 'priority-low'; // Brak deadline = niski priorytet
-    }
-
-    const deadlineDate = new Date(product.deadline_date);
-    const today = new Date();
-
-    // Ustaw dzisiejszą datę na początek dnia
-    today.setHours(0, 0, 0, 0);
-    deadlineDate.setHours(0, 0, 0, 0);
-
-    const diffTime = deadlineDate.getTime() - today.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) {
-        // Przeszłe - wysoki priorytet (czerwony)
-        return 'priority-high';
-    } else if (diffDays <= 1) {
-        // Dziś/jutro - średni priorytet (żółty)
-        return 'priority-medium';
-    } else {
-        // Przyszłe - niski priorytet (niebieski)
-        return 'priority-low';
-    }
-}
-
-/**
- * Pokazanie stanu ładowania
- */
-function showLoadingState() {
-    const stationsContainer = document.getElementById('stationsGrid');
-    const productsContainer = document.getElementById('productsGrid');
-
-    if (stationsContainer) {
-        stationsContainer.innerHTML = `
-            <div class="prod-work-station-loading">
-                <i class="fas fa-spinner fa-spin"></i>
-                <span>Ładowanie stanowisk...</span>
-            </div>
-        `;
-    }
-
-    if (productsContainer) {
-        productsContainer.innerHTML = `
-            <div class="prod-work-products-loading">
-                <i class="fas fa-spinner fa-spin"></i>
-                <span>Ładowanie produktów...</span>
-            </div>
-        `;
-    }
-}
-
-/**
- * Pokazanie stanu błędu
- */
-function showErrorState() {
-    const stationsContainer = document.getElementById('stationsGrid');
-    const productsContainer = document.getElementById('productsGrid');
-
-    if (stationsContainer) {
-        stationsContainer.innerHTML = `
-            <div class="prod-work-station-loading">
-                <i class="fas fa-exclamation-triangle text-danger"></i>
-                <span>Błąd ładowania stanowisk</span>
-            </div>
-        `;
-    }
-
-    if (productsContainer) {
-        productsContainer.innerHTML = `
-            <div class="prod-work-products-loading">
-                <i class="fas fa-exclamation-triangle text-danger"></i>
-                <span>Błąd ładowania produktów</span>
-            </div>
-        `;
-    }
-}
-
-/**
- * Aktualizacja czasu ostatniej synchronizacji
- */
-function updateLastSyncTime() {
-    const syncElement = document.getElementById('lastSyncTime');
-    if (syncElement) {
-        const now = new Date();
-        const timeString = now.toLocaleTimeString('pl-PL', {
-            hour: '2-digit',
-            minute: '2-digit'
+    /**
+     * Wyczyść wszystkie filtry
+     */
+    clearAllFilters() {
+        // Wyczyść stan filtrów
+        Object.keys(this.activeFilters).forEach(key => {
+            this.activeFilters[key] = [];
         });
-        syncElement.textContent = timeString;
-        gluingState.lastSync = now;
+
+        // Usuń klasy active z przycisków
+        const activeButtons = this.elements.filtersContainer.querySelectorAll('.gluing-filter-btn.active');
+        activeButtons.forEach(button => {
+            button.classList.remove('active');
+        });
+
+        // Przywróć wszystkie produkty
+        this.filteredProducts = [...this.products];
+
+        // Rerenderuj
+        this.renderProducts();
+        this.updateProductsCount();
+        this.updateClearFiltersButton();
+
+        this.showToast('Filtry wyczyszczone', 'info');
     }
-}
 
-/**
- * Pokazanie toast notification
- */
-function showToast(type, message) {
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
+    /**
+     * Zastosuj filtry
+     */
+    applyFilters() {
+        let filtered = [...this.products];
 
-    const toastId = 'toast-' + Date.now();
-    const iconClass = getToastIcon(type);
+        // Zastosuj każdy typ filtra
+        Object.keys(this.activeFilters).forEach(filterType => {
+            const values = this.activeFilters[filterType];
 
-    const toastHTML = `
-        <div class="toast ${type}" role="alert" id="${toastId}" data-bs-autohide="true" data-bs-delay="5000">
-            <div class="toast-header">
-                <i class="${iconClass} me-2"></i>
-                <strong class="me-auto">${getToastTitle(type)}</strong>
-                <small class="text-muted">${new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</small>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            if (values.length > 0) {
+                filtered = filtered.filter(product => {
+                    switch (filterType) {
+                        case 'species':
+                            return values.includes(product.wood_species);
+                        case 'technology':
+                            return values.includes(product.wood_technology);
+                        case 'wood_class':
+                            return values.includes(product.wood_class);
+                        case 'thickness':
+                            return values.includes(product.dimensions_thickness?.toString());
+                        default:
+                            return true;
+                    }
+                });
+            }
+        });
+
+        this.filteredProducts = filtered;
+
+        // Rerenderuj produkty
+        this.renderProducts();
+        this.updateProductsCount();
+
+        console.log(`🔍 Filtry zastosowane: ${this.filteredProducts.length}/${this.products.length} produktów`);
+    }
+
+    /**
+     * Aktualizuj przycisk czyszczenia filtrów
+     */
+    updateClearFiltersButton() {
+        if (!this.elements.clearFiltersBtn) return;
+
+        const hasActiveFilters = Object.values(this.activeFilters).some(values => values.length > 0);
+
+        if (hasActiveFilters) {
+            this.elements.clearFiltersBtn.classList.remove('hidden');
+        } else {
+            this.elements.clearFiltersBtn.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Renderowanie produktów
+     */
+    renderProducts() {
+        if (!this.filteredProducts || this.filteredProducts.length === 0) {
+            this.elements.productsGrid.innerHTML = `
+                <div class="gluing-products-loading">
+                    <p>Brak produktów do wyświetlenia</p>
+                </div>
+            `;
+            return;
+        }
+
+        console.log(`📦 Renderowanie ${this.filteredProducts.length} produktów`);
+
+        // Sortuj produkty według priority_score
+        const sortedProducts = [...this.filteredProducts].sort((a, b) => {
+            // Sortuj najpierw według priority_score (malejąco)
+            if (a.priority_score !== b.priority_score) {
+                return (b.priority_score || 0) - (a.priority_score || 0);
+            }
+
+            // Potem według deadline_date (rosnąco)
+            if (a.deadline_date && b.deadline_date) {
+                return new Date(a.deadline_date) - new Date(b.deadline_date);
+            }
+
+            // Na końcu według created_at (rosnąco - starsze pierwsze)
+            return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+        });
+
+        const productsHTML = sortedProducts.map((product, index) => {
+            return this.renderProductCard(product, index + 1);
+        }).join('');
+
+        this.elements.productsGrid.innerHTML = productsHTML;
+
+        // Przypisz event listenery
+        this.setupProductListeners();
+    }
+
+    /**
+     * Renderuj pojedynczą kartę produktu
+     */
+    renderProductCard(product, priorityNumber) {
+        const displayName = product.display_name || product.product_name || 'Nieznany produkt';
+
+        // Przygotuj parametry jako badge'y
+        const params = [];
+        if (product.wood_species) params.push(product.wood_species);
+        if (product.wood_technology) params.push(product.wood_technology);
+        if (product.wood_class) params.push(product.wood_class);
+
+        // Dodaj wymiary
+        if (product.dimensions_thickness || product.dimensions_width || product.dimensions_length) {
+            const dimensions = [
+                product.dimensions_thickness ? `${product.dimensions_thickness}cm` : null,
+                product.dimensions_width ? `${product.dimensions_width}cm` : null,
+                product.dimensions_length ? `${product.dimensions_length}cm` : null
+            ].filter(Boolean).join('×');
+
+            if (dimensions) params.push(dimensions);
+        }
+
+        const paramsHTML = params.map(param =>
+            `<span class="gluing-param-badge">${param}</span>`
+        ).join('');
+
+        return `
+            <div class="gluing-product-card" 
+                 data-product-id="${product.id}"
+                 data-priority="${priorityNumber}">
+                <div class="gluing-product-priority">
+                    <span class="gluing-priority-number">${priorityNumber}</span>
+                </div>
+                <div class="gluing-product-info">
+                    <h3 class="gluing-product-name">${displayName}</h3>
+                    <div class="gluing-product-params">
+                        ${paramsHTML}
+                    </div>
+                </div>
+                <div class="gluing-product-actions">
+                    <span class="gluing-product-quantity">
+                        ${product.item_sequence || 1} szt.
+                    </span>
+                </div>
             </div>
-            <div class="toast-body">
-                ${message}
+        `;
+    }
+
+    /**
+     * Ustaw event listenery dla produktów
+     */
+    setupProductListeners() {
+        const productCards = this.elements.productsGrid.querySelectorAll('.gluing-product-card');
+
+        productCards.forEach(card => {
+            card.addEventListener('click', (e) => {
+                const productId = parseInt(card.dataset.productId);
+                this.handleProductClick(e, productId);
+            });
+        });
+    }
+
+    /**
+     * Obsługa kliknięcia w produkt
+     */
+    handleProductClick(event, productId) {
+        event.stopPropagation();
+
+        const product = this.filteredProducts.find(p => p.id === productId);
+        if (!product) return;
+
+        console.log('📦 Kliknięto w produkt:', product.display_name);
+
+        // Usuń poprzednią selekcję
+        const prevSelected = this.elements.productsGrid.querySelector('.gluing-product-card.selected');
+        if (prevSelected) {
+            prevSelected.classList.remove('selected');
+        }
+
+        // Dodaj selekcję do nowej karty
+        const currentCard = event.currentTarget;
+        currentCard.classList.add('selected');
+
+        // Zapisz wybrany produkt
+        this.selectedProduct = product;
+
+        // Aktualizuj wskaźnik
+        if (this.elements.selectedIndicator) {
+            this.elements.selectedIndicator.textContent = `Wybrano: ${product.display_name || product.product_name} - kliknij na wolne stanowisko`;
+            this.elements.selectedIndicator.style.color = '#FE5516';
+            this.elements.selectedIndicator.style.fontWeight = '600';
+        }
+
+        this.showToast('Produkt wybrany - kliknij na stanowisko', 'info');
+    }
+
+    /**
+     * Obsługa kliknięcia w stanowisko
+     */
+    handleStationClick(event, station) {
+        event.stopPropagation();
+        
+        // Sprawdź czy kliknięto przycisk START
+        if (event.target.dataset.action === 'start-production') {
+            this.startProduction(station);
+            return;
+        }
+        
+        // Reszta kodu dla przypisywania produktu
+        if (!this.selectedProduct) {
+            this.showToast('Najpierw wybierz produkt z listy', 'warning');
+            return;
+        }
+
+        console.log('🏭 Kliknięto w stanowisko:', station.name);
+
+        // Sprawdź czy stanowisko jest dostępne
+        const stationStatus = this.getStationStatus(station);
+        if (stationStatus.class !== 'available' && stationStatus.class !== 'occupied') {
+            this.showToast('Stanowisko niedostępne', 'warning');
+            return;
+        }
+
+        // Pokaż modal potwierdzenia
+        this.showAssignmentModal(this.selectedProduct, station);
+    }
+
+    async startProduction(station) {
+        console.log('🚀 Rozpoczynanie produkcji na stanowisku:', station.name);
+        
+        try {
+            // Znajdź assignment_id dla tego stanowiska
+            // Najpierw sprawdź czy stanowisko ma przypisane produkty
+            if (!station.current_items_count || station.current_items_count === 0) {
+                this.showToast('Brak produktów przypisanych do stanowiska', 'warning');
+                return;
+            }
+            
+            // API call do rozpoczęcia produkcji
+            // Musimy wysłać POST do /production/api/gluing/assignments/{assignment_id}/start
+            // Ale nie mamy assignment_id, więc użyjemy station_id jako identyfikatora
+            
+            const result = await this.apiCall(`/start-station/${station.id}`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    worker_name: 'Operator',
+                    started_at: new Date().toISOString()
+                })
+            });
+            
+            console.log('✅ Produkcja rozpoczęta:', result);
+            
+            // Odśwież dane stanowisk
+            await this.refreshData();
+            
+            this.showToast(`Rozpoczęto produkcję na ${station.name}`, 'success');
+            
+        } catch (error) {
+            console.error('❌ Błąd rozpoczynania produkcji:', error);
+            this.showToast('Błąd rozpoczynania produkcji', 'error');
+        }
+    }
+
+    /**
+     * Pokaż modal przypisania
+     */
+    showAssignmentModal(product, station) {
+        if (!this.elements.modal) return;
+
+        // Wypełnij szczegóły produktu
+        if (this.elements.modalProductDetails) {
+            const displayName = product.display_name || product.product_name;
+            const params = [];
+            if (product.wood_species) params.push(product.wood_species);
+            if (product.wood_technology) params.push(product.wood_technology);
+            if (product.wood_class) params.push(product.wood_class);
+
+            this.elements.modalProductDetails.innerHTML = `
+                <h4>${displayName}</h4>
+                <p>${params.join(' • ')}</p>
+            `;
+        }
+
+        // Wypełnij szczegóły stanowiska
+        if (this.elements.modalStationDetails) {
+            this.elements.modalStationDetails.innerHTML = `
+                <h4>Stanowisko ${station.name}</h4>
+                <p>Maszyna ${station.machine_number}</p>
+            `;
+        }
+
+        // Zapisz dane do potwierdzenia
+        this.pendingAssignment = {
+            product: product,
+            station: station
+        };
+
+        // Pokaż modal
+        this.elements.modal.classList.remove('hidden');
+    }
+
+    /**
+     * Ukryj modal
+     */
+    hideModal() {
+        if (this.elements.modal) {
+            this.elements.modal.classList.add('hidden');
+        }
+
+        this.pendingAssignment = null;
+    }
+
+    /**
+     * Potwierdź przypisanie
+     */
+    async confirmAssignment() {
+        if (!this.pendingAssignment) return;
+
+        const { product, station } = this.pendingAssignment;
+
+        try {
+            console.log('📋 Przypisywanie produktu do stanowiska');
+
+            // Wywołaj API przypisania
+            const assignmentData = {
+                item_id: product.id,
+                station_id: station.id,
+                position_x: 0, // Domyślnie - może być rozwinięte o drag&drop
+                position_y: 0,
+                worker_name: 'Operator' // Może być rozwinięte o wybór operatora
+            };
+
+            const result = await this.apiCall('/assign', {
+                method: 'POST',
+                body: JSON.stringify(assignmentData)
+            });
+
+            console.log('✅ Produkty przypisany pomyślnie');
+
+            // Ukryj modal
+            this.hideModal();
+
+            // Wyczyść selekcję
+            this.clearProductSelection();
+
+            // Odśwież dane
+            await this.refreshData();
+
+            this.showToast('Produkt przypisany do stanowiska!', 'success');
+
+        } catch (error) {
+            console.error('❌ Błąd przypisania:', error);
+            this.showToast('Błąd podczas przypisywania produktu', 'error');
+        }
+    }
+
+    /**
+     * Wyczyść selekcję produktu
+     */
+    clearProductSelection() {
+        this.selectedProduct = null;
+
+        // Usuń klasę selected
+        const selected = this.elements.productsGrid.querySelector('.gluing-product-card.selected');
+        if (selected) {
+            selected.classList.remove('selected');
+        }
+
+        // Przywróć domyślny tekst wskaźnika
+        if (this.elements.selectedIndicator) {
+            this.elements.selectedIndicator.textContent = 'Wybierz produkt, a następnie kliknij na wolne stanowisko';
+            this.elements.selectedIndicator.style.color = '#666';
+            this.elements.selectedIndicator.style.fontWeight = 'normal';
+        }
+    }
+
+    /**
+     * Aktualizacja liczby produktów
+     */
+    updateProductsCount() {
+        if (!this.elements.totalCount) return;
+
+        const total = this.products.length;
+        const filtered = this.filteredProducts.length;
+
+        let text;
+        if (total === filtered) {
+            text = `${total} produktów`;
+        } else {
+            text = `${filtered} z ${total} produktów`;
+        }
+
+        this.elements.totalCount.textContent = text;
+    }
+
+    /**
+     * Ustaw status połączenia
+     */
+    setConnectionStatus(status, message) {
+        this.connectionStatus = status;
+
+        if (!this.elements.connectionStatus) return;
+
+        const statusDot = this.elements.connectionStatus.querySelector('.gluing-status-dot');
+        const statusText = this.elements.connectionStatus;
+
+        // Usuń poprzednie klasy
+        statusText.classList.remove('status-connected', 'status-loading', 'status-error');
+
+        switch (status) {
+            case 'connected':
+                statusText.classList.add('status-connected');
+                if (statusDot) {
+                    statusDot.style.backgroundColor = '#4CAF50';
+                    statusDot.style.animation = 'gluing-pulse 2s infinite';
+                }
+                break;
+
+            case 'loading':
+                statusText.classList.add('status-loading');
+                if (statusDot) {
+                    statusDot.style.backgroundColor = '#FF9800';
+                    statusDot.style.animation = 'gluing-pulse 0.8s infinite';
+                }
+                break;
+
+            case 'error':
+                statusText.classList.add('status-error');
+                if (statusDot) {
+                    statusDot.style.backgroundColor = '#F44336';
+                    statusDot.style.animation = 'none';
+                }
+                break;
+        }
+
+        // Aktualizuj tekst (zachowaj ikonę i kropkę)
+        const textElement = statusText.lastChild;
+        if (textElement && textElement.nodeType === Node.TEXT_NODE) {
+            textElement.textContent = message || 'Połączenie z bazą';
+        }
+    }
+
+    /**
+     * Pokaż toast notification
+     */
+    showToast(message, type = 'info', duration = 4000) {
+        if (!this.elements.toastContainer) {
+            console.warn('Brak kontenera toast notifications');
+            return;
+        }
+
+        // Utwórz element toast
+        const toast = document.createElement('div');
+        toast.className = `gluing-toast ${type}`;
+        toast.innerHTML = `
+            <div class="gluing-toast-content">
+                <span class="gluing-toast-message">${message}</span>
             </div>
-        </div>
-    `;
+        `;
 
-    container.insertAdjacentHTML('beforeend', toastHTML);
+        // Dodaj do kontenera
+        this.elements.toastContainer.appendChild(toast);
 
-    const toastElement = document.getElementById(toastId);
-    const toast = new bootstrap.Toast(toastElement);
-    toast.show();
+        // Auto-usuń po określonym czasie
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.style.animation = 'gluing-slide-out 0.3s ease';
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        this.elements.toastContainer.removeChild(toast);
+                    }
+                }, 300);
+            }
+        }, duration);
+    }
 
-    // Usuń element po ukryciu
-    toastElement.addEventListener('hidden.bs.toast', function () {
-        toastElement.remove();
-    });
-}
+    /**
+     * Auto-refresh danych
+     */
+    startAutoRefresh() {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+        }
 
-/**
- * Pobieranie ikony dla toast
- */
-function getToastIcon(type) {
-    switch (type) {
-        case 'success': return 'fas fa-check-circle text-success';
-        case 'error': return 'fas fa-exclamation-circle text-danger';
-        case 'warning': return 'fas fa-exclamation-triangle text-warning';
-        case 'info': return 'fas fa-info-circle text-info';
-        default: return 'fas fa-info-circle text-info';
+        let countdown = this.autoRefreshSeconds;
+
+        this.refreshInterval = setInterval(() => {
+            countdown--;
+
+            // Aktualizuj licznik w przycisku
+            const timerElement = document.querySelector('.prod-module-timer');
+            if (timerElement) {
+                timerElement.textContent = `(${countdown}s)`;
+            }
+
+            if (countdown <= 0) {
+                // Reset licznika
+                countdown = this.autoRefreshSeconds;
+
+                // Odśwież dane (tylko jeśli nie ma aktywnych modali)
+                if (this.elements.modal?.classList.contains('hidden') !== false) {
+                    this.refreshData();
+                }
+            }
+        }, 1000);
+    }
+
+    /**
+     * Zatrzymaj auto-refresh
+     */
+    stopAutoRefresh() {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+        }
+    }
+
+    /**
+     * Obsługa błędów API
+     */
+    handleApiError(error, context = '') {
+        console.error(`API Error ${context}:`, error);
+
+        this.setConnectionStatus('error', 'Błąd połączenia');
+
+        let errorMessage = 'Wystąpił błąd połączenia';
+
+        if (error.message) {
+            if (error.message.includes('404')) {
+                errorMessage = 'Nie znaleziono zasobu';
+            } else if (error.message.includes('500')) {
+                errorMessage = 'Błąd serwera';
+            } else if (error.message.includes('403')) {
+                errorMessage = 'Brak uprawnień';
+            } else {
+                errorMessage = error.message;
+            }
+        }
+
+        this.showToast(errorMessage, 'error');
+    }
+
+    /**
+     * Sprawdź czy jest połączenie z internetem
+     */
+    async checkConnection() {
+        try {
+            const response = await fetch('/production/api/gluing/config', {
+                method: 'HEAD',
+                cache: 'no-cache'
+            });
+            return response.ok;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Tryb offline - zapisz dane lokalnie
+     */
+    saveToLocalStorage() {
+        try {
+            const dataToSave = {
+                products: this.products,
+                stations: this.stations,
+                timestamp: new Date().toISOString(),
+                activeFilters: this.activeFilters
+            };
+
+            localStorage.setItem('gluing_dashboard_backup', JSON.stringify(dataToSave));
+            console.log('Dane zapisane lokalnie');
+
+        } catch (error) {
+            console.warn('Nie można zapisać danych lokalnie:', error);
+        }
+    }
+
+    /**
+     * Wczytaj dane z localStorage
+     */
+    loadFromLocalStorage() {
+        try {
+            const saved = localStorage.getItem('gluing_dashboard_backup');
+            if (saved) {
+                const data = JSON.parse(saved);
+
+                // Sprawdź czy dane nie są za stare (max 1 godzina)
+                const savedTime = new Date(data.timestamp);
+                const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+                if (savedTime > hourAgo) {
+                    console.log('Wczytywanie danych z localStorage');
+
+                    this.products = data.products || [];
+                    this.stations = data.stations || [];
+                    this.filteredProducts = [...this.products];
+                    this.activeFilters = data.activeFilters || {
+                        species: [],
+                        technology: [],
+                        wood_class: [],
+                        thickness: []
+                    };
+
+                    return true;
+                }
+            }
+        } catch (error) {
+            console.warn('Nie można wczytać danych z localStorage:', error);
+        }
+
+        return false;
+    }
+
+    /**
+     * Czyszczenie danych localStorage
+     */
+    clearLocalStorage() {
+        try {
+            localStorage.removeItem('gluing_dashboard_backup');
+        } catch (error) {
+            console.warn('Nie można wyczyścić localStorage:', error);
+        }
+    }
+
+    /**
+     * Cleanup - wywoływane przy zamknięciu aplikacji
+     */
+    cleanup() {
+        this.stopAutoRefresh();
+        this.saveToLocalStorage();
+        console.log('Gluing Dashboard cleanup completed');
     }
 }
 
-/**
- * Pobieranie tytułu dla toast
- */
-function getToastTitle(type) {
-    switch (type) {
-        case 'success': return 'Sukces';
-        case 'error': return 'Błąd';
-        case 'warning': return 'Ostrzeżenie';
-        case 'info': return 'Informacja';
-        default: return 'Powiadomienie';
+// CSS animations dodane dynamicznie
+const additionalCSS = `
+    @keyframes gluing-slide-out {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
     }
-}
+    
+    .status-connected .gluing-status-dot {
+        background-color: #4CAF50 !important;
+    }
+    
+    .status-loading .gluing-status-dot {
+        background-color: #FF9800 !important;
+    }
+    
+    .status-error .gluing-status-dot {
+        background-color: #F44336 !important;
+    }
+`;
 
-// === CLEANUP ===
+// Dodaj style do head
+const styleSheet = document.createElement('style');
+styleSheet.textContent = additionalCSS;
+document.head.appendChild(styleSheet);
 
-/**
- * Czyszczenie przy zamknięciu strony
- */
-window.addEventListener('beforeunload', function () {
-    if (gluingState.refreshTimer) {
-        clearInterval(gluingState.refreshTimer);
+// Inicjalizacja aplikacji po załadowaniu DOM
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('🌟 DOM załadowany - inicjalizacja Gluing Dashboard');
+
+    try {
+        // Utwórz instancję aplikacji
+        window.gluingDashboard = new GluingDashboard();
+
+        // Inicjalizuj
+        await window.gluingDashboard.init();
+
+        // Obsługa zamknięcia strony
+        window.addEventListener('beforeunload', () => {
+            if (window.gluingDashboard) {
+                window.gluingDashboard.cleanup();
+            }
+        });
+
+        // Obsługa utraty/przywrócenia fokusa (dla sprawdzenia połączenia)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && window.gluingDashboard) {
+                // Sprawdź połączenie po powrocie do karty
+                window.gluingDashboard.checkConnection().then(connected => {
+                    if (connected) {
+                        window.gluingDashboard.refreshData();
+                    }
+                });
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Krytyczny błąd inicjalizacji:', error);
+
+        // Pokaż błąd użytkownikowi
+        document.body.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial, sans-serif;">
+                <div style="text-align: center; padding: 40px; background: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                    <h2 style="color: #f44336; margin-bottom: 16px;">Błąd inicjalizacji</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Nie można załadować interfejsu klejenia.</p>
+                    <button onclick="location.reload()" style="background: #FE5516; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer;">
+                        Spróbuj ponownie
+                    </button>
+                </div>
+            </div>
+        `;
     }
 });

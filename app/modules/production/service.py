@@ -15,6 +15,7 @@ from .models import (
 )
 from .utils import ProductionPriorityCalculator, ProductionNameParser
 from modules.logging import get_structured_logger
+from .models import ProdGluingItem, ProdGluingStation, ProdGluingAssignment, ProdGluingConfig
 
 # Inicjalizacja loggera
 production_logger = get_structured_logger('production.service')
@@ -447,137 +448,6 @@ class ProductionService:
     
         return total_stats
     
-    def start_production(self, item_id: int, worker_id: int, station_id: int) -> dict:
-        """
-        Rozpoczyna produkcję produktu na stanowisku
-        
-        Args:
-            item_id: ID produktu
-            worker_id: ID pracownika
-            station_id: ID stanowiska
-            
-        Returns:
-            dict: Rezultat operacji
-        """
-        self.logger.info("Rozpoczynanie produkcji",
-                       item_id=item_id, worker_id=worker_id, station_id=station_id)
-        
-        try:
-            # Pobierz obiekty
-            item = ProductionItem.query.get_or_404(item_id)
-            worker = Worker.query.get_or_404(worker_id)
-            station = ProductionStation.query.get_or_404(station_id)
-            
-            # Sprawdź czy stanowisko jest dostępne
-            if station.is_busy:
-                raise ValueError(f"Stanowisko {station.name} jest zajęte")
-            
-            # Sprawdź czy pracownik może pracować na tym stanowisku
-            if (worker.station_type_preference != 'both' and 
-                worker.station_type_preference != station.station_type):
-                self.logger.warning("Pracownik przypisany do nieodpowiedniego stanowiska",
-                                  worker_id=worker_id, worker_preference=worker.station_type_preference,
-                                  station_type=station.station_type)
-            
-            # Pobierz status "in_progress"
-            in_progress_status = ProductionStatus.query.filter_by(name='in_progress').first()
-            if not in_progress_status:
-                raise ValueError("Brak statusu 'in_progress' w bazie danych")
-            
-            # Rozpocznij produkcję na poziomie produktu
-            item.start_gluing(worker_id, station_id)
-            item.status_id = in_progress_status.id
-            
-            # Ustaw produkt na stanowisku - bezpośrednio bez rekursji
-            station.current_item_id = item_id
-            station.last_activity_at = datetime.utcnow()
-            
-            db.session.commit()
-            
-            result = {
-                'item_id': item.id,
-                'worker_name': worker.name,
-                'station_name': station.name,
-                'started_at': item.gluing_started_at.isoformat() if item.gluing_started_at else None
-            }
-            
-            self.logger.info("Produkcja rozpoczęta pomyślnie",
-                           item_id=item_id, worker_id=worker_id, station_id=station_id)
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error("Błąd podczas rozpoczynania produkcji",
-                            item_id=item_id, worker_id=worker_id, station_id=station_id,
-                            error=str(e), error_type=type(e).__name__)
-            db.session.rollback()
-            raise
-    
-    def complete_production(self, item_id: int) -> dict:
-        """
-        Kończy produkcję produktu
-        
-        Args:
-            item_id: ID produktu
-            
-        Returns:
-            dict: Rezultat operacji
-        """
-        self.logger.info("Kończenie produkcji", item_id=item_id)
-        
-        try:
-            # Pobierz produkt
-            item = ProductionItem.query.get_or_404(item_id)
-            
-            if not item.gluing_started_at:
-                raise ValueError("Produkt nie ma rozpoczętej produkcji")
-            
-            # Pobierz status "completed"
-            completed_status = ProductionStatus.query.filter_by(name='completed').first()
-            if not completed_status:
-                raise ValueError("Brak statusu 'completed' w bazie danych")
-            
-            # Zakończ produkcję na poziomie produktu
-            item.complete_gluing()
-            item.status_id = completed_status.id
-            
-            # Zwolnij stanowisko
-            if item.glued_at_station_id:
-                station = ProductionStation.query.get(item.glued_at_station_id)
-                if station and station.current_item_id == item_id:
-                    station.current_item_id = None
-                    station.last_activity_at = datetime.utcnow()
-            
-            # Zaktualizuj podsumowanie zamówienia
-            order_summary = ProductionOrderSummary.query.filter_by(
-                baselinker_order_id=item.baselinker_order_id
-            ).first()
-            if order_summary:
-                order_summary.update_completion_status()
-            
-            db.session.commit()
-            
-            result = {
-                'item': item.to_dict(),
-                'duration_seconds': item.gluing_duration_seconds,
-                'overtime_seconds': item.gluing_overtime_seconds,
-                'completed_at': item.gluing_completed_at.isoformat(),
-                'order_completion': order_summary.to_dict() if order_summary else None
-            }
-            
-            self.logger.info("Produkcja zakończona pomyślnie",
-                           item_id=item_id, 
-                           duration_seconds=item.gluing_duration_seconds,
-                           overtime_seconds=item.gluing_overtime_seconds)
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error("Błąd podczas kończenia produkcji",
-                            item_id=item_id, error=str(e), error_type=type(e).__name__)
-            db.session.rollback()
-            raise
-    
     def recalculate_priorities(self) -> dict:
         """
         Przelicza priorytety wszystkich produktów oczekujących
@@ -954,19 +824,7 @@ class ProductionService:
             # Średni czas od sklejenia do spakowania (w godzinach)
             avg_waiting_time = None
             try:
-                waiting_times = db.session.query(
-                    func.avg(
-                        func.extract('epoch', 
-                            ProductionItem.packaging_completed_at - 
-                            ProductionItem.gluing_completed_at
-                        ) / 3600.0
-                    )
-                ).filter(
-                    func.date(ProductionItem.packaging_completed_at) >= date_from,
-                    func.date(ProductionItem.packaging_completed_at) <= date_to,
-                    ProductionItem.gluing_completed_at.isnot(None),
-                    ProductionItem.packaging_completed_at.isnot(None)
-                ).scalar()
+                waiting_times = None
                 
                 if waiting_times:
                     avg_waiting_time = round(float(waiting_times), 1)
@@ -1066,3 +924,568 @@ def get_production_service() -> ProductionService:
         ProductionService: Instancja serwisu
     """
     return ProductionService()
+
+
+# ===================================================================
+# NOWA LOGIKA BIZNESOWA GLUING - DO DODANIA W services.py
+# Klasy: GluingService, StationLayoutEngine
+# ===================================================================
+
+class GluingService:
+    """
+    Główny serwis modułu gluing - synchronizacja, obliczenia, workflow
+    """
+    
+    def __init__(self):
+        self.api_key = current_app.config.get('API_BASELINKER', {}).get('api_key')
+        self.endpoint = current_app.config.get('API_BASELINKER', {}).get('endpoint') 
+        self.logger = get_structured_logger('production.gluing_service')
+        self.layout_engine = StationLayoutEngine()
+        
+        # Statusy zamówień do pobierania (te same co w ProductionService)
+        self.target_statuses = [138619, 155824]  # W produkcji - surowe, Nowe - opłacone
+    
+    def sync_from_baselinker(self, days_back=7):
+        """
+        Synchronizuje produkty wymagające klejenia z Baselinker
+        
+        Args:
+            days_back: Ile dni wstecz pobierać zamówienia
+            
+        Returns:
+            dict: Wynik synchronizacji
+        """
+        try:
+            if not self.api_key or not self.endpoint:
+                raise ValueError("Brak konfiguracji API Baselinker")
+            
+            self.logger.info("Rozpoczynam synchronizację gluing z Baselinker", days_back=days_back)
+            
+            # Pobierz zamówienia z ostatnich dni
+            date_from = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+            
+            orders_data = []
+            total_products_found = 0
+            
+            for status_id in self.target_statuses:
+                try:
+                    result = self._make_baselinker_request('getOrders', {
+                        'status_id': status_id,
+                        'date_confirmed_from': date_from,
+                        'get_unconfirmed_orders': True,
+                        'include_custom_extra_fields': True
+                    })
+                    
+                    if result and 'orders' in result:
+                        orders_data.extend(result['orders'].values())
+                        self.logger.debug(f"Pobrano {len(result['orders'])} zamówień dla statusu {status_id}")
+                        
+                except Exception as e:
+                    self.logger.error(f"Błąd pobierania zamówień dla statusu {status_id}", error=str(e))
+                    continue
+            
+            # Przetwórz zamówienia i produkty
+            created_items = 0
+            updated_items = 0
+            
+            for order in orders_data:
+                try:
+                    baselinker_order_id = int(order.get('order_id', 0))
+                    if not baselinker_order_id:
+                        continue
+                    
+                    # Pobierz produkty zamówienia
+                    products = order.get('products', [])
+                    for product in products:
+                        result = self._process_product_for_gluing(order, product)
+                        if result['created']:
+                            created_items += 1
+                        elif result['updated']:
+                            updated_items += 1
+                        total_products_found += 1
+                        
+                except Exception as e:
+                    self.logger.error("Błąd przetwarzania zamówienia", 
+                                    order_id=order.get('order_id'), error=str(e))
+                    continue
+            
+            # Przelicz priorytety
+            self._recalculate_priorities()
+            
+            result = {
+                'success': True,
+                'orders_processed': len(orders_data),
+                'products_found': total_products_found,
+                'items_created': created_items,
+                'items_updated': updated_items
+            }
+            
+            self.logger.info("Synchronizacja gluing zakończona", result=result)
+            return result
+            
+        except Exception as e:
+            self.logger.error("Błąd synchronizacji gluing", error=str(e))
+            return {
+                'success': False,
+                'error': str(e),
+                'orders_processed': 0,
+                'products_found': 0,
+                'items_created': 0,
+                'items_updated': 0
+            }
+    
+    def _make_baselinker_request(self, method: str, parameters: dict) -> dict:
+        """Wykonuje żądanie do API Baselinker (kopiuje z ProductionService)"""
+        if not self.api_key or not self.endpoint:
+            raise ValueError("Brak konfiguracji API Baselinker")
+        
+        data = {
+            'token': self.api_key,
+            'method': method,
+            'parameters': json.dumps(parameters)
+        }
+        
+        try:
+            response = requests.post(self.endpoint, data=data, timeout=30)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if result.get('status') == 'ERROR':
+                error_message = result.get('error_message', 'Nieznany błąd API')
+                self.logger.error("Błąd API Baselinker", method=method, error=error_message)
+                raise Exception(f"Baselinker API error: {error_message}")
+            
+            return result
+            
+        except requests.exceptions.RequestException as e:
+            self.logger.error("Błąd połączenia z Baselinker", method=method, error=str(e))
+            raise
+    
+    def _process_product_for_gluing(self, order, product):
+        """
+        Przetwarza pojedynczy produkt z zamówienia Baselinker
+        
+        Returns:
+            dict: {'created': bool, 'updated': bool, 'item_id': int}
+        """
+        try:
+            baselinker_order_id = int(order.get('order_id'))
+            product_id = int(product.get('product_id'))
+            product_name = product.get('name', '')
+            quantity = int(product.get('quantity', 1))
+            
+            # Sprawdź czy produkt wymaga klejenia (na podstawie nazwy)
+            if not self._requires_gluing(product_name):
+                return {'created': False, 'updated': False, 'item_id': None}
+            
+            # Sprawdź czy produkty już istnieją w bazie
+            existing_items = ProdGluingItem.query.filter_by(
+                baselinker_order_id=baselinker_order_id,
+                baselinker_order_product_id=product_id
+            ).all()
+            
+            created_count = 0
+            updated_count = 0
+            
+            # Utwórz lub zaktualizuj produkty (quantity określa ile sztuk)
+            for seq in range(1, quantity + 1):
+                existing = None
+                for item in existing_items:
+                    if item.item_sequence == seq:
+                        existing = item
+                        break
+                
+                if existing:
+                    # Aktualizuj istniejący
+                    updated = self._update_item_from_product(existing, order, product)
+                    if updated:
+                        updated_count += 1
+                else:
+                    # Utwórz nowy
+                    self._create_item_from_product(order, product, seq)
+                    created_count += 1
+            
+            return {
+                'created': created_count > 0,
+                'updated': updated_count > 0,
+                'items_created': created_count,
+                'items_updated': updated_count
+            }
+            
+        except Exception as e:
+            self.logger.error("Błąd przetwarzania produktu", 
+                            order_id=order.get('order_id'), product_name=product.get('name'), error=str(e))
+            return {'created': False, 'updated': False, 'item_id': None}
+    
+    def _requires_gluing(self, product_name):
+        """Sprawdza czy produkt wymaga klejenia na podstawie nazwy"""
+        # TODO: Logika biznesowa - które produkty wymagają klejenia
+        gluing_keywords = ['blat', 'lita', 'mikrowczep', 'klejonka']
+        
+        for keyword in gluing_keywords:
+            if keyword.lower() in product_name.lower():
+                return True
+        return False
+    
+    def _create_item_from_product(self, order, product, sequence):
+        """Tworzy nowy ProdGluingItem z danych Baselinker"""
+        try:
+            product_name = product.get('name', '')
+            
+            # Parsuj nazwę produktu
+            parsed_data = ProdGluingItem.parse_product_name(product_name)
+            
+            # Oblicz deadline (domyślnie +7 dni od daty zamówienia)
+            order_date_str = order.get('date_add', '')
+            if order_date_str:
+                order_date = datetime.strptime(order_date_str, '%Y-%m-%d %H:%M:%S').date()
+                deadline = order_date + timedelta(days=7)
+            else:
+                deadline = date.today() + timedelta(days=7)
+            
+            # Sprawdź czy wymaga stabilizacji
+            area = 0
+            if parsed_data.get('dimensions_length') and parsed_data.get('dimensions_width'):
+                area = float(parsed_data['dimensions_length'] * parsed_data['dimensions_width'])
+            
+            threshold = float(ProdGluingConfig.get_value('small_product_threshold', 1600))
+            requires_stabilization = area < threshold
+            
+            # Utwórz item
+            item = ProdGluingItem(
+                baselinker_order_id=int(order.get('order_id')),
+                baselinker_order_product_id=int(product.get('product_id')),
+                product_name=product_name,
+                display_name=parsed_data.get('display_name'),
+                item_sequence=sequence,
+                wood_species=parsed_data.get('wood_species'),
+                wood_technology=parsed_data.get('wood_technology'),
+                wood_class=parsed_data.get('wood_class'),
+                dimensions_length=parsed_data.get('dimensions_length'),
+                dimensions_width=parsed_data.get('dimensions_width'),
+                dimensions_thickness=parsed_data.get('dimensions_thickness'),
+                finish_type=parsed_data.get('finish_type'),
+                deadline_date=deadline,
+                requires_stabilization=requires_stabilization,
+                imported_from_baselinker_at=datetime.now()
+            )
+            
+            # Oblicz priorytet
+            item.calculate_priority_score()
+            
+            db.session.add(item)
+            db.session.flush()  # Pobierz ID
+            
+            self.logger.debug("Utworzono nowy item gluing", 
+                            item_id=item.id, product_name=product_name, sequence=sequence)
+            
+            return item
+            
+        except Exception as e:
+            self.logger.error("Błąd tworzenia item gluing", 
+                            product_name=product.get('name'), error=str(e))
+            db.session.rollback()
+            raise
+    
+    def _update_item_from_product(self, item, order, product):
+        """Aktualizuje istniejący item danymi z Baselinker"""
+        try:
+            old_name = item.product_name
+            new_name = product.get('name', '')
+            
+            if old_name != new_name:
+                # Nazwa się zmieniła - re-parsuj
+                parsed_data = ProdGluingItem.parse_product_name(new_name)
+                
+                item.product_name = new_name
+                item.display_name = parsed_data.get('display_name')
+                item.wood_species = parsed_data.get('wood_species')
+                item.wood_technology = parsed_data.get('wood_technology')
+                item.wood_class = parsed_data.get('wood_class')
+                item.dimensions_length = parsed_data.get('dimensions_length')
+                item.dimensions_width = parsed_data.get('dimensions_width')
+                item.dimensions_thickness = parsed_data.get('dimensions_thickness')
+                item.finish_type = parsed_data.get('finish_type')
+                
+                # Przelicz priorytet
+                item.calculate_priority_score()
+                
+                self.logger.debug("Zaktualizowano item gluing", 
+                                item_id=item.id, old_name=old_name, new_name=new_name)
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error("Błąd aktualizacji item gluing", 
+                            item_id=item.id, error=str(e))
+            raise
+    
+    def _recalculate_priorities(self):
+        """Przelicza priorytety wszystkich produktów pending"""
+        try:
+            from .models import recalculate_all_priorities
+            result = recalculate_all_priorities()
+            self.logger.info("Przeliczono priorytety po synchronizacji", result=result)
+            return result
+        except Exception as e:
+            self.logger.error("Błąd przeliczania priorytetów", error=str(e))
+            return {'success': False, 'updated_count': 0}
+
+
+class StationLayoutEngine:
+    """
+    Silnik układania produktów na stanowiskach - algorytmy bottom-left fill
+    """
+    
+    def __init__(self):
+        self.logger = get_structured_logger('production.layout_engine')
+    
+    def suggest_best_placement(self, item, station):
+        """
+        Algorytm bottom-left fill - znajdź najlepszą pozycję dla produktu
+        
+        Args:
+            item (ProdGluingItem): Produkt do umieszczenia
+            station (ProdGluingStation): Stanowisko
+            
+        Returns:
+            dict: {'x': float, 'y': float, 'score': int} lub None
+        """
+        try:
+            if not item.dimensions_length or not item.dimensions_width:
+                return None
+            
+            product_width = float(item.dimensions_length)
+            product_height = float(item.dimensions_width)
+            
+            # Pobierz aktywne przypisania na stanowisku
+            active_assignments = ProdGluingAssignment.get_active_assignments_for_station(station.id)
+            
+            # Utwórz mapę zajętości
+            occupied_areas = []
+            for assignment in active_assignments:
+                if assignment.position_x is not None and assignment.position_y is not None:
+                    occupied_areas.append({
+                        'x': float(assignment.position_x),
+                        'y': float(assignment.position_y),
+                        'width': float(assignment.width_occupied) if assignment.width_occupied else 0,
+                        'height': float(assignment.height_occupied) if assignment.height_occupied else 0
+                    })
+            
+            # Wymiary stanowiska
+            station_width = float(station.width_cm)
+            station_height = float(station.height_cm)
+            
+            # Algorytm bottom-left fill
+            best_position = self._find_bottom_left_position(
+                product_width, product_height,
+                station_width, station_height,
+                occupied_areas
+            )
+            
+            if best_position:
+                # Oblicz score (im bliżej lewego dolnego rogu, tym lepiej)
+                score = int(100 - (best_position['x'] + best_position['y']) / 10)
+                best_position['score'] = max(1, score)
+                
+                self.logger.debug("Znaleziono pozycję bottom-left", 
+                                position=best_position, item_id=item.id, station_id=station.id)
+            
+            return best_position
+            
+        except Exception as e:
+            self.logger.error("Błąd algorytmu układania", 
+                            item_id=item.id, station_id=station.id, error=str(e))
+            return None
+    
+    def _find_bottom_left_position(self, width, height, station_width, station_height, occupied_areas):
+        """
+        Implementacja algorytmu bottom-left fill
+        
+        Returns:
+            dict: {'x': float, 'y': float} lub None jeśli nie zmieści się
+        """
+        # Siatka do testowania pozycji (co 5cm)
+        step = 5
+        
+        # Rozpocznij od lewego dolnego rogu
+        for y in range(0, int(station_height - height) + 1, step):
+            for x in range(0, int(station_width - width) + 1, step):
+                
+                # Sprawdź czy ta pozycja koliduje z istniejącymi produktami
+                collision = False
+                test_rect = {
+                    'x': x, 'y': y,
+                    'width': width, 'height': height
+                }
+                
+                for occupied in occupied_areas:
+                    if self._rectangles_overlap(test_rect, occupied):
+                        collision = True
+                        break
+                
+                if not collision:
+                    return {'x': float(x), 'y': float(y)}
+        
+        # Nie znaleziono miejsca
+        return None
+    
+    def _rectangles_overlap(self, rect1, rect2):
+        """Sprawdza czy dwa prostokąty się nakładają"""
+        return not (
+            rect1['x'] + rect1['width'] <= rect2['x'] or
+            rect2['x'] + rect2['width'] <= rect1['x'] or
+            rect1['y'] + rect1['height'] <= rect2['y'] or
+            rect2['y'] + rect2['height'] <= rect1['y']
+        )
+    
+    def rank_stations_for_product(self, item):
+        """
+        Rankinguje stanowiska według przydatności dla danego produktu
+        
+        Returns:
+            List[dict]: Lista stanowisk z rankingiem
+        """
+        try:
+            stations = ProdGluingStation.get_active_stations()
+            ranked_stations = []
+            
+            for station in stations:
+                # Sprawdź podstawowe możliwości
+                can_fit, reason = station.can_fit_product(item)
+                if not can_fit:
+                    continue
+                
+                # Oblicz score
+                score = self._calculate_station_score(item, station)
+                
+                # Znajdź sugerowaną pozycję
+                suggested_position = self.suggest_best_placement(item, station)
+                
+                ranked_stations.append({
+                    'station': station.to_dict(),
+                    'score': score,
+                    'reason': reason,
+                    'suggested_position': suggested_position
+                })
+            
+            # Sortuj według score (najlepsze pierwsze)
+            ranked_stations.sort(key=lambda x: x['score'], reverse=True)
+            
+            return ranked_stations
+            
+        except Exception as e:
+            self.logger.error("Błąd rankingu stanowisk", item_id=item.id, error=str(e))
+            return []
+    
+    def _calculate_station_score(self, item, station):
+        """Oblicza score stanowiska dla danego produktu"""
+        try:
+            base_score = 100
+            
+            # Zajętość stanowiska (im mniej zajęte, tym lepiej)
+            occupancy = station.get_occupancy_percent()
+            base_score -= occupancy * 0.5
+            
+            # Zgodność grubości (jeśli na stanowisku są już produkty)
+            current_thickness = station.get_current_thickness()
+            if current_thickness > 0 and item.dimensions_thickness:
+                thickness_diff = abs(current_thickness - float(item.dimensions_thickness))
+                if thickness_diff == 0:
+                    base_score += 20  # Bonus za identyczną grubość
+                elif thickness_diff <= 0.5:
+                    base_score += 10  # Bonus za podobną grubość
+            
+            # Rozmiar produktu vs rozmiar stanowiska (efektywność użycia miejsca)
+            if item.dimensions_length and item.dimensions_width:
+                product_area = float(item.dimensions_length * item.dimensions_width)
+                station_area = float(station.width_cm * station.height_cm)
+                area_efficiency = (product_area / station_area) * 100
+                
+                # Optymalna efektywność 15-30%
+                if 15 <= area_efficiency <= 30:
+                    base_score += 15
+                elif 30 < area_efficiency <= 50:
+                    base_score += 10
+                elif area_efficiency > 80:
+                    base_score -= 20  # Zbyt duży produkt
+            
+            return max(1, int(base_score))
+            
+        except Exception as e:
+            self.logger.error("Błąd obliczania score stanowiska", 
+                            item_id=item.id, station_id=station.id, error=str(e))
+            return 50  # Średni score jako fallback
+    
+    def validate_placement(self, item, station, position_x, position_y):
+        """
+        Waliduje czy można umieścić produkt w danej pozycji
+        
+        Returns:
+            Tuple(bool, str): (czy_można, powód)
+        """
+        try:
+            # Podstawowe sprawdzenie stanowiska
+            can_fit, reason = station.can_fit_product(item)
+            if not can_fit:
+                return False, reason
+            
+            if not item.dimensions_length or not item.dimensions_width:
+                return False, "Brak wymiarów produktu"
+            
+            product_width = float(item.dimensions_length)
+            product_height = float(item.dimensions_width)
+            
+            # Sprawdź czy mieści się w granicach stanowiska
+            if position_x + product_width > float(station.width_cm):
+                return False, f"Produkt wychodzi poza prawą krawędź ({position_x + product_width} > {station.width_cm})"
+            
+            if position_y + product_height > float(station.height_cm):
+                return False, f"Produkt wychodzi poza górną krawędź ({position_y + product_height} > {station.height_cm})"
+            
+            # Sprawdź kolizje z istniejącymi produktami
+            active_assignments = ProdGluingAssignment.get_active_assignments_for_station(station.id)
+            
+            new_rect = {
+                'x': position_x, 'y': position_y,
+                'width': product_width, 'height': product_height
+            }
+            
+            for assignment in active_assignments:
+                if assignment.position_x is not None and assignment.position_y is not None:
+                    existing_rect = {
+                        'x': float(assignment.position_x),
+                        'y': float(assignment.position_y),
+                        'width': float(assignment.width_occupied) if assignment.width_occupied else 0,
+                        'height': float(assignment.height_occupied) if assignment.height_occupied else 0
+                    }
+                    
+                    if self._rectangles_overlap(new_rect, existing_rect):
+                        return False, f"Kolizja z produktem na pozycji ({existing_rect['x']}, {existing_rect['y']})"
+            
+            return True, "OK"
+            
+        except Exception as e:
+            self.logger.error("Błąd walidacji pozycji", error=str(e))
+            return False, f"Błąd walidacji: {str(e)}"
+
+
+# Instancja globalna dla łatwego dostępu
+_gluing_service = None
+_layout_engine = None
+
+def get_gluing_service():
+    """Factory function dla GluingService"""
+    global _gluing_service
+    if _gluing_service is None:
+        _gluing_service = GluingService()
+    return _gluing_service
+
+def get_layout_engine():
+    """Factory function dla StationLayoutEngine"""
+    global _layout_engine
+    if _layout_engine is None:
+        _layout_engine = StationLayoutEngine()
+    return _layout_engine

@@ -1066,8 +1066,8 @@ function prepareNewProductForm(form, index) {
     console.log(`[prepareNewProductForm] Przygotowuję formularz dla produktu ${index + 1}`);
 
     // KROK 1: Zachowaj aktualną grupę cenową PRZED resetowaniem
-    const currentClientType = form.querySelector('select[data-field="clientType"]')?.value;
-    console.log(`[prepareNewProductForm] Zachowuję grupę cenową: ${currentClientType}`);
+    const preservedClientType = form.querySelector('select[data-field="clientType"]')?.value;
+    console.log(`[prepareNewProductForm] Zachowuję grupę cenową: ${preservedClientType}`);
 
     // KROK 2: POPRAWKA - Unikalne ID i name dla radio buttons wariantów
     form.querySelectorAll('.variants input[type="radio"]').forEach((radio, radioIndex) => {
@@ -1075,7 +1075,7 @@ function prepareNewProductForm(form, index) {
 
         // ✅ POPRAWKA: Ustaw poprawne ID i name
         const newId = `${baseId}-product-${index}`;
-        const newName = `variant-product-${index}`;  // ✅ Konsistentna nazwa
+        const newName = `variant-product-${index}`;  // ✅ Konsystentna nazwa
         const oldId = radio.id;
 
         console.log(`[prepareNewProductForm] Radio ${radioIndex + 1}: ${oldId} → ${newId}, name: ${radio.name} → ${newName}`);
@@ -1095,16 +1095,20 @@ function prepareNewProductForm(form, index) {
 
     // KROK 3: Resetuj wszystkie inputy wymiarów
     form.querySelectorAll('input[data-field]').forEach(input => {
-        if (input.dataset.field !== 'quantity') { // Zachowaj ilość = 1
-            input.value = '';
-        }
+        // Ustaw wartość 1 dla ilości, pozostawiając pozostałe pola puste
+        input.value = input.dataset.field === 'quantity' ? '1' : '';
     });
 
     // KROK 4: Resetuj selecty ale ZACHOWAJ grupę cenową
     form.querySelectorAll('select[data-field]').forEach(select => {
-        if (select.dataset.field === 'clientType' && currentClientType) {
-            select.value = currentClientType;
-            console.log(`[prepareNewProductForm] Przywrócono grupę cenową: ${currentClientType}`);
+        if (select.dataset.field === 'clientType') {
+            const valueToSet = preservedClientType || currentClientType;
+            if (valueToSet) {
+                select.value = valueToSet;
+                console.log(`[prepareNewProductForm] Przywrócono grupę cenową: ${valueToSet}`);
+            } else {
+                select.selectedIndex = 0;
+            }
         } else {
             select.selectedIndex = 0;
         }
@@ -1722,13 +1726,22 @@ function init() {
 
     multiplierMapping = {};
     const multipliersDataEl = document.getElementById('multipliers-data');
+    let multipliersFromDB = [];
     if (multipliersDataEl) {
         try {
-            const multipliersFromDB = JSON.parse(multipliersDataEl.textContent);
+            multipliersFromDB = JSON.parse(multipliersDataEl.textContent);
             multipliersFromDB.forEach(m => {
                 multiplierMapping[m.label] = m.value;
             });
             dbg("Pobrane mnożniki:", multiplierMapping);
+
+            // Ustaw domyślną grupę cenową na tę o ID=2
+            const defaultGroup = multipliersFromDB.find(m => m.id === 2);
+            if (defaultGroup) {
+                currentClientType = defaultGroup.label;
+                currentMultiplier = defaultGroup.value;
+                dbg(`[init] Ustawiono domyślną grupę cenową: ${defaultGroup.label}`);
+            }
         } catch (e) {
             console.warn("Niepoprawny JSON w #multipliers-data", e);
         }
@@ -1777,11 +1790,11 @@ function init() {
                 select.value = currentValue;
                 console.log(`[populateMultiplierSelects] Przywrócono wartość: ${currentValue}`);
             }
-            
-            // Ustaw domyślną wartość dla partnerów
-            if (isPartner && currentClientType && !currentValue) {
+
+            // Ustaw domyślną wartość jeśli brak wybranej
+            if (!currentValue && currentClientType) {
                 select.value = currentClientType;
-                console.log(`[populateMultiplierSelects] Ustawiono domyślną dla partnera: ${currentClientType}`);
+                console.log(`[populateMultiplierSelects] Ustawiono domyślną grupę: ${currentClientType}`);
             }
         });
     };
@@ -1884,6 +1897,9 @@ function init() {
         safeAttachFormListeners(form);
         calculateFinishingCost(form);
     });
+
+    // Po przygotowaniu formularzy, ponownie wypełnij selecty grup cenowych
+    populateMultiplierSelects();
 
     // NOWA FUNKCJA: Dodaj event listener do synchronizacji grup cenowych
     document.addEventListener('change', e => {
@@ -3700,9 +3716,9 @@ function addNewProduct() {
     console.log("[addNewProduct] Zapisane stany zaznaczonych wariantów:", selectedStates);
 
     // KROK 2: Pobierz aktualną grupę cenową
-    const currentClientType = activeQuoteForm?.querySelector('select[data-field="clientType"]')?.value ||
-        firstForm?.querySelector('select[data-field="clientType"]')?.value || null;
-    console.log(`[addNewProduct] Aktualna grupa cenowa z aktywnego formularza: ${currentClientType}`);
+    const activeClientType = activeQuoteForm?.querySelector('select[data-field="clientType"]')?.value ||
+        firstForm?.querySelector('select[data-field="clientType"]')?.value || currentClientType;
+    console.log(`[addNewProduct] Aktualna grupa cenowa z aktywnego formularza: ${activeClientType}`);
 
     const newIndex = allForms.length;
 
@@ -3714,25 +3730,28 @@ function addNewProduct() {
     prepareNewProductForm(newForm, newIndex);
 
     // KROK 4: Przywróć grupę cenową
-    if (currentClientType) {
+    if (activeClientType) {
         const select = newForm.querySelector('select[data-field="clientType"]');
         if (select) {
-            select.value = currentClientType;
-            console.log(`[addNewProduct] Przywrócono grupę cenową: ${currentClientType}`);
+            select.value = activeClientType;
+            console.log(`[addNewProduct] Przywrócono grupę cenową: ${activeClientType}`);
         }
     }
 
     // KROK 4.1: Przywróć grupę cenową TAKŻE w aktywnym formularzu
-    if (currentClientType && activeQuoteForm) {
+    if (activeClientType && activeQuoteForm) {
         const activeSelect = activeQuoteForm.querySelector('select[data-field="clientType"]');
-        if (activeSelect && activeSelect.value !== currentClientType) {
-            activeSelect.value = currentClientType;
-            console.log(`[addNewProduct] Skorygowano grupę cenową w aktywnym formularzu: ${currentClientType}`);
+        if (activeSelect && activeSelect.value !== activeClientType) {
+            activeSelect.value = activeClientType;
+            console.log(`[addNewProduct] Skorygowano grupę cenową w aktywnym formularzu: ${activeClientType}`);
         }
     }
 
     // KROK 5: Dodaj event listenery do nowego formularza
     attachFormListeners(newForm);
+
+    // Aktualizuj selecty grup cenowych po dodaniu nowego produktu
+    populateMultiplierSelects();
 
     // KROK 6: Przywróć zaznaczenia w STARYCH formularzach
     selectedStates.forEach(state => {

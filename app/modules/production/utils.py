@@ -13,17 +13,12 @@ from modules.logging import get_structured_logger
 production_logger = get_structured_logger('production.utils')
 production_logger.info("✅ production_logger zainicjowany poprawnie w utils.py")
 
-
-# modules/production/utils.py
-"""
-Funkcje pomocnicze dla modułu Production
-"""
-
 import re
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from modules.logging import get_structured_logger
+from .models import ProdGluingItem, ProdGluingStation, ProdGluingAssignment, ProdGluingConfig
 
 # Import parsera z modułu Reports
 try:
@@ -33,11 +28,6 @@ except ImportError:
     REPORTS_PARSER_AVAILABLE = False
     production_logger = get_structured_logger('production.utils')
     production_logger.warning("Nie można zaimportować ProductNameParser z modułu Reports")
-
-# Inicjalizacja loggera
-production_logger = get_structured_logger('production.utils')
-production_logger.info("✅ production_logger zainicjowany poprawnie w utils.py")
-
 
 class ProductionNameParser:
     """
@@ -63,8 +53,6 @@ class ProductionNameParser:
             'dąb': ['dębowa', 'dąb', 'dab'],
             'buk': ['bukowa', 'buk'],
             'jesion': ['jesionowa', 'jesion'],
-            'sosna': ['sosnowa', 'sosna'],
-            'brzoza': ['brzozowa', 'brzoza']
         }
         
         self.technology_patterns = {
@@ -266,8 +254,6 @@ class ProductionPriorityCalculator:
             'dąb': 100,      # Najwyższy priorytet
             'jesion': 80,
             'buk': 60,
-            'sosna': 40,
-            'brzoza': 20
         }
         
         # Wartości dla technologii
@@ -1299,3 +1285,542 @@ def generate_packaging_report_data(date_from=None, date_to=None):
             },
             'error': str(e)
         }
+
+# ===================================================================
+# NOWE FUNKCJE GLUING - DO DODANIA W utils.py
+# Klasy: GluingPriorityCalculator, GluingStatsCalculator 
+# ===================================================================
+
+class GluingPriorityCalculator:
+    """
+    Kalkulator priorytetów dla modułu gluing
+    """
+    
+    def __init__(self):
+        self.logger = get_structured_logger('production.gluing_priority')
+    
+    def recalculate_all_priorities(self):
+        """
+        Przelicza priorytety wszystkich produktów pending w kolejce gluing
+        
+        Returns:
+            dict: Statystyki operacji
+        """
+        try:
+            # Pobierz wszystkie produkty oczekujące
+            pending_items = ProdGluingItem.get_items_by_status('pending')
+            
+            if not pending_items:
+                return {
+                    'success': True,
+                    'total_items': 0,
+                    'updated_count': 0,
+                    'renumbered': 0
+                }
+            
+            updated_count = 0
+            
+            # Przelicz priorytety dla każdego produktu
+            for item in pending_items:
+                old_priority = item.priority_score
+                new_priority = item.calculate_priority_score()
+                
+                if old_priority != new_priority:
+                    updated_count += 1
+                    self.logger.debug("Zaktualizowano priorytet", 
+                                    item_id=item.id, old=old_priority, new=new_priority)
+            
+            # Posortuj według nowych priorytetów i przenumeruj
+            pending_items.sort(key=lambda x: x.priority_score)
+            
+            for i, item in enumerate(pending_items, start=1):
+                item.priority_score = i
+            
+            db.session.commit()
+            
+            self.logger.info("Przeliczono priorytety gluing", 
+                           total_items=len(pending_items), updated_count=updated_count)
+            
+            return {
+                'success': True,
+                'total_items': len(pending_items),
+                'updated_count': updated_count,
+                'renumbered': len(pending_items)
+            }
+            
+        except Exception as e:
+            self.logger.error("Błąd przeliczania priorytetów gluing", error=str(e))
+            db.session.rollback()
+            return {
+                'success': False,
+                'error': str(e),
+                'total_items': 0,
+                'updated_count': 0
+            }
+    
+    def reorder_item_to_position(self, item_id, new_position):
+        """
+        Przenosi produkt gluing na nową pozycję w kolejce
+        
+        Args:
+            item_id (int): ID produktu
+            new_position (int): Nowa pozycja (1 = najwyższy priorytet)
+            
+        Returns:
+            dict: Rezultat operacji
+        """
+        try:
+            item = ProdGluingItem.query.get(item_id)
+            if not item:
+                raise ValueError(f"Produkt gluing o ID {item_id} nie istnieje")
+            
+            if item.status != 'pending':
+                raise ValueError("Można zmieniać pozycję tylko produktów oczekujących")
+            
+            old_position = item.priority_score
+            
+            # Pobierz wszystkie produkty oczekujące
+            pending_items = ProdGluingItem.get_items_by_status('pending')
+            
+            if new_position < 1 or new_position > len(pending_items):
+                raise ValueError(f"Pozycja {new_position} poza zakresem 1-{len(pending_items)}")
+            
+            # Usuń z obecnej pozycji
+            pending_items.remove(item)
+            
+            # Wstaw na nową pozycję
+            pending_items.insert(new_position - 1, item)
+            
+            # Przenumeruj wszystkie pozycje
+            for i, pending_item in enumerate(pending_items, start=1):
+                pending_item.priority_score = i
+            
+            db.session.commit()
+            
+            self.logger.info("Przeniesiono produkt w kolejce gluing",
+                           item_id=item_id, old_position=old_position, new_position=new_position)
+            
+            return {
+                'success': True,
+                'item_id': item_id,
+                'old_position': old_position,
+                'new_position': new_position,
+                'total_items': len(pending_items)
+            }
+            
+        except Exception as e:
+            self.logger.error("Błąd zmiany pozycji w kolejce gluing", 
+                            item_id=item_id, new_position=new_position, error=str(e))
+            db.session.rollback()
+            raise
+
+
+class GluingStatsCalculator:
+    """
+    Kalkulator statystyk dla modułu gluing
+    """
+    
+    def __init__(self):
+        self.logger = get_structured_logger('production.gluing_stats')
+    
+    def calculate_station_performance(self, station_id, date_from=None, date_to=None):
+        """
+        Oblicza wydajność stanowiska gluing w danym okresie
+        
+        Returns:
+            dict: Statystyki stanowiska
+        """
+        try:
+            station = ProdGluingStation.query.get(station_id)
+            if not station:
+                return {'error': f'Stanowisko {station_id} nie istnieje'}
+            
+            # Query dla przypisań w danym okresie
+            query = ProdGluingAssignment.query.filter_by(station_id=station_id)
+            query = query.filter(ProdGluingAssignment.completed_at.is_not(None))
+            
+            if date_from:
+                query = query.filter(ProdGluingAssignment.completed_at >= date_from)
+            if date_to:
+                query = query.filter(ProdGluingAssignment.completed_at <= date_to)
+            
+            assignments = query.all()
+            
+            if not assignments:
+                return {
+                    'station_id': station_id,
+                    'station_name': station.name,
+                    'total_items': 0,
+                    'avg_duration_minutes': 0,
+                    'efficiency_percent': 0,
+                    'overtime_percent': 0
+                }
+            
+            # Obliczenia
+            durations = [a.duration_seconds for a in assignments if a.duration_seconds]
+            overtime_assignments = [a for a in assignments if a.overtime_seconds > 0]
+            
+            # Standardowy czas z konfiguracji
+            standard_time_minutes = int(ProdGluingConfig.get_value('gluing_time_minutes', 20))
+            standard_time_seconds = standard_time_minutes * 60
+            
+            avg_duration = sum(durations) / len(durations) if durations else 0
+            efficiency = (standard_time_seconds / avg_duration * 100) if avg_duration > 0 else 0
+            
+            stats = {
+                'station_id': station_id,
+                'station_name': station.name,
+                'period': {
+                    'from': date_from.isoformat() if date_from else None,
+                    'to': date_to.isoformat() if date_to else None
+                },
+                'total_items': len(assignments),
+                'avg_duration_minutes': round(avg_duration / 60, 1),
+                'min_duration_minutes': round(min(durations) / 60, 1) if durations else 0,
+                'max_duration_minutes': round(max(durations) / 60, 1) if durations else 0,
+                'efficiency_percent': round(min(100, efficiency), 1),
+                'overtime_count': len(overtime_assignments),
+                'overtime_percent': round((len(overtime_assignments) / len(assignments)) * 100, 1)
+            }
+            
+            self.logger.debug("Obliczono statystyki stanowiska gluing", stats=stats)
+            return stats
+            
+        except Exception as e:
+            self.logger.error("Błąd statystyk stanowiska gluing", 
+                            station_id=station_id, error=str(e))
+            return {'error': str(e)}
+    
+    def calculate_worker_performance(self, worker_name, date_from=None, date_to=None):
+        """
+        Oblicza wydajność pracownika w module gluing
+        
+        Returns:
+            dict: Statystyki pracownika
+        """
+        try:
+            # Query dla przypisań pracownika
+            query = ProdGluingAssignment.query.filter_by(worker_name=worker_name)
+            query = query.filter(ProdGluingAssignment.completed_at.is_not(None))
+            
+            if date_from:
+                query = query.filter(ProdGluingAssignment.completed_at >= date_from)
+            if date_to:
+                query = query.filter(ProdGluingAssignment.completed_at <= date_to)
+            
+            assignments = query.all()
+            
+            if not assignments:
+                return {
+                    'worker_name': worker_name,
+                    'total_items': 0,
+                    'avg_duration_minutes': 0,
+                    'items_per_hour': 0,
+                    'overtime_percent': 0
+                }
+            
+            # Obliczenia wydajności
+            durations = [a.duration_seconds for a in assignments if a.duration_seconds]
+            avg_duration = sum(durations) / len(durations) if durations else 0
+            items_per_hour = 3600 / avg_duration if avg_duration > 0 else 0
+            
+            overtime_count = len([a for a in assignments if a.overtime_seconds > 0])
+            overtime_percent = (overtime_count / len(assignments)) * 100 if assignments else 0
+            
+            stats = {
+                'worker_name': worker_name,
+                'period': {
+                    'from': date_from.isoformat() if date_from else None,
+                    'to': date_to.isoformat() if date_to else None
+                },
+                'total_items': len(assignments),
+                'avg_duration_minutes': round(avg_duration / 60, 1),
+                'items_per_hour': round(items_per_hour, 1),
+                'overtime_count': overtime_count,
+                'overtime_percent': round(overtime_percent, 1),
+                'stations_used': list(set([a.station.name for a in assignments if a.station]))
+            }
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error("Błąd statystyk pracownika gluing", 
+                            worker_name=worker_name, error=str(e))
+            return {'error': str(e)}
+    
+    def get_daily_summary(self, target_date=None):
+        """
+        Podsumowanie dnia dla gluing
+        
+        Returns:
+            dict: Statystyki dnia
+        """
+        try:
+            if not target_date:
+                target_date = date.today()
+            
+            # Zakończone w danym dniu
+            completed_today = ProdGluingAssignment.query.filter(
+                db.func.date(ProdGluingAssignment.completed_at) == target_date
+            ).all()
+            
+            # Rozpoczęte w danym dniu
+            started_today = ProdGluingAssignment.query.filter(
+                db.func.date(ProdGluingAssignment.started_at) == target_date
+            ).all()
+            
+            # Aktualnie w trakcie
+            in_progress_now = ProdGluingAssignment.query.filter(
+                ProdGluingAssignment.started_at.is_not(None),
+                ProdGluingAssignment.completed_at.is_(None)
+            ).all()
+            
+            # Obliczenia
+            total_work_time = sum([a.duration_seconds for a in completed_today if a.duration_seconds])
+            avg_time = total_work_time / len(completed_today) if completed_today else 0
+            
+            return {
+                'date': target_date.isoformat(),
+                'completed_items': len(completed_today),
+                'started_items': len(started_today),
+                'in_progress_items': len(in_progress_now),
+                'total_work_hours': round(total_work_time / 3600, 1),
+                'avg_time_per_item_minutes': round(avg_time / 60, 1),
+                'workers_active': list(set([a.worker_name for a in started_today if a.worker_name]))
+            }
+            
+        except Exception as e:
+            self.logger.error("Błąd podsumowania dnia gluing", error=str(e))
+            return {'error': str(e)}
+
+
+class GluingNameParserHelper:
+    """
+    Pomocnik dla parsowania nazw produktów w module gluing
+    """
+    
+    def __init__(self):
+        self.logger = get_structured_logger('production.gluing_parser')
+    
+    def extract_stabilization_info(self, product_name, parsed_data):
+        """
+        Wyciąga informacje o potrzebie stabilizacji z nazwy produktu
+        
+        Returns:
+            dict: {'requires': bool, 'suggested_length': float}
+        """
+        try:
+            # Sprawdź powierzchnię produktu
+            length = parsed_data.get('dimensions_length')
+            width = parsed_data.get('dimensions_width')
+            
+            if not length or not width:
+                return {'requires': False, 'suggested_length': None}
+            
+            area = float(length * width)
+            threshold = float(ProdGluingConfig.get_value('small_product_threshold', 1600))
+            
+            requires_stabilization = area < threshold
+            
+            # Oblicz sugerowaną długość lameli (najdłuższy wymiar + 20cm)
+            suggested_length = None
+            if requires_stabilization:
+                max_dimension = max(float(length), float(width))
+                suggested_length = max_dimension + 20
+            
+            return {
+                'requires': requires_stabilization,
+                'suggested_length': suggested_length,
+                'product_area': area,
+                'threshold': threshold
+            }
+            
+        except Exception as e:
+            self.logger.error("Błąd analizy stabilizacji", 
+                            product_name=product_name, error=str(e))
+            return {'requires': False, 'suggested_length': None}
+    
+    def generate_display_name(self, parsed_data):
+        """
+        Generuje skróconą nazwę wyświetlaną dla pracowników
+        
+        Returns:
+            str: Uproszczona nazwa
+        """
+        try:
+            parts = []
+            
+            # Gatunek drewna
+            if parsed_data.get('wood_species'):
+                parts.append(parsed_data['wood_species'].title())
+            
+            # Technologia
+            if parsed_data.get('wood_technology'):
+                tech = parsed_data['wood_technology']
+                if tech == 'lita':
+                    parts.append('lita')
+                elif tech == 'mikrowczep':
+                    parts.append('klejona')
+                else:
+                    parts.append(tech)
+            
+            # Klasa
+            if parsed_data.get('wood_class'):
+                parts.append(parsed_data['wood_class'])
+            
+            # Wymiary
+            length = parsed_data.get('dimensions_length')
+            width = parsed_data.get('dimensions_width') 
+            thickness = parsed_data.get('dimensions_thickness')
+            
+            if length and width and thickness:
+                dimensions = f"{int(length)}x{int(width)}x{thickness}"
+                parts.append(dimensions)
+            
+            display_name = ' '.join(parts)
+            
+            # Fallback jeśli nie udało się sparsować
+            if not display_name.strip():
+                original_name = parsed_data.get('product_name', 'Nieznany produkt')
+                display_name = original_name[:50] + '...' if len(original_name) > 50 else original_name
+            
+            return display_name[:200]  # Ogranicz do 200 znaków
+            
+        except Exception as e:
+            self.logger.error("Błąd generowania nazwy wyświetlanej", error=str(e))
+            return "Błąd nazwy"
+
+
+# ===================================================================
+# FUNKCJE POMOCNICZE GLUING
+# ===================================================================
+
+def get_gluing_queue_summary():
+    """
+    Zwraca podsumowanie kolejki gluing dla dashboard
+    
+    Returns:
+        dict: Statystyki kolejki
+    """
+    try:
+        # Statystyki według statusu
+        status_counts = {}
+        for status in ['pending', 'assigned', 'in_progress', 'completed']:
+            count = ProdGluingItem.query.filter_by(status=status).count()
+            status_counts[status] = count
+        
+        # Produkty z przekroczonym deadline
+        overdue_count = ProdGluingItem.query.filter(
+            ProdGluingItem.status.in_(['pending', 'assigned']),
+            ProdGluingItem.deadline_date < date.today()
+        ).count()
+        
+        # Średni czas oczekiwania
+        pending_items = ProdGluingItem.get_items_by_status('pending')
+        if pending_items:
+            oldest_pending = min([item.created_at for item in pending_items if item.created_at])
+            avg_wait_hours = (datetime.now() - oldest_pending).total_seconds() / 3600
+        else:
+            avg_wait_hours = 0
+        
+        return {
+            'status_counts': status_counts,
+            'overdue_count': overdue_count,
+            'avg_wait_hours': round(avg_wait_hours, 1),
+            'total_items': sum(status_counts.values())
+        }
+        
+    except Exception as e:
+        production_logger.error("Błąd podsumowania kolejki gluing", error=str(e))
+        return {'error': str(e)}
+
+def validate_gluing_system_health():
+    """
+    Sprawdza ogólny stan zdrowia systemu gluing
+    
+    Returns:
+        dict: Status systemu z alertami
+    """
+    try:
+        alerts = []
+        warnings = []
+        
+        # Sprawdź konfigurację
+        required_configs = [
+            'gluing_time_minutes', 'tablet_ip_whitelist', 
+            'auto_suggest_enabled', 'small_product_threshold'
+        ]
+        
+        for config_key in required_configs:
+            value = ProdGluingConfig.get_value(config_key)
+            if value is None:
+                alerts.append(f"Brak konfiguracji: {config_key}")
+        
+        # Sprawdź stanowiska
+        inactive_stations = ProdGluingStation.query.filter_by(is_active=False).count()
+        if inactive_stations > 0:
+            warnings.append(f"{inactive_stations} stanowisk nieaktywnych")
+        
+        blocked_stations = ProdGluingStation.query.filter_by(is_blocked=True).count()
+        if blocked_stations > 0:
+            warnings.append(f"{blocked_stations} stanowisk zablokowanych")
+        
+        # Sprawdź czy nie ma zbyt długo trwających operacji
+        long_running = ProdGluingAssignment.query.filter(
+            ProdGluingAssignment.started_at.is_not(None),
+            ProdGluingAssignment.completed_at.is_(None),
+            ProdGluingAssignment.started_at < datetime.now() - timedelta(hours=2)
+        ).count()
+        
+        if long_running > 0:
+            alerts.append(f"{long_running} operacji trwa ponad 2 godziny")
+        
+        # Sprawdź przepełnienie kolejki
+        pending_count = ProdGluingItem.query.filter_by(status='pending').count()
+        if pending_count > 100:
+            warnings.append(f"Duża kolejka: {pending_count} produktów oczekujących")
+        
+        # Oceń ogólny status
+        if alerts:
+            overall_status = 'critical'
+        elif warnings:
+            overall_status = 'warning'
+        else:
+            overall_status = 'healthy'
+        
+        return {
+            'status': overall_status,
+            'alerts': alerts,
+            'warnings': warnings,
+            'summary': {
+                'stations_total': ProdGluingStation.query.count(),
+                'stations_active': ProdGluingStation.query.filter_by(is_active=True, is_blocked=False).count(),
+                'items_pending': pending_count,
+                'items_in_progress': ProdGluingItem.query.filter_by(status='in_progress').count()
+            }
+        }
+        
+    except Exception as e:
+        production_logger.error("Błąd sprawdzania zdrowia systemu gluing", error=str(e))
+        return {
+            'status': 'error',
+            'alerts': [f"Błąd systemu: {str(e)}"],
+            'warnings': []
+        }
+
+
+# ===================================================================
+# FACTORY FUNCTIONS
+# ===================================================================
+
+def get_gluing_priority_calculator():
+    """Factory function dla GluingPriorityCalculator"""
+    return GluingPriorityCalculator()
+
+def get_gluing_stats_calculator():
+    """Factory function dla GluingStatsCalculator"""
+    return GluingStatsCalculator()
+
+def get_gluing_name_parser():
+    """Factory function dla GluingNameParserHelper"""
+    return GluingNameParserHelper()

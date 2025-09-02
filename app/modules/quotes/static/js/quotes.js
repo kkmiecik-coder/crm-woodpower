@@ -1461,6 +1461,8 @@ function updateClearFiltersButtonState() {
 
 function renderSelectedSummary(groupedItems, container) {
     container.innerHTML = "";
+    let totalVolume = 0;
+    let totalWeight = 0;
     Object.keys(groupedItems).forEach((index, idx) => {
         const selected = groupedItems[index].find(i => i.is_selected) || groupedItems[index][0];
         if (!selected) return;
@@ -1496,6 +1498,17 @@ function renderSelectedSummary(groupedItems, container) {
         const totalBrutto = finalUnitPriceBrutto * quantity;
         const totalNetto = finalUnitPriceNetto * quantity;
 
+        // Oblicz objętość (m³) i wagę (kg)
+        let itemVolume = 0;
+        if (selected.volume_m3) {
+            itemVolume = parseFloat(selected.volume_m3) * quantity;
+        } else if (selected.length_cm && selected.width_cm && selected.thickness_cm) {
+            itemVolume = (selected.length_cm / 100) * (selected.width_cm / 100) * (selected.thickness_cm / 100) * quantity;
+        }
+        const itemWeight = itemVolume * 800; // gęstość drewna
+        totalVolume += itemVolume;
+        totalWeight += itemWeight;
+
         // Przygotuj opis wykończenia dla wyświetlenia
         let finishingText = '';
         if (finishing && finishing.finishing_type && finishing.finishing_type !== 'Brak' && finishing.finishing_type !== 'Surowe') {
@@ -1526,6 +1539,12 @@ function renderSelectedSummary(groupedItems, container) {
         `;
         container.appendChild(p);
     });
+
+    // Dodaj podsumowanie łącznej objętości i wagi
+    const totals = document.createElement('p');
+    totals.className = 'summary-totals';
+    totals.innerHTML = `<span style="font-weight: 600;">Łączna objętość:</span>${formatVolumeDisplay(totalVolume)} <span style="font-weight: 600;">Łączna waga:</span>${formatWeightDisplay(totalWeight)}`;
+    container.appendChild(totals);
 }
 
 // Updated renderVariantSummary function with quantity editing functionality
@@ -2617,6 +2636,27 @@ function formatPriceWithNetto(brutto, netto) {
     }
     
     return html;
+}
+
+// Formatowanie wartości wagowych i objętościowych
+function formatWeightDisplay(weight) {
+    if (!weight || weight <= 0) {
+        return "0.0 kg";
+    }
+
+    if (weight >= 1000) {
+        return `${(weight / 1000).toFixed(2)} t`;
+    }
+
+    return `${weight.toFixed(1)} kg`;
+}
+
+function formatVolumeDisplay(volume) {
+    if (!volume || volume <= 0) {
+        return "0.0000 m³";
+    }
+
+    return `${volume.toFixed(4)} m³`;
 }
 
 // NOWA FUNKCJONALNOŚĆ: Sprawdzanie parametru open_quote w URL

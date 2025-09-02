@@ -105,15 +105,6 @@ def initialize_production_module():
         # Sprawdź strukturę bazy danych
         verify_packaging_database_setup()
         
-        # Logowanie sukcesu inicjalizacji
-        production_logger.info("✅ Moduł produkcyjny zainicjalizowany pomyślnie")
-        production_logger.info("📦 Dostępne funkcjonalności:")
-        production_logger.info("   - Stanowisko sklejania")
-        production_logger.info("   - Stanowisko pakowania") 
-        production_logger.info("   - Panel kontrolny produkcji")
-        production_logger.info("   - API dla stanowisk")
-        production_logger.info("   - Synchronizacja z Baselinker")
-        
         return True
         
     except Exception as e:
