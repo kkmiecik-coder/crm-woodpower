@@ -216,22 +216,41 @@ class RegisterCompany(db.Model):
     
     def _update_dates(self, company, company_data):
         """Aktualizuje daty w obiekcie firmy"""
+        # Lista obsługiwanych formatów dat zgodnie z CEIDG
+        date_formats = ['%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%d-%m-%Y', '%d.%m.%Y']
+    
         if 'foundation_date' in company_data and company_data['foundation_date']:
             try:
                 if isinstance(company_data['foundation_date'], str):
-                    company.foundation_date = datetime.strptime(company_data['foundation_date'], '%Y-%m-%d').date()
+                    parsed_date = None
+                    for fmt in date_formats:
+                        try:
+                            parsed_date = datetime.strptime(company_data['foundation_date'], fmt).date()
+                            break
+                        except ValueError:
+                            continue
+                    if parsed_date:
+                        company.foundation_date = parsed_date
                 else:
                     company.foundation_date = company_data['foundation_date']
-            except ValueError:
+            except (ValueError, TypeError):
                 pass  # Ignorowanie nieprawidłowej daty
-        
+    
         if 'last_update_date' in company_data and company_data['last_update_date']:
             try:
                 if isinstance(company_data['last_update_date'], str):
-                    company.last_update_date = datetime.strptime(company_data['last_update_date'], '%Y-%m-%d').date()
+                    parsed_date = None
+                    for fmt in date_formats:
+                        try:
+                            parsed_date = datetime.strptime(company_data['last_update_date'], fmt).date()
+                            break
+                        except ValueError:
+                            continue
+                    if parsed_date:
+                        company.last_update_date = parsed_date
                 else:
                     company.last_update_date = company_data['last_update_date']
-            except ValueError:
+            except (ValueError, TypeError):
                 pass  # Ignorowanie nieprawidłowej daty
 
 
@@ -332,20 +351,24 @@ class RegisterApiLog(db.Model):
                    response_code=None, response_time_ms=None, error_details=None, 
                    user_id=None, ip_address=None):
         """
-        Loguje zapytanie do API
+        Loguje zapytanie do API z obsługą rate limiting CEIDG
         """
+        # Skróć długie error_details dla CEIDG (często zawierają HTML)
+        if error_details and len(error_details) > 1000:
+            error_details = error_details[:997] + "..."
+    
         api_log = cls(
             register_type=register_type,
             operation=operation,
             status=status,
-            request_params=json.dumps(request_params) if request_params else None,
+            request_params=json.dumps(request_params, ensure_ascii=False) if request_params else None,
             response_code=response_code,
             response_time_ms=response_time_ms,
             error_details=error_details,
             user_id=user_id,
             ip_address=ip_address
         )
-        
+    
         db.session.add(api_log)
         try:
             db.session.commit()
@@ -355,7 +378,7 @@ class RegisterApiLog(db.Model):
             import logging
             logger = logging.getLogger('register_module')
             logger.error(f"Error logging API call: {str(e)}")
-            
+        
         return api_log
 
     @classmethod
@@ -461,17 +484,29 @@ class RegisterIntegrationConfig(db.Model):
         return config and config.active
     
     def validate_config(self):
-        """Waliduje konfigurację"""
+        """Waliduje konfigurację zgodnie z wymaganiami API"""
         errors = []
-        
+    
         if self.register_type == 'CEIDG':
             if not self.api_key:
                 errors.append("CEIDG wymaga JWT tokenu")
+            else:
+                # Podstawowa walidacja formatu JWT
+                token_parts = self.api_key.split('.')
+                if len(token_parts) != 3:
+                    errors.append("JWT token musi mieć format: header.payload.signature")
+                
             if not self.api_url:
                 errors.append("Brak URL API dla CEIDG")
-                
+            else:
+                if 'ceidg' not in self.api_url.lower():
+                    errors.append("URL API powinien wskazywać na endpoint CEIDG")
+            
         if self.register_type == 'KRS':
             if not self.api_url:
                 errors.append("Brak URL API dla KRS")
-        
+            else:
+                if 'krs' not in self.api_url.lower():
+                    errors.append("URL API powinien wskazywać na endpoint KRS")
+    
         return len(errors) == 0, errors

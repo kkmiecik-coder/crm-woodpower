@@ -9,11 +9,17 @@ from datetime import datetime, timedelta, date
 import time
 import traceback
 from functools import wraps
+import uuid
+import threading
+import time as time_module
 
 # Konfiguracja loggera
 register_logger = logging.getLogger('company_register_module')
 register_logger.info("✅ company_register_logger zainicjowany poprawnie w routers.py")
 
+
+# DODAJ globalną zmienną dla sesji (po istniejących zmiennych):
+background_sessions = {}  # {session_id: session_data}
 
 def api_response(success, data=None, message=None, error=None, status_code=200):
     """
@@ -186,13 +192,20 @@ def api_search():
     register_service = RegisterService()
     result = register_service.search_in_registers(search_params, data.get('register_type'))
 
+    if result.get('rate_limit_exceeded'):
+        return api_response(
+            success=False,
+            error=result['error'],
+            status_code=429
+        )
+
     if result['success']:
         message = None
         if 'partial_errors' in result and result['partial_errors']:
-            if len(result['sources']) == 1:
-                message = f"Wyniki tylko z {', '.join(result['sources'])}. Błędy: {', '.join(result['partial_errors'])}"
+            if len(result['sources']) >= 1:
+                message = f"Ostrzeżenia: {', '.join(result['partial_errors'])}"
             else:
-                message = f"Wystąpiły błędy: {', '.join(result['partial_errors'])}"
+                message = f"Częściowe błędy: {', '.join(result['partial_errors'])}"
 
         total = len(result['data'])
         limit_exceeded = total >= search_params['limit']
@@ -202,7 +215,8 @@ def api_search():
             data={
                 'companies': result['data'],
                 'total': total,
-                'limit_exceeded': limit_exceeded
+                'limit_exceeded': limit_exceeded,
+                'sources': result.get('sources', [])
             },
             message=message
         )
@@ -227,8 +241,8 @@ def api_company_details():
     company_id = request.args.get('company_id')
     krs = request.args.get('krs')
 
-    if not register_type:
-        return api_response(False, error="Brak parametru register_type", status_code=400)
+    if not (nip or regon or company_id or krs):
+        return api_response(False, error="Podaj NIP, REGON, KRS lub ID firmy", status_code=400)
 
     if not (nip or regon or company_id or krs):
         return api_response(False, error="Podaj NIP, REGON, KRS lub ID firmy", status_code=400)
@@ -453,13 +467,22 @@ def api_test_connections():
     if result['success']:
         return api_response(
             success=True,
-            data=result['results'],
+            data={
+                **result['results'],
+                'configuration': {
+                    'ceidg_configured': bool(RegisterIntegrationConfig.get_config('CEIDG')),
+                    'krs_available': True
+                }
+            },
             message="Testy połączeń zakończone"
         )
     else:
         return api_response(
             success=False,
-            data=result['results'],
+            data={
+                **result['results'],
+                'help': "Sprawdź konfigurację JWT tokenu dla CEIDG w ustawieniach"
+            },
             error="Wszystkie testy połączeń nie powiodły się"
         )
 
@@ -596,89 +619,109 @@ def api_clear_api_logs():
 @register_bp.route('/api/initialize-pkd-codes', methods=['POST'])
 @handle_exceptions
 def api_initialize_pkd_codes():
-    """API do inicjalizacji słownika kodów PKD"""
+    """API do inicjalizacji słownika kodów PKD - rozszerzony o branże powiązane z drewnem"""
     if session.get('role') != 'admin':
         return api_response(False, error="Brak uprawnień", status_code=403)
     
-    # Lista podstawowych kodów PKD (skrócona dla przykładu)
-    common_pkd_codes = [
-        # Branża drzewna i meblarska
+    # Rozszerzony słownik kodów PKD
+    extended_pkd_codes = [
+        # === PRZEMYSŁ DRZEWNY I MEBLARSKI ===
         {'code': '02.20.Z', 'name': 'Pozyskiwanie drewna', 'category': 'Leśnictwo', 'section': 'A', 'is_common': True},
+        {'code': '16.10.A', 'name': 'Tartak - produkcja tarcicy', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
+        {'code': '16.10.B', 'name': 'Impregnowanie i konserwowanie drewna', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
         {'code': '16.10.Z', 'name': 'Produkcja wyrobów tartacznych', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
-        {'code': '16.21.Z', 'name': 'Produkcja arkuszy fornirowych i płyt wykonanych na bazie drewna', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
-        {'code': '16.22.Z', 'name': 'Produkcja gotowych parkietów podłogowych', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
-        {'code': '16.23.Z', 'name': 'Produkcja pozostałych wyrobów stolarskich i ciesielskich dla budownictwa', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
-        {'code': '16.24.Z', 'name': 'Produkcja opakowań drewnianych', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
-        {'code': '16.29.Z', 'name': 'Produkcja pozostałych wyrobów z drewna; produkcja wyrobów z korka, słomy i materiałów używanych do wyplatania', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
-        {'code': '31.01.Z', 'name': 'Produkcja mebli biurowych i sklepowych', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
-        {'code': '31.02.Z', 'name': 'Produkcja mebli kuchennych', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
-        {'code': '31.03.Z', 'name': 'Produkcja materaców', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
+        {'code': '16.21.Z', 'name': 'Produkcja arkuszy fornirowych i płyt z drewna', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
+        {'code': '16.22.Z', 'name': 'Produkcja parkietów podłogowych', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
+        {'code': '16.23.Z', 'name': 'Stolarka budowlana z drewna', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
+        {'code': '16.24.Z', 'name': 'Opakowania drewniane', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
+        {'code': '16.29.Z', 'name': 'Pozostałe wyroby z drewna, korek, słoma', 'category': 'Drzewna', 'section': 'C', 'is_common': True},
+        
+        # === MEBLE ===
+        {'code': '31.01.Z', 'name': 'Meble biurowe i sklepowe', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
+        {'code': '31.02.Z', 'name': 'Meble kuchenne', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
+        {'code': '31.03.Z', 'name': 'Materace', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
+        {'code': '31.09.A', 'name': 'Meble z wikliny, bambusa i podobnych', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
+        {'code': '31.09.B', 'name': 'Pozostałe meble', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
         {'code': '31.09.Z', 'name': 'Produkcja pozostałych mebli', 'category': 'Meblarska', 'section': 'C', 'is_common': True},
-        {'code': '46.13.Z', 'name': 'Działalność agentów zajmujących się sprzedażą drewna i materiałów budowlanych', 'category': 'Handel', 'section': 'G', 'is_common': True},
-        {'code': '46.73.Z', 'name': 'Sprzedaż hurtowa drewna, materiałów budowlanych i wyposażenia sanitarnego', 'category': 'Handel', 'section': 'G', 'is_common': True},
-        {'code': '47.59.Z', 'name': 'Sprzedaż detaliczna mebli, sprzętu oświetleniowego i pozostałych artykułów użytku domowego', 'category': 'Handel', 'section': 'G', 'is_common': True},
- 
-        # Budownictwo i architektura
-        {'code': '41.10.Z', 'name': 'Realizacja projektów budowlanych związanych ze wznoszeniem budynków', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '41.20.Z', 'name': 'Roboty budowlane związane ze wznoszeniem budynków mieszkalnych i niemieszkalnych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '42.11.Z', 'name': 'Roboty związane z budową dróg i autostrad', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '42.21.Z', 'name': 'Roboty związane z budową rurociągów przesyłowych i sieci rozdzielczych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '42.22.Z', 'name': 'Roboty związane z budową linii telekomunikacyjnych i elektroenergetycznych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '42.91.Z', 'name': 'Roboty związane z budową obiektów inżynierii wodnej', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '42.99.Z', 'name': 'Roboty związane z budową pozostałych obiektów inżynierii lądowej i wodnej', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '43.11.Z', 'name': 'Rozbiórka i burzenie obiektów budowlanych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        
+        # === HANDEL DREWNEM I MATERIAŁAMI ===
+        {'code': '46.13.Z', 'name': 'Agenci - sprzedaż drewna i materiałów budowlanych', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        {'code': '46.73.A', 'name': 'Sprzedaż hurtowa drewna', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        {'code': '46.73.B', 'name': 'Sprzedaż hurtowa materiałów budowlanych', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        {'code': '46.73.Z', 'name': 'Sprzedaż hurtowa drewna i materiałów budowlanych', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        {'code': '47.52.A', 'name': 'Sprzedaż detaliczna artykułów żelaznych', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        {'code': '47.52.Z', 'name': 'Sprzedaż detaliczna artykułów żelaznych, farb, szkła', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        {'code': '47.59.A', 'name': 'Sprzedaż detaliczna mebli', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        {'code': '47.59.Z', 'name': 'Sprzedaż detaliczna mebli i wyposażenia', 'category': 'Handel', 'section': 'G', 'is_common': True},
+        
+        # === BUDOWNICTWO OGÓLNE ===
+        {'code': '41.10.Z', 'name': 'Roboty budowlane związane ze wznoszeniem budynków', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '41.20.Z', 'name': 'Wznoszenie budynków mieszkalnych i niemieszkalnych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '42.11.Z', 'name': 'Budowa dróg i autostrad', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '42.13.Z', 'name': 'Budowa mostów i tuneli', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '42.21.Z', 'name': 'Budowa rurociągów i sieci', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '42.22.Z', 'name': 'Budowa linii telekomunikacyjnych i elektroenergetycznych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '42.91.Z', 'name': 'Budowa obiektów inżynierii wodnej', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '42.99.Z', 'name': 'Budowa pozostałych obiektów inżynierii lądowej', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        
+        # === ROBOTY BUDOWLANE SPECJALISTYCZNE ===
+        {'code': '43.11.Z', 'name': 'Rozbiórka obiektów budowlanych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
         {'code': '43.12.Z', 'name': 'Przygotowanie terenu pod budowę', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '43.13.Z', 'name': 'Wykonywanie wykopów i wierceń geologiczno-inżynierskich', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
- 
-        # Wykończenia i remonty
-        {'code': '43.21.Z', 'name': 'Wykonywanie instalacji elektrycznych', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
-        {'code': '43.22.Z', 'name': 'Wykonywanie instalacji wodno-kanalizacyjnych, cieplnych, gazowych i klimatyzacyjnych', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
-        {'code': '43.29.Z', 'name': 'Wykonywanie pozostałych instalacji budowlanych', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
+        {'code': '43.13.Z', 'name': 'Wiercenia geologiczno-inżynierskie', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '43.21.Z', 'name': 'Instalacje elektryczne', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
+        {'code': '43.22.Z', 'name': 'Instalacje wodno-kanalizacyjne, cieplne, gazowe', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
+        {'code': '43.29.Z', 'name': 'Pozostałe instalacje budowlane', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
         {'code': '43.31.Z', 'name': 'Tynkowanie', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
+        {'code': '43.32.A', 'name': 'Stolarka budowlana z drewna', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
+        {'code': '43.32.B', 'name': 'Stolarka budowlana z PVC i metalu', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
         {'code': '43.32.Z', 'name': 'Zakładanie stolarki budowlanej', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
-        {'code': '43.33.Z', 'name': 'Posadzkarstwo; tapetowanie i oblicowywanie ścian', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
+        {'code': '43.33.Z', 'name': 'Układanie podłóg i tapetowanie', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
         {'code': '43.34.Z', 'name': 'Malowanie i szklenie', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
-        {'code': '43.39.Z', 'name': 'Wykonywanie pozostałych robót budowlanych wykończeniowych', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
-        {'code': '43.91.Z', 'name': 'Wykonywanie konstrukcji i pokryć dachowych', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
-        {'code': '43.99.Z', 'name': 'Pozostałe specjalistyczne roboty budowlane, gdzie indziej niesklasyfikowane', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
- 
-        # Architektura i projektowanie
+        {'code': '43.39.Z', 'name': 'Pozostałe roboty wykończeniowe', 'category': 'Wykończenia', 'section': 'F', 'is_common': True},
+        {'code': '43.91.Z', 'name': 'Konstrukcje i pokrycia dachowe', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        {'code': '43.99.Z', 'name': 'Pozostałe specjalistyczne roboty budowlane', 'category': 'Budownictwo', 'section': 'F', 'is_common': True},
+        
+        # === ARCHITEKTURA I PROJEKTOWANIE ===
+        {'code': '71.11.A', 'name': 'Działalność architektów', 'category': 'Architektura', 'section': 'M', 'is_common': True},
+        {'code': '71.11.B', 'name': 'Działalność urbanistów i architektów krajobrazu', 'category': 'Architektura', 'section': 'M', 'is_common': True},
         {'code': '71.11.Z', 'name': 'Działalność w zakresie architektury', 'category': 'Architektura', 'section': 'M', 'is_common': True},
-        {'code': '71.12.Z', 'name': 'Działalność w zakresie inżynierii i związane z nią doradztwo techniczne', 'category': 'Architektura', 'section': 'M', 'is_common': True},
-        {'code': '74.10.Z', 'name': 'Działalność w zakresie specjalistycznego projektowania', 'category': 'Projektowanie', 'section': 'M', 'is_common': True},
- 
-        # Nieruchomości
-        {'code': '68.10.Z', 'name': 'Kupno i sprzedaż nieruchomości na własny rachunek', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
-        {'code': '68.20.Z', 'name': 'Wynajem i zarządzanie nieruchomościami własnymi lub dzierżawionymi', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
+        {'code': '71.12.A', 'name': 'Działalność inżynierów budownictwa', 'category': 'Architektura', 'section': 'M', 'is_common': True},
+        {'code': '71.12.B', 'name': 'Działalność geodezyjna i kartograficzna', 'category': 'Architektura', 'section': 'M', 'is_common': True},
+        {'code': '71.12.Z', 'name': 'Inżynieria i doradztwo techniczne', 'category': 'Architektura', 'section': 'M', 'is_common': True},
+        {'code': '74.10.A', 'name': 'Projektowanie wzornictwa przemysłowego', 'category': 'Projektowanie', 'section': 'M', 'is_common': True},
+        {'code': '74.10.Z', 'name': 'Specjalistyczne projektowanie', 'category': 'Projektowanie', 'section': 'M', 'is_common': True},
+        
+        # === NIERUCHOMOŚCI ===
+        {'code': '68.10.Z', 'name': 'Kupno i sprzedaż nieruchomości', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
+        {'code': '68.20.A', 'name': 'Wynajem nieruchomości na własny rachunek', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
+        {'code': '68.20.Z', 'name': 'Wynajem i zarządzanie nieruchomościami', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
         {'code': '68.31.Z', 'name': 'Pośrednictwo w obrocie nieruchomościami', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
-        {'code': '68.32.Z', 'name': 'Zarządzanie nieruchomościami wykonywane na zlecenie', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
- 
-        # Pozostałe powiązane
-        {'code': '81.21.Z', 'name': 'Niespecjalistyczne sprzątanie budynków i obiektów przemysłowych', 'category': 'Usługi', 'section': 'N', 'is_common': True},
-        {'code': '81.22.Z', 'name': 'Specjalistyczne sprzątanie budynków i obiektów przemysłowych', 'category': 'Usługi', 'section': 'N', 'is_common': True},
-        {'code': '81.30.Z', 'name': 'Działalność usługowa związana z zagospodarowaniem terenów zieleni', 'category': 'Usługi', 'section': 'N', 'is_common': True},
- 
-        # IT i technologia (zachowane z poprzedniej listy)
-        {'code': '62.01.Z', 'name': 'Działalność związana z oprogramowaniem', 'category': 'IT', 'section': 'J', 'is_common': True},
-        {'code': '62.02.Z', 'name': 'Działalność związana z doradztwem w zakresie informatyki', 'category': 'IT', 'section': 'J', 'is_common': True},
-        {'code': '62.03.Z', 'name': 'Działalność związana z zarządzaniem urządzeniami informatycznymi', 'category': 'IT', 'section': 'J', 'is_common': True},
- 
-        # Handel (zachowane z poprzedniej listy)
-        {'code': '46.90.Z', 'name': 'Sprzedaż hurtowa niewyspecjalizowana', 'category': 'Handel', 'section': 'G', 'is_common': True},
-        {'code': '47.91.Z', 'name': 'Sprzedaż detaliczna prowadzona przez Internet', 'category': 'Handel', 'section': 'G', 'is_common': True},
- 
-        # Transport (zachowane z poprzedniej listy)
+        {'code': '68.32.Z', 'name': 'Zarządzanie nieruchomościami na zlecenie', 'category': 'Nieruchomości', 'section': 'L', 'is_common': True},
+        
+        # === TRANSPORT DREWNA ===
+        {'code': '49.41.A', 'name': 'Transport drogowy towarów', 'category': 'Transport', 'section': 'H', 'is_common': True},
         {'code': '49.41.Z', 'name': 'Transport drogowy towarów', 'category': 'Transport', 'section': 'H', 'is_common': True},
- 
-        # Usługi finansowe (zachowane z poprzedniej listy)
-        {'code': '69.20.Z', 'name': 'Działalność rachunkowo-księgowa; doradztwo podatkowe', 'category': 'Finanse', 'section': 'M', 'is_common': True},
+        {'code': '52.10.A', 'name': 'Magazynowanie i składowanie', 'category': 'Transport', 'section': 'H', 'is_common': True},
+        {'code': '52.29.Z', 'name': 'Pozostała działalność wspomagająca transport', 'category': 'Transport', 'section': 'H', 'is_common': True},
+        
+        # === USŁUGI POWIĄZANE ===
+        {'code': '81.21.Z', 'name': 'Niespecjalistyczne sprzątanie budynków', 'category': 'Usługi', 'section': 'N', 'is_common': True},
+        {'code': '81.22.Z', 'name': 'Specjalistyczne sprzątanie budynków', 'category': 'Usługi', 'section': 'N', 'is_common': True},
+        {'code': '81.30.Z', 'name': 'Zagospodarowanie terenów zieleni', 'category': 'Usługi', 'section': 'N', 'is_common': True},
+        {'code': '95.24.Z', 'name': 'Naprawa mebli i wyposażenia domu', 'category': 'Usługi', 'section': 'S', 'is_common': True},
+        
+        # === DODATKI ===
+        {'code': '69.20.Z', 'name': 'Działalność rachunkowo-księgowa', 'category': 'Finanse', 'section': 'M', 'is_common': True},
+        {'code': '62.01.Z', 'name': 'Działalność związana z oprogramowaniem', 'category': 'IT', 'section': 'J', 'is_common': False},
+        {'code': '46.90.Z', 'name': 'Sprzedaż hurtowa niewyspecjalizowana', 'category': 'Handel', 'section': 'G', 'is_common': False},
+        {'code': '47.91.Z', 'name': 'Sprzedaż przez Internet', 'category': 'Handel', 'section': 'G', 'is_common': True},
     ]
     
     count_added = 0
     count_updated = 0
     
     try:
-        for pkd_data in common_pkd_codes:
+        for pkd_data in extended_pkd_codes:
             existing_code = RegisterPkdCode.query.filter_by(pkd_code=pkd_data['code']).first()
             
             if existing_code:
@@ -707,3 +750,279 @@ def api_initialize_pkd_codes():
     except Exception as e:
         db.session.rollback()
         return api_response(False, error=f"Błąd inicjalizacji kodów PKD: {str(e)}", status_code=500)
+
+@register_bp.route('/api/background-search', methods=['POST'])
+@handle_exceptions
+def api_background_search():
+    """
+    API do rozpoczęcia wyszukiwania w tle z progress tracking
+    """
+    data = request.json
+    
+    if not data:
+        return api_response(False, error="Brak danych wyszukiwania", status_code=400)
+    
+    # Walidacja podstawowa - podobnie jak w api_search
+    search_params = {}
+    
+    for param in ['nip', 'regon', 'krs', 'company_name', 'pkd_code', 'foundation_date_from', 'foundation_date_to', 'status']:
+        if param in data and data[param]:
+            search_params[param] = data[param]
+
+    if not search_params:
+        return api_response(False, error="Podaj co najmniej jeden parametr wyszukiwania", status_code=400)
+
+    # Domyślne daty jeśli nie przekazano
+    if 'foundation_date_from' not in search_params:
+        search_params['foundation_date_from'] = date.today().strftime('%Y-%m-%d')
+    if 'foundation_date_to' not in search_params:
+        search_params['foundation_date_to'] = date(2025, 8, 1).strftime('%Y-%m-%d')
+
+    # Parametry dla pierwszego zapytania
+    search_params['page'] = 1
+    search_params['limit'] = 25
+    search_params['use_test'] = data.get('use_test', False)
+    
+    # Generowanie session ID
+    session_id = str(uuid.uuid4())
+    
+    # Inicjalizacja sesji
+    session_data = {
+        'session_id': session_id,
+        'status': 'running',
+        'search_params': search_params,
+        'current_page': 1,
+        'total_results': 0,
+        'all_results': [],
+        'sources': [],
+        'errors': [],
+        'start_time': datetime.utcnow(),
+        'last_update': datetime.utcnow(),
+        'register_type': data.get('register_type'),
+        'has_more_pages': True
+    }
+    
+    # Pierwsze wyszukiwanie (synchroniczne)
+    register_service = RegisterService()
+    first_result = register_service.search_in_registers(search_params, data.get('register_type'))
+    
+    if first_result['success']:
+        session_data['all_results'] = first_result['data']
+        session_data['total_results'] = len(first_result['data'])
+        session_data['sources'] = first_result.get('sources', [])
+        session_data['errors'] = first_result.get('partial_errors', [])
+        
+        # Sprawdzenie czy są kolejne strony (na podstawie liczby wyników)
+        if len(first_result['data']) < 25:
+            session_data['has_more_pages'] = False
+            session_data['status'] = 'completed'
+        
+        # Zapisanie sesji
+        background_sessions[session_id] = session_data
+        
+        # Jeśli są kolejne strony, uruchom background thread
+        if session_data['has_more_pages']:
+            background_thread = threading.Thread(
+                target=continue_background_search,
+                args=(session_id,)
+            )
+            background_thread.daemon = True
+            background_thread.start()
+        
+        return api_response(
+            success=True,
+            data={
+                'session_id': session_id,
+                'initial_results': first_result['data'],
+                'total_found': len(first_result['data']),
+                'sources': session_data['sources'],
+                'has_more_pages': session_data['has_more_pages'],
+                'status': session_data['status']
+            },
+            message=f"Znaleziono {len(first_result['data'])} wyników" + 
+                   (", pobieranie kolejnych w tle..." if session_data['has_more_pages'] else "")
+        )
+    else:
+        return api_response(
+            success=False,
+            error=first_result['error'],
+            status_code=500
+        )
+
+# DODAJ FUNKCJĘ continue_background_search (po api_background_search):
+def continue_background_search(session_id):
+    """
+    Kontynuuje wyszukiwanie w tle dla danej sesji
+    """
+    if session_id not in background_sessions:
+        return
+    
+    session = background_sessions[session_id]
+    register_service = RegisterService()
+    
+    max_pages = 10  # Maksymalnie 10 stron (250 wyników)
+    
+    try:
+        while (session['status'] == 'running' and 
+               session['has_more_pages'] and 
+               session['current_page'] < max_pages):
+            
+            # Czekanie 4 sekundy (zgodnie z rate limiting CEIDG)
+            time_module.sleep(4.0)
+            
+            # Sprawdzenie czy sesja nie została zatrzymana
+            if session_id not in background_sessions or background_sessions[session_id]['status'] != 'running':
+                break
+            
+            # Kolejna strona
+            session['current_page'] += 1
+            search_params = session['search_params'].copy()
+            search_params['page'] = session['current_page']
+            
+            # Wykonanie wyszukiwania
+            result = register_service.search_in_registers(
+                search_params, 
+                session['register_type']
+            )
+            
+            # Aktualizacja sesji
+            session['last_update'] = datetime.utcnow()
+            
+            if result['success'] and result['data']:
+                # Dodanie nowych wyników (z deduplikacją po NIP)
+                existing_nips = {item.get('nip') for item in session['all_results'] if item.get('nip')}
+                new_results = [
+                    item for item in result['data'] 
+                    if not item.get('nip') or item.get('nip') not in existing_nips
+                ]
+                
+                session['all_results'].extend(new_results)
+                session['total_results'] = len(session['all_results'])
+                
+                # Sprawdzenie czy są kolejne strony
+                if len(result['data']) < 25:
+                    session['has_more_pages'] = False
+                    session['status'] = 'completed'
+                
+                register_logger.info(
+                    f"Background search {session_id}: strona {session['current_page']}, "
+                    f"nowych wyników: {len(new_results)}, łącznie: {session['total_results']}"
+                )
+            else:
+                # Błąd lub brak wyników
+                if result.get('error'):
+                    session['errors'].append(f"Strona {session['current_page']}: {result['error']}")
+                
+                session['has_more_pages'] = False
+                session['status'] = 'completed'
+                break
+        
+        # Zakończenie wyszukiwania
+        if session['status'] == 'running':
+            session['status'] = 'completed'
+            session['has_more_pages'] = False
+            
+    except Exception as e:
+        register_logger.error(f"Błąd background search {session_id}: {str(e)}")
+        if session_id in background_sessions:
+            background_sessions[session_id]['status'] = 'error'
+            background_sessions[session_id]['errors'].append(f"Błąd wewnętrzny: {str(e)}")
+
+# DODAJ ENDPOINT do sprawdzania statusu (po continue_background_search):
+@register_bp.route('/api/background-search/<session_id>/status', methods=['GET'])
+@handle_exceptions
+def api_background_search_status(session_id):
+    """
+    Sprawdza status wyszukiwania w tle
+    """
+    if session_id not in background_sessions:
+        return api_response(False, error="Sesja nie istnieje", status_code=404)
+    
+    session = background_sessions[session_id]
+    
+    # Oblicz czas trwania
+    duration = (datetime.utcnow() - session['start_time']).total_seconds()
+    
+    return api_response(
+        success=True,
+        data={
+            'session_id': session_id,
+            'status': session['status'],
+            'current_page': session['current_page'],
+            'total_results': session['total_results'],
+            'sources': session['sources'],
+            'has_more_pages': session['has_more_pages'],
+            'duration_seconds': int(duration),
+            'last_update': session['last_update'].isoformat(),
+            'errors': session['errors']
+        }
+    )
+
+# DODAJ ENDPOINT do pobierania wyników (po api_background_search_status):
+@register_bp.route('/api/background-search/<session_id>/results', methods=['GET'])
+@handle_exceptions
+def api_background_search_results(session_id):
+    """
+    Pobiera wyniki wyszukiwania w tle
+    """
+    if session_id not in background_sessions:
+        return api_response(False, error="Sesja nie istnieje", status_code=404)
+    
+    session = background_sessions[session_id]
+    
+    # Parametry paginacji dla wyników
+    offset = request.args.get('offset', 0, type=int)
+    limit = request.args.get('limit', 50, type=int)
+    
+    # Pobranie fragmentu wyników
+    results_slice = session['all_results'][offset:offset + limit]
+    
+    return api_response(
+        success=True,
+        data={
+            'results': results_slice,
+            'total_count': session['total_results'],
+            'offset': offset,
+            'limit': limit,
+            'has_more': offset + limit < session['total_results']
+        }
+    )
+
+# DODAJ ENDPOINT do zatrzymywania (po api_background_search_results):
+@register_bp.route('/api/background-search/<session_id>/stop', methods=['POST'])
+@handle_exceptions
+def api_background_search_stop(session_id):
+    """
+    Zatrzymuje wyszukiwanie w tle
+    """
+    if session_id not in background_sessions:
+        return api_response(False, error="Sesja nie istnieje", status_code=404)
+    
+    background_sessions[session_id]['status'] = 'stopped'
+    background_sessions[session_id]['has_more_pages'] = False
+    
+    return api_response(
+        success=True,
+        message="Wyszukiwanie zostało zatrzymane",
+        data={
+            'total_results': background_sessions[session_id]['total_results'],
+            'status': 'stopped'
+        }
+    )
+
+# DODAJ funkcję czyszczenia starych sesji (po api_background_search_stop):
+def cleanup_old_sessions():
+    """
+    Czyści stare sesje (starsze niż 1 godzina)
+    """
+    cutoff_time = datetime.utcnow() - timedelta(hours=1)
+    sessions_to_remove = [
+        session_id for session_id, session_data in background_sessions.items()
+        if session_data['start_time'] < cutoff_time
+    ]
+    
+    for session_id in sessions_to_remove:
+        del background_sessions[session_id]
+    
+    if sessions_to_remove:
+        register_logger.info(f"Wyczyszczono {len(sessions_to_remove)} starych sesji wyszukiwania")

@@ -2,6 +2,7 @@ import requests
 import json
 import logging
 import time
+import re
 from datetime import datetime, timedelta
 from flask import current_app, session, request
 from extensions import db
@@ -51,38 +52,6 @@ class RegisterIntegrationService:
             )
         except Exception as e:
             self.logger.error(f"Błąd logowania API: {str(e)}")
-    
-    def _check_rate_limit(self):
-        """
-        Sprawdza limity API dla CEIDG:
-        - 50 zapytań w 3 minuty
-        - 1000 zapytań w 60 minut
-        """
-        if not self.config or self.register_type != 'CEIDG':
-            return True  # KRS nie ma takich limitów
-        
-        # CEIDG - sprawdzenie limitów
-        three_min_ago = datetime.utcnow() - timedelta(minutes=3)
-        three_min_count = RegisterApiLog.query.filter(
-            RegisterApiLog.register_type == 'CEIDG',
-            RegisterApiLog.created_at >= three_min_ago
-        ).count()
-    
-        hour_ago = datetime.utcnow() - timedelta(minutes=60)
-        hour_count = RegisterApiLog.query.filter(
-            RegisterApiLog.register_type == 'CEIDG',
-            RegisterApiLog.created_at >= hour_ago
-        ).count()
-    
-        if three_min_count >= 50:
-            self.logger.warning(f"CEIDG: Przekroczono limit 50 zapytań na 3 minuty ({three_min_count})")
-            return False
-        
-        if hour_count >= 1000:
-            self.logger.warning(f"CEIDG: Przekroczono limit 1000 zapytań na godzinę ({hour_count})")
-            return False
-    
-        return True
 
 
 class CEIDGIntegrationService(RegisterIntegrationService):
@@ -91,36 +60,105 @@ class CEIDGIntegrationService(RegisterIntegrationService):
     """
     def __init__(self):
         super().__init__(register_type='CEIDG')
-        # URL API zgodne z dokumentacją
-        self.api_base_url = "https://dane.biznes.gov.pl/api/ceidg/v2"
-        self.test_api_base_url = "https://test-dane.biznes.gov.pl/api/ceidg/v2"
+        # URL API z bazy danych
+        if self.config and self.config.api_url:
+            self.api_base_url = self.config.api_url
+            # URL testowy - zamiana domeny
+            self.test_api_base_url = self.config.api_url.replace('dane.biznes.gov.pl', 'test-dane.biznes.gov.pl')
+        else:
+            # Fallback URLs zgodnie z dokumentacją
+            self.api_base_url = "https://dane.biznes.gov.pl/api/ceidg/v2"
+            self.test_api_base_url = "https://test-dane.biznes.gov.pl/api/ceidg/v2"
     
+    def _is_uuid(self, value):
+        """Sprawdza czy wartość jest prawidłowym UUID"""
+        uuid_pattern = re.compile(r'^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$')
+        return bool(uuid_pattern.match(str(value)))
+    
+    def _check_rate_limit_detailed(self):
+        """
+        Sprawdza limity API dla CEIDG zgodnie z dokumentacją:
+        - 50 zapytań w okresie 3 minut
+        - 1000 zapytań w okresie 60 minut
+        """
+        if not self.config or self.register_type != 'CEIDG':
+            return True, "OK"
+        
+        now = datetime.utcnow()
+        
+        # Sprawdzenie 50 zapytań w 3 minuty
+        three_minutes_ago = now - timedelta(minutes=3)
+        three_min_count = RegisterApiLog.query.filter(
+            RegisterApiLog.register_type == 'CEIDG',
+            RegisterApiLog.created_at >= three_minutes_ago
+        ).count()
+        
+        if three_min_count >= 50:
+            self.logger.warning(f"CEIDG: Przekroczono limit 50 zapytań na 3 minuty ({three_min_count})")
+            return False, "Przekroczono limit 50 zapytań na 3 minuty"
+        
+        # Sprawdzenie 1000 zapytań w 60 minut
+        hour_ago = now - timedelta(minutes=60)
+        hour_count = RegisterApiLog.query.filter(
+            RegisterApiLog.register_type == 'CEIDG',
+            RegisterApiLog.created_at >= hour_ago
+        ).count()
+        
+        if hour_count >= 1000:
+            self.logger.warning(f"CEIDG: Przekroczono limit 1000 zapytań na godzinę ({hour_count})")
+            return False, "Przekroczono limit 1000 zapytań na godzinę"
+        
+        return True, "OK"
+    
+    def _wait_for_optimal_timing(self):
+        """
+        Implementuje optymalny delay 3,6s między zapytaniami zgodnie z dokumentacją
+        """
+        last_call = RegisterApiLog.query.filter(
+            RegisterApiLog.register_type == 'CEIDG'
+        ).order_by(RegisterApiLog.created_at.desc()).first()
+        
+        if last_call:
+            time_since = (datetime.utcnow() - last_call.created_at).total_seconds()
+            optimal_delay = 3.6  # Zgodnie z dokumentacją CEIDG
+            
+            if time_since < optimal_delay:
+                sleep_time = optimal_delay - time_since
+                self.logger.info(f"CEIDG: Czekanie {sleep_time:.1f}s dla optymalnego rate limiting")
+                time.sleep(sleep_time)
+
     def _make_api_request(self, endpoint, params, timeout=30, use_test=False):
-        """
-        Wykonuje zapytanie do API CEIDG zgodnie z dokumentacją
-        """
+        """Wykonuje zapytanie do API CEIDG zgodnie z dokumentacją v2"""
         if not self.config:
             error_msg = f"Brak konfiguracji dla rejestru CEIDG"
             self.logger.error(error_msg)
             return {'error': error_msg, 'success': False}
         
-        # Sprawdzenie limitu zapytań
-        if not self._check_rate_limit():
-            error_msg = f"Przekroczono limit zapytań dla CEIDG"
-            self.logger.warning(error_msg)
+        if not self.config.api_key:
+            error_msg = f"Brak JWT tokenu dla CEIDG w konfiguracji"
+            self.logger.error(error_msg)
+            return {'error': error_msg, 'success': False}
+        
+        # Sprawdzenie rate limit
+        can_proceed, limit_msg = self._check_rate_limit_detailed()
+        if not can_proceed:
+            self.logger.warning(f"Rate limit CEIDG: {limit_msg}")
             self._log_api_call(
                 operation=endpoint,
                 status='error',
                 request_params=params,
-                error_details=error_msg
+                error_details=limit_msg
             )
-            return {'error': error_msg, 'success': False}
+            return {'error': limit_msg, 'success': False, 'rate_limit_exceeded': True}
+        
+        # Optymalne czekanie między zapytaniami
+        self._wait_for_optimal_timing()
         
         # Wybór URL (test vs produkcja)
         base_url = self.test_api_base_url if use_test else self.api_base_url
         url = f"{base_url}/{endpoint}"
         
-        # Przygotowanie nagłówków z JWT tokenem
+        # Przygotowanie nagłówków z JWT tokenem z bazy danych
         headers = {
             'Authorization': f'Bearer {self.config.api_key}',
             'Content-Type': 'application/json'
@@ -136,11 +174,11 @@ class CEIDGIntegrationService(RegisterIntegrationService):
             # Logowanie zapytania
             self._log_api_call(
                 operation=endpoint,
-                status='success' if response.status_code == 200 else 'error',
+                status='success' if response.status_code in [200, 204] else 'error',
                 request_params=params,
                 response_code=response.status_code,
                 response_time_ms=response_time,
-                error_details=None if response.status_code == 200 else response.text
+                error_details=None if response.status_code in [200, 204] else response.text
             )
             
             # Obsługa odpowiedzi zgodnie z dokumentacją
@@ -153,17 +191,45 @@ class CEIDGIntegrationService(RegisterIntegrationService):
                         db.session.commit()
                     except:
                         db.session.rollback()
-                return result
+                return {'success': True, **result}
+                
             elif response.status_code == 204:
                 # Brak danych - zgodnie z dokumentacją
                 return {'success': True, 'results': [], 'message': 'Brak danych spełniających kryteria'}
+                
+            elif response.status_code == 400:
+                error_msg = "Niepoprawnie skonstruowane zapytanie CEIDG"
+                self.logger.error(f"{error_msg}: {response.text}")
+                return {'error': error_msg, 'success': False}
+                
+            elif response.status_code == 401:
+                error_msg = "Brak autoryzacji CEIDG - sprawdź JWT token"
+                self.logger.error(error_msg)
+                return {'error': error_msg, 'success': False}
+                
+            elif response.status_code == 403:
+                error_msg = "Brak uprawnień do zasobu CEIDG"
+                self.logger.error(error_msg)
+                return {'error': error_msg, 'success': False}
+                
+            elif response.status_code == 404:
+                error_msg = "Zasób CEIDG nie istnieje"
+                self.logger.error(error_msg)
+                return {'error': error_msg, 'success': False}
+                
             elif response.status_code == 429:
                 error_msg = "Zbyt wiele zapytań - przekroczono limit API CEIDG"
                 self.logger.warning(error_msg)
                 return {'error': error_msg, 'success': False, 'rate_limit_exceeded': True}
+                
+            elif response.status_code == 500:
+                error_msg = "Wewnętrzny błąd serwera CEIDG"
+                self.logger.error(f"{error_msg}: {response.text}")
+                return {'error': error_msg, 'success': False}
+                
             else:
-                error_msg = f"Błąd API CEIDG: {response.status_code} - {response.text}"
-                self.logger.error(error_msg)
+                error_msg = f"Nieoczekiwany błąd API CEIDG: {response.status_code}"
+                self.logger.error(f"{error_msg}: {response.text}")
                 return {'error': error_msg, 'success': False}
                 
         except requests.RequestException as e:
@@ -186,10 +252,10 @@ class CEIDGIntegrationService(RegisterIntegrationService):
         Wyszukuje firmy w CEIDG zgodnie z dokumentacją API v2
         Endpoint: /firmy
         """
-        # Mapowanie parametrów zgodnie z dokumentacją CEIDG
+        # Mapowanie parametrów zgodnie z dokumentacją CEIDG - WSZYSTKIE JAKO TABLICE
         ceidg_params = {}
         
-        # CEIDG wymaga tablic dla niektórych parametrów
+        # CEIDG wymaga tablic dla parametrów wyszukiwania
         if 'nip' in params:
             # NIP jako tablica zgodnie z dokumentacją: nip[]=value
             ceidg_params['nip[]'] = params['nip']
@@ -204,6 +270,16 @@ class CEIDGIntegrationService(RegisterIntegrationService):
         # Parametry PKD
         if 'pkd_code' in params:
             ceidg_params['pkd[]'] = params['pkd_code']
+        
+        # Parametry adresowe jako tablice
+        if 'miasto' in params:
+            ceidg_params['miasto[]'] = params['miasto']
+        if 'wojewodztwo' in params:
+            ceidg_params['wojewodztwo[]'] = params['wojewodztwo']
+        if 'ulica' in params:
+            ceidg_params['ulica[]'] = params['ulica']
+        if 'kod_pocztowy' in params:
+            ceidg_params['kod[]'] = params['kod_pocztowy']
             
         # Parametry dat - format YYYY-MM-DD
         if 'foundation_date_from' in params:
@@ -211,96 +287,77 @@ class CEIDGIntegrationService(RegisterIntegrationService):
         if 'foundation_date_to' in params:
             ceidg_params['datado'] = params['foundation_date_to']
             
-        # Status jako tablica
+        # Status jako tablica z mapowaniem zgodnie z dokumentacją
         if 'status' in params:
-            # Mapowanie statusów zgodnie z CEIDG
             status_map = {
                 'ACTIVE': 'AKTYWNY',
                 'SUSPENDED': 'ZAWIESZONY',
                 'CLOSED': 'WYKRESLONY',
-                'PENDING': 'OCZEKUJE_NA_ROZPOCZECIE_DZIALANOSCI'
+                'PENDING': 'OCZEKUJE_NA_ROZPOCZECIE_DZIALANOSCI',
+                'COMPANY_ONLY': 'WYLACZNIE_W_FORMIE_SPOLKI'
             }
             mapped_status = status_map.get(params['status'], params['status'])
             ceidg_params['status[]'] = mapped_status
             
         # Paginacja i limit
-        limit = min(params.get('limit', 25), 25)  # Domyślnie 50, maksymalnie 50
+        limit = min(params.get('limit', 25), 50)  # Maksymalnie 50 zgodnie z dokumentacją
         page = params.get('page', 1)
-        foundation_date_to = params.get('foundation_date_to')
-        foundation_date_to_dt = (
-            datetime.strptime(foundation_date_to, "%Y-%m-%d") if foundation_date_to else None
-        )
-
-        all_results = []
-        next_page = None
-
-        while True:
-            ceidg_params['page'] = page
-            ceidg_params['limit'] = limit
-
-            result = self._make_api_request('firmy', ceidg_params, use_test=params.get('use_test', False))
-
-            if 'error' in result:
-                return result
-
-            companies = result.get('firmy', [])
-
-            if not companies:
-                next_page = None
-                break
-
-            processed_batch = []
-            for company in companies:
-                processed_company = self._process_company_data(company)
-                processed_batch.append(processed_company)
-
-            all_results.extend(processed_batch)
-
-            # Sprawdzenie daty założenia
-            if foundation_date_to_dt:
-                dates = [
-                    datetime.strptime(c.get('dataRozpoczecia'), "%Y-%m-%d")
-                    for c in companies if c.get('dataRozpoczecia')
-                ]
-                latest_date = max(dates) if dates else None
-                if latest_date and latest_date > foundation_date_to_dt:
-                    next_page = None
-                    break
-
-            page += 1
-            next_page = page
-
+        
+        ceidg_params['page'] = page
+        ceidg_params['limit'] = limit
+        
+        # Wykonanie zapytania
+        result = self._make_api_request('firmy', ceidg_params, use_test=params.get('use_test', False))
+        
+        if not result.get('success', False):
+            return result
+        
+        # Przetwarzanie wyników - zgodnie z dokumentacją pole 'firmy'
+        companies = result.get('firmy', [])
+        processed_results = []
+        
+        for company in companies:
+            processed_company = self._process_company_data(company)
+            processed_results.append(processed_company)
+        
         return {
             'success': True,
-            'results': all_results,
-            'total': len(all_results),
-            'page': params.get('page', 1),
-            'next_page': next_page
+            'results': processed_results,
+            'total': result.get('count', len(processed_results)),
+            'page': page,
+            'has_next': result.get('links', {}).get('next') is not None
         }
     
     def get_company_details(self, identifier_type, identifier_value):
         """
         Pobiera szczegóły firmy z CEIDG
-        Endpoint: /firma lub /firma/{id}
+        Obsługuje dwa endpointy zgodnie z dokumentacją:
+        - /firma?query - z parametrami query
+        - /firma/{id} - z UUID w ścieżce
         """
         params = {}
         
-        if identifier_type == 'company_id':
-            # Bezpośredni endpoint z ID
+        if identifier_type == 'company_id' and self._is_uuid(identifier_value):
+            # UUID - bezpośredni endpoint
             endpoint = f"firma/{identifier_value}"
         else:
             # Endpoint z parametrami query
             endpoint = "firma"
             if identifier_type == 'nip':
-                params['nip'] = identifier_value
+                params['nip'] = identifier_value  # Pojedynczy NIP
             elif identifier_type == 'regon':
                 params['regon'] = identifier_value
             elif identifier_type == 'ids':
-                params['ids[]'] = identifier_value
+                params['ids[]'] = identifier_value  # ids jako tablica
+            else:
+                return {
+                    'success': False,
+                    'error': f'Nieobsługiwany typ identyfikatora: {identifier_type}'
+                }
         
         result = self._make_api_request(endpoint, params)
         
-        if 'error' in result:
+        if not result.get('success', False):
             return result
         
         # Przetwarzanie wyniku
@@ -329,7 +386,7 @@ class CEIDGIntegrationService(RegisterIntegrationService):
             'company_name': company_data.get('nazwa'),
             'status': self._map_status(company_data.get('status')),
             'foundation_date': company_data.get('dataRozpoczecia'),
-            'last_update_date': None,  # CEIDG nie zwraca tej informacji bezpośrednio
+            'last_update_date': company_data.get('dataModyfikacji'),
         }
         
         # Dane właściciela
@@ -357,7 +414,8 @@ class CEIDGIntegrationService(RegisterIntegrationService):
                 'address': ' '.join(address_parts),
                 'postal_code': address.get('kod'),
                 'city': address.get('miasto'),
-                'voivodeship': address.get('wojewodztwo')
+                'voivodeship': address.get('wojewodztwo'),
+                'country': address.get('kraj', 'PL')
             })
         
         # Kody PKD
@@ -370,7 +428,7 @@ class CEIDGIntegrationService(RegisterIntegrationService):
                     if pkd.get('kod') == company_data['pkdGlowny']:
                         processed_data['industry_desc'] = pkd.get('nazwa')
                         break
-            
+        
         # Kontakt
         processed_data.update({
             'phone': company_data.get('telefon'),
@@ -392,7 +450,7 @@ class CEIDGIntegrationService(RegisterIntegrationService):
             'OCZEKUJE_NA_ROZPOCZECIE_DZIALANOSCI': 'Oczekuje na rozpoczęcie',
             'WYLACZNIE_W_FORMIE_SPOLKI': 'Wyłącznie w formie spółki'
         }
-        return status_map.get(status, status)
+        return status_map.get(status, status or 'Nieznany')
 
 
 class KRSIntegrationService(RegisterIntegrationService):
@@ -405,10 +463,9 @@ class KRSIntegrationService(RegisterIntegrationService):
         self.api_base_url = "https://api-krs.ms.gov.pl/api/krs"
 
     def _make_api_request(self, krs, odpis_type="OdpisAktualny", timeout=30):
-        """Wykonuje zapytanie do API KRS (MS.gov)"""
+        """Wykonuje zapytanie do API KRS"""
         url = f"{self.api_base_url}/{odpis_type}/{krs}"
         params = {"rejestr": "P", "format": "json"}
-
         headers = {"Content-Type": "application/json"}
         start_time = time.time()
 
@@ -426,18 +483,14 @@ class KRSIntegrationService(RegisterIntegrationService):
             )
 
             if response.status_code == 200:
-                return response.json()
+                return {'success': True, **response.json()}
             elif response.status_code == 404:
                 error_msg = "Nie znaleziono podmiotu w KRS"
                 self.logger.warning(error_msg)
                 return {"error": error_msg, "success": False}
-            elif 500 <= response.status_code < 600:
-                error_msg = f"Błąd serwera API KRS: {response.status_code}"
-                self.logger.error(error_msg)
-                return {"error": error_msg, "success": False}
             else:
-                error_msg = f"Błąd API KRS: {response.status_code} - {response.text}"
-                self.logger.error(error_msg)
+                error_msg = f"Błąd API KRS: {response.status_code}"
+                self.logger.error(f"{error_msg}: {response.text}")
                 return {"error": error_msg, "success": False}
 
         except requests.RequestException as e:
@@ -463,7 +516,7 @@ class KRSIntegrationService(RegisterIntegrationService):
 
         result = self._make_api_request(krs_number, "OdpisAktualny")
 
-        if "error" in result:
+        if not result.get('success', False):
             return result
 
         processed_company = self._process_krs_company_data(result)
@@ -481,7 +534,7 @@ class KRSIntegrationService(RegisterIntegrationService):
 
         result = self._make_api_request(identifier_value, "OdpisPelny")
 
-        if "error" in result:
+        if not result.get('success', False):
             return result
 
         processed_company = self._process_krs_company_data(result)
@@ -492,8 +545,7 @@ class KRSIntegrationService(RegisterIntegrationService):
         odpis = company_data.get("odpis", {})
         dane = odpis.get("danePodmiotu", {})
         adres = (
-            odpis.get("siedzibaIAdres", {})
-            .get("adres", {})
+            odpis.get("siedzibaIAdres", {}).get("adres", {})
             if isinstance(odpis.get("siedzibaIAdres"), dict)
             else {}
         )
@@ -568,17 +620,19 @@ class RegisterService:
         if register_type is None or register_type == 'CEIDG':
             try:
                 ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
-                if ceidg_config and ceidg_config.active:
+                if ceidg_config and ceidg_config.active and ceidg_config.api_key:
                     ceidg_result = self.ceidg_service.search_companies(params)
                     
                     if ceidg_result.get('success', False) and 'results' in ceidg_result:
                         results.extend(ceidg_result['results'])
                         sources.append('CEIDG')
                         self.logger.info(f"CEIDG: Znaleziono {len(ceidg_result['results'])} firm")
+                    elif ceidg_result.get('rate_limit_exceeded'):
+                        errors.append(f"CEIDG: {ceidg_result['error']}")
                     elif 'error' in ceidg_result:
                         errors.append(f"CEIDG: {ceidg_result['error']}")
                 else:
-                    errors.append("Integracja z CEIDG nie jest aktywna")
+                    errors.append("CEIDG: Integracja nie jest aktywna lub brak konfiguracji")
             except Exception as e:
                 error_msg = f"Błąd wyszukiwania w CEIDG: {str(e)}"
                 self.logger.error(error_msg)
@@ -587,15 +641,17 @@ class RegisterService:
         # Wyszukiwanie w KRS
         if register_type is None or register_type == 'KRS':
             try:
-                # KRS nie wymaga konfiguracji tokenu
-                krs_result = self.krs_service.search_companies(params)
-                
-                if krs_result.get('success', False) and 'results' in krs_result:
-                    results.extend(krs_result['results'])
-                    sources.append('KRS')
-                    self.logger.info(f"KRS: Znaleziono {len(krs_result['results'])} firm")
-                elif 'error' in krs_result:
-                    errors.append(f"KRS: {krs_result['error']}")
+                if params.get('krs'):
+                    krs_result = self.krs_service.search_companies(params)
+                    
+                    if krs_result.get('success', False) and 'results' in krs_result:
+                        results.extend(krs_result['results'])
+                        sources.append('KRS')
+                        self.logger.info(f"KRS: Znaleziono {len(krs_result['results'])} firm")
+                    elif 'error' in krs_result:
+                        errors.append(f"KRS: {krs_result['error']}")
+                else:
+                    errors.append("KRS: Brak numeru KRS")
             except Exception as e:
                 error_msg = f"Błąd wyszukiwania w KRS: {str(e)}"
                 self.logger.error(error_msg)
@@ -628,7 +684,14 @@ class RegisterService:
         
         try:
             if register_type == 'CEIDG':
+                ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
+                if not ceidg_config or not ceidg_config.active or not ceidg_config.api_key:
+                    return {
+                        'success': False,
+                        'error': 'CEIDG nie jest dostępny - sprawdź konfigurację'
+                    }
                 return self.ceidg_service.get_company_details(identifier_type, identifier_value)
+                
             elif register_type == 'KRS':
                 return self.krs_service.get_company_details(identifier_type, identifier_value)
             else:
@@ -653,44 +716,50 @@ class RegisterService:
             'KRS': {'success': False, 'message': 'Nie przetestowano'}
         }
         
-        # Test CEIDG z ponownymi próbami i krótszym timeoutem
+        # Test CEIDG z konfiguracją z bazy danych
         try:
             ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
-            if ceidg_config and ceidg_config.active:
-                last_error = None
-                for attempt in range(3):
-                    test_result = self.ceidg_service._make_api_request(
-                        'firmy', {'limit': 1, 'page': 1}, timeout=5
-                    )
-                    if 'error' not in test_result:
-                        results['CEIDG'] = {
-                            'success': True,
-                            'message': 'Połączenie działa poprawnie'
-                        }
-                        break
-                    last_error = test_result['error']
-                    time.sleep(1)
-                if not results['CEIDG']['success']:
+            if ceidg_config and ceidg_config.active and ceidg_config.api_key:
+                # Test z minimalnym zapytaniem
+                test_result = self.ceidg_service._make_api_request(
+                    'firmy', {'limit': 1, 'page': 1}, timeout=10, use_test=True
+                )
+                if test_result.get('success'):
+                    results['CEIDG'] = {
+                        'success': True,
+                        'message': 'Połączenie działa poprawnie',
+                        'api_url': self.ceidg_service.api_base_url
+                    }
+                else:
                     results['CEIDG'] = {
                         'success': False,
-                        'message': last_error or 'Nieznany błąd'
+                        'message': test_result.get('error', 'Nieznany błąd')
                     }
             else:
+                missing = []
+                if not ceidg_config:
+                    missing.append('brak konfiguracji')
+                else:
+                    if not ceidg_config.active:
+                        missing.append('nieaktywna')
+                    if not ceidg_config.api_key:
+                        missing.append('brak JWT tokenu')
+                
                 results['CEIDG'] = {
                     'success': False,
-                    'message': 'Integracja nie jest aktywna'
+                    'message': f'CEIDG: {", ".join(missing)}'
                 }
         except Exception as e:
             results['CEIDG'] = {
                 'success': False,
-                'message': f"Błąd: {str(e)}"
+                'message': f"Błąd testu CEIDG: {str(e)}"
             }
         
-        # Test KRS z obsługą błędów
+        # Test KRS
         try:
-            test_result = self.krs_service._make_api_request("0000000001")
-
-            if 'error' not in test_result:
+            test_result = self.krs_service._make_api_request("0000000001", timeout=10)
+            if test_result.get('success') or 'nie znaleziono' in test_result.get('error', '').lower():
+                # Nawet 404 oznacza że API działa
                 results['KRS'] = {
                     'success': True,
                     'message': 'Połączenie działa poprawnie'
@@ -698,12 +767,12 @@ class RegisterService:
             else:
                 results['KRS'] = {
                     'success': False,
-                    'message': test_result['error']
+                    'message': test_result.get('error', 'Nieznany błąd')
                 }
         except Exception as e:
             results['KRS'] = {
                 'success': False,
-                'message': f"Błąd: {str(e)}"
+                'message': f"Błąd testu KRS: {str(e)}"
             }
         
         return {

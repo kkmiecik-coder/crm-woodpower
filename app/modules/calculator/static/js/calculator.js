@@ -1095,9 +1095,8 @@ function prepareNewProductForm(form, index) {
 
     // KROK 3: Resetuj wszystkie inputy wymiarów
     form.querySelectorAll('input[data-field]').forEach(input => {
-        if (input.dataset.field !== 'quantity') { // Zachowaj ilość = 1
-            input.value = '';
-        }
+        // Ustaw wartość 1 dla ilości, pozostawiając pozostałe pola puste
+        input.value = input.dataset.field === 'quantity' ? '1' : '';
     });
 
     // KROK 4: Resetuj selecty ale ZACHOWAJ grupę cenową
