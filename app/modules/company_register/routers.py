@@ -5,7 +5,7 @@ from .services import RegisterService
 from extensions import db
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import time
 import traceback
 from functools import wraps
@@ -53,7 +53,7 @@ def handle_exceptions(f):
 @register_bp.route('/')
 def index():
     """Renderuje główny widok modułu rejestrów"""
-    return render_template('register/index.html')
+    return render_template('index.html')
 
 
 # Endpoint do pobierania listy zapisanych firm
@@ -167,26 +167,25 @@ def api_search():
     for param in ['nip', 'regon', 'krs', 'company_name', 'pkd_code', 'foundation_date_from', 'foundation_date_to', 'status']:
         if param in data and data[param]:
             search_params[param] = data[param]
-    
+
     if not search_params:
         return api_response(False, error="Podaj co najmniej jeden parametr wyszukiwania (np. NIP, REGON, KRS)", status_code=400)
-    
+
+    # Domyślne daty, jeśli nie przekazano
+    if 'foundation_date_from' not in search_params:
+        search_params['foundation_date_from'] = date.today().strftime('%Y-%m-%d')
+    if 'foundation_date_to' not in search_params:
+        search_params['foundation_date_to'] = date(2025, 8, 1).strftime('%Y-%m-%d')
+
     # Dodanie parametrów paginacji i testowania
     search_params['page'] = data.get('page', 1)
-    raw_limit = data.get('limit', 25)
-    try:
-        limit = int(raw_limit)
-    except (ValueError, TypeError):
-        return api_response(False, error="Parametr limit musi być liczbą całkowitą", status_code=400)
-    if limit <= 0:
-        return api_response(False, error="Parametr limit musi być dodatni", status_code=400)
-    search_params['limit'] = min(limit, 50)
+    search_params['limit'] = 50
     search_params['use_test'] = data.get('use_test', False)  # Dla testów CEIDG
     
     # Wykorzystanie nowego serwisu
     register_service = RegisterService()
     result = register_service.search_in_registers(search_params, data.get('register_type'))
-    
+
     if result['success']:
         message = None
         if 'partial_errors' in result and result['partial_errors']:
@@ -194,10 +193,17 @@ def api_search():
                 message = f"Wyniki tylko z {', '.join(result['sources'])}. Błędy: {', '.join(result['partial_errors'])}"
             else:
                 message = f"Wystąpiły błędy: {', '.join(result['partial_errors'])}"
-        
+
+        total = len(result['data'])
+        limit_exceeded = total >= search_params['limit']
+
         return api_response(
             success=True,
-            data=result['data'],
+            data={
+                'companies': result['data'],
+                'total': total,
+                'limit_exceeded': limit_exceeded
+            },
             message=message
         )
     else:

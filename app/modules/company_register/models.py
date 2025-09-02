@@ -22,6 +22,8 @@ class RegisterCompany(db.Model):
     pkd_main = db.Column(db.String(10), index=True)  # Główny kod PKD
     pkd_codes = db.Column(db.Text)  # JSON z kodami PKD
     industry_desc = db.Column(db.String(255))
+    phone = db.Column(db.String(50))
+    email = db.Column(db.String(255))
     foundation_date = db.Column(db.Date, index=True)
     last_update_date = db.Column(db.Date)
     full_data = db.Column(db.Text)  # JSON z pełnymi danymi
@@ -49,6 +51,8 @@ class RegisterCompany(db.Model):
             'pkd_main': self.pkd_main,
             'pkd_codes': json.loads(self.pkd_codes) if self.pkd_codes else [],
             'industry_desc': self.industry_desc,
+            'phone': self.phone,
+            'email': self.email,
             'foundation_date': self.foundation_date.strftime('%Y-%m-%d') if self.foundation_date else None,
             'last_update_date': self.last_update_date.strftime('%Y-%m-%d') if self.last_update_date else None,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S'),
@@ -167,7 +171,9 @@ class RegisterCompany(db.Model):
         existing_company.status = company_data.get('status', existing_company.status)
         existing_company.pkd_main = company_data.get('pkd_main', existing_company.pkd_main)
         existing_company.industry_desc = company_data.get('industry_desc', existing_company.industry_desc)
-        
+        existing_company.phone = company_data.get('phone', existing_company.phone)
+        existing_company.email = company_data.get('email', existing_company.email)
+
         # Aktualizacja kodów PKD
         if 'pkd_codes' in company_data:
             existing_company.pkd_codes = json.dumps(company_data['pkd_codes'])
@@ -197,6 +203,8 @@ class RegisterCompany(db.Model):
             pkd_main=company_data.get('pkd_main'),
             pkd_codes=json.dumps(company_data.get('pkd_codes', [])),
             industry_desc=company_data.get('industry_desc'),
+            phone=company_data.get('phone'),
+            email=company_data.get('email'),
             full_data=json.dumps(company_data.get('full_data', {})),
             created_by=session.get('user_id') if session else None
         )

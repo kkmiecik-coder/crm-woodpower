@@ -223,30 +223,59 @@ class CEIDGIntegrationService(RegisterIntegrationService):
             mapped_status = status_map.get(params['status'], params['status'])
             ceidg_params['status[]'] = mapped_status
             
-        # Paginacja
-        ceidg_params['page'] = params.get('page', 1)
-        ceidg_params['limit'] = min(params.get('limit', 25), 50)  # Max 50 zgodnie z dokumentacją
-        
-        # Wywołanie API
-        result = self._make_api_request('firmy', ceidg_params, use_test=params.get('use_test', False))
-        
-        if 'error' in result:
-            return result
-        
-        # Przetwarzanie wyników zgodnie ze strukturą CEIDG
-        processed_results = []
-        
-        if 'firmy' in result and result['firmy']:
-            for company in result['firmy']:
+        # Paginacja i limit
+        limit = min(params.get('limit', 50), 50)  # Domyślnie 50, maksymalnie 50
+        page = params.get('page', 1)
+        foundation_date_to = params.get('foundation_date_to')
+        foundation_date_to_dt = (
+            datetime.strptime(foundation_date_to, "%Y-%m-%d") if foundation_date_to else None
+        )
+
+        all_results = []
+        next_page = None
+
+        while True:
+            ceidg_params['page'] = page
+            ceidg_params['limit'] = limit
+
+            result = self._make_api_request('firmy', ceidg_params, use_test=params.get('use_test', False))
+
+            if 'error' in result:
+                return result
+
+            companies = result.get('firmy', [])
+
+            if not companies:
+                next_page = None
+                break
+
+            processed_batch = []
+            for company in companies:
                 processed_company = self._process_company_data(company)
-                processed_results.append(processed_company)
-        
+                processed_batch.append(processed_company)
+
+            all_results.extend(processed_batch)
+
+            # Sprawdzenie daty założenia
+            if foundation_date_to_dt:
+                dates = [
+                    datetime.strptime(c.get('dataRozpoczecia'), "%Y-%m-%d")
+                    for c in companies if c.get('dataRozpoczecia')
+                ]
+                latest_date = max(dates) if dates else None
+                if latest_date and latest_date > foundation_date_to_dt:
+                    next_page = None
+                    break
+
+            page += 1
+            next_page = page
+
         return {
             'success': True,
-            'results': processed_results,
-            'total': result.get('count', len(processed_results)),
-            'page': ceidg_params.get('page', 1),
-            'links': result.get('links', {})
+            'results': all_results,
+            'total': len(all_results),
+            'page': params.get('page', 1),
+            'next_page': next_page
         }
     
     def get_company_details(self, identifier_type, identifier_value):
@@ -336,6 +365,11 @@ class CEIDGIntegrationService(RegisterIntegrationService):
             processed_data['pkd_codes'] = company_data['pkd']
         if 'pkdGlowny' in company_data:
             processed_data['pkd_main'] = company_data['pkdGlowny']
+            if isinstance(company_data.get('pkd'), list):
+                for pkd in company_data['pkd']:
+                    if pkd.get('kod') == company_data['pkdGlowny']:
+                        processed_data['industry_desc'] = pkd.get('nazwa')
+                        break
             
         # Kontakt
         processed_data.update({
@@ -480,6 +514,22 @@ class KRSIntegrationService(RegisterIntegrationService):
             "pkd_codes": [],
             "full_data": company_data,
         }
+
+        kontakt = odpis.get("daneKontaktowe", {})
+        processed_data.update({
+            "phone": kontakt.get("telefon") or kontakt.get("numerTelefonu"),
+            "email": kontakt.get("adresEmail") or kontakt.get("email"),
+        })
+
+        dzial = odpis.get("dzialalnosci", {})
+        if isinstance(dzial, dict):
+            pkds = dzial.get("pkd", [])
+            if isinstance(pkds, list):
+                for pkd in pkds:
+                    if pkd.get("przewazajace") or pkd.get("przewazajaca") or pkd.get("przewazajacy"):
+                        processed_data["pkd_main"] = pkd.get("kod") or processed_data.get("pkd_main")
+                        processed_data["industry_desc"] = pkd.get("nazwa") or pkd.get("opis")
+                        break
 
         return processed_data
     

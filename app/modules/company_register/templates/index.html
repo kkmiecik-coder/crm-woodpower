@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Rejestr firm - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('register.static', filename='css/register.css') }}">
+</head>
+<body>
+    <div class="app-container register-app">
+        {% include 'sidebar/sidebar.html' %}
+        <main class="main-content register-main">
+            <div class="register-header">
+                <h1 class="title-with-underline">Rejestry firm</h1>
+                <button id="openSearchModal" class="btn btn-primary">Szukaj firmy</button>
+            </div>
+
+            <div class="register-filters register-card">
+                <input type="text" id="filterNip" placeholder="NIP">
+                <input type="text" id="filterName" placeholder="Nazwa firmy">
+                <input type="text" id="filterPkd" placeholder="Branża / PKD">
+                <label>Data od: <input type="date" id="filterDateFrom"></label>
+                <label>Data do: <input type="date" id="filterDateTo"></label>
+                <button id="applyFilters" class="btn btn-secondary">Filtruj</button>
+            </div>
+
+            <div class="register-table-wrapper register-card">
+                <table class="register-table">
+                    <thead>
+                        <tr>
+                            <th data-sort="nip">NIP</th>
+                            <th data-sort="company_name">Nazwa firmy</th>
+                            <th data-sort="pkd_main">PKD</th>
+                            <th data-sort="industry_desc">Branża</th>
+                            <th data-sort="phone">Telefon</th>
+                            <th data-sort="email">Email</th>
+                            <th data-sort="foundation_date">Data utworzenia</th>
+                            <th data-sort="status">Status</th>
+                            <th>Akcje</th>
+                        </tr>
+                    </thead>
+                    <tbody id="companiesTableBody"></tbody>
+                </table>
+            </div>
+            <div class="pagination" id="pagination"></div>
+        </main>
+    </div>
+
+    <!-- Modal wyszukiwania -->
+    <div id="searchModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Wyszukaj firmę</h2>
+                <button id="modalClose" class="close-btn" aria-label="Zamknij">&times;</button>
+            </div>
+            <div id="searchStep1" class="modal-body">
+                <div class="search-form">
+                    <select id="searchRegister">
+                        <option value="">Wybierz rejestr</option>
+                        <option value="CEIDG">CEIDG</option>
+                        <option value="KRS">KRS</option>
+                    </select>
+                    <input type="text" id="searchNip" placeholder="NIP">
+                    <input type="text" id="searchRegon" placeholder="REGON">
+                    <input type="text" id="searchName" placeholder="Nazwa firmy">
+                    <input type="text" id="searchPkd" placeholder="Kod PKD">
+                    <label>Data od: <input type="date" id="searchDateFrom"></label>
+                    <label>Data do: <input type="date" id="searchDateTo"></label>
+                </div>
+                <div class="modal-actions">
+                    <button id="startSearch" class="btn btn-primary">Wyszukaj</button>
+                    <button id="cancelSearch" class="btn btn-secondary">Anuluj</button>
+                </div>
+            </div>
+            <div id="searchStep2" class="modal-body" style="display:none;">
+                <div id="searchInfo"></div>
+                <table class="search-results-table">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllResults" checked></th>
+                            <th>NIP</th>
+                            <th>Nazwa</th>
+                            <th>PKD</th>
+                            <th>Branża</th>
+                            <th>Data utworzenia</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="searchResultsBody"></tbody>
+                </table>
+                <div class="modal-actions">
+                    <button id="saveSelected" class="btn btn-success">Zapisz wybrane</button>
+                    <button id="backToSearch" class="btn btn-secondary">Wróć do wyszukiwania</button>
+                    <button id="closeModal" class="btn btn-secondary">Anuluj</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal szczegółów -->
+    <div id="detailsModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Szczegóły firmy</h2>
+                <button id="detailsClose" class="close-btn" aria-label="Zamknij">&times;</button>
+            </div>
+            <div class="modal-body">
+                <table class="details-table">
+                    <tbody id="detailsTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingOverlay" class="loading-overlay" style="display:none;">
+        <div class="spinner"></div>
+    </div>
+    <div id="toast" class="toast" style="display:none;"></div>
+
+    <script src="{{ url_for('register.static', filename='js/register.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+</body>
+</html>
