@@ -1,3 +1,6 @@
++ 265
+- 0
+
 .register-header {
     display: flex;
     justify-content: space-between;
@@ -24,19 +27,19 @@
     align-items: flex-end;
 }
 
-    .register-filters input,
-    .register-filters label,
-    .register-filters select {
-        font-size: 14px;
-    }
+.register-filters input,
+.register-filters label,
+.register-filters select {
+    font-size: 14px;
+}
 
-        .register-filters input[type="text"],
-        .register-filters input[type="date"],
-        .register-filters select {
-            padding: 6px 8px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
+.register-filters input[type="text"],
+.register-filters input[type="date"],
+.register-filters select {
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
 
 .register-table {
     width: 100%;
@@ -44,22 +47,22 @@
     font-size: 13px;
 }
 
-    .register-table th,
-    .register-table td {
-        padding: 8px 10px;
-        border-bottom: 1px solid #eee;
-        text-align: left;
-    }
+.register-table th,
+.register-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
 
-    .register-table th {
-        background-color: #FFE6D9;
-        color: #ED6B24;
-        cursor: pointer;
-    }
+.register-table th {
+    background-color: #FFE6D9;
+    color: #ED6B24;
+    cursor: pointer;
+}
 
-    .register-table tr:nth-child(even) {
-        background-color: #fafafa;
-    }
+.register-table tr:nth-child(even) {
+    background-color: #fafafa;
+}
 
 .info-btn {
     background: none;
@@ -76,20 +79,20 @@
     margin-top: 10px;
 }
 
-    .pagination button {
-        padding: 4px 8px;
-        border: 1px solid #ED6B24;
-        background: none;
-        color: #ED6B24;
-        border-radius: 6px;
-        cursor: pointer;
-    }
+.pagination button {
+    padding: 4px 8px;
+    border: 1px solid #ED6B24;
+    background: none;
+    color: #ED6B24;
+    border-radius: 6px;
+    cursor: pointer;
+}
 
-        .pagination button.active,
-        .pagination button:hover {
-            background-color: #ED6B24;
-            color: #fff;
-        }
+.pagination button.active,
+.pagination button:hover {
+    background-color: #ED6B24;
+    color: #fff;
+}
 
 .modal {
     position: fixed;
@@ -142,18 +145,18 @@
     gap: 10px;
 }
 
-    .search-form input,
-    .search-form select {
-        padding: 6px 8px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-    }
+.search-form input,
+.search-form select {
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
 
-    .search-form label {
-        display: flex;
-        flex-direction: column;
-        font-size: 14px;
-    }
+.search-form label {
+    display: flex;
+    flex-direction: column;
+    font-size: 14px;
+}
 
 .modal-actions {
     margin-top: 15px;
@@ -168,20 +171,20 @@
     font-size: 13px;
 }
 
-    .search-results-table th,
-    .search-results-table td {
-        border-bottom: 1px solid #eee;
-        padding: 6px 8px;
-    }
+.search-results-table th,
+.search-results-table td {
+    border-bottom: 1px solid #eee;
+    padding: 6px 8px;
+}
 
-    .search-results-table th {
-        background-color: #FFE6D9;
-        color: #ED6B24;
-    }
+.search-results-table th {
+    background-color: #FFE6D9;
+    color: #ED6B24;
+}
 
-    .search-results-table tr:nth-child(even) {
-        background-color: #fafafa;
-    }
+.search-results-table tr:nth-child(even) {
+    background-color: #fafafa;
+}
 
 .loading-overlay {
     position: fixed;
@@ -206,9 +209,7 @@
 }
 
 @keyframes spin {
-    100% {
-        transform: rotate(360deg);
-    }
+    100% { transform: rotate(360deg); }
 }
 
 .btn {
@@ -259,9 +260,9 @@
     font-size: 13px;
 }
 
-    .details-table th,
-    .details-table td {
-        border-bottom: 1px solid #eee;
-        padding: 6px 8px;
-        text-align: left;
-    }
+.details-table th,
+.details-table td {
+    border-bottom: 1px solid #eee;
+    padding: 6px 8px;
+    text-align: left;
+}

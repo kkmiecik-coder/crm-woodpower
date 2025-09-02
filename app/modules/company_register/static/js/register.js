@@ -1,3 +1,6 @@
++ 324
+    - 0
+
 // Front-end logic for company register module
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -143,60 +146,46 @@ function showStep2() {
     document.getElementById('modalTitle').textContent = 'Wyniki wyszukiwania';
 }
 
-async function startSearch(params) {
-    const searchInfo = document.getElementById('searchInfo');
-    searchResults = [];
+async function startSearch() {
+    const body = {
+        register_type: document.getElementById('searchRegister').value || undefined,
+        nip: document.getElementById('searchNip').value || undefined,
+        regon: document.getElementById('searchRegon').value || undefined,
+        company_name: document.getElementById('searchName').value || undefined,
+        pkd_code: document.getElementById('searchPkd').value || undefined,
+        foundation_date_from: document.getElementById('searchDateFrom').value || undefined,
+        foundation_date_to: document.getElementById('searchDateTo').value || undefined,
+    };
 
-    const foundationDateTo = params.foundation_date_to ? new Date(params.foundation_date_to) : null;
-    let page = 1;
-    let fetched = 0;
-    let keepGoing;
-
-    do {
-        keepGoing = false;
-        const response = await fetch('/register/api/search', {
+    // Upewnij się, że podano co najmniej jedno kryterium wyszukiwania
+    const { register_type, ...criteria } = body;
+    const hasCriteria = Object.values(criteria).some(v => v !== undefined && v !== '');
+    if (!hasCriteria) {
+        showToast('Podaj co najmniej jedno kryterium wyszukiwania');
+        return;
+    }
+    showLoading(true);
+    try {
+        const res = await fetch('/register/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...params, page })
+            body: JSON.stringify(body)
         });
-
-        if (!response.ok) {
-            break;
-        }
-
-        const result = await response.json();
-        if (result.success && result.data && Array.isArray(result.data.companies)) {
-            const companies = result.data.companies;
-            if (companies.length === 0) {
-                break;
-            }
-            searchResults.push(...companies);
-            fetched += companies.length;
-            if (searchInfo) {
-                searchInfo.textContent = `Pobrano ${fetched} rekordów...`;
-            }
-
-            const last = companies[companies.length - 1];
-            if (last && last.foundation_date && foundationDateTo) {
-                const lastDate = new Date(last.foundation_date);
-                if (lastDate > foundationDateTo) {
-                    break;
-                }
-            }
-
-            page += 1;
-            keepGoing = true;
+        const data = await res.json();
+        if (data.success) {
+            searchResults = data.data || [];
+            await markExisting(searchResults);
+            displaySearchResults(searchResults);
+            showStep2();
+            document.getElementById('searchInfo').textContent = `Znaleziono ${searchResults.length} wyników`;
         } else {
-            break;
+            showToast(data.error || 'Błąd wyszukiwania');
         }
-    } while (keepGoing);
-
-    if (searchInfo) {
-        searchInfo.textContent = `Znaleziono ${searchResults.length} rekordów`;
-    }
-
-    if (typeof displayResults === 'function') {
-        displayResults(searchResults);
+    } catch (err) {
+        console.error(err);
+        showToast('Błąd połączenia');
+    } finally {
+        showLoading(false);
     }
 }
 
