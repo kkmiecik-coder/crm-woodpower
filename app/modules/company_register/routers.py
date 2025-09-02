@@ -164,16 +164,23 @@ def api_search():
     # Walidacja podstawowa
     search_params = {}
     
-    for param in ['nip', 'regon', 'company_name', 'pkd_code', 'foundation_date_from', 'foundation_date_to', 'status']:
+    for param in ['nip', 'regon', 'krs', 'company_name', 'pkd_code', 'foundation_date_from', 'foundation_date_to', 'status']:
         if param in data and data[param]:
             search_params[param] = data[param]
     
     if not search_params:
-        return api_response(False, error="Podaj co najmniej jeden parametr wyszukiwania", status_code=400)
+        return api_response(False, error="Podaj co najmniej jeden parametr wyszukiwania (np. NIP, REGON, KRS)", status_code=400)
     
     # Dodanie parametrów paginacji i testowania
     search_params['page'] = data.get('page', 1)
-    search_params['limit'] = min(data.get('limit', 25), 50)
+    raw_limit = data.get('limit', 25)
+    try:
+        limit = int(raw_limit)
+    except (ValueError, TypeError):
+        return api_response(False, error="Parametr limit musi być liczbą całkowitą", status_code=400)
+    if limit <= 0:
+        return api_response(False, error="Parametr limit musi być dodatni", status_code=400)
+    search_params['limit'] = min(limit, 50)
     search_params['use_test'] = data.get('use_test', False)  # Dla testów CEIDG
     
     # Wykorzystanie nowego serwisu
@@ -212,17 +219,18 @@ def api_company_details():
     nip = request.args.get('nip')
     regon = request.args.get('regon')
     company_id = request.args.get('company_id')
-    
+    krs = request.args.get('krs')
+
     if not register_type:
         return api_response(False, error="Brak parametru register_type", status_code=400)
-    
-    if not (nip or regon or company_id):
-        return api_response(False, error="Podaj NIP, REGON lub ID firmy", status_code=400)
-    
+
+    if not (nip or regon or company_id or krs):
+        return api_response(False, error="Podaj NIP, REGON, KRS lub ID firmy", status_code=400)
+
     # Określenie typu identyfikatora
     identifier_type = None
     identifier_value = None
-    
+
     if nip:
         identifier_type = 'nip'
         identifier_value = nip
@@ -232,6 +240,9 @@ def api_company_details():
     elif company_id:
         identifier_type = 'company_id'
         identifier_value = company_id
+    elif krs:
+        identifier_type = 'krs'
+        identifier_value = krs
     
     # Wykorzystanie nowego serwisu
     register_service = RegisterService()
@@ -277,6 +288,7 @@ def api_save_companies():
             register_type = company_data.get('register_type')
             if not register_type or register_type not in ['CEIDG', 'KRS']:
                 stats['failed'] += 1
+                failed_details.append({'input': company_data, 'error': 'Nieprawidłowy typ rejestru'})
                 continue
             
             # Zapisywanie bezpośrednio poprzez model
@@ -302,6 +314,14 @@ def api_save_companies():
     response_data = {**stats}
     if failed_details:
         response_data['failed_details'] = failed_details
+
+    if stats['failed'] == len(companies):
+        return api_response(
+            success=False,
+            data=response_data,
+            error="Wszystkie firmy mają nieprawidłowy typ rejestru",
+            status_code=400
+        )
 
     if stats['failed'] > 0:
         return api_response(
