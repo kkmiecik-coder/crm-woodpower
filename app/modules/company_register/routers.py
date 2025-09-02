@@ -261,13 +261,13 @@ def api_save_companies():
         return api_response(False, error="Lista firm jest pusta", status_code=400)
     
     # Wykorzystanie metod z serwisu bazowego
-    register_service = RegisterService()
     stats = {
         'saved': 0,
         'updated': 0,
         'failed': 0,
         'already_exists': 0
     }
+    failed_details = []
     
     update_existing = data.get('update_existing', False)
     
@@ -279,14 +279,10 @@ def api_save_companies():
                 stats['failed'] += 1
                 continue
             
-            # Wykorzystanie metody serwisu do zapisu
-            if register_type == 'CEIDG':
-                service = register_service.ceidg_service
-            else:
-                service = register_service.krs_service
-            
-            success, company, message = service.save_company(company_data, update_existing)
-            
+            # Zapisywanie bezpośrednio poprzez model
+            company_model = RegisterCompany()
+            success, company, message = company_model.save_company(company_data, update_existing)
+
             if success:
                 if 'zaktualizowano' in message.lower():
                     stats['updated'] += 1
@@ -297,15 +293,27 @@ def api_save_companies():
                     stats['already_exists'] += 1
                 else:
                     stats['failed'] += 1
+                    failed_details.append({'input': company_data, 'error': message})
                     
         except Exception as e:
             stats['failed'] += 1
             register_logger.error(f"Błąd zapisywania firmy: {str(e)}")
     
+    response_data = {**stats}
+    if failed_details:
+        response_data['failed_details'] = failed_details
+
+    if stats['failed'] > 0:
+        return api_response(
+            success=False,
+            data=response_data,
+            error=f"Nie zapisano {stats['failed']} firm"
+        )
+
     return api_response(
         success=True,
-        data=stats,
-        message=f"Zapisano {stats['saved']} firm, zaktualizowano {stats['updated']}, pominięto {stats['already_exists']}, błędy: {stats['failed']}"
+        data=response_data,
+        message=f"Zapisano {stats['saved']} firm, zaktualizowano {stats['updated']}, pominięto {stats['already_exists']}"
     )
 
 
@@ -331,10 +339,11 @@ def api_pkd_codes():
 @handle_exceptions
 def api_integration_config():
     """API do zarządzania konfiguracją integracji"""
-    if session.get('role') != 'admin':
-        return api_response(False, error="Brak uprawnień", status_code=403)
-    
     if request.method == 'GET':
+        # Dostęp dla zalogowanych użytkowników
+        if not session.get('user_id'):
+            return api_response(False, error="Brak uprawnień", status_code=403)
+
         ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
         krs_config = RegisterIntegrationConfig.get_config('KRS')
         
@@ -363,8 +372,11 @@ def api_integration_config():
             })
         
         return api_response(True, data=configs)
-    
+
     elif request.method == 'POST':
+        # Modyfikacja konfiguracji tylko dla administratorów
+        if session.get('role') != 'admin':
+            return api_response(False, error="Brak uprawnień", status_code=403)
         data = request.json
         
         if not data or 'register_type' not in data:

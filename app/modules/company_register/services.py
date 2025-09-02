@@ -367,157 +367,120 @@ class KRSIntegrationService(RegisterIntegrationService):
     """
     def __init__(self):
         super().__init__(register_type='KRS')
-        # Otwarte API KRS - nie wymaga tokenów
-        self.api_base_url = "https://api-v3.mojepanstwo.pl/dane"
-    
-    def _make_api_request(self, endpoint, params, timeout=30):
-        """
-        Wykonuje zapytanie do otwartego API KRS
-        """
-        url = f"{self.api_base_url}/{endpoint}"
-        
-        # API KRS nie wymaga autoryzacji
-        headers = {
-            'Content-Type': 'application/json'
-        }
-        
+        # Otwarte API KRS - brak wymaganego tokenu
+        self.api_base_url = "https://api-krs.ms.gov.pl/api/krs"
+
+    def _make_api_request(self, krs, odpis_type="OdpisAktualny", timeout=30):
+        """Wykonuje zapytanie do API KRS (MS.gov)"""
+        url = f"{self.api_base_url}/{odpis_type}/{krs}"
+        params = {"rejestr": "P", "format": "json"}
+
+        headers = {"Content-Type": "application/json"}
         start_time = time.time()
-        
+
         try:
             response = requests.get(url, params=params, headers=headers, timeout=timeout)
             response_time = int((time.time() - start_time) * 1000)
-            
-            # Logowanie zapytania
+
             self._log_api_call(
-                operation=endpoint,
-                status='success' if response.status_code == 200 else 'error',
-                request_params=params,
+                operation=odpis_type,
+                status="success" if response.status_code == 200 else "error",
+                request_params={"krs": krs, **params},
                 response_code=response.status_code,
                 response_time_ms=response_time,
-                error_details=None if response.status_code == 200 else response.text
+                error_details=None if response.status_code == 200 else response.text,
             )
-            
+
             if response.status_code == 200:
                 return response.json()
+            elif response.status_code == 404:
+                error_msg = "Nie znaleziono podmiotu w KRS"
+                self.logger.warning(error_msg)
+                return {"error": error_msg, "success": False}
+            elif 500 <= response.status_code < 600:
+                error_msg = f"Błąd serwera API KRS: {response.status_code}"
+                self.logger.error(error_msg)
+                return {"error": error_msg, "success": False}
             else:
                 error_msg = f"Błąd API KRS: {response.status_code} - {response.text}"
                 self.logger.error(error_msg)
-                return {'error': error_msg, 'success': False}
-                
+                return {"error": error_msg, "success": False}
+
         except requests.RequestException as e:
             response_time = int((time.time() - start_time) * 1000)
             error_msg = f"Błąd połączenia z API KRS: {str(e)}"
             self.logger.error(error_msg)
-            
+
             self._log_api_call(
-                operation=endpoint,
-                status='error',
-                request_params=params,
+                operation=odpis_type,
+                status="error",
+                request_params={"krs": krs, **params},
                 response_time_ms=response_time,
-                error_details=str(e)
+                error_details=str(e),
             )
-            
-            return {'error': error_msg, 'success': False}
-    
+
+            return {"error": error_msg, "success": False}
+
     def search_companies(self, params):
-        """
-        Wyszukuje firmy w KRS przez otwarte API
-        """
-        # Mapowanie parametrów dla API KRS
-        krs_params = {
-            'limit': min(params.get('limit', 25), 100),
-            'offset': (params.get('page', 1) - 1) * params.get('limit', 25)
-        }
-        
-        # Budowanie warunków wyszukiwania
-        conditions = []
-        
-        if 'nip' in params:
-            conditions.append(f"krs_podmioty.nip:{params['nip']}")
-        if 'regon' in params:
-            conditions.append(f"krs_podmioty.regon:{params['regon']}")
-        if 'company_name' in params:
-            conditions.append(f"krs_podmioty.nazwa:*{params['company_name']}*")
-            
-        if conditions:
-            krs_params['conditions'] = ' AND '.join(conditions)
-        
-        # Wywołanie API KRS
-        result = self._make_api_request('krs_podmioty', krs_params)
-        
-        if 'error' in result:
+        """Wyszukuje firmę w KRS po numerze KRS"""
+        krs_number = params.get("krs") if params else None
+        if not krs_number:
+            return {"success": False, "error": "Brak numeru KRS"}
+
+        result = self._make_api_request(krs_number, "OdpisAktualny")
+
+        if "error" in result:
             return result
-        
-        # Przetwarzanie wyników KRS
-        processed_results = []
-        
-        if 'Dataobject' in result and result['Dataobject']:
-            for company in result['Dataobject']:
-                processed_company = self._process_krs_company_data(company)
-                processed_results.append(processed_company)
-        
+
+        processed_company = self._process_krs_company_data(result)
+
         return {
-            'success': True,
-            'results': processed_results,
-            'total': result.get('Count', len(processed_results))
+            "success": True,
+            "results": [processed_company] if processed_company else [],
+            "total": 1 if processed_company else 0,
         }
-    
+
     def get_company_details(self, identifier_type, identifier_value):
-        """
-        Pobiera szczegóły firmy z KRS
-        """
-        params = {}
-        
-        if identifier_type == 'nip':
-            params['conditions'] = f"krs_podmioty.nip:{identifier_value}"
-        elif identifier_type == 'regon':
-            params['conditions'] = f"krs_podmioty.regon:{identifier_value}"
-        elif identifier_type == 'krs':
-            params['conditions'] = f"krs_podmioty.id:{identifier_value}"
-        
-        params['limit'] = 1
-        
-        result = self._make_api_request('krs_podmioty', params)
-        
-        if 'error' in result:
+        """Pobiera szczegóły firmy z KRS po numerze KRS"""
+        if identifier_type != "krs":
+            return {"success": False, "error": "Obsługiwany jest tylko numer KRS"}
+
+        result = self._make_api_request(identifier_value, "OdpisPelny")
+
+        if "error" in result:
             return result
-        
-        if 'Dataobject' in result and result['Dataobject']:
-            company_data = result['Dataobject'][0]
-            processed_company = self._process_krs_company_data(company_data)
-            return {
-                'success': True,
-                'company': processed_company
-            }
-        else:
-            return {
-                'success': False,
-                'error': 'Nie znaleziono firmy w KRS'
-            }
-    
+
+        processed_company = self._process_krs_company_data(result)
+        return {"success": True, "company": processed_company}
+
     def _process_krs_company_data(self, company_data):
-        """
-        Przetwarza dane firmy z KRS
-        """
-        data = company_data.get('data', {})
-        
+        """Przetwarza dane firmy z API KRS"""
+        odpis = company_data.get("odpis", {})
+        dane = odpis.get("danePodmiotu", {})
+        adres = (
+            odpis.get("siedzibaIAdres", {})
+            .get("adres", {})
+            if isinstance(odpis.get("siedzibaIAdres"), dict)
+            else {}
+        )
+
         processed_data = {
-            'register_type': 'KRS',
-            'company_id': data.get('id'),
-            'nip': data.get('nip'),
-            'regon': data.get('regon'),
-            'company_name': data.get('nazwa'),
-            'legal_form': data.get('forma_prawna_str'),
-            'status': self._map_krs_status(data.get('status')),
-            'address': data.get('adres'),
-            'postal_code': data.get('kod_pocztowy'),
-            'city': data.get('miasto'),
-            'foundation_date': data.get('data_rejestracji'),
-            'pkd_main': data.get('pkd_przewazajace'),
-            'pkd_codes': data.get('pkd', '').split(',') if data.get('pkd') else [],
-            'full_data': company_data
+            "register_type": "KRS",
+            "company_id": dane.get("numerKRS") or dane.get("krs"),
+            "nip": dane.get("nip"),
+            "regon": dane.get("regon"),
+            "company_name": dane.get("nazwa") or dane.get("pelnaNazwa"),
+            "legal_form": dane.get("formaPrawna"),
+            "status": self._map_krs_status(dane.get("status")),
+            "address": adres.get("ulica") or adres.get("adresPelny"),
+            "postal_code": adres.get("kodPocztowy"),
+            "city": adres.get("miejscowosc"),
+            "foundation_date": dane.get("dataRejestracji"),
+            "pkd_main": dane.get("pkdPrzewazajace") or dane.get("pkd"),
+            "pkd_codes": [],
+            "full_data": company_data,
         }
-        
+
         return processed_data
     
     def _map_krs_status(self, status):
@@ -640,21 +603,27 @@ class RegisterService:
             'KRS': {'success': False, 'message': 'Nie przetestowano'}
         }
         
-        # Test CEIDG - prosty test z limitem 1
+        # Test CEIDG z ponownymi próbami i krótszym timeoutem
         try:
             ceidg_config = RegisterIntegrationConfig.get_config('CEIDG')
             if ceidg_config and ceidg_config.active:
-                test_result = self.ceidg_service._make_api_request('firmy', {'limit': 1, 'page': 1}, use_test=True)
-                
-                if not 'error' in test_result:
-                    results['CEIDG'] = {
-                        'success': True,
-                        'message': 'Połączenie działa poprawnie'
-                    }
-                else:
+                last_error = None
+                for attempt in range(3):
+                    test_result = self.ceidg_service._make_api_request(
+                        'firmy', {'limit': 1, 'page': 1}, timeout=5
+                    )
+                    if 'error' not in test_result:
+                        results['CEIDG'] = {
+                            'success': True,
+                            'message': 'Połączenie działa poprawnie'
+                        }
+                        break
+                    last_error = test_result['error']
+                    time.sleep(1)
+                if not results['CEIDG']['success']:
                     results['CEIDG'] = {
                         'success': False,
-                        'message': test_result['error']
+                        'message': last_error or 'Nieznany błąd'
                     }
             else:
                 results['CEIDG'] = {
@@ -667,11 +636,11 @@ class RegisterService:
                 'message': f"Błąd: {str(e)}"
             }
         
-        # Test KRS - prosty test
+        # Test KRS z obsługą błędów
         try:
-            test_result = self.krs_service._make_api_request('krs_podmioty', {'limit': 1})
-            
-            if not 'error' in test_result:
+            test_result = self.krs_service._make_api_request("0000000001")
+
+            if 'error' not in test_result:
                 results['KRS'] = {
                     'success': True,
                     'message': 'Połączenie działa poprawnie'
