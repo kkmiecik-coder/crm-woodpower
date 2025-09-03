@@ -1,0 +1,68 @@
+<!-- Widget Recent Activity -->
+<div class="widget-card recent-activity-widget">
+    <div class="widget-title">⚡ Ostatnie działania</div>
+
+    <div class="activity-tabs">
+        <button class="activity-tab active" data-tab="quotes">Ostatnie Wyceny</button>
+        <button class="activity-tab" data-tab="clients">Nowi Klienci</button>
+    </div>
+
+    <!-- Tab: Ostatnie Wyceny -->
+    <div class="activity-content" id="quotes-content">
+        {% if stats.recent.quotes %}
+        <ul class="activity-list">
+            {% for quote in stats.recent.quotes %}
+            <li class="activity-item">
+                <div class="activity-info">
+                    <div class="activity-title">
+                        <a href="/quotes/{{ quote.id }}">Wycena #{{ quote.quote_number }}</a>
+                    </div>
+                    <div class="activity-meta">
+                        {% if quote.client %}
+                        Klient: {{ quote.client.client_name or quote.client.email }}
+                        {% endif %}
+                        • {{ quote.created_at.strftime('%d.%m.%Y %H:%M') }}
+                    </div>
+                    {% if quote.total_price %}
+                    <div class="activity-value">{{ "{:,.0f}".format(quote.total_price) }} zł</div>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="no-data">
+            <p>Brak ostatnich wycen do wyświetlenia</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Tab: Nowi Klienci -->
+    <div class="activity-content hidden" id="clients-content">
+        {% if stats.recent.clients %}
+        <ul class="activity-list">
+            {% for client in stats.recent.clients %}
+            <li class="activity-item">
+                <div class="activity-info">
+                    <div class="activity-title">
+                        <a href="/clients/{{ client.id }}">{{ client.client_name or client.email }}</a>
+                    </div>
+                    <div class="activity-meta">
+                        {% if client.source %}{{ client.source }}{% endif %}
+                        {% if client.client_number %}• ID: {{ client.client_number }}{% endif %}
+                    </div>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="no-data">
+            <p>Brak nowych klientów do wyświetlenia</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="widget-footer">
+        <a href="/quotes" class="view-all-link">Zobacz wszystkie wyceny →</a>
+    </div>
+</div>

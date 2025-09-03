@@ -23,6 +23,7 @@ from modules.logging import AppLogger, get_logger, logging_bp, get_structured_lo
 from modules.reports import reports_bp
 from modules.production import production_bp
 from modules.company_register import register_bp
+from modules.dashboard import dashboard_bp
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
@@ -156,6 +157,7 @@ def create_app():
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
     app.register_blueprint(production_bp)
     app.register_blueprint(register_bp)
+    app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
 
     @app.before_request
     def extend_session():
@@ -175,10 +177,6 @@ def create_app():
     # -------------------------
     #         ROUTES
     # -------------------------
-    @app.route("/")
-    def index():
-        return redirect(url_for("login"))
-
     from datetime import timedelta
     app.permanent_session_lifetime = timedelta(minutes=120)
 
@@ -208,17 +206,18 @@ def create_app():
 
             # Jeśli wszystko jest ok, zapisujemy sesję
             session['user_email'] = email
-            session['user_id'] = user.id  # <-- TO JEST NOWE
+            session['user_id'] = user.id
             session.permanent = True
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("dashboard.dashboard"))
 
         return render_template("login.html")
 
-    @app.route("/dashboard")
-    @login_required
-    def dashboard():
-        user_email = session.get('user_email')
-        return render_template("dashboard/dashboard.html", user_email=user_email)
+    @app.route("/")
+    def index():
+        # Jeśli użytkownik jest zalogowany, przekieruj na dashboard
+        if session.get('user_email'):
+            return redirect(url_for('dashboard.dashboard'))
+        return redirect(url_for("login"))
 
     @app.route("/clients")
     @login_required

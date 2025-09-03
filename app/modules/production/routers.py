@@ -75,13 +75,13 @@ def dashboard():
             'stations': [station.to_dict() for station in stations]
         }
         
-        return render_template('production/dashboard.html', data=dashboard_data)
+        return render_template('production/production_dashboard.html', data=dashboard_data)
         
     except Exception as e:
         production_logger.error("Błąd podczas ładowania dashboardu",
                               user_email=user_email, error=str(e))
         flash('Błąd podczas ładowania dashboardu', 'error')
-        return render_template('dashboard.html', data=dashboard_data)
+        return render_template('production_dashboard.html', data=dashboard_data)
 
 
 @production_bp.route('/production-list')

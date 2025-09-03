@@ -24,6 +24,9 @@ let currentClientType = '';
 let currentMultiplier = 1.0;
 let mainContainer = null;
 
+// Domyślna grupa cenowa - ID z tabeli multipliers
+const DEFAULT_MULTIPLIER_ID = 2;
+
 // Pobieranie cen wykończeń z bazy danych
 async function loadFinishingPrices() {
     try {
@@ -313,6 +316,71 @@ function updateGlobalSummary() {
 
     updateCalculateDeliveryButtonState();
     generateProductsSummary();
+}
+
+
+/**
+ * Znajdź nazwę grupy cenowej na podstawie ID z bazy danych
+ */
+function getDefaultClientTypeForId(targetId) {
+    console.log(`[getDefaultClientTypeForId] Szukam grupy cenowej dla ID: ${targetId}`);
+
+    // KROK 1: Sprawdź czy mamy dostęp do danych multipliers z DOM
+    const multipliersDataEl = document.getElementById('multipliers-data');
+    if (multipliersDataEl) {
+        try {
+            const multipliersFromDB = JSON.parse(multipliersDataEl.textContent);
+            const defaultGroup = multipliersFromDB.find(m => m.id === targetId);
+
+            if (defaultGroup) {
+                console.log(`[getDefaultClientTypeForId] ✅ Znaleziono grupę: ${defaultGroup.label} (ID: ${defaultGroup.id})`);
+                return defaultGroup.label;
+            } else {
+                console.warn(`[getDefaultClientTypeForId] ❌ Nie znaleziono grupy o ID ${targetId} w danych z DOM`);
+            }
+        } catch (e) {
+            console.warn(`[getDefaultClientTypeForId] Błąd parsowania danych multipliers:`, e);
+        }
+    } else {
+        console.warn(`[getDefaultClientTypeForId] Brak elementu #multipliers-data w DOM`);
+    }
+
+    // KROK 2: Fallback - sprawdź w globalnym multiplierMapping
+    // ❌ PROBLEM: multiplierMapping nie zawiera ID, więc nie możemy dopasować po ID
+    // Zamiast tego zwracamy null, żeby nie ustawiać błędnej grupy
+    console.warn(`[getDefaultClientTypeForId] ❌ Brak dostępu do ID grup w multiplierMapping - zwracam null`);
+    return null;
+}
+
+/**
+ * Ustaw domyślną grupę cenową w formularzu
+ */
+function setDefaultClientType(form, skipIfAlreadySet = true) {
+    if (!form) return;
+
+    const clientTypeSelect = form.querySelector('select[data-field="clientType"]');
+    if (!clientTypeSelect) return;
+
+    // Jeśli grupa już jest ustawiona i skipIfAlreadySet=true, nie zmieniaj
+    if (skipIfAlreadySet && clientTypeSelect.value) {
+        console.log(`[setDefaultClientType] Grupa już ustawiona: ${clientTypeSelect.value}, pomijam`);
+        return;
+    }
+
+    // Nie ustawiaj domyślnej grupy dla partnerów - oni mają swój multiplier
+    if (isPartner) {
+        console.log(`[setDefaultClientType] Partner - pomijam ustawienie domyślnej grupy`);
+        return;
+    }
+
+    const defaultClientType = getDefaultClientTypeForId(DEFAULT_MULTIPLIER_ID);
+
+    if (defaultClientType && multiplierMapping[defaultClientType]) {
+        clientTypeSelect.value = defaultClientType;
+        console.log(`[setDefaultClientType] Ustawiono domyślną grupę cenową: ${defaultClientType}`);
+    } else {
+        console.warn(`[setDefaultClientType] Nie można ustawić domyślnej grupy cenowej`);
+    }
 }
 
 
@@ -927,6 +995,9 @@ function attachFormListeners(form) {
 
     console.log(`[attachFormListeners] Dodaję listenery dla formularza`);
 
+    // ✅ NOWA POPRAWKA: Zachowaj aktualną grupę cenową przed dodaniem listeners
+    const currentClientType = form.querySelector('select[data-field="clientType"]')?.value;
+
     // POPRAWNE ROZWIĄZANIE - bez klonowania
     const inputs = form.querySelectorAll('input[data-field], select[data-field]');
     inputs.forEach(input => {
@@ -955,6 +1026,15 @@ function attachFormListeners(form) {
 
     // Dodaj obsługę wykończenia
     attachFinishingUIListeners(form);
+
+    // Na końcu funkcji, PRZYWRÓĆ grupę cenową jeśli została przypadkowo zresetowana
+    if (currentClientType && !isPartner) {
+        const clientTypeSelect = form.querySelector('select[data-field="clientType"]');
+        if (clientTypeSelect && clientTypeSelect.value !== currentClientType) {
+            clientTypeSelect.value = currentClientType;
+            console.log(`[attachFormListeners] Przywrócono grupę cenową: ${currentClientType}`);
+        }
+    }
 }
 function syncClientTypeAcrossProducts(selectedType, sourceForm) {
     console.log(`[syncClientType] Synchronizuję grupę ${selectedType} na wszystkich produktach`);
@@ -1101,9 +1181,15 @@ function prepareNewProductForm(form, index) {
 
     // KROK 4: Resetuj selecty ale ZACHOWAJ grupę cenową
     form.querySelectorAll('select[data-field]').forEach(select => {
-        if (select.dataset.field === 'clientType' && currentClientType) {
-            select.value = currentClientType;
-            console.log(`[prepareNewProductForm] Przywrócono grupę cenową: ${currentClientType}`);
+        if (select.dataset.field === 'clientType') {
+            if (currentClientType) {
+                // Przywróć istniejącą grupę cenową
+                select.value = currentClientType;
+                console.log(`[prepareNewProductForm] Przywrócono grupę cenową: ${currentClientType}`);
+            } else {
+                // Ustaw domyślną grupę cenową dla nowych produktów
+                setDefaultClientType(form, false); // false = ustaw nawet jeśli puste
+            }
         } else {
             select.selectedIndex = 0;
         }
@@ -1778,9 +1864,24 @@ function init() {
             }
             
             // Ustaw domyślną wartość dla partnerów
-            if (isPartner && currentClientType && !currentValue) {
-                select.value = currentClientType;
-                console.log(`[populateMultiplierSelects] Ustawiono domyślną dla partnera: ${currentClientType}`);
+            if (currentValue) {
+                select.value = currentValue;
+                console.log(`[populateMultiplierSelects] Przywrócono wartość: ${currentValue}`);
+            } else {
+                // Ustaw domyślną grupę cenową dla nie-partnerów
+                if (!isPartner) {
+                    const defaultClientType = getDefaultClientTypeForId(DEFAULT_MULTIPLIER_ID);
+                    if (defaultClientType && multiplierMapping[defaultClientType]) {
+                        select.value = defaultClientType;
+                        console.log(`[populateMultiplierSelects] Ustawiono domyślną grupę: ${defaultClientType}`);
+                    }
+                }
+
+                // Ustaw domyślną wartość dla partnerów (istniejący kod)
+                if (isPartner && currentClientType && !currentValue) {
+                    select.value = currentClientType;
+                    console.log(`[populateMultiplierSelects] Ustawiono domyślną dla partnera: ${currentClientType}`);
+                }
             }
         });
     };
@@ -1930,10 +2031,16 @@ function init() {
         console.warn('[Calculator] QuoteDraftBackup nie jest dostępny - sprawdź czy skrypt został załadowany');
     }
 
-    // Aktywuj pierwszy produkt (istniejący kod)
-    if (quoteFormsContainer.querySelector('.quote-form')) {
-        activateProductCard(0);
-    }
+    setTimeout(() => {
+        const firstForm = quoteFormsContainer.querySelector('.quote-form');
+        if (firstForm) {
+            const clientTypeSelect = firstForm.querySelector('select[data-field="clientType"]');
+            if (clientTypeSelect && !clientTypeSelect.value && !isPartner) {
+                setDefaultClientType(firstForm, false);
+                console.log(`[init] Ustawiono domyślną grupę cenową w pierwszym produkcie: ${clientTypeSelect.value}`);
+            }
+        }
+    }, 100);
 
     console.log("Inicjalizacja calculator.js zakończona");
 
@@ -1950,22 +2057,60 @@ function safeAttachFormListeners(form) {
 
     console.log(`[safeAttachFormListeners] Dodaję listenery dla formularza`);
 
-    // Dodaj listenery dla inputów
-    const inputs = form.querySelectorAll('input[data-field], select[data-field]');
-    inputs.forEach(input => {
-        // Usuń poprzednie listenery klonując element
-        const newInput = input.cloneNode(true);
-        input.parentNode.replaceChild(newInput, input);
+    // ✅ KLUCZOWA POPRAWKA: Zachowaj wszystkie wartości formularza przed manipulacją
+    const formValues = {};
 
-        // Dodaj nowe listenery
-        if (newInput.matches('input[data-field]')) {
-            newInput.addEventListener('input', updatePrices);
-        } else if (newInput.matches('select[data-field]')) {
-            newInput.addEventListener('change', updatePrices);
+    // Zapisz wartości input i select
+    form.querySelectorAll('input[data-field], select[data-field]').forEach(input => {
+        const key = input.id || input.name || input.dataset.field;
+        if (input.type === 'checkbox' || input.type === 'radio') {
+            formValues[key] = input.checked;
+        } else {
+            formValues[key] = input.value;
         }
     });
 
-    // Dodaj listenery dla radio buttons
+    // Zapisz wartości radio buttons
+    form.querySelectorAll('input[type="radio"]').forEach(radio => {
+        const key = radio.id || radio.name;
+        formValues[key + '_checked'] = radio.checked;
+        formValues[key + '_value'] = radio.value;
+    });
+
+    // Zapisz stany przycisków wykończenia
+    form.querySelectorAll('.finishing-btn').forEach(btn => {
+        const key = btn.dataset.finishingType || btn.dataset.finishingVariant || btn.dataset.finishingGloss;
+        if (key) {
+            formValues['finishing_' + key] = btn.classList.contains('active');
+        }
+    });
+
+    // Zapisz stany przycisków kolorów
+    form.querySelectorAll('.color-btn').forEach(btn => {
+        const key = btn.dataset.finishingColor;
+        if (key) {
+            formValues['color_' + key] = btn.classList.contains('active');
+        }
+    });
+
+    console.log(`[safeAttachFormListeners] Zapisano wartości formularza:`, formValues);
+
+    // ✅ NOWA POPRAWKA: Dodaj listenery dla inputów BEZ klonowania
+    const inputs = form.querySelectorAll('input[data-field], select[data-field]');
+    inputs.forEach(input => {
+        // Usuń poprzednie listenery bezpośrednio
+        input.removeEventListener('input', updatePrices);
+        input.removeEventListener('change', updatePrices);
+
+        // Dodaj nowe listenery
+        if (input.matches('input[data-field]')) {
+            input.addEventListener('input', updatePrices);
+        } else if (input.matches('select[data-field]')) {
+            input.addEventListener('change', updatePrices);
+        }
+    });
+
+    // Dodaj listenery dla radio buttons BEZ klonowania
     const radios = form.querySelectorAll('input[type="radio"]');
     radios.forEach(radio => {
         // Usuń poprzednie listenery
@@ -2017,20 +2162,19 @@ function safeAttachFormListeners(form) {
         }, 50);
     }
 
-    // Dodaj listenery dla przycisków wykończenia
+    // ✅ POPRAWKA: Dodaj listenery dla przycisków wykończenia BEZ klonowania
     const finishingBtns = form.querySelectorAll('.finishing-btn');
     finishingBtns.forEach(btn => {
-        // Usuń poprzednie listenery klonując element
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
+        // Usuń poprzednie listenery bezpośrednio
+        btn.removeEventListener('click', btn._finishingClickHandler);
 
-        // Dodaj nowy listener
-        newBtn.addEventListener('click', function () {
+        // Utwórz nowy handler i zapisz referencję
+        btn._finishingClickHandler = function () {
             const parentForm = this.closest('.quote-form');
             if (parentForm) {
                 // Znajdź typ przycisku i usuń active z innych tego samego typu
                 if (this.dataset.finishingType) {
-                    const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-type="${this.dataset.finishingType}"]`);
+                    const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-type]`);
                     sameTypeButtons.forEach(b => b.classList.remove('active'));
                 } else if (this.dataset.finishingVariant) {
                     const sameTypeButtons = parentForm.querySelectorAll(`[data-finishing-variant]`);
@@ -2047,16 +2191,20 @@ function safeAttachFormListeners(form) {
                 updatePrices();
                 generateProductsSummary();
             }
-        });
+        };
+
+        // Dodaj nowy listener
+        btn.addEventListener('click', btn._finishingClickHandler);
     });
 
-    // Dodaj listenery dla przycisków kolorów
+    // ✅ POPRAWKA: Dodaj listenery dla przycisków kolorów BEZ klonowania
     const colorBtns = form.querySelectorAll('.color-btn');
     colorBtns.forEach(btn => {
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
+        // Usuń poprzednie listenery bezpośrednio
+        btn.removeEventListener('click', btn._colorClickHandler);
 
-        newBtn.addEventListener('click', function () {
+        // Utwórz nowy handler i zapisz referencję
+        btn._colorClickHandler = function () {
             const parentForm = this.closest('.quote-form');
             if (parentForm) {
                 const colorButtons = parentForm.querySelectorAll('.color-btn');
@@ -2064,7 +2212,62 @@ function safeAttachFormListeners(form) {
                 this.classList.add('active');
                 generateProductsSummary();
             }
-        });
+        };
+
+        // Dodaj nowy listener
+        btn.addEventListener('click', btn._colorClickHandler);
+    });
+
+    // ✅ KLUCZOWA POPRAWKA: Przywróć wszystkie wartości po dodaniu listenerów
+    console.log(`[safeAttachFormListeners] Przywracam wartości formularza...`);
+
+    // Przywróć wartości input i select
+    form.querySelectorAll('input[data-field], select[data-field]').forEach(input => {
+        const key = input.id || input.name || input.dataset.field;
+        const savedValue = formValues[key];
+
+        if (savedValue !== undefined) {
+            if (input.type === 'checkbox' || input.type === 'radio') {
+                input.checked = savedValue;
+            } else {
+                input.value = savedValue;
+                // Specjalne logowanie dla grup cenowych
+                if (input.matches('select[data-field="clientType"]') && savedValue) {
+                    console.log(`[safeAttachFormListeners] ✅ Przywrócono grupę cenową: ${savedValue}`);
+                }
+            }
+        }
+    });
+
+    // Przywróć stany radio buttons
+    form.querySelectorAll('input[type="radio"]').forEach(radio => {
+        const key = radio.id || radio.name;
+        const savedChecked = formValues[key + '_checked'];
+        if (savedChecked !== undefined) {
+            radio.checked = savedChecked;
+        }
+    });
+
+    // Przywróć stany przycisków wykończenia
+    form.querySelectorAll('.finishing-btn').forEach(btn => {
+        const key = btn.dataset.finishingType || btn.dataset.finishingVariant || btn.dataset.finishingGloss;
+        if (key) {
+            const savedActive = formValues['finishing_' + key];
+            if (savedActive) {
+                btn.classList.add('active');
+            }
+        }
+    });
+
+    // Przywróć stany przycisków kolorów
+    form.querySelectorAll('.color-btn').forEach(btn => {
+        const key = btn.dataset.finishingColor;
+        if (key) {
+            const savedActive = formValues['color_' + key];
+            if (savedActive) {
+                btn.classList.add('active');
+            }
+        }
     });
 
     // Oznacz że listenery zostały dodane
@@ -2072,6 +2275,8 @@ function safeAttachFormListeners(form) {
 
     // Dodaj listenery UI wykończeń
     attachFinishingUIListeners(form);
+
+    console.log(`[safeAttachFormListeners] ✅ Zakończono dodawanie listenerów z zachowaniem wartości`);
 }
 
 function initCalculatorDownloadModal() {
@@ -3343,7 +3548,13 @@ function duplicateProduct(sourceIndex) {
 
         if (sourceData.clientType) {
             const clientTypeSelect = newForm.querySelector('[data-field="clientType"]');
-            if (clientTypeSelect) clientTypeSelect.value = sourceData.clientType;
+            if (clientTypeSelect) {
+                clientTypeSelect.value = sourceData.clientType;
+                console.log(`[duplicateProduct] Przywrócono grupę cenową: ${sourceData.clientType}`);
+            }
+        } else {
+            // Jeśli kopiowany produkt nie miał grupy cenowej, ustaw domyślną
+            setDefaultClientType(newForm, false);
         }
 
         // Aktywuj wykończenia jeśli były wybrane
@@ -3722,12 +3933,15 @@ function addNewProduct() {
     }
 
     // KROK 4.1: Przywróć grupę cenową TAKŻE w aktywnym formularzu
-    if (currentClientType && activeQuoteForm) {
-        const activeSelect = activeQuoteForm.querySelector('select[data-field="clientType"]');
-        if (activeSelect && activeSelect.value !== currentClientType) {
-            activeSelect.value = currentClientType;
-            console.log(`[addNewProduct] Skorygowano grupę cenową w aktywnym formularzu: ${currentClientType}`);
+    if (currentClientType) {
+        const select = newForm.querySelector('select[data-field="clientType"]');
+        if (select) {
+            select.value = currentClientType;
+            console.log(`[addNewProduct] Przywrócono grupę cenową: ${currentClientType}`);
         }
+    } else {
+        // Jeśli nie ma aktualnej grupy cenowej, ustaw domyślną
+        setDefaultClientType(newForm, false);
     }
 
     // KROK 5: Dodaj event listenery do nowego formularza
