@@ -1,6 +1,7 @@
 // Dashboard JavaScript
 document.addEventListener('DOMContentLoaded', function () {
     console.log('[Dashboard] Inicjalizacja dashboard.js');
+    console.log('[Dashboard] Stats from server:', window.dashboardStats);
 
     // Inicjalizacja komponentów
     initActivityTabs();
@@ -136,7 +137,7 @@ function loadWeatherData() {
 
     function detectUserLocation() {
         if (!navigator.geolocation) {
-            console.warn("[Pogoda] Geolokalizacja niedostępna – fallback: Rzeszów");
+            console.warn("[Pogodav2] Geolokalizacja niedostępna – fallback: Rzeszów");
             fetchWeather('Rzeszów');
             return;
         }
@@ -144,17 +145,17 @@ function loadWeatherData() {
         navigator.geolocation.getCurrentPosition(
             position => {
                 const { latitude, longitude } = position.coords;
-                console.log("[Pogoda] Współrzędne:", latitude, longitude);
+                console.log("[Pogodav2] Współrzędne:", latitude, longitude);
 
                 const distanceToRzeszow = getDistance(latitude, longitude, rzeszowCoords.lat, rzeszowCoords.lon);
                 const distanceToBachorz = getDistance(latitude, longitude, bachorzCoords.lat, bachorzCoords.lon);
 
                 const selectedCity = distanceToRzeszow < distanceToBachorz ? 'Rzeszów' : 'Bachórz';
-                console.log(`[Pogoda] Wybrano: ${selectedCity}`);
+                console.log(`[Pogodav2] Wybrano: ${selectedCity}`);
                 fetchWeather(selectedCity);
             },
             error => {
-                console.warn("[Pogoda] Geolokalizacja odrzucona. Kod:", error.code);
+                console.warn("[Pogodav2] Geolokalizacja odrzucona. Kod:", error.code);
                 fetchWeather('Rzeszów');
             }
         );
@@ -180,7 +181,7 @@ function loadWeatherData() {
     }
 
     function fetchWeather(city) {
-        console.log("[Pogoda] Fetch dla:", city);
+        console.log("[Pogodav2] Fetch dla:", city);
         const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=metric&lang=pl&appid=${apiKey}`;
 
         fetch(url)
@@ -203,12 +204,12 @@ function loadWeatherData() {
                     sunriseElement.textContent = formatTime(data.sys.sunrise);
                     sunsetElement.textContent = formatTime(data.sys.sunset);
                 } else {
-                    console.warn("[Pogoda] Odpowiedź API:", data);
+                    console.warn("[Pogodav2] Odpowiedź API:", data);
                     showWeatherError('Błąd API');
                 }
             })
             .catch(err => {
-                console.error("[Pogoda] Fetch error:", err);
+                console.error("[Pogodav2] Fetch error:", err);
                 showWeatherError('Brak połączenia');
             });
     }

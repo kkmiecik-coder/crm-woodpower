@@ -51,6 +51,12 @@
     <!-- Skrypty -->
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        window.dashboardStats = {{ stats|tojson }};
+        console.log('[Dashboard] Stats:', window.dashboardStats);
+        console.log('[Dashboard] Recent quotes:', window.dashboardStats.recent?.quotes);
+        console.log('[Dashboard] Recent clients:', window.dashboardStats.recent?.clients);
+    </script>
     <script src="{{ url_for('dashboard.static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>
