@@ -70,6 +70,7 @@ class ReportsManager {
             statProductionVolume: document.getElementById('statProductionVolume'),
             statProductionValueNet: document.getElementById('statProductionValueNet'),
             statReadyPickupVolume: document.getElementById('statReadyPickupVolume'),
+            statReadyPickupValueNet: document.getElementById('statReadyPickupValueNet'),
             statOlejowanieVolume: document.getElementById('statOlejowanieVolume'),
             statLakierowanieVolume: document.getElementById('statLakierowanieVolume'),
 
@@ -83,6 +84,7 @@ class ReportsManager {
             compProductionVolume: document.getElementById('compProductionVolume'),
             compProductionValueNet: document.getElementById('compProductionValueNet'),
             compReadyPickupVolume: document.getElementById('compReadyPickupVolume'),
+            compReadyPickupValueNet: document.getElementById('compReadyPickupValueNet'),
 
             // Tabela
             reportsTable: document.getElementById('reportsTable'),
@@ -293,7 +295,8 @@ class ReportsManager {
             balance_due: 0,
             production_volume: 0,
             production_value_net: 0,
-            ready_pickup_volume: 0
+            ready_pickup_volume: 0,
+            ready_pickup_value_net: 0
         };
 
         this.updateStatistics(emptyStats);
@@ -317,7 +320,8 @@ class ReportsManager {
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
             'production_value_net': 'compProductionValueNet',
-            'ready_pickup_volume': 'compReadyPickupVolume'
+            'ready_pickup_volume': 'compReadyPickupVolume',
+            'ready_pickup_value_net': 'compReadyPickupValueNet'
         };
 
         // Wyczyść porównania - ustaw puste teksty
@@ -575,6 +579,7 @@ class ReportsManager {
             <td class="cell-number">${this.formatNumber(order.production_volume, 4)}</td>
             <td class="cell-currency">${this.formatCurrency(order.production_value_net)}</td>
             <td class="cell-number">${this.formatNumber(order.ready_pickup_volume, 4)}</td>
+            <td class="cell-currency">${this.formatCurrency(order.ready_pickup_value_net)}</td>
             <td class="cell-number">${order.current_status && order.current_status.toLowerCase() === 'czeka na odbiór osobisty' ? this.formatNumber(order.total_volume, 4) : '0.00'}</td>
             ${this.renderMergedCell(this.renderActionButtons(order), orderCount, isFirst, 'cell-actions')}
         </tr>
@@ -1310,6 +1315,7 @@ class ReportsManager {
         this.updateStat('statProductionVolume', stats.production_volume, 4, ' m³');
         this.updateStat('statProductionValueNet', stats.production_value_net, 2, ' PLN');
         this.updateStat('statReadyPickupVolume', stats.ready_pickup_volume, 4, ' m³');
+        this.updateStat('statReadyPickupValueNet', stats.ready_pickup_value_net, 2, ' PLN');
         this.updateStat('statPickupReady', stats.pickup_ready_volume, 4, ' m³');
 
         // NOWE - oblicz i aktualizuj statystyki wykończenia na podstawie aktualnych danych
@@ -1369,7 +1375,7 @@ class ReportsManager {
         const fields = [
             'total_m3', 'order_amount_net', 'value_net',
             'avg_price_per_m3', 'delivery_cost_net', 'paid_amount_net', 'balance_due',
-            'production_volume', 'production_value_net', 'ready_pickup_volume', 'olejowanie_surface', 'lakierowanie_surface'
+            'production_volume', 'production_value_net', 'ready_pickup_volume', 'ready_pickup_value_net', 'olejowanie_surface', 'lakierowanie_surface'
         ];
 
         const elementMap = {
@@ -1384,7 +1390,8 @@ class ReportsManager {
             'production_value_net': 'compProductionValueNet',
             'olejowanie_surface': 'compOlejowanieSurface',
             'lakierowanie_surface': 'compLakierowanieSurface',
-            'ready_pickup_volume': 'compReadyPickupVolume'
+            'ready_pickup_volume': 'compReadyPickupVolume',
+            'ready_pickup_value_net': 'compReadyPickupValueNet'
         };
 
         fields.forEach(field => {

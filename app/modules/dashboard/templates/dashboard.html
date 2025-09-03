@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - Wood Power CRM</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <div class="app-container" style="display: flex;">
+        <!-- Sidebar – jest wstawiany w każdej podstronie -->
+        {% include 'sidebar/sidebar.html' %}
+
+        <!-- Główna zawartość modułu -->
+        <main class="main-content" style="flex: 1;">
+            <!-- Nagłówek z powitaniem -->
+            <div class="dashboard-header">
+                <h1 class="title-with-underline">Dashboard</h1>
+                <div class="welcome-message">
+                    {% if user and (user.first_name or user.last_name) %}
+                    <p>Witaj ponownie, <strong>{{ user.first_name }} {{ user.last_name }}</strong>! 👋</p>
+                    {% else %}
+                    <p>Witamy w dashboardzie Wood Power CRM! Tutaj możesz zobaczyć podsumowanie najważniejszych informacji.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Widgety Dashboard -->
+            <div class="dashboard-widgets">
+
+                <!-- Widget Quick Stats -->
+                {% include 'widgets/quick_stats_widget.html' %}
+
+                <!-- Widget Recent Activity -->
+                {% include 'widgets/recent_activity_widget.html' %}
+
+                <!-- Widget Quick Shortcuts -->
+                {% include 'widgets/quick_shortcuts_widget.html' %}
+
+                <!-- Widget Weather -->
+                {% include 'widgets/weather_widget.html' %}
+
+                <!-- Widget Changelog -->
+                {% include 'widgets/changelog_widget.html' %}
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Skrypty -->
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        window.dashboardStats = {{ stats|tojson }};
+        console.log('[Dashboard] Stats:', window.dashboardStats);
+        console.log('[Dashboard] Recent quotes:', window.dashboardStats.recent?.quotes);
+        console.log('[Dashboard] Recent clients:', window.dashboardStats.recent?.clients);
+    </script>
+    <script src="{{ url_for('dashboard.static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

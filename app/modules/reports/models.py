@@ -82,6 +82,7 @@ class BaselinkerReportOrder(db.Model):
     production_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="39. Ilość w produkcji")
     production_value_net = db.Column(db.Numeric(10, 2), default=0.00, comment="40. Wartość netto w produkcji")
     ready_pickup_volume = db.Column(db.Numeric(10, 4), default=0.00, comment="41. Ilość gotowa do odbioru")
+    ready_pickup_value_net = db.Column(db.Numeric(10, 2), default=0.00, comment="41a. Wartość netto gotowa do odbioru")
     
     # === POLA TECHNICZNE (nie wyświetlane w tabeli) ===
     baselinker_status_id = db.Column(db.Integer, nullable=True, comment="ID statusu z Baselinker")
@@ -203,6 +204,7 @@ class BaselinkerReportOrder(db.Model):
             'production_volume': 0.0,
             'production_value_net': 0.0,
             'ready_pickup_volume': 0.0,
+            'ready_pickup_value_net': 0.0,
             'pickup_ready_volume': 0.0,
             'unique_orders': 0,
             'products_count': 0
@@ -236,6 +238,7 @@ class BaselinkerReportOrder(db.Model):
             'production_volume': 0.0,
             'production_value_net': 0.0,
             'ready_pickup_volume': 0.0,
+            'ready_pickup_value_net': 0.0,
             'pickup_ready_volume': 0.0  # NOWA KOLUMNA
         }
 
@@ -246,6 +249,7 @@ class BaselinkerReportOrder(db.Model):
             product_level_stats['production_volume'] += float(order.production_volume or 0)
             product_level_stats['production_value_net'] += float(order.production_value_net or 0)
             product_level_stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
+            product_level_stats['ready_pickup_value_net'] += float(order.ready_pickup_value_net or 0)
         
             # NOWA LOGIKA: Suma objętości tylko dla statusu "Czeka na odbiór osobisty"
             if (order.current_status and 
@@ -626,6 +630,7 @@ class BaselinkerReportOrder(db.Model):
         self.production_volume = 0.0
         self.production_value_net = 0.0
         self.ready_pickup_volume = 0.0
+        self.ready_pickup_value_net = 0.0
 
         # Jeśli status zawiera "w produkcji" LUB to "Nowe - opłacone"
         if 'w produkcji' in status_lower or 'nowe - opłacone' in status_lower:
@@ -634,14 +639,15 @@ class BaselinkerReportOrder(db.Model):
     
         # NOWA LOGIKA: Statusy dla "Wyprodukowane" (zamiast tylko "Czeka na odbiór osobisty")
         # ID statusów: 138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779
-        elif (self.baselinker_status_id and 
+        elif (self.baselinker_status_id and
               self.baselinker_status_id in [138620, 138623, 105113, 105114, 149763, 149777, 138624, 149778, 149779]):
             self.ready_pickup_volume = float(self.total_volume or 0.0)
+            self.ready_pickup_value_net = float(self.value_net or 0.0)
     
         # FALLBACK: Sprawdź także po nazwie statusu (dla ręcznych wpisów lub starych rekordów bez baselinker_status_id)
         elif any(status_name in status_lower for status_name in [
             'produkcja zakończona',           # 138620
-            'zamówienie spakowane',           # 138623  
+            'zamówienie spakowane',           # 138623
             'paczka zgłoszona do wysyłki',    # 105113
             'wysłane - kurier',               # 105114
             'wysłane - transport woodpower',  # 149763
@@ -651,6 +657,7 @@ class BaselinkerReportOrder(db.Model):
             'odebrane'                        # 149779
         ]):
             self.ready_pickup_volume = float(self.total_volume or 0.0)
+            self.ready_pickup_value_net = float(self.value_net or 0.0)
     
     def to_dict(self):
         """
@@ -700,7 +707,8 @@ class BaselinkerReportOrder(db.Model):
             'balance_due': float(self.balance_due or 0),
             'production_volume': float(self.production_volume or 0),
             'production_value_net': float(self.production_value_net or 0),
-            'ready_pickup_volume': float(self.ready_pickup_volume or 0)
+            'ready_pickup_volume': float(self.ready_pickup_volume or 0),
+            'ready_pickup_value_net': float(self.ready_pickup_value_net or 0)
         }
 
     def process_baselinker_amount(self, baselinker_amount: float, price_type_from_api: str) -> tuple:

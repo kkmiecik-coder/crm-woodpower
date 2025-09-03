@@ -664,6 +664,7 @@ class BaselinkerReportsService:
             record.production_volume = record_data.get('production_volume', 0)
             record.production_value_net = record_data.get('production_value_net', 0)
             record.ready_pickup_volume = record_data.get('ready_pickup_volume', 0)
+            record.ready_pickup_value_net = record_data.get('ready_pickup_value_net', 0)
         
             # Pola techniczne
             record.baselinker_status_id = record_data.get('baselinker_status_id')
@@ -809,11 +810,12 @@ class BaselinkerReportsService:
                     price_type_from_api
                 ),
                 balance_due=max(0, value_net - (safe_float_convert(order.get('paid', 0)) / 1.23)),
-            
+
                 # Dane produkcji (zostaną zaktualizowane przez metodę update_production_fields)
                 production_volume=0,
                 production_value_net=0,
-                ready_pickup_volume=0
+                ready_pickup_volume=0,
+                ready_pickup_value_net=0
             )
             
             # Debug log - pokaż co się dzieje z cenami
@@ -2514,6 +2516,7 @@ class BaselinkerReportsService:
             record.production_volume = record_data.get('production_volume', 0)
             record.production_value_net = record_data.get('production_value_net', 0)
             record.ready_pickup_volume = record_data.get('ready_pickup_volume', 0)
+            record.ready_pickup_value_net = record_data.get('ready_pickup_value_net', 0)
         
             # Pola techniczne
             record.baselinker_status_id = record_data.get('baselinker_status_id')

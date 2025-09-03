@@ -191,6 +191,22 @@ async function loadCompanies(page = currentPage) {
 
         if (data.success) {
             currentCompanies = data.data.companies || [];
+            
+            // DODAJ TEN LOG:
+            console.log(`🔍 DEBUG: Loaded ${currentCompanies.length} companies from database`);
+            if (currentCompanies.length > 0) {
+                const sample = currentCompanies[0];
+                console.log('📊 Sample company from database:', {
+                    name: sample.company_name,
+                    nip: sample.nip,
+                    pkd_main: sample.pkd_main,
+                    industry_desc: sample.industry_desc,
+                    phone: sample.phone,
+                    email: sample.email,
+                    allKeys: Object.keys(sample)
+                });
+            }
+            
             populateCompanyTable(currentCompanies);
             setupPagination(data.data.total_pages || 1, data.data.page || 1);
 
@@ -343,6 +359,9 @@ async function startSearch() {
         return;
     }
 
+    // DODAJ TEN LOG:
+    console.log('🔍 DEBUG: Search parameters:', searchParams);
+
     showLoading(true);
 
     try {
@@ -356,6 +375,26 @@ async function startSearch() {
 
         if (data.success) {
             searchResults = data.data.companies || [];
+
+            // DODAJ TEN LOG:
+            console.log(`🔍 DEBUG: Search found ${searchResults.length} companies from API`);
+            if (searchResults.length > 0) {
+                const sample = searchResults[0];
+                console.log('📊 Sample company from search API:', {
+                    register_type: sample.register_type,
+                    name: sample.company_name,
+                    nip: sample.nip,
+                    regon: sample.regon,
+                    pkd_main: sample.pkd_main,
+                    industry_desc: sample.industry_desc,
+                    phone: sample.phone,
+                    email: sample.email,
+                    pkd_codes: sample.pkd_codes,
+                    foundation_date: sample.foundation_date,
+                    status: sample.status,
+                    allKeys: Object.keys(sample)
+                });
+            }
 
             // Check which companies already exist in our database
             await markExistingCompanies(searchResults);
@@ -515,6 +554,26 @@ async function saveSelectedCompanies() {
         return searchResults[index];
     });
 
+    // DODAJ TEN LOG:
+    console.log(`💾 DEBUG: Saving ${selectedCompanies.length} companies`);
+    if (selectedCompanies.length > 0) {
+        const sample = selectedCompanies[0];
+        console.log('📊 Sample company being saved:', {
+            register_type: sample.register_type,
+            name: sample.company_name,
+            nip: sample.nip,
+            regon: sample.regon,
+            pkd_main: sample.pkd_main,
+            industry_desc: sample.industry_desc,
+            phone: sample.phone,
+            email: sample.email,
+            pkd_codes: sample.pkd_codes,
+            foundation_date: sample.foundation_date,
+            status: sample.status,
+            allKeys: Object.keys(sample)
+        });
+    }
+
     showLoading(true);
 
     try {
@@ -528,6 +587,14 @@ async function saveSelectedCompanies() {
         });
 
         const data = await response.json();
+
+        // DODAJ TEN LOG:
+        console.log('💾 DEBUG: Save response:', {
+            success: data.success,
+            message: data.message,
+            error: data.error,
+            stats: data.data
+        });
 
         if (data.success) {
             showToast(data.message || `Zapisano ${selectedCompanies.length} firm`, 'success');

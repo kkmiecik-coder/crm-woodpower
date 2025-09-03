@@ -224,7 +224,7 @@ def api_search():
         return api_response(
             success=False,
             error=result['error'],
-            status_code=500
+            status_code=429
         )
 
 
@@ -239,6 +239,15 @@ def api_company_details():
     nip = request.args.get('nip')
     regon = request.args.get('regon')
     company_id = request.args.get('company_id')
+
+    # I zaktualizuj walidację (linia 147):
+    if not (nip or regon or company_id or krs):
+        return api_response(False, error="Podaj NIP, REGON, KRS lub ID firmy", status_code=400)
+
+    # Dodaj w sekcji określania identyfikatora (po linii 154):
+    elif company_id:
+        identifier_type = 'company_id'
+        identifier_value = company_id
     krs = request.args.get('krs')
 
     if not (nip or regon or company_id or krs):
@@ -446,6 +455,12 @@ def api_integration_config():
             if 'active' in data:
                 config.active = data['active']
         
+        if data['register_type'] == 'CEIDG' and 'api_key' in data and data['api_key']:
+            # Podstawowa walidacja formatu JWT (3 części oddzielone kropkami)
+            token_parts = data['api_key'].split('.')
+            if len(token_parts) != 3:
+                return api_response(False, error="JWT token musi mieć format: header.payload.signature", status_code=400)
+
         db.session.commit()
         
         return api_response(
@@ -471,7 +486,7 @@ def api_test_connections():
                 **result['results'],
                 'configuration': {
                     'ceidg_configured': bool(RegisterIntegrationConfig.get_config('CEIDG')),
-                    'krs_available': True
+                    'krs_available': True  # KRS nie wymaga konfiguracji
                 }
             },
             message="Testy połączeń zakończone"
