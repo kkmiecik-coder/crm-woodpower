@@ -8,41 +8,76 @@
     <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='css/dashboard.css') }}">
 </head>
 <body>
-    <div class="app-container" style="display: flex;">
-        <!-- Sidebar – jest wstawiany w każdej podstronie -->
+    <div class="app-container">
+        <!-- Sidebar – systemowy -->
         {% include 'sidebar/sidebar.html' %}
 
-        <!-- Główna zawartość modułu -->
-        <main class="main-content" style="flex: 1;">
-            <!-- Nagłówek z powitaniem -->
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
             <div class="dashboard-header">
-                <h1 class="title-with-underline">Dashboard</h1>
-                <div class="welcome-message">
-                    {% if user and (user.first_name or user.last_name) %}
-                    <p>Witaj ponownie, <strong>{{ user.first_name }} {{ user.last_name }}</strong>! 👋</p>
-                    {% else %}
-                    <p>Witamy w dashboardzie Wood Power CRM! Tutaj możesz zobaczyć podsumowanie najważniejszych informacji.</p>
-                    {% endif %}
+                <div class="header-top">
+                    <h1 class="page-title title-with-underline">Dashboard</h1>
+                    <!-- Quick Actions Bar -->
+                    <div class="quick-actions-bar">
+                        <div class="quick-actions-list">
+                            <a href="/calculator/" class="quick-action-btn">
+                                <span class="quick-action-icon">🧮</span>
+                                Nowa Wycena
+                            </a>
+                            <a href="/clients" class="quick-action-btn">
+                                <span class="quick-action-icon">👥</span>
+                                Dodaj Klienta
+                            </a>
+                            <a href="/quotes" class="quick-action-btn">
+                                <span class="quick-action-icon">📄</span>
+                                Wszystkie Wyceny
+                            </a>
+                            <a href="/reports" class="quick-action-btn">
+                                <span class="quick-action-icon">📈</span>
+                                Raporty
+                            </a>
+                            <a href="/production" class="quick-action-btn">
+                                <span class="quick-action-icon">🏭</span>
+                                Produkcja
+                            </a>
+                        </div>
+                    </div>
+                    <div class="user-greeting" id="user-greeting">
+                        <div class="avatar-container">
+                            <div class="user-avatar" style="background-image: url('{{ user_avatar }}');"></div>
+                        </div>
+                        <div class="greeting-text">
+                            {% if user and (user.first_name or user.last_name) %}
+                            Witaj, {{ user.first_name }} {{ user.last_name }}! 👋
+                            {% else %}
+                            Witaj, {{ user_name }}! 👋
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Widgety Dashboard -->
-            <div class="dashboard-widgets">
+            <!-- Dashboard Grid -->
+            <div class="dashboard-grid">
 
-                <!-- Widget Quick Stats -->
-                {% include 'widgets/quick_stats_widget.html' %}
+                <!-- Stats Overview -->
+                {% include 'widgets/stats_widget.html' %}
 
-                <!-- Widget Recent Activity -->
-                {% include 'widgets/recent_activity_widget.html' %}
-
-                <!-- Widget Quick Shortcuts -->
-                {% include 'widgets/quick_shortcuts_widget.html' %}
-
-                <!-- Widget Weather -->
+                <!-- Weather Widget -->
                 {% include 'widgets/weather_widget.html' %}
 
-                <!-- Widget Changelog -->
+                <!-- Changelog Widget -->
                 {% include 'widgets/changelog_widget.html' %}
+
+                <!-- Quotes Chart -->
+                {% include 'widgets/quotes_chart_widget.html' %}
+
+                <!-- Recent Activity -->
+                {% include 'widgets/recent_activity_widget.html' %}
+
+                <!-- Top Products -->
+                {% include 'widgets/top_products_widget.html' %}
 
             </div>
         </main>
@@ -52,10 +87,11 @@
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
+        // Przekazujemy dane z backendu do JavaScript
         window.dashboardStats = {{ stats|tojson }};
+        window.weatherData = {{ weather|tojson }};
         console.log('[Dashboard] Stats:', window.dashboardStats);
-        console.log('[Dashboard] Recent quotes:', window.dashboardStats.recent?.quotes);
-        console.log('[Dashboard] Recent clients:', window.dashboardStats.recent?.clients);
+        console.log('[Dashboard] Weather:', window.weatherData);
     </script>
     <script src="{{ url_for('dashboard.static', filename='js/dashboard.js') }}"></script>
 </body>
