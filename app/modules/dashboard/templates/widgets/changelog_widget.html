@@ -1,104 +1,103 @@
-<!-- Widget Changelog -->
-<div id="changelog-widget" class="widget-card changelog-widget">
-    <div class="widget-title">📢 Nowości w aplikacji</div>
-    <div class="changelog-body">
+<!-- Changelog Widget z przyciskiem + dla adminów -->
+<div class="widget changelog-widget">
+    <div class="changelog-header">
+        <h2 class="widget-title">
+            <span class="widget-icon">📢</span>
+            Nowości w aplikacji
+        </h2>
+        {% if user and user.role == 'admin' %}
+        <button class="changelog-add-btn" id="changelog-add-btn" title="Dodaj wpis">
+            <span class="add-icon">+</span>
+        </button>
+        {% endif %}
+    </div>
+    
+    <div class="changelog-entries" id="changelog-entries">
+        <!-- Wpisy będą ładowane dynamicznie -->
+        <div class="changelog-loading">Ładowanie nowości...</div>
+    </div>
+</div>
 
-        <div class="changelog-entry open">
-            <div class="changelog-date toggle-entry">
-                <span>30.06.2025</span>
-                <img src="/static/icons/sidebar-icon/footer-options.svg" alt="Rozwiń" class="changelog-chevron">
-            </div>
-            <div class="changelog-list animated-toggle">
-                <div class="changelog-section">
-                    <strong>Dodano</strong>
-                    <ul>
-                        <li>Moduł logowań zdarzeń aplikacji</li>
-                    </ul>
-
-                    <strong>Naprawiono</strong>
-                    <ul>
-                        <li>Poprawna wysyłka województwa do BL</li>
-                    </ul>
-                </div>
-            </div>
+<!-- Modal dodawania/edycji wpisu -->
+<div class="changelog-modal-overlay" id="changelog-modal-overlay" style="display: none;">
+    <div class="changelog-modal">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modal-title">Dodaj wpis do nowości</h3>
+            <button class="modal-close" id="modal-close">&times;</button>
         </div>
-
-        <div class="changelog-entry">
-            <div class="changelog-date toggle-entry">
-                <span>19.06.2025</span>
-                <img src="/static/icons/sidebar-icon/footer-options.svg" alt="Rozwiń" class="changelog-chevron">
+        
+        <form class="modal-form" id="changelog-form">
+            <div class="form-group">
+                <label for="version-input">Wersja aplikacji:</label>
+                <input type="text" id="version-input" name="version" required 
+                       placeholder="1.0.0" pattern="^\d+\.\d+(\.\d+)?$">
+                <small class="version-hint" id="version-hint">Sugerowana: <span id="suggested-version"></span></small>
             </div>
-            <div class="changelog-list animated-toggle">
-                <strong>Zmieniono</strong>
-                <div class="changelog-section">
-                    <ul>
-                        <li>Sposób akceptacji wyceny - od teraz klient sam wpisuje dane do dostawy czy dane klienta</li>
-                        <li>Okno szcegółów oraz edycji klienta zostały scalone w jedną opcję</li>
-                    </ul>
-
-                    <strong>Naprawiono</strong>
-                    <ul>
-                        <li>Okno edycji klientów - poprawnie wyświetla wyceny przypisane do klienta, przejście do nich.</li>
-                        <li>Po wyborze OLX w trakcie zapisu wyceny nie jest wymagany mail, ani numer telefonu.</li>
-                    </ul>
+            
+            <!-- Sekcja: Nowe -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">✨</span>
+                    Nowe
+                </h4>
+                <div class="items-container" id="added-items">
+                    <!-- Dynamicznie dodawane pozycje -->
                 </div>
+                <button type="button" class="add-item-btn" data-section="added">
+                    + Dodaj pozycję
+                </button>
             </div>
-        </div>
-
-        <div class="changelog-entry">
-            <div class="changelog-date toggle-entry">
-                <span>18.06.2025</span>
-                <img src="/static/icons/sidebar-icon/footer-options.svg" alt="Rozwiń" class="changelog-chevron">
+            
+            <!-- Sekcja: Ulepszenia -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">🔧</span>
+                    Ulepszenia
+                </h4>
+                <div class="items-container" id="improved-items">
+                    <!-- Dynamicznie dodawane pozycje -->
+                </div>
+                <button type="button" class="add-item-btn" data-section="improved">
+                    + Dodaj pozycję
+                </button>
             </div>
-            <div class="changelog-list animated-toggle">
-                <div class="changelog-section">
-                    <strong>Dodano</strong>
-                    <ul>
-                        <li>Możliwość wpisania własnego kuriera oraz kosztów podczas tworzenia wyceny</li>
-                    </ul>
+            
+            <!-- Sekcja: Poprawki błędów -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">🐛</span>
+                    Poprawki błędów
+                </h4>
+                <div class="items-container" id="fixed-items">
+                    <!-- Dynamicznie dodawane pozycje -->
                 </div>
-                <div class="changelog-section">
-                    <strong>Zmieniono</strong>
-                    <ul>
-                        <li>Podgląd podstawowych informacji w trakcie tworzenia wyceny</li>
-                        <li>Wygląd formularza wyceny/wyboru kuriera</li>
-                    </ul>
-                </div>
-                <div class="changelog-section">
-                    <strong>Naprawiono</strong>
-                    <ul>
-                        <li>Wycena niekompletna sprawia wyłączenie przycisków zapisu lub wyceny wysyłki</li>
-                    </ul>
-                </div>
+                <button type="button" class="add-item-btn" data-section="fixed">
+                    + Dodaj pozycję
+                </button>
             </div>
-        </div>
-
-        <div class="changelog-entry">
-            <div class="changelog-date toggle-entry">
-                <span>13.06.2025</span>
-                <img src="/static/icons/sidebar-icon/footer-options.svg" alt="Rozwiń" class="changelog-chevron">
-            </div>
-            <div class="changelog-list animated-toggle">
-                <div class="changelog-section">
-                    <strong>Dodano</strong>
-                    <ul>
-                        <li>Mozliwość edycji ilości produktów w wycenie</li>
-                        <li>Widok cen oraz wartości wariantów</li>
-                        <li>Mozliwość zaakceptowania oferty przez handlowca po stronie szczegółów wyceny</li>
-                        <li>Wyświetlanie ilości produktów na szczegółach wyceny oraz wysyłka informacji do baselinkera</li>
-                    </ul>
+            
+            <!-- Sekcja: Własna -->
+            <div class="form-section">
+                <h4 class="section-title">
+                    <span class="section-icon">📝</span>
+                    Własna sekcja
+                </h4>
+                <div class="form-group">
+                    <input type="text" id="custom-section-name" name="custom_section_name" 
+                           placeholder="Nazwa sekcji (np. Zmiany bazy danych)">
                 </div>
-                <div class="changelog-section">
-                    <strong>Naprawiono</strong>
-                    <ul>
-                        <li>Ilość oraz kwoty produktów są teraz poprawnie przekazywane do zamówienia w Baselikerze</li>
-                        <li>Błąd z wyświetlaniem ilości produktów w szczegółach wyceny</li>
-                        <li>Kopiowanie grupy cenowej do nowych produktów</li>
-                        <li>Zamówienie do BL nie wysyła już numeru wyceny do numeru wew. zam.</li>
-                    </ul>
+                <div class="items-container" id="custom-items">
+                    <!-- Dynamicznie dodawane pozycje -->
                 </div>
+                <button type="button" class="add-item-btn" data-section="custom">
+                    + Dodaj pozycję
+                </button>
             </div>
-        </div>
-
+            
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" id="btn-cancel">Anuluj</button>
+                <button type="submit" class="btn-save">Zapisz wpis</button>
+            </div>
+        </form>
     </div>
 </div>
