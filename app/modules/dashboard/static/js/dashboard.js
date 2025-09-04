@@ -137,8 +137,8 @@ function loadWeatherData() {
 
     function detectUserLocation() {
         if (!navigator.geolocation) {
-            console.warn("[Pogodav2] Geolokalizacja niedostępna – fallback: Rzeszów");
-            fetchWeather('Rzeszów');
+            console.warn("[Pogodav2] Geolokalizacja niedostępna – fallback: IP");
+            fetchLocationByIP();
             return;
         }
 
@@ -156,9 +156,34 @@ function loadWeatherData() {
             },
             error => {
                 console.warn("[Pogodav2] Geolokalizacja odrzucona. Kod:", error.code);
-                fetchWeather('Rzeszów');
+                fetchLocationByIP();
             }
         );
+    }
+
+    function fetchLocationByIP() {
+        fetch('https://ipapi.co/json/')
+            .then(response => response.json())
+            .then(data => {
+                const lat = parseFloat(data.latitude);
+                const lon = parseFloat(data.longitude);
+
+                if (!isNaN(lat) && !isNaN(lon)) {
+                    const distanceToRzeszow = getDistance(lat, lon, rzeszowCoords.lat, rzeszowCoords.lon);
+                    const distanceToBachorz = getDistance(lat, lon, bachorzCoords.lat, bachorzCoords.lon);
+                    const selectedCity = distanceToRzeszow < distanceToBachorz ? 'Rzeszów' : 'Bachórz';
+                    console.log(`[Pogodav2] IP-based location: ${data.city} -> using ${selectedCity}`);
+                    fetchWeather(selectedCity);
+                } else {
+                    const fallbackCity = ['Rzeszów', 'Bachórz'].includes(data.city) ? data.city : 'Rzeszów';
+                    console.log(`[Pogodav2] IP-based location (no coords): ${data.city} -> using ${fallbackCity}`);
+                    fetchWeather(fallbackCity);
+                }
+            })
+            .catch(err => {
+                console.warn('[Pogodav2] IP location failed:', err);
+                fetchWeather('Rzeszów');
+            });
     }
 
     function getDistance(lat1, lon1, lat2, lon2) {

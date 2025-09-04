@@ -269,10 +269,8 @@
 }
 
 .weather-extra {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px 16px;
-    font-size: 12px;
+    display: flow;
+    font-size: 18px;
     color: rgba(255, 255, 255, 0.9);
     justify-items: start;
     padding-top: 8px;
@@ -281,6 +279,10 @@
 .weather-item strong {
     font-weight: 600;
     margin-right: 4px;
+}
+
+.weather-item {
+    margin-top: 10px;
 }
 
 /* === CHANGELOG WIDGET === */

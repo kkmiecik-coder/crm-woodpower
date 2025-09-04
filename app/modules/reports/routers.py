@@ -175,7 +175,8 @@ def reports_home():
                 'balance_due': 0.0,
                 'production_volume': 0.0,
                 'production_value_net': 0.0,
-                'ready_pickup_volume': 0.0
+                'ready_pickup_volume': 0.0,
+                'ready_pickup_value_net': 0.0
             }
             comparison = {}
             reports_logger.info("Brak danych w bazie - wyświetlanie pustych statystyk",
@@ -203,7 +204,8 @@ def reports_home():
                     'balance_due': 0.0,
                     'production_volume': 0.0,
                     'production_value_net': 0.0,
-                    'ready_pickup_volume': 0.0
+                    'ready_pickup_volume': 0.0,
+                    'ready_pickup_value_net': 0.0
                 }
                 comparison = {}
                 reports_logger.info("Brak danych dla wybranego zakresu",
@@ -1077,6 +1079,7 @@ def api_export_excel():
                 'Ilosc w produkcji': float(order.production_volume or 0),
                 'Wartosc w produkcji': float(order.production_value_net or 0),
                 'Wyprodukowano': float(order.ready_pickup_volume or 0),  # NOWA KOLUMNA
+                'Wartosc wyprodukowana netto': float(order.ready_pickup_value_net or 0),
                 'Gotowe do odbioru': float(0.0)  # Dostosuj logikę według potrzeb
             })
         
@@ -1828,35 +1831,35 @@ def api_sync_statuses():
                     new_delivery_method = order_details.get('delivery_method', '').strip()
                     new_delivery_cost_gross = float(order_details.get('delivery_price', 0))
                     
-                    # Przygotuj dane do aktualizacji
-                    update_data = {
-                        'current_status': new_status,
-                        'baselinker_status_id': new_status_id,
-                        'paid_amount_net': new_paid_amount_net,
-                        'internal_order_number': new_internal_number,
-                        'delivery_method': new_delivery_method,
-                        'delivery_cost': new_delivery_cost_gross,
-                        'updated_at': datetime.utcnow()
-                    }
-                    
-                    # Aktualizuj wszystkie rekordy tego zamówienia
-                    records_updated = BaselinkerReportOrder.query.filter_by(
+                    records = BaselinkerReportOrder.query.filter_by(
                         baselinker_order_id=order_id
-                    ).update(update_data)
-                    
+                    ).all()
+
+                    records_updated = 0
+                    for record in records:
+                        record.current_status = new_status
+                        record.baselinker_status_id = new_status_id
+                        record.paid_amount_net = new_paid_amount_net
+                        record.internal_order_number = new_internal_number
+                        record.delivery_method = new_delivery_method
+                        record.delivery_cost = new_delivery_cost_gross
+                        record.updated_at = datetime.utcnow()
+                        record.update_production_fields()
+                        records_updated += 1
+
                     if records_updated > 0:
                         updated_count += records_updated
                         status_updated_count += 1
-                        
+
                         if new_paid_amount_net > 0:
                             payment_updated_count += 1
-                            
+
                         if new_internal_number:
                             internal_number_updated_count += 1
-                            
+
                         if new_delivery_method or new_delivery_cost_gross > 0:
                             delivery_updated_count += 1
-                            
+
                         reports_logger.debug("Zaktualizowano zamówienie",
                                            order_id=order_id,
                                            new_status=new_status,
