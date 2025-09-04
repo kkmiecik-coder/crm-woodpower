@@ -11,6 +11,9 @@ document.addEventListener('DOMContentLoaded', function () {
     // Odśwież dane co 5 minut
     setInterval(refreshDashboardData, 5 * 60 * 1000);
 
+    // Uruchom animację powitania
+    setTimeout(initGreetingAnimation, 500);
+
     console.log('[Dashboard] Stats from server:', window.dashboardStats);
     console.log('[Dashboard] Weather from server:', window.weatherData);
 });
@@ -243,33 +246,36 @@ function showWeatherError(msg) {
 }
 
 /**
- * Zaktualizuj funkcję initQuotesChart
+ * Inicjalizacja wykresu wycen z animacjami
  */
 function initQuotesChart() {
-    console.log('[Dashboard] DEBUG: initQuotesChart called');
-    
-    // Rysuj prawdziwy wykres
-    drawRealChart();
-    
-    // DEBUG - pozostaw istniejące logi
-    if (window.chartData) {
-        console.log('[Dashboard] DEBUG: Chart data summary:', window.chartData.summary);
-        
-        // Aktualizuj metryki
-        const totalElement = document.querySelector('.quotes-metric .metric-dot.total');
-        const acceptedElement = document.querySelector('.quotes-metric .metric-dot.accepted');
-        const orderedElement = document.querySelector('.quotes-metric .metric-dot.ordered');
-        
-        if (totalElement && totalElement.nextElementSibling) {
-            totalElement.nextElementSibling.textContent = `Wszystkie wyceny: ${window.chartData.summary.total_quotes || 0}`;
-        }
-        if (acceptedElement && acceptedElement.nextElementSibling) {
-            acceptedElement.nextElementSibling.textContent = `Zaakceptowane: ${window.chartData.summary.accepted_quotes || 0}`;
-        }
-        if (orderedElement && orderedElement.nextElementSibling) {
-            orderedElement.nextElementSibling.textContent = `Zamówienia (BL): ${window.chartData.summary.ordered_quotes || 0}`;
-        }
+    const chartContainer = document.getElementById('quotes-chart-container');
+    if (!chartContainer) {
+        console.log('[Dashboard] Brak kontenera wykresu');
+        return;
     }
+
+    // Intersection Observer dla animacji
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const lines = entry.target.querySelectorAll('.chart-line');
+                const points = entry.target.querySelectorAll('.chart-point');
+
+                // Uruchom animacje linii
+                lines.forEach((line, index) => {
+                    line.style.animationPlayState = 'running';
+                });
+
+                // Uruchom animacje punktów
+                points.forEach((point, index) => {
+                    point.style.animationPlayState = 'running';
+                });
+            }
+        });
+    });
+
+    observer.observe(chartContainer);
 }
 
 /**
@@ -332,25 +338,6 @@ function initQuickActions() {
         `;
         document.head.appendChild(style);
     }
-
-     /**
-     * Trigger animacji po załadowaniu strony
-     */
-    function triggerFadeInAnimations() {
-        // Sprawdź czy animacje są włączone
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-            return;
-        }
-
-        // Dodaj klasę która włącza animacje (opcjonalnie)
-        document.body.classList.add('animations-loaded');
-
-        console.log('[Dashboard] Fade-in animations triggered');
-    }
-
-    // Na końcu funkcji DOMContentLoaded dodaj:
-    setTimeout(triggerFadeInAnimations, 100);
-
 }
 
 /**
@@ -473,178 +460,6 @@ window.addEventListener('error', function (e) {
 });
 
 /**
- * Rysowanie prawdziwego wykresu słupkowego
- */
-/**
- * Rysowanie prawdziwego wykresu słupkowego - POWIĘKSZONY
- */
-function drawRealChart() {
-    const canvas = document.getElementById('quotes-canvas-chart');
-    const container = document.getElementById('real-chart-container');
-    const noDataDiv = document.getElementById('chart-no-data');
-    
-    if (!canvas || !container) {
-        console.log('[Dashboard] Brak canvas lub kontenera dla wykresu');
-        return;
-    }
-
-    // Ustaw rozmiar canvas na podstawie kontenera
-    const containerRect = container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    
-    // Rozmiar wyświetlania (CSS)
-    canvas.style.width = (containerRect.width - 16) + 'px'; // -16px na padding
-    canvas.style.height = (containerRect.height - 16) + 'px';
-    
-    // Rzeczywisty rozmiar canvas (dla ostrości)
-    canvas.width = (containerRect.width - 16) * dpr;
-    canvas.height = (containerRect.height - 16) * dpr;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    
-    // Sprawdź czy mamy dane
-    if (!window.chartData || !window.chartData.labels || window.chartData.labels.length === 0) {
-        console.log('[Dashboard] Brak danych dla wykresu');
-        canvas.style.display = 'none';
-        if (noDataDiv) noDataDiv.style.display = 'block';
-        return;
-    }
-
-    console.log('[Dashboard] Rysowanie większego wykresu z danymi:', window.chartData);
-
-    // Ukryj no-data, pokaż canvas
-    canvas.style.display = 'block';
-    if (noDataDiv) noDataDiv.style.display = 'none';
-
-    // Ustawienia wykresu - dostosowane do nowego rozmiaru
-    const width = containerRect.width - 16;
-    const height = containerRect.height - 16;
-    const padding = Math.min(width * 0.08, 50); // Responsywny padding
-    const chartWidth = width - (padding * 2);
-    const chartHeight = height - (padding * 2);
-    
-    const labels = window.chartData.labels;
-    const totalQuotes = window.chartData.datasets.total_quotes;
-    const acceptedQuotes = window.chartData.datasets.accepted_quotes;
-    const orderedQuotes = window.chartData.datasets.ordered_quotes;
-    
-    // Znajdź maksymalną wartość
-    const maxValue = Math.max(
-        ...totalQuotes,
-        ...acceptedQuotes,
-        ...orderedQuotes,
-        1
-    );
-    
-    // Wyczyść canvas
-    ctx.clearRect(0, 0, width, height);
-    
-    // Kolory
-    const colors = {
-        total: '#94a3b8',
-        accepted: '#22c55e',
-        ordered: '#ED6B24'
-    };
-    
-    // Rysuj tło
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
-    
-    // Szerokość słupka - dostosowana do rozmiaru
-    const groupWidth = chartWidth / labels.length;
-    const barWidth = Math.min(groupWidth / 4, 40); // Maksymalnie 40px
-    const barSpacing = barWidth * 0.1;
-    
-    // Rysuj słupki dla każdego miesiąca
-    labels.forEach((label, monthIndex) => {
-        const groupX = padding + (monthIndex * groupWidth);
-        const centerX = groupX + groupWidth / 2;
-        
-        // Pozycje słupków w grupie
-        const totalX = centerX - barWidth * 1.5 - barSpacing;
-        const acceptedX = centerX - barWidth * 0.5;
-        const orderedX = centerX + barWidth * 0.5 + barSpacing;
-        
-        // Wysokości słupków
-        const totalHeight = (totalQuotes[monthIndex] / maxValue) * chartHeight;
-        const acceptedHeight = (acceptedQuotes[monthIndex] / maxValue) * chartHeight;
-        const orderedHeight = (orderedQuotes[monthIndex] / maxValue) * chartHeight;
-        
-        // Rysuj słupki z zaokrąglonymi górami
-        function drawRoundedBar(x, y, width, height, color) {
-            if (height < 2) return; // Nie rysuj bardzo małych słupków
-            
-            ctx.fillStyle = color;
-            ctx.fillRect(x, y, width, height);
-            
-            // Zaokrąglona góra
-            ctx.beginPath();
-            ctx.arc(x + width/2, y, width/2, 0, Math.PI, true);
-            ctx.fill();
-        }
-        
-        // Rysuj wszystkie słupki
-        drawRoundedBar(totalX, padding + chartHeight - totalHeight, barWidth, totalHeight, colors.total);
-        drawRoundedBar(acceptedX, padding + chartHeight - acceptedHeight, barWidth, acceptedHeight, colors.accepted);
-        drawRoundedBar(orderedX, padding + chartHeight - orderedHeight, barWidth, orderedHeight, colors.ordered);
-        
-        // Etykiety miesięcy
-        ctx.fillStyle = '#374151';
-        ctx.font = `${Math.min(width/50, 14)}px sans-serif`; // Responsywny font
-        ctx.textAlign = 'center';
-        ctx.fillText(label, centerX, height - 8);
-        
-        // Wartości nad słupkami (jeśli są większe niż 0 i słupek jest widoczny)
-        ctx.font = `${Math.min(width/60, 12)}px sans-serif`;
-        if (totalQuotes[monthIndex] > 0 && totalHeight > 20) {
-            ctx.fillStyle = colors.total;
-            ctx.fillText(totalQuotes[monthIndex], totalX + barWidth/2, padding + chartHeight - totalHeight - 5);
-        }
-        if (acceptedQuotes[monthIndex] > 0 && acceptedHeight > 20) {
-            ctx.fillStyle = colors.accepted;
-            ctx.fillText(acceptedQuotes[monthIndex], acceptedX + barWidth/2, padding + chartHeight - acceptedHeight - 5);
-        }
-        if (orderedQuotes[monthIndex] > 0 && orderedHeight > 20) {
-            ctx.fillStyle = colors.ordered;
-            ctx.fillText(orderedQuotes[monthIndex], orderedX + barWidth/2, padding + chartHeight - orderedHeight - 5);
-        }
-    });
-    
-    // Rysuj oś Y (skala) - bardziej dyskretnie
-    ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 1;
-    const steps = Math.min(Math.floor(maxValue/20), 8); // Maksymalnie 8 kroków
-    
-    for (let i = 0; i <= steps; i++) {
-        const y = padding + (chartHeight / steps) * i;
-        const value = Math.round(maxValue - (maxValue / steps) * i);
-        
-        // Delikatna linia siatki
-        if (i > 0 && i < steps) { // Pomiń górną i dolną linię
-            ctx.beginPath();
-            ctx.moveTo(padding, y);
-            ctx.lineTo(padding + chartWidth, y);
-            ctx.stroke();
-        }
-        
-        // Etykieta wartości
-        ctx.fillStyle = '#6b7280';
-        ctx.font = `${Math.min(width/60, 11)}px sans-serif`;
-        ctx.textAlign = 'right';
-        ctx.fillText(value.toString(), padding - 8, y + 4);
-    }
-    
-    console.log('[Dashboard] Większy wykres narysowany pomyślnie');
-}
-
-// Dodaj obsługę resize
-window.addEventListener('resize', function() {
-    // Przenieś na kolejkę aby nie blokować resize
-    setTimeout(drawRealChart, 100);
-});
-
-/**
  * Debug mode - włącza dodatkowe logi
  */
 function enableDebugMode() {
@@ -660,41 +475,56 @@ function enableDebugMode() {
 }
 
 /**
- * Inicjalizacja animacji powitania użytkownika
+ * Inicjalizacja animacji powitania
  */
-function initUserGreetingAnimation() {
-    const greetingElement = document.getElementById('user-greeting');
-    const photoBall = document.getElementById('photo-ball');
-
-    if (!greetingElement || !photoBall) {
-        console.log('[Dashboard] Brak elementów user-greeting');
+function initGreetingAnimation() {
+    const greetingContainer = document.getElementById('user-greeting');
+    if (!greetingContainer) {
+        console.log('[Dashboard] Brak kontenera powitania');
         return;
     }
 
-    // Sprawdź czy animacje są włączone
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        console.log('[Dashboard] Animacje wyłączone - prefers-reduced-motion');
-        return;
-    }
-
-    console.log('[Dashboard] User greeting animation started - 3.5 second sequence');
-
-    // Debug: loguj poszczególne fazy z poprawnym timingiem
-    setTimeout(() => console.log('[Dashboard] Faza 1: Wjazd kulki do prawej krawędzi'), 0);
-    setTimeout(() => console.log('[Dashboard] Faza 2: Szybkie zmniejszenie do 32px'), 400);
-    setTimeout(() => console.log('[Dashboard] Faza 3: Szybkie powiększenie do 72px'), 800);
-    setTimeout(() => console.log('[Dashboard] Faza 4: Znikanie pomarańczowego + pokazanie zdjęcia'), 1200);
-    setTimeout(() => console.log('[Dashboard] Faza 5: Zmniejszenie z białym borderem'), 1600);
-    setTimeout(() => console.log('[Dashboard] Faza 6: Rozszerzenie tła + pojawienie tekstu'), 2000);
-
-    // Po zakończeniu animacji
+    // Rozpocznij animację rozszerzenia kontenera po odpowiednim czasie
     setTimeout(() => {
-        console.log('[Dashboard] User greeting animation completed');
-    }, 3500);
+        greetingContainer.classList.add('expanded');
+    }, 1400);
+
+    // Opcjonalnie: restart animacji po kliknięciu (do testowania)
+    greetingContainer.addEventListener('click', function () {
+        if (window.dashboardDebug) {
+            restartGreetingAnimation();
+        }
+    });
 }
 
-// Wywołaj natychmiast po załadowaniu DOM
-initUserGreetingAnimation();
+/**
+ * Restart animacji powitania (dla debugowania)
+ */
+function restartGreetingAnimation() {
+    const greetingContainer = document.getElementById('user-greeting');
+    if (!greetingContainer) return;
+
+    greetingContainer.classList.remove('expanded');
+
+    // Reset animacji przez usunięcie i ponowne dodanie elementów
+    const orangeDot = greetingContainer.querySelector('.orange-dot');
+    const avatar = greetingContainer.querySelector('.user-avatar');
+    const text = greetingContainer.querySelector('.greeting-text');
+
+    // Resetuj animacje
+    [orangeDot, avatar, text].forEach(el => {
+        if (el) {
+            el.style.animation = 'none';
+            el.offsetHeight; // Trigger reflow
+            el.style.animation = null;
+        }
+    });
+
+    // Ponownie uruchom animację rozszerzenia
+    setTimeout(() => {
+        greetingContainer.classList.add('expanded');
+    }, 1400);
+}
 
 // Eksport funkcji do globalnego scope dla debugowania
 window.dashboardFunctions = {
@@ -706,4 +536,6 @@ window.dashboardFunctions = {
     formatPercentage,
     animateCounters,
     enableDebugMode,
+    initGreetingAnimation,
+    restartGreetingAnimation
 };

@@ -1,4 +1,4 @@
-<!-- Quotes Chart Widget - WIĘKSZY WYKRES -->
+<!-- Quotes Chart Widget -->
 <div class="widget quotes-chart">
     <h2 class="widget-title">
         <span class="widget-icon">📈</span>
@@ -7,27 +7,42 @@
     <div class="quotes-metrics">
         <div class="quotes-metric">
             <div class="metric-dot total"></div>
-            <span>Wszystkie wyceny: {{ chart_data.summary.total_queries or 0 }}</span>
+            <span>Wszystkie wyceny: {{ chart_data.total_quotes or 0 }}</span>
         </div>
         <div class="quotes-metric">
             <div class="metric-dot accepted"></div>
-            <span>Zaakceptowane: {{ chart_data.summary.accepted_quotes or 0 }}</span>
+            <span>Zaakceptowane: {{ chart_data.accepted_quotes or 0 }}</span>
         </div>
         <div class="quotes-metric">
             <div class="metric-dot ordered"></div>
-            <span>Zamówienia (BL): {{ chart_data.summary.ordered_quotes or 0 }}</span>
+            <span>Zamówienia (BL): {{ chart_data.ordered_quotes or 0 }}</span>
         </div>
     </div>
-    
-    <!-- WIĘKSZY WYKRES -->
-    <div class="real-chart-container" id="real-chart-container">
-        <canvas id="quotes-canvas-chart"></canvas>
-        
-        <!-- Fallback gdy nie ma danych -->
-        <div class="chart-no-data" id="chart-no-data" style="display: none;">
-            <div class="no-data-icon">📊</div>
-            <div class="no-data-text">Brak danych do wyświetlenia</div>
-            <div class="no-data-subtitle">Dodaj wyceny aby zobaczyć wykres</div>
+    <div class="quotes-chart-container" id="quotes-chart-container">
+        <div class="line-chart">
+            <div class="chart-line total"></div>
+            <div class="chart-line accepted"></div>
+            <div class="chart-line ordered"></div>
+            <div class="chart-points">
+                <!-- Total quotes points -->
+                <div class="chart-point total" style="left: 15%;"></div>
+                <div class="chart-point total" style="left: 30%;"></div>
+                <div class="chart-point total" style="left: 45%;"></div>
+                <div class="chart-point total" style="left: 60%;"></div>
+                <div class="chart-point total" style="left: 75%;"></div>
+                <!-- Accepted points -->
+                <div class="chart-point accepted" style="left: 15%;"></div>
+                <div class="chart-point accepted" style="left: 30%;"></div>
+                <div class="chart-point accepted" style="left: 45%;"></div>
+                <div class="chart-point accepted" style="left: 60%;"></div>
+                <div class="chart-point accepted" style="left: 75%;"></div>
+                <!-- Ordered points -->
+                <div class="chart-point ordered" style="left: 15%;"></div>
+                <div class="chart-point ordered" style="left: 30%;"></div>
+                <div class="chart-point ordered" style="left: 45%;"></div>
+                <div class="chart-point ordered" style="left: 60%;"></div>
+                <div class="chart-point ordered" style="left: 75%;"></div>
+            </div>
         </div>
     </div>
 </div>

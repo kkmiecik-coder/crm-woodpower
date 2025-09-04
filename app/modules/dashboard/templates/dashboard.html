@@ -93,24 +93,6 @@
         console.log('[Dashboard] Stats:', window.dashboardStats);
         console.log('[Dashboard] Weather:', window.weatherData);
     </script>
-    <script>
-        // DEBUG: Przekazywanie danych z backendu do JS
-        console.log('[Dashboard] DEBUG: Template variables loaded:');
-        console.log('- stats:', {{ stats|tojson }});
-        console.log('- chart_data:', {{ chart_data|tojson }});
-        console.log('- weather:', {{ weather|tojson }});
-        
-        // Przechowuj dane globalnie dla debugowania
-        window.chartData = {{ chart_data|tojson }};
-        window.dashboardStats = {{ stats|tojson }};
-        window.weatherData = {{ weather|tojson }};
-        
-        console.log('[Dashboard] DEBUG: Global variables set:', {
-            chartData: !!window.chartData,
-            dashboardStats: !!window.dashboardStats,
-            weatherData: !!window.weatherData
-        });
-    </script>
     <script src="{{ url_for('dashboard.static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>
