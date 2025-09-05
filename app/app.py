@@ -10,7 +10,7 @@ from flask_mail import Mail, Message
 from jinja2 import ChoiceLoader, FileSystemLoader
 from extensions import db, mail
 import threading
-
+from sqlalchemy import desc
 from modules.calculator import calculator_bp
 from modules.calculator.models import User, Invitation, Price, Multiplier
 from modules.clients import clients_bp
@@ -24,6 +24,8 @@ from modules.reports import reports_bp
 from modules.production import production_bp
 from modules.company_register import register_bp
 from modules.dashboard import dashboard_bp
+from modules.dashboard.models import ChangelogEntry, ChangelogItem, UserSession
+from modules.dashboard.services.user_activity_service import UserActivityService
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
@@ -162,6 +164,9 @@ def create_app():
     @app.before_request
     def extend_session():
         session.permanent = True
+    
+        # DODAJ tracking aktywności użytkowników
+        track_user_activity()
 
     # Dekorator zabezpieczający strony – wymaga zalogowania
     def login_required(func):
@@ -174,11 +179,131 @@ def create_app():
             return func(*args, **kwargs)
         return wrapper
 
+    def track_user_activity():
+        """
+        Śledzi aktywność użytkowników przy każdym żądaniu HTTP
+        """
+        try:
+            # Sprawdź czy użytkownik jest zalogowany
+            user_id = session.get('user_id')
+            user_email = session.get('user_email')
+        
+            if not user_id or not user_email:
+                return
+        
+            # Pobierz informacje o żądaniu
+            current_page = request.endpoint
+            ip_address = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+        
+            # Jeśli IP zawiera wiele adresów (proxy), weź pierwszy
+            if ip_address and ',' in ip_address:
+                ip_address = ip_address.split(',')[0].strip()
+        
+            # Aktualizuj aktywność
+            UserActivityService.update_activity(
+                user_id=user_id,
+                current_page=current_page,
+                ip_address=ip_address
+            )
+        
+        except Exception as e:
+            # Nie przerywaj żądania jeśli tracking się nie powiedzie
+            current_app.logger.debug(f"[Activity] Błąd tracking aktywności: {e}")
+
+    def check_user_session_validity():
+        """
+        Sprawdza ważność sesji użytkownika i wylogowuje jeśli nieważna
+        """
+        try:
+            session_token = session.get('user_session_token')
+            user_id = session.get('user_id')
+        
+            if not session_token or not user_id:
+                return True  # Brak sesji - OK
+        
+            # Sprawdź czy sesja istnieje w bazie
+            user_session = UserSession.query.filter_by(
+                session_token=session_token,
+                user_id=user_id,
+                is_active=True
+            ).first()
+        
+            if not user_session:
+                # Sesja nieważna - wyloguj
+                current_app.logger.warning(f"[Security] Wykryto nieważną sesję dla user_id={user_id}")
+                session.clear()
+                return False
+        
+            # Sprawdź czy sesja nie jest zbyt stara (ponad 24h)
+            from datetime import datetime, timedelta
+            if user_session.last_activity_at < datetime.utcnow() - timedelta(hours=24):
+                current_app.logger.info(f"[Security] Sesja wygasła dla user_id={user_id}")
+                user_session.force_logout()
+                session.clear()
+                return False
+        
+            return True
+        
+        except Exception as e:
+            current_app.logger.error(f"[Security] Błąd sprawdzania sesji: {e}")
+            return True  # W razie błędu nie wylogowuj
+
+    @app.errorhandler(401)
+    def handle_unauthorized(error):
+        """
+        Obsługa błędów autoryzacji - przekieruj na login
+        """
+        if request.path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': 'Sesja wygasła',
+                'redirect': url_for('login')
+            }), 401
+        else:
+            flash("Twoja sesja wygasła. Zaloguj się ponownie.", "info")
+            return redirect(url_for('login'))
+
     # -------------------------
     #         ROUTES
     # -------------------------
     from datetime import timedelta
     app.permanent_session_lifetime = timedelta(minutes=120)
+
+    @app.route('/api/session/ping', methods=['POST'])
+    def session_ping():
+        """
+        Endpoint do odświeżania sesji (heartbeat)
+        Może być wywoływany przez JavaScript co kilka minut
+        """
+        try:
+            user_id = session.get('user_id')
+            if not user_id:
+                return jsonify({'success': False, 'error': 'Nie zalogowano'}), 401
+        
+            # Aktualizuj aktywność
+            success = UserActivityService.update_activity(
+                user_id=user_id,
+                current_page=request.json.get('current_page') if request.is_json else None
+            )
+        
+            if success:
+                return jsonify({
+                    'success': True,
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Nie udało się zaktualizować sesji'
+                }), 500
+            
+        except Exception as e:
+            current_app.logger.error(f"[SessionPing] Błąd: {e}")
+            return jsonify({
+                'success': False,
+                'error': 'Błąd serwera'
+            }), 500
+
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -208,6 +333,27 @@ def create_app():
             session['user_email'] = email
             session['user_id'] = user.id
             session.permanent = True
+        
+            # DODAJ: Utwórz sesję użytkownika dla tracking
+            try:
+                ip_address = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+                if ip_address and ',' in ip_address:
+                    ip_address = ip_address.split(',')[0].strip()
+                
+                user_agent = request.headers.get('User-Agent', '')
+            
+                UserActivityService.create_session(
+                    user_id=user.id,
+                    ip_address=ip_address,
+                    user_agent=user_agent
+                )
+            
+                current_app.logger.info(f"[Login] Utworzono sesję tracking dla {email}")
+            
+            except Exception as e:
+                current_app.logger.error(f"[Login] Błąd tworzenia sesji tracking: {e}")
+                # Nie przerywaj logowania jeśli tracking się nie powiedzie
+        
             return redirect(url_for("dashboard.dashboard"))
 
         return render_template("login.html")
@@ -232,7 +378,24 @@ def create_app():
         return render_template("help/help.html", user_email=user_email)
 
     @app.route("/logged_out")
+    @app.route("/logged_out")
     def logged_out():
+        try:
+            # DODAJ: Zakończ sesję tracking przed wylogowaniem
+            user_id = session.get('user_id')
+            session_token = session.get('user_session_token')
+        
+            if user_id or session_token:
+                UserActivityService.end_session(
+                    user_id=user_id,
+                    session_token=session_token
+                )
+                current_app.logger.info(f"[Logout] Zakończono sesję tracking dla user_id={user_id}")
+            
+        except Exception as e:
+            current_app.logger.error(f"[Logout] Błąd kończenia sesji tracking: {e}")
+    
+        # Oryginalne czyszczenie sesji
         session.clear()
         return render_template("logged_out.html")
 
@@ -654,6 +817,26 @@ def create_app():
             return redirect(url_for('settings'))
         return render_template('settings_page/logs_console.html')
 
+    @app.route('/api/latest-version')
+    def get_latest_version():
+        try:
+            # Sprawdź czy masz import modelu
+        
+            # Musisz zaimportować model - sprawdź jaki masz:
+            # from modules.dashboard.models import ChangelogEntry  # lub inna ścieżka
+        
+            latest_entry = db.session.query(ChangelogEntry)\
+                .order_by(desc(ChangelogEntry.id))\
+                .first()
+                
+            if latest_entry:
+                return {'version': latest_entry.version}
+            else:
+                return {'version': 'v1.2'}
+            
+        except Exception as e:
+            return {'version': 'v1.2'}
+
     @app.route("/invite_user", methods=["POST"])
     @login_required
     def invite_user():
@@ -758,10 +941,73 @@ def create_app():
                 user_name = f"{user.first_name} {user.last_name}".strip() if user.first_name or user.last_name else user.email
                 # Jeśli brak avatara, ustawiamy domyślną ścieżkę.
                 user_avatar = user.avatar_path if user.avatar_path else url_for('static', filename='images/avatars/default_avatars/avatar1.svg')
-                return dict(user_name=user_name, user_avatar=user_avatar, user_email=user.email)
+            
+                # DODAJ informacje o sesji
+                session_info = {}
+                try:
+                    session_token = session.get('user_session_token')
+                    if session_token:
+                        user_session = UserSession.query.filter_by(
+                            session_token=session_token,
+                            is_active=True
+                        ).first()
+                    
+                        if user_session:
+                            session_info = {
+                                'session_duration': user_session.get_session_duration(),
+                                'last_activity': user_session.get_relative_time(),
+                                'current_page': user_session.get_page_display_name()
+                            }
+                except Exception as e:
+                    current_app.logger.debug(f"[Context] Błąd pobierania info sesji: {e}")
+            
+                return dict(
+                    user_name=user_name, 
+                    user_avatar=user_avatar, 
+                    user_email=user.email,
+                    user=user,  # Dodaj cały obiekt user
+                    user_session=session_info
+                )
+    
         # Domyślne wartości, gdy nie ma zalogowanego użytkownika.
-        return dict(user_name="Dzielny człowieku!", user_avatar=url_for('static', filename='images/avatars/default_avatars/avatar1.svg'))
+        return dict(
+            user_name="Dzielny człowieku!", 
+            user_avatar=url_for('static', filename='images/avatars/default_avatars/avatar1.svg'),
+            user=None,
+            user_session={}
+        )
 
+    @app.route('/debug/session-info')
+    @login_required
+    def debug_session_info():
+        """
+        Debug endpoint - informacje o sesji (tylko w trybie DEBUG)
+        """
+        if not current_app.config.get('DEBUG'):
+            return "Debug mode wyłączony", 404
+    
+        try:
+            user_id = session.get('user_id')
+            session_token = session.get('user_session_token')
+        
+            session_data = {
+                'flask_session': dict(session),
+                'user_id': user_id,
+                'session_token': session_token[:8] + '...' if session_token else None
+            }
+        
+            if session_token:
+                user_session = UserSession.query.filter_by(
+                    session_token=session_token
+                ).first()
+            
+                if user_session:
+                    session_data['user_session'] = user_session.to_dict()
+        
+            return jsonify(session_data)
+        
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
     @app.route('/update_password', methods=['POST'])
     @login_required

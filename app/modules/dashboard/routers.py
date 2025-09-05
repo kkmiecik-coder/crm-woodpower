@@ -1,4 +1,4 @@
-from flask import render_template, session, redirect, url_for, request, flash
+from flask import render_template, session, redirect, url_for, request, flash, jsonify
 from functools import wraps
 from . import dashboard_bp  # Import blueprint z __init__.py
 from .services.stats_service import get_dashboard_stats
@@ -6,6 +6,9 @@ from .services.weather_service import get_weather_data
 from .services.chart_service import get_quotes_chart_data, get_top_products_data, get_production_overview
 from ..calculator.models import User
 import logging
+from datetime import datetime
+from .services.user_activity_service import UserActivityService
+from .models import UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,21 @@ def login_required(func):
         if not user_email:
             flash("Twoja sesja wygasła. Zaloguj się ponownie.", "info")
             return redirect(url_for('login'))
+        return func(*args, **kwargs)
+    return wrapper
+
+def admin_required(func):
+    """Dekorator wymagający uprawnień administratora"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        user_email = session.get('user_email')
+        if not user_email:
+            return jsonify({'success': False, 'error': 'Nie zalogowano'}), 401
+            
+        user = User.query.filter_by(email=user_email).first()
+        if not user or user.role != 'admin':
+            return jsonify({'success': False, 'error': 'Brak uprawnień administratora'}), 403
+            
         return func(*args, **kwargs)
     return wrapper
 
@@ -459,3 +477,281 @@ def toggle_changelog_visibility(entry_id):
         db.session.rollback()
         logger.exception("[Dashboard] Błąd przełączania widoczności")
         return {'success': False, 'error': str(e)}, 500
+
+@dashboard_bp.route('/api/active-users')
+@login_required
+@admin_required
+def get_active_users():
+    """
+    API endpoint zwracający listę aktywnych użytkowników (tylko dla adminów)
+    
+    Returns:
+        JSON: Lista aktywnych użytkowników z ich statusami
+    """
+    try:
+        logger.info("[Dashboard] Pobieranie aktywnych użytkowników przez admin")
+        
+        # Pobierz aktywnych użytkowników
+        active_users = UserActivityService.get_active_users(minutes_threshold=15)
+        
+        # Pobierz statystyki aktywności
+        stats = UserActivityService.get_user_activity_stats()
+        
+        logger.info(f"[Dashboard] Zwracam {len(active_users)} aktywnych użytkowników")
+        
+        return jsonify({
+            'success': True,
+            'users': active_users,
+            'stats': stats,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd pobierania aktywnych użytkowników")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+@dashboard_bp.route('/api/force-logout/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def force_logout_user(user_id):
+    """
+    API endpoint do wymuszania wylogowania użytkownika (tylko dla adminów)
+    
+    Args:
+        user_id (int): ID użytkownika do wylogowania
+        
+    Returns:
+        JSON: Wynik operacji wylogowania
+    """
+    try:
+        current_user_email = session.get('user_email')
+        current_user = User.query.filter_by(email=current_user_email).first()
+        
+        logger.info(f"[Dashboard] Admin {current_user.email} wymusza wylogowanie user_id={user_id}")
+        
+        # Sprawdź czy user istnieje
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return jsonify({
+                'success': False,
+                'error': 'Użytkownik nie został znaleziony'
+            }), 404
+        
+        # Nie pozwól wylogować samego siebie
+        if current_user.id == user_id:
+            return jsonify({
+                'success': False,
+                'error': 'Nie możesz wylogować samego siebie'
+            }), 400
+        
+        # Wykonaj wymuszenie wylogowania
+        result = UserActivityService.force_logout_user(user_id, current_user.id)
+        
+        if result['success']:
+            logger.info(f"[Dashboard] Pomyślnie wylogowano użytkownika {target_user.email}")
+            return jsonify(result)
+        else:
+            logger.warning(f"[Dashboard] Nie udało się wylogować użytkownika {target_user.email}: {result['error']}")
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.exception(f"[Dashboard] Błąd wymuszania wylogowania user_id={user_id}")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+@dashboard_bp.route('/api/user-details/<int:user_id>')
+@login_required
+@admin_required
+def get_user_details(user_id):
+    """
+    API endpoint zwracający szczegółowe informacje o użytkowniku (tylko dla adminów)
+    
+    Args:
+        user_id (int): ID użytkownika
+        
+    Returns:
+        JSON: Szczegóły użytkownika i historia sesji
+    """
+    try:
+        logger.info(f"[Dashboard] Pobieranie szczegółów user_id={user_id}")
+        
+        # Pobierz użytkownika
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({
+                'success': False,
+                'error': 'Użytkownik nie został znaleziony'
+            }), 404
+        
+        # Pobierz aktualną sesję
+        current_session = UserSession.query.filter_by(
+            user_id=user_id,
+            is_active=True
+        ).first()
+        
+        # Pobierz historię sesji
+        session_history = UserActivityService.get_user_session_history(user_id, days=7)
+        
+        # Przygotuj dane użytkownika
+        user_data = {
+            'user_id': user.id,
+            'user_name': f"{user.first_name} {user.last_name}".strip() or user.email,
+            'user_email': user.email,
+            'user_role': user.role,
+            'user_avatar': user.avatar_path,
+            'is_active': user.active
+        }
+        
+        # Dodaj dane z aktualnej sesji jeśli istnieje
+        if current_session:
+            session_dict = current_session.to_dict()
+            user_data.update({
+                'status': session_dict['status'],
+                'current_page': session_dict['current_page'],
+                'last_activity': session_dict['last_activity'],
+                'session_duration': session_dict['session_duration'],
+                'ip_address': session_dict['ip_address']
+            })
+        else:
+            user_data.update({
+                'status': 'offline',
+                'current_page': 'Brak aktywnej sesji',
+                'last_activity': 'Nieznany',
+                'session_duration': 'Brak sesji',
+                'ip_address': 'Nieznany'
+            })
+        
+        return jsonify({
+            'success': True,
+            'user': user_data,
+            'sessions': session_history,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.exception(f"[Dashboard] Błąd pobierania szczegółów user_id={user_id}")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+@dashboard_bp.route('/api/user-activity-stats')
+@login_required
+@admin_required
+def get_user_activity_stats():
+    """
+    API endpoint zwracający statystyki aktywności użytkowników (tylko dla adminów)
+    
+    Returns:
+        JSON: Statystyki aktywności
+    """
+    try:
+        logger.info("[Dashboard] Pobieranie statystyk aktywności użytkowników")
+        
+        stats = UserActivityService.get_user_activity_stats()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd pobierania statystyk aktywności")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+@dashboard_bp.route('/api/cleanup-sessions', methods=['POST'])
+@login_required
+@admin_required
+def cleanup_old_sessions():
+    """
+    API endpoint do ręcznego czyszczenia starych sesji (tylko dla adminów)
+    
+    Returns:
+        JSON: Wynik operacji czyszczenia
+    """
+    try:
+        current_user_email = session.get('user_email')
+        current_user = User.query.filter_by(email=current_user_email).first()
+        
+        logger.info(f"[Dashboard] Admin {current_user.email} uruchamia cleanup sesji")
+        
+        # Pobierz parametry z request
+        days_threshold = request.json.get('days_threshold', 30) if request.is_json else 30
+        
+        # Wykonaj cleanup
+        result = UserActivityService.cleanup_old_sessions(days_threshold)
+        
+        if result['success']:
+            logger.info(f"[Dashboard] Cleanup zakończony: {result}")
+            return jsonify(result)
+        else:
+            logger.error(f"[Dashboard] Błąd cleanup: {result['error']}")
+            return jsonify(result), 500
+            
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd ręcznego cleanup sesji")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+@dashboard_bp.route('/api/current-user-activity')
+@login_required
+def get_current_user_activity():
+    """
+    API endpoint zwracający aktywność bieżącego użytkownika
+    
+    Returns:
+        JSON: Informacje o aktywności bieżącego użytkownika
+    """
+    try:
+        user_email = session.get('user_email')
+        user = User.query.filter_by(email=user_email).first()
+        
+        if not user:
+            return jsonify({
+                'success': False,
+                'error': 'Użytkownik nie znaleziony'
+            }), 404
+        
+        # Pobierz aktualną sesję
+        session_token = session.get('user_session_token')
+        current_session = None
+        
+        if session_token:
+            current_session = UserSession.query.filter_by(
+                session_token=session_token,
+                is_active=True
+            ).first()
+        
+        # Przygotuj odpowiedź
+        activity_data = {
+            'user_id': user.id,
+            'user_name': f"{user.first_name} {user.last_name}".strip() or user.email,
+            'has_active_session': bool(current_session),
+            'session_duration': current_session.get_session_duration() if current_session else None,
+            'last_activity': current_session.get_relative_time() if current_session else None,
+            'current_page': current_session.get_page_display_name() if current_session else None
+        }
+        
+        return jsonify({
+            'success': True,
+            'activity': activity_data,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.exception("[Dashboard] Błąd pobierania aktywności bieżącego użytkownika")
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500

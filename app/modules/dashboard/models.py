@@ -85,3 +85,251 @@ def version_compare(v1, v2):
         elif v1_parts[i] > v2_parts[i]:
             return 1
     return 0
+
+# app/modules/dashboard/models.py - rozszerzenie istniejącego pliku
+
+from extensions import db
+from datetime import datetime, timedelta
+from sqlalchemy import func
+
+class UserSession(db.Model):
+    __tablename__ = 'user_sessions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    session_token = db.Column(db.String(255), unique=True, nullable=False)
+    ip_address = db.Column(db.String(45))
+    user_agent = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_activity_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    current_page = db.Column(db.String(255))
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    logout_time = db.Column(db.DateTime)
+    
+    # Relacje
+    user = db.relationship('User', backref='sessions')
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not self.session_token:
+            import secrets
+            self.session_token = secrets.token_urlsafe(32)
+    
+    @classmethod
+    def get_active_sessions(cls, minutes_threshold=15):
+        """
+        Pobiera aktywne sesje użytkowników
+        
+        Args:
+            minutes_threshold (int): Próg nieaktywności w minutach
+            
+        Returns:
+            list: Lista aktywnych sesji z użytkownikami
+        """
+        threshold_time = datetime.utcnow() - timedelta(minutes=minutes_threshold)
+        
+        return db.session.query(cls).join(cls.user).filter(
+            cls.is_active == True,
+            cls.last_activity_at >= threshold_time,
+            cls.user.has(active=True)
+        ).order_by(cls.last_activity_at.desc()).all()
+    
+    @classmethod
+    def cleanup_old_sessions(cls, days_threshold=30):
+        """
+        Usuwa stare nieaktywne sesje
+        
+        Args:
+            days_threshold (int): Próg w dniach dla usuwania starych sesji
+            
+        Returns:
+            int: Liczba usuniętych sesji
+        """
+        threshold_time = datetime.utcnow() - timedelta(days=days_threshold)
+        
+        old_sessions = cls.query.filter(
+            cls.last_activity_at < threshold_time
+        )
+        count = old_sessions.count()
+        old_sessions.delete()
+        db.session.commit()
+        
+        return count
+    
+    @classmethod
+    def mark_inactive_sessions(cls, minutes_threshold=15):
+        """
+        Oznacza sesje jako nieaktywne po przekroczeniu progu
+        
+        Args:
+            minutes_threshold (int): Próg nieaktywności w minutach
+            
+        Returns:
+            int: Liczba oznaczonych sesji
+        """
+        threshold_time = datetime.utcnow() - timedelta(minutes=minutes_threshold)
+        
+        inactive_sessions = cls.query.filter(
+            cls.is_active == True,
+            cls.last_activity_at < threshold_time
+        )
+        
+        count = inactive_sessions.count()
+        inactive_sessions.update({'is_active': False})
+        db.session.commit()
+        
+        return count
+    
+    def update_activity(self, current_page=None):
+        """
+        Aktualizuje aktywność sesji
+        
+        Args:
+            current_page (str): Aktualna strona/moduł
+        """
+        self.last_activity_at = datetime.utcnow()
+        self.is_active = True
+        if current_page:
+            self.current_page = current_page
+        db.session.commit()
+    
+    def force_logout(self):
+        """
+        Wymusza wylogowanie - oznacza sesję jako nieaktywną
+        """
+        self.is_active = False
+        self.logout_time = datetime.utcnow()
+        db.session.commit()
+    
+    def get_status(self):
+        """
+        Zwraca status aktywności użytkownika
+        
+        Returns:
+            dict: Status z kolorową ikoną i opisem
+        """
+        if not self.is_active:
+            return {
+                'status': 'offline',
+                'icon': '🔴',
+                'description': 'Offline'
+            }
+        
+        time_diff = datetime.utcnow() - self.last_activity_at
+        minutes_ago = time_diff.total_seconds() / 60
+        
+        if minutes_ago <= 2:
+            return {
+                'status': 'active',
+                'icon': '🟢',
+                'description': 'Aktywny'
+            }
+        elif minutes_ago <= 10:
+            return {
+                'status': 'idle',
+                'icon': '🟡',
+                'description': 'Bezczynny'
+            }
+        else:
+            return {
+                'status': 'away',
+                'icon': '🟠',
+                'description': 'Nieobecny'
+            }
+    
+    def get_relative_time(self):
+        """
+        Zwraca czas ostatniej aktywności w czytelnym formacie
+        
+        Returns:
+            str: Relative time string
+        """
+        if not self.last_activity_at:
+            return "Nieznany"
+        
+        time_diff = datetime.utcnow() - self.last_activity_at
+        total_seconds = int(time_diff.total_seconds())
+        
+        if total_seconds < 60:
+            return "przed chwilą"
+        elif total_seconds < 3600:
+            minutes = total_seconds // 60
+            return f"{minutes} min temu"
+        elif total_seconds < 86400:
+            hours = total_seconds // 3600
+            return f"{hours}h temu"
+        else:
+            days = total_seconds // 86400
+            return f"{days} dni temu"
+    
+    def get_page_display_name(self):
+        """
+        Zwraca czytelną nazwę aktualnej strony
+        
+        Returns:
+            str: Nazwa strony z ikoną
+        """
+        page_mapping = {
+            'dashboard.dashboard': '📊 Dashboard',
+            'calculator.calculator_home': '🧮 Kalkulator',
+            'quotes.quotes_home': '📄 Wyceny',
+            'clients': '👥 Klienci',
+            'production.dashboard': '🏭 Produkcja',
+            'analytics.analytics_dashboard': '📈 Analityka',
+            'reports.reports_home': '📊 Raporty',
+            'settings': '⚙️ Ustawienia'
+        }
+        
+        return page_mapping.get(self.current_page, '📱 Aplikacja')
+    
+    def to_dict(self):
+        """
+        Konwertuje sesję do słownika dla API
+        
+        Returns:
+            dict: Słownik z danymi sesji
+        """
+        status = self.get_status()
+        
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'user_name': f"{self.user.first_name} {self.user.last_name}".strip() or self.user.email,
+            'user_email': self.user.email,
+            'user_role': self.user.role,
+            'user_avatar': self.user.avatar_path,
+            'status': status['status'],
+            'status_icon': status['icon'],
+            'status_description': status['description'],
+            'current_page': self.get_page_display_name(),
+            'last_activity': self.get_relative_time(),
+            'last_activity_timestamp': self.last_activity_at.isoformat() if self.last_activity_at else None,
+            'ip_address': self.ip_address,
+            'session_duration': self.get_session_duration(),
+            'is_active': self.is_active
+        }
+    
+    def get_session_duration(self):
+        """
+        Oblicza czas trwania sesji
+        
+        Returns:
+            str: Czas trwania sesji
+        """
+        if not self.created_at:
+            return "Nieznany"
+        
+        end_time = self.logout_time or datetime.utcnow()
+        duration = end_time - self.created_at
+        
+        total_seconds = int(duration.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        
+        if hours > 0:
+            return f"{hours}h {minutes}min"
+        else:
+            return f"{minutes}min"
+    
+    def __repr__(self):
+        return f"<UserSession {self.id}: User {self.user_id} - {self.get_status()['description']}>"

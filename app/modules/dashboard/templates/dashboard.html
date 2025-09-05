@@ -1,3 +1,5 @@
+<!-- app/modules/dashboard/templates/dashboard.html - Modyfikacja istniejącego pliku -->
+
 <!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -67,6 +69,9 @@
                 <!-- Weather Widget -->
                 {% include 'widgets/weather_widget.html' %}
 
+                <!-- NOWY: Active Users Widget (tylko dla adminów) -->
+                {% include 'widgets/active_users_widget.html' %}
+
                 <!-- Changelog Widget -->
                 {% include 'widgets/changelog_widget.html' %}
 
@@ -86,6 +91,12 @@
     <!-- Skrypty -->
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    <!-- DODAJ: Skrypt Active Users Widget -->
+    {% if user and user.role == 'admin' %}
+    <script src="{{ url_for('dashboard.static', filename='js/active_users.js') }}"></script>
+    {% endif %}
+
     <script>
         // Przekazujemy dane z backendu do JavaScript
         window.dashboardStats = {{ stats|tojson }};
@@ -99,17 +110,22 @@
         console.log('- stats:', {{ stats|tojson }});
         console.log('- chart_data:', {{ chart_data|tojson }});
         console.log('- weather:', {{ weather|tojson }});
-        
+
         // Przechowuj dane globalnie dla debugowania
         window.chartData = {{ chart_data|tojson }};
         window.dashboardStats = {{ stats|tojson }};
         window.weatherData = {{ weather|tojson }};
-        
+
         console.log('[Dashboard] DEBUG: Global variables set:', {
             chartData: !!window.chartData,
             dashboardStats: !!window.dashboardStats,
             weatherData: !!window.weatherData
         });
+
+        // DODAJ: Debug info dla Active Users (tylko dla adminów)
+        {% if user and user.role == 'admin' %}
+        console.log('[Dashboard] Active Users Widget enabled for admin user');
+        {% endif %}
     </script>
     <script src="{{ url_for('dashboard.static', filename='js/dashboard.js') }}"></script>
 </body>

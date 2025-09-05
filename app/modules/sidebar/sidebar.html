@@ -2,17 +2,23 @@
     <div class="panel">
         <!-- Logo i sekcja górna -->
         <div class="logo-section">
+            <!-- Przycisk toggle -->
+            <button class="sidebar-toggle" onclick="toggleSidebar()">
+                <span>‹</span>
+            </button>
+
             <div class="logo">
-                <img src="{{ url_for('static', filename='images/logo-crm-sidebar.svg') }}" alt="Logo CRM Sidebar">
+                <img class="logo-main" src="{{ url_for('static', filename='images/logo-crm-sidebar.svg') }}" alt="Logo CRM Sidebar">
+                <img class="logo-sygnet" src="{{ url_for('static', filename='images/sygnet-crm-sidebar.svg') }}" alt="Sygnet CRM">
                 <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
-                <span class="beta-tag">BETA v1.2</span>
+                <span class="beta-tag"></span>
             </div>
         </div>
         <!-- Menu głównych modułów -->
         <div class="main-modules">
             <ul class="menu-options-list">
                 <!-- Dashboard -->
-                <li class="menu-options {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}" data-sidebar-tooltip="Dashboard">
                     <a href="{{ url_for('dashboard.dashboard') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -25,7 +31,7 @@
                     </a>
                 </li>
                 <!-- Kalkulator -->
-                <li class="menu-options {% if request.endpoint == 'calculator.calculator_home' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'calculator.calculator_home' %}active{% endif %}" data-sidebar-tooltip="Kalkulator produktowy">
                     <a href="{{ url_for('calculator.calculator_home') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -43,7 +49,7 @@
                     </a>
                 </li>
                 <!-- Wyceny -->
-                <li class="menu-options {% if request.endpoint == 'quotes.quotes_home' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'quotes.quotes_home' %}active{% endif %}" data-sidebar-tooltip="Wyceny">
                     <a href="{{ url_for('quotes.quotes_home') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -56,7 +62,7 @@
                     </a>
                 </li>
                 <!-- Klienci -->
-                <li class="menu-options {% if request.endpoint == 'clients' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'clients' %}active{% endif %}" data-sidebar-tooltip="Klienci">
                     <a href="{{ url_for('clients') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -67,7 +73,7 @@
                     </a>
                 </li>
                 <!-- Produkcja -->
-                <li class="menu-options {% if request.endpoint == 'production.dashboard' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'production.dashboard' %}active{% endif %}" data-sidebar-tooltip="Produkcja">
                     <a href="{{ url_for('production.dashboard') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -82,8 +88,8 @@
                         <span class="option-txt">Produkcja</span>
                     </a>
                 </li>
-                <!-- Raport -->
-                <li class="menu-options {% if request.endpoint == 'register.index' %}active{% endif %}">
+                <!-- Rejestr firm -->
+                <li class="menu-options {% if request.endpoint == 'register.index' %}active{% endif %}" data-sidebar-tooltip="Rejestr firm">
                     <a href="{{ url_for('register.index') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"
@@ -97,7 +103,7 @@
                 </li>
 
                 <!-- Statystyki -->
-                <li class="menu-options {% if request.endpoint == 'analytics' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'analytics' %}active{% endif %}" data-sidebar-tooltip="Statystyki">
                     <a href="{{ url_for('analytics.analytics_dashboard') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -108,7 +114,7 @@
                     </a>
                 </li>
                 <!-- Raport -->
-                <li class="menu-options {% if request.endpoint == 'reports.reports_home' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'reports.reports_home' %}active{% endif %}" data-sidebar-tooltip="Raport sprzedażowy">
                     <a href="{{ url_for('reports.reports_home') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -129,7 +135,7 @@
         <div class="extra-modules">
             <ul class="menu-options-list">
                 <!-- Zgłoś błąd -->
-                <li class="menu-options {% if request.endpoint == 'issue' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'issue' %}active{% endif %}" data-sidebar-tooltip="Zgłoś błąd/propozycję">
                     <a href="{{ url_for('issue') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -142,7 +148,7 @@
                     </a>
                 </li>
                 <!-- Pomoc -->
-                <li class="menu-options {% if request.endpoint == 'help' %}active{% endif %}">
+                <li class="menu-options {% if request.endpoint == 'help' %}active{% endif %}" data-sidebar-tooltip="Pomoc">
                     <a href="{{ url_for('help') }}">
                         <span class="sidebar-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -159,7 +165,7 @@
         <div class="shorts">
             <div class="shorts-title">Skróty</div>
             <ul class="shorts-options-list">
-                <li class="shorts-options">
+                <li class="shorts-options" data-sidebar-tooltip="Baselinker">
                     <a href="https://panel-f.baselinker.com/orders.php#status:all" target="_blank" class="shorts-link">
                         <div class="short-main">
                             <img class="short-icon" src="{{ url_for('static', filename='icons/shorts-icon/baselinker.svg') }}" alt="Baselinker">
@@ -168,7 +174,7 @@
                         <img class="link-icon" src="{{ url_for('static', filename='icons/shorts-icon/link.svg') }}" alt="Link">
                     </a>
                 </li>
-                <li class="shorts-options">
+                <li class="shorts-options" data-sidebar-tooltip="Responso">
                     <a href="https://app.responso.com/tickets" target="_blank" class="shorts-link">
                         <div class="short-main">
                             <img class="short-icon" src="{{ url_for('static', filename='icons/shorts-icon/responso.svg') }}" alt="Responso">
@@ -177,7 +183,7 @@
                         <img class="link-icon" src="{{ url_for('static', filename='icons/shorts-icon/link.svg') }}" alt="Link">
                     </a>
                 </li>
-                <li class="shorts-options">
+                <li class="shorts-options" data-sidebar-tooltip="woodpower.pl">
                     <a href="https://woodpower.pl" target="_blank" class="shorts-link">
                         <div class="short-main">
                             <img class="short-icon" src="{{ url_for('static', filename='icons/shorts-icon/woodpower.svg') }}" alt="woodpower.pl">
@@ -190,11 +196,11 @@
         </div>
     </div>
 
-    <!-- Sekcja stopki - NOWA WERSJA -->
+    <!-- Sekcja stopki -->
     <div class="footer">
         <div class="footer-menu">
             <!-- Przycisk Ustawienia -->
-            <a href="{{ url_for('settings') }}" class="footer-menu-item">
+            <a href="{{ url_for('settings') }}" class="footer-menu-item" data-sidebar-tooltip="Ustawienia">
                 <span class="footer-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.22,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.22,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z" />
@@ -204,7 +210,7 @@
             </a>
 
             <!-- Przycisk Wyloguj się -->
-            <a href="{{ url_for('logged_out') }}" class="footer-menu-item">
+            <a href="{{ url_for('logged_out') }}" class="footer-menu-item" data-sidebar-tooltip="Wyloguj się">
                 <span class="footer-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                         <path d="M16,17V14H9V10H16V7L21,12L16,17M14,2A2,2 0 0,1 16,4V6H14V4H5V20H14V18H16V20A2,2 0 0,1 14,22H5A2,2 0 0,1 3,20V4A2,2 0 0,1 5,2H14Z" />
@@ -216,4 +222,5 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/tracking.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
 </div>
