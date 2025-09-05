@@ -2,6 +2,17 @@
 document.addEventListener('DOMContentLoaded', function () {
     console.log('[Dashboard] Inicjalizacja nowoczesnego dashboard');
 
+    // Detect container queries support
+    const supportsContainerQueries = CSS.supports('container-type', 'inline-size');
+
+    if (!supportsContainerQueries) {
+        console.warn('[Dashboard] Container Queries not supported, using flexbox fallback');
+        document.body.classList.add('no-container-queries');
+    } else {
+        console.log('[Dashboard] Container Queries supported');
+        document.body.classList.add('has-container-queries');
+    }
+
     // Inicjalizacja komponentów
     initActivityTabs();
     initWeatherWidget();
@@ -13,8 +24,11 @@ document.addEventListener('DOMContentLoaded', function () {
     initUserGreetingAnimation();
     initKeyboardAccessibility();
 
-    // Uruchom animacje po załadowaniu
-    setTimeout(triggerFadeInAnimations, 100);
+    setTimeout(() => {
+        if (document.querySelector('.dashboard-grid')) {
+            triggerFadeInAnimations();
+        }
+    }, 200);
 
     // Odśwież dane co 5 minut
     setInterval(refreshDashboardData, 5 * 60 * 1000);
@@ -318,29 +332,186 @@ function initKeyboardAccessibility() {
 }
 
 /**
- * Trigger fade-in animations
+ * Trigger fade-in animations - POPRAWIONA WERSJA bez konfliktów
  */
 function triggerFadeInAnimations() {
     // Sprawdź czy animacje są włączone
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        console.log('[Dashboard] Animacje wyłączone - prefers-reduced-motion');
         return;
     }
-    
-    // Znajdź wszystkie elementy z klasą fade-in
-    const fadeElements = document.querySelectorAll('.fade-in, .widget');
-    
-    fadeElements.forEach((element, index) => {
-        // Dodaj opóźnienie dla każdego elementu
+
+    console.log('[Dashboard] Triggering fade-in animations...');
+
+    // Znajdź wszystkie elementy w dashboard-grid
+    const dashboardGrid = document.querySelector('.dashboard-grid');
+    if (!dashboardGrid) {
+        console.log('[Dashboard] Nie znaleziono .dashboard-grid');
+        return;
+    }
+
+    // Pobierz wszystkie dzieci grid (widgety)
+    const widgets = Array.from(dashboardGrid.children);
+    console.log(`[Dashboard] Znaleziono ${widgets.length} widgetów do animacji`);
+
+    // Quick actions bar
+    const quickActions = document.querySelector('.quick-actions-bar');
+
+    // WAŻNE: NIE USTAW ŻADNYCH INLINE STYLES
+    // Pozwól CSS animacjom działać naturalnie
+
+    // Sprawdź czy CSS animacje działają
+    const firstWidget = widgets[0];
+    if (firstWidget) {
+        const computedStyle = window.getComputedStyle(firstWidget);
+        const hasAnimation = computedStyle.animation && computedStyle.animation !== 'none';
+        const initialOpacity = computedStyle.opacity;
+
+        console.log('[Dashboard] CSS Animation check:', {
+            hasAnimation,
+            initialOpacity,
+            animationName: computedStyle.animationName
+        });
+
+        if (hasAnimation && initialOpacity === '0') {
+            console.log('[Dashboard] CSS animacje działają prawidłowo - nie ingeruj');
+            // CSS robi swoją robotę - nie rób nic więcej
+            return;
+        }
+    }
+
+    // Jeśli CSS animacje nie działają, użyj JavaScript fallback
+    console.log('[Dashboard] CSS animacje nie działają - używam JavaScript fallback');
+
+    // Animuj quick actions najpierw (jeśli istnieje)
+    if (quickActions) {
+        quickActions.style.opacity = '0';
+        quickActions.style.transform = 'translateY(30px)';
+        quickActions.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+
         setTimeout(() => {
-            element.style.opacity = '1';
-            element.style.transform = 'translateY(0)';
-        }, index * 100); // 100ms opóźnienia między elementami
+            quickActions.style.opacity = '1';
+            quickActions.style.transform = 'translateY(0)';
+        }, 50);
+    }
+
+    // Animuj widgety z opóźnieniem TYLKO jeśli CSS nie działa
+    widgets.forEach((widget, index) => {
+        // Sprawdź czy widget już ma CSS animację
+        const widgetStyle = window.getComputedStyle(widget);
+        const hasWidgetAnimation = widgetStyle.animation && widgetStyle.animation !== 'none';
+
+        if (!hasWidgetAnimation) {
+            // Ustaw początkowy stan TYLKO jeśli CSS nie działa
+            widget.style.opacity = '0';
+            widget.style.transform = 'translateY(30px)';
+            widget.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+
+            // Animuj z opóźnieniem
+            setTimeout(() => {
+                widget.style.opacity = '1';
+                widget.style.transform = 'translateY(0)';
+            }, 100 + (index * 100));
+        } else {
+            console.log(`[Dashboard] Widget ${index} już ma CSS animację - pomijam JS`);
+        }
     });
-    
-    // Dodaj klasę która włącza animacje
-    document.body.classList.add('animations-loaded');
-    
-    console.log(`[Dashboard] Fade-in animations triggered for ${fadeElements.length} elements`);
+
+    // Dodaj klasę która wskazuje że animacje zostały uruchomione
+    document.body.classList.add('dashboard-animations-loaded');
+
+    console.log(`[Dashboard] Fade-in animations triggered - CSS: ${hasAnimation}, JS fallback używany dla widgetów bez CSS`);
+}
+
+// DODATKOWO: Wyczyść poprzednie style które mogą powodować konflikty
+function cleanupPreviousAnimationStyles() {
+    const widgets = document.querySelectorAll('.dashboard-grid > *');
+    const quickActions = document.querySelector('.quick-actions-bar');
+
+    widgets.forEach(widget => {
+        // Usuń inline styles które mogą konfliktować z CSS
+        if (widget.style.opacity !== '') {
+            widget.style.removeProperty('opacity');
+        }
+        if (widget.style.transform !== '') {
+            widget.style.removeProperty('transform');
+        }
+        if (widget.style.transition !== '') {
+            widget.style.removeProperty('transition');
+        }
+    });
+
+    if (quickActions) {
+        quickActions.style.removeProperty('opacity');
+        quickActions.style.removeProperty('transform');
+        quickActions.style.removeProperty('transition');
+    }
+
+    console.log('[Dashboard] Wyczyszczono poprzednie inline styles');
+}
+
+/**
+ * Reset animacji (przydatne do debugowania)
+ */
+function resetDashboardAnimations() {
+    const dashboardGrid = document.querySelector('.dashboard-grid');
+    if (!dashboardGrid) return;
+
+    const widgets = Array.from(dashboardGrid.children);
+    const quickActions = document.querySelector('.quick-actions-bar');
+
+    // Reset wszystkich elementów
+    [...widgets, quickActions].forEach(element => {
+        if (element) {
+            element.style.opacity = '0';
+            element.style.transform = 'translateY(30px)';
+        }
+    });
+
+    document.body.classList.remove('dashboard-animations-loaded');
+    console.log('[Dashboard] Animacje zresetowane');
+}
+
+/**
+ * Sprawdź czy widget jest widoczny w viewport (dla lazy loading)
+ */
+function isWidgetInViewport(widget) {
+    const rect = widget.getBoundingClientRect();
+    return (
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+        rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+    );
+}
+
+/**
+ * Animacja na scroll (opcjonalna)
+ */
+function initScrollAnimations() {
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && !entry.target.classList.contains('animated')) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+                entry.target.classList.add('animated');
+            }
+        });
+    }, {
+        threshold: 0.1,
+        rootMargin: '0px 0px -50px 0px'
+    });
+
+    // Obserwuj wszystkie widgety
+    const widgets = document.querySelectorAll('.dashboard-grid > *');
+    widgets.forEach(widget => {
+        widget.style.opacity = '0';
+        widget.style.transform = 'translateY(30px)';
+        widget.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+        observer.observe(widget);
+    });
+
+    console.log(`[Dashboard] Scroll animations initialized for ${widgets.length} widgets`);
 }
 
 /**
@@ -1415,6 +1586,13 @@ window.dashboardFunctions = {
     closeChangelogModal,
     loadChangelogEntries,
     renderFallbackChangelog
+};
+
+// Export dla globalnego dostępu
+window.dashboardAnimations = {
+    trigger: triggerFadeInAnimations,
+    reset: resetDashboardAnimations,
+    initScroll: initScrollAnimations
 };
 
 console.log('[Dashboard] Enhanced JavaScript loaded successfully');

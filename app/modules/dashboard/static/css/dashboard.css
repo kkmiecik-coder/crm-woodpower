@@ -362,9 +362,10 @@
 /* Quotes Chart Widget */
 .quotes-metrics {
     display: flex;
-    gap: 1rem;
-    margin-bottom: 1rem;
+    gap: 3rem;
+    margin-top: 1rem;
     font-size: 0.875rem;
+    justify-content: center;
 }
 
 .quotes-metric {
@@ -777,70 +778,6 @@
     
     .weather-main {
         width: 100%;
-    }
-}
-
-/* =================================
-   FADE-IN ANIMATIONS FROM BOTTOM
-   ================================= */
-
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(30px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* Ukryj wszystkie elementy dashboard na pocz�tku */
-.dashboard-grid .widget {
-    opacity: 0;
-    animation: fadeInUp 0.6s ease-out forwards;
-}
-
-    /* Staggered delay dla kolejnych element�w */
-    .dashboard-grid .widget:nth-child(1) {
-        animation-delay: 0.1s;
-    }
-
-    .dashboard-grid .widget:nth-child(2) {
-        animation-delay: 0.2s;
-    }
-
-    .dashboard-grid .widget:nth-child(3) {
-        animation-delay: 0.3s;
-    }
-
-    .dashboard-grid .widget:nth-child(4) {
-        animation-delay: 0.4s;
-    }
-
-    .dashboard-grid .widget:nth-child(5) {
-        animation-delay: 0.5s;
-    }
-
-    .dashboard-grid .widget:nth-child(6) {
-        animation-delay: 0.6s;
-    }
-
-/* Quick actions bar r�wnie� z animacj� */
-.quick-actions-bar {
-    opacity: 0;
-    animation: fadeInUp 0.6s ease-out forwards;
-    animation-delay: 0.1s;
-}
-
-/* Opcjonalnie - mo�na doda� prefers-reduced-motion dla dost�pno�ci */
-@media (prefers-reduced-motion: reduce) {
-    .dashboard-grid .widget,
-    .quick-actions-bar {
-        opacity: 1;
-        animation: none;
-        transform: none;
     }
 }
 
@@ -1495,7 +1432,6 @@
     background: linear-gradient(45deg, #ED6B24, #f39c12);
     background-size: cover;
     background-position: center;
-    border: 2px solid white;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
@@ -1772,7 +1708,6 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1.5rem 1.5rem 0 1.5rem;
     border-bottom: 1px solid #e2e8f0;
     margin-bottom: 1.5rem;
 }
@@ -1790,7 +1725,7 @@
     font-size: 1.5rem;
     color: #64748b;
     cursor: pointer;
-    padding: 0.5rem;
+    padding: 0.3rem 0.7rem;
     border-radius: 50%;
     transition: all 0.2s;
 }
@@ -1896,4 +1831,123 @@
     .user-separator {
         display: none;
     }
+}
+
+/* POPRAWIONE ANIMACJE FADE-IN DASHBOARD */
+
+/* =================================
+   FADE-IN ANIMATIONS FROM BOTTOM - POPRAWIONE
+   ================================= */
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* GŁÓWNA REGUŁA - wszystkie widgety w grid */
+.dashboard-grid > * {
+    opacity: 0;
+    animation: fadeInUp 0.6s ease-out forwards;
+}
+
+    /* Staggered delay dla kolejnych elementów */
+    .dashboard-grid > *:nth-child(1) {
+        animation-delay: 0.1s;
+    }
+
+    .dashboard-grid > *:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .dashboard-grid > *:nth-child(3) {
+        animation-delay: 0.3s;
+    }
+
+    .dashboard-grid > *:nth-child(4) {
+        animation-delay: 0.4s;
+    }
+
+    .dashboard-grid > *:nth-child(5) {
+        animation-delay: 0.5s;
+    }
+
+    .dashboard-grid > *:nth-child(6) {
+        animation-delay: 0.6s;
+    }
+
+    .dashboard-grid > *:nth-child(7) {
+        animation-delay: 0.7s;
+    }
+
+    .dashboard-grid > *:nth-child(8) {
+        animation-delay: 0.8s;
+    }
+
+/* BACKUP - jeśli ktoś używa klas .widget lub .widget-card */
+.widget,
+.widget-card,
+.stats-overview,
+.weather-widget,
+.changelog-widget,
+.quotes-chart,
+.recent-activity,
+.top-products,
+.active-users-widget {
+    opacity: 0;
+    animation: fadeInUp 0.6s ease-out forwards;
+}
+
+/* Quick actions bar również z animacją */
+.quick-actions-bar {
+    opacity: 0;
+    animation: fadeInUp 0.6s ease-out forwards;
+    animation-delay: 0.05s; /* Lekko wcześniej niż pierwsze widgety */
+}
+
+/* Opcjonalnie - można dodać prefers-reduced-motion dla dostępności */
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-grid > *,
+    .widget,
+    .widget-card,
+    .stats-overview,
+    .weather-widget,
+    .changelog-widget,
+    .quotes-chart,
+    .recent-activity,
+    .top-products,
+    .active-users-widget,
+    .quick-actions-bar {
+        opacity: 1 !important;
+        animation: none !important;
+        transform: none !important;
+    }
+}
+
+/* =================================
+   ALTERNATIVE SOLUTION - JavaScript kontrolowane animacje
+   ================================= */
+
+/* Jeśli chcesz kontrolować animacje przez JavaScript */
+.dashboard-grid.animations-ready > * {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+    .dashboard-grid.animations-ready > *.animate-in {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+/* Dla elementów które już mają animacje w JS */
+.dashboard-grid.js-controlled > * {
+    opacity: 0;
+    transform: translateY(30px);
 }

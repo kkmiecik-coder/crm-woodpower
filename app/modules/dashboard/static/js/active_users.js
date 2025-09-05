@@ -260,7 +260,8 @@ window.ActiveUsersWidget = (function () {
         userRole.textContent = user.user_role;
         userRole.className = `user-role ${user.user_role}`;
 
-        userItem.querySelector('.user-page').textContent = user.current_page;
+        const pageLabel = user.page_label || user.current_page || '📱 Aplikacja';
+        userItem.querySelector('.user-page').textContent = pageLabel;
         userItem.querySelector('.activity-time').textContent = user.last_activity;
 
         // Event listeners dla akcji
@@ -401,7 +402,7 @@ window.ActiveUsersWidget = (function () {
                 <div class="activity-info">
                     <div class="info-row">
                         <strong>Aktualna lokalizacja:</strong>
-                        <span>${user.current_page}</span>
+                        <span>${user.page_label || user.current_page || '📱 Aplikacja'}</span>
                     </div>
                     <div class="info-row">
                         <strong>Ostatnia aktywność:</strong>
