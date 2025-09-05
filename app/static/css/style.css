@@ -9,7 +9,6 @@
 
 .sidebar a {
     text-decoration: none;
-    color: inherit;
 }
 
 html, body {
@@ -594,67 +593,64 @@ p {
 
 /* [footer] � stopka sidebaru */
 .footer {
-    width: 100%; /* stopka zajmuje pe�n� szeroko�� sidebaru */
-    flex-shrink: 0; /* nie kurczy si� */
+    width: 100%; /* stopka zajmuje pełną szerokość sidebara */
+    flex-shrink: 0; /* nie kurczy się */
     display: flex;
     align-items: center;
-    padding: 24px 20px;
+    padding: 16px 10px;
     border-top: 1px solid #E3E3E3;
 }
 
-/* [user] � kontener u�ytkownika w stopce */
-.user {
+.footer-menu {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.footer-menu-item {
     display: flex;
     align-items: center;
-    gap: 21px;
+    gap: 12px;
+    padding: 9px 16px;
+    border-radius: 26px;
+    text-decoration: none;
+    color: #7E7E7E;
+    transition: background 0.2s ease, color 0.2s ease;
+    cursor: pointer;
 }
 
-/* [avatar] � obraz avatara */
-.avatar {
-    width: 48px;
-    height: 48px;
-    border-radius: 82px;
-    overflow: hidden;
-}
-
-    .avatar img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
+    .footer-menu-item:hover {
+        background: #F2F2F2;
+        color: #ED6B24;
     }
 
-/* [user-txt] � tekst u�ytkownika */
-.user-txt {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    .footer-menu-item:active {
+        background: #FFE6D9;
+    }
+
+.footer-icon {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    color: inherit;
 }
 
-/* [welcome-txt] */
-.welcome-txt {
-    color: #7E7E7E;
+    .footer-icon svg {
+        width: 100%;
+        height: 100%;
+        fill: currentColor;
+    }
+
+/* [footer-menu-text] – tekst w stopce */
+.footer-menu-text {
+    color: inherit;
     font-family: Poppins, sans-serif;
     font-size: 12px;
-    font-style: normal;
-    font-weight: 400;
+    font-weight: 600;
     line-height: normal;
 }
 
-/* [user-name] */
-.user-name {
-    color: #000;
-    text-align: left;
-    font-family: Poppins, sans-serif;
-    font-size: 16px;
-    font-style: normal;
-    font-weight: 500;
-    line-height: normal;
-}
-
-/* Wersja collapsed � w stopce tekst ukryty */
-.sidebar.collapsed .user-txt {
-    display: none;
-}
 
 /* Styl kontenera g��wnego dla modu�u zg�oszenia b��du */
 .app-container {
@@ -731,70 +727,6 @@ p {
 
 .select-input option[value=""] {
     color: #999;
-}
-
-.footer-options-container {
-    position: relative;
-    margin-left: auto;
-    cursor: pointer;
-}
-
-.footer-options-icon {
-    width: 24px;
-    height: 24px;
-    transition: transform 0.3s ease;
-}
-
-.footer-options-container {
-    position: relative;
-    margin-left: auto;
-    cursor: pointer;
-}
-
-.footer-options-icon {
-    width: 24px;
-    height: 24px;
-    transition: transform 0.4s ease;
-}
-
-.footer-options-panel {
-    position: absolute;
-    top: 50%;
-    left: 100%;
-    transform: translateY(-51%) translateX(5%);
-    white-space: nowrap;
-    background: #FFF;
-    border: 1px solid #E3E3E3;
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    padding: 15px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    opacity: 0;
-    pointer-events: none;
-    transition: transform 0.4s ease, opacity 0.4s ease;
-}
-
-.footer-options-panel.open {
-    transform: translateY(-51%) translateX(14%);
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.footer-option {
-    display: block;
-    text-decoration: none;
-    color: #000;
-    font-size: 14px;
-    font-weight: 500;
-    padding: 4px 16px;
-    border-radius: 4px;
-    transition: background 0.2s;
-}
-
-.footer-option:hover {
-    background: #F2F2F2;
 }
 
 .tabs {
@@ -1567,56 +1499,6 @@ select.select-input {
     margin-bottom: 16px;
 }
 
-    .widget-title::after {
-        content: "";
-        position: absolute;
-        left: 0;
-        bottom: -4px;
-        width: 32px;
-        height: 3px;
-        background-color: #ED6B24;
-        border-radius: 2px;
-    }
-
-.weather-info {
-    text-align: center;
-}
-
-.weather-details .temp {
-    font-size: 36px;
-    font-weight: 700;
-    color: #ED6B24;
-    margin-bottom: 4px;
-}
-
-.weather-details .location {
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-}
-
-.weather-details .desc {
-    font-size: 12px;
-    font-style: italic;
-    color: #777;
-    margin-bottom: 12px;
-}
-
-.weather-extra {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px 16px;
-    font-size: 12px;
-    color: #444;
-    justify-items: start;
-    padding-top: 8px;
-}
-
-.weather-item strong {
-    font-weight: 600;
-    margin-right: 4px;
-}
-
 .calendar-placeholder {
     font-size: 12px;
     font-style: italic;
@@ -1660,7 +1542,7 @@ select.select-input {
 .dashboard-widgets {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: 50px;
+    gap: 20px;
     margin-top: 30px;
     max-width: 100%;
     justify-content: center;
