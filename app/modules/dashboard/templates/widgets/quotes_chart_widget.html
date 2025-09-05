@@ -4,6 +4,19 @@
         <span class="widget-icon">📈</span>
         Analiza wycen - ostatnie 6 miesięcy
     </h2>
+
+    <!-- WIĘKSZY WYKRES -->
+    <div class="real-chart-container" id="real-chart-container">
+        <canvas id="quotes-canvas-chart"></canvas>
+
+        <!-- Fallback gdy nie ma danych -->
+        <div class="chart-no-data" id="chart-no-data" style="display: none;">
+            <div class="no-data-icon">📊</div>
+            <div class="no-data-text">Brak danych do wyświetlenia</div>
+            <div class="no-data-subtitle">Dodaj wyceny aby zobaczyć wykres</div>
+        </div>
+    </div>
+
     <div class="quotes-metrics">
         <div class="quotes-metric">
             <div class="metric-dot total"></div>
@@ -16,18 +29,6 @@
         <div class="quotes-metric">
             <div class="metric-dot ordered"></div>
             <span>Zamówienia (BL): {{ chart_data.summary.ordered_quotes or 0 }}</span>
-        </div>
-    </div>
-    
-    <!-- WIĘKSZY WYKRES -->
-    <div class="real-chart-container" id="real-chart-container">
-        <canvas id="quotes-canvas-chart"></canvas>
-        
-        <!-- Fallback gdy nie ma danych -->
-        <div class="chart-no-data" id="chart-no-data" style="display: none;">
-            <div class="no-data-icon">📊</div>
-            <div class="no-data-text">Brak danych do wyświetlenia</div>
-            <div class="no-data-subtitle">Dodaj wyceny aby zobaczyć wykres</div>
         </div>
     </div>
 </div>

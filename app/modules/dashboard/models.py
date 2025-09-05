@@ -1,5 +1,7 @@
 from extensions import db
-from datetime import datetime
+from datetime import datetime, timedelta
+from sqlalchemy import func
+from flask import current_app
 
 class ChangelogEntry(db.Model):
     __tablename__ = 'changelog_entries'
@@ -85,12 +87,6 @@ def version_compare(v1, v2):
         elif v1_parts[i] > v2_parts[i]:
             return 1
     return 0
-
-# app/modules/dashboard/models.py - rozszerzenie istniejącego pliku
-
-from extensions import db
-from datetime import datetime, timedelta
-from sqlalchemy import func
 
 class UserSession(db.Model):
     __tablename__ = 'user_sessions'
@@ -263,24 +259,20 @@ class UserSession(db.Model):
             return f"{days} dni temu"
     
     def get_page_display_name(self):
-        """
-        Zwraca czytelną nazwę aktualnej strony
-        
-        Returns:
-            str: Nazwa strony z ikoną
-        """
-        page_mapping = {
-            'dashboard.dashboard': '📊 Dashboard',
-            'calculator.calculator_home': '🧮 Kalkulator',
-            'quotes.quotes_home': '📄 Wyceny',
-            'clients': '👥 Klienci',
-            'production.dashboard': '🏭 Produkcja',
-            'analytics.analytics_dashboard': '📈 Analityka',
-            'reports.reports_home': '📊 Raporty',
-            'settings': '⚙️ Ustawienia'
-        }
-        
-        return page_mapping.get(self.current_page, '📱 Aplikacja')
+        """Zwraca czytelną nazwę aktualnej strony"""
+        if not self.current_page:
+            return "📱 Aplikacja"
+
+        module_name = self.current_page.split('.')[0]
+        metadata = current_app.config.get('MODULE_METADATA', {})
+        module_meta = metadata.get(module_name)
+        if module_meta:
+            icon = module_meta.get('icon', '')
+            label = module_meta.get('label', module_name.title())
+            return f"{icon} {label}".strip()
+
+        # domyślny fallback
+        return f"📱 {module_name.title()}"
     
     def to_dict(self):
         """
