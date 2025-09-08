@@ -88,24 +88,39 @@
                     <div class="stat-comparison" id="compOrdersProducts"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">TTL m³</div>
-                    <div class="stat-value" id="statTotalM3">0.0000</div>
+                    <div class="stat-label">Wartość sprzedaży netto</div>
+                    <div class="stat-value" id="statValueNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compValueNet"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Wartość klejonek netto</div>
+                    <div class="stat-value" id="statKlejonkaValueNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compKlejonkaValueNet"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">TTL m³ klejonki</div>
+                    <div class="stat-value" id="statTotalM3">0.0000 m³</div>
                     <div class="stat-comparison" id="compTotalM3"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Wartość produktów netto</div>
-                    <div class="stat-value" id="statOrderAmountNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compOrderAmountNet"></div>
+                    <div class="stat-label">Wartość deski netto</div>
+                    <div class="stat-value" id="statDeskaValueNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compDeskaValueNet"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">TTL m³ deski</div>
+                    <div class="stat-value" id="statDeskaTotalM3">0.0000 m³</div>
+                    <div class="stat-comparison" id="compDeskaTotalM3"></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Wartość usług netto</div>
+                    <div class="stat-value" id="statServicesValueNet">0.00 zł</div>
+                    <div class="stat-comparison" id="compServicesValueNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Średnia cena m³ netto</div>
                     <div class="stat-value" id="statPricePerM3">0.00 zł</div>
                     <div class="stat-comparison" id="compPricePerM3"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Koszt dostawy netto</div>
-                    <div class="stat-value" id="statDeliveryCostNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compDeliveryCostNet"></div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">Zapłacono TTL netto</div>
@@ -133,8 +148,8 @@
                     <div class="stat-comparison" id="compReadyPickupValueNet"></div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Do odebrania</div>
-                    <div class="stat-value" id="statPickupReady">0.0000</div>
+                    <div class="stat-label">Do odbioru</div>
+                    <div class="stat-value" id="statPickupReady">0.0000 m³</div>
                     <div class="stat-comparison" id="compPickupReady"></div>
                 </div>
                 <div class="stat-box">
@@ -294,50 +309,50 @@
                     <table id="reportsTable" class="reports-table">
                         <thead>
                             <tr>
-                                <th>Data</th>
-                                <th>TTL m³</th>
-                                <th>Kwota netto</th>
-                                <th>Nr Baselinker</th>
-                                <th>Nr wew.</th>
-                                <th>Imię i nazwisko</th>
-                                <th>Ulica</th>
-                                <th>Miejscowość</th>
-                                <th>Kod pocztowy</th>
-                                <th>Województwo</th>
-                                <th>Telefon</th>
-                                <th>Opiekun</th>
-                                <th>Dostawa</th>
-                                <th>Źródło</th>
-                                <th>Grupa</th>
-                                <th>Rodzaj</th>
-                                <th>Wykończenie</th>
-                                <th>Gatunek</th>
-                                <th>Technologia</th>
-                                <th>Klasa</th>
-                                <th>Długość</th>
-                                <th>Szerokość</th>
-                                <th>Grubość</th>
-                                <th>Ilość</th>
-                                <th>Cena brutto</th>
-                                <th>Cena netto</th>
-                                <th>Wartość brutto</th>
-                                <th>Wartość netto</th>
-                                <th>Objętość 1 szt.</th>
-                                <th>Objętość TTL</th>
-                                <th>Cena netto za m³</th>
-                                <th>Średnia cena za m³</th>
-                                <th>Data realizacji</th>
-                                <th>Status</th>
-                                <th>Koszt kuriera brutto</th>
-                                <th>Koszt kuriera netto</th>
-                                <th>Sposób płatności</th>
-                                <th>Zapłacono netto</th>
-                                <th>Do zapłaty</th>
-                                <th>Ilość w produkcji</th>
-                                <th>Wartość w produkcji</th>
-                                <th>Wyprodukowane m³</th>
-                                <th>Wyprodukowana netto</th>
-                                <th class="sortable" data-column="pickup_ready">Do odebrania</th>
+                                <th data-column="date_created">Data</th>
+                                <th data-column="total_m3">TTL m³</th>
+                                <th data-column="order_amount_net">Kwota netto</th>
+                                <th data-column="baselinker_order_id">Nr Baselinker</th>
+                                <th data-column="internal_order_number">Nr wew.</th>
+                                <th data-column="customer_name">Imię i nazwisko</th>
+                                <th data-column="delivery_address">Ulica</th>
+                                <th data-column="delivery_city">Miejscowość</th>
+                                <th data-column="delivery_postcode">Kod pocztowy</th>
+                                <th data-column="delivery_state">Województwo</th>
+                                <th data-column="phone">Telefon</th>
+                                <th data-column="caretaker">Opiekun</th>
+                                <th data-column="delivery_method">Dostawa</th>
+                                <th data-column="order_source">Źródło</th>
+                                <th data-column="group_type">Grupa</th>
+                                <th data-column="product_type">Rodzaj</th>
+                                <th data-column="finish_state">Wykończenie</th>
+                                <th data-column="wood_species">Gatunek</th>
+                                <th data-column="technology">Technologia</th>
+                                <th data-column="wood_class">Klasa</th>
+                                <th data-column="length_cm">Długość</th>
+                                <th data-column="width_cm">Szerokość</th>
+                                <th data-column="thickness_cm">Grubość</th>
+                                <th data-column="quantity">Ilość</th>
+                                <th data-column="price_gross">Cena brutto</th>
+                                <th data-column="price_net">Cena netto</th>
+                                <th data-column="value_gross">Wartość brutto</th>
+                                <th data-column="value_net">Wartość netto</th>
+                                <th data-column="volume_per_piece">Objętość 1 szt.</th>
+                                <th data-column="total_volume">Objętość TTL</th>
+                                <th data-column="price_per_m3">Cena netto za m³</th>
+                                <th data-column="avg_order_price_per_m3">Średnia cena za m³</th>
+                                <th data-column="realization_date">Data realizacji</th>
+                                <th data-column="current_status">Status</th>
+                                <th data-column="delivery_cost">Koszt kuriera brutto</th>
+                                <th data-column="delivery_cost_net">Koszt kuriera netto</th>
+                                <th data-column="payment_method">Sposób płatności</th>
+                                <th data-column="paid_amount_net">Zapłacono netto</th>
+                                <th data-column="balance_due">Do zapłaty</th>
+                                <th data-column="production_volume">Ilość w produkcji</th>
+                                <th data-column="production_value_net">Wartość w produkcji</th>
+                                <th data-column="ready_pickup_volume">Wyprodukowane m³</th>
+                                <th data-column="ready_pickup_value_net">Wyprodukowana netto</th>
+                                <th data-column="pickup_ready">Do odebrania</th>
                                 <th>Akcje</th>
                             </tr>
                         </thead>
@@ -659,7 +674,6 @@
     </div>
 
     <!-- Templates dla różnych trybów -->
-
     <!-- Template dla pojedynczego zamówienia (batch mode) -->
     <template id="volumeOrderTemplate">
         <div class="volume-order-item">
@@ -689,11 +703,11 @@
                 <div class="volume-input-group required">
                     <label>Objętość na 1 szt. (m³) *</label>
                     <input type="text"
-                        class="volume-input volume-required"
-                        data-field="volume"
-                        step="0.0001"
-                        min="0"
-                        placeholder="np. 0.1234">
+                           class="volume-input volume-required"
+                           data-field="volume"
+                           step="0.0001"
+                           min="0"
+                           placeholder="np. 0.1234">
                     <div class="validation-message"></div>
                 </div>
 
@@ -1253,6 +1267,7 @@
     <script src="{{ url_for('reports.static', filename='js/postcode_auto_fill.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/export_manager.js') }}"></script>
     <script src="{{ url_for('reports.static', filename='js/fullscreen_manager.js') }}"></script>
+    <script src="{{ url_for('reports.static', filename='js/table_sorting.js') }}"></script>
 
     <script>
     // Globalne zmienne - poprawiona wersja

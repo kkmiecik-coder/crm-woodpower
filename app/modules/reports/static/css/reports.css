@@ -6706,3 +6706,73 @@ body.fullscreen-mode {
     border-radius: 16px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
 }
+
+/* Nagłówki tabeli z sortowaniem */
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 20px !important;
+    transition: background-color 0.2s ease;
+}
+
+    .sortable-header:hover {
+        background-color: #c55a1e; /* Ciemniejszy odcień #ED6B24 */
+    }
+
+/* Ikony sortowania */
+.sort-icon {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: #fff;
+    transition: opacity 0.2s ease;
+}
+
+.sortable-header:hover .sort-icon {
+    opacity: 0.8;
+    color: white; /* Biała ikona na hover */
+}
+
+.sortable-header.active .sort-icon {
+    opacity: 1;
+    color: #ED6B24;
+}
+
+.sortable-header.active {
+    background-color: #28a745;
+}
+
+/* Trójkąty sortowania */
+.sort-icon::before {
+    content: "▲";
+    color: white;
+}
+
+.sort-icon.desc::before {
+    content: "▼";
+    color: white;
+}
+
+.sort-icon.asc::before {
+    content: "▲";
+    color: white;
+}
+
+/* Stan nieaktywny - pokazuj oba trójkąty */
+.sortable-header:not(.active) .sort-icon::before {
+    content: "⇅";
+    font-size: 14px;
+    font-weight: 300;
+}
+
+/* Animacja przy zmianie sortowania */
+.reports-table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+    .reports-table tbody tr.sorting-highlight {
+        background-color: rgba(237, 107, 36, 0.05);
+    }

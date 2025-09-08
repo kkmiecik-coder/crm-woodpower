@@ -17,8 +17,10 @@ class ReportsManager {
 
         // Referencias do elementów DOM
         this.elements = {};
-
         this.quotesCache = new Map();
+
+        // Dodaj sortowanie tabeli
+        this.tableSorting = null;
 
         console.log('[ReportsManager] Initialized');
     }
@@ -32,6 +34,10 @@ class ReportsManager {
         this.cacheElements();
         this.setupEventListeners();
         this.setDefaultDates();
+
+        // NOWE: Inicjalizuj sortowanie
+        this.initTableSorting();
+
         this.loadInitialData();
 
         window.reportsManager = this;
@@ -206,6 +212,17 @@ class ReportsManager {
         });
 
         console.log('[ReportsManager] Event listeners setup complete');
+    }
+
+    // NOWA METODA: Inicjalizacja sortowania
+    initTableSorting() {
+        if (typeof TableSorting !== 'undefined') {
+            this.tableSorting = new TableSorting();
+            this.tableSorting.init();
+            console.log('[ReportsManager] Sortowanie tabeli zainicjowane');
+        } else {
+            console.warn('[ReportsManager] TableSorting nie jest dostępny');
+        }
     }
 
     /**
@@ -405,6 +422,11 @@ class ReportsManager {
             this.currentStats = result.stats || {};
             this.currentComparison = result.comparison || {};
 
+            // DODAJ TĘ LINIĘ: Resetuj sortowanie przy nowych danych
+            if (this.tableSorting) {
+                this.tableSorting.resetSort();
+            }
+
             // Aktualizuj interfejs
             this.updateTable();
             this.updateStatistics(this.currentStats);
@@ -423,6 +445,13 @@ class ReportsManager {
         } finally {
             this.hideLoading();
             this.isLoading = false;
+        }
+    }
+
+    // NOWA METODA: Reset sortowania (publiczna)
+    resetTableSort() {
+        if (this.tableSorting) {
+            this.tableSorting.resetSort();
         }
     }
 
@@ -1299,17 +1328,16 @@ class ReportsManager {
     }
 
     /**
-     * Aktualizacja statystyk
-     */
+ * Aktualizacja statystyk
+ */
     updateStatistics(stats) {
         if (!stats) return;
 
         // Aktualizuj wszystkie standardowe statystyki
-        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');
+        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');  // TTL m³ klejonki
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
         this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
         this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
-        this.updateStat('statDeliveryCostNet', stats.delivery_cost_net, 2, ' PLN');
         this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' PLN');
         this.updateStat('statBalanceDue', stats.balance_due, 2, ' PLN');
         this.updateStat('statProductionVolume', stats.production_volume, 4, ' m³');
@@ -1318,20 +1346,32 @@ class ReportsManager {
         this.updateStat('statReadyPickupValueNet', stats.ready_pickup_value_net, 2, ' PLN');
         this.updateStat('statPickupReady', stats.pickup_ready_volume, 4, ' m³');
 
+        // POPRAWKA 1: Wartość klejonek netto
+        this.updateStat('statKlejonkaValueNet', stats.klejonka_value_net, 2, ' PLN');
+
+        // POPRAWKI 3 i 4: Statystyki dla deski
+        this.updateStat('statDeskaValueNet', stats.deska_value_net, 2, ' PLN');
+        this.updateStat('statDeskaTotalM3', stats.deska_total_m3, 4, ' m³');
+
+        // POPRAWKA 5: Wartość usług netto
+        this.updateStat('statServicesValueNet', stats.services_value_net, 2, ' PLN');
+
+        // NAPRAWKA: Specjalna obsługa dla statystyki "Zamówienia/Pozycje"
+        if (this.elements.statOrdersProducts) {
+            this.elements.statOrdersProducts.textContent = `${stats.unique_orders || 0} / ${stats.products_count || 0}`;
+        }
+
         // NOWE - oblicz i aktualizuj statystyki wykończenia na podstawie aktualnych danych
         if (this.currentData && this.currentData.length > 0) {
             const finishStats = this.calculateFinishStatistics(this.currentData);
             this.updateStat('statOlejowanieSurface', finishStats.olejowanie_surface, 4, ' m²');
             this.updateStat('statLakierowanieSurface', finishStats.lakierowanie_surface, 4, ' m²');
         } else {
-            // Jeśli brak danych, wyzeruj statystyki wykończenia
             this.updateStat('statOlejowanieSurface', 0, 4, ' m²');
             this.updateStat('statLakierowanieSurface', 0, 4, ' m²');
         }
 
-        if (this.elements.statOrdersProducts) {
-            this.elements.statOrdersProducts.textContent = `${stats.unique_orders || 0} / ${stats.products_count || 0}`;
-        }
+        console.log('[ReportsManager] Statystyki zaktualizowane', stats);
     }
 
     /**
@@ -1371,19 +1411,23 @@ class ReportsManager {
             this.clearComparisons();
             return;
         }
-
         const fields = [
             'total_m3', 'order_amount_net', 'value_net',
-            'avg_price_per_m3', 'delivery_cost_net', 'paid_amount_net', 'balance_due',
-            'production_volume', 'production_value_net', 'ready_pickup_volume', 'ready_pickup_value_net', 'olejowanie_surface', 'lakierowanie_surface'
+            'avg_price_per_m3', 'paid_amount_net', 'balance_due',
+            'production_volume', 'production_value_net', 'ready_pickup_volume', 'ready_pickup_value_net',
+            'olejowanie_surface', 'lakierowanie_surface',
+            // POPRAWKA 1: Dodano wartość klejonek netto
+            'klejonka_value_net',
+            // POPRAWKI 3 i 4: Dodano statystyki dla deski
+            'deska_value_net', 'deska_total_m3',
+            // POPRAWKA 5: Dodano wartość usług netto
+            'services_value_net'
         ];
-
         const elementMap = {
             'total_m3': 'compTotalM3',
             'unique_orders': 'compOrdersProducts',      // NOWE: mapowanie dla zamówień/produktów
             'order_amount_net': 'compOrderAmountNet',
             'avg_price_per_m3': 'compPricePerM3',
-            'delivery_cost_net': 'compDeliveryCostNet',
             'paid_amount_net': 'compPaidAmountNet',
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
@@ -1391,19 +1435,23 @@ class ReportsManager {
             'olejowanie_surface': 'compOlejowanieSurface',
             'lakierowanie_surface': 'compLakierowanieSurface',
             'ready_pickup_volume': 'compReadyPickupVolume',
-            'ready_pickup_value_net': 'compReadyPickupValueNet'
+            'ready_pickup_value_net': 'compReadyPickupValueNet',
+            // POPRAWKA 1: Dodano mapowanie dla wartości klejonek netto
+            'klejonka_value_net': 'compKlejonkaValueNet',
+            // POPRAWKI 3 i 4: Dodano mapowania dla statystyk deski
+            'deska_value_net': 'compDeskaValueNet',
+            'deska_total_m3': 'compDeskaTotalM3',
+            // POPRAWKA 5: Dodano mapowanie dla wartości usług netto
+            'services_value_net': 'compServicesValueNet'
         };
-
         fields.forEach(field => {
             const elementId = elementMap[field];
             const element = this.elements[elementId];
             const compData = comparison[field];
-
             if (element) {
                 if (compData && compData.change_percent !== undefined) {
                     const changePercent = compData.change_percent;
                     const isPositive = compData.is_positive;
-
                     if (changePercent !== 0) {
                         const sign = isPositive ? '+' : '';
                         element.textContent = `${sign}${changePercent}%`;
