@@ -788,6 +788,11 @@
     color: #721c24;
 }
 
+.status-w-produkcji-suszenie {
+    background: #f8d7da;
+    color: #721c24;
+}
+
 .status-produkcja-zakończona {
     background: #d4edda;
     color: #155724;

@@ -1293,6 +1293,7 @@ class ReportsManager {
             'W produkcji - lakierowanie': 'status-w-produkcji-lakierowanie',
             'W produkcji - bejcowanie': 'status-w-produkcji-bejcowanie',
             'W produkcji - olejowanie': 'status-w-produkcji-olejowanie',
+            'W produkcji - suszenie usługowe': 'status-w-produkcji-suszenie',
             'Produkcja zakończona': 'status-produkcja-zakończona',
             'Zamówienie spakowane': 'status-zamówienie-spakowane',
             'Paczka zgłoszona do wysyłki': 'status-paczka-zgloszona-do-wysylki',

@@ -1428,14 +1428,18 @@ class BaselinkerReportsService:
         # POPRAWIONA LOGIKA: Oblicz łączną objętość wszystkich produktów w zamówieniu
         # ✅ UWZGLĘDNIJ TAKŻE volume_fixes zamiast tylko parsera!
         total_m3_all_products = 0.0
+        product_type_map = {}
+        group_type_map = {}
         for product_index, product in enumerate(products):
             try:
                 product_name = product.get('name', '')
                 quantity = int(product.get('quantity', 1))
-            
+                group_type = 'usługa' if self._is_service_product(product_name) else 'towar'
+                product_type = None
+
                 # ✅ UŻYJ NOWEJ METODY GENEROWANIA KLUCZY
                 product_key = self.generate_product_key(order.get('order_id'), product, product_index)
-            
+
                 self.logger.debug("Processing product for volume calculation",
                                 order_id=order.get('order_id'),
                                 product_name=product_name,
@@ -1446,12 +1450,12 @@ class BaselinkerReportsService:
 
                 # ✅ NOWA LOGIKA: Sprawdź volume_fixes NAJPIERW
                 volume_fix = self.get_volume_fix(product_key) if hasattr(self, 'volume_fixes') else None
-    
+
                 if volume_fix and volume_fix.get('volume'):
                     # PRZYPADEK 1: Mamy ręczne poprawki objętości
                     product_volume = float(volume_fix['volume'])
                     total_m3_all_products += product_volume
-        
+
                     self.logger.debug("Użyto volume_fix dla produktu",
                                     order_id=order.get('order_id'),
                                     product_name=product_name,
@@ -1462,12 +1466,20 @@ class BaselinkerReportsService:
                     # PRZYPADEK 2: Użyj analizy nazwy produktu
                     from .routers import analyze_product_for_volume_and_attributes
                     analysis = analyze_product_for_volume_and_attributes(product_name)
-        
+
+                    product_type = analysis.get('product_type')
+                    if product_type == 'suszenie':
+                        group_type = 'usługa'
+                    elif product_type in ['worek opałowy', 'tarcica', 'klejonka', 'deska']:
+                        group_type = 'towar'
+                    else:
+                        group_type = 'usługa' if self._is_service_product(product_name) else 'towar'
+
                     if analysis['analysis_type'] == 'volume_only' and analysis.get('volume'):
                         # Objętość z nazwy produktu
                         product_volume = float(analysis.get('volume', 0))
                         total_m3_all_products += product_volume
-            
+
                         self.logger.debug("Użyto objętości z nazwy produktu",
                                         order_id=order.get('order_id'),
                                         product_name=product_name,
@@ -1476,13 +1488,13 @@ class BaselinkerReportsService:
                     else:
                         # PRZYPADEK 3: Użyj parsera wymiarów (dotychczasowa logika)
                         parsed_product = self.parser.parse_product_name(product_name)
-    
+
                         # POPRAWKA: Bezpieczna konwersja wszystkich wymiarów na float
                         product_type = parsed_product.get('product_type')
                         length_cm = parsed_product.get('length_cm')
-                        width_cm = parsed_product.get('width_cm') 
+                        width_cm = parsed_product.get('width_cm')
                         thickness_mm = parsed_product.get('thickness_mm')
-    
+
                         # Bezpieczna konwersja Decimal/None na float
                         def safe_float_convert(value):
                             if value is None:
@@ -1493,15 +1505,15 @@ class BaselinkerReportsService:
                                 return float(value)
                             except (ValueError, TypeError):
                                 return 0.0
-    
+
                         length_m = safe_float_convert(length_cm) / 100 if length_cm else 0.0
                         width_m = safe_float_convert(width_cm) / 100 if width_cm else 0.0
                         thickness_m = safe_float_convert(thickness_mm) / 1000 if thickness_mm else 0.0
-    
+
                         if length_m > 0 and width_m > 0 and thickness_m > 0:
                             product_m3 = length_m * width_m * thickness_m * quantity
                             total_m3_all_products += product_m3
-        
+
                             self.logger.debug("Obliczono objętość produktu z wymiarów",
                                             order_id=order.get('order_id'),
                                             product_name=product_name,
@@ -1521,18 +1533,9 @@ class BaselinkerReportsService:
                                                 'width_cm': safe_float_convert(width_cm) if width_cm else None,
                                                 'thickness_mm': safe_float_convert(thickness_mm) if thickness_mm else None
                                             })
-                        
-                        # NOWA LOGIKA: Ustaw group_type na podstawie product_type
-                        if product_type == 'suszenie':
-                            group_type = 'usługa'
-                        elif product_type in ['worek opałowy', 'tarcica', 'klejonka', 'deska']:
-                            group_type = 'towar'
-                        else:
-                            # Fallback - sprawdź czy nazwa wskazuje na usługę
-                            if self._is_service_product(product_name):
-                                group_type = 'usługa'
-                            else:
-                                group_type = 'towar'
+
+                product_type_map[product_index] = product_type
+                group_type_map[product_index] = group_type
     
             except Exception as e:
                 self.logger.warning("Błąd obliczania objętości produktu",
@@ -1584,6 +1587,8 @@ class BaselinkerReportsService:
                                 price_type_saved=price_type_to_save)
         
                 # NOWE: Sprawdź czy to usługa
+                product_type = product_type_map.get(product_index)
+                group_type = group_type_map.get(product_index)
                 if self._is_service_product(product_name):
                     # === OBSŁUGA USŁUG ===
                     record = BaselinkerReportOrder(
