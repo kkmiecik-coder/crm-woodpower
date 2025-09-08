@@ -1,127 +1,212 @@
 # modules/production/__init__.py
 """
-Moduł Produkcyjny - Wood Power CRM
-Odpowiedzialny za zarządzanie produkcją lat drewnianych na stanowiskach sklejania i pakowania
+Moduł Production - System Zarządzania Produkcją WoodPower CRM
+============================================================
+
+Moduł implementuje kompletny workflow produkcyjny:
+- Automatyczna synchronizacja zamówień z Baselinker
+- Rozbijanie zamówień na produkty z nowym formatem ID (25_05248_1)
+- Workflow przez 3 stanowiska: Wycinanie → Składanie → Pakowanie
+- Interfejsy zoptymalizowane pod tablety z zabezpieczeniem IP
+- System priorytetów i monitoring produkcji w czasie rzeczywistym
+
+Autor: Konrad Kmiecik
+Wersja: 1.2 (Finalna - z zabezpieczeniami)
+Data: 2025-01-08
 """
 
 from flask import Blueprint
-import logging
+from modules.logging import get_structured_logger
 
-# Utworzenie Blueprint dla modułu production
+# Inicjalizacja loggera dla modułu
+logger = get_structured_logger('production.module')
+
+# Utworzenie Blueprint dla modułu produkcyjnego
 production_bp = Blueprint(
-    "production", 
+    'production',
     __name__,
-    template_folder="templates",
-    static_folder="static",
-    url_prefix="/production"
+    template_folder='templates',
+    static_folder='static',
+    static_url_path='/production/static',
+    url_prefix='/production'
 )
 
-# Konfiguracja loggera dla modułu production
-production_logger = logging.getLogger('production')
-
-# Import routingu po utworzeniu Blueprint (unikamy circular imports)
-from . import routers
-
-# Import funkcji pakowania z utils
+# Import routerów (będą dodane postupnie)
 try:
-    from .utils import (
-        calculate_packaging_priority,
-        format_packaging_deadline,
-        validate_packaging_order,
-        sort_packaging_queue,
-        calculate_packaging_stats_summary,
-        format_packaging_duration,
-        generate_packaging_report_data
-    )
-    production_logger.info("✅ Funkcje pakowania zaimportowane pomyślnie")
+    from .routers.api_routes import api_bp
+    from .routers.station_routes import station_bp  
+    from .routers.admin_routes import admin_bp
+    
+    # Rejestracja sub-blueprintów
+    production_bp.register_blueprint(api_bp, url_prefix='/api')
+    production_bp.register_blueprint(station_bp, url_prefix='')
+    production_bp.register_blueprint(admin_bp, url_prefix='/admin')
+    
+    logger.info("Zarejestrowano wszystkie routery modułu production")
+    
 except ImportError as e:
-    production_logger.warning(f"⚠️ Błąd importu funkcji pakowania: {str(e)}")
+    # Routery będą dodawane postupnie, więc ignorujemy błędy importu na początku
+    logger.warning(f"Nie można zaimportować routerów: {e}")
 
-def register_packaging_routes():
-    """
-    Rejestruje dodatkowe routing'i dla pakowania
-    """
-    # Routing'i pakowania są już zarejestrowane w routers.py
-    # Ta funkcja jest dla ewentualnych przyszłych rozszerzeń
+# Import serwisów (będą dodane postupnie)
+try:
+    from .services.id_generator import ProductIDGenerator
+    from .services.security_service import IPSecurityService
+    from .services.config_service import ProductionConfigService
+    from .services.parser_service import ProductNameParser
+    from .services.priority_service import PriorityCalculator
+    from .services.sync_service import BaselinkerSyncService
     
-    # Logowanie zarejestrowanych endpoint'ów pakowania
-    packaging_routes = [
-        '/work/packaging',
-        '/api/packaging/queue', 
-        '/api/packaging/complete/<int:order_id>',
-        '/api/packaging/stats'
-    ]
+    logger.info("Zaimportowano wszystkie serwisy modułu production")
     
-    production_logger.info(
-        f"Zarejestrowano {len(packaging_routes)} routing'ów pakowania"
+except ImportError as e:
+    # Serwisy będą dodawane postupnie
+    logger.warning(f"Nie można zaimportować serwisów: {e}")
+
+# Import modeli (będą dodane w następnym kroku)
+try:
+    from .models import (
+        ProductionItem,
+        ProductionOrderCounter, 
+        ProductionPriorityConfig,
+        ProductionSyncLog,
+        ProductionError,
+        ProductionConfig
     )
     
-    return True
+    logger.info("Zaimportowano wszystkie modele modułu production")
+    
+except ImportError as e:
+    # Modele będą dodane w następnym kroku
+    logger.warning(f"Nie można zaimportować modeli: {e}")
 
-def verify_packaging_database_setup():
-    """
-    Sprawdza czy baza danych ma wymagane tabele i kolumny dla pakowania
-    """
-    try:
-        from .models import ProductionOrderSummary, ProductionItem
-        
-        # Sprawdź czy tabele istnieją i mają wymagane kolumny
-        required_columns = {
-            'production_orders_summary': [
-                'packaging_status', 
-                'all_items_glued',
-                'total_items_count',
-                'completed_items_count'
-            ],
-            'production_items': [
-                'packaging_started_at',
-                'packaging_completed_at'
-            ]
-        }
-        
-        # W rzeczywistej aplikacji można dodać sprawdzenie struktury bazy
-        # Na razie tylko logujemy informację
-        
-        production_logger.info(
-            "Sprawdzono strukturę bazy danych dla pakowania"
-        )
-        
-        return True
-        
-    except Exception as e:
-        production_logger.error(f"Błąd sprawdzania struktury bazy dla pakowania: {str(e)}")
-        return False
-
-def initialize_production_module():
-    """
-    Inicjalizuje cały moduł produkcyjny
-    """
-    try:
-        production_logger.info("🚀 Inicjalizacja modułu produkcyjnego...")
-        
-        # Zarejestruj routing'i pakowania
-        register_packaging_routes()
-        
-        # Sprawdź strukturę bazy danych
-        verify_packaging_database_setup()
-        
-        return True
-        
-    except Exception as e:
-        production_logger.error(f"❌ Błąd inicjalizacji modułu produkcyjnego: {str(e)}")
-        return False
-
-# Wywołaj inicjalizację modułu
+# Middleware zabezpieczeń IP (będzie dodane wraz z security_service)
 try:
-    initialize_production_module()
-except Exception as e:
-    production_logger.error(f"Krytyczny błąd inicjalizacji: {str(e)}")
+    from .services.security_service import ip_security_middleware
+    
+    @production_bp.before_request
+    def apply_security():
+        """Zastosowanie middleware zabezpieczeń dla modułu production"""
+        return ip_security_middleware()
+        
+    logger.info("Zastosowano middleware zabezpieczeń IP")
+    
+except ImportError:
+    logger.warning("Middleware zabezpieczeń IP nie jest jeszcze dostępne")
 
-# Eksportujemy Blueprint i kluczowe funkcje dla łatwego importu w głównej aplikacji
+# Funkcje pomocnicze dla innych modułów
+def get_production_status_summary():
+    """
+    Pobiera podsumowanie statusów produkcji dla dashboardu głównego
+    
+    Returns:
+        dict: Słownik z liczbą produktów per status
+    """
+    try:
+        from .models import ProductionItem
+        from sqlalchemy import func
+        from app import db
+        
+        summary = db.session.query(
+            ProductionItem.current_status,
+            func.count(ProductionItem.id).label('count'),
+            func.sum(ProductionItem.volume_m3).label('total_volume'),
+            func.sum(ProductionItem.total_value_net).label('total_value')
+        ).filter(
+            ProductionItem.current_status != 'anulowane'
+        ).group_by(ProductionItem.current_status).all()
+        
+        result = {}
+        for status, count, volume, value in summary:
+            result[status] = {
+                'count': count or 0,
+                'volume_m3': float(volume or 0),
+                'value_net': float(value or 0)
+            }
+            
+        logger.info("Pobrano podsumowanie statusów produkcji", extra={
+            'statuses_count': len(result),
+            'total_items': sum(s['count'] for s in result.values())
+        })
+        
+        return result
+        
+    except Exception as e:
+        logger.error("Błąd pobierania podsumowania produkcji", extra={
+            'error': str(e)
+        })
+        return {}
+
+def get_high_priority_items_count():
+    """
+    Pobiera liczbę elementów o wysokim priorytecie
+    
+    Returns:
+        int: Liczba elementów o wysokim priorytecie
+    """
+    try:
+        from .models import ProductionItem
+        from app import db
+        
+        count = db.session.query(ProductionItem).filter(
+            ProductionItem.priority_score >= 150,
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie', 
+                'czeka_na_skladanie', 
+                'czeka_na_pakowanie'
+            ])
+        ).count()
+        
+        logger.debug("Pobrano liczbę elementów o wysokim priorytecie", extra={
+            'high_priority_count': count
+        })
+        
+        return count
+        
+    except Exception as e:
+        logger.error("Błąd pobierania liczby elementów o wysokim priorytecie", extra={
+            'error': str(e)
+        })
+        return 0
+
+def is_sync_running():
+    """
+    Sprawdza czy synchronizacja z Baselinker jest w toku
+    
+    Returns:
+        bool: True jeśli synchronizacja jest w toku
+    """
+    try:
+        from .models import ProductionSyncLog
+        from app import db
+        
+        running_sync = db.session.query(ProductionSyncLog).filter(
+            ProductionSyncLog.sync_status == 'running'
+        ).first()
+        
+        return running_sync is not None
+        
+    except Exception as e:
+        logger.error("Błąd sprawdzania statusu synchronizacji", extra={
+            'error': str(e)
+        })
+        return False
+
+# Eksport głównych komponentów
 __all__ = [
     'production_bp',
-    'production_logger',
-    'initialize_production_module',
-    'register_packaging_routes',
-    'verify_packaging_database_setup'
+    'get_production_status_summary',
+    'get_high_priority_items_count', 
+    'is_sync_running'
 ]
+
+# Metadata modułu
+__version__ = '1.2.0'
+__author__ = 'Konrad Kmiecik'
+__description__ = 'System zarządzania produkcją z automatyczną synchronizacją Baselinker'
+
+logger.info("Zainicjalizowano moduł production", extra={
+    'version': __version__,
+    'blueprint_name': production_bp.name,
+    'url_prefix': production_bp.url_prefix
+})

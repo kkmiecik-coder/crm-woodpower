@@ -204,64 +204,231 @@
 }
 
 /* ===================================
-   STATISTICS BOXES
+   NOWE STATYSTYKI - KOMPAKTOWY DASHBOARD
    =================================== */
+
+/* Zastąp istniejące .stats-container */
 .stats-container {
-    display: flex;
-    gap: var(--spacing-base);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
     margin-bottom: var(--spacing-xl);
-    flex-wrap: wrap;
 }
 
-.stat-box {
-    background: var(--bg-card);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-base);
-    padding: var(--spacing-base);
-    text-align: center;
-    transition: var(--transition-base);
-    min-width: 230px;
+/* Nowe style dla grup statystyk */
+.stats-group {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
 }
 
-    .stat-box:hover {
-        box-shadow: var(--shadow-base);
+    .stats-group:hover {
         transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.12);
     }
 
-.stat-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
+.stats-group-header {
+    background: #ED6B24;
+    color: white;
+    padding: 6px 12px;
+    font-size: 15px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 
-.stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-dark);
-    line-height: 1.2;
-    font-family: var(--font-family);
+.stats-group-content {
+    padding: 11px;
 }
 
-.stat-comparison {
-    font-size: 0.75rem;
+.stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f3f4;
+}
+
+    .stats-row:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+    .stats-row:first-child {
+        padding-top: 0;
+    }
+
+.stats-label {
+    font-size: 16px;
+    color: #6c757d;
     font-weight: 500;
-    margin-top: var(--spacing-xs);
-    opacity: 0.8;
+    line-height: 1.4;
+    flex: 1;
 }
 
-    .stat-comparison.positive {
-        color: var(--success-color);
+.stats-value-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.stats-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #212529;
+    line-height: 1.3;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.stats-comparison {
+    font-size: 12px;
+    font-weight: 600;
+    text-align: right;
+    white-space: nowrap;
+}
+
+    .stats-comparison.positive {
+        color: #28a745;
     }
 
-    .stat-comparison.negative {
-        color: var(--danger-color);
+    .stats-comparison.negative {
+        color: #dc3545;
     }
 
-    .stat-comparison:empty {
+    .stats-comparison.neutral {
+        color: #6c757d;
+    }
+
+    .stats-comparison:empty {
         display: none;
+    }
+
+/* Efekt hover dla wierszy */
+.stats-row:hover {
+    background: rgba(237, 107, 36, 0.02);
+    border-radius: 6px;
+    margin: 0 -8px;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+/* Ikony w nagłówkach */
+.stats-header-icon {
+    font-size: 18px;
+}
+
+/* Animacje */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.stats-group {
+    animation: fadeInUp 0.5s ease forwards;
+}
+
+    .stats-group:nth-child(1) {
+        animation-delay: 0.1s;
+    }
+
+    .stats-group:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .stats-group:nth-child(3) {
+        animation-delay: 0.3s;
+    }
+
+    .stats-group:nth-child(4) {
+        animation-delay: 0.4s;
+    }
+
+/* Responsywność */
+@media (max-width: 768px) {
+    .stats-container {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .stats-group-header {
+        font-size: 14px;
+        padding: 16px 20px;
+    }
+
+    .stats-group-content {
+        padding: 20px;
+    }
+
+    .stats-label {
+        font-size: 13px;
+    }
+
+    .stats-value {
+        font-size: 15px;
+    }
+
+    .stats-comparison {
+        font-size: 11px;
+    }
+
+    .stats-row {
+        padding: 12px 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-container {
+        gap: 16px;
+    }
+
+    .stats-group-header {
+        font-size: 13px;
+        padding: 14px 18px;
+    }
+
+    .stats-group-content {
+        padding: 18px;
+    }
+
+    .stats-label {
+        font-size: 12px;
+    }
+
+    .stats-value {
+        font-size: 14px;
+    }
+
+    .stats-comparison {
+        font-size: 10px;
+    }
+
+    .stats-row {
+        padding: 10px 0;
+    }
+}
+
+.stats-comparison {
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+    .stats-comparison:empty {
+        opacity: 0;
+        visibility: hidden;
     }
 
 /* ===================================
@@ -617,6 +784,11 @@
 }
 
 .status-w-produkcji-olejowanie {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.status-w-produkcji-suszenie {
     background: #f8d7da;
     color: #721c24;
 }
@@ -1720,11 +1892,6 @@
    FULLSCREEN MODE STYLES
    =================================== */
 
-/* Globalne style dla trybu fullscreen */
-.fullscreen-mode {
-    overflow: hidden;
-}
-
 /* Ukrywanie elementów w trybie fullscreen */
 .hidden-in-fullscreen {
     display: none !important;
@@ -1812,9 +1979,6 @@
 
 .stats-container.fullscreen-mode,
 .stats-container.compact {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
     margin: 0;
     justify-content: flex-start;
     align-items: stretch;
@@ -6706,3 +6870,73 @@ body.fullscreen-mode {
     border-radius: 16px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
 }
+
+/* Nagłówki tabeli z sortowaniem */
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 20px !important;
+    transition: background-color 0.2s ease;
+}
+
+    .sortable-header:hover {
+        background-color: #c55a1e; /* Ciemniejszy odcień #ED6B24 */
+    }
+
+/* Ikony sortowania */
+.sort-icon {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: #fff;
+    transition: opacity 0.2s ease;
+}
+
+.sortable-header:hover .sort-icon {
+    opacity: 0.8;
+    color: white; /* Biała ikona na hover */
+}
+
+.sortable-header.active .sort-icon {
+    opacity: 1;
+    color: #ED6B24;
+}
+
+.sortable-header.active {
+    background-color: #28a745;
+}
+
+/* Trójkąty sortowania */
+.sort-icon::before {
+    content: "▲";
+    color: white;
+}
+
+.sort-icon.desc::before {
+    content: "▼";
+    color: white;
+}
+
+.sort-icon.asc::before {
+    content: "▲";
+    color: white;
+}
+
+/* Stan nieaktywny - pokazuj oba trójkąty */
+.sortable-header:not(.active) .sort-icon::before {
+    content: "⇅";
+    font-size: 14px;
+    font-weight: 300;
+}
+
+/* Animacja przy zmianie sortowania */
+.reports-table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+    .reports-table tbody tr.sorting-highlight {
+        background-color: rgba(237, 107, 36, 0.05);
+    }

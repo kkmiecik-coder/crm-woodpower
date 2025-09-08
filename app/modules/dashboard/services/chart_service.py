@@ -21,13 +21,30 @@ def get_quotes_chart_data(months=6):
     """
     try:
         from ...quotes.models import Quote
-        from ...baselinker.models import BaselinkerReportsOrders
+        from ...reports.models import BaselinkerReportOrder  # POPRAWIONY IMPORT
+        
+        # DEBUG - sprawdź czy modele się importują
+        logger.info(f"[ChartService] DEBUG: Quote model imported: {Quote}")
+        logger.info(f"[ChartService] DEBUG: BaselinkerReportOrder model imported: {BaselinkerReportOrder}")
         
         # Oblicz datę początkową
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=months * 30)
         
+        logger.info(f"[ChartService] DEBUG: Date range {start_date} to {end_date}")
         logger.info(f"[ChartService] Pobieranie danych wycen od {start_date} do {end_date}")
+        
+        # DEBUG - sprawdź ile rekordów mamy w bazie
+        total_quotes = Quote.query.count()
+        total_orders = BaselinkerReportOrder.query.count()
+        logger.info(f"[ChartService] DEBUG: Total quotes in DB: {total_quotes}")
+        logger.info(f"[ChartService] DEBUG: Total orders in DB: {total_orders}")
+        
+        # DEBUG - sprawdź ile rekordów w okresie
+        period_quotes = Quote.query.filter(Quote.created_at >= start_date).count()
+        period_orders = BaselinkerReportOrder.query.filter(BaselinkerReportOrder.date_created >= start_date).count()
+        logger.info(f"[ChartService] DEBUG: Quotes in period: {period_quotes}")
+        logger.info(f"[ChartService] DEBUG: Orders in period: {period_orders}")
         
         # Pobierz dane miesięczne dla wycen
         monthly_quotes = db.session.query(
@@ -45,20 +62,28 @@ def get_quotes_chart_data(months=6):
             extract('month', Quote.created_at)
         ).all()
         
+        logger.info(f"[ChartService] DEBUG: Monthly quotes query returned {len(monthly_quotes)} rows")
+        for i, quote in enumerate(monthly_quotes):
+            logger.info(f"[ChartService] DEBUG: Month {i+1}: {quote.year}-{quote.month}, total: {quote.total_quotes}, accepted: {quote.accepted_quotes}")
+        
         # Pobierz dane zamówień z Baselinker
         monthly_orders = db.session.query(
-            extract('year', BaselinkerReportsOrders.date_created).label('year'),
-            extract('month', BaselinkerReportsOrders.date_created).label('month'),
-            func.count(BaselinkerReportsOrders.id).label('ordered_count')
+            extract('year', BaselinkerReportOrder.date_created).label('year'),
+            extract('month', BaselinkerReportOrder.date_created).label('month'),
+            func.count(BaselinkerReportOrder.id).label('ordered_count')
         ).filter(
-            BaselinkerReportsOrders.date_created >= start_date
+            BaselinkerReportOrder.date_created >= start_date
         ).group_by(
-            extract('year', BaselinkerReportsOrders.date_created),
-            extract('month', BaselinkerReportsOrders.date_created)
+            extract('year', BaselinkerReportOrder.date_created),
+            extract('month', BaselinkerReportOrder.date_created)
         ).order_by(
-            extract('year', BaselinkerReportsOrders.date_created),
-            extract('month', BaselinkerReportsOrders.date_created)
+            extract('year', BaselinkerReportOrder.date_created),
+            extract('month', BaselinkerReportOrder.date_created)
         ).all()
+        
+        logger.info(f"[ChartService] DEBUG: Monthly orders query returned {len(monthly_orders)} rows")
+        for i, order in enumerate(monthly_orders):
+            logger.info(f"[ChartService] DEBUG: Order month {i+1}: {order.year}-{order.month}, count: {order.ordered_count}")
         
         # Przetwórz dane na format JSON
         chart_data = {
@@ -80,6 +105,8 @@ def get_quotes_chart_data(months=6):
         for order in monthly_orders:
             key = f"{int(order.year)}-{int(order.month):02d}"
             orders_map[key] = order.ordered_count
+        
+        logger.info(f"[ChartService] DEBUG: Orders map: {orders_map}")
         
         # Przetwórz dane wycen
         for quote in monthly_quotes:
@@ -103,14 +130,19 @@ def get_quotes_chart_data(months=6):
             chart_data['summary']['total_quotes'] += quote.total_quotes
             chart_data['summary']['accepted_quotes'] += quote.accepted_quotes
             chart_data['summary']['ordered_quotes'] += orders_map.get(month_key, 0)
+            
+            logger.info(f"[ChartService] DEBUG: Processed {month_key}: quotes={quote.total_quotes}, accepted={quote.accepted_quotes}, orders={orders_map.get(month_key, 0)}")
         
         logger.info(f"[ChartService] Wygenerowano dane dla {len(chart_data['labels'])} miesięcy")
-        logger.debug(f"[ChartService] Summary: {chart_data['summary']}")
+        logger.info(f"[ChartService] DEBUG: Final summary: {chart_data['summary']}")
+        logger.info(f"[ChartService] DEBUG: Final chart_data: {chart_data}")
         
         return chart_data
         
     except Exception as e:
         logger.exception(f"[ChartService] Błąd pobierania danych wykresu: {e}")
+        logger.error(f"[ChartService] DEBUG: Exception type: {type(e).__name__}")
+        logger.error(f"[ChartService] DEBUG: Exception args: {e.args}")
         return {
             'labels': ['Brak danych'],
             'datasets': {
@@ -136,32 +168,32 @@ def get_top_products_data(limit=5):
         list: Lista produktów z nazwą, ilością i procentem
     """
     try:
-        from ...baselinker.models import BaselinkerReportsOrders
+        from ...reports.models import BaselinkerReportOrder  # POPRAWIONY IMPORT
         
         # Pobierz najpopularniejsze gatunki drewna
         top_species = db.session.query(
-            BaselinkerReportsOrders.wood_species.label('species'),
-            BaselinkerReportsOrders.technology.label('technology'),
-            BaselinkerReportsOrders.wood_class.label('wood_class'),
-            func.count(BaselinkerReportsOrders.id).label('order_count'),
-            func.sum(BaselinkerReportsOrders.quantity).label('total_quantity')
+            BaselinkerReportOrder.wood_species.label('species'),
+            BaselinkerReportOrder.technology.label('technology'),
+            BaselinkerReportOrder.wood_class.label('wood_class'),
+            func.count(BaselinkerReportOrder.id).label('order_count'),
+            func.sum(BaselinkerReportOrder.quantity).label('total_quantity')
         ).filter(
-            BaselinkerReportsOrders.wood_species.isnot(None),
-            BaselinkerReportsOrders.date_created >= datetime.now() - timedelta(days=90)  # Ostatnie 3 miesiące
+            BaselinkerReportOrder.wood_species.isnot(None),
+            BaselinkerReportOrder.date_created >= datetime.now() - timedelta(days=90)  # Ostatnie 3 miesiące
         ).group_by(
-            BaselinkerReportsOrders.wood_species,
-            BaselinkerReportsOrders.technology,
-            BaselinkerReportsOrders.wood_class
+            BaselinkerReportOrder.wood_species,
+            BaselinkerReportOrder.technology,
+            BaselinkerReportOrder.wood_class
         ).order_by(
-            func.count(BaselinkerReportsOrders.id).desc()
+            func.count(BaselinkerReportOrder.id).desc()
         ).limit(limit).all()
         
         # Oblicz łączną liczbę zamówień dla procentów
         total_orders = db.session.query(
-            func.count(BaselinkerReportsOrders.id)
+            func.count(BaselinkerReportOrder.id)
         ).filter(
-            BaselinkerReportsOrders.wood_species.isnot(None),
-            BaselinkerReportsOrders.date_created >= datetime.now() - timedelta(days=90)
+            BaselinkerReportOrder.wood_species.isnot(None),
+            BaselinkerReportOrder.date_created >= datetime.now() - timedelta(days=90)
         ).scalar()
         
         # Przygotuj dane

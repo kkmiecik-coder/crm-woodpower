@@ -49,7 +49,7 @@ class BaselinkerReportOrder(db.Model):
 
     # === DANE PRODUKTU (kolumny 15-24) ===
     group_type = db.Column(db.Enum('towar', 'usługa', name='group_type_enum'), nullable=True, comment="15. Grupa")
-    product_type = db.Column(db.Enum('klejonka', 'deska', name='product_type_enum'), nullable=True, comment="16. Rodzaj")
+    product_type = db.Column(db.Enum('klejonka', 'deska', 'worek opałowy', 'suszenie', 'tarcica', name='product_type_enum'), nullable=True, comment="16. Rodzaj")
     finish_state = db.Column(db.String(50), nullable=True, comment="17. Stan (wykończenie)")
     wood_species = db.Column(db.String(50), nullable=True, comment="18. Gatunek")
     technology = db.Column(db.String(50), nullable=True, comment="19. Technologia")
@@ -179,6 +179,10 @@ class BaselinkerReportOrder(db.Model):
         Oblicza statystyki dla widocznych (przefiltrowanych) zamówień
         NAPRAWKA: Poprawione grupowanie zamówień i obliczenia
         NOWE: Dodana kolumna "Do odebrania" (pickup_ready_volume)
+        POPRAWKA 1: Dodano statystykę "wartość klejonek netto"
+        POPRAWKA 2: TTL m3 teraz tylko dla klejonek
+        POPRAWKI 3 i 4: Dodano statystyki dla deski
+        POPRAWKA 5: Dodano statystykę "wartość usług netto"
 
         Args:
             filtered_query: Query object z filtrami
@@ -192,13 +196,12 @@ class BaselinkerReportOrder(db.Model):
         orders = filtered_query.all()
 
         stats = {
-            'total_m3': 0.0,
+            'total_m3': 0.0,  # TTL m3 klejonki
             'order_amount_net': 0.0,
             'value_net': 0.0,
             'value_gross': 0.0,
             'avg_price_per_m3': 0.0,
             'delivery_cost': 0.0,
-            'delivery_cost_net': 0.0,
             'paid_amount_net': 0.0,
             'balance_due': 0.0,
             'production_volume': 0.0,
@@ -207,7 +210,14 @@ class BaselinkerReportOrder(db.Model):
             'ready_pickup_value_net': 0.0,
             'pickup_ready_volume': 0.0,
             'unique_orders': 0,
-            'products_count': 0
+            'products_count': 0,
+            # POPRAWKA 1: Wartość klejonek netto
+            'klejonka_value_net': 0.0,
+            # POPRAWKI 3 i 4: Statystyki dla deski
+            'deska_value_net': 0.0,
+            'deska_total_m3': 0.0,
+            # POPRAWKA 5: Wartość usług netto
+            'services_value_net': 0.0
         }
 
         if not orders:
@@ -222,7 +232,7 @@ class BaselinkerReportOrder(db.Model):
                 unique_id = f"bl_{order.baselinker_order_id}"
             else:
                 unique_id = f"manual_{order.id}"
-        
+
             if unique_id not in orders_by_unique_id:
                 orders_by_unique_id[unique_id] = {
                     'products': [],
@@ -232,65 +242,93 @@ class BaselinkerReportOrder(db.Model):
 
         # NAPRAWKA: Sumuj wartości NA POZIOMIE PRODUKTU (zawsze per produkt)
         product_level_stats = {
-            'total_m3': 0.0,
+            'total_m3': 0.0,  # TTL m3 klejonki
             'value_net': 0.0,
             'value_gross': 0.0,
             'production_volume': 0.0,
             'production_value_net': 0.0,
             'ready_pickup_volume': 0.0,
             'ready_pickup_value_net': 0.0,
-            'pickup_ready_volume': 0.0  # NOWA KOLUMNA
+            'pickup_ready_volume': 0.0,
+            # POPRAWKA 1: Wartość klejonek netto
+            'klejonka_value_net': 0.0,
+            # POPRAWKI 3 i 4: Statystyki dla deski
+            'deska_value_net': 0.0,
+            'deska_total_m3': 0.0,
+            # POPRAWKA 5: Wartość usług netto
+            'services_value_net': 0.0
         }
 
         for order in orders:
-            product_level_stats['total_m3'] += float(order.total_volume or 0)
+            # POPRAWKA 2: TTL m3 teraz tylko dla klejonek
+            if order.product_type == 'klejonka':
+                product_level_stats['total_m3'] += float(order.total_volume or 0)
+
             product_level_stats['value_net'] += float(order.value_net or 0)
             product_level_stats['value_gross'] += float(order.value_gross or 0)
             product_level_stats['production_volume'] += float(order.production_volume or 0)
             product_level_stats['production_value_net'] += float(order.production_value_net or 0)
             product_level_stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
             product_level_stats['ready_pickup_value_net'] += float(order.ready_pickup_value_net or 0)
-        
-            # NOWA LOGIKA: Suma objętości tylko dla statusu "Czeka na odbiór osobisty"
-            if (order.current_status and 
-                order.current_status.lower() == 'czeka na odbiór osobisty'):
+
+            # ZMIANA: Nowa logika dla "Do odbioru" - trzy statusy
+            if order.baselinker_status_id in [105113, 149777, 138620]:
+                # 105113 = Paczka zgłoszona do wysyłki
+                # 149777 = Czeka na odbiór osobisty  
+                # 138620 = Produkcja zakończona
                 product_level_stats['pickup_ready_volume'] += float(order.total_volume or 0)
+
+            # POPRAWKA 1: Suma wartości netto dla produktów typu "klejonka"
+            if order.product_type == 'klejonka':
+                product_level_stats['klejonka_value_net'] += float(order.value_net or 0)
+
+            # POPRAWKI 3 i 4: Statystyki dla deski
+            if order.product_type == 'deska':
+                product_level_stats['deska_value_net'] += float(order.value_net or 0)
+                product_level_stats['deska_total_m3'] += float(order.total_volume or 0)
+
+            # POPRAWKA 5: Suma wartości netto dla usług
+            if order.group_type == 'usługa':
+                product_level_stats['services_value_net'] += float(order.value_net or 0)
 
         # NAPRAWKA: Sumuj wartości NA POZIOMIE ZAMÓWIENIA (raz na zamówienie)
         order_level_stats = {
             'order_amount_net': 0.0,
             'delivery_cost': 0.0,
-            'delivery_cost_net': 0.0,
             'paid_amount_net': 0.0,
-            'balance_due': 0.0
+            'balance_due': 0.0  # ZMIANA: Teraz będzie obliczane inaczej
         }
 
         for unique_id, order_group in orders_by_unique_id.items():
             products = order_group['products']
             is_manual = order_group['is_manual']
-    
+
             if not products:
                 continue
-        
+
             # Weź pierwszy produkt jako reprezentanta zamówienia
             representative_product = products[0]
-    
+
             # NAPRAWKA: Dla ręcznych wpisów każdy jest osobnym "zamówieniem"
             if is_manual:
                 # Dla ręcznych wpisów sumujemy wszystkie wartości
                 for product in products:
                     order_level_stats['order_amount_net'] += float(product.order_amount_net or 0)
                     order_level_stats['delivery_cost'] += float(product.delivery_cost or 0)
-                    order_level_stats['delivery_cost_net'] += float(product.delivery_cost or 0) / 1.23
                     order_level_stats['paid_amount_net'] += float(product.paid_amount_net or 0)
-                    order_level_stats['balance_due'] += float(product.balance_due or 0)
+            
+                    # ZMIANA: Do zapłaty netto = wartość produktów - zapłacono (BEZ kosztów kuriera)
+                    product_balance = float(product.order_amount_net or 0) - float(product.paid_amount_net or 0)
+                    order_level_stats['balance_due'] += product_balance
             else:
                 # Dla zamówień Baselinker - raz na zamówienie (z pierwszego produktu)
                 order_level_stats['order_amount_net'] += float(representative_product.order_amount_net or 0)
                 order_level_stats['delivery_cost'] += float(representative_product.delivery_cost or 0)
-                order_level_stats['delivery_cost_net'] += float(representative_product.delivery_cost or 0) / 1.23
                 order_level_stats['paid_amount_net'] += float(representative_product.paid_amount_net or 0)
-                order_level_stats['balance_due'] += float(representative_product.balance_due or 0)
+        
+                # ZMIANA: Do zapłaty netto = wartość produktów - zapłacono (BEZ kosztów kuriera)
+                product_balance = float(representative_product.order_amount_net or 0) - float(representative_product.paid_amount_net or 0)
+                order_level_stats['balance_due'] += product_balance
 
         # Połącz statystyki
         stats.update(product_level_stats)
@@ -298,14 +336,14 @@ class BaselinkerReportOrder(db.Model):
 
         # POPRAWKA: Oblicz średnią cenę za m³ jako średnią arytmetyczną (jak w Excel)
         # Zamiast dzielić łączną wartość przez łączną objętość
-    
+
         # Zbierz wszystkie ceny za m³ z produktów (pomijając 0 i None)
         price_per_m3_values = []
         for order in orders:
             price_per_m3 = float(order.price_per_m3 or 0)
             if price_per_m3 > 0:  # Pomiń produkty bez ceny za m³
                 price_per_m3_values.append(price_per_m3)
-    
+
         # Oblicz średnią arytmetyczną (jak Excel AVERAGE)
         if price_per_m3_values:
             stats['avg_price_per_m3'] = sum(price_per_m3_values) / len(price_per_m3_values)
@@ -317,13 +355,12 @@ class BaselinkerReportOrder(db.Model):
             if not isinstance(value, (int, float)) or value < 0:
                 stats[key] = 0.0
 
-
         # Liczba unikalnych zamówień (grupowanie po baselinker_order_id lub ręcznych wpisach)
         unique_orders = len(orders_by_unique_id)
-        
+
         # Liczba produktów fizycznych (wykluczając usługi)
         products_count = len([order for order in orders if order.group_type != 'usługa'])
-        
+
         # Dodaj do statystyk
         stats['unique_orders'] = unique_orders
         stats['products_count'] = products_count
@@ -427,11 +464,16 @@ class BaselinkerReportOrder(db.Model):
         # NOWE: Sprawdź czy to usługa
         if self.group_type == 'usługa':
             # === OBSŁUGA USŁUG ===
-            # Dla usług: wyzeruj pola związane z wymiarami/objętością
-            self.volume_per_piece = None
-            self.total_volume = None
-            self.price_per_m3 = None
-        
+            if self.total_volume is not None and self.total_volume > 0:
+                if (self.volume_per_piece is None or self.volume_per_piece == 0) and self.quantity:
+                    self.volume_per_piece = float(self.total_volume) / float(self.quantity)
+                if self.value_net is not None and self.total_volume > 0:
+                    self.price_per_m3 = float(self.value_net) / float(self.total_volume)
+            else:
+                self.volume_per_piece = None
+                self.total_volume = None
+                self.price_per_m3 = None
+
             # Oblicz datę realizacji (data + 14 dni, pomiń weekendy)
             if self.date_created:
                 target_date = self.date_created + timedelta(days=14)
@@ -439,12 +481,12 @@ class BaselinkerReportOrder(db.Model):
                 while target_date.weekday() >= 5:  # 5=sobota, 6=niedziela
                     target_date += timedelta(days=1)
                 self.realization_date = target_date
-            
+
             # Oblicz saldo (wartość netto zamówienia - zapłacono netto)
             if self.order_amount_net is not None and self.paid_amount_net is not None and self.delivery_cost is not None:
                 # POPRAWKA: Logika zależna od typu ceny zamówienia
                 price_type = (self.price_type or '').strip().lower()
-            
+
                 if price_type == 'netto':
                     # Zamówienia NETTO: klient płaci produkty netto + kuriera brutto
                     total_order_to_pay = float(self.order_amount_net) + float(self.delivery_cost)
@@ -452,19 +494,19 @@ class BaselinkerReportOrder(db.Model):
                     # Zamówienia BRUTTO: porównujemy wszystko na netto
                     delivery_cost_net = float(self.delivery_cost) / 1.23 if self.delivery_cost else 0.0
                     total_order_to_pay = float(self.order_amount_net) + delivery_cost_net
-        
+
                 # Saldo = całkowita kwota do zapłaty - zapłacono netto
                 self.balance_due = total_order_to_pay - float(self.paid_amount_net)
-            
+
             # Automatyczne uzupełnianie województwa na podstawie kodu pocztowego
             self.auto_fill_delivery_state()
-        
+
             # Oblicz produkcję i odbiór na podstawie statusu (bez objętości)
             self.update_production_fields()
-    
+
             # Normalizuj województwo
             self.normalize_delivery_state()
-        
+
             reports_logger.debug("Obliczono pola dla usługi",
                            service_name=self.raw_product_name,
                            balance_due=self.balance_due)
@@ -707,6 +749,7 @@ class BaselinkerReportOrder(db.Model):
             'balance_due': float(self.balance_due or 0),
             'production_volume': float(self.production_volume or 0),
             'production_value_net': float(self.production_value_net or 0),
+            'pickup_ready': 1 if (self.baselinker_status_id in [105113, 149777, 138620]) else 0,  # NOWE: Obliczona wartość dla sortowania
             'ready_pickup_volume': float(self.ready_pickup_volume or 0),
             'ready_pickup_value_net': float(self.ready_pickup_value_net or 0)
         }

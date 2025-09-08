@@ -17,8 +17,10 @@ class ReportsManager {
 
         // Referencias do elementów DOM
         this.elements = {};
-
         this.quotesCache = new Map();
+
+        // Dodaj sortowanie tabeli
+        this.tableSorting = null;
 
         console.log('[ReportsManager] Initialized');
     }
@@ -32,6 +34,10 @@ class ReportsManager {
         this.cacheElements();
         this.setupEventListeners();
         this.setDefaultDates();
+
+        // NOWE: Inicjalizuj sortowanie
+        this.initTableSorting();
+
         this.loadInitialData();
 
         window.reportsManager = this;
@@ -40,7 +46,7 @@ class ReportsManager {
     }
 
     /**
-     * Cache elementów DOM - POPRAWKA: Dodano filtry dropdown
+     * Cache elementów DOM - POPRAWKA: Dodano nowe elementy statystyk
      */
     cacheElements() {
         this.elements = {
@@ -58,9 +64,9 @@ class ReportsManager {
             syncLoadingOverlay: document.getElementById('syncLoadingOverlay'),
             syncLoadingText: document.getElementById('syncLoadingText'),
 
-            // Statystyki
+            // NOWE STATYSTYKI - zgodne z nową strukturą HTML
+            statUniqueOrders: document.getElementById('statUniqueOrders'),           // NOWE: tylko zamówienia
             statTotalM3: document.getElementById('statTotalM3'),
-            statOrdersProducts: document.getElementById('statOrdersProducts'),
             statOrderAmountNet: document.getElementById('statOrderAmountNet'),
             statValueNet: document.getElementById('statValueNet'),
             statPricePerM3: document.getElementById('statPricePerM3'),
@@ -71,12 +77,24 @@ class ReportsManager {
             statProductionValueNet: document.getElementById('statProductionValueNet'),
             statReadyPickupVolume: document.getElementById('statReadyPickupVolume'),
             statReadyPickupValueNet: document.getElementById('statReadyPickupValueNet'),
-            statOlejowanieVolume: document.getElementById('statOlejowanieVolume'),
-            statLakierowanieVolume: document.getElementById('statLakierowanieVolume'),
+            statPickupReady: document.getElementById('statPickupReady'),             // Do odbioru
+            statKlejonkaValueNet: document.getElementById('statKlejonkaValueNet'),   // NOWE: klejonka
+            statDeskaValueNet: document.getElementById('statDeskaValueNet'),         // NOWE: deska wartość
+            statDeskaTotalM3: document.getElementById('statDeskaTotalM3'),           // NOWE: deska m³
+            statServicesValueNet: document.getElementById('statServicesValueNet'),   // NOWE: usługi
+            statOlejowanieSurface: document.getElementById('statOlejowanieSurface'), // NOWE: olejowanie
+            statLakierowanieSurface: document.getElementById('statLakierowanieSurface'), // NOWE: lakierowanie
 
-            // Statystyki porównawcze
+            // ZACHOWANE dla kompatybilności wstecznej
+            statOrdersProducts: document.getElementById('statOrdersProducts'),       // Stare ID (może nie istnieć)
+            statOlejowanieVolume: document.getElementById('statOlejowanieVolume'),   // Stare ID (może nie istnieć)
+            statLakierowanieVolume: document.getElementById('statLakierowanieVolume'), // Stare ID (może nie istnieć)
+
+            // NOWE STATYSTYKI PORÓWNAWCZE - zgodne z nową strukturą
+            compUniqueOrders: document.getElementById('compUniqueOrders'),           // NOWE: porównanie zamówień
             compTotalM3: document.getElementById('compTotalM3'),
             compOrderAmountNet: document.getElementById('compOrderAmountNet'),
+            compValueNet: document.getElementById('compValueNet'),                   // NOWE: porównanie sprzedaży netto
             compPricePerM3: document.getElementById('compPricePerM3'),
             compDeliveryCostNet: document.getElementById('compDeliveryCostNet'),
             compPaidAmountNet: document.getElementById('compPaidAmountNet'),
@@ -85,6 +103,16 @@ class ReportsManager {
             compProductionValueNet: document.getElementById('compProductionValueNet'),
             compReadyPickupVolume: document.getElementById('compReadyPickupVolume'),
             compReadyPickupValueNet: document.getElementById('compReadyPickupValueNet'),
+            compPickupReady: document.getElementById('compPickupReady'),             // Do odbioru
+            compKlejonkaValueNet: document.getElementById('compKlejonkaValueNet'),   // NOWE: klejonka
+            compDeskaValueNet: document.getElementById('compDeskaValueNet'),         // NOWE: deska wartość
+            compDeskaTotalM3: document.getElementById('compDeskaTotalM3'),           // NOWE: deska m³
+            compServicesValueNet: document.getElementById('compServicesValueNet'),   // NOWE: usługi
+            compOlejowanieSurface: document.getElementById('compOlejowanieSurface'), // NOWE: olejowanie
+            compLakierowanieSurface: document.getElementById('compLakierowanieSurface'), // NOWE: lakierowanie
+
+            // ZACHOWANE dla kompatybilności wstecznej
+            compOrdersProducts: document.getElementById('compOrdersProducts'),       // Stare ID (może nie istnieć)
 
             // Tabela
             reportsTable: document.getElementById('reportsTable'),
@@ -208,6 +236,17 @@ class ReportsManager {
         console.log('[ReportsManager] Event listeners setup complete');
     }
 
+    // NOWA METODA: Inicjalizacja sortowania
+    initTableSorting() {
+        if (typeof TableSorting !== 'undefined') {
+            this.tableSorting = new TableSorting();
+            this.tableSorting.init();
+            console.log('[ReportsManager] Sortowanie tabeli zainicjowane');
+        } else {
+            console.warn('[ReportsManager] TableSorting nie jest dostępny');
+        }
+    }
+
     /**
      * Ustawienie domyślnych dat (początek bieżącego miesiąca)
      */
@@ -309,11 +348,11 @@ class ReportsManager {
      */
     clearComparisons() {
         console.log('[ReportsManager] Clearing comparisons...');
-
         const elementMap = {
             'total_m3': 'compTotalM3',
-            'unique_orders': 'compOrdersProducts',
+            'unique_orders': 'compUniqueOrders',                    // POPRAWKA: zmienione z compOrdersProducts
             'order_amount_net': 'compOrderAmountNet',
+            'value_net': 'compValueNet',                            // DODANE: dla sprzedaży netto
             'avg_price_per_m3': 'compPricePerM3',
             'delivery_cost_net': 'compDeliveryCostNet',
             'paid_amount_net': 'compPaidAmountNet',
@@ -321,17 +360,22 @@ class ReportsManager {
             'production_volume': 'compProductionVolume',
             'production_value_net': 'compProductionValueNet',
             'ready_pickup_volume': 'compReadyPickupVolume',
-            'ready_pickup_value_net': 'compReadyPickupValueNet'
+            'ready_pickup_value_net': 'compReadyPickupValueNet',
+            'klejonka_value_net': 'compKlejonkaValueNet',           // DODANE: klejonka
+            'deska_value_net': 'compDeskaValueNet',                 // DODANE: deska wartość
+            'deska_total_m3': 'compDeskaTotalM3',                   // DODANE: deska m³
+            'services_value_net': 'compServicesValueNet',           // DODANE: usługi
+            'pickup_ready_volume': 'compPickupReady'                // DODANE: do odbioru
         };
 
         // Wyczyść porównania - ustaw puste teksty
         Object.keys(elementMap).forEach(field => {
             const elementId = elementMap[field];
             const element = this.elements[elementId];
-
             if (element) {
                 element.textContent = '';
-                element.className = 'stat-comparison';
+                element.className = 'stats-comparison';             // POPRAWKA: zmienione z stat-comparison
+                element.style.display = 'none';                     // DODANE: ukryj element
             }
         });
 
@@ -340,7 +384,8 @@ class ReportsManager {
             const element = document.getElementById(elementId);
             if (element) {
                 element.textContent = '';
-                element.className = 'stat-comparison';
+                element.className = 'stats-comparison';             // POPRAWKA: zmienione z stat-comparison
+                element.style.display = 'none';                     // DODANE: ukryj element
             }
         });
     }
@@ -405,6 +450,11 @@ class ReportsManager {
             this.currentStats = result.stats || {};
             this.currentComparison = result.comparison || {};
 
+            // DODAJ TĘ LINIĘ: Resetuj sortowanie przy nowych danych
+            if (this.tableSorting) {
+                this.tableSorting.resetSort();
+            }
+
             // Aktualizuj interfejs
             this.updateTable();
             this.updateStatistics(this.currentStats);
@@ -423,6 +473,13 @@ class ReportsManager {
         } finally {
             this.hideLoading();
             this.isLoading = false;
+        }
+    }
+
+    // NOWA METODA: Reset sortowania (publiczna)
+    resetTableSort() {
+        if (this.tableSorting) {
+            this.tableSorting.resetSort();
         }
     }
 
@@ -1236,6 +1293,7 @@ class ReportsManager {
             'W produkcji - lakierowanie': 'status-w-produkcji-lakierowanie',
             'W produkcji - bejcowanie': 'status-w-produkcji-bejcowanie',
             'W produkcji - olejowanie': 'status-w-produkcji-olejowanie',
+            'W produkcji - suszenie usługowe': 'status-w-produkcji-suszenie',
             'Produkcja zakończona': 'status-produkcja-zakończona',
             'Zamówienie spakowane': 'status-zamówienie-spakowane',
             'Paczka zgłoszona do wysyłki': 'status-paczka-zgloszona-do-wysylki',
@@ -1305,11 +1363,10 @@ class ReportsManager {
         if (!stats) return;
 
         // Aktualizuj wszystkie standardowe statystyki
-        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');
+        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');  // TTL m³ klejonki
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
         this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
         this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
-        this.updateStat('statDeliveryCostNet', stats.delivery_cost_net, 2, ' PLN');
         this.updateStat('statPaidAmountNet', stats.paid_amount_net, 2, ' PLN');
         this.updateStat('statBalanceDue', stats.balance_due, 2, ' PLN');
         this.updateStat('statProductionVolume', stats.production_volume, 4, ' m³');
@@ -1318,20 +1375,35 @@ class ReportsManager {
         this.updateStat('statReadyPickupValueNet', stats.ready_pickup_value_net, 2, ' PLN');
         this.updateStat('statPickupReady', stats.pickup_ready_volume, 4, ' m³');
 
+        // POPRAWKA 1: Wartość klejonek netto
+        this.updateStat('statKlejonkaValueNet', stats.klejonka_value_net, 2, ' PLN');
+
+        // POPRAWKI 3 i 4: Statystyki dla deski
+        this.updateStat('statDeskaValueNet', stats.deska_value_net, 2, ' PLN');
+        this.updateStat('statDeskaTotalM3', stats.deska_total_m3, 4, ' m³');
+
+        // POPRAWKA 5: Wartość usług netto
+        this.updateStat('statServicesValueNet', stats.services_value_net, 2, ' PLN');
+
+        // NOWA STRUKTURA: Obsługa statystyki "Zamówienia" (bez pozycji)
+        this.updateStat('statUniqueOrders', stats.unique_orders || 0, 0, ''); // Bez miejsc po przecinku dla liczby zamówień
+
+        // ZACHOWANE dla kompatybilności wstecznej: Zamówienia/Pozycje (jeśli jeszcze istnieje)
+        if (this.elements.statOrdersProducts) {
+            this.elements.statOrdersProducts.textContent = `${stats.unique_orders || 0} / ${stats.products_count || 0}`;
+        }
+
         // NOWE - oblicz i aktualizuj statystyki wykończenia na podstawie aktualnych danych
         if (this.currentData && this.currentData.length > 0) {
             const finishStats = this.calculateFinishStatistics(this.currentData);
             this.updateStat('statOlejowanieSurface', finishStats.olejowanie_surface, 4, ' m²');
             this.updateStat('statLakierowanieSurface', finishStats.lakierowanie_surface, 4, ' m²');
         } else {
-            // Jeśli brak danych, wyzeruj statystyki wykończenia
             this.updateStat('statOlejowanieSurface', 0, 4, ' m²');
             this.updateStat('statLakierowanieSurface', 0, 4, ' m²');
         }
 
-        if (this.elements.statOrdersProducts) {
-            this.elements.statOrdersProducts.textContent = `${stats.unique_orders || 0} / ${stats.products_count || 0}`;
-        }
+        console.log('[ReportsManager] Statystyki zaktualizowane', stats);
     }
 
     /**
@@ -1374,16 +1446,21 @@ class ReportsManager {
 
         const fields = [
             'total_m3', 'order_amount_net', 'value_net',
-            'avg_price_per_m3', 'delivery_cost_net', 'paid_amount_net', 'balance_due',
-            'production_volume', 'production_value_net', 'ready_pickup_volume', 'ready_pickup_value_net', 'olejowanie_surface', 'lakierowanie_surface'
+            'avg_price_per_m3', 'paid_amount_net', 'balance_due',
+            'production_volume', 'production_value_net', 'ready_pickup_volume', 'ready_pickup_value_net',
+            'olejowanie_surface', 'lakierowanie_surface',
+            'klejonka_value_net',
+            'deska_value_net', 'deska_total_m3',
+            'services_value_net',
+            'unique_orders'  // DODANE: mapowanie dla liczby zamówień
         ];
 
         const elementMap = {
             'total_m3': 'compTotalM3',
-            'unique_orders': 'compOrdersProducts',      // NOWE: mapowanie dla zamówień/produktów
+            'unique_orders': 'compUniqueOrders',           // POPRAWKA: mapowanie dla zamówień (bez pozycji)
             'order_amount_net': 'compOrderAmountNet',
+            'value_net': 'compValueNet',                   // DODANE: mapowanie dla sprzedaży netto
             'avg_price_per_m3': 'compPricePerM3',
-            'delivery_cost_net': 'compDeliveryCostNet',
             'paid_amount_net': 'compPaidAmountNet',
             'balance_due': 'compBalanceDue',
             'production_volume': 'compProductionVolume',
@@ -1391,7 +1468,11 @@ class ReportsManager {
             'olejowanie_surface': 'compOlejowanieSurface',
             'lakierowanie_surface': 'compLakierowanieSurface',
             'ready_pickup_volume': 'compReadyPickupVolume',
-            'ready_pickup_value_net': 'compReadyPickupValueNet'
+            'ready_pickup_value_net': 'compReadyPickupValueNet',
+            'klejonka_value_net': 'compKlejonkaValueNet',
+            'deska_value_net': 'compDeskaValueNet',
+            'deska_total_m3': 'compDeskaTotalM3',
+            'services_value_net': 'compServicesValueNet'
         };
 
         fields.forEach(field => {
@@ -1400,22 +1481,27 @@ class ReportsManager {
             const compData = comparison[field];
 
             if (element) {
+                // NOWY KOD z poprawką dla 0%:
                 if (compData && compData.change_percent !== undefined) {
                     const changePercent = compData.change_percent;
                     const isPositive = compData.is_positive;
 
-                    if (changePercent !== 0) {
+                    // POPRAWKA: Ukryj porównania przy 0% (wcześniej było changePercent !== 0)
+                    if (Math.abs(changePercent) > 0.1) {
                         const sign = isPositive ? '+' : '';
                         element.textContent = `${sign}${changePercent}%`;
-                        element.className = `stat-comparison ${isPositive ? 'positive' : 'negative'}`;
+                        element.className = `stats-comparison ${isPositive ? 'positive' : 'negative'}`;
+                        element.style.display = '';  // Pokaż element
                     } else {
+                        // Ukryj element przy 0% lub bardzo małych zmianach
                         element.textContent = '';
-                        element.className = 'stat-comparison';
+                        element.className = 'stats-comparison';
+                        element.style.display = 'none';
                     }
                 } else {
-                    // Brak danych porównawczych dla tego pola
                     element.textContent = '';
-                    element.className = 'stat-comparison';
+                    element.className = 'stats-comparison';
+                    element.style.display = 'none';
                 }
             }
         });
