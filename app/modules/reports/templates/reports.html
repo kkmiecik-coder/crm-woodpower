@@ -82,90 +82,163 @@
 
             <!-- Statystyki -->
             <div class="stats-container">
-                <div class="stat-box">
-                    <div class="stat-label">Zamówienia / pozycje</div>
-                    <div class="stat-value" id="statOrdersProducts">0 / 0</div>
-                    <div class="stat-comparison" id="compOrdersProducts"></div>
+                <!-- PODSTAWOWE -->
+                <div class="stats-group">
+                    <div class="stats-group-header">
+                        <span class="stats-header-icon">🎯</span>
+                        PODSTAWOWE
+                    </div>
+                    <div class="stats-group-content">
+                        <div class="stats-row">
+                            <span class="stats-label">Zamówienia</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statUniqueOrders">0</span>
+                                <span class="stats-comparison" id="compUniqueOrders"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Sprzedaży netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compValueNet"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Średnia cena m³ netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statPricePerM3">0.00 zł</span>
+                                <span class="stats-comparison" id="compPricePerM3"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Zapłacono TTL netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statPaidAmountNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compPaidAmountNet"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Do zapłaty netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statBalanceDue">0.00 zł</span>
+                                <span class="stats-comparison" id="compBalanceDue"></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość sprzedaży netto</div>
-                    <div class="stat-value" id="statValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compValueNet"></div>
+
+                <!-- PRODUKTY -->
+                <div class="stats-group">
+                    <div class="stats-group-header">
+                        <span class="stats-header-icon">📦</span>
+                        PRODUKTY
+                    </div>
+                    <div class="stats-group-content">
+                        <div class="stats-row">
+                            <span class="stats-label">Sprzedaż klejonek netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statKlejonkaValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compKlejonkaValueNet"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">TTL m³ klejonki</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statTotalM3">0.0000 m³</span>
+                                <span class="stats-comparison" id="compTotalM3"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Sprzedaż deski netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statDeskaValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compDeskaValueNet"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">TTL m³ deski</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statDeskaTotalM3">0.0000 m³</span>
+                                <span class="stats-comparison" id="compDeskaTotalM3"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Sprzedaż usług netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statServicesValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compServicesValueNet"></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość klejonek netto</div>
-                    <div class="stat-value" id="statKlejonkaValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compKlejonkaValueNet"></div>
+
+                <!-- PRODUKCJA -->
+                <div class="stats-group">
+                    <div class="stats-group-header">
+                        <span class="stats-header-icon">🏭</span>
+                        PRODUKCJA
+                    </div>
+                    <div class="stats-group-content">
+                        <div class="stats-row">
+                            <span class="stats-label">Ilość m³ w produkcji</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statProductionVolume">0.0000</span>
+                                <span class="stats-comparison" id="compProductionVolume"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Wartość netto w produkcji</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statProductionValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compProductionValueNet"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Wyprodukowane</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statReadyPickupVolume">0.00</span>
+                                <span class="stats-comparison" id="compReadyPickupVolume"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Wyprodukowana netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statReadyPickupValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compReadyPickupValueNet"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Do odbioru</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statPickupReady">0.0000 m³</span>
+                                <span class="stats-comparison" id="compPickupReady"></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="stat-box">
-                    <div class="stat-label">TTL m³ klejonki</div>
-                    <div class="stat-value" id="statTotalM3">0.0000 m³</div>
-                    <div class="stat-comparison" id="compTotalM3"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość deski netto</div>
-                    <div class="stat-value" id="statDeskaValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compDeskaValueNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">TTL m³ deski</div>
-                    <div class="stat-value" id="statDeskaTotalM3">0.0000 m³</div>
-                    <div class="stat-comparison" id="compDeskaTotalM3"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość usług netto</div>
-                    <div class="stat-value" id="statServicesValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compServicesValueNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Średnia cena m³ netto</div>
-                    <div class="stat-value" id="statPricePerM3">0.00 zł</div>
-                    <div class="stat-comparison" id="compPricePerM3"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Zapłacono TTL netto</div>
-                    <div class="stat-value" id="statPaidAmountNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compPaidAmountNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Ilość m³ w produkcji</div>
-                    <div class="stat-value" id="statProductionVolume">0.0000</div>
-                    <div class="stat-comparison" id="compProductionVolume"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wartość netto w produkcji</div>
-                    <div class="stat-value" id="statProductionValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compProductionValueNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wyprodukowane</div>
-                    <div class="stat-value" id="statReadyPickupVolume">0.00</div>
-                    <div class="stat-comparison" id="compReadyPickupVolume"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Wyprodukowana netto</div>
-                    <div class="stat-value" id="statReadyPickupValueNet">0.00 zł</div>
-                    <div class="stat-comparison" id="compReadyPickupValueNet"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Do odbioru</div>
-                    <div class="stat-value" id="statPickupReady">0.0000 m³</div>
-                    <div class="stat-comparison" id="compPickupReady"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Do zapłaty netto</div>
-                    <div class="stat-value" id="statBalanceDue">0.00 zł</div>
-                    <div class="stat-comparison" id="compBalanceDue"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Olejowanie m²</div>
-                    <div class="stat-value" id="statOlejowanieSurface">0.0000</div>
-                    <div class="stat-comparison" id="compOlejowanieSurface"></div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Lakierowanie m²</div>
-                    <div class="stat-value" id="statLakierowanieSurface">0.0000</div>
-                    <div class="stat-comparison" id="compLakierowanieSurface"></div>
+
+                <!-- WYKOŃCZENIE -->
+                <div class="stats-group">
+                    <div class="stats-group-header">
+                        <span class="stats-header-icon">🎨</span>
+                        WYKOŃCZENIE
+                    </div>
+                    <div class="stats-group-content">
+                        <div class="stats-row">
+                            <span class="stats-label">Olejowanie m²</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statOlejowanieSurface">0.0000</span>
+                                <span class="stats-comparison" id="compOlejowanieSurface"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Lakierowanie m²</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statLakierowanieSurface">0.0000</span>
+                                <span class="stats-comparison" id="compLakierowanieSurface"></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
