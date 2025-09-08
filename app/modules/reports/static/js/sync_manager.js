@@ -212,6 +212,7 @@ class SyncManager {
             148832: 'W produkcji - olejowanie',
             148831: 'W produkcji - bejcowanie',
             148830: 'W produkcji - lakierowanie',
+            332355: 'W produkcji - suszenie usługowe',
             138620: 'Produkcja zakończona',
             138623: 'Zamówienie spakowane',
             105113: 'Paczka zgłoszona do wysyłki',
@@ -221,6 +222,7 @@ class SyncManager {
             138624: 'Dostarczona - kurier',
             149778: 'Dostarczona - transport WoodPower',
             149779: 'Odebrane',
+            316636: 'Reklamacja',
             138625: 'Zamówienie anulowane'
         };
 

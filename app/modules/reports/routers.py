@@ -2191,13 +2191,8 @@ def api_fetch_orders_for_selection():
 
 def analyze_order_products_for_volume(order_data):
     """
-    NOWA FUNKCJA: Analizuje produkty w zamówieniu pod kątem objętości i atrybutów
-    
-    Args:
-        order_data (dict): Dane zamówienia z Baselinker
-        
-    Returns:
-        dict: Zamówienie z dodanymi informacjami o analizie objętości
+    ROZSZERZONA FUNKCJA: Analizuje produkty w zamówieniu pod kątem objętości i atrybutów
+    DODANO: Obsługę worków opałowych (bez walidacji)
     """
     products = order_data.get('products', [])
     if not products:
@@ -2210,7 +2205,7 @@ def analyze_order_products_for_volume(order_data):
     for product in products:
         product_name = product.get('name', '')
     
-        # NOWE: Sprawdź czy to usługa używając service
+        # Sprawdź czy to usługa używając service
         service = get_reports_service()
         if service._is_service_product(product_name):
             analysis = {
@@ -2224,17 +2219,24 @@ def analyze_order_products_for_volume(order_data):
             }
             # Usługi nie wymagają uzupełnienia objętości
             product['needs_manual_volume'] = False
-            product['has_dimension_issues'] = False  # Usługi nie mają problemów z wymiarami
+            product['has_dimension_issues'] = False
         else:
-            # Istniejąca logika analizy produktów fizycznych
+            # Analizuj produkty fizyczne
             analysis = analyze_product_for_volume_and_attributes(product_name)
-            product['needs_manual_volume'] = analysis['analysis_type'] == 'manual_input_needed'
-            # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
-            product['has_dimension_issues'] = not check_product_dimensions(product_name)
+            
+            # NOWA LOGIKA: Worki opałowe nie wymagają walidacji
+            if analysis['analysis_type'] == 'no_validation_needed':
+                product['needs_manual_volume'] = False
+                product['has_dimension_issues'] = False
+            else:
+                product['needs_manual_volume'] = analysis['analysis_type'] == 'manual_input_needed'
+                # Sprawdź czy trzeba też sprawdzić wymiary (stara logika)
+                product['has_dimension_issues'] = not check_product_dimensions(product_name)
     
         # Dodaj wyniki analizy do produktu
         product['volume_analysis'] = analysis
     
+        # ZMIANA: Worki opałowe nie powodują problemów z objętością
         if analysis['analysis_type'] == 'manual_input_needed' or analysis['analysis_type'] == 'volume_only':
             order_has_volume_issues = True
     
@@ -3439,37 +3441,62 @@ def analyze_product_for_volume_and_attributes(product_name):
     technology = extract_technology_from_product_name(product_name)
     wood_class = extract_wood_class_from_product_name(product_name)
     
-    # NOWA LOGIKA PRIORYTETU - OBJĘTOŚĆ WYGRYWA Z HEURYSTYKĄ WYMIARÓW
+    # NOWA LOGIKA: Sprawdź typ produktu z nazwy
+    from .parser import ProductNameParser
+    parser = ProductNameParser()
+    parsed = parser.parse_product_name(product_name)
+    product_type = parsed.get('product_type')
+    
+    # OKREŚL ANALYSIS_TYPE na podstawie typu produktu
     analysis_type = 'unknown'
     
-    # SPRAWDŹ CZY WYMIARY TO RZECZYWISTE WYMIARY (nie heurystyka)
-    has_real_dimensions = False
-    if has_dimensions:
-        # Sprawdź czy nazwa zawiera rzeczywiste wzorce wymiarów (np. 50x30x2)
-        import re
-        real_dimension_patterns = [
-            r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*\s*x\s*\d+[,.]?\d*',  # 200,4x89x4.5 (3 wymiary)
-            r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*\s*×\s*\d+[,.]?\d*',  # 200,4×89×4.5
-            r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*(?!\s*x)',  # 200,4x89 (2 wymiary)
-            r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*(?!\s*×)',  # 200,4×89
-        ]
-        
-        for pattern in real_dimension_patterns:
-            if re.search(pattern, product_name):
-                has_real_dimensions = True
-                break
-                    
-    # LOGIKA PRIORYTETU:
-    if has_real_dimensions and not has_volume:
-        analysis_type = 'dimensions_priority'
-    elif has_real_dimensions and has_volume:
-        analysis_type = 'dimensions_priority'  # Rzeczywiste wymiary wygrywają z objętością
-    elif not has_real_dimensions and has_volume:
-        analysis_type = 'volume_only'  # Objętość wygrywa z heurystyką wymiarów
-    elif not has_real_dimensions and not has_volume and has_dimensions:
-        analysis_type = 'manual_input_needed'  # Tylko heurystyka wymiarów - lepiej zapytać użytkownika
+    # WORKI OPAŁOWE: Nie wymagają walidacji objętości ani wymiarów
+    if product_type == 'worek opałowy':
+        analysis_type = 'no_validation_needed'  # Nowy typ - bez walidacji
+    
+    # SUSZENIE: Wymaga walidacji objętości (podobnie jak produkty bez wymiarów)
+    elif product_type == 'suszenie':
+        if has_volume:
+            analysis_type = 'volume_only'
+        else:
+            analysis_type = 'manual_input_needed'
+    
+    # TARCICA: Wymaga walidacji objętości (podobnie jak produkty bez wymiarów)
+    elif product_type == 'tarcica':
+        if has_volume:
+            analysis_type = 'volume_only'
+        else:
+            analysis_type = 'manual_input_needed'
+    
+    # ISTNIEJĄCE PRODUKTY (klejonka, deska): dotychczasowa logika
     else:
-        analysis_type = 'manual_input_needed'
+        # Sprawdź czy wymiary to rzeczywiste wymiary (nie heurystyka)
+        has_real_dimensions = False
+        if has_dimensions:
+            import re
+            real_dimension_patterns = [
+                r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*\s*x\s*\d+[,.]?\d*',  # 200,4x89x4.5 (3 wymiary)
+                r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*\s*×\s*\d+[,.]?\d*',  # 200,4×89×4.5
+                r'\d+[,.]?\d*\s*x\s*\d+[,.]?\d*(?!\s*x)',  # 200,4x89 (2 wymiary)
+                r'\d+[,.]?\d*\s*×\s*\d+[,.]?\d*(?!\s*×)',  # 200,4×89
+            ]
+            
+            for pattern in real_dimension_patterns:
+                if re.search(pattern, product_name):
+                    has_real_dimensions = True
+                    break
+                    
+        # LOGIKA PRIORYTETU dla klejonki/deski:
+        if has_real_dimensions and not has_volume:
+            analysis_type = 'dimensions_priority'
+        elif has_real_dimensions and has_volume:
+            analysis_type = 'dimensions_priority'  # Rzeczywiste wymiary wygrywają z objętością
+        elif not has_real_dimensions and has_volume:
+            analysis_type = 'volume_only'  # Objętość wygrywa z heurystyką wymiarów
+        elif not has_real_dimensions and not has_volume and has_dimensions:
+            analysis_type = 'manual_input_needed'  # Tylko heurystyka wymiarów - lepiej zapytać użytkownika
+        else:
+            analysis_type = 'manual_input_needed'
     
     result = {
         'has_dimensions': has_dimensions,
@@ -3478,7 +3505,8 @@ def analyze_product_for_volume_and_attributes(product_name):
         'wood_species': wood_species,
         'technology': technology,
         'wood_class': wood_class,
-        'analysis_type': analysis_type
+        'analysis_type': analysis_type,
+        'product_type': product_type  # NOWE: dodaj product_type do rezultatu
     }
     return result
 

@@ -49,7 +49,7 @@ class BaselinkerReportOrder(db.Model):
 
     # === DANE PRODUKTU (kolumny 15-24) ===
     group_type = db.Column(db.Enum('towar', 'usługa', name='group_type_enum'), nullable=True, comment="15. Grupa")
-    product_type = db.Column(db.Enum('klejonka', 'deska', name='product_type_enum'), nullable=True, comment="16. Rodzaj")
+    product_type = db.Column(db.Enum('klejonka', 'deska', 'worek opałowy', 'suszenie', 'tarcica', name='product_type_enum'), nullable=True, comment="16. Rodzaj")
     finish_state = db.Column(db.String(50), nullable=True, comment="17. Stan (wykończenie)")
     wood_species = db.Column(db.String(50), nullable=True, comment="18. Gatunek")
     technology = db.Column(db.String(50), nullable=True, comment="19. Technologia")

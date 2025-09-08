@@ -75,6 +75,7 @@ class ProductNameParser:
     
     # Mapowanie typów produktów
     PRODUCT_TYPE_MAP = {
+        # Istniejące produkty
         'klejonka': 'klejonka',
         'klejonki': 'klejonka',
         'deska': 'deska',
@@ -91,7 +92,32 @@ class ProductNameParser:
         'podstopień': 'klejonka',
         'podstopnie': 'klejonka',
         'stopień': 'klejonka',
-        'stopnie': 'klejonka'
+        'stopnie': 'klejonka',
+    
+        # NOWE: Worki opałowe
+        'worki opałowe': 'worek opałowy',
+        'worek opałowy': 'worek opałowy',
+        'worek': 'worek opałowy',
+        'wór': 'worek opałowy',
+        'woreczek': 'worek opałowy',
+        'opał': 'worek opałowy',
+        'opałowy': 'worek opałowy',
+        'opałowe': 'worek opałowy',
+        'do palenia': 'worek opałowy',
+    
+        # NOWE: Suszenie usługowe
+        'suszenie': 'suszenie',
+        'suszenia': 'suszenie',
+        'wysuszenie': 'suszenie',
+        'wysuszenia': 'suszenie',
+        'usługa': 'suszenie',
+        'usługowe': 'suszenie',
+        'usługa suszenia': 'suszenie',
+        'suszenie usługowe': 'suszenie',
+    
+        # NOWE: Tarcica
+        'tarcica': 'tarcica',
+        'tarcicy': 'tarcica',
     }
     
     def __init__(self):

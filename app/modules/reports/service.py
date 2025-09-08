@@ -33,23 +33,24 @@ class BaselinkerReportsService:
         
         # Mapowanie statusów Baselinker
         self.status_map = {
+            155824: "Nowe - opłacone",
             105112: "Nowe - nieopłacone",
-            105113: "Paczka zgłoszona do wysyłki", 
-            105114: "Wysłane - kurier",
             138619: "W produkcji - surowe",
-            138620: "Produkcja zakończona",
-            138623: "Zamówienie spakowane",
-            138624: "Dostarczona - kurier",
-            138625: "Zamówienie anulowane",
             148830: "W produkcji - lakierowanie",
             148831: "W produkcji - bejcowanie", 
             148832: "W produkcji - olejowanie",
+            332355: "W produkcji - suszenie usługowe",
+            138620: "Produkcja zakończona",
+            138623: "Zamówienie spakowane",
+            105113: "Paczka zgłoszona do wysyłki", 
+            105114: "Wysłane - kurier",
+            138624: "Dostarczona - kurier",
             149763: "Wysłane - transport WoodPower",
             149777: "Czeka na odbiór osobisty",
             149778: "Dostarczona - trans. WoodPower",
             149779: "Odebrane",
             316636: "Reklamacja",
-            155824: "Nowe - opłacone"
+            138625: "Zamówienie anulowane"
         }
 
         # NOWE właściwości dla obsługi objętości
@@ -58,26 +59,33 @@ class BaselinkerReportsService:
     def _is_service_product(self, product_name: str) -> bool:
         """
         Rozpoznaje czy produkt to usługa na podstawie nazwy
-    
+        ROZSZERZONE: dodano obsługę suszenia usługowego
+
         Args:
             product_name (str): Nazwa produktu z Baselinker
-        
+    
         Returns:
             bool: True jeśli produkt to usługa, False w przeciwnym razie
         """
         if not product_name:
             return False
-    
-        service_keywords = ['usługa' ,'usluga', 'usługi', 'uslugi', 'klejenie', 'przycięcie', 'montaż']
+
+        service_keywords = [
+            'usługa', 'usluga', 'usługi', 'uslugi', 
+            'klejenie', 'przycięcie', 'montaż',
+            # NOWE: suszenie usługowe
+            'suszenie', 'suszenia', 'wysuszenie', 'wysuszenia',
+            'usługa suszenia', 'suszenie usługowe'
+        ]
         product_name_lower = product_name.lower()
-    
+
         is_service = any(keyword in product_name_lower for keyword in service_keywords)
-    
+
         if is_service:
             self.logger.debug("Rozpoznano usługę", 
                              product_name=product_name,
                              matched_keywords=[kw for kw in service_keywords if kw in product_name_lower])
-    
+
         return is_service
 
     def set_volume_fixes(self, volume_fixes_dict):
@@ -1371,7 +1379,7 @@ class BaselinkerReportsService:
         # NOWE: Pobierz informację o typie ceny z custom_extra_fields
         custom_fields = order.get('custom_extra_fields', {})
         price_type_from_api = custom_fields.get('106169', '').strip()
-        
+    
         self.logger.debug("Pobrano typ ceny z custom_extra_fields",
                         order_id=order.get('order_id'),
                         price_type_from_api=price_type_from_api)
@@ -1386,7 +1394,7 @@ class BaselinkerReportsService:
 
         for product in products:
             original_price_from_baselinker = float(product.get('price_brutto', 0))
-    
+
             # POPRAWIONA LOGIKA: Rozróżnianie typu ceny (zamiast process_baselinker_amount)
             if price_type_from_api.lower() == 'netto':
                 # PRZYPADEK 1: Zamówienie ma oznaczenie "Netto"
@@ -1402,16 +1410,16 @@ class BaselinkerReportsService:
                 # PRZYPADEK 3: Zamówienie bez oznaczenia (domyślnie BRUTTO)
                 price_gross = original_price_from_baselinker
                 price_net = price_gross / 1.23
-    
+
             quantity = int(product.get('quantity', 1))
 
             # POPRAWIONE: Dodaj do obu sum
             product_value_gross = price_gross * quantity
             product_value_net = price_net * quantity
-    
+
             total_order_value_gross += product_value_gross
             total_order_value_net += product_value_net
-    
+
             # ✅ NOWE: Dodaj do sumy produktów tylko jeśli to NIE usługa
             product_name = product.get('name', '')
             if not self._is_service_product(product_name):
@@ -1424,10 +1432,10 @@ class BaselinkerReportsService:
             try:
                 product_name = product.get('name', '')
                 quantity = int(product.get('quantity', 1))
-                
+            
                 # ✅ UŻYJ NOWEJ METODY GENEROWANIA KLUCZY
                 product_key = self.generate_product_key(order.get('order_id'), product, product_index)
-                
+            
                 self.logger.debug("Processing product for volume calculation",
                                 order_id=order.get('order_id'),
                                 product_name=product_name,
@@ -1438,12 +1446,12 @@ class BaselinkerReportsService:
 
                 # ✅ NOWA LOGIKA: Sprawdź volume_fixes NAJPIERW
                 volume_fix = self.get_volume_fix(product_key) if hasattr(self, 'volume_fixes') else None
-        
+    
                 if volume_fix and volume_fix.get('volume'):
                     # PRZYPADEK 1: Mamy ręczne poprawki objętości
                     product_volume = float(volume_fix['volume'])
                     total_m3_all_products += product_volume
-            
+        
                     self.logger.debug("Użyto volume_fix dla produktu",
                                     order_id=order.get('order_id'),
                                     product_name=product_name,
@@ -1454,12 +1462,12 @@ class BaselinkerReportsService:
                     # PRZYPADEK 2: Użyj analizy nazwy produktu
                     from .routers import analyze_product_for_volume_and_attributes
                     analysis = analyze_product_for_volume_and_attributes(product_name)
-            
+        
                     if analysis['analysis_type'] == 'volume_only' and analysis.get('volume'):
                         # Objętość z nazwy produktu
                         product_volume = float(analysis.get('volume', 0))
                         total_m3_all_products += product_volume
-                
+            
                         self.logger.debug("Użyto objętości z nazwy produktu",
                                         order_id=order.get('order_id'),
                                         product_name=product_name,
@@ -1468,12 +1476,13 @@ class BaselinkerReportsService:
                     else:
                         # PRZYPADEK 3: Użyj parsera wymiarów (dotychczasowa logika)
                         parsed_product = self.parser.parse_product_name(product_name)
-        
+    
                         # POPRAWKA: Bezpieczna konwersja wszystkich wymiarów na float
+                        product_type = parsed_product.get('product_type')
                         length_cm = parsed_product.get('length_cm')
                         width_cm = parsed_product.get('width_cm') 
                         thickness_mm = parsed_product.get('thickness_mm')
-        
+    
                         # Bezpieczna konwersja Decimal/None na float
                         def safe_float_convert(value):
                             if value is None:
@@ -1484,15 +1493,15 @@ class BaselinkerReportsService:
                                 return float(value)
                             except (ValueError, TypeError):
                                 return 0.0
-        
+    
                         length_m = safe_float_convert(length_cm) / 100 if length_cm else 0.0
                         width_m = safe_float_convert(width_cm) / 100 if width_cm else 0.0
                         thickness_m = safe_float_convert(thickness_mm) / 1000 if thickness_mm else 0.0
-        
+    
                         if length_m > 0 and width_m > 0 and thickness_m > 0:
                             product_m3 = length_m * width_m * thickness_m * quantity
                             total_m3_all_products += product_m3
-            
+        
                             self.logger.debug("Obliczono objętość produktu z wymiarów",
                                             order_id=order.get('order_id'),
                                             product_name=product_name,
@@ -1512,7 +1521,19 @@ class BaselinkerReportsService:
                                                 'width_cm': safe_float_convert(width_cm) if width_cm else None,
                                                 'thickness_mm': safe_float_convert(thickness_mm) if thickness_mm else None
                                             })
-        
+                        
+                        # NOWA LOGIKA: Ustaw group_type na podstawie product_type
+                        if product_type == 'suszenie':
+                            group_type = 'usługa'
+                        elif product_type in ['worek opałowy', 'tarcica', 'klejonka', 'deska']:
+                            group_type = 'towar'
+                        else:
+                            # Fallback - sprawdź czy nazwa wskazuje na usługę
+                            if self._is_service_product(product_name):
+                                group_type = 'usługa'
+                            else:
+                                group_type = 'towar'
+    
             except Exception as e:
                 self.logger.warning("Błąd obliczania objętości produktu",
                                   order_id=order.get('order_id'),
@@ -1525,16 +1546,16 @@ class BaselinkerReportsService:
                         order_id=order.get('order_id'),
                         total_m3=round(total_m3_all_products, 6),
                         products_count=len(products))
-    
+
         # Teraz utwórz rekordy dla każdego produktu z tą samą łączną objętością
         for product_index, product in enumerate(products):
             try:
                 # Pobierz nazwę produktu i sprawdź czy to usługa
                 product_name = product.get('name', '')
-            
+        
                 # POPRAWIONA LOGIKA: Przetwórz cenę produktu (zamiast process_baselinker_amount)
                 original_price_from_baselinker = float(product.get('price_brutto', 0))
-            
+        
                 # Rozróżnianie typu ceny - TAKA SAMA LOGIKA jak wyżej
                 if price_type_from_api.lower() == 'netto':
                     # Kwota z Baselinker jest NETTO
@@ -1561,7 +1582,7 @@ class BaselinkerReportsService:
                                 final_price_net=price_net,
                                 final_price_gross=price_gross,
                                 price_type_saved=price_type_to_save)
-            
+        
                 # NOWE: Sprawdź czy to usługa
                 if self._is_service_product(product_name):
                     # === OBSŁUGA USŁUG ===
@@ -1579,9 +1600,11 @@ class BaselinkerReportsService:
                         caretaker=(order.get('custom_extra_fields', {}).get('105623') or "Brak danych"),
                         delivery_method=order.get('delivery_method'),
                         order_source=order.get('order_source'),
+                        group_type=group_type,
+                        product_type=product_type,
                         current_status=self.status_map.get(order.get('order_status_id'), f'Status {order.get("order_status_id")}'),
                         baselinker_status_id=order.get('order_status_id'),
-                
+            
                         # FINANSE (bez zmian)
                         order_amount_net=total_order_value_net_products_only,
                         delivery_cost=float(order.get('delivery_price', 0)),
@@ -1590,7 +1613,7 @@ class BaselinkerReportsService:
                             price_type_from_api
                         ),
                         payment_method=order.get('payment_method'),
-                
+            
                         # DANE USŁUGI - brak wymiarów i objętości
                         total_m3=0,  # Usługi nie mają objętości na poziomie zamówienia
                         raw_product_name=product_name,
@@ -1599,14 +1622,12 @@ class BaselinkerReportsService:
                         price_net=price_net,
                         price_type=price_type_to_save,
                         original_amount_from_baselinker=original_price_from_baselinker,
-                    
+                
                         # Wartości finansowe
                         value_gross=price_gross * product.get('quantity', 1),
                         value_net=price_net * product.get('quantity', 1),
-                
+            
                         # USŁUGA: brak atrybutów produktowych
-                        group_type='usługa',
-                        product_type=None,
                         wood_species=None,
                         technology=None,
                         wood_class=None,
@@ -1617,12 +1638,12 @@ class BaselinkerReportsService:
                         volume_per_piece=None,
                         total_volume=None,
                         price_per_m3=None,
-                
+            
                         # Pola techniczne
                         is_manual=False,
                         email=order.get('email')
                     )
-                
+            
                     self.logger.debug("Utworzono rekord usługi",
                                     order_id=order.get('order_id'),
                                     service_name=product_name,
@@ -1633,7 +1654,7 @@ class BaselinkerReportsService:
 
                     # ✅ WYGENERUJ KLUCZ PRODUKTU ZGODNIE Z FRONTENDEM
                     product_key = self.generate_product_key(order.get('order_id'), product, product_index)
-                    
+                
                     self.logger.debug("Generated product key for physical product",
                                     order_id=order.get('order_id'),
                                     product_name=product_name,
@@ -1658,7 +1679,7 @@ class BaselinkerReportsService:
                         order_source=order.get('order_source'),
                         current_status=self.status_map.get(order.get('order_status_id'), f'Status {order.get("order_status_id")}'),
                         baselinker_status_id=order.get('order_status_id'),
-                
+            
                         # FINANSE (bez zmian)
                         order_amount_net=total_order_value_net_products_only,
                         delivery_cost=float(order.get('delivery_price', 0)),
@@ -1667,7 +1688,7 @@ class BaselinkerReportsService:
                             price_type_from_api
                         ),
                         payment_method=order.get('payment_method'),
-                
+            
                         # DANE PRODUKTU - z istniejącej logiki
                         total_m3=total_m3_all_products,
                         raw_product_name=product_name,
@@ -1676,11 +1697,11 @@ class BaselinkerReportsService:
                         price_net=price_net,
                         price_type=price_type_to_save,
                         original_amount_from_baselinker=original_price_from_baselinker,
-                    
+                
                         # Wartości
                         value_gross=price_gross * product.get('quantity', 1),
                         value_net=price_net * product.get('quantity', 1),
-                
+            
                         # Dane z parsera
                         group_type='towar',
                         product_type=parsed_product.get('product_type') or 'klejonka',
@@ -1745,7 +1766,7 @@ class BaselinkerReportsService:
                 # Oblicz pola pochodne (dla obu typów)
                 record.calculate_fields()
                 records.append(record)
-            
+        
             except Exception as e:
                 self.logger.error("Błąd przetwarzania produktu",
                                 order_id=order.get('order_id'),
@@ -1756,7 +1777,7 @@ class BaselinkerReportsService:
         # PRZENIEŚ OBLICZANIE ŚREDNIEJ CENY TUTAJ (PO calculate_fields)
         # Oblicz średnią cenę za m³ dla całego zamówienia
         avg_order_price_per_m3 = self._calculate_average_order_price_per_m3(records)
-        
+    
         # USTAW ŚREDNIĄ CENĘ PO calculate_fields (żeby nie została nadpisana)
         for record in records:
             record.avg_order_price_per_m3 = avg_order_price_per_m3
