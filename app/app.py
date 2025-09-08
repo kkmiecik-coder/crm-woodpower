@@ -1,7 +1,9 @@
-from flask import Flask, render_template, redirect, url_for, request, session, flash, current_app
+from flask import Flask, render_template, redirect, url_for, request, session, flash, current_app, Blueprint
 import os
 import json
 import sys
+import pkgutil
+import importlib
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
@@ -21,8 +23,6 @@ from modules.baselinker import baselinker_bp
 from modules.preview3d_ar import preview3d_ar_bp
 from modules.logging import AppLogger, get_logger, logging_bp, get_structured_logger
 from modules.reports import reports_bp
-from modules.production import production_bp
-from modules.company_register import register_bp
 from modules.dashboard import dashboard_bp
 from modules.dashboard.models import ChangelogEntry, ChangelogItem, UserSession
 from modules.dashboard.services.user_activity_service import UserActivityService
@@ -48,6 +48,43 @@ except ImportError as e:
 
 _scheduler_lock = threading.Lock()
 _scheduler_initialized = False
+
+
+# Domyślne metadane modułów (etykieta i ikona)
+DEFAULT_MODULE_METADATA = {
+    'dashboard': {'label': 'Dashboard', 'icon': '📊'},
+    'calculator': {'label': 'Kalkulator', 'icon': '🧮'},
+    'quotes': {'label': 'Wyceny', 'icon': '📄'},
+    'clients': {'label': 'Klienci', 'icon': '👥'},
+    'production': {'label': 'Produkcja', 'icon': '🏭'},
+    'analytics': {'label': 'Analityka', 'icon': '📈'},
+    'reports': {'label': 'Raporty', 'icon': '📊'},
+    'settings': {'label': 'Ustawienia', 'icon': '⚙️'},
+}
+
+
+def discover_module_metadata(app):
+    """Skanuje katalog app/modules w poszukiwaniu blueprintów."""
+    metadata = {}
+    modules_path = os.path.join(app.root_path, 'modules')
+
+    for finder, name, ispkg in pkgutil.iter_modules([modules_path]):
+        if not ispkg:
+            continue
+        try:
+            module = importlib.import_module(f'modules.{name}')
+        except Exception:
+            continue
+
+        for attr in module.__dict__.values():
+            if isinstance(attr, Blueprint):
+                default_meta = DEFAULT_MODULE_METADATA.get(attr.name, {})
+                label = default_meta.get('label', attr.name.replace('_', ' ').title())
+                icon = default_meta.get('icon', '📱')
+                metadata[attr.name] = {'label': label, 'icon': icon}
+
+    return metadata
+
 
 def initialize_scheduler_safely(app):
     """
@@ -145,6 +182,8 @@ def create_app():
     with app.app_context():
         db.create_all()
         create_admin()
+        # Odkrywanie dostępnych modułów i ich metadanych
+        app.config['MODULE_METADATA'] = discover_module_metadata(app)
 
     # Rejestracja blueprintów oraz dalsze routy...
     app.register_blueprint(calculator_bp, url_prefix='/calculator')
@@ -157,8 +196,6 @@ def create_app():
     app.register_blueprint(preview3d_ar_bp)
     app.register_blueprint(reports_bp, url_prefix='/reports')
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
-    app.register_blueprint(production_bp)
-    app.register_blueprint(register_bp)
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
 
     @app.before_request

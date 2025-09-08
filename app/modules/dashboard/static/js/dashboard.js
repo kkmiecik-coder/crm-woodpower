@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (document.querySelector('.dashboard-grid')) {
             triggerFadeInAnimations();
         }
-    }, 200);
+    }, 100);
 
     // Odśwież dane co 5 minut
     setInterval(refreshDashboardData, 5 * 60 * 1000);
@@ -332,7 +332,7 @@ function initKeyboardAccessibility() {
 }
 
 /**
- * Trigger fade-in animations - POPRAWIONA WERSJA bez konfliktów
+ * Trigger fade-in animations - POPRAWIONA WERSJA
  */
 function triggerFadeInAnimations() {
     // Sprawdź czy animacje są włączone
@@ -340,8 +340,6 @@ function triggerFadeInAnimations() {
         console.log('[Dashboard] Animacje wyłączone - prefers-reduced-motion');
         return;
     }
-
-    console.log('[Dashboard] Triggering fade-in animations...');
 
     // Znajdź wszystkie elementy w dashboard-grid
     const dashboardGrid = document.querySelector('.dashboard-grid');
@@ -357,32 +355,6 @@ function triggerFadeInAnimations() {
     // Quick actions bar
     const quickActions = document.querySelector('.quick-actions-bar');
 
-    // WAŻNE: NIE USTAW ŻADNYCH INLINE STYLES
-    // Pozwól CSS animacjom działać naturalnie
-
-    // Sprawdź czy CSS animacje działają
-    const firstWidget = widgets[0];
-    if (firstWidget) {
-        const computedStyle = window.getComputedStyle(firstWidget);
-        const hasAnimation = computedStyle.animation && computedStyle.animation !== 'none';
-        const initialOpacity = computedStyle.opacity;
-
-        console.log('[Dashboard] CSS Animation check:', {
-            hasAnimation,
-            initialOpacity,
-            animationName: computedStyle.animationName
-        });
-
-        if (hasAnimation && initialOpacity === '0') {
-            console.log('[Dashboard] CSS animacje działają prawidłowo - nie ingeruj');
-            // CSS robi swoją robotę - nie rób nic więcej
-            return;
-        }
-    }
-
-    // Jeśli CSS animacje nie działają, użyj JavaScript fallback
-    console.log('[Dashboard] CSS animacje nie działają - używam JavaScript fallback');
-
     // Animuj quick actions najpierw (jeśli istnieje)
     if (quickActions) {
         quickActions.style.opacity = '0';
@@ -395,59 +367,24 @@ function triggerFadeInAnimations() {
         }, 50);
     }
 
-    // Animuj widgety z opóźnieniem TYLKO jeśli CSS nie działa
+    // Animuj widgety z opóźnieniem
     widgets.forEach((widget, index) => {
-        // Sprawdź czy widget już ma CSS animację
-        const widgetStyle = window.getComputedStyle(widget);
-        const hasWidgetAnimation = widgetStyle.animation && widgetStyle.animation !== 'none';
+        // Ustaw początkowy stan
+        widget.style.opacity = '0';
+        widget.style.transform = 'translateY(30px)';
+        widget.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
 
-        if (!hasWidgetAnimation) {
-            // Ustaw początkowy stan TYLKO jeśli CSS nie działa
-            widget.style.opacity = '0';
-            widget.style.transform = 'translateY(30px)';
-            widget.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
-
-            // Animuj z opóźnieniem
-            setTimeout(() => {
-                widget.style.opacity = '1';
-                widget.style.transform = 'translateY(0)';
-            }, 100 + (index * 100));
-        } else {
-            console.log(`[Dashboard] Widget ${index} już ma CSS animację - pomijam JS`);
-        }
+        // Animuj z opóźnieniem
+        setTimeout(() => {
+            widget.style.opacity = '1';
+            widget.style.transform = 'translateY(0)';
+        }, 100 + (index * 100)); // 100ms base delay + 100ms per widget
     });
 
     // Dodaj klasę która wskazuje że animacje zostały uruchomione
     document.body.classList.add('dashboard-animations-loaded');
 
-    console.log(`[Dashboard] Fade-in animations triggered - CSS: ${hasAnimation}, JS fallback używany dla widgetów bez CSS`);
-}
-
-// DODATKOWO: Wyczyść poprzednie style które mogą powodować konflikty
-function cleanupPreviousAnimationStyles() {
-    const widgets = document.querySelectorAll('.dashboard-grid > *');
-    const quickActions = document.querySelector('.quick-actions-bar');
-
-    widgets.forEach(widget => {
-        // Usuń inline styles które mogą konfliktować z CSS
-        if (widget.style.opacity !== '') {
-            widget.style.removeProperty('opacity');
-        }
-        if (widget.style.transform !== '') {
-            widget.style.removeProperty('transform');
-        }
-        if (widget.style.transition !== '') {
-            widget.style.removeProperty('transition');
-        }
-    });
-
-    if (quickActions) {
-        quickActions.style.removeProperty('opacity');
-        quickActions.style.removeProperty('transform');
-        quickActions.style.removeProperty('transition');
-    }
-
-    console.log('[Dashboard] Wyczyszczono poprzednie inline styles');
+    console.log(`[Dashboard] Fade-in animations triggered for ${widgets.length} widgets`);
 }
 
 /**
@@ -1593,6 +1530,780 @@ window.dashboardAnimations = {
     trigger: triggerFadeInAnimations,
     reset: resetDashboardAnimations,
     initScroll: initScrollAnimations
+};
+
+// Dashboard Fireworks System - Dodaj do dashboard.js
+
+/**
+ * 🎆 WOOD POWER FIREWORKS SYSTEM 🎆
+ * Efektowny system fajerwerków dla dashboardu
+ */
+
+// Konfiguracja systemu fajerwerków
+const FIREWORKS_CONFIG = {
+    DOUBLE_CLICK_THRESHOLD: 2000, // 2 sekundy na double click
+    ANIMATION_DURATION: 5000, // 5 sekund animacji
+    FIREWORKS_COUNT: 12, // Liczba fajerwerków
+    COLORS: ['#ED6B24', '#FFD700', '#FFFFFF', '#FF4444', '#4A90E2', '#22c55e'],
+    LOGO_PATH: '/static/images/favicon.png'
+};
+
+// Stan systemu fajerwerków
+let fireworksState = {
+    canvas: null,
+    ctx: null,
+    animationFrame: null,
+    particles: [],
+    isActive: false,
+    lastClickTime: 0,
+    clickCount: 0,
+    achievementShown: false
+};
+
+/**
+ * Inicjalizacja systemu fajerwerków
+ */
+function initFireworksSystem() {
+    console.log('[Fireworks] Inicjalizacja systemu fajerwerków');
+
+    // Dodaj event listener na user-greeting
+    const userGreeting = document.getElementById('user-greeting');
+    if (userGreeting) {
+        userGreeting.addEventListener('click', handleGreetingClick);
+        userGreeting.style.cursor = 'pointer';
+        userGreeting.title = 'Double-click szybko dla niespodzianki! 🎆';
+        console.log('[Fireworks] Event listener dodany do user-greeting');
+    }
+
+    // Przygotuj canvas
+    createFireworksCanvas();
+}
+
+/**
+ * Obsługa kliknięć w user-greeting
+ */
+function handleGreetingClick(event) {
+    const now = Date.now();
+
+    // Reset licznika jeśli minęło za dużo czasu
+    if (now - fireworksState.lastClickTime > FIREWORKS_CONFIG.DOUBLE_CLICK_THRESHOLD) {
+        fireworksState.clickCount = 0;
+    }
+
+    fireworksState.clickCount++;
+    fireworksState.lastClickTime = now;
+
+    console.log(`[Fireworks] Click ${fireworksState.clickCount} w czasie ${now}`);
+
+    // Double click detection
+    if (fireworksState.clickCount === 2) {
+        console.log('[Fireworks] 🎆 DOUBLE CLICK DETECTED! Odpalam fajerwerki!');
+        triggerFireworks();
+        fireworksState.clickCount = 0; // Reset
+    }
+}
+
+/**
+ * Tworzy canvas dla fajerwerków
+ */
+function createFireworksCanvas() {
+    // Usuń poprzedni canvas jeśli istnieje
+    const existingCanvas = document.getElementById('fireworks-canvas');
+    if (existingCanvas) {
+        existingCanvas.remove();
+    }
+
+    // Utwórz nowy canvas
+    const canvas = document.createElement('canvas');
+    canvas.id = 'fireworks-canvas';
+    canvas.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 9999;
+        display: none;
+    `;
+
+    document.body.appendChild(canvas);
+
+    // Ustaw rozmiar canvas
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    fireworksState.canvas = canvas;
+    fireworksState.ctx = canvas.getContext('2d');
+
+    console.log('[Fireworks] Canvas utworzony:', canvas.width, 'x', canvas.height);
+}
+
+/**
+ * Główna funkcja odpalaująca fajerwerki
+ */
+function triggerFireworks() {
+    if (fireworksState.isActive) {
+        console.log('[Fireworks] Fajerwerki już aktywne, ignoruję');
+        return;
+    }
+
+    console.log('[Fireworks] 🚀 ROZPOCZYNANIE POKAZU FAJERWERKÓW!');
+    fireworksState.isActive = true;
+    fireworksState.particles = [];
+
+    // Pokaż canvas
+    fireworksState.canvas.style.display = 'block';
+
+    // Screen shake effect
+    addScreenShake();
+
+    // Generuj fajerwerki
+    generateFireworks();
+
+    // Uruchom animację
+    startFireworksAnimation();
+
+    // Pokaż achievement toast (tylko raz)
+    if (!fireworksState.achievementShown) {
+        showAchievementToast();
+        fireworksState.achievementShown = true;
+    }
+
+    // Automatyczne zakończenie po czasie
+    setTimeout(() => {
+        endFireworks();
+    }, FIREWORKS_CONFIG.ANIMATION_DURATION);
+}
+
+/**
+ * Generuje różne rodzaje fajerwerków
+ */
+function generateFireworks() {
+    const types = ['classic', 'golden_rain', 'spiral', 'heart', 'logo'];
+
+    for (let i = 0; i < FIREWORKS_CONFIG.FIREWORKS_COUNT; i++) {
+        // Losowy typ fajerwerku
+        const type = types[Math.floor(Math.random() * types.length)];
+
+        // Losowa pozycja
+        const x = Math.random() * fireworksState.canvas.width;
+        const y = Math.random() * (fireworksState.canvas.height * 0.6) + 100; // Górne 60% ekranu
+
+        // Opóźnienie między fajerwerkami
+        const delay = i * 200 + Math.random() * 300;
+
+        setTimeout(() => {
+            createFirework(type, x, y);
+        }, delay);
+    }
+}
+
+/**
+ * Tworzy pojedynczy fajerwerk
+ */
+function createFirework(type, x, y) {
+    console.log(`[Fireworks] Tworzę fajerwerk typu ${type} na pozycji (${x}, ${y})`);
+
+    const color = FIREWORKS_CONFIG.COLORS[Math.floor(Math.random() * FIREWORKS_CONFIG.COLORS.length)];
+
+    switch (type) {
+        case 'classic':
+            createClassicFirework(x, y, color);
+            break;
+        case 'golden_rain':
+            createGoldenRain(x, y);
+            break;
+        case 'spiral':
+            createSpiralFirework(x, y, color);
+            break;
+        case 'heart':
+            createHeartFirework(x, y);
+            break;
+        case 'logo':
+            createLogoFirework(x, y);
+            break;
+    }
+}
+
+/**
+ * 1. Klasyczne eksplozje - kolorowe okręgi
+ */
+function createClassicFirework(x, y, color) {
+    const particleCount = 25 + Math.random() * 15;
+
+    for (let i = 0; i < particleCount; i++) {
+        const angle = (Math.PI * 2 * i) / particleCount;
+        const velocity = 2 + Math.random() * 4;
+
+        const particle = {
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * velocity,
+            vy: Math.sin(angle) * velocity,
+            life: 1.0,
+            decay: 0.015 + Math.random() * 0.01,
+            color: color,
+            size: 2 + Math.random() * 3,
+            type: 'classic',
+            gravity: 0.05
+        };
+
+        fireworksState.particles.push(particle);
+    }
+}
+
+/**
+ * 2. Złoty deszcz - spadające iskry
+ */
+function createGoldenRain(x, y) {
+    const particleCount = 40;
+
+    for (let i = 0; i < particleCount; i++) {
+        const particle = {
+            x: x + (Math.random() - 0.5) * 100,
+            y: y,
+            vx: (Math.random() - 0.5) * 2,
+            vy: Math.random() * 2 + 1,
+            life: 1.0,
+            decay: 0.008,
+            color: '#FFD700',
+            size: 1 + Math.random() * 2,
+            type: 'rain',
+            gravity: 0.08,
+            sparkle: Math.random() > 0.5
+        };
+
+        fireworksState.particles.push(particle);
+    }
+}
+
+/**
+ * 3. Spirale - wirujące fajerwerki
+ */
+function createSpiralFirework(x, y, color) {
+    const particleCount = 30;
+
+    for (let i = 0; i < particleCount; i++) {
+        const angle = (Math.PI * 4 * i) / particleCount; // 2 pełne obroty
+        const radius = 1 + (i / particleCount) * 3;
+
+        const particle = {
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * radius,
+            vy: Math.sin(angle) * radius,
+            life: 1.0,
+            decay: 0.012,
+            color: color,
+            size: 1.5 + Math.random() * 2,
+            type: 'spiral',
+            gravity: 0.03,
+            rotation: angle
+        };
+
+        fireworksState.particles.push(particle);
+    }
+}
+
+/**
+ * 4. Serca - romantyczne fajerwerki
+ */
+function createHeartFirework(x, y) {
+    const heartPoints = generateHeartShape();
+
+    heartPoints.forEach(point => {
+        const particle = {
+            x: x,
+            y: y,
+            vx: point.x * 0.5,
+            vy: point.y * 0.5,
+            life: 1.0,
+            decay: 0.01,
+            color: '#FF69B4',
+            size: 2 + Math.random(),
+            type: 'heart',
+            gravity: 0.02
+        };
+
+        fireworksState.particles.push(particle);
+    });
+}
+
+/**
+ * 5. Logo Wood Power - eksplozja w kształcie logo
+ */
+function createLogoFirework(x, y) {
+    // Symulacja punktów logo - możesz dostosować do faktycznego kształtu
+    const logoPoints = [
+        // Zewnętrzny okrąg
+        ...generateCirclePoints(x, y, 30, 20),
+        // Wewnętrzny wzór
+        ...generateCirclePoints(x, y, 15, 12),
+        // Środek
+        { x: 0, y: 0 }
+    ];
+
+    logoPoints.forEach(point => {
+        const particle = {
+            x: x,
+            y: y,
+            vx: point.x * 0.3,
+            vy: point.y * 0.3,
+            life: 1.0,
+            decay: 0.008,
+            color: '#ED6B24', // Brand color
+            size: 2.5,
+            type: 'logo',
+            gravity: 0.03
+        };
+
+        fireworksState.particles.push(particle);
+    });
+}
+
+/**
+ * Pomocnicze funkcje dla kształtów
+ */
+function generateHeartShape() {
+    const points = [];
+    for (let t = 0; t < Math.PI * 2; t += 0.15) { // Gęstsze punkty - z 0.2 na 0.15
+        const x = 16 * Math.pow(Math.sin(t), 3);
+        const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+        points.push({ x: x * 0.4, y: y * 0.4 }); // Większe serce - z 0.2 na 0.4
+    }
+    return points;
+}
+
+function generateCirclePoints(centerX, centerY, radius, count) {
+    const points = [];
+    for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count;
+        points.push({
+            x: Math.cos(angle) * radius,
+            y: Math.sin(angle) * radius
+        });
+    }
+    return points;
+}
+
+/**
+ * Animacja fajerwerków
+ */
+function startFireworksAnimation() {
+    function animate() {
+        if (!fireworksState.isActive) return;
+
+        // Wyczyść canvas
+        fireworksState.ctx.clearRect(0, 0, fireworksState.canvas.width, fireworksState.canvas.height);
+
+        // Aktualizuj i rysuj cząsteczki
+        for (let i = fireworksState.particles.length - 1; i >= 0; i--) {
+            const particle = fireworksState.particles[i];
+
+            // Aktualizuj pozycję
+            particle.x += particle.vx;
+            particle.y += particle.vy;
+            particle.vy += particle.gravity; // Grawitacja
+            particle.life -= particle.decay;
+
+            // Usuń martwe cząsteczki
+            if (particle.life <= 0) {
+                fireworksState.particles.splice(i, 1);
+                continue;
+            }
+
+            // Rysuj cząsteczkę
+            drawParticle(particle);
+        }
+
+        fireworksState.animationFrame = requestAnimationFrame(animate);
+    }
+
+    animate();
+}
+
+/**
+ * Rysowanie pojedynczej cząsteczki
+ */
+function drawParticle(particle) {
+    const ctx = fireworksState.ctx;
+
+    ctx.save();
+    ctx.globalAlpha = particle.life;
+
+    // Różne style dla różnych typów
+    switch (particle.type) {
+        case 'classic':
+            ctx.fillStyle = particle.color;
+            ctx.beginPath();
+            ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'rain':
+            ctx.fillStyle = particle.color;
+            if (particle.sparkle && Math.random() > 0.7) {
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = particle.color;
+            }
+            ctx.beginPath();
+            ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'spiral':
+            ctx.strokeStyle = particle.color;
+            ctx.lineWidth = particle.size;
+            ctx.beginPath();
+            ctx.arc(particle.x, particle.y, particle.size / 2, 0, Math.PI * 2);
+            ctx.stroke();
+            break;
+
+        case 'heart':
+            ctx.fillStyle = particle.color;
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = particle.color;
+            ctx.beginPath();
+            ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+        case 'logo':
+            ctx.fillStyle = particle.color;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = particle.color;
+            ctx.beginPath();
+            ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+    }
+
+    ctx.restore();
+}
+
+/**
+ * Screen shake effect
+ */
+function addScreenShake() {
+    const originalTransform = document.body.style.transform;
+    let shakeCount = 0;
+    const maxShakes = 10;
+
+    function shake() {
+        if (shakeCount >= maxShakes) {
+            document.body.style.transform = originalTransform;
+            return;
+        }
+
+        const x = (Math.random() - 0.5) * 4; // ±2px
+        const y = (Math.random() - 0.5) * 4;
+
+        document.body.style.transform = `translate(${x}px, ${y}px)`;
+        shakeCount++;
+
+        setTimeout(shake, 50);
+    }
+
+    shake();
+}
+
+/**
+ * Achievement Toast
+ */
+function showAchievementToast() {
+    const toast = document.createElement('div');
+    toast.className = 'achievement-toast';
+    toast.innerHTML = `
+        <div class="achievement-content">
+            <div class="achievement-icon">🎉</div>
+            <div class="achievement-text">
+                <strong>Odkryłeś sekret!</strong>
+                <div>Wood Power Fireworks unlocked!</div>
+            </div>
+        </div>
+    `;
+
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #ED6B24, #f39c12);
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(237, 107, 36, 0.3);
+        z-index: 10000;
+        animation: achievementSlideIn 0.5s ease-out, achievementSlideOut 0.5s ease-in 3s forwards;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        max-width: 300px;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(10px);
+    `;
+
+    // Style dla contentu
+    const style = document.createElement('style');
+    style.textContent = `
+        .achievement-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .achievement-icon {
+            font-size: 2rem;
+            animation: achievementPulse 2s infinite;
+        }
+        .achievement-text strong {
+            display: block;
+            font-size: 1rem;
+            margin-bottom: 2px;
+        }
+        .achievement-text div {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+        
+        @keyframes achievementSlideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes achievementSlideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+        
+        @keyframes achievementPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+    `;
+
+    document.head.appendChild(style);
+    document.body.appendChild(toast);
+
+    // Usuń toast po 4 sekundach
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+        }
+        if (style.parentNode) {
+            style.parentNode.removeChild(style);
+        }
+    }, 4000);
+
+    console.log('[Fireworks] 🏆 Achievement toast wyświetlony!');
+}
+
+/**
+ * Konfetti effect (dodatkowy bonus)
+ */
+function createConfetti() {
+    const colors = FIREWORKS_CONFIG.COLORS;
+
+    // DESZCZ KONFETTI - 150 elementów! (było 50)
+    for (let i = 0; i < 150; i++) {
+        setTimeout(() => {
+            const confetti = document.createElement('div');
+            const size = 8 + Math.random() * 12; // Większe konfetti (było 8px)
+            const color = colors[Math.floor(Math.random() * colors.length)];
+
+            confetti.style.cssText = `
+                position: fixed;
+                top: -20px;
+                left: ${Math.random() * 100}vw;
+                width: ${size}px;
+                height: ${size}px;
+                background: ${color};
+                pointer-events: none;
+                z-index: 9998;
+                border-radius: ${Math.random() > 0.5 ? '50%' : '0'}; 
+                box-shadow: 0 0 ${size}px ${color};
+                animation: confettiFall ${3 + Math.random() * 4}s linear forwards;
+                transform: rotate(${Math.random() * 360}deg);
+            `;
+
+            document.body.appendChild(confetti);
+
+            setTimeout(() => {
+                if (confetti.parentNode) {
+                    confetti.parentNode.removeChild(confetti);
+                }
+            }, 8000);
+        }, i * 50); // Szybszy spawn (było 100ms)
+    }
+
+    // DODAJ ZŁOTE KONFETTI SPECJALNE
+    setTimeout(() => {
+        for (let i = 0; i < 50; i++) {
+            setTimeout(() => {
+                const goldConfetti = document.createElement('div');
+                goldConfetti.style.cssText = `
+                    position: fixed;
+                    top: -10px;
+                    left: ${Math.random() * 100}vw;
+                    width: 15px;
+                    height: 15px;
+                    background: linear-gradient(45deg, #FFD700, #FFA500);
+                    pointer-events: none;
+                    z-index: 9998;
+                    border-radius: 50%;
+                    box-shadow: 0 0 20px #FFD700;
+                    animation: confettiFall ${4 + Math.random() * 3}s linear forwards;
+                `;
+
+                document.body.appendChild(goldConfetti);
+
+                setTimeout(() => {
+                    if (goldConfetti.parentNode) {
+                        goldConfetti.parentNode.removeChild(goldConfetti);
+                    }
+                }, 8000);
+            }, i * 80);
+        }
+    }, 1000);
+
+    // Dodaj style konfetti jeśli nie istnieją
+    if (!document.getElementById('confetti-styles')) {
+        const style = document.createElement('style');
+        style.id = 'confetti-styles';
+        style.textContent = `
+            @keyframes confettiFall {
+                0% {
+                    transform: translateY(-20px) rotate(0deg) scale(1);
+                    opacity: 1;
+                }
+                50% {
+                    transform: translateY(50vh) rotate(180deg) scale(1.2);
+                    opacity: 0.8;
+                }
+                100% {
+                    transform: translateY(120vh) rotate(360deg) scale(0.8);
+                    opacity: 0;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+/**
+ * Zakończenie pokazu fajerwerków
+ */
+function endFireworks() {
+    console.log('[Fireworks] 🎆 Kończę pokaz fajerwerków');
+
+    fireworksState.isActive = false;
+
+    if (fireworksState.animationFrame) {
+        cancelAnimationFrame(fireworksState.animationFrame);
+    }
+
+    // Fade out canvas
+    fireworksState.canvas.style.transition = 'opacity 1s ease-out';
+    fireworksState.canvas.style.opacity = '0';
+
+    setTimeout(() => {
+        fireworksState.canvas.style.display = 'none';
+        fireworksState.canvas.style.opacity = '1';
+        fireworksState.canvas.style.transition = '';
+        fireworksState.particles = [];
+    }, 1000);
+
+    // Bonus konfetti
+    createConfetti();
+}
+
+/**
+ * Obsługa resize okna
+ */
+function handleFireworksResize() {
+    if (fireworksState.canvas) {
+        fireworksState.canvas.width = window.innerWidth;
+        fireworksState.canvas.height = window.innerHeight;
+    }
+}
+
+// Event listeners
+window.addEventListener('resize', handleFireworksResize);
+
+// Dodaj inicjalizację do głównej funkcji dashboard
+document.addEventListener('DOMContentLoaded', function () {
+    // Opóźnienie żeby dashboard się załadował
+    setTimeout(() => {
+        initFireworksSystem();
+        console.log('[Fireworks] 🎆 System fajerwerków gotowy!');
+    }, 1000);
+});
+
+// Debug funkcje (możesz usunąć w produkcji)
+window.debugFireworks = {
+    trigger: () => triggerFireworks(),
+    test: (type) => {
+        createFireworksCanvas();
+        fireworksState.canvas.style.display = 'block';
+        fireworksState.isActive = true;
+        createFirework(type, window.innerWidth / 2, window.innerHeight / 2);
+        startFireworksAnimation();
+        setTimeout(endFireworks, 3000);
+    },
+
+    // NOWE DEBUG FUNKCJE
+    checkLogo: () => {
+        console.log('=== FIREWORKS LOGO DEBUG ===');
+        console.log('Logo path:', FIREWORKS_CONFIG.LOGO_PATH);
+        console.log('Logo loaded:', fireworksState.logoLoaded);
+        console.log('Logo error:', fireworksState.logoError);
+        console.log('Logo image object:', fireworksState.logoImage);
+
+        if (fireworksState.logoImage) {
+            console.log('Logo dimensions:', fireworksState.logoImage.width, 'x', fireworksState.logoImage.height);
+        }
+
+        // Test fetch
+        fetch(FIREWORKS_CONFIG.LOGO_PATH)
+            .then(r => console.log('Fetch test result:', r.status, r.ok))
+            .catch(e => console.log('Fetch test error:', e));
+    },
+
+    testAllLogos: () => {
+        const paths = [
+            '/static/images/logo.svg',
+            '/static/images/logo.png',
+            './static/images/logo.svg',
+            '../static/images/logo.svg',
+            '/app/static/images/logo.svg'
+        ];
+
+        paths.forEach(path => {
+            fetch(path)
+                .then(r => console.log(`✅ FOUND: ${path} (${r.status})`))
+                .catch(() => console.log(`❌ NOT FOUND: ${path}`));
+        });
+    },
+
+    reloadLogo: () => {
+        console.log('Reloading logo...');
+        fireworksState.logoLoaded = false;
+        fireworksState.logoError = false;
+        fireworksState.logoImage = null;
+        debugAndLoadLogo();
+    },
+
+    state: () => fireworksState,
+    config: () => FIREWORKS_CONFIG
 };
 
 console.log('[Dashboard] Enhanced JavaScript loaded successfully');

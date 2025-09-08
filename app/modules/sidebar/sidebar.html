@@ -72,35 +72,6 @@
                         <span class="option-txt">Klienci</span>
                     </a>
                 </li>
-                <!-- Produkcja -->
-                <li class="menu-options {% if request.endpoint == 'production.dashboard' %}active{% endif %}" data-sidebar-tooltip="Produkcja">
-                    <a href="{{ url_for('production.dashboard') }}">
-                        <span class="sidebar-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                                <!-- Deska -->
-                                <rect class="st0" x="3" y="11" width="18" height="2" />
-                                <!-- Ostrze piły z ząbkami -->
-                                <path class="st0" d="M5,10 L6,9 L7,10 L8,9 L9,10 L10,9 L11,10 L12,9 L13,10 L14,9 L15,10 L16,9 L17,10 L18,9 L19,10 L19,11 L5,11 Z" />
-                                <!-- Rękojeść -->
-                                <rect class="st0" x="19" y="8" width="2" height="8" rx="1" />
-                            </svg>
-                        </span>
-                        <span class="option-txt">Produkcja</span>
-                    </a>
-                </li>
-                <!-- Rejestr firm -->
-                <li class="menu-options {% if request.endpoint == 'register.index' %}active{% endif %}" data-sidebar-tooltip="Rejestr firm">
-                    <a href="{{ url_for('register.index') }}">
-                        <span class="sidebar-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"
-                                 xmlns="http://www.w3.org/2000/svg">
-                                <path class="st0"
-                                      d="M3 21h18v-2H3v2zm2-3h14V3H5v15zm4-8h2v2H9v-2zm0 4h2v2H9v-2zm4-4h2v2h-2v-2zm0 4h2v2h-2v-2zM7 7h2v2H7V7z" />
-                            </svg>
-                        </span>
-                        <span class="option-txt">Rejestr firm</span>
-                    </a>
-                </li>
 
                 <!-- Statystyki -->
                 <li class="menu-options {% if request.endpoint == 'analytics' %}active{% endif %}" data-sidebar-tooltip="Statystyki">
