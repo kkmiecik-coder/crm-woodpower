@@ -4,7 +4,6 @@ import json
 import sys
 import pkgutil
 import importlib
-import threading
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
@@ -12,6 +11,7 @@ from functools import wraps
 from flask_mail import Mail, Message
 from jinja2 import ChoiceLoader, FileSystemLoader
 from extensions import db, mail
+import threading
 from sqlalchemy import desc
 from modules.calculator import calculator_bp
 from modules.calculator.models import User, Invitation, Price, Multiplier
@@ -50,6 +50,7 @@ except ImportError as e:
 
 _scheduler_lock = threading.Lock()
 _scheduler_initialized = False
+
 
 # Domyślne metadane modułów (etykieta i ikona)
 DEFAULT_MODULE_METADATA = {

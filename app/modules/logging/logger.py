@@ -48,8 +48,8 @@ class CustomFormatter(logging.Formatter):
         # POPRAWKA: Bezpieczne formatowanie message
         try:
             message = record.getMessage()
-            # Usuń polskie znaki jeśli są problematyczne
-            safe_message = message.encode('ascii', errors='replace').decode('ascii')
+            # Zachowaj polskie znaki w miarę możliwości
+            safe_message = message.encode('utf-8', errors='replace').decode('utf-8')
         except Exception as e:
             safe_message = f"<message_encoding_error: {type(record.msg).__name__}>"
         
@@ -128,12 +128,26 @@ class AppLogger:
             if hasattr(sys.stdout, 'reconfigure'):
                 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
                 sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-            
+
             # Ustaw zmienne środowiskowe dla kodowania
             os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
-            
+
+        except BrokenPipeError as e:
+            try:
+                sys.stderr.write(f"[Logger] Broken pipe while setting UTF-8: {e}\n")
+            except Exception:
+                pass
+        except UnicodeEncodeError as e:
+            # Upewnij się, że komunikat nie powoduje kolejnego wyjątku
+            try:
+                sys.stderr.write("[Logger] Unicode encode error while setting UTF-8\n")
+            except Exception:
+                pass
         except Exception as e:
-            print(f"[Logger] Nie można ustawić kodowania UTF-8: {e}")
+            try:
+                sys.stderr.write(f"[Logger] Unable to set UTF-8 encoding: {e}\n")
+            except Exception:
+                pass
         
         # Upewnij się, że katalog logów istnieje
         LogConfig.ensure_log_dir()
