@@ -25,7 +25,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
-from app import db
+from extensions import db
 
 # Utworzenie Blueprint dla API
 api_bp = Blueprint('production_api', __name__)

@@ -26,7 +26,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, jsonif
 from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
-from app import db
+from extensions import db
 
 # Utworzenie Blueprint dla panelu admin
 admin_bp = Blueprint('production_admin', __name__)

@@ -27,7 +27,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Union, List
 from modules.logging import get_structured_logger
-from app import db
+from extensions import db
 
 logger = get_structured_logger('production.config')
 

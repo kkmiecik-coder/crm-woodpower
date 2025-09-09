@@ -23,7 +23,7 @@ Data: 2025-01-08
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash
 from datetime import datetime, date, timedelta
 from modules.logging import get_structured_logger
-from app import db
+from extensions import db
 
 # Utworzenie Blueprint dla interfejsów stanowisk
 station_bp = Blueprint('production_stations', __name__)

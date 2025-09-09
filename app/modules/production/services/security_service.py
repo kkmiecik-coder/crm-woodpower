@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, abort, jsonify, current_app
 from modules.logging import get_structured_logger
-from app import db
+from extensions import db
 
 logger = get_structured_logger('production.security')
 

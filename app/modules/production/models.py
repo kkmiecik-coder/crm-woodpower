@@ -20,7 +20,7 @@ from datetime import datetime, date
 from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
-from app import db
+from extensions import db
 from modules.logging import get_structured_logger
 
 logger = get_structured_logger('production.models')

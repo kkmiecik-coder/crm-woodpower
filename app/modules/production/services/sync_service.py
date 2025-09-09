@@ -31,7 +31,7 @@ from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
-from app import db
+from extensions import db
 from modules.logging import get_structured_logger
 
 logger = get_structured_logger('production.sync')

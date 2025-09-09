@@ -23,7 +23,7 @@ import re
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from app import db
+from extensions import db
 from modules.logging import get_structured_logger
 
 logger = get_structured_logger('production.id_generator')
