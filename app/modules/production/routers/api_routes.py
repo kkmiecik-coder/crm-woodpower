@@ -706,6 +706,7 @@ def update_config():
         }), 500
 
 @api_bp.route('/health')
+@login_required
 def health_check():
     """
     GET /api/health - Health check endpoint (PRD Section 6.4)

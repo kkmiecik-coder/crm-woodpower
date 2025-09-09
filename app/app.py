@@ -25,6 +25,8 @@ from modules.logging import AppLogger, get_logger, logging_bp, get_structured_lo
 from modules.reports import reports_bp
 from modules.dashboard import dashboard_bp
 from modules.dashboard.models import ChangelogEntry, ChangelogItem, UserSession
+from modules.production import production_bp
+from modules.production.routers import register_production_routes
 from modules.dashboard.services.user_activity_service import UserActivityService
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 
@@ -197,6 +199,8 @@ def create_app():
     app.register_blueprint(reports_bp, url_prefix='/reports')
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
+    register_production_routes(production_bp)
+    app.register_blueprint(production_bp, url_prefix='/production')
 
     @app.before_request
     def extend_session():
