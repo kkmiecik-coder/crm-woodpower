@@ -20,6 +20,7 @@ Data: 2025-01-08
 
 from flask import Blueprint
 from modules.logging import get_structured_logger
+from .. import apply_security
 
 logger = get_structured_logger('production.routers')
 
@@ -70,6 +71,9 @@ def register_production_routes(main_blueprint):
     Args:
         main_blueprint: Główny blueprint modułu production
     """
+    if not main_blueprint._got_registered_once:
+        main_blueprint.before_request(apply_security)
+
     if main_blueprint.deferred_functions:
         logger.info("Routery modułu production już zarejestrowane - pomijam ponowną rejestrację")
         return 0
