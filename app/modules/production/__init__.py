@@ -31,22 +31,7 @@ production_bp = Blueprint(
     url_prefix='/production'
 )
 
-# Import routerów (będą dodane postupnie)
-try:
-    from .routers.api_routes import api_bp
-    from .routers.station_routes import station_bp  
-    from .routers.admin_routes import admin_bp
-    
-    # Rejestracja sub-blueprintów
-    production_bp.register_blueprint(api_bp, url_prefix='/api')
-    production_bp.register_blueprint(station_bp, url_prefix='')
-    production_bp.register_blueprint(admin_bp, url_prefix='/admin')
-    
-    logger.info("Zarejestrowano wszystkie routery modułu production")
-    
-except ImportError as e:
-    # Routery będą dodawane postupnie, więc ignorujemy błędy importu na początku
-    logger.warning(f"Nie można zaimportować routerów: {e}")
+# Import routerów będzie obsłużony w modules/production/routers
 
 # Import serwisów (będą dodane postupnie)
 try:
@@ -83,16 +68,21 @@ except ImportError as e:
 # Middleware zabezpieczeń IP (będzie dodane wraz z security_service)
 try:
     from .services.security_service import ip_security_middleware
-    
-    @production_bp.before_request
-    def apply_security():
-        """Zastosowanie middleware zabezpieczeń dla modułu production"""
-        return ip_security_middleware()
-        
-    logger.info("Zastosowano middleware zabezpieczeń IP")
-    
-except ImportError:
-    logger.warning("Middleware zabezpieczeń IP nie jest jeszcze dostępne")
+except ImportError as e:
+    logger.warning(
+        "Middleware zabezpieczeń IP nie jest jeszcze dostępne",
+        extra={"error": str(e)}
+    )
+
+    def ip_security_middleware():  # type: ignore
+        return None
+else:
+    logger.info("Middleware zabezpieczeń IP dostępne")
+
+
+def apply_security():
+    """Zastosowanie middleware zabezpieczeń dla modułu production"""
+    return ip_security_middleware()
 
 # Funkcje pomocnicze dla innych modułów
 def get_production_status_summary():
@@ -105,7 +95,7 @@ def get_production_status_summary():
     try:
         from .models import ProductionItem
         from sqlalchemy import func
-        from app import db
+        from extensions import db
         
         summary = db.session.query(
             ProductionItem.current_status,
@@ -146,7 +136,7 @@ def get_high_priority_items_count():
     """
     try:
         from .models import ProductionItem
-        from app import db
+        from extensions import db
         
         count = db.session.query(ProductionItem).filter(
             ProductionItem.priority_score >= 150,
@@ -178,7 +168,7 @@ def is_sync_running():
     """
     try:
         from .models import ProductionSyncLog
-        from app import db
+        from extensions import db
         
         running_sync = db.session.query(ProductionSyncLog).filter(
             ProductionSyncLog.sync_status == 'running'

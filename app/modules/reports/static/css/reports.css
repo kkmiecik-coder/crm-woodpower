@@ -257,7 +257,6 @@
 
     .stats-row:last-child {
         border-bottom: none;
-        padding-bottom: 0;
     }
 
     .stats-row:first-child {
@@ -315,9 +314,6 @@
 .stats-row:hover {
     background: rgba(237, 107, 36, 0.02);
     border-radius: 6px;
-    margin: 0 -8px;
-    padding-left: 8px;
-    padding-right: 8px;
 }
 
 /* Ikony w nagłówkach */

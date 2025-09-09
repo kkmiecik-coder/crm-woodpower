@@ -50,7 +50,6 @@ class ReportsManager {
      */
     cacheElements() {
         this.elements = {
-            // Kontrolki dat - POPRAWKA: Zmieniono na filterDateFrom/To
             dateFrom: document.getElementById('filterDateFrom'),
             dateTo: document.getElementById('filterDateTo'),
             syncBtn: document.getElementById('syncBtn'),
@@ -59,13 +58,11 @@ class ReportsManager {
             exportExcelBtn: document.getElementById('exportExcelBtn'),
             clearFiltersBtn: document.getElementById('clearFiltersBtn'),
 
-            // Overlays
             loadingOverlay: document.getElementById('loadingOverlay'),
             syncLoadingOverlay: document.getElementById('syncLoadingOverlay'),
             syncLoadingText: document.getElementById('syncLoadingText'),
 
-            // NOWE STATYSTYKI - zgodne z nową strukturą HTML
-            statUniqueOrders: document.getElementById('statUniqueOrders'),           // NOWE: tylko zamówienia
+            statUniqueOrders: document.getElementById('statUniqueOrders'),
             statTotalM3: document.getElementById('statTotalM3'),
             statOrderAmountNet: document.getElementById('statOrderAmountNet'),
             statValueNet: document.getElementById('statValueNet'),
@@ -77,24 +74,25 @@ class ReportsManager {
             statProductionValueNet: document.getElementById('statProductionValueNet'),
             statReadyPickupVolume: document.getElementById('statReadyPickupVolume'),
             statReadyPickupValueNet: document.getElementById('statReadyPickupValueNet'),
-            statPickupReady: document.getElementById('statPickupReady'),             // Do odbioru
-            statKlejonkaValueNet: document.getElementById('statKlejonkaValueNet'),   // NOWE: klejonka
-            statDeskaValueNet: document.getElementById('statDeskaValueNet'),         // NOWE: deska wartość
-            statDeskaTotalM3: document.getElementById('statDeskaTotalM3'),           // NOWE: deska m³
-            statServicesValueNet: document.getElementById('statServicesValueNet'),   // NOWE: usługi
-            statOlejowanieSurface: document.getElementById('statOlejowanieSurface'), // NOWE: olejowanie
-            statLakierowanieSurface: document.getElementById('statLakierowanieSurface'), // NOWE: lakierowanie
+            statPickupReady: document.getElementById('statPickupReady'),
+            statKlejonkaValueNet: document.getElementById('statKlejonkaValueNet'),
+            statDeskaValueNet: document.getElementById('statDeskaValueNet'),
+            statDeskaTotalM3: document.getElementById('statDeskaTotalM3'),
+            statDryingTotalM3: document.getElementById('statDryingTotalM3'),
+            statServicesValueNet: document.getElementById('statServicesValueNet'),
+            statSuszenieValueNet: document.getElementById('statSuszenieValueNet'),
+            statKlejenieValueNet: document.getElementById('statKlejenieValueNet'),
+            statOlejowanieSurface: document.getElementById('statOlejowanieSurface'),
+            statLakierowanieSurface: document.getElementById('statLakierowanieSurface'),
 
-            // ZACHOWANE dla kompatybilności wstecznej
-            statOrdersProducts: document.getElementById('statOrdersProducts'),       // Stare ID (może nie istnieć)
-            statOlejowanieVolume: document.getElementById('statOlejowanieVolume'),   // Stare ID (może nie istnieć)
-            statLakierowanieVolume: document.getElementById('statLakierowanieVolume'), // Stare ID (może nie istnieć)
+            statOrdersProducts: document.getElementById('statOrdersProducts'),
+            statOlejowanieVolume: document.getElementById('statOlejowanieVolume'),
+            statLakierowanieVolume: document.getElementById('statLakierowanieVolume'),
 
-            // NOWE STATYSTYKI PORÓWNAWCZE - zgodne z nową strukturą
-            compUniqueOrders: document.getElementById('compUniqueOrders'),           // NOWE: porównanie zamówień
+            compUniqueOrders: document.getElementById('compUniqueOrders'),
             compTotalM3: document.getElementById('compTotalM3'),
             compOrderAmountNet: document.getElementById('compOrderAmountNet'),
-            compValueNet: document.getElementById('compValueNet'),                   // NOWE: porównanie sprzedaży netto
+            compValueNet: document.getElementById('compValueNet'),
             compPricePerM3: document.getElementById('compPricePerM3'),
             compDeliveryCostNet: document.getElementById('compDeliveryCostNet'),
             compPaidAmountNet: document.getElementById('compPaidAmountNet'),
@@ -103,22 +101,22 @@ class ReportsManager {
             compProductionValueNet: document.getElementById('compProductionValueNet'),
             compReadyPickupVolume: document.getElementById('compReadyPickupVolume'),
             compReadyPickupValueNet: document.getElementById('compReadyPickupValueNet'),
-            compPickupReady: document.getElementById('compPickupReady'),             // Do odbioru
-            compKlejonkaValueNet: document.getElementById('compKlejonkaValueNet'),   // NOWE: klejonka
-            compDeskaValueNet: document.getElementById('compDeskaValueNet'),         // NOWE: deska wartość
-            compDeskaTotalM3: document.getElementById('compDeskaTotalM3'),           // NOWE: deska m³
-            compServicesValueNet: document.getElementById('compServicesValueNet'),   // NOWE: usługi
-            compOlejowanieSurface: document.getElementById('compOlejowanieSurface'), // NOWE: olejowanie
-            compLakierowanieSurface: document.getElementById('compLakierowanieSurface'), // NOWE: lakierowanie
+            compPickupReady: document.getElementById('compPickupReady'),
+            compKlejonkaValueNet: document.getElementById('compKlejonkaValueNet'),
+            compDeskaValueNet: document.getElementById('compDeskaValueNet'),
+            compDeskaTotalM3: document.getElementById('compDeskaTotalM3'),
+            compDryingTotalM3: document.getElementById('compDryingTotalM3'),
+            compServicesValueNet: document.getElementById('compServicesValueNet'),
+            compSuszenieValueNet: document.getElementById('compSuszenieValueNet'),
+            compKlejenieValueNet: document.getElementById('compKlejenieValueNet'),
+            compOlejowanieSurface: document.getElementById('compOlejowanieSurface'),
+            compLakierowanieSurface: document.getElementById('compLakierowanieSurface'),
 
-            // ZACHOWANE dla kompatybilności wstecznej
-            compOrdersProducts: document.getElementById('compOrdersProducts'),       // Stare ID (może nie istnieć)
+            compOrdersProducts: document.getElementById('compOrdersProducts'),
 
-            // Tabela
             reportsTable: document.getElementById('reportsTable'),
             reportsTableBody: document.getElementById('reportsTableBody'),
 
-            // Filtry aktywne
             activeFilters: document.getElementById('activeFilters'),
             activeFiltersList: document.getElementById('activeFiltersList')
         };
@@ -335,6 +333,11 @@ class ReportsManager {
             production_volume: 0,
             production_value_net: 0,
             ready_pickup_volume: 0,
+            drying_total_m3: 0,
+            services_value_net: 0,
+            // POPRAWKA 4: Podstatystyki usług
+            suszenie_value_net: 0,
+            klejenie_value_net: 0,
             ready_pickup_value_net: 0
         };
 
@@ -363,6 +366,7 @@ class ReportsManager {
             'ready_pickup_value_net': 'compReadyPickupValueNet',
             'klejonka_value_net': 'compKlejonkaValueNet',           // DODANE: klejonka
             'deska_value_net': 'compDeskaValueNet',                 // DODANE: deska wartość
+            'drying_total_m3': 'compDryingTotalM3',               // POPRAWKA 2: suszenie m³
             'deska_total_m3': 'compDeskaTotalM3',                   // DODANE: deska m³
             'services_value_net': 'compServicesValueNet',           // DODANE: usługi
             'pickup_ready_volume': 'compPickupReady'                // DODANE: do odbioru
@@ -1382,6 +1386,11 @@ class ReportsManager {
         this.updateStat('statDeskaValueNet', stats.deska_value_net, 2, ' PLN');
         this.updateStat('statDeskaTotalM3', stats.deska_total_m3, 4, ' m³');
 
+        this.updateStat('statDryingTotalM3', stats.drying_total_m3, 4, ' m³');
+
+        this.updateStat('statSuszenieValueNet', stats.suszenie_value_net, 2, ' PLN');
+        this.updateStat('statKlejenieValueNet', stats.klejenie_value_net, 2, ' PLN');
+
         // POPRAWKA 5: Wartość usług netto
         this.updateStat('statServicesValueNet', stats.services_value_net, 2, ' PLN');
 
@@ -1451,15 +1460,18 @@ class ReportsManager {
             'olejowanie_surface', 'lakierowanie_surface',
             'klejonka_value_net',
             'deska_value_net', 'deska_total_m3',
+            'drying_total_m3',
             'services_value_net',
-            'unique_orders'  // DODANE: mapowanie dla liczby zamówień
+            'suszenie_value_net',
+            'klejenie_value_net',
+            'unique_orders'
         ];
 
         const elementMap = {
             'total_m3': 'compTotalM3',
-            'unique_orders': 'compUniqueOrders',           // POPRAWKA: mapowanie dla zamówień (bez pozycji)
+            'unique_orders': 'compUniqueOrders',
             'order_amount_net': 'compOrderAmountNet',
-            'value_net': 'compValueNet',                   // DODANE: mapowanie dla sprzedaży netto
+            'value_net': 'compValueNet',
             'avg_price_per_m3': 'compPricePerM3',
             'paid_amount_net': 'compPaidAmountNet',
             'balance_due': 'compBalanceDue',
@@ -1472,7 +1484,10 @@ class ReportsManager {
             'klejonka_value_net': 'compKlejonkaValueNet',
             'deska_value_net': 'compDeskaValueNet',
             'deska_total_m3': 'compDeskaTotalM3',
-            'services_value_net': 'compServicesValueNet'
+            'drying_total_m3': 'compDryingTotalM3',
+            'services_value_net': 'compServicesValueNet',
+            'suszenie_value_net': 'compSuszenieValueNet',
+            'klejenie_value_net': 'compKlejenieValueNet'
         };
 
         fields.forEach(field => {
@@ -1481,19 +1496,16 @@ class ReportsManager {
             const compData = comparison[field];
 
             if (element) {
-                // NOWY KOD z poprawką dla 0%:
                 if (compData && compData.change_percent !== undefined) {
                     const changePercent = compData.change_percent;
                     const isPositive = compData.is_positive;
 
-                    // POPRAWKA: Ukryj porównania przy 0% (wcześniej było changePercent !== 0)
                     if (Math.abs(changePercent) > 0.1) {
                         const sign = isPositive ? '+' : '';
                         element.textContent = `${sign}${changePercent}%`;
                         element.className = `stats-comparison ${isPositive ? 'positive' : 'negative'}`;
-                        element.style.display = '';  // Pokaż element
+                        element.style.display = '';
                     } else {
-                        // Ukryj element przy 0% lub bardzo małych zmianach
                         element.textContent = '';
                         element.className = 'stats-comparison';
                         element.style.display = 'none';

@@ -211,13 +211,13 @@ class BaselinkerReportOrder(db.Model):
             'pickup_ready_volume': 0.0,
             'unique_orders': 0,
             'products_count': 0,
-            # POPRAWKA 1: Wartość klejonek netto
             'klejonka_value_net': 0.0,
-            # POPRAWKI 3 i 4: Statystyki dla deski
+            'drying_total_m3': 0.0,
             'deska_value_net': 0.0,
             'deska_total_m3': 0.0,
-            # POPRAWKA 5: Wartość usług netto
-            'services_value_net': 0.0
+            'services_value_net': 0.0,
+            'suszenie_value_net': 0.0,
+            'klejenie_value_net': 0.0
         }
 
         if not orders:
@@ -240,7 +240,6 @@ class BaselinkerReportOrder(db.Model):
                 }
             orders_by_unique_id[unique_id]['products'].append(order)
 
-        # NAPRAWKA: Sumuj wartości NA POZIOMIE PRODUKTU (zawsze per produkt)
         product_level_stats = {
             'total_m3': 0.0,  # TTL m3 klejonki
             'value_net': 0.0,
@@ -250,53 +249,59 @@ class BaselinkerReportOrder(db.Model):
             'ready_pickup_volume': 0.0,
             'ready_pickup_value_net': 0.0,
             'pickup_ready_volume': 0.0,
-            # POPRAWKA 1: Wartość klejonek netto
             'klejonka_value_net': 0.0,
-            # POPRAWKI 3 i 4: Statystyki dla deski
+            'drying_total_m3': 0.0,
             'deska_value_net': 0.0,
             'deska_total_m3': 0.0,
-            # POPRAWKA 5: Wartość usług netto
-            'services_value_net': 0.0
+            'services_value_net': 0.0,
+            'suszenie_value_net': 0.0,
+            'klejenie_value_net': 0.0
         }
 
         for order in orders:
-            # POPRAWKA 2: TTL m3 teraz tylko dla klejonek
             if order.product_type == 'klejonka':
                 product_level_stats['total_m3'] += float(order.total_volume or 0)
 
             product_level_stats['value_net'] += float(order.value_net or 0)
             product_level_stats['value_gross'] += float(order.value_gross or 0)
-            product_level_stats['production_volume'] += float(order.production_volume or 0)
-            product_level_stats['production_value_net'] += float(order.production_value_net or 0)
-            product_level_stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
-            product_level_stats['ready_pickup_value_net'] += float(order.ready_pickup_value_net or 0)
+            
+            if order.product_type == 'klejonka':
+                product_level_stats['production_volume'] += float(order.production_volume or 0)
+                product_level_stats['production_value_net'] += float(order.production_value_net or 0)
+                
+                product_level_stats['ready_pickup_volume'] += float(order.ready_pickup_volume or 0)
+                product_level_stats['ready_pickup_value_net'] += float(order.ready_pickup_value_net or 0)
 
-            # ZMIANA: Nowa logika dla "Do odbioru" - trzy statusy
-            if order.baselinker_status_id in [105113, 149777, 138620]:
-                # 105113 = Paczka zgłoszona do wysyłki
-                # 149777 = Czeka na odbiór osobisty  
-                # 138620 = Produkcja zakończona
+            if (order.baselinker_status_id in [105113, 149777, 138620] and 
+                order.product_type == 'klejonka'):
                 product_level_stats['pickup_ready_volume'] += float(order.total_volume or 0)
 
-            # POPRAWKA 1: Suma wartości netto dla produktów typu "klejonka"
             if order.product_type == 'klejonka':
                 product_level_stats['klejonka_value_net'] += float(order.value_net or 0)
 
-            # POPRAWKI 3 i 4: Statystyki dla deski
             if order.product_type == 'deska':
                 product_level_stats['deska_value_net'] += float(order.value_net or 0)
                 product_level_stats['deska_total_m3'] += float(order.total_volume or 0)
 
-            # POPRAWKA 5: Suma wartości netto dla usług
-            if order.group_type == 'usługa':
-                product_level_stats['services_value_net'] += float(order.value_net or 0)
+            if order.product_type == 'suszenie':
+                product_level_stats['drying_total_m3'] += float(order.total_volume or 0)
 
-        # NAPRAWKA: Sumuj wartości NA POZIOMIE ZAMÓWIENIA (raz na zamówienie)
+            if order.group_type == 'usługa':
+                value_net = float(order.value_net or 0)
+                product_level_stats['services_value_net'] += value_net
+                
+                # POPRAWKA 4: Podział usług na suszenie i klejenie
+                if order.product_type == 'suszenie':
+                    product_level_stats['suszenie_value_net'] += value_net
+                else:
+                    # Wszystkie pozostałe usługi (w tym klejenie) traktuj jako klejenie
+                    product_level_stats['klejenie_value_net'] += value_net
+
         order_level_stats = {
             'order_amount_net': 0.0,
             'delivery_cost': 0.0,
             'paid_amount_net': 0.0,
-            'balance_due': 0.0  # ZMIANA: Teraz będzie obliczane inaczej
+            'balance_due': 0.0
         }
 
         for unique_id, order_group in orders_by_unique_id.items():

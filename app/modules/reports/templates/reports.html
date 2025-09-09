@@ -104,13 +104,6 @@
                             </div>
                         </div>
                         <div class="stats-row">
-                            <span class="stats-label">Średnia cena m³ netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statPricePerM3">0.00 zł</span>
-                                <span class="stats-comparison" id="compPricePerM3"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
                             <span class="stats-label">Zapłacono TTL netto</span>
                             <div class="stats-value-container">
                                 <span class="stats-value" id="statPaidAmountNet">0.00 zł</span>
@@ -149,6 +142,13 @@
                             </div>
                         </div>
                         <div class="stats-row">
+                            <span class="stats-label">Średnia cena m³ netto</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statPricePerM3">0.00 zł</span>
+                                <span class="stats-comparison" id="compPricePerM3"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
                             <span class="stats-label">Sprzedaż deski netto</span>
                             <div class="stats-value-container">
                                 <span class="stats-value" id="statDeskaValueNet">0.00 zł</span>
@@ -163,10 +163,34 @@
                             </div>
                         </div>
                         <div class="stats-row">
+                            <span class="stats-label">TTL m³ suszenia</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statDryingTotalM3">0.0000 m³</span>
+                                <span class="stats-comparison" id="compDryingTotalM3"></span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
                             <span class="stats-label">Sprzedaż usług netto</span>
                             <div class="stats-value-container">
                                 <span class="stats-value" id="statServicesValueNet">0.00 zł</span>
                                 <span class="stats-comparison" id="compServicesValueNet"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- POPRAWKA 4: DODAJ wcięte podstatystyki -->
+                        <div class="stats-row" style="margin-left: 20px; font-size: 14px; color: #666;">
+                            <span class="stats-label">Suszenie</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statSuszenieValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compSuszenieValueNet"></span>
+                            </div>
+                        </div>
+                        
+                        <div class="stats-row" style="margin-left: 20px; font-size: 14px; color: #666;">
+                            <span class="stats-label">Klejenie</span>
+                            <div class="stats-value-container">
+                                <span class="stats-value" id="statKlejenieValueNet">0.00 zł</span>
+                                <span class="stats-comparison" id="compKlejenieValueNet"></span>
                             </div>
                         </div>
                     </div>

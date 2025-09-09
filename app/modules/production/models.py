@@ -17,10 +17,10 @@ Data: 2025-01-08
 """
 
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Decimal, Enum, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Numeric, Enum, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
-from app import db
+from extensions import db
 from modules.logging import get_structured_logger
 
 logger = get_structured_logger('production.models')
@@ -95,15 +95,15 @@ class ProductionItem(db.Model):
     parsed_wood_species = Column(String(50))
     parsed_technology = Column(String(50))
     parsed_wood_class = Column(String(10))
-    parsed_length_cm = Column(Decimal(10, 2))
-    parsed_width_cm = Column(Decimal(10, 2))
-    parsed_thickness_cm = Column(Decimal(10, 2))
+    parsed_length_cm = Column(Numeric(10, 2))
+    parsed_width_cm = Column(Numeric(10, 2))
+    parsed_thickness_cm = Column(Numeric(10, 2))
     parsed_finish_state = Column(String(50))
     
     # KALKULACJE BIZNESOWE
-    volume_m3 = Column(Decimal(10, 4))
-    unit_price_net = Column(Decimal(10, 2))
-    total_value_net = Column(Decimal(10, 2))
+    volume_m3 = Column(Numeric(10, 4))
+    unit_price_net = Column(Numeric(10, 2))
+    total_value_net = Column(Numeric(10, 2))
     
     # STATUS PRODUKCJI
     current_status = Column(Enum(
@@ -340,7 +340,7 @@ class ProductionSyncLog(db.Model):
     # METADANE
     baselinker_api_response_time_ms = Column(Integer)
     processed_status_ids = Column(Text)
-    total_memory_usage_mb = Column(Decimal(10, 2))
+    total_memory_usage_mb = Column(Numeric(10, 2))
     
     def __repr__(self):
         return f'<ProductionSyncLog {self.sync_type} {self.sync_started_at}: {self.sync_status}>'

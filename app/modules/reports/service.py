@@ -72,7 +72,8 @@ class BaselinkerReportsService:
 
         service_keywords = [
             'usługa', 'usluga', 'usługi', 'uslugi', 
-            'klejenie', 'przycięcie', 'montaż',
+            'klejenie', 'klejenia', 'oklejanie', 
+            'przycięcie', 'montaż',
             # NOWE: suszenie usługowe
             'suszenie', 'suszenia', 'wysuszenie', 'wysuszenia',
             'usługa suszenia', 'suszenie usługowe'
