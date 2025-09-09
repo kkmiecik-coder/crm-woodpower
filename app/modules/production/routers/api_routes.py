@@ -129,7 +129,7 @@ def admin_required(f):
     
     return decorated_function
 
-# ============================================================================
+    # ============================================================================
 # ENDPOINTS SYNCHRONIZACJI
 # ============================================================================
 
@@ -388,6 +388,116 @@ def complete_task():
             'code': 'COMPLETE_TASK_ERROR'
         }), 500
 
+@api_bp.route('/complete-packaging', methods=['POST'])
+def complete_packaging():
+    """
+    Ukończenie pakowania z aktualizacją Baselinker (zgodnie z PRD)
+    
+    Request JSON:
+        {
+            "internal_order_number": "25_05248",
+            "completed_products": [
+                {"product_id": "25_05248_1", "confirmed": true},
+                {"product_id": "25_05248_2", "confirmed": true}
+            ]
+        }
+    
+    Returns:
+        JSON: Status operacji i potwierdzenie aktualizacji Baselinker
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing JSON data',
+                'code': 'MISSING_DATA'
+            }), 400
+        
+        internal_order_number = data.get('internal_order_number')
+        completed_products = data.get('completed_products', [])
+        
+        if not internal_order_number or not completed_products:
+            return jsonify({
+                'success': False,
+                'error': 'Missing internal_order_number or completed_products',
+                'code': 'MISSING_REQUIRED_FIELDS'
+            }), 400
+        
+        from ..models import ProductionItem
+        
+        # Znajdź i zaktualizuj wszystkie potwierdzone produkty
+        updated_products = []
+        for product_data in completed_products:
+            if not product_data.get('confirmed'):
+                continue
+                
+            product_id = product_data.get('product_id')
+            product = ProductionItem.query.filter_by(
+                short_product_id=product_id,
+                internal_order_number=internal_order_number
+            ).first()
+            
+            if product and product.current_status == 'czeka_na_pakowanie':
+                product.complete_task('packaging')
+                updated_products.append(product_id)
+        
+        if not updated_products:
+            return jsonify({
+                'success': False,
+                'error': 'No products were updated',
+                'code': 'NO_PRODUCTS_UPDATED'
+            }), 400
+        
+        # Zapisz zmiany produktów
+        db.session.commit()
+        
+        # Aktualizuj status w Baselinker
+        from ..services.sync_service import update_order_status_in_baselinker
+        baselinker_success = False
+        baselinker_error = None
+        
+        try:
+            baselinker_success = update_order_status_in_baselinker(internal_order_number)
+        except Exception as e:
+            baselinker_error = str(e)
+            logger.error("Błąd aktualizacji Baselinker", extra={
+                'internal_order_number': internal_order_number,
+                'error': str(e)
+            })
+        
+        logger.info("Ukończono pakowanie zamówienia", extra={
+            'internal_order_number': internal_order_number,
+            'updated_products': updated_products,
+            'baselinker_success': baselinker_success,
+            'client_ip': request.remote_addr
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Packaging completed successfully',
+            'data': {
+                'internal_order_number': internal_order_number,
+                'updated_products': updated_products,
+                'baselinker_updated': baselinker_success,
+                'baselinker_error': baselinker_error,
+                'completed_at': datetime.utcnow().isoformat()
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Błąd ukończenia pakowania", extra={
+            'internal_order_number': data.get('internal_order_number') if 'data' in locals() else 'unknown',
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'code': 'COMPLETE_PACKAGING_ERROR'
+        }), 500
+
 @api_bp.route('/get-products', methods=['GET'])
 def get_products():
     """
@@ -496,6 +606,172 @@ def get_products():
             'success': False,
             'error': str(e),
             'code': 'GET_PRODUCTS_ERROR'
+        }), 500
+
+# ============================================================================
+# ENDPOINTS DASHBOARD STATS (zgodnie z PRD)
+# ============================================================================
+
+@api_bp.route('/dashboard-stats', methods=['GET'])
+@login_required
+def dashboard_stats():
+    """
+    Statystyki dla dashboard (zgodnie z PRD)
+    
+    Returns:
+        JSON: Kompleksowe statystyki dla dashboard
+    """
+    try:
+        from ..models import ProductionItem, ProductionSyncLog
+        from sqlalchemy import func, and_
+        
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Statystyki stanowisk
+        stations_stats = {}
+        for station_code, status in [
+            ('cutting', 'czeka_na_wyciecie'),
+            ('assembly', 'czeka_na_skladanie'),
+            ('packaging', 'czeka_na_pakowanie')
+        ]:
+            # Zliczanie oczekujących
+            pending_count = ProductionItem.query.filter_by(current_status=status).count()
+            
+            # Obliczenie m3 ukończone dzisiaj
+            completed_status = {
+                'cutting': 'czeka_na_skladanie',
+                'assembly': 'czeka_na_pakowanie', 
+                'packaging': 'spakowane'
+            }[station_code]
+            
+            today_completed = ProductionItem.query.filter(
+                and_(
+                    ProductionItem.current_status == completed_status,
+                    ProductionItem.updated_at >= today_start
+                )
+            ).all()
+            
+            today_m3 = sum(float(p.volume_m3 or 0) for p in today_completed)
+            
+            stations_stats[station_code] = {
+                'pending_count': pending_count,
+                'today_m3': round(today_m3, 2)
+            }
+        
+        # Totalne statystyki dzisiejsze
+        today_completed_orders = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            and_(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.updated_at >= today_start
+            )
+        ).distinct().count()
+        
+        # Łączne m3 dzisiaj
+        today_total_m3 = db.session.query(
+            func.sum(ProductionItem.volume_m3)
+        ).filter(
+            and_(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.updated_at >= today_start
+            )
+        ).scalar() or 0
+        
+        # Średni dystans do deadline
+        active_products = ProductionItem.query.filter(
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
+            ])
+        ).all()
+        
+        if active_products:
+            deadline_distances = [p.days_until_deadline for p in active_products if p.days_until_deadline is not None]
+            avg_deadline_distance = sum(deadline_distances) / len(deadline_distances) if deadline_distances else 0
+        else:
+            avg_deadline_distance = 0
+        
+        # Alerty deadline (produkty z terminem < 3 dni)
+        deadline_alerts = []
+        urgent_products = ProductionItem.query.filter(
+            and_(
+                ProductionItem.current_status.in_([
+                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
+                ]),
+                ProductionItem.days_until_deadline != None,
+                ProductionItem.days_until_deadline <= 3
+            )
+        ).order_by(ProductionItem.days_until_deadline).limit(10).all()
+        
+        for product in urgent_products:
+            station_map = {
+                'czeka_na_wyciecie': 'cutting',
+                'czeka_na_skladanie': 'assembly',
+                'czeka_na_pakowanie': 'packaging'
+            }
+            
+            deadline_alerts.append({
+                'product_id': product.short_product_id,
+                'days_remaining': product.days_until_deadline,
+                'current_station': station_map.get(product.current_status, 'unknown'),
+                'internal_order_number': product.internal_order_number
+            })
+        
+        # Health system
+        try:
+            from ..services.sync_service import get_sync_status
+            sync_status = get_sync_status()
+            last_sync = sync_status.get('last_sync', {}).get('timestamp')
+            sync_success = sync_status.get('last_sync', {}).get('success', False)
+        except:
+            last_sync = None
+            sync_success = False
+        
+        # Błędy ostatnie 24h
+        from ..models import ProductionError
+        errors_24h = ProductionError.query.filter(
+            and_(
+                ProductionError.error_occurred_at >= now - timedelta(hours=24),
+                ProductionError.is_resolved == False
+            )
+        ).count()
+        
+        # Średni czas odpowiedzi Baselinker (mock - w przyszłości z metryki)
+        baselinker_avg_ms = 450  # Placeholder
+        
+        system_health = {
+            'last_sync': last_sync,
+            'sync_status': 'success' if sync_success else 'error',
+            'errors_24h': errors_24h,
+            'baselinker_api_avg_ms': baselinker_avg_ms,
+            'database_status': 'healthy'  # Można rozszerzyć o real check
+        }
+        
+        result = {
+            'stations': stations_stats,
+            'today_totals': {
+                'completed_orders': today_completed_orders,
+                'total_m3': round(float(today_total_m3), 2),
+                'avg_deadline_distance': round(avg_deadline_distance, 1)
+            },
+            'deadline_alerts': deadline_alerts,
+            'system_health': system_health,
+            'generated_at': now.isoformat()
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': result,
+            'timestamp': now.isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error("Błąd pobierania statystyk dashboard", extra={'error': str(e)})
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'code': 'DASHBOARD_STATS_ERROR'
         }), 500
 
 # ============================================================================
@@ -687,6 +963,107 @@ def recalculate_priorities():
         }), 500
 
 # ============================================================================
+# ENDPOINTS KONFIGURACJI (zgodnie z PRD)
+# ============================================================================
+
+@api_bp.route('/update-config', methods=['POST'])
+@admin_required
+def update_config():
+    """
+    Aktualizuje konfigurację systemu (tylko admin)
+    
+    Request JSON:
+        {
+            "config_key": "STATION_ALLOWED_IPS",
+            "config_value": "192.168.1.100,192.168.1.101"
+        }
+    
+    Returns:
+        JSON: Status operacji
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing JSON data',
+                'code': 'MISSING_DATA'
+            }), 400
+        
+        config_key = data.get('config_key')
+        config_value = data.get('config_value')
+        
+        if not config_key:
+            return jsonify({
+                'success': False,
+                'error': 'Missing config_key',
+                'code': 'MISSING_CONFIG_KEY'
+            }), 400
+        
+        # Lista dozwolonych kluczy konfiguracji
+        allowed_keys = [
+            'STATION_ALLOWED_IPS',
+            'PRODUCTION_SYNC_INTERVAL',
+            'PRODUCTION_MAX_ITEMS_PER_SYNC',
+            'PRODUCTION_DEADLINE_DAYS',
+            'PRIORITY_WEIGHTS'
+        ]
+        
+        if config_key not in allowed_keys:
+            return jsonify({
+                'success': False,
+                'error': f'Config key not allowed. Allowed keys: {", ".join(allowed_keys)}',
+                'code': 'CONFIG_KEY_NOT_ALLOWED'
+            }), 400
+        
+        from ..services.config_service import get_config_service
+        
+        config_service = get_config_service()
+        old_value = config_service.get(config_key)
+        
+        # Aktualizuj konfigurację
+        success = config_service.update(config_key, config_value)
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to update configuration',
+                'code': 'CONFIG_UPDATE_FAILED'
+            }), 500
+        
+        logger.info("Zaktualizowano konfigurację", extra={
+            'config_key': config_key,
+            'old_value': old_value,
+            'new_value': config_value,
+            'user_id': current_user.id
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Configuration updated successfully',
+            'data': {
+                'config_key': config_key,
+                'old_value': old_value,
+                'new_value': config_value,
+                'updated_by': current_user.id,
+                'updated_at': datetime.utcnow().isoformat()
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error("Błąd aktualizacji konfiguracji", extra={
+            'config_key': data.get('config_key') if 'data' in locals() else 'unknown',
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'code': 'UPDATE_CONFIG_ERROR'
+        }), 500
+
+# ============================================================================
 # ENDPOINTS MONITORINGU I STATYSTYK  
 # ============================================================================
 
@@ -753,6 +1130,7 @@ def health_check():
         
         # Sprawdzenie synchronizacji
         try:
+            from ..services.sync_service import get_sync_status
             last_sync = get_sync_status().get('last_sync', {})
             if last_sync and last_sync.get('timestamp'):
                 last_sync_time = datetime.fromisoformat(last_sync['timestamp'].replace('Z', '+00:00'))
@@ -822,4 +1200,280 @@ def get_stats():
             'timeframe': timeframe,
             'period_start': start_date.isoformat(),
             'period_end': now.isoformat(),
-            '
+            'generated_at': now.isoformat()
+        }
+        
+        # Podstawowe statystyki
+        total_active = ProductionItem.query.filter(
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
+            ])
+        ).count()
+        
+        completed_in_period = ProductionItem.query.filter(
+            and_(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.updated_at >= start_date
+            )
+        ).count()
+        
+        # Statystyki według stanowisk
+        stations_stats = {}
+        for station_code, status in [
+            ('cutting', 'czeka_na_wyciecie'),
+            ('assembly', 'czeka_na_skladanie'),
+            ('packaging', 'czeka_na_pakowanie')
+        ]:
+            count = ProductionItem.query.filter_by(current_status=status).count()
+            stations_stats[station_code] = {
+                'pending_count': count,
+                'status': status
+            }
+        
+        # Statystyki objętości
+        volume_stats = db.session.query(
+            func.sum(ProductionItem.volume_m3),
+            func.avg(ProductionItem.volume_m3),
+            func.count(ProductionItem.id)
+        ).filter(
+            and_(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.updated_at >= start_date
+            )
+        ).first()
+        
+        total_volume = float(volume_stats[0] or 0)
+        avg_volume = float(volume_stats[1] or 0)
+        volume_products_count = int(volume_stats[2] or 0)
+        
+        # Statystyki wartości
+        value_stats = db.session.query(
+            func.sum(ProductionItem.total_value_net),
+            func.avg(ProductionItem.total_value_net)
+        ).filter(
+            and_(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.updated_at >= start_date
+            )
+        ).first()
+        
+        total_value = float(value_stats[0] or 0)
+        avg_value = float(value_stats[1] or 0)
+        
+        # Podstawowe statystyki
+        stats.update({
+            'basic': {
+                'total_active_products': total_active,
+                'completed_in_period': completed_in_period,
+                'stations': stations_stats,
+                'volume': {
+                    'total_m3': round(total_volume, 2),
+                    'average_m3': round(avg_volume, 2),
+                    'products_with_volume': volume_products_count
+                },
+                'value': {
+                    'total_net': round(total_value, 2),
+                    'average_net': round(avg_value, 2)
+                }
+            }
+        })
+        
+        # Szczegółowe statystyki (jeśli requested)
+        if detailed:
+            # Priorytety
+            priority_stats = db.session.query(
+                func.min(ProductionItem.priority_score),
+                func.max(ProductionItem.priority_score),
+                func.avg(ProductionItem.priority_score)
+            ).filter(
+                ProductionItem.current_status.in_([
+                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
+                ])
+            ).first()
+            
+            # Deadline stats
+            overdue_count = ProductionItem.query.filter(
+                and_(
+                    ProductionItem.current_status.in_([
+                        'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
+                    ]),
+                    ProductionItem.is_overdue == True
+                )
+            ).count()
+            
+            # Średni czas od utworzenia do ukończenia
+            completed_products = ProductionItem.query.filter(
+                and_(
+                    ProductionItem.current_status == 'spakowane',
+                    ProductionItem.updated_at >= start_date,
+                    ProductionItem.created_at.isnot(None)
+                )
+            ).all()
+            
+            if completed_products:
+                completion_times = [
+                    (p.updated_at - p.created_at).total_seconds() / 3600  # godziny
+                    for p in completed_products
+                    if p.updated_at and p.created_at
+                ]
+                avg_completion_hours = sum(completion_times) / len(completion_times) if completion_times else 0
+            else:
+                avg_completion_hours = 0
+            
+            stats['detailed'] = {
+                'priorities': {
+                    'min': int(priority_stats[0] or 0),
+                    'max': int(priority_stats[1] or 0),
+                    'average': round(float(priority_stats[2] or 0), 1)
+                },
+                'deadlines': {
+                    'overdue_count': overdue_count
+                },
+                'performance': {
+                    'avg_completion_hours': round(avg_completion_hours, 1)
+                }
+            }
+            
+            # Top produkty według wartości
+            top_products = ProductionItem.query.filter(
+                and_(
+                    ProductionItem.current_status == 'spakowane',
+                    ProductionItem.updated_at >= start_date
+                )
+            ).order_by(
+                ProductionItem.total_value_net.desc()
+            ).limit(5).all()
+            
+            stats['detailed']['top_completed_products'] = [
+                {
+                    'product_id': p.short_product_id,
+                    'value_net': float(p.total_value_net or 0),
+                    'volume_m3': float(p.volume_m3 or 0),
+                    'internal_order_number': p.internal_order_number
+                }
+                for p in top_products
+            ]
+        
+        return jsonify({
+            'success': True,
+            'data': stats,
+            'timestamp': now.isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error("Błąd pobierania statystyk", extra={
+            'timeframe': request.args.get('timeframe'),
+            'detailed': request.args.get('detailed'),
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'code': 'GET_STATS_ERROR'
+        }), 500
+
+# ============================================================================
+# POMOCNICZE ENDPOINTY
+# ============================================================================
+
+@api_bp.route('/product-details/<product_id>', methods=['GET'])
+@login_required
+def get_product_details(product_id):
+    """
+    Pobiera szczegółowe informacje o produkcie
+    
+    Args:
+        product_id: ID produktu (format: 25_05248_1)
+    
+    Returns:
+        JSON: Szczegółowe dane produktu
+    """
+    try:
+        from ..models import ProductionItem
+        
+        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+        if not product:
+            return jsonify({
+                'success': False,
+                'error': 'Product not found',
+                'code': 'PRODUCT_NOT_FOUND'
+            }), 404
+        
+        # Pełna serializacja produktu
+        product_data = {
+            'product_id': product.short_product_id,
+            'internal_order_number': product.internal_order_number,
+            'original_order_id': product.original_order_id,
+            'original_product_name': product.original_product_name,
+            'current_status': product.current_status,
+            'priority_score': product.priority_score,
+            'priority_level': product.priority_level,
+            'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+            'days_until_deadline': product.days_until_deadline,
+            'is_overdue': product.is_overdue,
+            'volume_m3': float(product.volume_m3) if product.volume_m3 else None,
+            'total_value_net': float(product.total_value_net) if product.total_value_net else None,
+            'created_at': product.created_at.isoformat(),
+            'updated_at': product.updated_at.isoformat() if product.updated_at else None,
+            'parsed_data': {
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'length_cm': product.parsed_length_cm,
+                'width_cm': product.parsed_width_cm,
+                'thickness_cm': product.parsed_thickness_cm,
+                'finish_state': product.parsed_finish_state,
+                'dimensions_formatted': f"{product.parsed_length_cm}×{product.parsed_width_cm}×{product.parsed_thickness_cm}" if all([
+                    product.parsed_length_cm, product.parsed_width_cm, product.parsed_thickness_cm
+                ]) else None
+            }
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': product_data,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error("Błąd pobierania szczegółów produktu", extra={
+            'product_id': product_id,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'code': 'GET_PRODUCT_DETAILS_ERROR'
+        }), 500
+
+# ============================================================================
+# ERROR HANDLERS
+# ============================================================================
+
+@api_bp.errorhandler(404)
+def api_not_found(error):
+    """Handler dla 404 w API"""
+    return jsonify({
+        'success': False,
+        'error': 'API endpoint not found',
+        'code': 'API_ENDPOINT_NOT_FOUND'
+    }), 404
+
+@api_bp.errorhandler(405)
+def api_method_not_allowed(error):
+    """Handler dla 405 w API"""
+    return jsonify({
+        'success': False,
+        'error': 'HTTP method not allowed for this endpoint',
+        'code': 'METHOD_NOT_ALLOWED'
+    }), 405
+
+@api_bp.errorhandler(500)
+def api_internal_error(error):
+    """Handler dla 500 w API"""
+    logger.error("Nieobsłużony błąd API", extra={'error': str(error)})
+    return jsonify({
+        'success': False,
+        'error': 'Internal server error',
+        'code': 'INTERNAL_SERVER_ERROR'
+    }), 500
