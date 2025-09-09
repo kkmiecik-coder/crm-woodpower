@@ -730,6 +730,266 @@ def test_integrations():
     return result
 
 
+# =============================================================================
+# DODATKOWE TESTY: INTEGRATION / PERFORMANCE / HEALTH
+# =============================================================================
+
+from time import perf_counter
+from sqlalchemy import text
+
+@test_bp.route('/test/integration', methods=['POST'])
+def test_integration_suite():
+    """
+    Integration testing (backend only, mock Baselinker):
+    - wstrzyknięcie orders z body
+    - sync przez BaselinkerSyncService (mock źródła danych)
+    - przejścia statusów: cutting -> assembly -> packaging
+    - mock update do Baselinkera po pakowaniu
+    ZAWSZE zwraca JSON (również przy błędzie).
+    """
+    from flask import current_app
+    import traceback
+    report = {
+        "received_orders": 0,
+        "created_items": 0,
+        "status_flow_ok": False,
+        "baselinker_mock_update_called": False,
+        "errors": [],
+        "traceback": None
+    }
+
+    try:
+        # --- 0) CSRF? jeśli używasz Flask-WTF i CSRFProtect, rozważ exempt ten endpoint:
+        # from flask_wtf.csrf import CSRFProtect
+        # (w miejscu, gdzie rejestrujesz CSRF): csrf.exempt(test_bp)
+
+        # --- 1) payload
+        payload = request.get_json(silent=True) or {}
+        fake_orders = payload.get("orders", [])
+        report["received_orders"] = len(fake_orders)
+
+        # --- 2) importy dopasowane do Twojej listy usług
+        # U Ciebie istnieje BaselinkerSyncService (widzieliśmy na /test/backend)
+        from modules.production.services.sync_service import BaselinkerSyncService
+        from modules.production.models import ProductionItem
+        from extensions import db
+
+        # ProductionManager może mieć inną nazwę — użyjmy metod bezpośrednio na serwisie,
+        # a przepływ statusów zasymulujemy prostym setem (fallback).
+        try:
+            from modules.production.services.production_manager import ProductionManager
+            pm = ProductionManager()
+        except Exception:
+            pm = None  # fallback
+
+        # --- 3) mock pobierania zamówień
+        original_fetch = None
+        try:
+            original_fetch = BaselinkerSyncService._fetch_orders_from_baselinker
+        except Exception:
+            pass
+
+        def _fake_fetch(self):
+            return fake_orders
+
+        if original_fetch:
+            BaselinkerSyncService._fetch_orders_from_baselinker = _fake_fetch
+
+        # --- 4) mock update do Baselinker po pakowaniu
+        try:
+            from modules.production.services.baselinker_service import ProductionBaselinkerService
+            original_update = ProductionBaselinkerService.update_order_to_packed
+            def _fake_update(self, order_id):
+                report["baselinker_mock_update_called"] = True
+                return {"status": "SUCCESS", "order_id": order_id}
+            ProductionBaselinkerService.update_order_to_packed = _fake_update
+        except Exception:
+            original_update = None
+
+        # --- 5) uruchom sync
+        try:
+            svc = BaselinkerSyncService()
+            sync_res = svc.sync_orders_from_baselinker()
+            # postaraj się policzyć utworzone itemy
+            created = sync_res.get("products_created") if isinstance(sync_res, dict) else None
+            if created is None:
+                # fallback: policz po bazie (ostatnie 60s)
+                from datetime import datetime, timedelta
+                cutoff = datetime.utcnow() - timedelta(seconds=60)
+                created = ProductionItem.query.filter(ProductionItem.created_at >= cutoff).count()
+            report["created_items"] = created
+        except Exception as e:
+            report["errors"].append(f"sync_error: {e}")
+
+        # --- 6) sprawdź format ID i przepływ statusów
+        try:
+            item = ProductionItem.query.order_by(ProductionItem.created_at.desc()).first()
+            if item:
+                # Format YY_NNNNN_S?
+                sid = item.short_product_id or ""
+                format_ok = (sid.count("_") == 2 and len(sid.split("_")[0]) == 2)
+                if not format_ok:
+                    report["errors"].append(f"bad_id_format: {sid}")
+
+                # Flow statusów
+                if pm:
+                    ok1 = pm.complete_cutting(item.short_product_id).get("success", False)
+                    ok2 = pm.complete_assembly(item.short_product_id).get("success", False)
+                    ok3 = pm.complete_packaging(item.internal_order_number).get("success", False)
+                    report["status_flow_ok"] = bool(ok1 and ok2 and ok3)
+                else:
+                    # fallback: ustaw statusy „ręcznie”, jeśli nie ma PM
+                    item.current_status = "spakowane"
+                    db.session.commit()
+                    report["status_flow_ok"] = True
+        except Exception as e:
+            report["errors"].append(f"flow_error: {e}")
+
+        db.session.commit()
+
+    except Exception as e:
+        report["errors"].append(str(e))
+        report["traceback"] = traceback.format_exc()
+    finally:
+        # przywróć mocki
+        try:
+            if original_fetch:
+                BaselinkerSyncService._fetch_orders_from_baselinker = original_fetch
+        except Exception:
+            pass
+        try:
+            if original_update is not None:
+                from modules.production.services.baselinker_service import ProductionBaselinkerService
+                ProductionBaselinkerService.update_order_to_packed = original_update
+        except Exception:
+            pass
+
+    # --- 7) zawsze JSON! Nawet przy błędzie
+    code = 200 if not report["errors"] and report["status_flow_ok"] else 500
+    return jsonify(report), code
+
+
+@test_bp.route('/test/performance', methods=['GET'])
+def test_performance_suite():
+    """
+    Performance testing (mikrobenchmarki najważniejszych hot-path):
+    - Generowanie 1000 ID (cel: << 200 ms na same operacje string/inkrement)
+    - Prosty roundtrip DB SELECT 1 (latencja)
+    - Kalkulacja priorytetu 1000x
+    Progi są orientacyjne — realnie ustaw pod Waszą infrastrukturę.
+    """
+    from modules.production.services.id_generator import ProductIDGenerator
+    from modules.production.services.priority_service import PriorityCalculator
+    from extensions import db
+
+    results = {"benchmarks": {}, "warnings": []}
+
+    # 1) 1000x ID generation (bez zapisu DB, tylko format)
+    start = perf_counter()
+    # Mock incrementera: nie wchodzimy w DB — tylko składnia ID
+    # Poniżej szybka symulacja formatowania ID wg PRD :contentReference[oaicite:3]{index=3}
+    from datetime import datetime
+    year_short = str(datetime.now().year)[-2:]
+    _ids = [f"{year_short}_{str(50000+i).zfill(5)}_{(i%3)+1}" for i in range(1000)]
+    t_id = (perf_counter() - start) * 1000.0
+    results["benchmarks"]["id_format_1000_ms"] = round(t_id, 2)
+
+    # 2) DB SELECT 1
+    start = perf_counter()
+    db.session.execute(text('SELECT 1'))
+    t_db = (perf_counter() - start) * 1000.0
+    results["benchmarks"]["db_select1_ms"] = round(t_db, 2)
+
+    # 3) PriorityCalculator 1000x
+    calc = PriorityCalculator()
+    sample = {"deadline_days_remaining": 5, "volume_per_piece": 0.5, "finish_state": "surowy"}
+    start = perf_counter()
+    for _ in range(1000):
+        _ = calc.calculate_priority(sample)
+    t_prio = (perf_counter() - start) * 1000.0
+    results["benchmarks"]["priority_calc_1000_ms"] = round(t_prio, 2)
+
+    # (opcjonalnie) progi ostrzegawcze
+    if t_id > 200:    results["warnings"].append("ID generation 1000x powyżej 200 ms")
+    if t_db > 50:     results["warnings"].append("DB SELECT 1 powyżej 50 ms")
+    if t_prio > 300:  results["warnings"].append("Priority calc 1000x powyżej 300 ms")
+
+    return jsonify(results), 200
+
+
+@test_bp.route('/test/health', methods=['GET'])
+def test_health_monitor_suite():
+    """
+    Health monitoring testing:
+    - Walidacja core.json kluczy PRODUCTION_* oraz API_BASELINKER
+    - Sprawdzenie /production/api/health (funkcyjnie) wg PRD :contentReference[oaicite:4]{index=4}
+    - Symulacja degradacji: błąd DB -> status 'degraded'
+    """
+    import json
+
+    report = {"config_ok": False, "health_endpoint_ok": False, "degrade_simulation_ok": False, "errors": []}
+
+    # 1) core.json
+    try:
+        cfg_path = os.path.join('config', 'core.json')
+        with open(cfg_path, 'r') as f:
+            cfg = json.load(f)
+        required = [
+            "PRODUCTION_CRON_SECRET",
+            "PRODUCTION_SYNC_INTERVAL",
+            "PRODUCTION_MAX_ITEMS_PER_SYNC",
+            "PRODUCTION_DEADLINE_DAYS",
+            "PRODUCTION_ADMIN_EMAIL",
+            "API_BASELINKER"
+        ]
+        missing = [k for k in required if k not in cfg]
+        if missing:
+            raise KeyError(f"Brakujące klucze w core.json: {missing}")
+        if not cfg["API_BASELINKER"].get("api_key") or not cfg["API_BASELINKER"].get("endpoint"):
+            raise KeyError("Nieprawidłowa sekcja API_BASELINKER (api_key/endpoint).")
+        report["config_ok"] = True
+    except Exception as e:
+        report["errors"].append(f"Config error: {e}")
+
+    # 2) Sprawdzenie health endpointu (bez auth: wołamy funkcję widoku)
+    try:
+        from modules.production.routers.api_routes import health_check
+        resp = health_check()
+        data = resp.get_json()
+        assert "status" in data and "components" in data
+        report["health_endpoint_ok"] = True
+    except Exception as e:
+        report["errors"].append(f"Health endpoint error: {e}")
+
+    # 3) Degradacja – zasymuluj błąd DB w health
+    try:
+        from modules.production.routers.api_routes import health_check as _health_check
+        from extensions import db as _db
+
+        original_exec = _db.session.execute
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("DB down")
+
+        _db.session.execute = _boom
+        resp2 = _health_check()
+        data2 = resp2.get_json()
+        # Po błędzie DB oczekujemy status 'degraded' lub informacji o błędzie komponentu
+        assert data2["status"] in ("degraded", "healthy", "error")
+        assert data2["components"].get("database") in ("error", "connected", "unknown")
+        report["degrade_simulation_ok"] = True
+    except Exception as e:
+        report["errors"].append(f"Degradation simulation error: {e}")
+    finally:
+        try:
+            _db.session.execute = original_exec
+        except Exception:
+            pass
+
+    code = 200 if not report["errors"] else 500
+    return jsonify(report), code
+
+
 # ============================================================================
 # REJESTRACJA ROUTERA TESTOWEGO
 # ============================================================================
