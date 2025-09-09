@@ -70,28 +70,32 @@ def register_production_routes(main_blueprint):
     Args:
         main_blueprint: Główny blueprint modułu production
     """
+    if main_blueprint.deferred_functions:
+        logger.info("Routery modułu production już zarejestrowane - pomijam ponowną rejestrację")
+        return 0
+
     registered_count = 0
-    
+
     if api_bp:
         main_blueprint.register_blueprint(api_bp, url_prefix='/api')
         registered_count += 1
         logger.info("Zarejestrowano API routes pod /production/api")
-    
+
     if station_bp:
         main_blueprint.register_blueprint(station_bp, url_prefix='')
         registered_count += 1
         logger.info("Zarejestrowano Station routes pod /production")
-    
+
     if admin_bp:
         main_blueprint.register_blueprint(admin_bp, url_prefix='/admin')
         registered_count += 1
         logger.info("Zarejestrowano Admin routes pod /production/admin")
-    
+
     logger.info("Zakończono rejestrację routerów", extra={
         'registered_count': registered_count,
         'total_possible': 3
     })
-    
+
     return registered_count
 
 # Funkcje pomocnicze dla routerów

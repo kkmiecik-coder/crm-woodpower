@@ -31,22 +31,7 @@ production_bp = Blueprint(
     url_prefix='/production'
 )
 
-# Import routerów (będą dodane postupnie)
-try:
-    from .routers.api_routes import api_bp
-    from .routers.station_routes import station_bp  
-    from .routers.admin_routes import admin_bp
-    
-    # Rejestracja sub-blueprintów
-    production_bp.register_blueprint(api_bp, url_prefix='/api')
-    production_bp.register_blueprint(station_bp, url_prefix='')
-    production_bp.register_blueprint(admin_bp, url_prefix='/admin')
-    
-    logger.info("Zarejestrowano wszystkie routery modułu production")
-    
-except ImportError as e:
-    # Routery będą dodawane postupnie, więc ignorujemy błędy importu na początku
-    logger.warning(f"Nie można zaimportować routerów: {e}")
+# Import routerów będzie obsłużony w modules/production/routers
 
 # Import serwisów (będą dodane postupnie)
 try:
