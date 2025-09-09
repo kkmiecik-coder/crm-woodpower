@@ -808,6 +808,18 @@ class BaselinkerSyncService:
                 'error': str(e)
             })
 
+    def update_order_status(self, internal_order_number: str) -> bool:
+        """
+        Alias dla update_order_status_in_baselinker dla zgodności z testami
+    
+        Args:
+            internal_order_number (str): Numer zamówienia wewnętrznego
+        
+        Returns:
+            bool: True jeśli aktualizacja się powiodła
+        """
+        return self.update_order_status_in_baselinker(internal_order_number)
+
 # Singleton instance dla globalnego dostępu
 _sync_service_instance = None
 

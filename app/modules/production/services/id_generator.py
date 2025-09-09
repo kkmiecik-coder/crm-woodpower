@@ -122,52 +122,48 @@ class ProductIDGenerator:
     def _get_next_order_counter(cls, year):
         """
         Pobiera i inkrementuje licznik zamówień dla podanego roku
-        
+    
         Args:
             year (int): Rok dla którego pobrać licznik
-            
+        
         Returns:
             int: Następny numer w sekwencji
-            
+        
         Raises:
             ProductIDGeneratorError: W przypadku błędu bazy danych
         """
         try:
             # Import lokalny aby uniknąć circular imports
             from ..models import ProductionOrderCounter
-            
-            # Transakcja z blokadą dla thread safety
-            with db.session.begin():
-                # Szukanie istniejącego licznika z blokadą FOR UPDATE
-                counter = db.session.query(ProductionOrderCounter).filter_by(
-                    year=year
-                ).with_for_update().first()
-                
-                if not counter:
-                    # Utworzenie nowego licznika dla roku
-                    counter = ProductionOrderCounter(
-                        year=year,
-                        current_counter=0
-                    )
-                    db.session.add(counter)
-                    db.session.flush()  # Zapisz bez commit żeby mieć ID
-                
+        
+            # USUŃ with db.session.begin(): - to powoduje konflikt
+            # Szukanie istniejącego licznika
+            counter = ProductionOrderCounter.query.filter_by(year=year).first()
+        
+            if not counter:
+                # Utworzenie nowego licznika dla roku
+                counter = ProductionOrderCounter(
+                    year=year,
+                    current_counter=1
+                )
+                db.session.add(counter)
+            else:
                 # Inkrementacja licznika
                 counter.current_counter += 1
                 counter.last_updated_at = datetime.utcnow()
-                
-                next_counter = counter.current_counter
-                
-                # Commit transakcji
-                db.session.commit()
-                
-                logger.debug("Pobrano kolejny licznik zamówienia", extra={
-                    'year': year,
-                    'counter': next_counter
-                })
-                
-                return next_counter
-                
+        
+            next_counter = counter.current_counter
+        
+            # Commit bez transakcji bloku
+            db.session.commit()
+        
+            logger.debug("Pobrano kolejny licznik zamówienia", extra={
+                'year': year,
+                'counter': next_counter
+            })
+        
+            return next_counter
+        
         except IntegrityError as e:
             db.session.rollback()
             logger.error("Błąd integralności podczas pobierania licznika", extra={
@@ -175,7 +171,7 @@ class ProductIDGenerator:
                 'error': str(e)
             })
             raise ProductIDGeneratorError(f"Błąd integralności bazy danych: {str(e)}")
-            
+        
         except Exception as e:
             db.session.rollback()
             logger.error("Błąd pobierania licznika zamówienia", extra={

@@ -611,6 +611,43 @@ class ProductionConfigService:
                 'newest_entry': max(self._cache_timestamps.values()).isoformat() if self._cache_timestamps else None
             }
 
+class PriorityConfigCache:
+    """
+    Cache dla konfiguracji priorytetów - kompatybilność z testami
+    """
+    _cache = {}
+    _cache_time = None
+    _cache_duration = 3600  # 1 godzina
+    
+    @classmethod
+    def get_priority_config(cls):
+        """
+        Pobiera konfigurację z cache lub bazy danych
+        
+        Returns:
+            Dict: Konfiguracja priorytetów
+        """
+        try:
+            # Delegacja do głównego serwisu konfiguracji
+            config_service = get_config_service()
+            
+            # Zwracamy przykładową konfigurację priorytetów
+            return {
+                'deadline_urgency': config_service.get_config('DEADLINE_URGENCY_WEIGHT', 40),
+                'order_value': config_service.get_config('ORDER_VALUE_WEIGHT', 30), 
+                'volume_size': config_service.get_config('VOLUME_SIZE_WEIGHT', 20),
+                'fifo_order': config_service.get_config('FIFO_ORDER_WEIGHT', 10)
+            }
+            
+        except Exception as e:
+            logger.error("Błąd pobierania cache priorytetów", extra={'error': str(e)})
+            return {}
+    
+    @classmethod
+    def invalidate_cache(cls):
+        """Czyści cache"""
+        cls._cache_time = None
+
 # Singleton instance dla globalnego dostępu
 _config_service_instance = None
 _instance_lock = threading.Lock()

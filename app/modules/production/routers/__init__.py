@@ -28,6 +28,14 @@ logger = get_structured_logger('production.routers')
 api_bp = None
 station_bp = None
 admin_bp = None
+test_bp = None
+
+try:
+    from .test_routes import test_bp as imported_test_bp
+    test_bp = imported_test_bp
+    logger.info("Zaimportowano Test routes")
+except ImportError as e:
+    logger.warning(f"Nie można zaimportować Test routes: {e}")
 
 # Import routerów (będą dodawane postupnie)
 try:
@@ -61,7 +69,8 @@ def get_available_routes():
     return {
         'api_routes': api_bp is not None,
         'station_routes': station_bp is not None,
-        'admin_routes': admin_bp is not None
+        'admin_routes': admin_bp is not None,
+        'test_routes': test_bp is not None
     }
 
 def register_production_routes(main_blueprint):
@@ -95,9 +104,15 @@ def register_production_routes(main_blueprint):
         registered_count += 1
         logger.info("Zarejestrowano Admin routes pod /production/admin")
 
+    # Dodaj po rejestracji admin_bp (około linii 82):
+    if test_bp:
+        main_blueprint.register_blueprint(test_bp, url_prefix='')
+        registered_count += 1
+        logger.info("Zarejestrowano Test routes pod /production/test")
+
     logger.info("Zakończono rejestrację routerów", extra={
         'registered_count': registered_count,
-        'total_possible': 3
+        'total_possible': 4
     })
 
     return registered_count
@@ -112,7 +127,7 @@ def get_route_stats():
     """
     stats = {
         'available_routers': get_available_routes(),
-        'total_routers': 3,
+        'total_routers': 4,
         'loaded_routers': sum(1 for r in get_available_routes().values() if r)
     }
     
@@ -178,6 +193,9 @@ URL_PATTERNS = {
         '/admin/errors',               # Zarządzanie błędami
         '/admin/users',                # Zarządzanie użytkownikami stanowisk
         '/admin/stats',                # Szczegółowe statystyki
+    ],
+    'test_routes': [
+        '/test/backend',               # Test backendu
     ]
 }
 
@@ -303,6 +321,7 @@ __all__ = [
     'api_bp',
     'station_bp', 
     'admin_bp',
+    'test_bp',
     'get_available_routes',
     'register_production_routes',
     'get_route_stats',
@@ -315,7 +334,7 @@ __all__ = [
 
 # Metadata routerów
 __version__ = '1.2.0'
-__total_routers__ = 3
+__total_routers__ = 4
 __description__ = 'Production module routers with security and monitoring'
 
 logger.info("Zainicjalizowano moduł routerów production", extra={
