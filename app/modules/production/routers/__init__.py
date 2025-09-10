@@ -337,8 +337,10 @@ __all__ = [
     'station_bp', 
     'admin_bp',
     'test_bp',
+    'main_bp',  # Dodaj jeśli nie ma
     'get_available_routers',
-    'register_production_routers',
+    'register_production_routers',  # Główna funkcja
+    'register_production_routes',   # Alias dla kompatybilności - DODAJ TO
     'get_route_stats',
     'get_all_url_patterns',
     'validate_route_access',

@@ -12,8 +12,8 @@ Wszystkie endpointy wymagają autoryzacji (login_required).
 Interfejsy zoptymalizowane pod desktop/laptop.
 
 Autor: Konrad Kmiecik
-Wersja: 1.0 (Podstawowa zgodnie z PRD)
-Data: 2025-01-09
+Wersja: 1.1 (Poprawione URL routing)
+Data: 2025-09-10
 """
 
 from datetime import datetime, date, timedelta
@@ -32,7 +32,6 @@ logger = get_structured_logger('production.main')
 # ============================================================================
 
 def admin_required(f):
-    """Dekorator sprawdzający rolę admin"""
     @wraps(f)
     @login_required
     def decorated_function(*args, **kwargs):
@@ -46,7 +45,8 @@ def admin_required(f):
                 'endpoint': request.endpoint
             })
             flash('Brak uprawnień administratora', 'error')
-            return redirect(url_for('production_main.dashboard'))
+            # POPRAWIONE - dodano prefix
+            return redirect(url_for('production.production_main.dashboard'))
         
         return f(*args, **kwargs)
     return decorated_function
@@ -164,7 +164,7 @@ def dashboard():
         ]
         
         return render_template(
-            'production/dashboard.html',
+            'panel/dashboard.html',
             dashboard_stats=dashboard_stats,
             page_title="Dashboard Produkcji"
         )
@@ -175,9 +175,9 @@ def dashboard():
             'error': str(e)
         })
         flash(f'Błąd ładowania dashboard: {str(e)}', 'error')
-        return render_template('production/dashboard.html', 
-                             dashboard_stats={}, 
-                             page_title="Dashboard Produkcji")
+        return render_template('panel/dashboard.html',
+                            dashboard_stats={}, 
+                            page_title="Dashboard Produkcji")
 
 @main_bp.route('/products')
 @login_required
@@ -239,7 +239,7 @@ def products_list():
         ]
         
         return render_template(
-            'production/products.html',
+            'panel/products.html',
             products=products,
             status_filter=status_filter,
             search_query=search_query,
@@ -254,7 +254,8 @@ def products_list():
             'error': str(e)
         })
         flash(f'Błąd ładowania listy produktów: {str(e)}', 'error')
-        return render_template('production/products.html', 
+        # POPRAWIONE: Zmieniono ścieżkę template
+        return render_template('panel/products.html', 
                              products=[], 
                              status_filter=None,
                              search_query='',
@@ -306,7 +307,7 @@ def config_panel():
                                                          .order_by(ProductionPriorityConfig.display_order).all()
         
         return render_template(
-            'production/config.html',
+            'panel/config.html',
             configs=configs,
             priority_configs=priority_configs,
             page_title="Konfiguracja Produkcji"
@@ -318,7 +319,8 @@ def config_panel():
             'error': str(e)
         })
         flash(f'Błąd ładowania konfiguracji: {str(e)}', 'error')
-        return redirect(url_for('production_main.dashboard'))
+        # POPRAWIONE: Dodano prefix production.
+        return redirect(url_for('production.production_main.dashboard'))
 
 # ============================================================================
 # HELPER ROUTERS
@@ -390,7 +392,8 @@ def update_product_priority():
 def not_found(error):
     """Handler dla błędów 404"""
     flash('Nie znaleziono żądanej strony', 'error')
-    return redirect(url_for('production_main.dashboard'))
+    # POPRAWIONE: Dodano prefix production.
+    return redirect(url_for('production.production_main.dashboard'))
 
 @main_bp.errorhandler(500) 
 def server_error(error):
@@ -401,7 +404,8 @@ def server_error(error):
         'path': request.path
     })
     flash('Wystąpił błąd systemu', 'error')
-    return redirect(url_for('production_main.dashboard'))
+    # POPRAWIONE: Dodano prefix production.
+    return redirect(url_for('production.production_main.dashboard'))
 
 # ============================================================================
 # CONTEXT PROCESSORS
@@ -414,13 +418,21 @@ def inject_main_context():
         return {
             'current_time': datetime.utcnow(),
             'current_user_role': getattr(current_user, 'role', 'unknown') if current_user.is_authenticated else None,
-            'dashboard_url': url_for('production_main.dashboard'),
-            'products_url': url_for('production_main.products_list'),
-            'config_url': url_for('production_main.config_panel')
+            'dashboard_url': url_for('production.production_main.dashboard'),
+            'products_url': url_for('production.production_main.products_list'), 
+            'config_url': url_for('production.production_main.config_panel'),
+            # Dodatkowe URL dla API
+            'api_dashboard_stats': url_for('production.production_api.dashboard_stats'),
+            'api_manual_sync': url_for('production.production_api.manual_sync')
         }
     except Exception as e:
         logger.error("Błąd context processor main", extra={'error': str(e)})
-        return {'current_time': datetime.utcnow()}
+        return {
+            'current_time': datetime.utcnow(),
+            'dashboard_url': '#',
+            'products_url': '#', 
+            'config_url': '#'
+        }
 
 logger.info("Zainicjalizowano Main routers zgodnie z PRD", extra={
     'blueprint_name': main_bp.name,

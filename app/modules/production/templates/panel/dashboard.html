@@ -22,7 +22,8 @@
                     <!-- Quick Actions Bar -->
                     <div class="quick-actions-bar">
                         <div class="quick-actions-list">
-                            <a href="{{ url_for('production_main.products_list') }}" class="quick-action-btn">
+                            <!-- POPRAWIONE: Dodano prefix 'production.' -->
+                            <a href="{{ url_for('production.production_main.products_list') }}" class="quick-action-btn">
                                 <span class="quick-action-icon">📋</span>
                                 Lista Produktów
                             </a>
@@ -30,12 +31,14 @@
                                 <span class="quick-action-icon">🔄</span>
                                 Synchronizuj
                             </button>
-                            <a href="{{ url_for('production_stations.station_select') }}" class="quick-action-btn">
+                            <!-- POPRAWIONE: Dodano prefix 'production.' -->
+                            <a href="{{ url_for('production.production_stations.station_select') }}" class="quick-action-btn">
                                 <span class="quick-action-icon">🏭</span>
                                 Stanowiska
                             </a>
                             {% if current_user.role in ['admin', 'administrator'] %}
-                            <a href="{{ url_for('production_main.config_panel') }}" class="quick-action-btn">
+                            <!-- POPRAWIONE: Dodano prefix 'production.' -->
+                            <a href="{{ url_for('production.production_main.config_panel') }}" class="quick-action-btn">
                                 <span class="quick-action-icon">⚙️</span>
                                 Konfiguracja
                             </a>
@@ -62,7 +65,10 @@
                     </div>
                     <div class="widget-content">
                         <div class="stations-grid">
-                            <div class="station-card cutting-station" data-station="cutting">
+                            <!-- POPRAWIONE: Dodano data-station-url dla poprawnego routingu -->
+                            <div class="station-card cutting-station" 
+                                 data-station="cutting"
+                                 data-station-url="{{ url_for('production.production_stations.cutting_station') }}">
                                 <div class="station-icon">🪚</div>
                                 <div class="station-info">
                                     <h4>Wycinanie</h4>
@@ -82,7 +88,9 @@
                                 </div>
                             </div>
 
-                            <div class="station-card assembly-station" data-station="assembly">
+                            <div class="station-card assembly-station" 
+                                 data-station="assembly"
+                                 data-station-url="{{ url_for('production.production_stations.assembly_station') }}">
                                 <div class="station-icon">🔧</div>
                                 <div class="station-info">
                                     <h4>Składanie</h4>
@@ -102,7 +110,9 @@
                                 </div>
                             </div>
 
-                            <div class="station-card packaging-station" data-station="packaging">
+                            <div class="station-card packaging-station" 
+                                 data-station="packaging"
+                                 data-station-url="{{ url_for('production.production_stations.packaging_station') }}">
                                 <div class="station-icon">📦</div>
                                 <div class="station-info">
                                     <h4>Pakowanie</h4>
@@ -247,19 +257,45 @@
     {% endif %}
 
     <script>
-        // Przekazujemy dane z backendu do JavaScript
-        window.productionStats = {{ stats|tojson if stats else {}|tojson }};
+        // POPRAWIONE: Przekazujemy dane z backendu do JavaScript
+        window.productionStats = {{ dashboard_stats|tojson if dashboard_stats else {}|tojson }};
         window.currentUser = {
             role: '{{ current_user.role if current_user.is_authenticated else "guest" }}',
             id: {{ current_user.id if current_user.is_authenticated else 'null' }}
         };
 
+        // DODANE: URL endpoints dla AJAX calls
+        window.productionEndpoints = {
+            dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
+            manualSync: '{{ url_for("production.production_api.manual_sync") }}',
+            healthCheck: '{{ url_for("production.production_api.health_check") }}',
+            updatePriority: '{{ url_for("production.production_main.update_product_priority") }}'
+        };
+
         console.log('[Production Dashboard] Loaded with stats:', window.productionStats);
         console.log('[Production Dashboard] Current user:', window.currentUser);
+        console.log('[Production Dashboard] Endpoints:', window.productionEndpoints);
 
         // Inicjalizacja po załadowaniu DOM
         document.addEventListener('DOMContentLoaded', function() {
-            initProductionDashboard();
+            if (typeof initProductionDashboard === 'function') {
+                initProductionDashboard();
+            } else {
+                console.warn('[Production Dashboard] initProductionDashboard function not found');
+            }
+        });
+
+        // DODANA: Funkcja obsługi kliknięć w karty stanowisk
+        document.addEventListener('DOMContentLoaded', function() {
+            // Obsługa kliknięć w karty stanowisk
+            document.querySelectorAll('.station-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    const stationUrl = this.getAttribute('data-station-url');
+                    if (stationUrl) {
+                        window.location.href = stationUrl;
+                    }
+                });
+            });
         });
     </script>
 </body>

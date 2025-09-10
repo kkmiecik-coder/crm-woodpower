@@ -272,6 +272,211 @@ def dashboard_stats():
             'success': False,
             'error': str(e)
         }), 500
+    
+@api_bp.route('/chart-data')
+@login_required
+def chart_data():
+    """
+    GET /production/api/chart-data
+    
+    Endpoint dla danych wykresu wydajności dziennej
+    
+    Query params:
+        period: 7|14|30 (dni wstecz, default: 7)
+        
+    Returns:
+        JSON: Dane dla wykresu Chart.js
+    """
+    try:
+        period = int(request.args.get('period', 7))
+        period = max(1, min(period, 90))  # Limit 1-90 dni
+        
+        logger.info("API: Pobieranie danych wykresu", extra={
+            'user_id': current_user.id,
+            'period_days': period
+        })
+        
+        from ..models import ProductionItem
+        from sqlalchemy import func, and_
+        from datetime import datetime, date, timedelta
+        
+        # Oblicz zakres dat
+        end_date = date.today()
+        start_date = end_date - timedelta(days=period-1)
+        
+        # Query dla danych dziennych z ostatnich X dni
+        daily_stats = db.session.query(
+            func.date(ProductionItem.packaging_completed_at).label('completion_date'),
+            func.count(ProductionItem.id).label('completed_orders'),
+            func.sum(ProductionItem.volume_m3).label('total_volume'),
+            func.avg(ProductionItem.priority_score).label('avg_priority')
+        ).filter(
+            and_(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.packaging_completed_at >= datetime.combine(start_date, datetime.min.time()),
+                ProductionItem.packaging_completed_at <= datetime.combine(end_date, datetime.max.time())
+            )
+        ).group_by(
+            func.date(ProductionItem.packaging_completed_at)
+        ).order_by(
+            func.date(ProductionItem.packaging_completed_at)
+        ).all()
+        
+        # Przygotuj pełne dni (wypełnij luki)
+        chart_data = {
+            'labels': [],
+            'datasets': [
+                {
+                    'label': 'Ukończone zamówienia',
+                    'data': [],
+                    'borderColor': '#3b82f6',
+                    'backgroundColor': 'rgba(59, 130, 246, 0.1)',
+                    'tension': 0.4,
+                    'yAxisID': 'y'
+                },
+                {
+                    'label': 'Objętość (m³)',
+                    'data': [],
+                    'borderColor': '#10b981',
+                    'backgroundColor': 'rgba(16, 185, 129, 0.1)',
+                    'tension': 0.4,
+                    'yAxisID': 'y1'
+                }
+            ]
+        }
+        
+        # Utwórz mapę wyników dla szybkiego dostępu
+        stats_map = {stat.completion_date: stat for stat in daily_stats}
+        
+        # Wypełnij dane dla każdego dnia w okresie
+        current_date = start_date
+        while current_date <= end_date:
+            # Formatuj datę dla labela
+            date_label = current_date.strftime('%d.%m')
+            chart_data['labels'].append(date_label)
+            
+            # Pobierz dane lub ustaw 0
+            if current_date in stats_map:
+                stat = stats_map[current_date]
+                completed_orders = stat.completed_orders or 0
+                total_volume = float(stat.total_volume or 0)
+            else:
+                completed_orders = 0
+                total_volume = 0.0
+            
+            chart_data['datasets'][0]['data'].append(completed_orders)
+            chart_data['datasets'][1]['data'].append(round(total_volume, 3))
+            
+            current_date += timedelta(days=1)
+        
+        # Oblicz podsumowanie
+        total_completed = sum(chart_data['datasets'][0]['data'])
+        total_volume = sum(chart_data['datasets'][1]['data'])
+        avg_daily_orders = total_completed / period if period > 0 else 0
+        avg_daily_volume = total_volume / period if period > 0 else 0
+        
+        # Trend (porównanie z pierwszą połową vs drugą połową okresu)
+        mid_point = len(chart_data['datasets'][0]['data']) // 2
+        first_half_avg = sum(chart_data['datasets'][0]['data'][:mid_point]) / mid_point if mid_point > 0 else 0
+        second_half_avg = sum(chart_data['datasets'][0]['data'][mid_point:]) / (len(chart_data['datasets'][0]['data']) - mid_point) if mid_point > 0 else 0
+        trend_direction = 'up' if second_half_avg > first_half_avg else 'down' if second_half_avg < first_half_avg else 'stable'
+        
+        response_data = {
+            'success': True,
+            'data': {
+                'chart': chart_data,
+                'summary': {
+                    'period_days': period,
+                    'total_completed': total_completed,
+                    'total_volume': round(total_volume, 3),
+                    'avg_daily_orders': round(avg_daily_orders, 1),
+                    'avg_daily_volume': round(avg_daily_volume, 3),
+                    'trend_direction': trend_direction,
+                    'date_range': {
+                        'start': start_date.isoformat(),
+                        'end': end_date.isoformat()
+                    }
+                },
+                'options': {
+                    'responsive': True,
+                    'plugins': {
+                        'title': {
+                            'display': True,
+                            'text': f'Wydajność produkcji - ostatnie {period} dni'
+                        },
+                        'legend': {
+                            'display': True,
+                            'position': 'top'
+                        }
+                    },
+                    'scales': {
+                        'x': {
+                            'display': True,
+                            'title': {
+                                'display': True,
+                                'text': 'Data'
+                            }
+                        },
+                        'y': {
+                            'type': 'linear',
+                            'display': True,
+                            'position': 'left',
+                            'title': {
+                                'display': True,
+                                'text': 'Liczba zamówień'
+                            },
+                            'beginAtZero': True
+                        },
+                        'y1': {
+                            'type': 'linear',
+                            'display': True,
+                            'position': 'right',
+                            'title': {
+                                'display': True,
+                                'text': 'Objętość (m³)'
+                            },
+                            'beginAtZero': True,
+                            'grid': {
+                                'drawOnChartArea': False
+                            }
+                        }
+                    }
+                }
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        logger.info("API: Dane wykresu wygenerowane", extra={
+            'user_id': current_user.id,
+            'period_days': period,
+            'total_completed': total_completed,
+            'data_points': len(chart_data['labels'])
+        })
+        
+        return jsonify(response_data), 200
+        
+    except ValueError as e:
+        logger.warning("API: Nieprawidłowy parametr period", extra={
+            'user_id': current_user.id,
+            'period_param': request.args.get('period'),
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': 'Nieprawidłowy parametr period. Użyj liczby od 1 do 90.'
+        }), 400
+        
+    except Exception as e:
+        logger.error("API: Błąd generowania danych wykresu", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': 'Błąd generowania danych wykresu'
+        }), 500
 
 # ============================================================================
 # API ROUTERS - PRD Section 6.2 (Stanowiska)
