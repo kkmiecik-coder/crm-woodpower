@@ -4,9 +4,9 @@ Routery modułu Production
 ==========================
 
 Inicjalizacja wszystkich routerów dla modułu produkcyjnego:
-- api_routes: Endpoints API dla operacji produkcyjnych
-- station_routes: Interfejsy stanowisk produkcyjnych (tablet-friendly)
-- admin_routes: Panel administracyjny z zarządzaniem konfiguracją
+- api_routers: Endpoints API dla operacji produkcyjnych
+- station_routers: Interfejsy stanowisk produkcyjnych (tablet-friendly)
+- admin_routers: Panel administracyjny z zarządzaniem konfiguracją
 
 Struktura URL:
 - /production/api/* - REST API endpoints
@@ -24,6 +24,14 @@ from .. import apply_security
 
 logger = get_structured_logger('production.routers')
 
+try:
+    from .main_routers import main_bp as imported_main_bp
+    main_bp = imported_main_bp
+    logger.info("Zaimportowano Main routers")
+except ImportError as e:
+    logger.warning(f"Nie można zaimportować Main routers: {e}")
+    main_bp = None
+
 # Blueprinty dla różnych grup routerów
 api_bp = None
 station_bp = None
@@ -31,35 +39,35 @@ admin_bp = None
 test_bp = None
 
 try:
-    from .test_routes import test_bp as imported_test_bp
+    from .test_routers import test_bp as imported_test_bp
     test_bp = imported_test_bp
-    logger.info("Zaimportowano Test routes")
+    logger.info("Zaimportowano Test routers")
 except ImportError as e:
-    logger.warning(f"Nie można zaimportować Test routes: {e}")
+    logger.warning(f"Nie można zaimportować Test routers: {e}")
 
 # Import routerów (będą dodawane postupnie)
 try:
-    from .api_routes import api_bp as imported_api_bp
+    from .api_routers import api_bp as imported_api_bp
     api_bp = imported_api_bp
-    logger.info("Zaimportowano API routes")
+    logger.info("Zaimportowano API routers")
 except ImportError as e:
-    logger.warning(f"Nie można zaimportować API routes: {e}")
+    logger.warning(f"Nie można zaimportować API routers: {e}")
 
 try:
-    from .station_routes import station_bp as imported_station_bp
+    from .station_routers import station_bp as imported_station_bp
     station_bp = imported_station_bp
-    logger.info("Zaimportowano Station routes")
+    logger.info("Zaimportowano Station routers")
 except ImportError as e:
-    logger.warning(f"Nie można zaimportować Station routes: {e}")
+    logger.warning(f"Nie można zaimportować Station routers: {e}")
 
 try:
-    from .admin_routes import admin_bp as imported_admin_bp
+    from .admin_routers import admin_bp as imported_admin_bp
     admin_bp = imported_admin_bp
-    logger.info("Zaimportowano Admin routes")
+    logger.info("Zaimportowano Admin routers")
 except ImportError as e:
-    logger.warning(f"Nie można zaimportować Admin routes: {e}")
+    logger.warning(f"Nie można zaimportować Admin routers: {e}")
 
-def get_available_routes():
+def get_available_routers():
     """
     Pobiera listę dostępnych routerów
     
@@ -67,21 +75,19 @@ def get_available_routes():
         Dict[str, bool]: Status dostępności routerów
     """
     return {
-        'api_routes': api_bp is not None,
-        'station_routes': station_bp is not None,
-        'admin_routes': admin_bp is not None,
-        'test_routes': test_bp is not None
+        'api_routers': api_bp is not None,
+        'station_routers': station_bp is not None,
+        'admin_routers': admin_bp is not None,
+        'test_routers': test_bp is not None
     }
 
-def register_production_routes(main_blueprint):
+def register_production_routers(main_blueprint):
     """
     Rejestruje wszystkie dostępne routery w głównym blueprint
     
     Args:
         main_blueprint: Główny blueprint modułu production
     """
-    if not main_blueprint._got_registered_once:
-        main_blueprint.before_request(apply_security)
 
     if main_blueprint.deferred_functions:
         logger.info("Routery modułu production już zarejestrowane - pomijam ponowną rejestrację")
@@ -89,30 +95,39 @@ def register_production_routes(main_blueprint):
 
     registered_count = 0
 
+    # GŁÓWNY PANEL ZARZĄDZANIA na /production/
+    if main_bp:
+        main_blueprint.register_blueprint(main_bp, url_prefix='')
+        registered_count += 1
+        logger.info("Zarejestrowano Main routers pod /production")
+
+    # INTERFEJSY STANOWISK na /production/stations/*  
+    if station_bp:
+        main_blueprint.register_blueprint(station_bp, url_prefix='/stations')
+        registered_count += 1
+        logger.info("Zarejestrowano Station routers pod /production/stations")
+
+    # API na /production/api/*
     if api_bp:
         main_blueprint.register_blueprint(api_bp, url_prefix='/api')
         registered_count += 1
-        logger.info("Zarejestrowano API routes pod /production/api")
+        logger.info("Zarejestrowano API routers pod /production/api")
 
-    if station_bp:
-        main_blueprint.register_blueprint(station_bp, url_prefix='')
-        registered_count += 1
-        logger.info("Zarejestrowano Station routes pod /production")
-
+    # ADMIN na /production/admin/*
     if admin_bp:
         main_blueprint.register_blueprint(admin_bp, url_prefix='/admin')
         registered_count += 1
-        logger.info("Zarejestrowano Admin routes pod /production/admin")
+        logger.info("Zarejestrowano Admin routers pod /production/admin")
 
-    # Dodaj po rejestracji admin_bp (około linii 82):
+    # TEST routes
     if test_bp:
-        main_blueprint.register_blueprint(test_bp, url_prefix='')
+        main_blueprint.register_blueprint(test_bp, url_prefix='/test')
         registered_count += 1
-        logger.info("Zarejestrowano Test routes pod /production/test")
+        logger.info("Zarejestrowano Test routers pod /production/test")
 
     logger.info("Zakończono rejestrację routerów", extra={
         'registered_count': registered_count,
-        'total_possible': 4
+        'total_possible': 5  # ← Teraz jest 5 routerów (dodałeś main_bp)
     })
 
     return registered_count
@@ -126,16 +141,16 @@ def get_route_stats():
         Dict[str, Any]: Statystyki routerów
     """
     stats = {
-        'available_routers': get_available_routes(),
+        'available_routers': get_available_routers(),
         'total_routers': 4,
-        'loaded_routers': sum(1 for r in get_available_routes().values() if r)
+        'loaded_routers': sum(1 for r in get_available_routers().values() if r)
     }
     
     # Dodatkowe informacje o routach (jeśli routery są dostępne)
     route_info = {}
     
     if api_bp:
-        # Pobierz informacje o API routes
+        # Pobierz informacje o API routers
         route_info['api'] = {
             'prefix': '/api',
             'description': 'REST API endpoints for production operations',
@@ -144,7 +159,7 @@ def get_route_stats():
         }
     
     if station_bp:
-        # Pobierz informacje o Station routes
+        # Pobierz informacje o Station routers
         route_info['stations'] = {
             'prefix': '',
             'description': 'Tablet-optimized interfaces for production stations',
@@ -153,7 +168,7 @@ def get_route_stats():
         }
     
     if admin_bp:
-        # Pobierz informacje o Admin routes
+        # Pobierz informacje o Admin routers
         route_info['admin'] = {
             'prefix': '/admin',
             'description': 'Administrative panel for production management',
@@ -167,7 +182,7 @@ def get_route_stats():
 
 # URL patterns dla różnych typów routerów
 URL_PATTERNS = {
-    'api_routes': [
+    'api_routers': [
         '/api/sync',                    # Synchronizacja ręczna
         '/api/complete-task',           # Ukończenie zadania
         '/api/update-priority',         # Aktualizacja priorytetu
@@ -177,14 +192,14 @@ URL_PATTERNS = {
         '/api/config',                  # Zarządzanie konfiguracją
         '/api/errors',                  # Obsługa błędów
     ],
-    'station_routes': [
+    'station_routers': [
         '/',                           # Wybór stanowiska
         '/station-select',             # Wybór stanowiska (alternatywny)
         '/cutting',                    # Stanowisko wycinania
         '/assembly',                   # Stanowisko składania
         '/packaging',                  # Stanowisko pakowania
     ],
-    'admin_routes': [
+    'admin_routers': [
         '/admin',                      # Dashboard administratora
         '/admin/dashboard',            # Dashboard (alternatywny)
         '/admin/config',               # Konfiguracja systemu
@@ -194,7 +209,7 @@ URL_PATTERNS = {
         '/admin/users',                # Zarządzanie użytkownikami stanowisk
         '/admin/stats',                # Szczegółowe statystyki
     ],
-    'test_routes': [
+    'test_routers': [
         '/test/backend',               # Test backendu
     ]
 }
@@ -233,7 +248,7 @@ def validate_route_access(route_path: str, user_role: str = None, client_ip: str
         validation_result['route_type'] = 'admin'
         validation_result['requires_auth'] = True
         
-        # Admin routes wymagają roli admin
+        # Admin routers wymagają roli admin
         if user_role and user_role.lower() in ['admin', 'administrator']:
             validation_result['allowed'] = True
         else:
@@ -243,7 +258,7 @@ def validate_route_access(route_path: str, user_role: str = None, client_ip: str
         validation_result['route_type'] = 'api'
         validation_result['requires_auth'] = True
         
-        # API routes wymagają autoryzacji (ale nie koniecznie admin)
+        # API routers wymagają autoryzacji (ale nie koniecznie admin)
         if user_role and user_role.lower() in ['admin', 'user', 'partner']:
             validation_result['allowed'] = True
         else:
@@ -253,7 +268,7 @@ def validate_route_access(route_path: str, user_role: str = None, client_ip: str
         validation_result['route_type'] = 'station'
         validation_result['requires_ip_whitelist'] = True
         
-        # Station routes wymagają tylko IP whitelist (bez autoryzacji)
+        # Station routers wymagają tylko IP whitelist (bez autoryzacji)
         try:
             from ..services.security_service import IPSecurityService
             if client_ip and IPSecurityService.is_ip_allowed(client_ip):
@@ -322,8 +337,8 @@ __all__ = [
     'station_bp', 
     'admin_bp',
     'test_bp',
-    'get_available_routes',
-    'register_production_routes',
+    'get_available_routers',
+    'register_production_routers',
     'get_route_stats',
     'get_all_url_patterns',
     'validate_route_access',
@@ -340,5 +355,5 @@ __description__ = 'Production module routers with security and monitoring'
 logger.info("Zainicjalizowano moduł routerów production", extra={
     'version': __version__,
     'total_routers': __total_routers__,
-    'loaded_routers': sum(1 for r in get_available_routes().values() if r)
+    'loaded_routers': sum(1 for r in get_available_routers().values() if r)
 })

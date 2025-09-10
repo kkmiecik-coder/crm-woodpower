@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Wybór Stanowiska - WoodPower</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #2c5530;
+            font-size: 2.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stations {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .station-card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 3px solid transparent;
+            text-decoration: none;
+            color: inherit;
+        }
+
+            .station-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+            }
+
+            .station-card.cutting {
+                border-color: #fd7e14;
+            }
+
+                .station-card.cutting:hover {
+                    background: #fff4e6;
+                }
+
+            .station-card.assembly {
+                border-color: #007bff;
+            }
+
+                .station-card.assembly:hover {
+                    background: #e6f2ff;
+                }
+
+            .station-card.packaging {
+                border-color: #28a745;
+            }
+
+                .station-card.packaging:hover {
+                    background: #e6f7e6;
+                }
+
+        .station-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .station-name {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .station-description {
+            color: #666;
+            font-size: 1rem;
+        }
+
+        .footer {
+            margin-top: 3rem;
+            color: #999;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Wybór Stanowiska Produkcyjnego</h1>
+
+        <div class="stations">
+            <a href="/production/cutting" class="station-card cutting">
+                <div class="station-icon">🪚</div>
+                <div class="station-name">Wycinanie</div>
+                <div class="station-description">Cięcie i przygotowanie materiału</div>
+            </a>
+
+            <a href="/production/assembly" class="station-card assembly">
+                <div class="station-icon">🔧</div>
+                <div class="station-name">Składanie</div>
+                <div class="station-description">Montaż i łączenie elementów</div>
+            </a>
+
+            <a href="/production/packaging" class="station-card packaging">
+                <div class="station-icon">📦</div>
+                <div class="station-name">Pakowanie</div>
+                <div class="station-description">Pakowanie gotowych produktów</div>
+            </a>
+        </div>
+
+        <div class="footer">
+            WoodPower CRM - System Produkcji v1.2
+        </div>
+    </div>
+</body>
+</html>
