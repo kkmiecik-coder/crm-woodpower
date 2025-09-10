@@ -27,6 +27,7 @@ from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
 from extensions import db
+from sqlalchemy import and_, or_, text
 
 # Utworzenie Blueprint dla API
 api_bp = Blueprint('production_api', __name__)
@@ -125,12 +126,14 @@ def ip_validation_required(f):
 @login_required
 def dashboard_stats():
     """
-    GET /api/dashboard-stats - Statystyki dla dashboard (PRD Section 6.1)
+    GET /production/api/dashboard-stats
     
-    Zwraca dane JSON zgodne ze strukturą określoną w PRD:
-    - stations: statystyki per stanowisko (pending_count, today_m3)
-    - today_totals: dzisiejsze totały (completed_orders, total_m3, avg_deadline_distance) 
-    - deadline_alerts: alerty terminów (product_id, days_remaining, current_station)
+    Endpoint dla statystyk dashboard - NAPRAWIONY z sync_service
+    
+    Response JSON zgodny z PRD:
+    - stations: statystyki stanowisk (pending_count, today_m3)
+    - today_totals: dzisiejsze podsumowanie (completed_orders, total_m3, avg_deadline_distance)
+    - deadline_alerts: alerty produktów z bliskim terminem
     - system_health: status systemu (last_sync, sync_status, errors_24h, database_status)
     
     Autoryzacja: user, admin
@@ -142,7 +145,8 @@ def dashboard_stats():
             'user_role': getattr(current_user, 'role', 'unknown')
         })
         
-        from ..models import ProductionItem
+        from ..models import ProductionItem, ProductionError, ProductionSyncLog
+        from ..services.sync_service import get_sync_service
         
         today = date.today()
         today_start = datetime.combine(today, datetime.min.time())
@@ -187,78 +191,125 @@ def dashboard_stats():
             'today_m3': float(packaging_today_m3)
         }
         
-        # TODAY TOTALS - dzisiejsze ukończone zamówienia
-        completed_today = ProductionItem.query.filter(
-            ProductionItem.current_status == 'spakowane',
-            ProductionItem.packaging_completed_at >= today_start
-        ).count()
+        # TODAY TOTALS - dzisiejsze podsumowanie
+        completed_today = ProductionItem.query.filter_by(current_status='spakowane')\
+                                             .filter(ProductionItem.packaging_completed_at >= today_start)\
+                                             .count()
         
-        total_m3_today = float(cutting_today_m3 + assembly_today_m3 + packaging_today_m3)
+        total_m3_today = cutting_today_m3 + assembly_today_m3 + packaging_today_m3
         
-        # Średnia odległość od deadline dla aktywnych produktów
-        active_products_with_deadlines = ProductionItem.query.filter(
-            ProductionItem.current_status.in_(['czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie']),
-            ProductionItem.deadline_date.isnot(None)
-        ).all()
+        # Średni czas do deadline (dni)
+        avg_deadline_query = db.session.query(
+            db.func.avg(
+                db.func.datediff(ProductionItem.deadline_date, db.func.curdate())
+            )
+        ).filter(
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
+            ])
+        ).scalar()
         
-        if active_products_with_deadlines:
-            deadline_distances = []
-            for product in active_products_with_deadlines:
-                days_diff = (product.deadline_date - today).days
-                deadline_distances.append(days_diff)
-            
-            avg_deadline_distance = sum(deadline_distances) / len(deadline_distances)
-        else:
-            avg_deadline_distance = 0.0
+        avg_deadline_distance = float(avg_deadline_query) if avg_deadline_query else 0.0
         
-        # DEADLINE ALERTS - produkty zbliżające się do terminu (zgodnie z PRD)
+        # DEADLINE ALERTS - produkty z bliskim terminem (≤ 3 dni)
         deadline_alerts = []
-        alerts_query = ProductionItem.query.filter(
-            ProductionItem.deadline_date <= today + timedelta(days=3),
-            ProductionItem.current_status.in_(['czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'])
-        ).order_by(ProductionItem.deadline_date).limit(5).all()
+        alert_products = ProductionItem.query.filter(
+            and_(
+                ProductionItem.deadline_date <= date.today() + timedelta(days=3),
+                ProductionItem.current_status.in_([
+                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
+                ])
+            )
+        ).order_by(ProductionItem.deadline_date.asc()).limit(10).all()
         
-        for alert in alerts_query:
-            days_remaining = (alert.deadline_date - today).days if alert.deadline_date else 0
-            current_station = alert.current_status.replace('czeka_na_', '')
-            
+        for product in alert_products:
+            days_remaining = (product.deadline_date - date.today()).days
             deadline_alerts.append({
-                'product_id': alert.short_product_id,
+                'product_id': product.short_product_id,
+                'order_id': product.internal_order_number,
+                'description': f"{product.parsed_species} {product.parsed_dimensions}",
                 'days_remaining': days_remaining,
-                'current_station': current_station
+                'priority_score': product.priority_score or 0
             })
         
-        # SYSTEM HEALTH - podstawowy status systemu
-        # TODO: Integracja z sync_service gdy będzie dostępny
-        system_health = {
-            'last_sync': None,  # Będzie pobierane z sync_service
-            'sync_status': 'unknown',  # success/failed/running
-            'errors_24h': 0,  # Zliczenie z ProductionError
-            'baselinker_api_avg_ms': None,  # Średni czas odpowiedzi API
-            'database_status': 'healthy'  # Status połączenia DB
-        }
-        
-        # Zliczenie błędów z ostatnich 24h
+        # SYSTEM HEALTH - NAPRAWIONE: Integracja z sync_service
         try:
-            from ..models import ProductionError
+            # Test połączenia z bazą danych
+            import time
+            start_time = time.time()
+            try:
+                db.session.execute(text('SELECT 1'))
+                database_status = 'healthy'
+                database_response_ms = int((time.time() - start_time) * 1000)
+            except Exception:
+                database_status = 'error'
+                database_response_ms = None
+
+            # Pobierz status synchronizacji z sync_service
+            sync_service = get_sync_service()
+            sync_status_data = sync_service.get_sync_status()
+            
+            # Ostatnia synchronizacja z bazy danych
+            last_sync = ProductionSyncLog.query.order_by(
+                ProductionSyncLog.sync_started_at.desc()
+            ).first()
+            
+            # Błędy z ostatnich 24h
             errors_24h = ProductionError.query.filter(
                 ProductionError.error_occurred_at >= datetime.utcnow() - timedelta(hours=24)
             ).count()
-            system_health['errors_24h'] = errors_24h
-        except Exception:
-            system_health['errors_24h'] = 0
+            
+            # Oblicz średni czas odpowiedzi Baselinker API (ostatnie 10 sync)
+            recent_syncs = ProductionSyncLog.query.filter(
+                ProductionSyncLog.baselinker_api_response_time_ms.isnot(None)
+            ).order_by(ProductionSyncLog.sync_started_at.desc()).limit(10).all()
+            
+            baselinker_api_avg_ms = None
+            if recent_syncs:
+                total_response_time = sum(s.baselinker_api_response_time_ms for s in recent_syncs)
+                baselinker_api_avg_ms = int(total_response_time / len(recent_syncs))
+            
+            system_health = {
+                'last_sync': last_sync.sync_started_at.isoformat() if last_sync else None,
+                'sync_status': last_sync.sync_status if last_sync else 'never_run',
+                'errors_24h': errors_24h,
+                'baselinker_api_avg_ms': baselinker_api_avg_ms,
+                'database_status': database_status,
+                'database_response_ms': database_response_ms,
+                'is_sync_running': sync_status_data.get('is_running', False)
+            }
+            
+        except Exception as e:
+            logger.error("Błąd pobierania system health", extra={'error': str(e)})
+            # Fallback do podstawowych wartości
+            system_health = {
+                'last_sync': None,
+                'sync_status': 'error',
+                'errors_24h': 0,
+                'baselinker_api_avg_ms': None,
+                'database_status': 'error',
+                'error_message': str(e)
+            }
         
         # Response zgodny z PRD Section 6.1
         response_data = {
             'stations': stations_stats,
             'today_totals': {
                 'completed_orders': completed_today,
-                'total_m3': total_m3_today,
+                'total_m3': round(total_m3_today, 2),
                 'avg_deadline_distance': round(avg_deadline_distance, 1)
             },
             'deadline_alerts': deadline_alerts,
             'system_health': system_health
         }
+        
+        logger.info("API: Statystyki dashboard pobrane pomyślnie", extra={
+            'user_id': current_user.id,
+            'stations_count': len(stations_stats),
+            'alerts_count': len(deadline_alerts),
+            'last_sync': system_health.get('last_sync'),
+            'sync_status': system_health.get('sync_status')
+        })
         
         return jsonify(response_data), 200
         

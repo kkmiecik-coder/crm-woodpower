@@ -62,6 +62,15 @@
 /* ============================================================================
    DASHBOARD GRID LAYOUT
    ============================================================================ */
+
+.header-top {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+
+
 .production-dashboard {
     min-height: 100vh;
     background-color: #f8f9fa;
@@ -73,9 +82,8 @@
 
 .production-dashboard-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(475px, 1fr));
     grid-gap: var(--spacing-lg);
-    padding: var(--spacing-lg) 0;
     margin: 0 auto;
 }
 
@@ -494,6 +502,16 @@
     letter-spacing: 0.5px;
 }
 
+    .health-status.unknown {
+        background: #c9c9c9;
+        color: #414141;
+    }
+
+    .health-status.connected {
+        background: #0fed98;
+        color: #086c45;
+    }
+
     .health-status.ok {
         background: #d1ecf1;
         color: #0c5460;
@@ -833,4 +851,80 @@
 .quick-action-icon {
     font-size: 16px;
     line-height: 1;
+}
+
+/* Status indicator z pulsowaniem dla błędów */
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-inactive);
+    transition: all 0.3s ease;
+}
+
+.status-indicator.active {
+    background: var(--status-active);
+    animation: pulse-healthy 2s infinite;
+}
+
+.status-indicator.warning {
+    background: var(--status-warning);
+    animation: pulse-warning 2s infinite;
+}
+
+.status-indicator.error {
+    background: var(--status-danger);
+    animation: pulse-error 1.5s infinite;
+}
+
+/* Dodatkowa klasa dla błędów krytycznych */
+.status-indicator.pulse-error {
+    animation: pulse-error-critical 1s infinite;
+}
+
+/* Animacje pulsowania */
+@keyframes pulse-healthy {
+    0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
+    70% { box-shadow: 0 0 0 8px rgba(40, 167, 69, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+}
+
+@keyframes pulse-warning {
+    0% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7); }
+    70% { box-shadow: 0 0 0 8px rgba(255, 193, 7, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); }
+}
+
+@keyframes pulse-error {
+    0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+    70% { box-shadow: 0 0 0 8px rgba(220, 53, 69, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+}
+
+@keyframes pulse-error-critical {
+    0% { 
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.9);
+        transform: scale(1);
+    }
+    50% { 
+        box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+        transform: scale(1.1);
+    }
+    100% { 
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+        transform: scale(1);
+    }
+}
+
+/* Status text styling dla błędów */
+.production-status .status-text {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--production-dark);
+    transition: color 0.3s ease;
+}
+
+.production-status .status-indicator.error ~ .status-text {
+    color: var(--status-danger);
+    font-weight: var(--font-weight-bold);
 }

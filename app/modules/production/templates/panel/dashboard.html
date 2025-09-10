@@ -19,33 +19,6 @@
                 <div class="header-top">
                     <h1 class="page-title title-with-underline">Dashboard Produkcji</h1>
 
-                    <!-- Quick Actions Bar -->
-                    <div class="quick-actions-bar">
-                        <div class="quick-actions-list">
-                            <!-- POPRAWIONE: Dodano prefix 'production.' -->
-                            <a href="{{ url_for('production.production_main.products_list') }}" class="quick-action-btn">
-                                <span class="quick-action-icon">📋</span>
-                                Lista Produktów
-                            </a>
-                            <button id="manual-sync-btn" class="quick-action-btn" onclick="triggerManualSync()">
-                                <span class="quick-action-icon">🔄</span>
-                                Synchronizuj
-                            </button>
-                            <!-- POPRAWIONE: Dodano prefix 'production.' -->
-                            <a href="{{ url_for('production.production_stations.station_select') }}" class="quick-action-btn">
-                                <span class="quick-action-icon">🏭</span>
-                                Stanowiska
-                            </a>
-                            {% if current_user.role in ['admin', 'administrator'] %}
-                            <!-- POPRAWIONE: Dodano prefix 'production.' -->
-                            <a href="{{ url_for('production.production_main.config_panel') }}" class="quick-action-btn">
-                                <span class="quick-action-icon">⚙️</span>
-                                Konfiguracja
-                            </a>
-                            {% endif %}
-                        </div>
-                    </div>
-
                     <div class="user-greeting">
                         <div class="production-status" id="production-status">
                             <span class="status-indicator" id="status-indicator"></span>
@@ -55,12 +28,39 @@
                 </div>
             </div>
 
+            <!-- Quick Actions Bar -->
+            <div class="quick-actions-bar">
+                <div class="quick-actions-list">
+                    <!-- POPRAWIONE: Dodano prefix 'production.' -->
+                    <a href="{{ url_for('production.production_main.products_list') }}" class="quick-action-btn">
+                        <span class="quick-action-icon">📋</span>
+                        Lista produktów
+                    </a>
+                    <button id="manual-sync-btn" class="quick-action-btn" onclick="triggerManualSync()">
+                        <span class="quick-action-icon">🔄</span>
+                        Synchronizuj
+                    </button>
+                    <!-- POPRAWIONE: Dodano prefix 'production.' -->
+                    <a href="{{ url_for('production.production_stations.station_select') }}" class="quick-action-btn">
+                        <span class="quick-action-icon">🏭</span>
+                        Stanowiska
+                    </a>
+                    {% if current_user.role in ['admin', 'administrator'] %}
+                    <!-- POPRAWIONE: Dodano prefix 'production.' -->
+                    <a href="{{ url_for('production.production_main.config_panel') }}" class="quick-action-btn">
+                        <span class="quick-action-icon">⚙️</span>
+                        Konfiguracja
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
             <!-- Dashboard Grid -->
             <div class="production-dashboard-grid">
                 <!-- Statystyki Stanowisk -->
                 <div class="widget stations-overview">
                     <div class="widget-header">
-                        <h3>Przegląd Stanowisk</h3>
+                        <h3>Przegląd stanowisk</h3>
                         <span class="last-updated" id="stations-updated">Aktualizacja...</span>
                     </div>
                     <div class="widget-content">
@@ -79,7 +79,7 @@
                                         </div>
                                         <div class="stat">
                                             <span class="stat-value" id="cutting-today-m3">-</span>
-                                            <span class="stat-label">m³ dzisiaj</span>
+                                            <span class="stat-label">m3 dzisiaj</span>
                                         </div>
                                     </div>
                                 </div>
@@ -101,7 +101,7 @@
                                         </div>
                                         <div class="stat">
                                             <span class="stat-value" id="assembly-today-m3">-</span>
-                                            <span class="stat-label">m³ dzisiaj</span>
+                                            <span class="stat-label">m3 dzisiaj</span>
                                         </div>
                                     </div>
                                 </div>
@@ -123,7 +123,7 @@
                                         </div>
                                         <div class="stat">
                                             <span class="stat-value" id="packaging-today-m3">-</span>
-                                            <span class="stat-label">m³ dzisiaj</span>
+                                            <span class="stat-label">m3 dzisiaj</span>
                                         </div>
                                     </div>
                                 </div>
@@ -138,7 +138,7 @@
                 <!-- Dzisiejsze Podsumowanie -->
                 <div class="widget today-summary">
                     <div class="widget-header">
-                        <h3>Dzisiejsze Podsumowanie</h3>
+                        <h3>Dzisiejsze podsumowanie</h3>
                         <span class="date-info" id="today-date"></span>
                     </div>
                     <div class="widget-content">
@@ -184,7 +184,7 @@
                 <!-- System Health -->
                 <div class="widget system-health">
                     <div class="widget-header">
-                        <h3>Status Systemu</h3>
+                        <h3>Status systemu</h3>
                         <span class="health-indicator" id="health-indicator">
                             <span class="health-dot"></span>
                         </span>
@@ -230,7 +230,7 @@
                 {% if current_user.role in ['admin', 'administrator'] %}
                 <div class="widget performance-chart">
                     <div class="widget-header">
-                        <h3>Wydajność Dzienna</h3>
+                        <h3>Wydajność dzienna</h3>
                         <div class="chart-controls">
                             <select id="chart-period" onchange="updateChart()">
                                 <option value="7">Ostatnie 7 dni</option>
@@ -257,19 +257,20 @@
     {% endif %}
 
     <script>
-        // POPRAWIONE: Przekazujemy dane z backendu do JavaScript
+        // NAPRAWIONE: Przekazujemy dane z backendu do JavaScript
         window.productionStats = {{ dashboard_stats|tojson if dashboard_stats else {}|tojson }};
         window.currentUser = {
             role: '{{ current_user.role if current_user.is_authenticated else "guest" }}',
             id: {{ current_user.id if current_user.is_authenticated else 'null' }}
         };
 
-        // DODANE: URL endpoints dla AJAX calls
+        // NAPRAWIONE: URL endpoints - blueprinty są zagnieżdżone pod 'production.'
+        // Flask wymaga pełnej ścieżki: production.blueprint_name.endpoint_name
         window.productionEndpoints = {
             dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
             manualSync: '{{ url_for("production.production_api.manual_sync") }}',
             healthCheck: '{{ url_for("production.production_api.health_check") }}',
-            updatePriority: '{{ url_for("production.production_main.update_product_priority") }}'
+            updatePriority: '/production/api/update-priority'  // Fallback URL
         };
 
         console.log('[Production Dashboard] Loaded with stats:', window.productionStats);
