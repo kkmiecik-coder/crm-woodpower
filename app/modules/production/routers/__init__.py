@@ -24,6 +24,14 @@ from .. import apply_security
 
 logger = get_structured_logger('production.routers')
 
+try:
+    from .main_routers import main_bp as imported_main_bp
+    main_bp = imported_main_bp
+    logger.info("Zaimportowano Main routers")
+except ImportError as e:
+    logger.warning(f"Nie można zaimportować Main routers: {e}")
+    main_bp = None
+
 # Blueprinty dla różnych grup routerów
 api_bp = None
 station_bp = None
@@ -80,8 +88,6 @@ def register_production_routers(main_blueprint):
     Args:
         main_blueprint: Główny blueprint modułu production
     """
-    if not main_blueprint._got_registered_once:
-        main_blueprint.before_request(apply_security)
 
     if main_blueprint.deferred_functions:
         logger.info("Routery modułu production już zarejestrowane - pomijam ponowną rejestrację")
@@ -89,30 +95,39 @@ def register_production_routers(main_blueprint):
 
     registered_count = 0
 
+    # GŁÓWNY PANEL ZARZĄDZANIA na /production/
+    if main_bp:
+        main_blueprint.register_blueprint(main_bp, url_prefix='')
+        registered_count += 1
+        logger.info("Zarejestrowano Main routers pod /production")
+
+    # INTERFEJSY STANOWISK na /production/stations/*  
+    if station_bp:
+        main_blueprint.register_blueprint(station_bp, url_prefix='/stations')
+        registered_count += 1
+        logger.info("Zarejestrowano Station routers pod /production/stations")
+
+    # API na /production/api/*
     if api_bp:
         main_blueprint.register_blueprint(api_bp, url_prefix='/api')
         registered_count += 1
         logger.info("Zarejestrowano API routers pod /production/api")
 
-    if station_bp:
-        main_blueprint.register_blueprint(station_bp, url_prefix='')
-        registered_count += 1
-        logger.info("Zarejestrowano Station routers pod /production")
-
+    # ADMIN na /production/admin/*
     if admin_bp:
         main_blueprint.register_blueprint(admin_bp, url_prefix='/admin')
         registered_count += 1
         logger.info("Zarejestrowano Admin routers pod /production/admin")
 
-    # Dodaj po rejestracji admin_bp (około linii 82):
+    # TEST routes
     if test_bp:
-        main_blueprint.register_blueprint(test_bp, url_prefix='')
+        main_blueprint.register_blueprint(test_bp, url_prefix='/test')
         registered_count += 1
         logger.info("Zarejestrowano Test routers pod /production/test")
 
     logger.info("Zakończono rejestrację routerów", extra={
         'registered_count': registered_count,
-        'total_possible': 4
+        'total_possible': 5  # ← Teraz jest 5 routerów (dodałeś main_bp)
     })
 
     return registered_count

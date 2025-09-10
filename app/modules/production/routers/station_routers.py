@@ -29,6 +29,12 @@ from extensions import db
 station_bp = Blueprint('production_stations', __name__)
 logger = get_structured_logger('production.stations')
 
+@station_bp.before_request
+def apply_station_security():
+    """Sprawdza IP tylko dla interfejsów stanowisk"""
+    from .. import apply_security
+    return apply_security()
+
 # ============================================================================
 # HELPERS I UTILITIES
 # ============================================================================
@@ -367,7 +373,7 @@ def station_select():
         last_updated = datetime.utcnow()
         
         return render_template(
-            'production/station_select.html',
+            'stations/select.html',
             stations=stations_summary,
             config=config,
             last_updated=last_updated,
@@ -382,7 +388,7 @@ def station_select():
         
         # Fallback template z błędem
         return render_template(
-            'production/error.html',
+            'stations/access_denied.html',
             error_message="Błąd ładowania interfejsu wyboru stanowiska",
             error_details=str(e),
             back_url=None

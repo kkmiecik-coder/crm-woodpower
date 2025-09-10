@@ -426,4 +426,4 @@ logger.info("Zainicjalizowano Main routers zgodnie z PRD", extra={
     'blueprint_name': main_bp.name,
     'routers_count': 3,  # dashboard, products, config
     'prd_compliance': True
-})d
+})
