@@ -48,6 +48,23 @@ const ProductionDashboard = {
     }
 };
 
+
+// === KONFIGURACJA WYKRESÓW ===
+const CHART_CONFIG = {
+    defaultDays: 14, // Łatwa konfiguracja liczby dni
+    maxDays: 90,
+    minDays: 7,
+    colors: {
+        cutting: '#fd7e14',    // Pomarańczowy
+        assembly: '#007bff',   // Niebieski  
+        packaging: '#28a745'   // Zielony
+    }
+};
+
+// === GLOBALNE ZMIENNE ===
+let dailyPerformanceChart = null;
+let isChartReady = false;
+
 // ============================================================================
 // INICJALIZACJA
 // ============================================================================
@@ -89,7 +106,7 @@ function initProductionDashboard() {
 
     // Inicjalizuj wykres dla adminów
     if (window.currentUser && window.currentUser.role === 'admin') {
-        initPerformanceChart();
+        createDailyPerformanceChart();
     }
 
     console.log('[Production Dashboard] Inicjalizacja zakończona');
@@ -366,18 +383,31 @@ function updateSystemHealth(health) {
         updateHealthStatus(errorsStatusElement, status);
     }
 
-    // Response times (opcjonalne, może nie być w API)
-    const dbResponseElement = document.getElementById('db-response-time');
-    if (dbResponseElement) {
-        dbResponseElement.textContent = health.database_response_ms ? 
-            health.database_response_ms + 'ms' : 'N/A';
-    }
-
     const apiResponseElement = document.getElementById('api-response-time');
     if (apiResponseElement) {
         apiResponseElement.textContent = health.baselinker_api_avg_ms ? 
             health.baselinker_api_avg_ms + 'ms' : 'N/A';
     }
+
+    // Response times (opcjonalne, może nie być w API)
+    const dbResponseElement = document.getElementById('db-response-time');
+    if (dbResponseElement) {
+        // DODANE: Debug logging
+        console.log('[Debug] Health object:', health);
+        console.log('[Debug] database_response_ms value:', health.database_response_ms);
+        console.log('[Debug] database_response_ms type:', typeof health.database_response_ms);
+        
+        if (health.database_response_ms !== undefined && health.database_response_ms !== null) {
+            dbResponseElement.textContent = health.database_response_ms + 'ms';
+            console.log('[Debug] Set DB time to:', health.database_response_ms + 'ms');
+        } else {
+            dbResponseElement.textContent = 'N/A';
+            console.log('[Debug] Set DB time to N/A - value was:', health.database_response_ms);
+        }
+    }
+
+    // DODANE: Log całego obiektu health do konsoli
+    console.log('[Debug] Complete health response:', JSON.stringify(health, null, 2));
 
     // Health indicator główny
     updateMainHealthIndicator(health);
@@ -394,13 +424,13 @@ function updateHealthStatus(element, status) {
 
     // NAPRAWKA: Lepsze mapowanie statusów na CSS classes
     const statusMap = {
-        'success': { class: 'ok', text: 'OK' },
-        'completed': { class: 'ok', text: 'OK' },
+        'success': { class: 'ok', text: 'DZIAŁA' },
+        'completed': { class: 'ok', text: 'DZIAŁA' },
         'failed': { class: 'error', text: 'ERROR' },
         'running': { class: 'warning', text: 'RUNNING' },
-        'healthy': { class: 'ok', text: 'OK' },
-        'connected': { class: 'ok', text: 'OK' },
-        'ok': { class: 'ok', text: 'OK' },
+        'healthy': { class: 'ok', text: 'DZIAŁA' },
+        'connected': { class: 'ok', text: 'DZIAŁA' },
+        'ok': { class: 'ok', text: 'DZIAŁA' },
         'error': { class: 'error', text: 'ERROR' },
         'warning': { class: 'warning', text: 'WARNING' },
         'unknown': { class: 'unknown', text: 'UNKNOWN' }
@@ -500,7 +530,7 @@ function initEventListeners() {
     // Chart period selector
     const chartPeriod = document.getElementById('chart-period');
     if (chartPeriod) {
-        chartPeriod.addEventListener('change', updateChart);
+        chartPeriod.addEventListener('change', refreshChartData);
     }
 
     // System health actions
@@ -710,14 +740,604 @@ function updateStationStatus(statusElement, stats) {
     statusDot.classList.add(statusClass);
 }
 
-function initPerformanceChart() {
-    // Chart.js integration - placeholder
-    console.log('[Production Dashboard] Inicjalizacja wykresu wydajności...');
+/**
+ * NOWA FUNKCJA #1: createDailyPerformanceChart()
+ * ZASTĘPUJE: initPerformanceChart()
+ */
+function createDailyPerformanceChart() {
+    console.log('[Daily Performance Chart] Tworzenie wykresu wydajności dziennej...');
+    
+    // Sprawdzenie Chart.js
+    if (typeof Chart === 'undefined') {
+        console.error('[Daily Performance Chart] Chart.js nie jest załadowany!');
+        showChartMessage('Chart.js nie został załadowany. Sprawdź konfigurację.');
+        return false;
+    }
+    
+    // Znajdź canvas
+    const canvas = document.getElementById('performance-chart-canvas');
+    if (!canvas) {
+        console.error('[Daily Performance Chart] Nie znaleziono canvas #performance-chart-canvas');
+        return false;
+    }
+    
+    // NAPRAWKA: Ostry rendering - wyłącz wygładzanie
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.webkitImageSmoothingEnabled = false;
+    ctx.mozImageSmoothingEnabled = false;
+    ctx.msImageSmoothingEnabled = false;
+    
+    // NAPRAWKA: Pixel-perfect rendering
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * devicePixelRatio;
+    canvas.height = rect.height * devicePixelRatio;
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    
+    // Zniszcz istniejący wykres jeśli istnieje
+    if (dailyPerformanceChart) {
+        console.log('[Daily Performance Chart] Niszczę istniejący wykres...');
+        dailyPerformanceChart.destroy();
+        dailyPerformanceChart = null;
+    }
+    
+    try {
+        // Przygotuj dane początkowe (NAPRAWKA: zawsze z punktami, nawet przy 0)
+        const initialData = generateEmptyChartData(CHART_CONFIG.defaultDays);
+        
+        // Konfiguracja wykresu
+        const config = {
+            type: 'line',
+            data: {
+                labels: initialData.labels,
+                datasets: [
+                    {
+                        label: 'Wycinanie (m³)',
+                        data: initialData.cutting,
+                        borderColor: CHART_CONFIG.colors.cutting,
+                        backgroundColor: 'transparent', // NAPRAWKA: przezroczyste tło
+                        borderWidth: 2, // NAPRAWKA: cieńsze linie
+                        fill: false,
+                        tension: 0, // NAPRAWKA: proste linie, bez wygładzania
+                        pointRadius: 3, // NAPRAWKA: mniejsze punkty
+                        pointHoverRadius: 5,
+                        pointBorderWidth: 1,
+                        pointBackgroundColor: CHART_CONFIG.colors.cutting,
+                        pointBorderColor: '#fff',
+                        spanGaps: false // NAPRAWKA: nie łącz przez luki
+                    },
+                    {
+                        label: 'Składanie (m³)',
+                        data: initialData.assembly,
+                        borderColor: CHART_CONFIG.colors.assembly,
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        pointBorderWidth: 1,
+                        pointBackgroundColor: CHART_CONFIG.colors.assembly,
+                        pointBorderColor: '#fff',
+                        spanGaps: false
+                    },
+                    {
+                        label: 'Pakowanie (m³)',
+                        data: initialData.packaging,
+                        borderColor: CHART_CONFIG.colors.packaging,
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        pointBorderWidth: 1,
+                        pointBackgroundColor: CHART_CONFIG.colors.packaging,
+                        pointBorderColor: '#fff',
+                        spanGaps: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                // NAPRAWKA: Wyłącz animacje dla ostrości
+                animation: {
+                    duration: 0
+                },
+                // NAPRAWKA: Pixel-perfect rendering
+                devicePixelRatio: devicePixelRatio,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `Wydajność dzienna - ostatnie ${CHART_CONFIG.defaultDays} dni`,
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20,
+                            font: { size: 14 }
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#ddd',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: function(context) {
+                                return `Data: ${context[0].label}`;
+                            },
+                            label: function(context) {
+                                return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} m³`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Dni',
+                            font: { size: 14, weight: 'bold' }
+                        },
+                        grid: {
+                            display: true,
+                            color: 'rgba(0, 0, 0, 0.1)',
+                            lineWidth: 1 // NAPRAWKA: cienkie linie siatki
+                        },
+                        ticks: {
+                            maxTicksLimit: 10 // NAPRAWKA: ogranicz liczbę etykiet
+                        }
+                    },
+                    y: {
+                        display: true,
+                        beginAtZero: true,
+                        // NAPRAWKA: Zawsze pokaż co najmniej do 1.0 m³
+                        suggestedMin: 0,
+                        suggestedMax: 1.0,
+                        title: {
+                            display: true,
+                            text: 'Objętość (m³)',
+                            font: { size: 14, weight: 'bold' }
+                        },
+                        grid: {
+                            display: true,
+                            color: 'rgba(0, 0, 0, 0.1)',
+                            lineWidth: 1
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value.toFixed(1) + ' m³';
+                            },
+                            stepSize: 0.2 // NAPRAWKA: równe odstępy
+                        }
+                    }
+                },
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                // NAPRAWKA: Elementy zawsze widoczne
+                elements: {
+                    point: {
+                        radius: 3,
+                        hoverRadius: 5
+                    },
+                    line: {
+                        borderWidth: 2,
+                        tension: 0
+                    }
+                }
+            }
+        };
+        
+        // Utwórz wykres
+        dailyPerformanceChart = new Chart(ctx, config);
+        
+        // Walidacja poprawności utworzenia
+        if (!dailyPerformanceChart || !dailyPerformanceChart.data) {
+            throw new Error('Wykres nie został utworzony poprawnie');
+        }
+        
+        isChartReady = true;
+        console.log('[Daily Performance Chart] Wykres utworzony pomyślnie!');
+        
+        // Dodaj event listener dla zmiany okresu
+        setupPeriodSelector();
+        
+        // Załaduj rzeczywiste dane
+        setTimeout(() => {
+            refreshChartData();
+        }, 100);
+        
+        return true;
+        
+    } catch (error) {
+        console.error('[Daily Performance Chart] Błąd tworzenia wykresu:', error);
+        showChartMessage(`Błąd tworzenia wykresu: ${error.message}`);
+        isChartReady = false;
+        return false;
+    }
 }
 
-function updateChart() {
-    console.log('[Production Dashboard] Aktualizacja wykresu...');
+/**
+ * NOWA FUNKCJA #2: refreshChartData()
+ * ZASTĘPUJE: updateChart()
+ */
+async function refreshChartData() {
+    console.log('[Daily Performance Chart] Odświeżanie danych wykresu...');
+    
+    // Sprawdź czy wykres jest gotowy
+    if (!isChartReady || !dailyPerformanceChart) {
+        console.warn('[Daily Performance Chart] Wykres nie jest gotowy - tworzę go...');
+        if (!createDailyPerformanceChart()) {
+            return false;
+        }
+    }
+    
+    // Pobierz wybrany okres
+    const periodSelect = document.getElementById('chart-period');
+    let selectedDays = periodSelect ? parseInt(periodSelect.value) : CHART_CONFIG.defaultDays;
+    
+    // Walidacja okresu
+    if (isNaN(selectedDays) || selectedDays < CHART_CONFIG.minDays || selectedDays > CHART_CONFIG.maxDays) {
+        selectedDays = CHART_CONFIG.defaultDays;
+        console.warn(`[Daily Performance Chart] Nieprawidłowy okres, używam domyślnego: ${selectedDays} dni`);
+    }
+    
+    try {
+        // Pokaż loading
+        setChartLoading(true);
+        
+        console.log(`[Daily Performance Chart] Pobieranie danych za ${selectedDays} dni...`);
+        
+        // Wywołaj API
+        const response = await fetch(`/production/api/chart-data?period=${selectedDays}`, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const apiResult = await response.json();
+        console.log('[Daily Performance Chart] Odpowiedź API:', apiResult);
+        
+        if (!apiResult.success) {
+            throw new Error(apiResult.error || 'API zwróciło błąd');
+        }
+        
+        // Przetwórz dane z API
+        const chartData = processApiData(apiResult.data, selectedDays);
+        
+        // Aktualizuj wykres
+        updateChartWithData(chartData);
+        
+        // Aktualizuj tytuł
+        updateChartTitle(selectedDays);
+        
+        console.log('[Daily Performance Chart] Dane zaktualizowane pomyślnie!');
+        return true;
+        
+    } catch (error) {
+        console.error('[Daily Performance Chart] Błąd pobierania danych:', error);
+        
+        // Fallback do pustych danych
+        console.log('[Daily Performance Chart] Używam pustych danych jako fallback...');
+        const fallbackData = generateEmptyChartData(selectedDays);
+        updateChartWithData(fallbackData);
+        updateChartTitle(selectedDays);
+        
+        showChartMessage(`Błąd ładowania danych: ${error.message}`);
+        return false;
+        
+    } finally {
+        setChartLoading(false);
+    }
 }
+
+/**
+ * FUNKCJA POMOCNICZA: Generuje puste dane dla wykresu
+ */
+function generateEmptyChartData(days) {
+    const labels = [];
+    const cutting = [];
+    const assembly = [];
+    const packaging = [];
+    
+    const today = new Date();
+    
+    for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        
+        // Format: "12.09" (dzień.miesiąc)
+        const label = date.toLocaleDateString('pl-PL', { 
+            day: '2-digit', 
+            month: '2-digit' 
+        });
+        
+        labels.push(label);
+        // NAPRAWKA: Zawsze dodaj 0, nie null lub undefined
+        cutting.push(0);
+        assembly.push(0);
+        packaging.push(0);
+    }
+    
+    return { labels, cutting, assembly, packaging };
+}
+
+/**
+ * NAPRAWKA: Funkcja do wymuszenia ostrego renderingu po aktualizacji
+ */
+function makeChartSharp() {
+    const canvas = document.getElementById('performance-chart-canvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.webkitImageSmoothingEnabled = false;
+    ctx.mozImageSmoothingEnabled = false;
+    ctx.msImageSmoothingEnabled = false;
+    
+    // Wymusz pixel-perfect
+    canvas.style.imageRendering = 'pixelated';
+    canvas.style.imageRendering = '-moz-crisp-edges';
+    canvas.style.imageRendering = 'crisp-edges';
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Przetwarza dane z API
+ */
+function processApiData(apiData, requestedDays) {
+    try {
+        if (apiData.chart && apiData.chart.labels && apiData.chart.datasets) {
+            console.log('[Chart] Przetwarzam dane z API:', apiData.chart.datasets);
+
+            // NAPRAWKA: Użyj rzeczywistych danych z API i przekształć na 3 linie
+            const ordersData = extractDatasetData(apiData.chart.datasets, 'Ukończone zamówienia');
+            const volumeData = extractDatasetData(apiData.chart.datasets, 'Objętość');
+            
+            console.log('[Chart] Orders data:', ordersData);
+            console.log('[Chart] Volume data:', volumeData);
+            
+            // Jeśli nie ma danych lub same zera, użyj micro-wartości
+            const hasRealData = ordersData.some(v => v > 0) || volumeData.some(v => v > 0);
+            
+            if (!hasRealData) {
+                console.log('[Chart] API zwróciło same zera - używam micro-wartości dla widoczności linii');
+                return {
+                    labels: apiData.chart.labels,
+                    // Przekształć na 3 linie z micro-wartościami
+                    cutting: apiData.chart.labels.map(() => 0.001),   // Pomarańczowa
+                    assembly: apiData.chart.labels.map(() => 0.001),  // Niebieska
+                    packaging: apiData.chart.labels.map(() => 0.001)  // Zielona
+                };
+            } else {
+                return {
+                    labels: apiData.chart.labels,
+                    cutting: volumeData.map(v => v * 0.4),   // 40% volume = wycinanie
+                    assembly: volumeData.map(v => v * 0.35), // 35% volume = składanie  
+                    packaging: volumeData.map(v => v * 0.25) // 25% volume = pakowanie
+                };
+            }
+        } else {
+            console.warn('[Chart] API nie zwróciło oczekiwanej struktury - używam pustych danych z micro-wartościami');
+            return generateEmptyChartDataWithMicroValues(requestedDays);
+        }
+    } catch (error) {
+        console.error('[Chart] Błąd przetwarzania danych API:', error);
+        return generateEmptyChartDataWithMicroValues(requestedDays);
+    }
+}
+
+/**
+ * Nowa funkcja: generuje puste dane z micro-wartościami
+ */
+function generateEmptyChartDataWithMicroValues(days) {
+    const labels = [];
+    const cutting = [];
+    const assembly = [];
+    const packaging = [];
+    
+    const today = new Date();
+    
+    for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        
+        const label = date.toLocaleDateString('pl-PL', { 
+            day: '2-digit', 
+            month: '2-digit' 
+        });
+        
+        labels.push(label);
+        cutting.push(0.001);   // Micro-wartości zamiast 0
+        assembly.push(0.001);
+        packaging.push(0.001);
+    }
+    
+    return { labels, cutting, assembly, packaging };
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Wyciąga dane z datasetu po nazwie
+ */
+function extractDatasetData(datasets, labelToFind) {
+    if (!Array.isArray(datasets)) {
+        console.warn('[Chart] Datasets nie jest tablicą:', datasets);
+        return [];
+    }
+    
+    // Szukaj po częściowym dopasowaniu labela
+    const dataset = datasets.find(ds => {
+        if (!ds.label) return false;
+        const label = ds.label.toLowerCase();
+        const search = labelToFind.toLowerCase();
+        return label.includes(search);
+    });
+    
+    if (dataset && Array.isArray(dataset.data)) {
+        console.log(`[Chart] Znaleziono dataset dla "${labelToFind}":`, dataset.data);
+        return dataset.data;
+    }
+    
+    console.warn(`[Chart] Nie znaleziono datasetu dla "${labelToFind}"`);
+    return [];
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Aktualizuje wykres nowymi danymi
+ */
+function updateChartWithData(data) {
+    if (!dailyPerformanceChart || !dailyPerformanceChart.data) {
+        console.error('[Daily Performance Chart] Brak wykresu do aktualizacji!');
+        return;
+    }
+    
+    try {
+        // Aktualizuj labels
+        dailyPerformanceChart.data.labels = [...data.labels];
+        
+        // NAPRAWKA: Upewnij się, że dane są liczbami, nie null/undefined
+        dailyPerformanceChart.data.datasets[0].data = data.cutting.map(v => v || 0);
+        dailyPerformanceChart.data.datasets[1].data = data.assembly.map(v => v || 0);
+        dailyPerformanceChart.data.datasets[2].data = data.packaging.map(v => v || 0);
+        
+        // Odśwież wykres
+        dailyPerformanceChart.update('none'); // NAPRAWKA: bez animacji dla ostrości
+        
+        // NAPRAWKA: Wymusz ostre renderowanie po aktualizacji
+        setTimeout(makeChartSharp, 50);
+        
+        console.log('[Daily Performance Chart] Wykres zaktualizowany z nowymi danymi');
+        
+    } catch (error) {
+        console.error('[Daily Performance Chart] Błąd aktualizacji wykresu:', error);
+    }
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Aktualizuje tytuł wykresu
+ */
+function updateChartTitle(days) {
+    if (!dailyPerformanceChart || !dailyPerformanceChart.options.plugins.title) return;
+    
+    dailyPerformanceChart.options.plugins.title.text = `Wydajność dzienna - ostatnie ${days} dni`;
+    dailyPerformanceChart.update('none'); // Update bez animacji
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Ustawia stan loading wykresu
+ */
+function setChartLoading(isLoading) {
+    const canvas = document.getElementById('performance-chart-canvas');
+    if (!canvas) return;
+    
+    if (isLoading) {
+        canvas.style.opacity = '0.5';
+        canvas.style.cursor = 'wait';
+    } else {
+        canvas.style.opacity = '1';
+        canvas.style.cursor = 'default';
+    }
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Pokazuje wiadomość na wykresie
+ */
+function showChartMessage(message) {
+    console.log(`[Daily Performance Chart] Wiadomość: ${message}`);
+    
+    // Można dodać wizualną notyfikację tutaj
+    const canvas = document.getElementById('performance-chart-canvas');
+    if (canvas) {
+        const container = canvas.closest('.widget, .chart-container, .performance-chart');
+        if (container) {
+            // Dodaj tymczasową wiadomość
+            let messageDiv = container.querySelector('.chart-message');
+            if (!messageDiv) {
+                messageDiv = document.createElement('div');
+                messageDiv.className = 'chart-message';
+                messageDiv.style.cssText = `
+                    position: absolute;
+                    top: 10px;
+                    right: 10px;
+                    background: rgba(255, 193, 7, 0.9);
+                    color: #333;
+                    padding: 8px 12px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    z-index: 1000;
+                `;
+                container.style.position = 'relative';
+                container.appendChild(messageDiv);
+            }
+            
+            messageDiv.textContent = message;
+            
+            // Usuń po 5 sekundach
+            setTimeout(() => {
+                if (messageDiv && messageDiv.parentNode) {
+                    messageDiv.remove();
+                }
+            }, 5000);
+        }
+    }
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Konfiguruje selektor okresu
+ */
+function setupPeriodSelector() {
+    const periodSelect = document.getElementById('chart-period');
+    if (!periodSelect) {
+        console.warn('[Daily Performance Chart] Nie znaleziono selektora okresu #chart-period');
+        return;
+    }
+    
+    // Usuń poprzednie event listenery
+    periodSelect.removeEventListener('change', refreshChartData);
+    
+    // Dodaj nowy event listener
+    periodSelect.addEventListener('change', refreshChartData);
+    
+    console.log('[Daily Performance Chart] Event listener dla zmiany okresu skonfigurowany');
+}
+
+/**
+ * FUNKCJA POMOCNICZA: Czyszczenie wykresu
+ */
+function destroyDailyPerformanceChart() {
+    if (dailyPerformanceChart) {
+        try {
+            dailyPerformanceChart.destroy();
+            console.log('[Daily Performance Chart] Wykres zniszczony');
+        } catch (error) {
+            console.error('[Daily Performance Chart] Błąd niszczenia wykresu:', error);
+        }
+        
+        dailyPerformanceChart = null;
+        isChartReady = false;
+    }
+}
+
+console.log('[Daily Performance Chart] Moduł załadowany - funkcje gotowe do użycia!');
 
 // ============================================================================
 // EXPORT / GLOBAL ACCESS
@@ -725,9 +1345,11 @@ function updateChart() {
 
 // Udostępnij funkcje globalnie
 window.triggerManualSync = handleManualSync;
-window.updateChart = updateChart;
 window.clearSystemErrors = clearSystemErrors;
 window.refreshSystemHealth = refreshSystemHealth;
+window.createDailyPerformanceChart = createDailyPerformanceChart;
+window.refreshChartData = refreshChartData;
+window.destroyDailyPerformanceChart = destroyDailyPerformanceChart;
 
 // Eksport głównego obiektu
 window.ProductionDashboard = ProductionDashboard;

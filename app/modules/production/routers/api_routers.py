@@ -232,52 +232,107 @@ def dashboard_stats():
                 'priority_score': product.priority_score or 0
             })
         
-        # SYSTEM HEALTH - NAPRAWIONE: Integracja z sync_service
+        # SYSTEM HEALTH - KOMPLETNIE NAPRAWIONA wersja
+        system_health = {}
         try:
-            # Test połączenia z bazą danych
             import time
-            start_time = time.time()
-            try:
-                db.session.execute(text('SELECT 1'))
-                database_status = 'healthy'
-                database_response_ms = int((time.time() - start_time) * 1000)
-            except Exception:
-                database_status = 'error'
-                database_response_ms = None
+            from sqlalchemy import text
 
-            # Pobierz status synchronizacji z sync_service
-            sync_service = get_sync_service()
-            sync_status_data = sync_service.get_sync_status()
-            
-            # Ostatnia synchronizacja z bazy danych
-            last_sync = ProductionSyncLog.query.order_by(
-                ProductionSyncLog.sync_started_at.desc()
-            ).first()
-            
-            # Błędy z ostatnich 24h
-            errors_24h = ProductionError.query.filter(
-                ProductionError.error_occurred_at >= datetime.utcnow() - timedelta(hours=24)
-            ).count()
-            
-            # Oblicz średni czas odpowiedzi Baselinker API (ostatnie 10 sync)
-            recent_syncs = ProductionSyncLog.query.filter(
-                ProductionSyncLog.baselinker_api_response_time_ms.isnot(None)
-            ).order_by(ProductionSyncLog.sync_started_at.desc()).limit(10).all()
-            
+            # 1. Zawsze mierz czas odpowiedzi bazy danych
+            database_status = 'unknown'
+            database_response_ms = None
+
+            try:
+                start_time = time.time()
+                db.session.execute(text('SELECT 1'))
+                db.session.commit()
+                
+                database_response_ms = int((time.time() - start_time) * 1000)
+                database_status = 'healthy'
+                
+                logger.debug(f"Database response time measured: {database_response_ms}ms")
+                
+            except Exception as db_error:
+                end_time = time.time()
+                database_response_ms = int((end_time - start_time) * 1000) if 'start_time' in locals() else None
+                database_status = 'error'
+                logger.error(f"Database connection failed: {str(db_error)}")
+
+            # 2. Pobierz status synchronizacji z sync_service (NAPRAWIONE MAPOWANIE)
+            try:
+                sync_service = get_sync_service()
+                sync_status_data = sync_service.get_sync_status()
+                
+                # MAPOWANIE: get_sync_status() zwraca nested structure
+                if sync_status_data.get('last_sync'):
+                    last_sync_time = sync_status_data['last_sync'].get('timestamp')
+                    sync_status = sync_status_data['last_sync'].get('status', 'unknown')
+                else:
+                    last_sync_time = None
+                    sync_status = 'never_run'
+                    
+                logger.debug(f"Sync service data mapped: last_sync={last_sync_time}, status={sync_status}")
+                
+            except Exception as sync_error:
+                logger.error(f"Sync service error: {str(sync_error)}")
+                sync_status = 'error'
+                last_sync_time = None
+
+            # 3. Ostatnia synchronizacja z bazy danych (BACKUP)
+            if not last_sync_time:
+                try:
+                    last_sync = ProductionSyncLog.query.order_by(
+                        ProductionSyncLog.sync_started_at.desc()
+                    ).first()
+                    
+                    if last_sync:
+                        last_sync_time = last_sync.sync_completed_at.isoformat() if last_sync.sync_completed_at else last_sync.sync_started_at.isoformat()
+                        if sync_status == 'error':  # tylko gdy sync_service failed
+                            sync_status = last_sync.sync_status or 'unknown'
+                            
+                except Exception as sync_log_error:
+                    logger.error(f"Sync log backup error: {str(sync_log_error)}")
+
+            # 4. Błędy z ostatnich 24h
+            try:
+                errors_24h = ProductionError.query.filter(
+                    ProductionError.error_occurred_at >= datetime.utcnow() - timedelta(hours=24)
+                ).count()
+            except Exception as error_count_error:
+                logger.error(f"Error count error: {str(error_count_error)}")
+                errors_24h = 0
+
+            # 5. Oblicz średni czas odpowiedzi Baselinker API (NAPRAWIONE)
             baselinker_api_avg_ms = None
-            if recent_syncs:
-                total_response_time = sum(s.baselinker_api_response_time_ms for s in recent_syncs)
-                baselinker_api_avg_ms = int(total_response_time / len(recent_syncs))
-            
+            try:
+                recent_syncs = ProductionSyncLog.query.filter(
+                    ProductionSyncLog.baselinker_api_response_time_ms.isnot(None)
+                ).order_by(ProductionSyncLog.sync_started_at.desc()).limit(10).all()
+                
+                if recent_syncs:
+                    total_time = sum(sync.baselinker_api_response_time_ms for sync in recent_syncs)
+                    baselinker_api_avg_ms = int(total_time / len(recent_syncs))
+                    
+                    logger.debug(f"Baselinker API avg time calculated: {baselinker_api_avg_ms}ms from {len(recent_syncs)} syncs")
+                else:
+                    logger.debug("No recent syncs with baselinker response time found")
+                    
+            except Exception as api_time_error:
+                logger.error(f"Baselinker API time calculation error: {str(api_time_error)}")
+                baselinker_api_avg_ms = None
+
+            # 6. Przygotuj system_health object
             system_health = {
-                'last_sync': last_sync.sync_started_at.isoformat() if last_sync else None,
-                'sync_status': last_sync.sync_status if last_sync else 'never_run',
-                'errors_24h': errors_24h,
-                'baselinker_api_avg_ms': baselinker_api_avg_ms,
                 'database_status': database_status,
                 'database_response_ms': database_response_ms,
-                'is_sync_running': sync_status_data.get('is_running', False)
+                'sync_status': sync_status,
+                'last_sync': last_sync_time,
+                'errors_24h': errors_24h,
+                'baselinker_api_avg_ms': baselinker_api_avg_ms,
+                'timestamp': datetime.utcnow().isoformat()
             }
+            
+            logger.debug(f"System health data prepared: {system_health}")
             
         except Exception as e:
             logger.error("Błąd pobierania system health", extra={'error': str(e)})
@@ -288,7 +343,9 @@ def dashboard_stats():
                 'errors_24h': 0,
                 'baselinker_api_avg_ms': None,
                 'database_status': 'error',
-                'error_message': str(e)
+                'database_response_ms': None,
+                'error_message': str(e),
+                'timestamp': datetime.utcnow().isoformat()
             }
         
         # Response zgodny z PRD Section 6.1
@@ -323,7 +380,7 @@ def dashboard_stats():
             'success': False,
             'error': str(e)
         }), 500
-    
+      
 @api_bp.route('/chart-data')
 @login_required
 def chart_data():
