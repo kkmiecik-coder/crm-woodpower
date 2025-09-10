@@ -52,7 +52,7 @@ class IPSecurityService:
     ALWAYS_ALLOWED_IPS = ['127.0.0.1', '::1', 'localhost']
     
     # Routy które wymagają zabezpieczeń IP
-    PROTECTED_ROUTES = [
+    PROTECTED_ROUTERS = [
         '/production/cutting',
         '/production/assembly', 
         '/production/packaging',
@@ -553,7 +553,7 @@ def ip_security_middleware():
     protected_path = False
     station_type = None
     
-    for protected_route in IPSecurityService.PROTECTED_ROUTES:
+    for protected_route in IPSecurityService.PROTECTED_ROUTERS:
         if request.path.startswith(protected_route):
             protected_path = True
             # Wykrycie typu stanowiska z URL
