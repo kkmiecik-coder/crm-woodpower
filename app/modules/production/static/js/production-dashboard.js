@@ -1340,6 +1340,426 @@ function destroyDailyPerformanceChart() {
 console.log('[Daily Performance Chart] Moduł załadowany - funkcje gotowe do użycia!');
 
 // ============================================================================
+// FUNKCJE BŁĘDÓW SYSTEMU
+// ============================================================================
+
+/**
+ * Wyświetla modal z błędami systemu - wersja bez Bootstrap
+ */
+async function showSystemErrorsModal() {
+    console.log('[System Errors] Otwieranie modala błędów systemu...');
+    
+    const modal = document.getElementById('systemErrorsModal');
+    const loadingDiv = document.getElementById('errors-loading');
+    const emptyDiv = document.getElementById('errors-empty');
+    const errorsList = document.getElementById('errors-list');
+    
+    if (!modal) {
+        console.error('[System Errors] Nie znaleziono modala systemErrorsModal');
+        return;
+    }
+    
+    // Pokaż modal - vanilla JS
+    modal.style.display = 'block';
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+    
+    // Backdrop
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop fade show';
+    backdrop.id = 'errors-modal-backdrop';
+    document.body.appendChild(backdrop);
+    
+    // Zamknięcie na backdrop click
+    backdrop.addEventListener('click', closeSystemErrorsModal);
+    
+    // Zamknięcie na ESC
+    document.addEventListener('keydown', handleModalEscape);
+    
+    // Pokaż loading
+    if (loadingDiv) loadingDiv.style.display = 'block';
+    if (emptyDiv) emptyDiv.style.display = 'none';
+    if (errorsList) errorsList.innerHTML = '';
+    
+    try {
+        // Pobierz błędy z API
+        const response = await fetch('/production/admin/ajax/system-errors', {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            displaySystemErrors(data.errors || []);
+        } else {
+            throw new Error(data.error || 'Błąd pobierania błędów');
+        }
+        
+    } catch (error) {
+        console.error('[System Errors] Błąd ładowania:', error);
+        if (errorsList) {
+            errorsList.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6>Błąd ładowania</h6>
+                    <p>Nie można pobrać listy błędów: ${error.message}</p>
+                </div>
+            `;
+        }
+    } finally {
+        if (loadingDiv) loadingDiv.style.display = 'none';
+    }
+}
+
+/**
+ * Zamyka modal błędów - vanilla JS
+ */
+function closeSystemErrorsModal() {
+    const modal = document.getElementById('systemErrorsModal');
+    const backdrop = document.getElementById('errors-modal-backdrop');
+    
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+    
+    if (backdrop) {
+        backdrop.remove();
+    }
+    
+    document.body.classList.remove('modal-open');
+    document.removeEventListener('keydown', handleModalEscape);
+}
+
+/**
+ * Obsługa ESC w modalu
+ */
+function handleModalEscape(event) {
+    if (event.key === 'Escape') {
+        closeSystemErrorsModal();
+    }
+}
+
+/**
+ * Wyświetla błędy w modalzie
+ */
+function displaySystemErrors(errors) {
+    const errorsList = document.getElementById('errors-list');
+    const emptyDiv = document.getElementById('errors-empty');
+    
+    if (!errors || errors.length === 0) {
+        if (emptyDiv) emptyDiv.style.display = 'block';
+        if (errorsList) errorsList.innerHTML = '';
+        return;
+    }
+    
+    if (emptyDiv) emptyDiv.style.display = 'none';
+    
+    const errorsHtml = errors.map(error => {
+        const errorTitle = getErrorTitle(error.error_type);
+        const errorDescription = getErrorDescription(error.error_type, error.error_message);
+        const errorTime = formatErrorDateTime(error.error_occurred_at);
+        
+        return `
+            <div class="error-item">
+                <div class="error-header">
+                    <div class="error-icon">
+                        ${getErrorIcon(error.error_type)}
+                    </div>
+                    <div class="error-info">
+                        <h6 class="error-title">${errorTitle}</h6>
+                        <small class="text-muted">${errorTime}</small>
+                    </div>
+                    <div class="error-status">
+                        ${error.is_resolved ? 
+                            '<span class="badge bg-success">Rozwiązane</span>' : 
+                            '<span class="badge bg-danger">Aktywne</span>'
+                        }
+                    </div>
+                </div>
+                <div class="error-description">
+                    <p>${errorDescription}</p>
+                </div>
+                ${error.related_product_id ? `
+                    <div class="error-context">
+                        <small><strong>Dotyczy produktu:</strong> ${error.related_product_id}</small>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+    
+    if (errorsList) errorsList.innerHTML = errorsHtml;
+}
+
+/**
+ * Tłumaczy typ błędu na czytelny tytuł
+ */
+function getErrorTitle(errorType) {
+    const titles = {
+        'sync_error': 'Problem z synchronizacją danych',
+        'parsing_error': 'Błąd przetwarzania danych zamówienia',
+        'workflow_error': 'Problem w przepływie produkcyjnym',
+        'api_error': 'Błąd połączenia z Baselinker',
+        'security_error': 'Problem bezpieczeństwa',
+        'validation_error': 'Nieprawidłowe dane zamówienia'
+    };
+    return titles[errorType] || 'Nieznany błąd systemu';
+}
+
+/**
+ * Tłumaczy komunikat błędu na polski
+ */
+function getErrorDescription(errorType, errorMessage) {
+    // Podstawowe tłumaczenia
+    const translations = {
+        'Connection timeout': 'Przekroczono limit czasu połączenia z systemem zewnętrznym',
+        'Invalid API response': 'Otrzymano nieprawidłową odpowiedź z systemu Baselinker',
+        'Product not found': 'Nie znaleziono produktu w bazie danych',
+        'Order processing failed': 'Nie udało się przetworzyć zamówienia'
+    };
+    
+    if (translations[errorMessage]) {
+        return translations[errorMessage];
+    }
+    
+    // Wyjaśnienia według typu
+    switch (errorType) {
+        case 'sync_error':
+            return 'System nie może zsynchronizować danych z Baselinker. Sprawdź połączenie internetowe i status API Baselinker.';
+        case 'parsing_error':
+            return 'Dane zamówienia zawierają nieprawidłowe informacje, których system nie może przetworzyć.';
+        case 'api_error':
+            return 'Wystąpił problem z komunikacją z systemem Baselinker. Sprawdź ustawienia API.';
+        case 'workflow_error':
+            return 'Produkt nie może przejść do następnego etapu produkcji z powodu niespełnionych wymagań.';
+        default:
+            return errorMessage || 'Wystąpił nieznany błąd w systemie.';
+    }
+}
+
+/**
+ * Zwraca ikonę dla typu błędu
+ */
+function getErrorIcon(errorType) {
+    const icons = {
+        'sync_error': '🔄',
+        'parsing_error': '📋',
+        'workflow_error': '⚙️',
+        'api_error': '🌐',
+        'security_error': '🔒',
+        'validation_error': '⚠️'
+    };
+    return icons[errorType] || '❗';
+}
+
+/**
+ * Formatuje datę błędu
+ */
+function formatErrorDateTime(dateString) {
+    if (!dateString) return 'Nieznana data';
+    
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleString('pl-PL', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (error) {
+        return 'Nieprawidłowa data';
+    }
+}
+
+/**
+ * Czyści błędy z poziomu modala - bez Bootstrap
+ */
+async function clearSystemErrorsFromModal() {
+    try {
+        const response = await fetch('/production/admin/ajax/clear-system-errors', {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('Wszystkie błędy zostały wyczyszczone', 'success');
+            
+            // Zamknij modal
+            closeSystemErrorsModal();
+            
+            // Odśwież dashboard
+            loadDashboardData();
+        } else {
+            throw new Error(data.error || 'Błąd czyszczenia błędów');
+        }
+        
+    } catch (error) {
+        console.error('[Clear Errors] Błąd:', error);
+        showNotification('Błąd czyszczenia błędów: ' + error.message, 'error');
+    }
+}
+
+// Funkcje timera pozostają bez zmian
+let refreshTimer = null;
+let refreshTimeoutId = null;
+
+/**
+ * Odświeża system z timerem
+ */
+async function refreshSystemWithTimer() {
+    console.log('[System Refresh] Uruchamianie odświeżania systemu z timerem...');
+    
+    const refreshBtn = document.getElementById('refresh-system-btn');
+    
+    if (!refreshBtn) {
+        console.error('[System Refresh] Nie znaleziono przycisku refresh-system-btn');
+        return;
+    }
+    
+    const refreshText = refreshBtn.querySelector('.refresh-text');
+    const refreshIcon = refreshBtn.querySelector('.refresh-icon');
+    const timerSpan = document.getElementById('refresh-timer');
+    
+    // Wyłącz przycisk na czas odświeżania
+    refreshBtn.disabled = true;
+    if (refreshIcon) refreshIcon.textContent = '⏳';
+    if (refreshText) refreshText.textContent = 'Odświeżanie...';
+    
+    try {
+        // Wykonaj odświeżenie
+        await loadDashboardData();
+        
+        showNotification('System został odświeżony pomyślnie', 'success');
+        
+        // Rozpocznij countdown timer
+        startRefreshTimer();
+        
+    } catch (error) {
+        console.error('[System Refresh] Błąd:', error);
+        showNotification('Błąd odświeżania systemu', 'error');
+    } finally {
+        // Przywróć przycisk
+        refreshBtn.disabled = false;
+        if (refreshIcon) refreshIcon.textContent = '🔄';
+        if (refreshText) refreshText.textContent = 'Odśwież system';
+    }
+}
+
+/**
+ * Uruchamia timer odliczający do następnego odświeżenia
+ */
+function startRefreshTimer() {
+    const timerSpan = document.getElementById('refresh-timer');
+    
+    if (!timerSpan) {
+        console.warn('[Refresh Timer] Nie znaleziono elementu refresh-timer');
+        return;
+    }
+    
+    // Wyczyść poprzedni timer
+    clearRefreshTimer();
+    
+    // Ustaw czas na 30 sekund
+    let timeLeft = 30;
+    timerSpan.textContent = `(${timeLeft}s)`;
+    timerSpan.style.display = 'inline';
+    
+    refreshTimer = setInterval(() => {
+        timeLeft--;
+        timerSpan.textContent = `(${timeLeft}s)`;
+        
+        if (timeLeft <= 0) {
+            clearRefreshTimer();
+            // Automatyczne odświeżenie po upływie timera
+            loadDashboardData();
+        }
+    }, 1000);
+    
+    // Timeout na wypadek gdyby interval nie zadziałał
+    refreshTimeoutId = setTimeout(() => {
+        clearRefreshTimer();
+        loadDashboardData();
+    }, 30000);
+}
+
+/**
+ * Czyści timer odświeżania
+ */
+function clearRefreshTimer() {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
+    
+    if (refreshTimeoutId) {
+        clearTimeout(refreshTimeoutId);
+        refreshTimeoutId = null;
+    }
+    
+    const timerSpan = document.getElementById('refresh-timer');
+    if (timerSpan) {
+        timerSpan.style.display = 'none';
+        timerSpan.textContent = '';
+    }
+}
+
+// Poprawiona funkcja clearSystemErrors
+async function clearSystemErrors() {
+    console.log('[Production Dashboard] Czyszczenie błędów systemu...');
+    
+    try {
+        const response = await fetch('/production/admin/ajax/clear-system-errors', {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('Błędy systemu zostały wyczyszczone', 'success');
+            // Odśwież dane dashboardu
+            loadDashboardData();
+        } else {
+            throw new Error(data.error || 'Błąd czyszczenia błędów');
+        }
+        
+    } catch (error) {
+        console.error('[Clear System Errors] Błąd:', error);
+        showNotification('Błąd czyszczenia błędów: ' + error.message, 'error');
+    }
+}
+
+// ============================================================================
 // EXPORT / GLOBAL ACCESS
 // ============================================================================
 
@@ -1350,6 +1770,13 @@ window.refreshSystemHealth = refreshSystemHealth;
 window.createDailyPerformanceChart = createDailyPerformanceChart;
 window.refreshChartData = refreshChartData;
 window.destroyDailyPerformanceChart = destroyDailyPerformanceChart;
+
+window.showSystemErrorsModal = showSystemErrorsModal;
+window.closeSystemErrorsModal = closeSystemErrorsModal;
+window.clearSystemErrorsFromModal = clearSystemErrorsFromModal;
+window.refreshSystemWithTimer = refreshSystemWithTimer;
+window.startRefreshTimer = startRefreshTimer;
+window.clearRefreshTimer = clearRefreshTimer;
 
 // Eksport głównego obiektu
 window.ProductionDashboard = ProductionDashboard;

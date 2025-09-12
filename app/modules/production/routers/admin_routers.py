@@ -1870,14 +1870,143 @@ def ajax_dashboard_stats():
             'error': str(e)
         }), 500
 
+@admin_bp.route('/ajax/system-errors')
+@admin_required
+def ajax_system_errors():
+    """
+    AJAX endpoint dla pobierania błędów systemu do wyświetlenia w modalboxie
+    
+    Returns:
+        JSON: Lista błędów z opisami zrozumiałymi dla użytkownika nietechnicznego
+    """
+    try:
+        from ..models import ProductionError
+        
+        # Pobierz nierozwiązane błędy z ostatnich 7 dni
+        from datetime import datetime, timedelta
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        
+        errors = ProductionError.query.filter(
+            ProductionError.error_occurred_at >= week_ago
+        ).order_by(
+            ProductionError.is_resolved.asc(),  # Nierozwiązane na początku
+            ProductionError.error_occurred_at.desc()
+        ).limit(50).all()  # Maksymalnie 50 błędów
+        
+        # Formatuj błędy dla użytkownika
+        formatted_errors = []
+        
+        for error in errors:
+            # Parsuj szczegóły błędu jeśli istnieją
+            error_details = {}
+            if error.error_details:
+                try:
+                    error_details = json.loads(error.error_details) if isinstance(error.error_details, str) else error.error_details
+                except (json.JSONDecodeError, TypeError):
+                    error_details = {}
+            
+            formatted_error = {
+                'id': error.id,
+                'error_type': error.error_type,
+                'error_message': error.error_message,
+                'error_details': error_details,
+                'error_occurred_at': error.error_occurred_at.isoformat() if error.error_occurred_at else None,
+                'is_resolved': error.is_resolved,
+                'related_product_id': error.related_product_id,
+                'related_order_id': error.related_order_id,
+                'error_location': error.error_location
+            }
+            
+            formatted_errors.append(formatted_error)
+        
+        logger.info("Pobrano błędy systemu dla modala", extra={
+            'user_id': current_user.id,
+            'errors_count': len(formatted_errors)
+        })
+        
+        return jsonify({
+            'success': True,
+            'errors': formatted_errors,
+            'total_count': len(formatted_errors)
+        }), 200
+        
+    except Exception as e:
+        logger.error("Błąd pobierania błędów systemu", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/ajax/clear-system-errors', methods=['POST'])
+@admin_required
+def ajax_clear_system_errors():
+    """
+    AJAX endpoint dla czyszczenia błędów systemu
+    Oznacza wszystkie nierozwiązane błędy jako rozwiązane
+    
+    Returns:
+        JSON: Status operacji czyszczenia
+    """
+    try:
+        from ..models import ProductionError
+        
+        # Znajdź wszystkie nierozwiązane błędy
+        unresolved_errors = ProductionError.query.filter(
+            ProductionError.is_resolved == False
+        ).all()
+        
+        cleared_count = 0
+        
+        # Oznacz każdy błąd jako rozwiązany
+        for error in unresolved_errors:
+            error.resolve(
+                user_id=current_user.id,
+                resolution_notes="Błąd wyczyszczony masowo przez administratora"
+            )
+            cleared_count += 1
+        
+        # Zapisz zmiany w bazie
+        db.session.commit()
+        
+        logger.info("Wyczyszczono błędy systemu", extra={
+            'user_id': current_user.id,
+            'cleared_count': cleared_count
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Wyczyszczono {cleared_count} błędów systemu',
+            'cleared_count': cleared_count
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Błąd czyszczenia błędów systemu", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# Modyfikacja istniejącego endpointu ajax_system_health - dodanie pola błędów
 @admin_bp.route('/ajax/system-health')
 @admin_required
 def ajax_system_health():
     """
     AJAX endpoint dla sprawdzania zdrowia systemu
+    ZMODYFIKOWANY - dodane informacje o błędach
     
     Returns:
-        JSON: Status zdrowia systemu
+        JSON: Status zdrowia systemu z informacjami o błędach
     """
     try:
         from ..services.sync_service import get_sync_status
@@ -1886,48 +2015,58 @@ def ajax_system_health():
         # Status synchronizacji
         sync_status = get_sync_status()
         
-        # Nierozwiązane błędy
-        unresolved_errors = ProductionError.query.filter_by(is_resolved=False).count()
+        # Nierozwiązane błędy z ostatnich 24h
+        from datetime import datetime, timedelta
+        day_ago = datetime.utcnow() - timedelta(hours=24)
         
-        # Błędy z ostatniej godziny
-        recent_errors = ProductionError.query.filter(
-            ProductionError.error_occurred_at >= datetime.utcnow() - timedelta(hours=1)
+        unresolved_errors_24h = ProductionError.query.filter(
+            ProductionError.error_occurred_at >= day_ago,
+            ProductionError.is_resolved == False
         ).count()
         
-        # Określenie ogólnego stanu zdrowia
-        health_status = 'healthy'
-        issues = []
+        # Wszystkie nierozwiązane błędy
+        total_unresolved_errors = ProductionError.query.filter(
+            ProductionError.is_resolved == False
+        ).count()
         
-        if unresolved_errors > 10:
-            health_status = 'warning'
-            issues.append(f"{unresolved_errors} nierozwiązanych błędów")
+        # Sprawdzenie statusu bazy danych
+        try:
+            db.session.execute('SELECT 1')
+            database_status = 'ok'
+        except Exception:
+            database_status = 'error'
         
-        if recent_errors > 5:
-            health_status = 'critical'
-            issues.append(f"{recent_errors} błędów w ostatniej godzinie")
+        # Ostatnia synchronizacja
+        from ..models import ProductionSyncLog
+        last_sync_log = ProductionSyncLog.query.order_by(
+            ProductionSyncLog.sync_started_at.desc()
+        ).first()
         
-        if not sync_status.get('sync_enabled'):
-            health_status = 'warning'
-            issues.append("Synchronizacja wyłączona")
+        last_sync = last_sync_log.sync_started_at.isoformat() if last_sync_log and last_sync_log.sync_started_at else None
+        sync_status_str = last_sync_log.sync_status if last_sync_log else 'never_run'
         
         health_data = {
-            'status': health_status,
-            'issues': issues,
-            'sync_enabled': sync_status.get('sync_enabled', False),
-            'sync_running': sync_status.get('is_running', False),
-            'unresolved_errors': unresolved_errors,
-            'recent_errors': recent_errors,
-            'last_sync': sync_status.get('last_sync', {}).get('timestamp'),
-            'timestamp': datetime.utcnow().isoformat()
+            'database_status': database_status,
+            'sync_status': sync_status_str,
+            'last_sync': last_sync,
+            'errors_24h': unresolved_errors_24h,
+            'total_unresolved_errors': total_unresolved_errors,
+            'baselinker_api_avg_ms': sync_status.get('api_response_time_ms', 0) if sync_status else 0
         }
+        
+        logger.info("Pobrano system health", extra={
+            'user_id': current_user.id,
+            'errors_24h': unresolved_errors_24h,
+            'total_errors': total_unresolved_errors
+        })
         
         return jsonify({
             'success': True,
-            'data': health_data
+            'health': health_data
         }), 200
         
     except Exception as e:
-        logger.error("Błąd AJAX health check", extra={
+        logger.error("Błąd sprawdzania system health", extra={
             'user_id': current_user.id,
             'error': str(e)
         })
@@ -1987,9 +2126,11 @@ def debug_module_info():
             'success': False,
             'error': str(e)
         }), 500
-
+    
+# Logowanie inicjalizacji routerów admin
 logger.info("Zainicjalizowano Admin routers dla modułu production", extra={
     'blueprint_name': admin_bp.name,
     'admin_required': True,
     'total_routers': 'multiple'
 })
+

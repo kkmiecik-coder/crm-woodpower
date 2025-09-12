@@ -24,6 +24,17 @@
                             <span class="status-indicator" id="status-indicator"></span>
                             <span class="status-text" id="status-text">Ładowanie...</span>
                         </div>
+                        <div class="system-status">
+                            {% if current_user.role in ['admin', 'administrator'] %}
+                            <div class="system-refresh-section">
+                                <button class="refresh-system-btn" id="refresh-system-btn" onclick="refreshSystemWithTimer()">
+                                    <span class="refresh-icon">🔄</span>
+                                    <span class="refresh-text">Odśwież system</span>
+                                    <span class="refresh-timer" id="refresh-timer" style="display:none;"></span>
+                                </button>
+                            </div>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -215,11 +226,11 @@
 
                         {% if current_user.role in ['admin', 'administrator'] %}
                         <div class="health-actions">
-                            <button class="health-action-btn" onclick="clearSystemErrors()">
-                                Wyczyść błędy
+                            <button class="health-action-btn error-details-btn" onclick="showSystemErrorsModal()">
+                                👁️ Pokaż błędy
                             </button>
-                            <button class="health-action-btn" onclick="refreshSystemHealth()">
-                                Odśwież status
+                            <button class="health-action-btn" onclick="clearSystemErrors()">
+                                🧹 Wyczyść błędy
                             </button>
                         </div>
                         {% endif %}
@@ -246,6 +257,41 @@
                 {% endif %}
             </div>
         </main>
+    </div>
+
+    <!-- Modal błędów systemu -->
+    <div class="modal fade" id="systemErrorsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Błędy systemu</h5>
+                    <button type="button" class="btn-close" onclick="closeSystemErrorsModal()"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="errors-loading" id="errors-loading" style="display:none;">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2">Ładowanie błędów...</p>
+                        </div>
+                    </div>
+                    <div class="errors-empty" id="errors-empty" style="display:none;">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-check-circle fa-3x mb-3 text-success"></i>
+                            <h5>Brak błędów!</h5>
+                            <p>System działa bez błędów.</p>
+                        </div>
+                    </div>
+                    <div class="errors-list" id="errors-list">
+                        <!-- Błędy zostaną załadowane dynamicznie -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeSystemErrorsModal()">Zamknij</button>
+                        🧹 Wyczyść wszystkie błędy
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Skrypty -->
