@@ -1,0 +1,370 @@
+<!-- dashboard-tab-content.html -->
+<!-- Komponent zawartości taba Dashboard - bez DOCTYPE, head, body, sidebar -->
+
+<!-- Quick Actions Bar (bez linków do innych tabów) -->
+<div class="quick-actions-bar">
+    <div class="quick-actions-list">
+        <button id="manual-sync-btn" class="quick-action-btn" onclick="triggerManualSync()">
+            <span class="quick-action-icon">🔄</span>
+            Synchronizuj
+        </button>
+    </div>
+</div>
+
+<!-- Dashboard Grid -->
+<div class="production-dashboard-grid">
+    <!-- Statystyki Stanowisk -->
+    <div class="widget stations-overview">
+        <div class="widget-header">
+            <h3>Przegląd stanowisk</h3>
+            <span class="last-updated" id="stations-updated">Aktualizacja...</span>
+        </div>
+        <div class="widget-content">
+            <div class="stations-grid">
+                <!-- POPRAWIONE: Dodano data-station-url dla poprawnego routingu -->
+                <div class="station-card cutting-station" 
+                     data-station="cutting"
+                     data-station-url="{{ url_for('production.production_stations.cutting_station') }}">
+                    <div class="station-icon">🪚</div>
+                    <div class="station-info">
+                        <h4>Wycinanie</h4>
+                        <div class="station-stats">
+                            <div class="stat">
+                                <span class="stat-value" id="cutting-pending">-</span>
+                                <span class="stat-label">Oczekujące</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value" id="cutting-today-m3">-</span>
+                                <span class="stat-label">m3 dzisiaj</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="station-status" id="cutting-status">
+                        <span class="status-dot"></span>
+                    </div>
+                </div>
+
+                <div class="station-card assembly-station" 
+                     data-station="assembly"
+                     data-station-url="{{ url_for('production.production_stations.assembly_station') }}">
+                    <div class="station-icon">🔧</div>
+                    <div class="station-info">
+                        <h4>Składanie</h4>
+                        <div class="station-stats">
+                            <div class="stat">
+                                <span class="stat-value" id="assembly-pending">-</span>
+                                <span class="stat-label">Oczekujące</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value" id="assembly-today-m3">-</span>
+                                <span class="stat-label">m3 dzisiaj</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="station-status" id="assembly-status">
+                        <span class="status-dot"></span>
+                    </div>
+                </div>
+
+                <div class="station-card packaging-station" 
+                     data-station="packaging"
+                     data-station-url="{{ url_for('production.production_stations.packaging_station') }}">
+                    <div class="station-icon">📦</div>
+                    <div class="station-info">
+                        <h4>Pakowanie</h4>
+                        <div class="station-stats">
+                            <div class="stat">
+                                <span class="stat-value" id="packaging-pending">-</span>
+                                <span class="stat-label">Oczekujące</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-value" id="packaging-today-m3">-</span>
+                                <span class="stat-label">m3 dzisiaj</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="station-status" id="packaging-status">
+                        <span class="status-dot"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dzisiejsze Podsumowanie -->
+    <div class="widget today-summary">
+        <div class="widget-header">
+            <h3>Dzisiejsze podsumowanie</h3>
+            <span class="date-info" id="today-date"></span>
+        </div>
+        <div class="widget-content">
+            <div class="summary-stats">
+                <div class="summary-card completed-orders">
+                    <div class="summary-icon">✅</div>
+                    <div class="summary-data">
+                        <span class="summary-value" id="today-completed">-</span>
+                        <span class="summary-label">Ukończone zamówienia</span>
+                    </div>
+                </div>
+                <div class="summary-card total-volume">
+                    <div class="summary-icon">📊</div>
+                    <div class="summary-data">
+                        <span class="summary-value" id="today-total-m3">-</span>
+                        <span class="summary-label">Całkowity wolumen m³</span>
+                    </div>
+                </div>
+                <div class="summary-card avg-deadline">
+                    <div class="summary-icon">⏱️</div>
+                    <div class="summary-data">
+                        <span class="summary-value" id="today-avg-deadline">-</span>
+                        <span class="summary-label">Średni deadline (dni)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alerty Terminów -->
+    <div class="widget deadline-alerts">
+        <div class="widget-header">
+            <h3>Alerty Terminów</h3>
+            <span class="alert-count" id="alerts-count">-</span>
+        </div>
+        <div class="widget-content">
+            <div class="alerts-list" id="alerts-list">
+                <div class="loading-state">Ładowanie alertów...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Health -->
+    <div class="widget system-health">
+        <div class="widget-header">
+            <h3>Status systemu</h3>
+            <span class="health-indicator" id="health-indicator">
+                <span class="health-dot"></span>
+            </span>
+        </div>
+        <div class="widget-content">
+            <div class="health-items">
+                <div class="health-item" id="sync-health">
+                    <div class="health-label">Ostatnia synchronizacja</div>
+                    <div class="health-value" id="last-sync-time">-</div>
+                    <div class="health-status" id="sync-status"></div>
+                </div>
+                <div class="health-item" id="database-health">
+                    <div class="health-label">Baza danych</div>
+                    <div class="health-value" id="db-response-time">-</div>
+                    <div class="health-status" id="db-status"></div>
+                </div>
+                <div class="health-item" id="api-health">
+                    <div class="health-label">Baselinker API</div>
+                    <div class="health-value" id="api-response-time">-</div>
+                    <div class="health-status" id="api-status"></div>
+                </div>
+                <div class="health-item" id="errors-health">
+                    <div class="health-label">Błędy systemu</div>
+                    <div class="health-value" id="error-count">-</div>
+                    <div class="health-status" id="errors-status"></div>
+                </div>
+            </div>
+
+            {% if current_user.role in ['admin', 'administrator'] %}
+            <div class="health-actions">
+                <button class="health-action-btn error-details-btn" onclick="showSystemErrorsModal()">
+                    👁️ Pokaż błędy
+                </button>
+                <button class="health-action-btn" onclick="clearSystemErrors()">
+                    🧹 Wyczyść błędy
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Wykres Wydajności (jeśli admin) -->
+    {% if current_user.role in ['admin', 'administrator'] %}
+    <div class="widget performance-chart">
+        <div class="widget-header">
+            <h3>Wydajność dzienna</h3>
+            <div class="chart-controls">
+                <select id="chart-period" onchange="updateChart()">
+                    <option value="7">Ostatnie 7 dni</option>
+                    <option value="14">Ostatnie 14 dni</option>
+                    <option value="30">Ostatnie 30 dni</option>
+                </select>
+            </div>
+        </div>
+        <div class="widget-content">
+            <canvas id="performance-chart-canvas" width="400" height="200"></canvas>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modal błędów systemu (przeniesiony do komponentu) -->
+<div class="modal fade" id="systemErrorsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Błędy systemu</h5>
+                <button type="button" class="btn-close" onclick="closeSystemErrorsModal()"></button>
+            </div>
+            <div class="modal-body">
+                <div class="errors-loading" id="errors-loading" style="display:none;">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Ładowanie błędów...</p>
+                    </div>
+                </div>
+                <div class="errors-empty" id="errors-empty" style="display:none;">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-check-circle fa-3x mb-3 text-success"></i>
+                        <h5>Brak błędów!</h5>
+                        <p>System działa bez błędów.</p>
+                    </div>
+                </div>
+                <div class="errors-list" id="errors-list">
+                    <!-- Błędy zostaną załadowane dynamicznie -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeSystemErrorsModal()">Zamknij</button>
+                <button type="button" class="btn btn-danger" onclick="clearAllSystemErrors()">
+                    🧹 Wyczyść wszystkie błędy
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // JavaScript specyficzny dla dashboard taba
+    
+    // Przekazanie danych z backendu do JavaScript (tylko dla tego taba)
+    window.dashboardTabStats = {{ dashboard_stats|tojson if dashboard_stats else {}|tojson }};
+    window.dashboardEndpoints = {
+        dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
+        manualSync: '{{ url_for("production.production_api.manual_sync") }}',
+        healthCheck: '{{ url_for("production.production_api.health_check") }}',
+        updatePriority: '/production/api/update-priority'
+    };
+
+    // Inicjalizacja dashboard po załadowaniu komponentu
+    function initDashboardTab() {
+        console.log('[Dashboard Tab] Inicjalizacja komponentu dashboard');
+        
+        // Załaduj dane początkowe
+        if (window.dashboardTabStats && Object.keys(window.dashboardTabStats).length > 0) {
+            console.log('[Dashboard Tab] Używam danych z serwera');
+            updateDashboardData(window.dashboardTabStats);
+        }
+        
+        // Inicjalizuj obsługę kliknięć w karty stanowisk
+        initStationCards();
+        
+        // Inicjalizuj wykresy jeśli admin
+        if (window.productionConfig && window.productionConfig.currentUser.role === 'admin') {
+            initializeCharts();
+        }
+        
+        console.log('[Dashboard Tab] Komponent zainicjalizowany');
+    }
+    
+    // Obsługa kliknięć w karty stanowisk
+    function initStationCards() {
+        document.querySelectorAll('.station-card').forEach(card => {
+            card.addEventListener('click', function() {
+                const stationUrl = this.getAttribute('data-station-url');
+                if (stationUrl) {
+                    window.location.href = stationUrl;
+                }
+            });
+        });
+    }
+    
+    // Aktualizacja danych dashboard
+    function updateDashboardData(data) {
+        console.log('[Dashboard Tab] Aktualizacja danych:', data);
+        
+        // Tutaj będzie logika aktualizacji widgetów
+        // Na razie placeholder
+        if (data.stations) {
+            updateStationsStats(data.stations);
+        }
+        if (data.today_totals) {
+            updateTodayTotals(data.today_totals);
+        }
+        if (data.deadline_alerts) {
+            updateDeadlineAlerts(data.deadline_alerts);
+        }
+        if (data.system_health) {
+            updateSystemHealth(data.system_health);
+        }
+    }
+    
+    // Placeholder functions - będą zaimplementowane
+    function updateStationsStats(stations) {
+        console.log('TODO: Update stations stats', stations);
+    }
+    
+    function updateTodayTotals(totals) {
+        console.log('TODO: Update today totals', totals);
+    }
+    
+    function updateDeadlineAlerts(alerts) {
+        console.log('TODO: Update deadline alerts', alerts);
+    }
+    
+    function updateSystemHealth(health) {
+        console.log('TODO: Update system health', health);
+    }
+    
+    function initializeCharts() {
+        console.log('TODO: Initialize charts for admin');
+    }
+    
+    // Funkcje modali i akcji
+    function showSystemErrorsModal() {
+        console.log('TODO: Show system errors modal');
+        // Otwórz modal
+        const modal = document.getElementById('systemErrorsModal');
+        if (modal) {
+            const bootstrapModal = new bootstrap.Modal(modal);
+            bootstrapModal.show();
+        }
+    }
+    
+    function closeSystemErrorsModal() {
+        const modal = document.getElementById('systemErrorsModal');
+        if (modal) {
+            const bootstrapModal = bootstrap.Modal.getInstance(modal);
+            if (bootstrapModal) {
+                bootstrapModal.hide();
+            }
+        }
+    }
+    
+    function clearSystemErrors() {
+        console.log('TODO: Clear system errors');
+    }
+    
+    function clearAllSystemErrors() {
+        console.log('TODO: Clear all system errors');
+    }
+    
+    function triggerManualSync() {
+        console.log('TODO: Trigger manual sync');
+    }
+    
+    function updateChart() {
+        console.log('TODO: Update performance chart');
+    }
+    
+    // Auto-inicjalizacja jeśli komponent jest załadowany bezpośrednio
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initDashboardTab);
+    } else {
+        initDashboardTab();
+    }
+</script>

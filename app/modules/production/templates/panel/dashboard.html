@@ -6,6 +6,8 @@
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="app-container">
@@ -39,311 +41,443 @@
                 </div>
             </div>
 
-            <!-- Quick Actions Bar -->
-            <div class="quick-actions-bar">
-                <div class="quick-actions-list">
-                    <!-- POPRAWIONE: Dodano prefix 'production.' -->
-                    <a href="{{ url_for('production.production_main.products_list') }}" class="quick-action-btn">
-                        <span class="quick-action-icon">📋</span>
-                        Lista produktów
-                    </a>
-                    <button id="manual-sync-btn" class="quick-action-btn" onclick="triggerManualSync()">
-                        <span class="quick-action-icon">🔄</span>
-                        Synchronizuj
+            <!-- Production Dashboard Tabs -->
+            <div class="production-dashboard-tabs">
+                <!-- Tab Navigation -->
+                <nav class="nav nav-tabs dashboard-nav-tabs" id="productionDashboardTabs" role="tablist">
+                    <button class="nav-link active" 
+                            id="dashboard-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#dashboard-tab-content" 
+                            type="button" 
+                            role="tab" 
+                            aria-controls="dashboard-tab-content" 
+                            aria-selected="true" 
+                            onclick="loadTabContent('dashboard-tab')">
+                        <i class="fas fa-tachometer-alt me-2"></i>
+                        Dashboard
                     </button>
-                    <!-- POPRAWIONE: Dodano prefix 'production.' -->
-                    <a href="{{ url_for('production.production_stations.station_select') }}" class="quick-action-btn">
-                        <span class="quick-action-icon">🏭</span>
+                    
+                    <button class="nav-link" 
+                            id="products-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#products-tab-content" 
+                            type="button" 
+                            role="tab" 
+                            aria-controls="products-tab-content" 
+                            aria-selected="false"
+                            onclick="loadTabContent('products-tab')">
+                        <i class="fas fa-list me-2"></i>
+                        Lista produktów
+                    </button>
+                    
+                    <button class="nav-link" 
+                            id="reports-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#reports-tab-content" 
+                            type="button" 
+                            role="tab" 
+                            aria-controls="reports-tab-content" 
+                            aria-selected="false"
+                            onclick="loadTabContent('reports-tab')">
+                        <i class="fas fa-chart-bar me-2"></i>
+                        Raporty
+                    </button>
+                    
+                    <button class="nav-link" 
+                            id="stations-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#stations-tab-content" 
+                            type="button" 
+                            role="tab" 
+                            aria-controls="stations-tab-content" 
+                            aria-selected="false"
+                            onclick="loadTabContent('stations-tab')">
+                        <i class="fas fa-industry me-2"></i>
                         Stanowiska
-                    </a>
+                    </button>
+                    
                     {% if current_user.role in ['admin', 'administrator'] %}
-                    <!-- POPRAWIONE: Dodano prefix 'production.' -->
-                    <a href="{{ url_for('production.production_main.config_panel') }}" class="quick-action-btn">
-                        <span class="quick-action-icon">⚙️</span>
+                    <button class="nav-link" 
+                            id="config-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#config-tab-content" 
+                            type="button" 
+                            role="tab" 
+                            aria-controls="config-tab-content" 
+                            aria-selected="false"
+                            onclick="loadTabContent('config-tab')">
+                        <i class="fas fa-cog me-2"></i>
                         Konfiguracja
-                    </a>
+                    </button>
                     {% endif %}
-                </div>
-            </div>
+                </nav>
 
-            <!-- Dashboard Grid -->
-            <div class="production-dashboard-grid">
-                <!-- Statystyki Stanowisk -->
-                <div class="widget stations-overview">
-                    <div class="widget-header">
-                        <h3>Przegląd stanowisk</h3>
-                        <span class="last-updated" id="stations-updated">Aktualizacja...</span>
-                    </div>
-                    <div class="widget-content">
-                        <div class="stations-grid">
-                            <!-- POPRAWIONE: Dodano data-station-url dla poprawnego routingu -->
-                            <div class="station-card cutting-station" 
-                                 data-station="cutting"
-                                 data-station-url="{{ url_for('production.production_stations.cutting_station') }}">
-                                <div class="station-icon">🪚</div>
-                                <div class="station-info">
-                                    <h4>Wycinanie</h4>
-                                    <div class="station-stats">
-                                        <div class="stat">
-                                            <span class="stat-value" id="cutting-pending">-</span>
-                                            <span class="stat-label">Oczekujące</span>
-                                        </div>
-                                        <div class="stat">
-                                            <span class="stat-value" id="cutting-today-m3">-</span>
-                                            <span class="stat-label">m3 dzisiaj</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="station-status" id="cutting-status">
-                                    <span class="status-dot"></span>
-                                </div>
+                <!-- Tab Content Container -->
+                <div class="tab-content production-tab-content" id="productionDashboardTabContent">
+                    
+                    <!-- Dashboard Tab -->
+                    <div class="tab-pane fade show active" 
+                         id="dashboard-tab-content" 
+                         role="tabpanel" 
+                         aria-labelledby="dashboard-tab">
+                        
+                        <div class="tab-loading" id="dashboard-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie dashboard...</p>
                             </div>
-
-                            <div class="station-card assembly-station" 
-                                 data-station="assembly"
-                                 data-station-url="{{ url_for('production.production_stations.assembly_station') }}">
-                                <div class="station-icon">🔧</div>
-                                <div class="station-info">
-                                    <h4>Składanie</h4>
-                                    <div class="station-stats">
-                                        <div class="stat">
-                                            <span class="stat-value" id="assembly-pending">-</span>
-                                            <span class="stat-label">Oczekujące</span>
-                                        </div>
-                                        <div class="stat">
-                                            <span class="stat-value" id="assembly-today-m3">-</span>
-                                            <span class="stat-label">m3 dzisiaj</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="station-status" id="assembly-status">
-                                    <span class="status-dot"></span>
-                                </div>
-                            </div>
-
-                            <div class="station-card packaging-station" 
-                                 data-station="packaging"
-                                 data-station-url="{{ url_for('production.production_stations.packaging_station') }}">
-                                <div class="station-icon">📦</div>
-                                <div class="station-info">
-                                    <h4>Pakowanie</h4>
-                                    <div class="station-stats">
-                                        <div class="stat">
-                                            <span class="stat-value" id="packaging-pending">-</span>
-                                            <span class="stat-label">Oczekujące</span>
-                                        </div>
-                                        <div class="stat">
-                                            <span class="stat-value" id="packaging-today-m3">-</span>
-                                            <span class="stat-label">m3 dzisiaj</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="station-status" id="packaging-status">
-                                    <span class="status-dot"></span>
-                                </div>
+                        </div>
+                        
+                        <div class="tab-content-wrapper" id="dashboard-tab-wrapper" style="display:none;">
+                            <!-- Zawartość dashboard zostanie załadowana przez AJAX -->
+                        </div>
+                        
+                        <div class="tab-error" id="dashboard-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania dashboard!</strong> 
+                                <span id="dashboard-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="loadTabContent('dashboard-tab')">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Dzisiejsze Podsumowanie -->
-                <div class="widget today-summary">
-                    <div class="widget-header">
-                        <h3>Dzisiejsze podsumowanie</h3>
-                        <span class="date-info" id="today-date"></span>
-                    </div>
-                    <div class="widget-content">
-                        <div class="summary-stats">
-                            <div class="summary-card completed-orders">
-                                <div class="summary-icon">✅</div>
-                                <div class="summary-data">
-                                    <span class="summary-value" id="today-completed">-</span>
-                                    <span class="summary-label">Ukończone zamówienia</span>
-                                </div>
+                    <!-- Products Tab -->
+                    <div class="tab-pane fade" 
+                         id="products-tab-content" 
+                         role="tabpanel" 
+                         aria-labelledby="products-tab">
+                        
+                        <div class="tab-loading" id="products-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie listy produktów...</p>
                             </div>
-                            <div class="summary-card total-volume">
-                                <div class="summary-icon">📊</div>
-                                <div class="summary-data">
-                                    <span class="summary-value" id="today-total-m3">-</span>
-                                    <span class="summary-label">Całkowity wolumen m³</span>
-                                </div>
-                            </div>
-                            <div class="summary-card avg-deadline">
-                                <div class="summary-icon">⏱️</div>
-                                <div class="summary-data">
-                                    <span class="summary-value" id="today-avg-deadline">-</span>
-                                    <span class="summary-label">Średni deadline (dni)</span>
-                                </div>
+                        </div>
+                        
+                        <div class="tab-content-wrapper" id="products-tab-wrapper" style="display:none;">
+                            <!-- Zawartość produktów zostanie załadowana przez AJAX -->
+                        </div>
+                        
+                        <div class="tab-error" id="products-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania produktów!</strong> 
+                                <span id="products-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="loadTabContent('products-tab')">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Alerty Terminów -->
-                <div class="widget deadline-alerts">
-                    <div class="widget-header">
-                        <h3>Alerty Terminów</h3>
-                        <span class="alert-count" id="alerts-count">-</span>
-                    </div>
-                    <div class="widget-content">
-                        <div class="alerts-list" id="alerts-list">
-                            <div class="loading-state">Ładowanie alertów...</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- System Health -->
-                <div class="widget system-health">
-                    <div class="widget-header">
-                        <h3>Status systemu</h3>
-                        <span class="health-indicator" id="health-indicator">
-                            <span class="health-dot"></span>
-                        </span>
-                    </div>
-                    <div class="widget-content">
-                        <div class="health-items">
-                            <div class="health-item" id="sync-health">
-                                <div class="health-label">Ostatnia synchronizacja</div>
-                                <div class="health-value" id="last-sync-time">-</div>
-                                <div class="health-status" id="sync-status"></div>
-                            </div>
-                            <div class="health-item" id="database-health">
-                                <div class="health-label">Baza danych</div>
-                                <div class="health-value" id="db-response-time">-</div>
-                                <div class="health-status" id="db-status"></div>
-                            </div>
-                            <div class="health-item" id="api-health">
-                                <div class="health-label">Baselinker API</div>
-                                <div class="health-value" id="api-response-time">-</div>
-                                <div class="health-status" id="api-status"></div>
-                            </div>
-                            <div class="health-item" id="errors-health">
-                                <div class="health-label">Błędy systemu</div>
-                                <div class="health-value" id="error-count">-</div>
-                                <div class="health-status" id="errors-status"></div>
+                    <!-- Reports Tab -->
+                    <div class="tab-pane fade" 
+                         id="reports-tab-content" 
+                         role="tabpanel" 
+                         aria-labelledby="reports-tab">
+                        
+                        <div class="tab-loading" id="reports-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie raportów...</p>
                             </div>
                         </div>
-
-                        {% if current_user.role in ['admin', 'administrator'] %}
-                        <div class="health-actions">
-                            <button class="health-action-btn error-details-btn" onclick="showSystemErrorsModal()">
-                                👁️ Pokaż błędy
-                            </button>
-                            <button class="health-action-btn" onclick="clearSystemErrors()">
-                                🧹 Wyczyść błędy
-                            </button>
+                        
+                        <div class="tab-content-wrapper" id="reports-tab-wrapper" style="display:none;">
+                            <!-- Zawartość raportów zostanie załadowana przez AJAX -->
                         </div>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <!-- Wykres Wydajności (jeśli admin) -->
-                {% if current_user.role in ['admin', 'administrator'] %}
-                <div class="widget performance-chart">
-                    <div class="widget-header">
-                        <h3>Wydajność dzienna</h3>
-                        <div class="chart-controls">
-                            <select id="chart-period" onchange="updateChart()">
-                                <option value="7">Ostatnie 7 dni</option>
-                                <option value="14">Ostatnie 14 dni</option>
-                                <option value="30">Ostatnie 30 dni</option>
-                            </select>
+                        
+                        <div class="tab-error" id="reports-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania raportów!</strong> 
+                                <span id="reports-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="loadTabContent('reports-tab')">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div class="widget-content">
-                        <canvas id="performance-chart-canvas" width="400" height="200"></canvas>
+
+                    <!-- Stations Tab -->
+                    <div class="tab-pane fade" 
+                         id="stations-tab-content" 
+                         role="tabpanel" 
+                         aria-labelledby="stations-tab">
+                        
+                        <div class="tab-loading" id="stations-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie stanowisk...</p>
+                            </div>
+                        </div>
+                        
+                        <div class="tab-content-wrapper" id="stations-tab-wrapper" style="display:none;">
+                            <!-- Zawartość stanowisk zostanie załadowana przez AJAX -->
+                        </div>
+                        
+                        <div class="tab-error" id="stations-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania stanowisk!</strong> 
+                                <span id="stations-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="loadTabContent('stations-tab')">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- Config Tab (tylko admin) -->
+                    {% if current_user.role in ['admin', 'administrator'] %}
+                    <div class="tab-pane fade" 
+                         id="config-tab-content" 
+                         role="tabpanel" 
+                         aria-labelledby="config-tab">
+                        
+                        <div class="tab-loading" id="config-tab-loading">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <p class="mt-3 text-muted">Ładowanie konfiguracji...</p>
+                            </div>
+                        </div>
+                        
+                        <div class="tab-content-wrapper" id="config-tab-wrapper" style="display:none;">
+                            <!-- Zawartość konfiguracji zostanie załadowana przez AJAX -->
+                        </div>
+                        
+                        <div class="tab-error" id="config-tab-error" style="display:none;">
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Błąd ładowania konfiguracji!</strong> 
+                                <span id="config-tab-error-message"></span>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="loadTabContent('config-tab')">
+                                    <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
                 </div>
-                {% endif %}
             </div>
         </main>
     </div>
 
-    <!-- Modal błędów systemu -->
-    <div class="modal fade" id="systemErrorsModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Błędy systemu</h5>
-                    <button type="button" class="btn-close" onclick="closeSystemErrorsModal()"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="errors-loading" id="errors-loading" style="display:none;">
-                        <div class="text-center">
-                            <div class="spinner-border text-primary" role="status"></div>
-                            <p class="mt-2">Ładowanie błędów...</p>
-                        </div>
-                    </div>
-                    <div class="errors-empty" id="errors-empty" style="display:none;">
-                        <div class="text-center text-muted">
-                            <i class="fas fa-check-circle fa-3x mb-3 text-success"></i>
-                            <h5>Brak błędów!</h5>
-                            <p>System działa bez błędów.</p>
-                        </div>
-                    </div>
-                    <div class="errors-list" id="errors-list">
-                        <!-- Błędy zostaną załadowane dynamicznie -->
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeSystemErrorsModal()">Zamknij</button>
-                        🧹 Wyczyść wszystkie błędy
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Skrypty -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/production-dashboard.js') }}"></script>
-
+    
     {% if current_user.role in ['admin', 'administrator'] %}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     {% endif %}
 
     <script>
-        // NAPRAWIONE: Przekazujemy dane z backendu do JavaScript
-        window.productionStats = {{ dashboard_stats|tojson if dashboard_stats else {}|tojson }};
-        window.currentUser = {
-            role: '{{ current_user.role if current_user.is_authenticated else "guest" }}',
-            id: {{ current_user.id if current_user.is_authenticated else 'null' }}
-        };
-
-        // NAPRAWIONE: URL endpoints - blueprinty są zagnieżdżone pod 'production.'
-        // Flask wymaga pełnej ścieżki: production.blueprint_name.endpoint_name
-        window.productionEndpoints = {
-            dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
-            manualSync: '{{ url_for("production.production_api.manual_sync") }}',
-            healthCheck: '{{ url_for("production.production_api.health_check") }}',
-            updatePriority: '/production/api/update-priority'  // Fallback URL
-        };
-
-        console.log('[Production Dashboard] Loaded with stats:', window.productionStats);
-        console.log('[Production Dashboard] Current user:', window.currentUser);
-        console.log('[Production Dashboard] Endpoints:', window.productionEndpoints);
-
-        // Inicjalizacja po załadowaniu DOM
-        document.addEventListener('DOMContentLoaded', function() {
-            if (typeof initProductionDashboard === 'function') {
-                initProductionDashboard();
-            } else {
-                console.warn('[Production Dashboard] initProductionDashboard function not found');
+        // Konfiguracja globalnych zmiennych
+        window.productionConfig = {
+            currentUser: {
+                role: '{{ current_user.role if current_user.is_authenticated else "guest" }}',
+                id: {{ current_user.id if current_user.is_authenticated else 'null' }}
+            },
+            endpoints: {
+                dashboardTabContent: '{{ url_for("production.production_api.dashboard_tab_content") }}',
+                productsTabContent: '{{ url_for("production.production_api.products_tab_content") }}',
+                reportsTabContent: '{{ url_for("production.production_api.reports_tab_content") }}',
+                stationsTabContent: '{{ url_for("production.production_api.stations_tab_content") }}',
+                configTabContent: '{{ url_for("production.production_api.config_tab_content") }}',
+                dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
+                manualSync: '{{ url_for("production.production_api.manual_sync") }}'
             }
+        };
+
+        // Stan aplikacji
+        let refreshInterval;
+        let currentActiveTab = 'dashboard-tab';
+        const REFRESH_INTERVAL_MS = 180000; // 3 minuty = 180000ms
+        
+        // Inicjalizacja po załadowaniu strony
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Production Dashboard z tabami - inicjalizacja');
+            
+            // Załaduj pierwszy tab
+            loadTabContent('dashboard-tab');
+            
+            // Ustaw auto-refresh co 3 minuty dla aktywnego taba
+            refreshInterval = setInterval(() => {
+                if (currentActiveTab) {
+                    console.log(`Auto-refresh dla taba: ${currentActiveTab} (co 3min)`);
+                    loadTabContent(currentActiveTab, true); // true = silent refresh
+                }
+            }, REFRESH_INTERVAL_MS);
+            
+            console.log(`Auto-refresh ustawiony na ${REFRESH_INTERVAL_MS/1000/60} minut`);
         });
 
-        // DODANA: Funkcja obsługi kliknięć w karty stanowisk
-        document.addEventListener('DOMContentLoaded', function() {
-            // Obsługa kliknięć w karty stanowisk
-            document.querySelectorAll('.station-card').forEach(card => {
-                card.addEventListener('click', function() {
-                    const stationUrl = this.getAttribute('data-station-url');
-                    if (stationUrl) {
-                        window.location.href = stationUrl;
+        // Główna funkcja ładowania zawartości tabów przez AJAX
+        async function loadTabContent(tabName, silentRefresh = false) {
+            currentActiveTab = tabName;
+            console.log(`Ładowanie taba: ${tabName}, silent: ${silentRefresh}`);
+
+            const loadingElement = document.getElementById(`${tabName}-loading`);
+            const wrapperElement = document.getElementById(`${tabName}-wrapper`);
+            const errorElement = document.getElementById(`${tabName}-error`);
+
+            // Pokaż loading tylko jeśli nie jest to silent refresh
+            if (!silentRefresh) {
+                loadingElement.style.display = 'block';
+                wrapperElement.style.display = 'none';
+                errorElement.style.display = 'none';
+            }
+
+            try {
+                // Określ endpoint na podstawie nazwy taba
+                let endpointKey;
+                if (tabName === 'dashboard-tab') endpointKey = 'dashboardTabContent';
+                else if (tabName === 'products-tab') endpointKey = 'productsTabContent';
+                else if (tabName === 'reports-tab') endpointKey = 'reportsTabContent';
+                else if (tabName === 'stations-tab') endpointKey = 'stationsTabContent';
+                else if (tabName === 'config-tab') endpointKey = 'configTabContent';
+                else throw new Error(`Nieznany tab: ${tabName}`);
+                
+                const endpoint = window.productionConfig.endpoints[endpointKey];
+                
+                if (!endpoint) {
+                    throw new Error(`Brak endpointu dla taba: ${tabName}`);
+                }
+
+                const response = await fetch(endpoint, {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
                     }
                 });
-            });
-        });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Nieznany błąd API');
+                }
+
+                // Wstaw otrzymaną zawartość HTML
+                wrapperElement.innerHTML = data.html;
+                
+                // Ukryj loading, pokaż zawartość
+                loadingElement.style.display = 'none';
+                wrapperElement.style.display = 'block';
+                errorElement.style.display = 'none';
+
+                // Wykonaj callback dla specjalnych funkcji taba
+                const callbackName = `on${tabName.replace('-tab', '').charAt(0).toUpperCase() + tabName.replace('-tab', '').slice(1)}TabLoaded`;
+                if (typeof window[callbackName] === 'function') {
+                    window[callbackName](data);
+                }
+
+                console.log(`Tab ${tabName} załadowany pomyślnie`);
+
+            } catch (error) {
+                console.error(`Błąd ładowania taba ${tabName}:`, error);
+                
+                // Pokaż błąd
+                loadingElement.style.display = 'none';
+                wrapperElement.style.display = 'none';
+                errorElement.style.display = 'block';
+                document.getElementById(`${tabName}-error-message`).textContent = error.message;
+            }
+        }
+
+        // Callbacki dla poszczególnych tabów
+        window.onDashboardTabLoaded = function(data) {
+            console.log('Dashboard tab loaded, initializing widgets...');
+            if (window.productionConfig.currentUser.role === 'admin') {
+                initializeCharts();
+            }
+            initializeDashboardWidgets();
+        };
+
+        window.onProductsTabLoaded = function(data) {
+            console.log('Products tab loaded, initializing filters...');
+            initializeProductFilters();
+            if (window.productionConfig.currentUser.role === 'admin') {
+                initializeDragAndDrop();
+            }
+        };
+
+        window.onReportsTabLoaded = function(data) {
+            console.log('Reports tab loaded, initializing reports...');
+            initializeReports();
+        };
+
+        window.onStationsTabLoaded = function(data) {
+            console.log('Stations tab loaded, initializing stations...');
+            initializeStations();
+        };
+
+        window.onConfigTabLoaded = function(data) {
+            console.log('Config tab loaded, initializing forms...');
+            initializeConfigForms();
+        };
+
+        // System odświeżania z timerem
+        function refreshSystemWithTimer() {
+            const btn = document.getElementById('refresh-system-btn');
+            const timer = document.getElementById('refresh-timer');
+            
+            // Zablokuj przycisk
+            btn.disabled = true;
+            timer.style.display = 'inline';
+            
+            let seconds = 5;
+            timer.textContent = `(${seconds}s)`;
+            
+            // Odśwież aktywny tab
+            loadTabContent(currentActiveTab);
+            
+            // Odliczanie
+            const countdown = setInterval(() => {
+                seconds--;
+                timer.textContent = `(${seconds}s)`;
+                
+                if (seconds <= 0) {
+                    clearInterval(countdown);
+                    btn.disabled = false;
+                    timer.style.display = 'none';
+                }
+            }, 1000);
+        }
+
+        // Placeholder functions - zostaną zaimplementowane później
+        function initializeCharts() { console.log('TODO: Initialize charts'); }
+        function initializeDashboardWidgets() { console.log('TODO: Initialize dashboard widgets'); }
+        function initializeProductFilters() { console.log('TODO: Initialize product filters'); }
+        function initializeDragAndDrop() { console.log('TODO: Initialize drag and drop'); }
+        function initializeReports() { console.log('TODO: Initialize reports'); }
+        function initializeStations() { console.log('TODO: Initialize stations'); }
+        function initializeConfigForms() { console.log('TODO: Initialize config forms'); }
+
+        // Status systemu
+        function updateSystemStatus(status, message) {
+            const indicator = document.getElementById('status-indicator');
+            const text = document.getElementById('status-text');
+            
+            indicator.className = `status-indicator ${status}`;
+            text.textContent = message;
+        }
+
+        // Początkowy status
+        updateSystemStatus('loading', 'Inicjalizacja systemu...');
     </script>
 </body>
 </html>

@@ -22,7 +22,7 @@ Data: 2025-01-09
 
 import json
 from datetime import datetime, date, timedelta
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, render_template
 from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
@@ -1559,6 +1559,555 @@ def add_api_headers(response):
     except Exception as e:
         logger.error("Błąd dodawania nagłówków API", extra={'error': str(e)})
         return response
+    
+# ============================================================================
+# NOWE ENDPOINTY AJAX DLA SYSTEMU TABÓW
+# Dodaj te funkcje do istniejącego api_routers.py
+# ============================================================================
+
+@api_bp.route('/dashboard-tab-content')
+@login_required
+def dashboard_tab_content():
+    """
+    AJAX endpoint dla zawartości taba Dashboard
+    
+    Returns:
+        JSON: {success: true, html: "rendered_html"}
+    """
+    try:
+        logger.info("AJAX: Ładowanie zawartości dashboard-tab", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionItem, ProductionError, ProductionSyncLog
+        from ..services.sync_service import get_sync_service
+        
+        today = date.today()
+        today_start = datetime.combine(today, datetime.min.time())
+        
+        # Przygotuj dane dla dashboard (identyczne jak w main_routers.py)
+        dashboard_stats = {
+            'stations': {
+                'cutting': {'pending_count': 0, 'today_m3': 0.0},
+                'assembly': {'pending_count': 0, 'today_m3': 0.0},
+                'packaging': {'pending_count': 0, 'today_m3': 0.0}
+            },
+            'today_totals': {
+                'completed_orders': 0,
+                'total_m3': 0.0,
+                'avg_deadline_distance': 0.0
+            },
+            'deadline_alerts': [],
+            'system_health': {
+                'last_sync': None,
+                'sync_status': 'unknown',
+                'errors_24h': 0,
+                'database_status': 'connected'
+            }
+        }
+        
+        # Statystyki stanowisk
+        cutting_pending = ProductionItem.query.filter_by(current_status='czeka_na_wyciecie').count()
+        cutting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                                    .filter(ProductionItem.cutting_completed_at >= today_start)\
+                                    .scalar() or 0.0
+        
+        assembly_pending = ProductionItem.query.filter_by(current_status='czeka_na_skladanie').count()
+        assembly_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                                     .filter(ProductionItem.assembly_completed_at >= today_start)\
+                                     .scalar() or 0.0
+        
+        packaging_pending = ProductionItem.query.filter_by(current_status='czeka_na_pakowanie').count()
+        packaging_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                                      .filter(ProductionItem.packaging_completed_at >= today_start)\
+                                      .scalar() or 0.0
+        
+        dashboard_stats['stations'] = {
+            'cutting': {'pending_count': cutting_pending, 'today_m3': float(cutting_today_m3)},
+            'assembly': {'pending_count': assembly_pending, 'today_m3': float(assembly_today_m3)},
+            'packaging': {'pending_count': packaging_pending, 'today_m3': float(packaging_today_m3)}
+        }
+        
+        # Dzisiejsze podsumowania
+        completed_today = ProductionItem.query.filter(
+            ProductionItem.current_status == 'spakowane',
+            ProductionItem.packaging_completed_at >= today_start
+        ).count()
+        
+        total_m3_today = cutting_today_m3 + assembly_today_m3 + packaging_today_m3
+        
+        # Średni deadline
+        avg_deadline = db.session.query(db.func.avg(
+            db.func.datediff(ProductionItem.deadline_date, db.func.current_date())
+        )).filter(ProductionItem.deadline_date.isnot(None)).scalar()
+        
+        dashboard_stats['today_totals'] = {
+            'completed_orders': completed_today,
+            'total_m3': float(total_m3_today),
+            'avg_deadline_distance': float(avg_deadline) if avg_deadline else 0.0
+        }
+        
+        # Alerty terminów
+        deadline_alerts = ProductionItem.query.filter(
+            ProductionItem.deadline_date <= (date.today() + timedelta(days=3)),
+            ProductionItem.current_status != 'spakowane'
+        ).order_by(ProductionItem.deadline_date.asc()).limit(10).all()
+        
+        dashboard_stats['deadline_alerts'] = [
+            {
+                'short_product_id': alert.short_product_id,
+                'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
+                'days_remaining': (alert.deadline_date - date.today()).days if alert.deadline_date else 0,
+                'current_station': alert.current_status.replace('czeka_na_', '')
+            }
+            for alert in deadline_alerts
+        ]
+        
+        # System health
+        errors_24h = ProductionError.query.filter(
+            ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
+            ProductionError.is_resolved == False
+        ).count()
+        
+        last_sync = ProductionSyncLog.query.order_by(ProductionSyncLog.sync_started_at.desc()).first()
+        
+        dashboard_stats['system_health'] = {
+            'last_sync': last_sync.sync_started_at.isoformat() if last_sync else None,
+            'sync_status': 'success' if last_sync and last_sync.status == 'completed' else 'warning',
+            'errors_24h': errors_24h,
+            'database_status': 'connected'
+        }
+        
+        # Renderuj komponent
+        rendered_html = render_template('components/dashboard-tab-content.html', 
+                                      dashboard_stats=dashboard_stats)
+        
+        return jsonify({
+            'success': True,
+            'html': rendered_html,
+            'stats': dashboard_stats,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Błąd AJAX dashboard-tab-content", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/products-tab-content')
+@login_required
+def products_tab_content():
+    """
+    AJAX endpoint dla zawartości taba Lista produktów
+    
+    Returns:
+        JSON: {success: true, html: "rendered_html"}
+    """
+    try:
+        logger.info("AJAX: Ładowanie zawartości products-tab", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionItem
+        
+        # Filtry z query params
+        status_filter = request.args.get('status', 'all')
+        search_query = request.args.get('search', '').strip()
+        limit = min(int(request.args.get('limit', 100)), 500)  # Max 500 produktów
+        
+        # Query podstawowy
+        query = ProductionItem.query
+        
+        # Filtrowanie po statusie
+        if status_filter and status_filter != 'all':
+            query = query.filter(ProductionItem.current_status == status_filter)
+        
+        # Wyszukiwanie
+        if search_query:
+            query = query.filter(
+                db.or_(
+                    ProductionItem.short_product_id.ilike(f'%{search_query}%'),
+                    ProductionItem.internal_order_number.ilike(f'%{search_query}%'),
+                    ProductionItem.original_product_name.ilike(f'%{search_query}%')
+                )
+            )
+        
+        # Sortowanie i limit
+        products = query.order_by(ProductionItem.priority_score.desc()).limit(limit).all()
+        
+        # Sprawdź czy user jest adminem (dla drag&drop)
+        is_admin = hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']
+        
+        # Opcje statusów dla filtra
+        status_options = [
+            ('all', 'Wszystkie'),
+            ('czeka_na_wyciecie', 'Czeka na wycięcie'),
+            ('czeka_na_skladanie', 'Czeka na składanie'), 
+            ('czeka_na_pakowanie', 'Czeka na pakowanie'),
+            ('spakowane', 'Spakowane'),
+            ('wstrzymane', 'Wstrzymane')
+        ]
+        
+        # Statystyki
+        stats = {
+            'total_products': len(products),
+            'high_priority': sum(1 for p in products if p.priority_score >= 150),
+            'overdue': sum(1 for p in products if p.deadline_date and p.deadline_date < date.today()),
+            'status_filter': status_filter,
+            'search_query': search_query
+        }
+        
+        # Renderuj komponent
+        rendered_html = render_template('components/products-tab-content.html',
+                                      products=products,
+                                      status_filter=status_filter,
+                                      search_query=search_query,
+                                      status_options=status_options,
+                                      is_admin=is_admin,
+                                      stats=stats)
+        
+        return jsonify({
+            'success': True,
+            'html': rendered_html,
+            'stats': stats,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Błąd AJAX products-tab-content", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/reports-tab-content')
+@login_required
+def reports_tab_content():
+    """
+    AJAX endpoint dla zawartości taba Raporty
+    
+    Returns:
+        JSON: {success: true, html: "rendered_html"}
+    """
+    try:
+        logger.info("AJAX: Ładowanie zawartości reports-tab", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionItem, ProductionSyncLog
+        
+        # Przygotuj dane dla raportów
+        today = date.today()
+        week_ago = today - timedelta(days=7)
+        month_ago = today - timedelta(days=30)
+        
+        # Raporty wydajności
+        daily_stats = []
+        for i in range(7):
+            day = today - timedelta(days=i)
+            day_start = datetime.combine(day, datetime.min.time())
+            day_end = datetime.combine(day, datetime.max.time())
+            
+            completed = ProductionItem.query.filter(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.packaging_completed_at >= day_start,
+                ProductionItem.packaging_completed_at <= day_end
+            ).count()
+            
+            volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                              .filter(
+                                  ProductionItem.packaging_completed_at >= day_start,
+                                  ProductionItem.packaging_completed_at <= day_end
+                              ).scalar() or 0.0
+            
+            daily_stats.append({
+                'date': day.isoformat(),
+                'completed_orders': completed,
+                'total_volume': float(volume)
+            })
+        
+        # Raport statusów
+        status_report = []
+        statuses = ['czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie', 'spakowane', 'wstrzymane']
+        for status in statuses:
+            count = ProductionItem.query.filter_by(current_status=status).count()
+            volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                              .filter_by(current_status=status).scalar() or 0.0
+            
+            status_report.append({
+                'status': status,
+                'count': count,
+                'volume': float(volume)
+            })
+        
+        # Historia synchronizacji
+        sync_history = ProductionSyncLog.query\
+                                       .order_by(ProductionSyncLog.sync_started_at.desc())\
+                                       .limit(20).all()
+        
+        reports_data = {
+            'daily_performance': daily_stats,
+            'status_breakdown': status_report,
+            'sync_history': [
+                {
+                    'date': sync.sync_started_at.isoformat(),
+                    'status': sync.status,
+                    'items_processed': sync.items_processed or 0,
+                    'duration_seconds': sync.duration_seconds or 0
+                }
+                for sync in sync_history
+            ],
+            'summary': {
+                'week_completed': sum(day['completed_orders'] for day in daily_stats),
+                'week_volume': sum(day['total_volume'] for day in daily_stats),
+                'total_in_system': sum(item['count'] for item in status_report)
+            }
+        }
+        
+        # Renderuj komponent
+        rendered_html = render_template('components/reports-tab-content.html',
+                                      reports_data=reports_data)
+        
+        return jsonify({
+            'success': True,
+            'html': rendered_html,
+            'data': reports_data,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Błąd AJAX reports-tab-content", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/stations-tab-content')
+@login_required  
+def stations_tab_content():
+    """
+    AJAX endpoint dla zawartości taba Stanowiska
+    
+    Returns:
+        JSON: {success: true, html: "rendered_html"}
+    """
+    try:
+        logger.info("AJAX: Ładowanie zawartości stations-tab", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionItem
+        
+        # Dane dla każdego stanowiska
+        stations_data = {}
+        stations = ['cutting', 'assembly', 'packaging']
+        
+        for station in stations:
+            status_map = {
+                'cutting': 'czeka_na_wyciecie',
+                'assembly': 'czeka_na_skladanie', 
+                'packaging': 'czeka_na_pakowanie'
+            }
+            
+            status = status_map[station]
+            
+            # Produkty oczekujące na danym stanowisku
+            pending_products = ProductionItem.query\
+                                           .filter_by(current_status=status)\
+                                           .order_by(ProductionItem.priority_score.desc())\
+                                           .limit(20).all()
+            
+            # Statystyki stanowiska
+            total_pending = ProductionItem.query.filter_by(current_status=status).count()
+            high_priority = ProductionItem.query.filter(
+                ProductionItem.current_status == status,
+                ProductionItem.priority_score >= 150
+            ).count()
+            
+            # Dzisiejsze wykonania
+            today = date.today()
+            today_start = datetime.combine(today, datetime.min.time())
+            
+            completed_field_map = {
+                'cutting': ProductionItem.cutting_completed_at,
+                'assembly': ProductionItem.assembly_completed_at,
+                'packaging': ProductionItem.packaging_completed_at
+            }
+            
+            completed_field = completed_field_map[station]
+            today_completed = ProductionItem.query.filter(
+                completed_field >= today_start
+            ).count()
+            
+            today_volume = db.session.query(db.func.sum(ProductionItem.volume_m3))\
+                                   .filter(completed_field >= today_start)\
+                                   .scalar() or 0.0
+            
+            stations_data[station] = {
+                'name': {
+                    'cutting': 'Wycinanie',
+                    'assembly': 'Składanie',
+                    'packaging': 'Pakowanie'
+                }[station],
+                'icon': {
+                    'cutting': '🪚',
+                    'assembly': '🔧', 
+                    'packaging': '📦'
+                }[station],
+                'pending_products': [
+                    {
+                        'short_id': p.short_product_id,
+                        'product_name': p.original_product_name[:50] + '...' if len(p.original_product_name or '') > 50 else (p.original_product_name or ''),
+                        'priority_score': p.priority_score,
+                        'deadline_date': p.deadline_date.isoformat() if p.deadline_date else None,
+                        'volume_m3': float(p.volume_m3 or 0),
+                        'internal_order_number': p.internal_order_number
+                    }
+                    for p in pending_products
+                ],
+                'stats': {
+                    'total_pending': total_pending,
+                    'high_priority': high_priority,
+                    'today_completed': today_completed,
+                    'today_volume': float(today_volume)
+                }
+            }
+        
+        # Renderuj komponent
+        rendered_html = render_template('components/stations-tab-content.html',
+                                      stations_data=stations_data)
+        
+        return jsonify({
+            'success': True,
+            'html': rendered_html,
+            'data': stations_data,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Błąd AJAX stations-tab-content", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/config-tab-content')
+@admin_required
+def config_tab_content():
+    """
+    AJAX endpoint dla zawartości taba Konfiguracja (tylko admin)
+    
+    Returns:
+        JSON: {success: true, html: "rendered_html"}
+    """
+    try:
+        logger.info("AJAX: Ładowanie zawartości config-tab", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionConfig, ProductionPriorityConfig
+        from ..services.config_service import get_config_service
+        
+        # Pobierz wszystkie konfiguracje
+        config_service = get_config_service()
+        all_configs = config_service.get_all_configs()
+        
+        # Grupuj konfiguracje
+        config_groups = {
+            'sync': {},
+            'stations': {},
+            'priorities': {},
+            'system': {},
+            'other': {}
+        }
+        
+        for key, config in all_configs.items():
+            if 'SYNC' in key or 'BASELINKER' in key:
+                config_groups['sync'][key] = config
+            elif 'STATION' in key or 'REFRESH' in key:
+                config_groups['stations'][key] = config
+            elif 'PRIORITY' in key or 'DEADLINE' in key:
+                config_groups['priorities'][key] = config
+            elif 'DEBUG' in key or 'CACHE' in key or 'EMAIL' in key:
+                config_groups['system'][key] = config
+            else:
+                config_groups['other'][key] = config
+        
+        # Konfiguracje priorytetów - drag&drop
+        priority_configs = ProductionPriorityConfig.query\
+                                                 .filter_by(is_active=True)\
+                                                 .order_by(ProductionPriorityConfig.display_order)\
+                                                 .all()
+        
+        # Statystyki cache
+        cache_stats = config_service.get_cache_stats()
+        
+        config_data = {
+            'config_groups': config_groups,
+            'priority_configs': [
+                {
+                    'id': pc.id,
+                    'criterion_name': pc.criterion_name,
+                    'weight': pc.weight,
+                    'display_order': pc.display_order,
+                    'is_active': pc.is_active
+                }
+                for pc in priority_configs
+            ],
+            'cache_stats': cache_stats
+        }
+        
+        # Renderuj komponent
+        rendered_html = render_template('components/config-tab-content.html',
+                                      config_data=config_data,
+                                      config_groups=config_groups,
+                                      priority_configs=priority_configs,
+                                      cache_stats=cache_stats)
+        
+        return jsonify({
+            'success': True,
+            'html': rendered_html,
+            'data': config_data,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Błąd AJAX config-tab-content", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 logger.info("Zainicjalizowano API routers modułu production", extra={
     'blueprint_name': api_bp.name,

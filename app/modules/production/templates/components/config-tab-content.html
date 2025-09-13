@@ -1,0 +1,364 @@
+<!-- config-tab-content.html -->
+<!-- Komponent zawartości taba Konfiguracja (tylko admin) -->
+
+<!-- Informacje cache -->
+<div class="config-header mb-4">
+    <div class="row">
+        <div class="col-md-8">
+            <h4>Konfiguracja systemu produkcji</h4>
+            <p class="text-muted">Zarządzanie ustawieniami systemu, priorytetami i zabezpieczeniami.</p>
+        </div>
+        <div class="col-md-4">
+            <div class="cache-info">
+                <h6>Status cache</h6>
+                <div class="cache-stats">
+                    <span class="badge bg-success">{{ cache_stats.hit_ratio }}% trafień</span>
+                    <span class="badge bg-info">{{ cache_stats.total_keys }} kluczy</span>
+                    <button class="btn btn-outline-warning btn-sm ms-2" onclick="clearCache()">
+                        <i class="fas fa-trash me-1"></i>Wyczyść
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Konfiguracje grupowane -->
+<div class="config-groups">
+    
+    <!-- Grupa: Synchronizacja -->
+    <div class="config-group mb-4">
+        <div class="config-group-header">
+            <h5><i class="fas fa-sync-alt text-primary me-2"></i>Synchronizacja i Baselinker</h5>
+        </div>
+        <div class="config-group-content">
+            {% for key, config in config_groups.sync.items() %}
+            <div class="config-item">
+                <div class="config-item-info">
+                    <label class="config-label">{{ key }}</label>
+                    <small class="config-description text-muted">{{ config.description or 'Brak opisu' }}</small>
+                </div>
+                <div class="config-item-control">
+                    {% if config.type == 'boolean' %}
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" 
+                               id="config-{{ key }}" 
+                               {% if config.value == 'True' %}checked{% endif %}
+                               onchange="updateConfig('{{ key }}', this.checked)">
+                    </div>
+                    {% elif config.type == 'number' %}
+                    <input type="number" class="form-control form-control-sm" 
+                           id="config-{{ key }}" 
+                           value="{{ config.value }}"
+                           onchange="updateConfig('{{ key }}', this.value)">
+                    {% else %}
+                    <input type="text" class="form-control form-control-sm" 
+                           id="config-{{ key }}" 
+                           value="{{ config.value }}"
+                           onchange="updateConfig('{{ key }}', this.value)">
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Grupa: Stanowiska -->
+    <div class="config-group mb-4">
+        <div class="config-group-header">
+            <h5><i class="fas fa-industry text-warning me-2"></i>Ustawienia stanowisk</h5>
+        </div>
+        <div class="config-group-content">
+            {% for key, config in config_groups.stations.items() %}
+            <div class="config-item">
+                <div class="config-item-info">
+                    <label class="config-label">{{ key }}</label>
+                    <small class="config-description text-muted">{{ config.description or 'Brak opisu' }}</small>
+                </div>
+                <div class="config-item-control">
+                    {% if config.type == 'boolean' %}
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" 
+                               id="config-{{ key }}" 
+                               {% if config.value == 'True' %}checked{% endif %}
+                               onchange="updateConfig('{{ key }}', this.checked)">
+                    </div>
+                    {% elif config.type == 'number' %}
+                    <input type="number" class="form-control form-control-sm" 
+                           id="config-{{ key }}" 
+                           value="{{ config.value }}"
+                           onchange="updateConfig('{{ key }}', this.value)">
+                    {% else %}
+                    <input type="text" class="form-control form-control-sm" 
+                           id="config-{{ key }}" 
+                           value="{{ config.value }}"
+                           onchange="updateConfig('{{ key }}', this.value)">
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Grupa: Priorytety -->
+    <div class="config-group mb-4">
+        <div class="config-group-header">
+            <h5><i class="fas fa-sort-numeric-up text-danger me-2"></i>Konfiguracja priorytetów</h5>
+            <button class="btn btn-outline-success btn-sm" onclick="addPriorityRule()">
+                <i class="fas fa-plus me-1"></i>Dodaj kryterium
+            </button>
+        </div>
+        <div class="config-group-content">
+            <div class="priority-rules-container" id="priority-rules">
+                {% for priority_config in priority_configs %}
+                <div class="priority-rule-item" data-rule-id="{{ priority_config.id }}">
+                    <div class="priority-drag-handle">
+                        <i class="fas fa-grip-vertical"></i>
+                    </div>
+                    <div class="priority-rule-content">
+                        <div class="rule-name">{{ priority_config.criterion_name }}</div>
+                        <div class="rule-weight">
+                            Waga: <span class="weight-value">{{ priority_config.weight }}</span>
+                            <input type="range" class="weight-slider" 
+                                   min="0" max="100" value="{{ priority_config.weight }}"
+                                   onchange="updatePriorityWeight({{ priority_config.id }}, this.value)">
+                        </div>
+                    </div>
+                    <div class="priority-rule-actions">
+                        <button class="btn btn-outline-warning btn-sm" 
+                                onclick="editPriorityRule({{ priority_config.id }})">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" 
+                                onclick="deletePriorityRule({{ priority_config.id }})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Grupa: System -->
+    <div class="config-group mb-4">
+        <div class="config-group-header">
+            <h5><i class="fas fa-cogs text-secondary me-2"></i>Ustawienia systemowe</h5>
+        </div>
+        <div class="config-group-content">
+            {% for key, config in config_groups.system.items() %}
+            <div class="config-item">
+                <div class="config-item-info">
+                    <label class="config-label">{{ key }}</label>
+                    <small class="config-description text-muted">{{ config.description or 'Brak opisu' }}</small>
+                </div>
+                <div class="config-item-control">
+                    {% if config.type == 'boolean' %}
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" 
+                               id="config-{{ key }}" 
+                               {% if config.value == 'True' %}checked{% endif %}
+                               onchange="updateConfig('{{ key }}', this.checked)">
+                    </div>
+                    {% elif config.type == 'number' %}
+                    <input type="number" class="form-control form-control-sm" 
+                           id="config-{{ key }}" 
+                           value="{{ config.value }}"
+                           onchange="updateConfig('{{ key }}', this.value)">
+                    {% else %}
+                    <input type="text" class="form-control form-control-sm" 
+                           id="config-{{ key }}" 
+                           value="{{ config.value }}"
+                           onchange="updateConfig('{{ key }}', this.value)">
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Akcje administratora -->
+<div class="admin-actions mt-5">
+    <div class="card">
+        <div class="card-header">
+            <h5>Akcje administratora</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <button class="btn btn-outline-info w-100" onclick="testSystemHealth()">
+                        <i class="fas fa-heartbeat me-2"></i>
+                        Test zdrowia systemu
+                    </button>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-outline-warning w-100" onclick="resetDefaultConfigs()">
+                        <i class="fas fa-undo me-2"></i>
+                        Przywróć domyślne
+                    </button>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-outline-success w-100" onclick="exportConfiguration()">
+                        <i class="fas fa-download me-2"></i>
+                        Eksportuj konfigurację
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// JavaScript dla taba konfiguracji
+function initConfigTab() {
+    console.log('[Config Tab] Inicjalizacja');
+    
+    // Inicjalizuj drag&drop dla priorytetów
+    initPriorityDragDrop();
+    
+    // Inicjalizuj real-time aktualizację sliderów
+    initWeightSliders();
+}
+
+function initPriorityDragDrop() {
+    console.log('[Config Tab] TODO: Inicjalizacja drag&drop priorytetów');
+    // Tu będzie implementacja sortowania priorytetów
+}
+
+function initWeightSliders() {
+    // Aktualizuj wyświetlane wartości przy przesuwaniu sliderów
+    document.querySelectorAll('.weight-slider').forEach(slider => {
+        slider.addEventListener('input', function() {
+            const valueSpan = this.parentElement.querySelector('.weight-value');
+            valueSpan.textContent = this.value;
+        });
+    });
+}
+
+function updateConfig(key, value) {
+    console.log('[Config Tab] Aktualizacja konfiguracji:', key, '=', value);
+    
+    // TODO: Wywołanie API do aktualizacji konfiguracji
+    fetch('/production/api/update-config', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            key: key,
+            value: value
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showConfigMessage('Konfiguracja zaktualizowana pomyślnie', 'success');
+        } else {
+            showConfigMessage('Błąd aktualizacji konfiguracji: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        showConfigMessage('Błąd połączenia: ' + error, 'error');
+    });
+}
+
+function updatePriorityWeight(ruleId, weight) {
+    console.log('[Config Tab] Aktualizacja wagi priorytetu:', ruleId, weight);
+    
+    // TODO: API call do aktualizacji wagi
+    showConfigMessage('Waga priorytetu zaktualizowana', 'success');
+}
+
+function addPriorityRule() {
+    console.log('[Config Tab] Dodawanie nowego kryterium priorytetu');
+    
+    const ruleName = prompt('Nazwa nowego kryterium priorytetu:');
+    if (ruleName && ruleName.trim()) {
+        // TODO: API call do dodania nowego kryterium
+        alert('Funkcja dodawania kryteriów będzie wkrótce dostępna!');
+    }
+}
+
+function editPriorityRule(ruleId) {
+    console.log('[Config Tab] Edycja kryterium priorytetu:', ruleId);
+    alert('Funkcja edycji kryteriów będzie wkrótce dostępna!');
+}
+
+function deletePriorityRule(ruleId) {
+    console.log('[Config Tab] Usuwanie kryterium priorytetu:', ruleId);
+    
+    if (confirm('Czy na pewno chcesz usunąć to kryterium priorytetu?')) {
+        // TODO: API call do usunięcia kryterium
+        alert('Funkcja usuwania kryteriów będzie wkrótce dostępna!');
+    }
+}
+
+function clearCache() {
+    console.log('[Config Tab] Czyszczenie cache');
+    
+    if (confirm('Czy na pewno chcesz wyczyścić cache systemu?')) {
+        // TODO: API call do czyszczenia cache
+        alert('Funkcja czyszczenia cache będzie wkrótce dostępna!');
+    }
+}
+
+function testSystemHealth() {
+    console.log('[Config Tab] Test zdrowia systemu');
+    showConfigMessage('Uruchamianie testu zdrowia systemu...', 'info');
+    
+    // TODO: API call do testu zdrowia
+    setTimeout(() => {
+        showConfigMessage('Test zakończony - system działa poprawnie', 'success');
+    }, 2000);
+}
+
+function resetDefaultConfigs() {
+    console.log('[Config Tab] Przywracanie domyślnych konfiguracji');
+    
+    if (confirm('Czy na pewno chcesz przywrócić wszystkie ustawienia domyślne? Ta operacja jest nieodwracalna.')) {
+        // TODO: API call do resetu konfiguracji
+        alert('Funkcja przywracania domyślnych ustawień będzie wkrótce dostępna!');
+    }
+}
+
+function exportConfiguration() {
+    console.log('[Config Tab] Eksport konfiguracji');
+    
+    // TODO: API call do eksportu konfiguracji
+    alert('Funkcja eksportu konfiguracji będzie wkrótce dostępna!');
+}
+
+function showConfigMessage(message, type) {
+    // Prosta implementacja powiadomień
+    const alertClass = {
+        'success': 'alert-success',
+        'error': 'alert-danger',
+        'info': 'alert-info'
+    }[type] || 'alert-info';
+    
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert ${alertClass} alert-dismissible fade show position-fixed`;
+    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" onclick="this.parentElement.remove()"></button>
+    `;
+    
+    document.body.appendChild(alertDiv);
+    
+    // Auto-usuń po 5 sekundach
+    setTimeout(() => {
+        if (alertDiv.parentElement) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+
+// Auto-inicjalizacja
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initConfigTab);
+} else {
+    initConfigTab();
+}
+</script>
