@@ -758,7 +758,6 @@ p {
     }
 
 .tab-content {
-    display: none;
     background-color: #FFF;
     padding: 20px;
     border-radius: 0 4px 4px 4px;
@@ -1809,7 +1808,7 @@ select.select-input {
 }
 
     .main-content.sidebar-collapsed {
-        margin-left: 100px;
+        margin-left: 110px;
     }
 
 /* === SIDEBAR === */
@@ -1829,7 +1828,7 @@ select.select-input {
 }
 
     .sidebar.collapsed {
-        width: 100px;
+        width: 110px;
     }
 
 /* Panel główny */
@@ -1953,6 +1952,7 @@ select.select-input {
 .menu-options-list {
     display: flex;
     flex-direction: column;
+    align-items: center;
     list-style: none;
     width: 100%;
     margin: 0;

@@ -99,18 +99,16 @@
                             </td>
                             <td>
                                 {% if product.deadline_date %}
-                                    {% set deadline = product.deadline_date %}
-                                    {% set today = moment().format('YYYY-MM-DD') %}
-                                    {% set days_diff = moment(deadline).diff(moment(today), 'days') %}
-                                    <span class="deadline-badge {% if days_diff < 0 %}overdue{% elif days_diff <= 1 %}urgent{% elif days_diff <= 3 %}warning{% else %}normal{% endif %}">
-                                        {% if days_diff < 0 %}
-                                            {{ days_diff|abs }} dni temu
-                                        {% elif days_diff == 0 %}
+                                    {% set days_remaining = product.days_remaining %}
+                                    <span class="deadline-badge {% if days_remaining < 0 %}overdue{% elif days_remaining <= 1 %}urgent{% elif days_remaining <= 3 %}warning{% else %}normal{% endif %}">
+                                        {% if days_remaining < 0 %}
+                                            {{ days_remaining|abs }} dni temu
+                                        {% elif days_remaining == 0 %}
                                             Dziś
-                                        {% elif days_diff == 1 %}
+                                        {% elif days_remaining == 1 %}
                                             Jutro
                                         {% else %}
-                                            Za {{ days_diff }} dni
+                                            Za {{ days_remaining }} dni
                                         {% endif %}
                                     </span>
                                 {% else %}

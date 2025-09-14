@@ -29,6 +29,7 @@ from modules.logging import get_structured_logger
 from extensions import db
 from sqlalchemy import and_, or_, text
 
+
 # Utworzenie Blueprint dla API
 api_bp = Blueprint('production_api', __name__)
 logger = get_structured_logger('production.api')
@@ -1569,10 +1570,7 @@ def add_api_headers(response):
 @login_required
 def dashboard_tab_content():
     """
-    AJAX endpoint dla zawartości taba Dashboard
-    
-    Returns:
-        JSON: {success: true, html: "rendered_html"}
+    AJAX endpoint dla zawartości taba Dashboard - POPRAWIONY
     """
     try:
         logger.info("AJAX: Ładowanie zawartości dashboard-tab", extra={
@@ -1581,12 +1579,11 @@ def dashboard_tab_content():
         })
         
         from ..models import ProductionItem, ProductionError, ProductionSyncLog
-        from ..services.sync_service import get_sync_service
         
         today = date.today()
         today_start = datetime.combine(today, datetime.min.time())
         
-        # Przygotuj dane dla dashboard (identyczne jak w main_routers.py)
+        # Statystyki stanowisk
         dashboard_stats = {
             'stations': {
                 'cutting': {'pending_count': 0, 'today_m3': 0.0},
@@ -1607,17 +1604,19 @@ def dashboard_tab_content():
             }
         }
         
-        # Statystyki stanowisk
+        # CUTTING
         cutting_pending = ProductionItem.query.filter_by(current_status='czeka_na_wyciecie').count()
         cutting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
                                     .filter(ProductionItem.cutting_completed_at >= today_start)\
                                     .scalar() or 0.0
         
+        # ASSEMBLY
         assembly_pending = ProductionItem.query.filter_by(current_status='czeka_na_skladanie').count()
         assembly_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
                                      .filter(ProductionItem.assembly_completed_at >= today_start)\
                                      .scalar() or 0.0
         
+        # PACKAGING
         packaging_pending = ProductionItem.query.filter_by(current_status='czeka_na_pakowanie').count()
         packaging_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
                                       .filter(ProductionItem.packaging_completed_at >= today_start)\
@@ -1650,7 +1649,7 @@ def dashboard_tab_content():
         
         # Alerty terminów
         deadline_alerts = ProductionItem.query.filter(
-            ProductionItem.deadline_date <= (date.today() + timedelta(days=3)),
+            ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
         ).order_by(ProductionItem.deadline_date.asc()).limit(10).all()
         
@@ -1658,13 +1657,13 @@ def dashboard_tab_content():
             {
                 'short_product_id': alert.short_product_id,
                 'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
-                'days_remaining': (alert.deadline_date - date.today()).days if alert.deadline_date else 0,
+                'days_remaining': (alert.deadline_date - today).days if alert.deadline_date else 0,
                 'current_station': alert.current_status.replace('czeka_na_', '')
             }
             for alert in deadline_alerts
         ]
         
-        # System health
+        # System health - POPRAWIONE: sync_status zamiast status
         errors_24h = ProductionError.query.filter(
             ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
             ProductionError.is_resolved == False
@@ -1674,14 +1673,19 @@ def dashboard_tab_content():
         
         dashboard_stats['system_health'] = {
             'last_sync': last_sync.sync_started_at.isoformat() if last_sync else None,
-            'sync_status': 'success' if last_sync and last_sync.status == 'completed' else 'warning',
+            'sync_status': 'success' if last_sync and last_sync.sync_status == 'completed' else 'warning',
             'errors_24h': errors_24h,
             'database_status': 'connected'
         }
         
-        # Renderuj komponent
+        print(f"[DEBUG] Dashboard stats: {dashboard_stats}")
+        print(f"[DEBUG] Rendering template...")
+
         rendered_html = render_template('components/dashboard-tab-content.html', 
-                                      dashboard_stats=dashboard_stats)
+                                    dashboard_stats=dashboard_stats)
+
+        print(f"[DEBUG] Rendered HTML length: {len(rendered_html)}")
+        print(f"[DEBUG] HTML preview: {rendered_html[:200]}...")
         
         return jsonify({
             'success': True,
@@ -1702,14 +1706,12 @@ def dashboard_tab_content():
         }), 500
 
 
+
 @api_bp.route('/products-tab-content')
 @login_required
 def products_tab_content():
     """
-    AJAX endpoint dla zawartości taba Lista produktów
-    
-    Returns:
-        JSON: {success: true, html: "rendered_html"}
+    AJAX endpoint dla zawartości taba Lista produktów - POPRAWIONY
     """
     try:
         logger.info("AJAX: Ładowanie zawartości products-tab", extra={
@@ -1722,7 +1724,7 @@ def products_tab_content():
         # Filtry z query params
         status_filter = request.args.get('status', 'all')
         search_query = request.args.get('search', '').strip()
-        limit = min(int(request.args.get('limit', 100)), 500)  # Max 500 produktów
+        limit = min(int(request.args.get('limit', 100)), 500)
         
         # Query podstawowy
         query = ProductionItem.query
@@ -1744,7 +1746,7 @@ def products_tab_content():
         # Sortowanie i limit
         products = query.order_by(ProductionItem.priority_score.desc()).limit(limit).all()
         
-        # Sprawdź czy user jest adminem (dla drag&drop)
+        # Sprawdź czy user jest adminem
         is_admin = hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']
         
         # Opcje statusów dla filtra
@@ -1757,23 +1759,25 @@ def products_tab_content():
             ('wstrzymane', 'Wstrzymane')
         ]
         
-        # Statystyki
+        # Statystyki - DODANO: today dla template
+        today = date.today()
         stats = {
             'total_products': len(products),
             'high_priority': sum(1 for p in products if p.priority_score >= 150),
-            'overdue': sum(1 for p in products if p.deadline_date and p.deadline_date < date.today()),
+            'overdue': sum(1 for p in products if p.deadline_date and p.deadline_date < today),
             'status_filter': status_filter,
             'search_query': search_query
         }
         
         # Renderuj komponent
         rendered_html = render_template('components/products-tab-content.html',
-                                      products=products,
-                                      status_filter=status_filter,
-                                      search_query=search_query,
-                                      status_options=status_options,
-                                      is_admin=is_admin,
-                                      stats=stats)
+                              products=products,
+                              status_filter=status_filter,
+                              search_query=search_query,
+                              status_options=status_options,
+                              is_admin=is_admin,
+                              stats=stats,
+                              today=today)
         
         return jsonify({
             'success': True,
@@ -1792,16 +1796,14 @@ def products_tab_content():
             'success': False,
             'error': str(e)
         }), 500
+    
 
 
 @api_bp.route('/reports-tab-content')
 @login_required
 def reports_tab_content():
     """
-    AJAX endpoint dla zawartości taba Raporty
-    
-    Returns:
-        JSON: {success: true, html: "rendered_html"}
+    AJAX endpoint dla zawartości taba Raporty - POPRAWIONY
     """
     try:
         logger.info("AJAX: Ładowanie zawartości reports-tab", extra={
@@ -1866,9 +1868,9 @@ def reports_tab_content():
             'sync_history': [
                 {
                     'date': sync.sync_started_at.isoformat(),
-                    'status': sync.status,
-                    'items_processed': sync.items_processed or 0,
-                    'duration_seconds': sync.duration_seconds or 0
+                    'status': sync.sync_status,  # POPRAWIONE: sync_status zamiast status
+                    'items_processed': (sync.products_created or 0) + (sync.products_updated or 0),
+                    'duration_seconds': sync.sync_duration_seconds or 0
                 }
                 for sync in sync_history
             ],
@@ -1881,7 +1883,7 @@ def reports_tab_content():
         
         # Renderuj komponent
         rendered_html = render_template('components/reports-tab-content.html',
-                                      reports_data=reports_data)
+                              reports_data=reports_data)
         
         return jsonify({
             'success': True,
@@ -1902,14 +1904,12 @@ def reports_tab_content():
         }), 500
 
 
+
 @api_bp.route('/stations-tab-content')
 @login_required  
 def stations_tab_content():
     """
-    AJAX endpoint dla zawartości taba Stanowiska
-    
-    Returns:
-        JSON: {success: true, html: "rendered_html"}
+    AJAX endpoint dla zawartości taba Stanowiska - POPRAWIONY
     """
     try:
         logger.info("AJAX: Ładowanie zawartości stations-tab", extra={
@@ -1964,6 +1964,7 @@ def stations_tab_content():
                                    .filter(completed_field >= today_start)\
                                    .scalar() or 0.0
             
+            # POPRAWIONE: twórz słowniki zamiast obiektów z .days_diff
             stations_data[station] = {
                 'name': {
                     'cutting': 'Wycinanie',
@@ -1981,6 +1982,7 @@ def stations_tab_content():
                         'product_name': p.original_product_name[:50] + '...' if len(p.original_product_name or '') > 50 else (p.original_product_name or ''),
                         'priority_score': p.priority_score,
                         'deadline_date': p.deadline_date.isoformat() if p.deadline_date else None,
+                        'days_remaining': (p.deadline_date - today).days if p.deadline_date else 0,  # DODANO: days_remaining
                         'volume_m3': float(p.volume_m3 or 0),
                         'internal_order_number': p.internal_order_number
                     }
@@ -1996,7 +1998,7 @@ def stations_tab_content():
         
         # Renderuj komponent
         rendered_html = render_template('components/stations-tab-content.html',
-                                      stations_data=stations_data)
+                              stations_data=stations_data)
         
         return jsonify({
             'success': True,
@@ -2016,6 +2018,7 @@ def stations_tab_content():
             'error': str(e)
         }), 500
 
+  
 
 @api_bp.route('/config-tab-content')
 @admin_required
@@ -2086,10 +2089,10 @@ def config_tab_content():
         
         # Renderuj komponent
         rendered_html = render_template('components/config-tab-content.html',
-                                      config_data=config_data,
-                                      config_groups=config_groups,
-                                      priority_configs=priority_configs,
-                                      cache_stats=cache_stats)
+                              config_data=config_data,
+                              config_groups=config_groups,
+                              priority_configs=priority_configs,
+                              cache_stats=cache_stats)
         
         return jsonify({
             'success': True,
@@ -2108,6 +2111,7 @@ def config_tab_content():
             'success': False,
             'error': str(e)
         }), 500
+    
 
 logger.info("Zainicjalizowano API routers modułu production", extra={
     'blueprint_name': api_bp.name,
