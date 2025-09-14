@@ -184,19 +184,30 @@
 
     <!-- Wykres Wydajności (jeśli admin) -->
     {% if current_user.role in ['admin', 'administrator'] %}
-    <div class="widget performance-chart">
-        <div class="widget-header">
-            <h3>Wydajność dzienna</h3>
-            <div class="chart-controls">
-                <select id="chart-period" onchange="updateChart()">
-                    <option value="7">Ostatnie 7 dni</option>
-                    <option value="14">Ostatnie 14 dni</option>
-                    <option value="30">Ostatnie 30 dni</option>
-                </select>
+    <!-- Widget wydajności dziennej - tylko dla adminów -->
+    <div class="col-lg-12">
+        <div class="widget performance-chart">
+            <div class="widget-header">
+                <h5 class="widget-title">
+                    <i class="fas fa-chart-line me-2"></i>
+                    Wydajność dzienna
+                </h5>
+                <!-- Kontrolki zostaną dodane przez JavaScript -->
             </div>
-        </div>
-        <div class="widget-content">
-            <canvas id="performance-chart-canvas" width="400" height="200"></canvas>
+            <div class="widget-content">
+                <!-- Canvas dla Chart.js -->
+                <canvas id="performance-chart-canvas"></canvas>
+                
+                <!-- Loading state - będzie pokazywany przez JavaScript -->
+                <div class="chart-loader" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Ładowanie danych wykresu...</span>
+                </div>
+                
+                <!-- Error state - będzie pokazywany przez JavaScript w razie błędu -->
+                
+                <!-- Summary - będzie generowane przez JavaScript -->
+            </div>
         </div>
     </div>
     {% endif %}
@@ -237,134 +248,3 @@
         </div>
     </div>
 </div>
-
-<script>
-    // JavaScript specyficzny dla dashboard taba
-    
-    // Przekazanie danych z backendu do JavaScript (tylko dla tego taba)
-    window.dashboardTabStats = {{ dashboard_stats|tojson if dashboard_stats else {}|tojson }};
-    window.dashboardEndpoints = {
-        dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
-        manualSync: '{{ url_for("production.production_api.manual_sync") }}',
-        healthCheck: '{{ url_for("production.production_api.health_check") }}',
-        updatePriority: '/production/api/update-priority'
-    };
-
-    // Inicjalizacja dashboard po załadowaniu komponentu
-    function initDashboardTab() {
-        console.log('[Dashboard Tab] Inicjalizacja komponentu dashboard');
-        
-        // Załaduj dane początkowe
-        if (window.dashboardTabStats && Object.keys(window.dashboardTabStats).length > 0) {
-            console.log('[Dashboard Tab] Używam danych z serwera');
-            updateDashboardData(window.dashboardTabStats);
-        }
-        
-        // Inicjalizuj obsługę kliknięć w karty stanowisk
-        initStationCards();
-        
-        // Inicjalizuj wykresy jeśli admin
-        if (window.productionConfig && window.productionConfig.currentUser.role === 'admin') {
-            initializeCharts();
-        }
-        
-        console.log('[Dashboard Tab] Komponent zainicjalizowany');
-    }
-    
-    // Obsługa kliknięć w karty stanowisk
-    function initStationCards() {
-        document.querySelectorAll('.station-card').forEach(card => {
-            card.addEventListener('click', function() {
-                const stationUrl = this.getAttribute('data-station-url');
-                if (stationUrl) {
-                    window.location.href = stationUrl;
-                }
-            });
-        });
-    }
-    
-    // Aktualizacja danych dashboard
-    function updateDashboardData(data) {
-        console.log('[Dashboard Tab] Aktualizacja danych:', data);
-        
-        // Tutaj będzie logika aktualizacji widgetów
-        // Na razie placeholder
-        if (data.stations) {
-            updateStationsStats(data.stations);
-        }
-        if (data.today_totals) {
-            updateTodayTotals(data.today_totals);
-        }
-        if (data.deadline_alerts) {
-            updateDeadlineAlerts(data.deadline_alerts);
-        }
-        if (data.system_health) {
-            updateSystemHealth(data.system_health);
-        }
-    }
-    
-    // Placeholder functions - będą zaimplementowane
-    function updateStationsStats(stations) {
-        console.log('TODO: Update stations stats', stations);
-    }
-    
-    function updateTodayTotals(totals) {
-        console.log('TODO: Update today totals', totals);
-    }
-    
-    function updateDeadlineAlerts(alerts) {
-        console.log('TODO: Update deadline alerts', alerts);
-    }
-    
-    function updateSystemHealth(health) {
-        console.log('TODO: Update system health', health);
-    }
-    
-    function initializeCharts() {
-        console.log('TODO: Initialize charts for admin');
-    }
-    
-    // Funkcje modali i akcji
-    function showSystemErrorsModal() {
-        console.log('TODO: Show system errors modal');
-        // Otwórz modal
-        const modal = document.getElementById('systemErrorsModal');
-        if (modal) {
-            const bootstrapModal = new bootstrap.Modal(modal);
-            bootstrapModal.show();
-        }
-    }
-    
-    function closeSystemErrorsModal() {
-        const modal = document.getElementById('systemErrorsModal');
-        if (modal) {
-            const bootstrapModal = bootstrap.Modal.getInstance(modal);
-            if (bootstrapModal) {
-                bootstrapModal.hide();
-            }
-        }
-    }
-    
-    function clearSystemErrors() {
-        console.log('TODO: Clear system errors');
-    }
-    
-    function clearAllSystemErrors() {
-        console.log('TODO: Clear all system errors');
-    }
-    
-    function triggerManualSync() {
-        console.log('TODO: Trigger manual sync');
-    }
-    
-    function updateChart() {
-        console.log('TODO: Update performance chart');
-    }
-    
-    // Auto-inicjalizacja jeśli komponent jest załadowany bezpośrednio
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initDashboardTab);
-    } else {
-        initDashboardTab();
-    }
-</script>

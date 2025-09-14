@@ -383,210 +383,186 @@ def dashboard_stats():
         }), 500
       
 @api_bp.route('/chart-data')
-@login_required
+@admin_required
 def chart_data():
     """
-    GET /production/api/chart-data
-    
-    Endpoint dla danych wykresu wydajności dziennej
+    AJAX endpoint dla danych wykresów wydajności dziennej (tylko admin)
     
     Query params:
-        period: 7|14|30 (dni wstecz, default: 7)
+        period: int - liczba dni do pobrania (7, 14, 30)
         
     Returns:
-        JSON: Dane dla wykresu Chart.js
+        JSON: Dane wydajności per stanowisko i dzień dla Chart.js
     """
     try:
-        period = int(request.args.get('period', 7))
-        period = max(1, min(period, 90))  # Limit 1-90 dni
+        period = request.args.get('period', 7, type=int)
         
-        logger.info("API: Pobieranie danych wykresu", extra={
+        # Walidacja okresu
+        if period not in [7, 14, 30]:
+            return jsonify({
+                'success': False,
+                'error': 'Nieprawidłowy okres. Dozwolone: 7, 14, 30 dni'
+            }), 400
+            
+        logger.info(f"AJAX: Pobieranie danych wykresów dla {period} dni", extra={
             'user_id': current_user.id,
-            'period_days': period
+            'period': period
         })
         
         from ..models import ProductionItem
-        from sqlalchemy import func, and_
-        from datetime import datetime, date, timedelta
+        from sqlalchemy import and_, func
+        from datetime import datetime, timedelta, date
         
         # Oblicz zakres dat
         end_date = date.today()
-        start_date = end_date - timedelta(days=period-1)
+        start_date = end_date - timedelta(days=period - 1)
         
-        # Query dla danych dziennych z ostatnich X dni
-        daily_stats = db.session.query(
-            func.date(ProductionItem.packaging_completed_at).label('completion_date'),
-            func.count(ProductionItem.id).label('completed_orders'),
-            func.sum(ProductionItem.volume_m3).label('total_volume'),
-            func.avg(ProductionItem.priority_score).label('avg_priority')
-        ).filter(
-            and_(
-                ProductionItem.current_status == 'spakowane',
-                ProductionItem.packaging_completed_at >= datetime.combine(start_date, datetime.min.time()),
-                ProductionItem.packaging_completed_at <= datetime.combine(end_date, datetime.max.time())
-            )
-        ).group_by(
-            func.date(ProductionItem.packaging_completed_at)
-        ).order_by(
-            func.date(ProductionItem.packaging_completed_at)
-        ).all()
+        # Mapowanie statusów na stanowiska dla zakończonych zadań
+        station_completion_mapping = {
+            'cutting': 'cutting_completed_at',
+            'assembly': 'assembly_completed_at', 
+            'packaging': 'packaging_completed_at'
+        }
         
-        # Przygotuj pełne dni (wypełnij luki)
         chart_data = {
             'labels': [],
             'datasets': [
                 {
-                    'label': 'Ukończone zamówienia',
+                    'label': 'Wycinanie',
                     'data': [],
-                    'borderColor': '#3b82f6',
-                    'backgroundColor': 'rgba(59, 130, 246, 0.1)',
-                    'tension': 0.4,
-                    'yAxisID': 'y'
+                    'borderColor': '#fd7e14',
+                    'backgroundColor': 'rgba(253, 126, 20, 0.1)',
+                    'tension': 0.4
                 },
                 {
-                    'label': 'Objętość (m³)',
+                    'label': 'Składanie', 
                     'data': [],
-                    'borderColor': '#10b981',
-                    'backgroundColor': 'rgba(16, 185, 129, 0.1)',
-                    'tension': 0.4,
-                    'yAxisID': 'y1'
+                    'borderColor': '#007bff',
+                    'backgroundColor': 'rgba(0, 123, 255, 0.1)',
+                    'tension': 0.4
+                },
+                {
+                    'label': 'Pakowanie',
+                    'data': [],
+                    'borderColor': '#28a745',
+                    'backgroundColor': 'rgba(40, 167, 69, 0.1)',
+                    'tension': 0.4
                 }
             ]
         }
         
-        # Utwórz mapę wyników dla szybkiego dostępu
-        stats_map = {stat.completion_date: stat for stat in daily_stats}
-        
-        # Wypełnij dane dla każdego dnia w okresie
+        # Generuj etykiety dat
         current_date = start_date
+        daily_data = {}
+        
         while current_date <= end_date:
-            # Formatuj datę dla labela
-            date_label = current_date.strftime('%d.%m')
-            chart_data['labels'].append(date_label)
-            
-            # Pobierz dane lub ustaw 0
-            if current_date in stats_map:
-                stat = stats_map[current_date]
-                completed_orders = stat.completed_orders or 0
-                total_volume = float(stat.total_volume or 0)
-            else:
-                completed_orders = 0
-                total_volume = 0.0
-            
-            chart_data['datasets'][0]['data'].append(completed_orders)
-            chart_data['datasets'][1]['data'].append(round(total_volume, 3))
-            
+            label = current_date.strftime('%d.%m')
+            chart_data['labels'].append(label)
+            daily_data[current_date] = {
+                'cutting': 0,
+                'assembly': 0,
+                'packaging': 0
+            }
             current_date += timedelta(days=1)
         
-        # Oblicz podsumowanie
-        total_completed = sum(chart_data['datasets'][0]['data'])
-        total_volume = sum(chart_data['datasets'][1]['data'])
-        avg_daily_orders = total_completed / period if period > 0 else 0
-        avg_daily_volume = total_volume / period if period > 0 else 0
+        # Pobierz dane wydajności dla każdego stanowiska
+        for station, completion_field in station_completion_mapping.items():
+            completion_attr = getattr(ProductionItem, completion_field)
+            
+            # Zapytanie o sumę objętości per dzień dla stanowiska
+            daily_volumes = db.session.query(
+                func.date(completion_attr).label('completion_date'),
+                func.sum(ProductionItem.volume_m3).label('total_volume')
+            ).filter(
+                and_(
+                    completion_attr.isnot(None),
+                    func.date(completion_attr) >= start_date,
+                    func.date(completion_attr) <= end_date
+                )
+            ).group_by(
+                func.date(completion_attr)
+            ).all()
+            
+            # Wypełnij dane dla stanowiska
+            for completion_date, total_volume in daily_volumes:
+                if completion_date in daily_data:
+                    daily_data[completion_date][station] = float(total_volume or 0)
         
-        # Trend (porównanie z pierwszą połową vs drugą połową okresu)
-        mid_point = len(chart_data['datasets'][0]['data']) // 2
-        first_half_avg = sum(chart_data['datasets'][0]['data'][:mid_point]) / mid_point if mid_point > 0 else 0
-        second_half_avg = sum(chart_data['datasets'][0]['data'][mid_point:]) / (len(chart_data['datasets'][0]['data']) - mid_point) if mid_point > 0 else 0
-        trend_direction = 'up' if second_half_avg > first_half_avg else 'down' if second_half_avg < first_half_avg else 'stable'
+        # Wypełnij datasets danymi
+        for day_date in sorted(daily_data.keys()):
+            chart_data['datasets'][0]['data'].append(daily_data[day_date]['cutting'])
+            chart_data['datasets'][1]['data'].append(daily_data[day_date]['assembly'])
+            chart_data['datasets'][2]['data'].append(daily_data[day_date]['packaging'])
+        
+        # Oblicz statystyki podsumowujące
+        total_volumes = {
+            'cutting': sum(chart_data['datasets'][0]['data']),
+            'assembly': sum(chart_data['datasets'][1]['data']),
+            'packaging': sum(chart_data['datasets'][2]['data'])
+        }
+        
+        avg_daily = {
+            'cutting': total_volumes['cutting'] / period,
+            'assembly': total_volumes['assembly'] / period,
+            'packaging': total_volumes['packaging'] / period
+        }
+        
+        # Znajdź najlepszy dzień
+        best_day_idx = 0
+        best_day_total = 0
+        for i in range(len(chart_data['labels'])):
+            day_total = (chart_data['datasets'][0]['data'][i] + 
+                        chart_data['datasets'][1]['data'][i] + 
+                        chart_data['datasets'][2]['data'][i])
+            if day_total > best_day_total:
+                best_day_total = day_total
+                best_day_idx = i
+        
+        summary = {
+            'period_days': period,
+            'total_volumes': total_volumes,
+            'avg_daily': {k: round(v, 2) for k, v in avg_daily.items()},
+            'best_day': {
+                'date': chart_data['labels'][best_day_idx] if chart_data['labels'] else None,
+                'volume': round(best_day_total, 2)
+            },
+            'total_period_volume': round(sum(total_volumes.values()), 2)
+        }
         
         response_data = {
             'success': True,
-            'data': {
-                'chart': chart_data,
-                'summary': {
-                    'period_days': period,
-                    'total_completed': total_completed,
-                    'total_volume': round(total_volume, 3),
-                    'avg_daily_orders': round(avg_daily_orders, 1),
-                    'avg_daily_volume': round(avg_daily_volume, 3),
-                    'trend_direction': trend_direction,
-                    'date_range': {
-                        'start': start_date.isoformat(),
-                        'end': end_date.isoformat()
-                    }
-                },
-                'options': {
-                    'responsive': True,
-                    'plugins': {
-                        'title': {
-                            'display': True,
-                            'text': f'Wydajność produkcji - ostatnie {period} dni'
-                        },
-                        'legend': {
-                            'display': True,
-                            'position': 'top'
-                        }
-                    },
-                    'scales': {
-                        'x': {
-                            'display': True,
-                            'title': {
-                                'display': True,
-                                'text': 'Data'
-                            }
-                        },
-                        'y': {
-                            'type': 'linear',
-                            'display': True,
-                            'position': 'left',
-                            'title': {
-                                'display': True,
-                                'text': 'Liczba zamówień'
-                            },
-                            'beginAtZero': True
-                        },
-                        'y1': {
-                            'type': 'linear',
-                            'display': True,
-                            'position': 'right',
-                            'title': {
-                                'display': True,
-                                'text': 'Objętość (m³)'
-                            },
-                            'beginAtZero': True,
-                            'grid': {
-                                'drawOnChartArea': False
-                            }
-                        }
-                    }
-                }
+            'chart_data': chart_data,
+            'summary': summary,
+            'period': period,
+            'date_range': {
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat()
             },
-            'timestamp': datetime.utcnow().isoformat()
+            'generated_at': datetime.utcnow().isoformat()
         }
         
-        logger.info("API: Dane wykresu wygenerowane", extra={
+        logger.info("Pomyślnie wygenerowano dane wykresów", extra={
             'user_id': current_user.id,
-            'period_days': period,
-            'total_completed': total_completed,
+            'period': period,
+            'total_volume': summary['total_period_volume'],
             'data_points': len(chart_data['labels'])
         })
         
-        return jsonify(response_data), 200
-        
-    except ValueError as e:
-        logger.warning("API: Nieprawidłowy parametr period", extra={
-            'user_id': current_user.id,
-            'period_param': request.args.get('period'),
-            'error': str(e)
-        })
-        
-        return jsonify({
-            'success': False,
-            'error': 'Nieprawidłowy parametr period. Użyj liczby od 1 do 90.'
-        }), 400
+        return jsonify(response_data)
         
     except Exception as e:
-        logger.error("API: Błąd generowania danych wykresu", extra={
+        logger.error("Błąd generowania danych wykresów", extra={
             'user_id': current_user.id,
+            'period': request.args.get('period'),
             'error': str(e)
         })
         
         return jsonify({
             'success': False,
-            'error': 'Błąd generowania danych wykresu'
+            'error': f'Błąd pobierania danych wykresów: {str(e)}'
         }), 500
-
+    
+    
 # ============================================================================
 # API ROUTERS - PRD Section 6.2 (Stanowiska)
 # ============================================================================
@@ -1018,6 +994,7 @@ def update_config():
             'success': False,
             'error': str(e)
         }), 500
+    
 
 @api_bp.route('/baselinker-health')
 @login_required

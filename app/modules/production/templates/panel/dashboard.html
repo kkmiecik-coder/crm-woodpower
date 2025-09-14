@@ -312,97 +312,21 @@
         🐛
     </button>
 
-    <script>
-        // Konfiguracja globalnych zmiennych
-        window.productionConfig = {
-            currentUser: {
-                role: '{{ current_user.role if current_user.is_authenticated else "guest" }}',
-                id: {{ current_user.id if current_user.is_authenticated else 'null' }}
-            },
-            endpoints: {
-                dashboardTabContent: '{{ url_for("production.production_api.dashboard_tab_content") }}',
-                productsTabContent: '{{ url_for("production.production_api.products_tab_content") }}',
-                reportsTabContent: '{{ url_for("production.production_api.reports_tab_content") }}',
-                stationsTabContent: '{{ url_for("production.production_api.stations_tab_content") }}',
-                configTabContent: '{{ url_for("production.production_api.config_tab_content") }}',
-                dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
-                manualSync: '{{ url_for("production.production_api.manual_sync") }}'
-            }
-        };
-
-        // Debug panel functions
-        function toggleDebugPanel() {
-            const panel = document.getElementById('debug-panel');
-            const button = document.querySelector('.debug-toggle');
-            
-            if (panel.style.display === 'none') {
-                panel.style.display = 'block';
-                button.style.display = 'none';
-                updateDebugInfo();
-                // Aktualizuj debug info co 2 sekundy gdy panel jest otwarty
-                if (!window.debugInterval) {
-                    window.debugInterval = setInterval(() => {
-                        if (panel.style.display === 'block') {
-                            updateDebugInfo();
-                        }
-                    }, 2000);
-                }
-            } else {
-                panel.style.display = 'none';
-                button.style.display = 'block';
-                if (window.debugInterval) {
-                    clearInterval(window.debugInterval);
-                    window.debugInterval = null;
-                }
-            }
+   <script>
+    window.productionConfig = {
+        currentUser: {
+            role: '{{ current_user.role if current_user.is_authenticated else "guest" }}',
+            id: {{ current_user.id if current_user.is_authenticated else 'null' }}
+        },
+        endpoints: {
+            dashboardTabContent: '{{ url_for("production.production_api.dashboard_tab_content") }}',
+            productsTabContent: '{{ url_for("production.production_api.products_tab_content") }}',
+            reportsTabContent: '{{ url_for("production.production_api.reports_tab_content") }}',
+            stationsTabContent: '{{ url_for("production.production_api.stations_tab_content") }}',
+            configTabContent: '{{ url_for("production.production_api.config_tab_content") }}',
+            chartData: '/production/api/chart-data'
         }
-
-        function updateDebugInfo() {
-            const status = document.getElementById('status-text')?.textContent || 'Nieznany';
-            const activeTab = window.TabDashboard?.state?.currentActiveTab || 'Nieznany';
-            const retryCount = window.TabDashboard?.state?.retryCount || 0;
-            const autoRefresh = window.TabDashboard?.state?.refreshInterval ? 'ON' : 'OFF';
-            
-            document.getElementById('debug-status').textContent = status;
-            document.getElementById('debug-active-tab').textContent = activeTab;
-            document.getElementById('debug-retry-count').textContent = retryCount;
-            document.getElementById('debug-auto-refresh').textContent = autoRefresh;
-            
-            // Używaj rzeczywistego API call timestamp
-            document.getElementById('debug-last-api').textContent = window.lastApiCall || 'Brak API calls';
-        }
-
-        // System odświeżania z timerem - dla przycisku refresh w headerze
-        function refreshSystemWithTimer() {
-            const btn = document.getElementById('refresh-system-btn');
-            const timer = document.getElementById('refresh-timer');
-            
-            if (!btn || !timer) return;
-            
-            // Zablokuj przycisk
-            btn.disabled = true;
-            timer.style.display = 'inline';
-            
-            let seconds = 5;
-            timer.textContent = `(${seconds}s)`;
-            
-            // Odśwież aktywny tab przez production-dashboard.js
-            if (typeof window.loadTabContent === 'function' && window.TabDashboard?.state?.currentActiveTab) {
-                window.loadTabContent(window.TabDashboard.state.currentActiveTab);
-            }
-            
-            // Odliczanie
-            const countdown = setInterval(() => {
-                seconds--;
-                timer.textContent = `(${seconds}s)`;
-                
-                if (seconds <= 0) {
-                    clearInterval(countdown);
-                    btn.disabled = false;
-                    timer.style.display = 'none';
-                }
-            }, 1000);
-        }
+    };
     </script>
 
 </body>

@@ -2127,3 +2127,433 @@ body.modal-open {
     background: #0056b3;
     transform: scale(1.1);
 }
+
+/* ============================================================================
+   WIDGET WYDAJNOŚCI DZIENNEJ - NOWE STYLE
+   Dodaj te style do production-panel.css
+   ============================================================================ */
+
+/* Widget wydajności dziennej */
+.widget.performance-chart {
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-sm);
+    border: var(--border-width) solid var(--border-color);
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.widget.performance-chart:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.widget.performance-chart .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.widget.performance-chart .widget-title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--production-dark);
+}
+
+.widget.performance-chart .widget-title i {
+    color: var(--production-secondary);
+}
+
+/* Kontrolki wykresu */
+.chart-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.chart-controls select {
+    background: white;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: var(--production-dark);
+    cursor: pointer;
+    min-width: 140px;
+    transition: all 0.2s ease;
+}
+
+.chart-controls select:focus {
+    outline: none;
+    border-color: var(--production-secondary);
+    box-shadow: 0 0 0 2px rgba(76, 124, 89, 0.25);
+}
+
+.chart-controls .btn {
+    min-width: 38px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius-sm);
+    transition: all 0.2s ease;
+}
+
+.chart-controls .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.chart-controls .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Zawartość widgetu */
+.widget.performance-chart .widget-content {
+    padding: var(--spacing-md);
+    position: relative;
+    min-height: 350px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Canvas wykresu */
+#performance-chart-canvas {
+    max-height: 300px;
+    width: 100%;
+    border-radius: var(--border-radius-sm);
+    background: #fefefe;
+}
+
+/* ============================================================================
+   WIDGET WYDAJNOŚCI DZIENNEJ - STYLE BEZ DARK MODE
+   Dodaj te style do production-panel.css
+   ============================================================================ */
+
+/* Widget wydajności dziennej */
+.widget.performance-chart {
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-sm);
+    border: var(--border-width) solid var(--border-color);
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.widget.performance-chart:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.widget.performance-chart .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.widget.performance-chart .widget-title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--production-dark);
+}
+
+.widget.performance-chart .widget-title i {
+    color: var(--production-secondary);
+}
+
+/* Kontrolki wykresu */
+.chart-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.chart-controls select {
+    background: white;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: var(--production-dark);
+    cursor: pointer;
+    min-width: 140px;
+    transition: all 0.2s ease;
+}
+
+.chart-controls select:focus {
+    outline: none;
+    border-color: var(--production-secondary);
+    box-shadow: 0 0 0 2px rgba(76, 124, 89, 0.25);
+}
+
+.chart-controls .btn {
+    min-width: 38px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius-sm);
+    transition: all 0.2s ease;
+}
+
+.chart-controls .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.chart-controls .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Zawartość widgetu */
+.widget.performance-chart .widget-content {
+    padding: var(--spacing-md);
+    position: relative;
+    min-height: 350px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Canvas wykresu */
+#performance-chart-canvas {
+    max-height: 300px;
+    width: 100%;
+    border-radius: var(--border-radius-sm);
+    background: #fefefe;
+}
+
+/* Loading state */
+.chart-loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-md);
+    z-index: 10;
+    background: rgba(248, 249, 250, 0.9);
+    padding: var(--spacing-xl);
+    border-radius: var(--border-radius);
+    backdrop-filter: blur(2px);
+    border: var(--border-width) solid rgba(233, 236, 239, 0.5);
+}
+
+.chart-loader .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #e9ecef;
+    border-top: 3px solid var(--production-secondary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.chart-loader span {
+    color: var(--production-dark);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    text-align: center;
+}
+
+/* Error state */
+.chart-error {
+    position: relative;
+    margin: var(--spacing-md) 0;
+    border-radius: var(--border-radius);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.chart-error .btn-close {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #721c24;
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.chart-error .btn-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+.chart-error .btn-close::before {
+    content: '×';
+    font-weight: bold;
+}
+
+/* Summary wykresu */
+.chart-summary {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border-radius: var(--border-radius);
+    border: var(--border-width) solid var(--border-color);
+}
+
+.chart-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    text-align: center;
+}
+
+.summary-label {
+    font-size: var(--font-size-sm);
+    color: #6c757d;
+    font-weight: var(--font-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.summary-value {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--production-dark);
+    transition: color 0.3s ease;
+}
+
+.summary-value.trend-up {
+    color: var(--status-active);
+}
+
+.summary-value.trend-down {
+    color: var(--status-danger);
+}
+
+.summary-value.trend-stable {
+    color: #6c757d;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .widget.performance-chart .widget-header {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+        align-items: stretch;
+    }
+    
+    .chart-controls {
+        justify-content: center;
+    }
+    
+    .chart-controls select {
+        flex: 1;
+        min-width: auto;
+    }
+    
+    .widget.performance-chart .widget-content {
+        padding: var(--spacing-sm);
+        min-height: 280px;
+    }
+    
+    #performance-chart-canvas {
+        max-height: 220px;
+    }
+    
+    .chart-summary-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: var(--spacing-sm);
+    }
+    
+    .summary-item {
+        gap: 2px;
+    }
+    
+    .summary-label {
+        font-size: 11px;
+    }
+    
+    .summary-value {
+        font-size: var(--font-size-base);
+    }
+    
+    .chart-loader {
+        padding: var(--spacing-lg);
+    }
+    
+    .chart-loader .spinner {
+        width: 24px;
+        height: 24px;
+        border-width: 2px;
+    }
+}
+
+@media (max-width: 480px) {
+    .chart-summary-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .summary-item {
+        text-align: left;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .summary-label {
+        text-transform: none;
+        letter-spacing: normal;
+        font-size: var(--font-size-sm);
+    }
+}
+
+/* Animacje hover dla całego widgetu */
+.widget.performance-chart .summary-item:hover .summary-value {
+    transform: scale(1.05);
+    transition: transform 0.2s ease;
+}
+
+/* Optymalizacja renderowania Canvas */
+#performance-chart-canvas {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+}
+
