@@ -29,6 +29,17 @@ const TabDashboard = {
     endpoints: {}
 };
 
+// KONFIGURACJA AUTO-REFRESH - CZASY W MILISEKUNDACH
+const REFRESH_INTERVALS = {
+    dashboard: 180000,       // 3 min - główny dashboard (pełny reload)
+    stations: 30000,         // 30s - dane stanowisk (najważniejsze)
+    systemHealth: 60000,     // 1 min - status systemu i błędy
+    todayTotals: 45000,      // 45s - dzisiejsze podsumowania
+    alerts: 90000,           // 1.5 min - alerty deadline
+    chart: 300000,           // 5 min - wykresy wydajności
+    baselinker: 120000       // 2 min - status API Baselinker
+};
+
 // Stan wykresów wydajności
 let dailyPerformanceChart = null;
 let chartPeriod = 7;
@@ -50,6 +61,20 @@ let lastApiCall = null;
  */
 function initTabDashboard() {
     console.log('[Tab Dashboard] Inicjalizacja systemu tabów...');
+    
+    // Inicjalizuj systemy w odpowiedniej kolejności
+    ToastSystem.init();
+    
+    // POPRAWKA: Sprawdź czy SkeletonSystem istnieje przed inicjalizacją
+    if (typeof SkeletonSystem !== 'undefined' && SkeletonSystem.init) {
+        SkeletonSystem.init();
+        console.log('[Tab Dashboard] SkeletonSystem zainicjalizowany');
+    } else {
+        console.warn('[Tab Dashboard] SkeletonSystem nie znaleziony - pomijam inicjalizację');
+    }
+
+    RefreshManager.init();
+    
     updateSystemStatus('loading', 'Sprawdzanie konfiguracji...');
     
     // Załaduj konfigurację z window.productionConfig (ustawiane w HTML)
@@ -79,6 +104,9 @@ function initTabDashboard() {
     
     setTimeout(() => {
         checkSystemOverallHealth();
+
+        RefreshManager.register('stations', refreshStationsData);
+        RefreshManager.register('todayTotals', refreshTodayTotals);
     }, 2000);
     
     console.log('[Tab Dashboard] Inicjalizacja zakończona');
@@ -103,6 +131,1115 @@ function initTabEventListeners() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
     console.log('[Tab Dashboard] Event listenery zainicjalizowane');
+}
+
+// ===========================================================================
+// FUNKCJE Toast
+// ============================================================================
+
+const ToastSystem = {
+    container: null,
+    toasts: new Map(),
+    persistentToasts: new Set(), // Persistent IDs in localStorage
+    nextId: 1,
+    
+    // Konfiguracja
+    config: {
+        position: 'top-right',
+        autoHideTimeout: 6000, // 6 sekund
+        maxToasts: 5,
+        spacing: 10,
+        slideInDuration: 300,
+        slideOutDuration: 200
+    },
+    
+    init() {
+        this.createContainer();
+        this.loadPersistentToasts();
+        console.log('[Toast System] Zainicjalizowany');
+    },
+    
+    createContainer() {
+        if (this.container) return;
+        
+        this.container = document.createElement('div');
+        this.container.id = 'toast-container';
+        this.container.className = 'toast-container';
+        this.container.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            pointer-events: none;
+            max-width: 400px;
+        `;
+        
+        document.body.appendChild(this.container);
+    },
+    
+    show(message, type = 'info', options = {}) {
+        const toastId = this.nextId++;
+        const persistent = type === 'error' || type === 'warning';
+        
+        const toast = {
+            id: toastId,
+            message,
+            type,
+            persistent,
+            timestamp: Date.now(),
+            options: { ...options }
+        };
+        
+        if (persistent) {
+            this.savePersistentToast(toast);
+        }
+        
+        const toastElement = this.createToastElement(toast);
+        this.toasts.set(toastId, { toast, element: toastElement });
+        
+        this.container.appendChild(toastElement);
+        
+        const existingToasts = this.toasts.size;
+        const delay = existingToasts > 0 ? existingToasts * 100 : 50; // 100ms delay na każdy istniejący toast
+        
+        setTimeout(() => {
+            toastElement.classList.add('toast-show');
+        }, delay);
+        
+        if (!persistent) {
+            setTimeout(() => {
+                this.hide(toastId);
+            }, this.config.autoHideTimeout);
+        }
+        
+        this.enforceMaxToasts();
+        
+        console.log(`[Toast] Pokazano: ${type} - ${message}`);
+        return toastId;
+    },
+    
+    createToastElement(toast) {
+        const element = document.createElement('div');
+        element.className = `toast toast-${toast.type}`;
+        element.setAttribute('data-toast-id', toast.id);
+        element.style.cssText = `
+            pointer-events: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-height: 60px;
+            padding: 16px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            opacity: 0;
+            transform: translateX(calc(100% + 40px)); /* ZMIANA: +40px żeby całkowicie wyjść poza ekran */
+            transition: all ${this.config.slideInDuration}ms cubic-bezier(0.2, 0, 0.2, 1); /* ZMIANA: lepszy easing */
+            border-left: 4px solid ${this.getTypeColor(toast.type)};
+            word-wrap: break-word;
+            max-width: 100%;
+        `;
+        
+        const icon = this.createIcon(toast.type);
+        const content = this.createContent(toast);
+        const closeBtn = this.createCloseButton(toast);
+        
+        element.appendChild(icon);
+        element.appendChild(content);
+        element.appendChild(closeBtn);
+        
+        return element;
+    },
+    
+    createIcon(type) {
+        const icon = document.createElement('div');
+        icon.className = 'toast-icon';
+        icon.style.cssText = `
+            flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+            color: white;
+            background: ${this.getTypeColor(type)};
+        `;
+        
+        const icons = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
+        };
+        
+        icon.textContent = icons[type] || icons.info;
+        return icon;
+    },
+    
+    createContent(toast) {
+        const content = document.createElement('div');
+        content.className = 'toast-content';
+        content.style.cssText = `
+            flex: 1;
+            min-width: 0;
+        `;
+        
+        const title = document.createElement('div');
+        title.className = 'toast-title';
+        title.style.cssText = `
+            font-weight: 600;
+            font-size: 14px;
+            color: #1f2937;
+            margin-bottom: 4px;
+        `;
+        title.textContent = this.getTypeTitle(toast.type);
+        
+        const message = document.createElement('div');
+        message.className = 'toast-message';
+        message.style.cssText = `
+            font-size: 13px;
+            color: #6b7280;
+            line-height: 1.4;
+        `;
+        message.textContent = toast.message;
+        
+        content.appendChild(title);
+        content.appendChild(message);
+        
+        // Dodaj timestamp dla persistent
+        if (toast.persistent) {
+            const timestamp = document.createElement('div');
+            timestamp.className = 'toast-timestamp';
+            timestamp.style.cssText = `
+                font-size: 11px;
+                color: #9ca3af;
+                margin-top: 4px;
+            `;
+            timestamp.textContent = new Date(toast.timestamp).toLocaleTimeString('pl-PL');
+            content.appendChild(timestamp);
+        }
+        
+        return content;
+    },
+    
+    createCloseButton(toast) {
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast-close';
+        closeBtn.style.cssText = `
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 4px;
+            border-radius: 4px;
+            transition: color 0.2s ease;
+        `;
+        closeBtn.innerHTML = '×';
+        closeBtn.title = 'Zamknij powiadomienie';
+        
+        closeBtn.addEventListener('mouseenter', () => {
+            closeBtn.style.color = '#ef4444';
+            closeBtn.style.background = '#fef2f2';
+        });
+        
+        closeBtn.addEventListener('mouseleave', () => {
+            closeBtn.style.color = '#9ca3af';
+            closeBtn.style.background = 'none';
+        });
+        
+        closeBtn.addEventListener('click', () => {
+            this.hide(toast.id);
+        });
+        
+        return closeBtn;
+    },
+    
+    hide(toastId) {
+        const toastData = this.toasts.get(toastId);
+        if (!toastData) return;
+        
+        const { toast, element } = toastData;
+        
+        // ZMIANA: Lepszy slide-out animation
+        element.style.opacity = '0';
+        element.style.transform = 'translateX(calc(100% + 40px))'; // Wyjdź poza ekran
+        element.style.transition = `all ${this.config.slideOutDuration}ms cubic-bezier(0.4, 0, 1, 1)`; // Szybszy easing na wyjście
+        
+        // ZMIANA: Dodaj height collapse animation
+        setTimeout(() => {
+            element.style.maxHeight = element.offsetHeight + 'px'; // Zapisz aktualną wysokość
+            element.style.overflow = 'hidden';
+            
+            // Po krótkiej chwili zrób collapse
+            setTimeout(() => {
+                element.style.maxHeight = '0px';
+                element.style.marginBottom = '0px';
+                element.style.paddingTop = '0px';
+                element.style.paddingBottom = '0px';
+                element.style.transition = `max-height 200ms ease-out, margin 200ms ease-out, padding 200ms ease-out`;
+            }, 50);
+            
+        }, this.config.slideOutDuration);
+        
+        // Usuń element po wszystkich animacjach
+        setTimeout(() => {
+            if (element.parentNode) {
+                element.parentNode.removeChild(element);
+            }
+            this.toasts.delete(toastId);
+            
+            if (toast.persistent) {
+                this.removePersistentToast(toastId);
+            }
+        }, this.config.slideOutDuration + 250); // +250ms na collapse animation
+        
+        console.log(`[Toast] Ukryto: ${toast.type} - ${toast.message}`);
+    },
+    
+    updateToastPositions() {
+        let topOffset = 0;
+        const toasts = Array.from(this.toasts.values());
+        
+        console.log(`[Toast Debug] Pozycjonowanie ${toasts.length} toastów`);
+        
+        toasts.forEach(({ element }, index) => {
+            // ZMIANA: Nie ustawiaj top inline, pozwól CSS margin-bottom działać
+            // element.style.top = `${topOffset}px`; // USUŃ TĘ LINIĘ
+            
+            // Zamiast tego pozwól elementom układać się naturalnie z margin-bottom
+            element.style.position = 'relative'; // Upewnij się że to relative, nie absolute
+            element.style.top = 'auto'; // Resetuj ewentualne poprzednie top
+            
+            console.log(`[Toast Debug] Toast ${index}: height=${element.offsetHeight}px`);
+            
+            // topOffset += element.offsetHeight + this.config.spacing; // NIE POTRZEBNE
+        });
+    },
+    
+    enforceMaxToasts() {
+        if (this.toasts.size <= this.config.maxToasts) return;
+        
+        // Usuń najstarsze nie-persistent toasty
+        const sortedToasts = Array.from(this.toasts.entries())
+            .filter(([_, { toast }]) => !toast.persistent)
+            .sort(([_, a], [__, b]) => a.toast.timestamp - b.toast.timestamp);
+        
+        const toRemove = sortedToasts.slice(0, this.toasts.size - this.config.maxToasts);
+        toRemove.forEach(([id]) => this.hide(id));
+    },
+    
+    // Persistent storage dla error/warning
+    savePersistentToast(toast) {
+        let persistentToasts = this.getPersistentToasts();
+        
+        // Dodaj toast z unikalnym kluczem (message + type + timestamp dnia)
+        const dayKey = new Date().toDateString();
+        const toastKey = `${toast.type}_${this.hashString(toast.message)}_${dayKey}`;
+        
+        persistentToasts[toastKey] = {
+            message: toast.message,
+            type: toast.type,
+            timestamp: toast.timestamp,
+            id: toast.id
+        };
+        
+        localStorage.setItem('production_persistent_toasts', JSON.stringify(persistentToasts));
+        this.persistentToasts.add(toastKey);
+    },
+    
+    removePersistentToast(toastId) {
+        let persistentToasts = this.getPersistentToasts();
+        
+        // Znajdź i usuń toast po ID
+        Object.keys(persistentToasts).forEach(key => {
+            if (persistentToasts[key].id === toastId) {
+                delete persistentToasts[key];
+                this.persistentToasts.delete(key);
+            }
+        });
+        
+        localStorage.setItem('production_persistent_toasts', JSON.stringify(persistentToasts));
+    },
+    
+    getPersistentToasts() {
+        try {
+            return JSON.parse(localStorage.getItem('production_persistent_toasts') || '{}');
+        } catch (e) {
+            console.warn('[Toast] Błąd parsowania persistent toasts:', e);
+            return {};
+        }
+    },
+    
+    loadPersistentToasts() {
+        const persistentToasts = this.getPersistentToasts();
+        const today = new Date().toDateString();
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toDateString();
+        
+        Object.entries(persistentToasts).forEach(([key, toast]) => {
+            const toastDate = new Date(toast.timestamp).toDateString();
+            
+            // Pokaż toasty z dzisiaj i wczoraj
+            if (toastDate === today || toastDate === yesterday) {
+                // Sprawdź czy toast nie został już pokazany w tej sesji
+                if (!this.persistentToasts.has(key)) {
+                    setTimeout(() => {
+                        const newId = this.show(toast.message, toast.type, { restored: true });
+                        // Aktualizuj ID w storage
+                        persistentToasts[key].id = newId;
+                        localStorage.setItem('production_persistent_toasts', JSON.stringify(persistentToasts));
+                    }, 100);
+                    
+                    this.persistentToasts.add(key);
+                }
+            } else {
+                // Usuń stare toasty
+                delete persistentToasts[key];
+            }
+        });
+        
+        // Zapisz oczyszczone toasty
+        localStorage.setItem('production_persistent_toasts', JSON.stringify(persistentToasts));
+    },
+    
+    // Metody pomocnicze
+    getTypeColor(type) {
+        const colors = {
+            success: '#10b981',
+            error: '#ef4444', 
+            warning: '#f59e0b',
+            info: '#3b82f6'
+        };
+        return colors[type] || colors.info;
+    },
+    
+    getTypeTitle(type) {
+        const titles = {
+            success: 'Sukces',
+            error: 'Błąd',
+            warning: 'Ostrzeżenie', 
+            info: 'Informacja'
+        };
+        return titles[type] || titles.info;
+    },
+    
+    hashString(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash).toString(36);
+    },
+    
+    // API publiczne
+    clearAll() {
+        Array.from(this.toasts.keys()).forEach(id => this.hide(id));
+    },
+    
+    clearPersistent() {
+        localStorage.removeItem('production_persistent_toasts');
+        this.persistentToasts.clear();
+        
+        // Usuń aktualne persistent toasty
+        Array.from(this.toasts.entries()).forEach(([id, { toast }]) => {
+            if (toast.persistent) {
+                this.hide(id);
+            }
+        });
+    }
+};
+
+// ============================================================================
+// WIDGET-LEVEL SKELETON SYSTEM
+// ============================================================================
+
+const SkeletonSystem = {
+    activeWidgets: new Set(),
+    
+    config: {
+        animationDuration: '1.5s',
+        shimmerColor: '#f0f0f0',
+        baseColor: '#e0e0e0'
+    },
+    
+    init() {
+        this.addSkeletonStyles();
+        console.log('[Skeleton System] Zainicjalizowany (widget-level)');
+    },
+    
+    addSkeletonStyles() {
+        if (document.getElementById('skeleton-styles')) return;
+        
+        const style = document.createElement('style');
+        style.id = 'skeleton-styles';
+        style.textContent = `
+            /* Widget skeleton overlay */
+            .widget-skeleton {
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .widget-skeleton::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: linear-gradient(90deg, 
+                    ${this.config.baseColor} 25%, 
+                    ${this.config.shimmerColor} 50%, 
+                    ${this.config.baseColor} 75%
+                );
+                background-size: 200% 100%;
+                animation: skeleton-shimmer ${this.config.animationDuration} infinite;
+                z-index: 10;
+                border-radius: inherit;
+            }
+            
+            .widget-skeleton .widget-content {
+                opacity: 0.3;
+                pointer-events: none;
+            }
+            
+            @keyframes skeleton-shimmer {
+                0% { background-position: 200% 0; }
+                100% { background-position: -200% 0; }
+            }
+            
+            /* Skeleton placeholder content dla pustych widgetów */
+            .skeleton-placeholder {
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                min-height: 120px;
+            }
+            
+            .skeleton-line {
+                height: 16px;
+                background: ${this.config.baseColor};
+                border-radius: 4px;
+                animation: skeleton-pulse 1.5s ease-in-out infinite alternate;
+            }
+            
+            .skeleton-line.short { width: 60%; }
+            .skeleton-line.medium { width: 80%; }
+            .skeleton-line.long { width: 100%; }
+            .skeleton-line.title { height: 20px; width: 40%; margin-bottom: 8px; }
+            
+            @keyframes skeleton-pulse {
+                0% { opacity: 1; }
+                100% { opacity: 0.6; }
+            }
+            
+            /* Specific widget skeletons */
+            .stations-skeleton .skeleton-placeholder {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 16px;
+            }
+            
+            .station-skeleton {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 16px;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+            }
+            
+            .station-skeleton-icon {
+                width: 40px;
+                height: 40px;
+                border-radius: 4px;
+                background: ${this.config.baseColor};
+            }
+            
+            .station-skeleton-content {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+            
+            .chart-skeleton {
+                height: 300px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: linear-gradient(45deg, #f9f9f9 25%, transparent 25%),
+                           linear-gradient(-45deg, #f9f9f9 25%, transparent 25%),
+                           linear-gradient(45deg, transparent 75%, #f9f9f9 75%),
+                           linear-gradient(-45deg, transparent 75%, #f9f9f9 75%);
+                background-size: 20px 20px;
+                background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+                border-radius: 8px;
+                animation: skeleton-chart 2s linear infinite;
+            }
+            
+            @keyframes skeleton-chart {
+                0% { background-position: 0 0, 0 10px, 10px -10px, -10px 0px; }
+                100% { background-position: 20px 20px, 20px 30px, 30px 10px, 10px 20px; }
+            }
+        `;
+        
+        document.head.appendChild(style);
+    },
+    
+    // Pokaż skeleton dla całego widgetu
+    showWidgetSkeleton(widgetSelector, type = 'generic') {
+        const widget = document.querySelector(widgetSelector);
+        if (!widget || this.activeWidgets.has(widget)) return;
+        
+        // Zapisz oryginalną zawartość
+        const originalContent = widget.innerHTML;
+        widget.setAttribute('data-original-content', originalContent);
+        
+        // Dodaj klasę skeleton
+        widget.classList.add('widget-skeleton');
+        
+        // Zastąp zawartość placeholder-em na podstawie typu
+        widget.innerHTML = this.getSkeletonContent(type);
+        
+        this.activeWidgets.add(widget);
+        console.log(`[Skeleton] Pokazano skeleton dla widgetu: ${widgetSelector} (${type})`);
+    },
+    
+    // Ukryj skeleton i przywróć zawartość
+    hideWidgetSkeleton(widgetSelector) {
+        const widget = document.querySelector(widgetSelector);
+        if (!widget || !this.activeWidgets.has(widget)) return;
+        
+        const originalContent = widget.getAttribute('data-original-content');
+        
+        // Usuń klasę skeleton
+        widget.classList.remove('widget-skeleton');
+        
+        // Przywróć oryginalną zawartość
+        if (originalContent) {
+            widget.innerHTML = originalContent;
+            widget.removeAttribute('data-original-content');
+        }
+        
+        this.activeWidgets.delete(widget);
+        console.log(`[Skeleton] Ukryto skeleton dla widgetu: ${widgetSelector}`);
+    },
+    
+    // Generuj zawartość skeleton na podstawie typu
+    getSkeletonContent(type) {
+        switch (type) {
+            case 'stations':
+                return `
+                    <div class="widget-header">
+                        <h3>Przegląd stanowisk</h3>
+                        <span class="skeleton-line short" style="height: 20px; width: 120px;"></span>
+                    </div>
+                    <div class="widget-content">
+                        <div class="stations-skeleton">
+                            <div class="skeleton-placeholder">
+                                <div class="station-skeleton">
+                                    <div class="station-skeleton-icon"></div>
+                                    <div class="station-skeleton-content">
+                                        <div class="skeleton-line medium"></div>
+                                        <div class="skeleton-line short"></div>
+                                    </div>
+                                    <div class="skeleton-line" style="width: 12px; height: 12px; border-radius: 50%;"></div>
+                                </div>
+                                <div class="station-skeleton">
+                                    <div class="station-skeleton-icon"></div>
+                                    <div class="station-skeleton-content">
+                                        <div class="skeleton-line medium"></div>
+                                        <div class="skeleton-line short"></div>
+                                    </div>
+                                    <div class="skeleton-line" style="width: 12px; height: 12px; border-radius: 50%;"></div>
+                                </div>
+                                <div class="station-skeleton">
+                                    <div class="station-skeleton-icon"></div>
+                                    <div class="station-skeleton-content">
+                                        <div class="skeleton-line medium"></div>
+                                        <div class="skeleton-line short"></div>
+                                    </div>
+                                    <div class="skeleton-line" style="width: 12px; height: 12px; border-radius: 50%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+            case 'today-summary':
+                return `
+                    <div class="widget-header">
+                        <h3>Dzisiejsze podsumowanie</h3>
+                        <span class="skeleton-line short" style="height: 16px; width: 100px;"></span>
+                    </div>
+                    <div class="widget-content">
+                        <div class="skeleton-placeholder">
+                            <div style="display: flex; gap: 20px;">
+                                <div style="flex: 1;">
+                                    <div class="skeleton-line" style="height: 32px; width: 60px; margin-bottom: 8px;"></div>
+                                    <div class="skeleton-line short"></div>
+                                </div>
+                                <div style="flex: 1;">
+                                    <div class="skeleton-line" style="height: 32px; width: 80px; margin-bottom: 8px;"></div>
+                                    <div class="skeleton-line medium"></div>
+                                </div>
+                                <div style="flex: 1;">
+                                    <div class="skeleton-line" style="height: 32px; width: 40px; margin-bottom: 8px;"></div>
+                                    <div class="skeleton-line short"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+            case 'alerts':
+                return `
+                    <div class="widget-header">
+                        <h3>Alerty Terminów</h3>
+                        <span class="skeleton-line" style="height: 24px; width: 30px; border-radius: 50%;"></span>
+                    </div>
+                    <div class="widget-content">
+                        <div class="skeleton-placeholder">
+                            <div style="display: flex; align-items: center; gap: 12px; padding: 12px; border-left: 4px solid #e5e7eb; border-radius: 4px;">
+                                <div class="skeleton-line" style="width: 24px; height: 24px; border-radius: 50%;"></div>
+                                <div style="flex: 1;">
+                                    <div class="skeleton-line medium"></div>
+                                    <div class="skeleton-line short" style="margin-top: 4px;"></div>
+                                </div>
+                                <div class="skeleton-line" style="width: 60px;"></div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 12px; padding: 12px; border-left: 4px solid #e5e7eb; border-radius: 4px;">
+                                <div class="skeleton-line" style="width: 24px; height: 24px; border-radius: 50%;"></div>
+                                <div style="flex: 1;">
+                                    <div class="skeleton-line long"></div>
+                                    <div class="skeleton-line medium" style="margin-top: 4px;"></div>
+                                </div>
+                                <div class="skeleton-line" style="width: 80px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+            case 'system-health':
+                return `
+                    <div class="widget-header">
+                        <h3>Status systemu</h3>
+                        <span class="skeleton-line" style="height: 20px; width: 100px;"></span>
+                    </div>
+                    <div class="widget-content">
+                        <div class="skeleton-placeholder">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <div class="skeleton-line medium"></div>
+                                    <div class="skeleton-line short"></div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <div class="skeleton-line medium"></div>
+                                    <div class="skeleton-line short"></div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <div class="skeleton-line long"></div>
+                                    <div class="skeleton-line short"></div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <div class="skeleton-line medium"></div>
+                                    <div class="skeleton-line short"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+            case 'chart':
+                return `
+                    <div class="widget-header">
+                        <h3>Wydajność dzienna</h3>
+                        <div style="display: flex; gap: 8px;">
+                            <div class="skeleton-line" style="height: 32px; width: 120px;"></div>
+                            <div class="skeleton-line" style="height: 32px; width: 32px;"></div>
+                        </div>
+                    </div>
+                    <div class="widget-content">
+                        <div class="chart-skeleton">
+                            <div style="text-align: center; color: #9ca3af;">
+                                <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
+                                <div>Ładowanie wykresu...</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+            default:
+                return `
+                    <div class="skeleton-placeholder">
+                        <div class="skeleton-line title"></div>
+                        <div class="skeleton-line long"></div>
+                        <div class="skeleton-line medium"></div>
+                        <div class="skeleton-line short"></div>
+                    </div>
+                `;
+        }
+    },
+    
+    // API convenience methods
+    showStationsSkeleton() {
+        this.showWidgetSkeleton('.widget.stations-overview', 'stations');
+    },
+    
+    hideStationsSkeleton() {
+        this.hideWidgetSkeleton('.widget.stations-overview');
+    },
+    
+    showTodayTotalsSkeleton() {
+        this.showWidgetSkeleton('.widget.today-summary', 'today-summary');
+    },
+    
+    hideTodayTotalsSkeleton() {
+        this.hideWidgetSkeleton('.widget.today-summary');
+    },
+    
+    showSystemHealthSkeleton() {
+        this.showWidgetSkeleton('.widget.system-health', 'system-health');
+    },
+    
+    hideSystemHealthSkeleton() {
+        this.hideWidgetSkeleton('.widget.system-health');
+    },
+    
+    showDeadlineAlertsSkeleton() {
+        this.showWidgetSkeleton('.widget.deadline-alerts', 'alerts');
+    },
+    
+    hideDeadlineAlertsSkeleton() {
+        this.hideWidgetSkeleton('.widget.deadline-alerts');
+    },
+    
+    showChartSkeleton() {
+        this.showWidgetSkeleton('.widget.performance-chart', 'chart');
+    },
+    
+    hideChartSkeleton() {
+        this.hideWidgetSkeleton('.widget.performance-chart');
+    },
+    
+    // Clear all skeletons
+    clearAll() {
+        this.activeWidgets.forEach(widget => {
+            const originalContent = widget.getAttribute('data-original-content');
+            widget.classList.remove('widget-skeleton');
+            if (originalContent) {
+                widget.innerHTML = originalContent;
+                widget.removeAttribute('data-original-content');
+            }
+        });
+        this.activeWidgets.clear();
+    }
+};
+
+// ============================================================================
+// UNIFIED REFRESH SYSTEM - DODAJ PO SKELETONSYSTEM
+// ============================================================================
+
+const RefreshManager = {
+    intervals: new Map(),
+    isActive: true,
+    isPaused: false,
+    
+    init() {
+        this.setupVisibilityHandling();
+        this.setupBeforeUnload();
+        console.log('[Refresh Manager] Zainicjalizowany');
+        this.logIntervals();
+    },
+    
+    // Zarejestruj komponent do auto-refresh
+    register(componentName, refreshFunction, customInterval = null) {
+        if (this.intervals.has(componentName)) {
+            console.warn(`[Refresh Manager] Komponent ${componentName} już zarejestrowany`);
+            return;
+        }
+        
+        const interval = customInterval || REFRESH_INTERVALS[componentName] || REFRESH_INTERVALS.dashboard;
+        
+        const registration = {
+            name: componentName,
+            fn: refreshFunction,
+            interval: interval,
+            intervalId: null,
+            lastRun: Date.now(),
+            runCount: 0,
+            errors: 0
+        };
+        
+        this.intervals.set(componentName, registration);
+        this.start(componentName);
+        
+        console.log(`[Refresh Manager] Zarejestrowano: ${componentName} (${interval/1000}s)`);
+    },
+    
+    // Uruchom interval dla komponentu
+    start(componentName) {
+        const registration = this.intervals.get(componentName);
+        if (!registration || registration.intervalId) return;
+        
+        registration.intervalId = setInterval(() => {
+            if (!this.isActive || this.isPaused) return;
+            
+            try {
+                console.log(`[Refresh Manager] Odświeżanie: ${componentName}`);
+                registration.fn();
+                registration.lastRun = Date.now();
+                registration.runCount++;
+                registration.errors = 0; // Reset errors on success
+                
+            } catch (error) {
+                registration.errors++;
+                console.error(`[Refresh Manager] Błąd w ${componentName}:`, error);
+                
+                // Zatrzymaj component po 3 błędach z rzędu
+                if (registration.errors >= 3) {
+                    console.error(`[Refresh Manager] Zatrzymuję ${componentName} po 3 błędach`);
+                    this.stop(componentName);
+                    showNotification(`Auto-refresh ${componentName} zatrzymany z powodu błędów`, 'warning');
+                }
+            }
+        }, registration.interval);
+        
+        console.log(`[Refresh Manager] Uruchomiono: ${componentName}`);
+    },
+    
+    // Zatrzymaj interval dla komponentu
+    stop(componentName) {
+        const registration = this.intervals.get(componentName);
+        if (!registration || !registration.intervalId) return;
+        
+        clearInterval(registration.intervalId);
+        registration.intervalId = null;
+        
+        console.log(`[Refresh Manager] Zatrzymano: ${componentName}`);
+    },
+    
+    // Wyrejestruj komponent
+    unregister(componentName) {
+        this.stop(componentName);
+        this.intervals.delete(componentName);
+        console.log(`[Refresh Manager] Wyrejestrowano: ${componentName}`);
+    },
+    
+    // Zatrzymaj wszystkie
+    pauseAll() {
+        this.isPaused = true;
+        console.log('[Refresh Manager] Wszystkie intervaly zatrzymane');
+    },
+    
+    // Wznów wszystkie
+    resumeAll() {
+        this.isPaused = false;
+        console.log('[Refresh Manager] Wszystkie intervaly wznowione');
+    },
+    
+    // Restart komponentu z nowym intervalem
+    restart(componentName, newInterval = null) {
+        const registration = this.intervals.get(componentName);
+        if (!registration) return;
+        
+        this.stop(componentName);
+        
+        if (newInterval) {
+            registration.interval = newInterval;
+        }
+        
+        this.start(componentName);
+        console.log(`[Refresh Manager] Restart: ${componentName} (${registration.interval/1000}s)`);
+    },
+    
+    // Jednorazowe odświeżenie komponentu
+    refreshNow(componentName) {
+        const registration = this.intervals.get(componentName);
+        if (!registration) {
+            console.warn(`[Refresh Manager] Komponent ${componentName} nie zarejestrowany`);
+            return;
+        }
+        
+        try {
+            console.log(`[Refresh Manager] Ręczne odświeżenie: ${componentName}`);
+            registration.fn();
+            registration.lastRun = Date.now();
+            registration.runCount++;
+            
+        } catch (error) {
+            console.error(`[Refresh Manager] Błąd ręcznego odświeżenia ${componentName}:`, error);
+            showNotification(`Błąd odświeżenia ${componentName}`, 'error');
+        }
+    },
+    
+    // Odśwież wszystkie komponenty teraz
+    refreshAllNow() {
+        console.log('[Refresh Manager] Ręczne odświeżenie wszystkich komponentów');
+        
+        this.intervals.forEach((registration, componentName) => {
+            // Dodaj małe opóźnienia żeby nie przeciążyć
+            setTimeout(() => {
+                this.refreshNow(componentName);
+            }, Math.random() * 2000); // 0-2s delay
+        });
+        
+        showNotification('Odświeżanie wszystkich komponentów...', 'info');
+    },
+    
+    // Obsługa widoczności strony
+    setupVisibilityHandling() {
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.pauseAll();
+                console.log('[Refresh Manager] Strona ukryta - wstrzymanie odświeżania');
+            } else {
+                this.resumeAll();
+                console.log('[Refresh Manager] Strona widoczna - wznowienie odświeżania');
+                
+                // Opcjonalnie: odśwież wszystko po powrocie
+                setTimeout(() => {
+                    this.refreshAllNow();
+                }, 1000);
+            }
+        });
+    },
+    
+    // Cleanup przed zamknięciem strony
+    setupBeforeUnload() {
+        window.addEventListener('beforeunload', () => {
+            this.cleanup();
+        });
+    },
+    
+    cleanup() {
+        this.intervals.forEach((registration, componentName) => {
+            this.stop(componentName);
+        });
+        this.intervals.clear();
+        console.log('[Refresh Manager] Cleanup wykonany');
+    },
+    
+    // Status i debugging
+    getStatus() {
+        const status = {
+            isActive: this.isActive,
+            isPaused: this.isPaused,
+            componentsCount: this.intervals.size,
+            components: {}
+        };
+        
+        this.intervals.forEach((registration, name) => {
+            status.components[name] = {
+                interval: registration.interval,
+                isRunning: !!registration.intervalId,
+                lastRun: new Date(registration.lastRun).toLocaleTimeString(),
+                runCount: registration.runCount,
+                errors: registration.errors,
+                nextRun: new Date(registration.lastRun + registration.interval).toLocaleTimeString()
+            };
+        });
+        
+        return status;
+    },
+    
+    logIntervals() {
+        console.log('[Refresh Manager] Konfiguracja intervalów:');
+        Object.entries(REFRESH_INTERVALS).forEach(([name, interval]) => {
+            console.log(`  ${name}: ${interval/1000}s`);
+        });
+    }
+};
+
+// ============================================================================
+// AKTUALIZUJ setupAutoRefresh() - użyj RefreshManager
+// ============================================================================
+
+function setupAutoRefresh() {
+    // USUNIĘTO: Stary kod z clearInterval
+    
+    console.log('[Tab Dashboard] Konfiguracja auto-refresh przez RefreshManager');
+    
+    // Zarejestruj główny refresh dashboard
+    RefreshManager.register('dashboard', () => {
+        if (TabDashboard.state.currentActiveTab && !TabDashboard.state.isLoading) {
+            loadTabContent(TabDashboard.state.currentActiveTab, true);
+        }
+    });
+    
+    // Zarejestruj system health check
+    RefreshManager.register('systemHealth', () => {
+        if (!document.hidden && !TabDashboard.state.isLoading) {
+            checkSystemOverallHealth();
+        }
+    });
+    
+    console.log('[Tab Dashboard] Auto-refresh skonfigurowany przez RefreshManager');
+}
+
+// ============================================================================
+// NOWE FUNKCJE REFRESH DLA KONKRETNYCH KOMPONENTÓW
+// ============================================================================
+
+// Funkcja do refresh stanowisk (może być wywołana niezależnie)
+function refreshStationsData() {
+    if (TabDashboard.state.currentActiveTab !== 'dashboard-tab') return;
+    
+    console.log('[Stations Refresh] Odświeżanie danych stanowisk...');
+    
+    // Pokaż subtelny loading
+    SkeletonSystem.showStationsSkeleton();
+    
+    fetch('/production/api/dashboard-stats?component=stations', {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.stations) {
+            SkeletonSystem.hideStationsSkeleton();
+            updateStationsStats(data.stations);
+            console.log('[Stations Refresh] Dane stanowisk odświeżone');
+        }
+    })
+    .catch(error => {
+        console.error('[Stations Refresh] Błąd:', error);
+        SkeletonSystem.hideStationsSkeleton();
+    });
+}
+
+// Funkcja do refresh today totals
+function refreshTodayTotals() {
+    if (TabDashboard.state.currentActiveTab !== 'dashboard-tab') return;
+    
+    console.log('[Today Totals Refresh] Odświeżanie dzisiejszych statystyk...');
+    
+    fetch('/production/api/dashboard-stats?component=today_totals', {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.today_totals) {
+            updateTodayTotals(data.today_totals);
+            console.log('[Today Totals Refresh] Dzisiejsze statystyki odświeżone');
+        }
+    })
+    .catch(error => {
+        console.error('[Today Totals Refresh] Błąd:', error);
+    });
 }
 
 // ============================================================================
@@ -664,28 +1801,47 @@ function destroyPerformanceChart() {
  * Inicjalizuje wszystkie widgety dashboard
  */
 function initDashboardWidgets(data) {
-    console.log('[Dashboard] Inicjalizacja widgetów dashboard - IMPLEMENTACJA');
+    console.log('[Dashboard] Inicjalizacja widgetów dashboard');
+    
+    // POPRAWKA: Sprawdź czy SkeletonSystem jest dostępny
+    const hasSkeletonSystem = typeof SkeletonSystem !== 'undefined' && SkeletonSystem.showStationsSkeleton;
+    
+    // Pokaż skeletons jeśli brak danych i dostępny system
+    if (!data || !data.stats) {
+        console.log('[Dashboard] Brak danych - pokazuję widget skeletons');
+        
+        if (hasSkeletonSystem) {
+            SkeletonSystem.showStationsSkeleton();
+            SkeletonSystem.showTodayTotalsSkeleton();
+            SkeletonSystem.showSystemHealthSkeleton();
+            SkeletonSystem.showDeadlineAlertsSkeleton();
+        } else {
+            console.warn('[Dashboard] SkeletonSystem niedostępny - pomijam skeletons');
+        }
+        return;
+    }
     
     initStationCards();
+    console.log('[Dashboard] Używam danych z API:', data.stats);
     
-    if (data && data.stats) {
-        console.log('[Dashboard] Używam danych z API:', data.stats);
-        
-        if (data.stats.stations) {
-            updateStationsStats(data.stats.stations);
-        }
-        
-        if (data.stats.today_totals) {
-            updateTodayTotals(data.stats.today_totals);
-        }
+    if (data.stats.stations) {
+        if (hasSkeletonSystem) SkeletonSystem.hideStationsSkeleton();
+        updateStationsStats(data.stats.stations);
+    }
+    
+    if (data.stats.today_totals) {
+        if (hasSkeletonSystem) SkeletonSystem.hideTodayTotalsSkeleton();
+        updateTodayTotals(data.stats.today_totals);
+    }
 
-        if (data.stats.deadline_alerts) {
-            updateDeadlineAlerts(data.stats.deadline_alerts);
-        }
+    if (data.stats.deadline_alerts) {
+        if (hasSkeletonSystem) SkeletonSystem.hideDeadlineAlertsSkeleton();
+        updateDeadlineAlerts(data.stats.deadline_alerts);
+    }
 
-        if (data.stats.system_health) {
-            updateSystemHealth(data.stats.system_health);
-        }
+    if (data.stats.system_health) {
+        if (hasSkeletonSystem) SkeletonSystem.hideSystemHealthSkeleton();
+        updateSystemHealth(data.stats.system_health);
     }
     
     console.log('[Dashboard] Widgety dashboard zainicjalizowane');
@@ -1099,25 +2255,38 @@ function updateStationsStats(stations) {
 }
 
 function updateSingleStationCard(stationType, stationData, icon, displayName) {
+    console.log(`[Dashboard] Aktualizacja stanowiska ${stationType}:`, stationData);
+    
     if (!stationData) {
         console.warn(`[Dashboard] Brak danych dla stanowiska: ${stationType}`);
         return;
     }
     
+    // POPRAWKA: Sprawdź wszystkie elementy przed kontynuowaniem
     const pendingElement = document.getElementById(`${stationType}-pending`);
     const volumeElement = document.getElementById(`${stationType}-today-m3`);
     const statusElement = document.getElementById(`${stationType}-status`);
     const cardElement = document.querySelector(`.station-card.${stationType}-station`);
     
+    // KRYTYCZNA POPRAWKA: Dodanie return po sprawdzeniu elementów
     if (!pendingElement || !volumeElement) {
-        console.warn(`[Dashboard] Nie znaleziono elementów dla stanowiska: ${stationType}`);
-        return;
+        console.error(`[Dashboard] Nie znaleziono kluczowych elementów dla stanowiska ${stationType}`);
+        console.error(`[Dashboard] pendingElement:`, pendingElement);
+        console.error(`[Dashboard] volumeElement:`, volumeElement);
+        console.error(`[Dashboard] statusElement:`, statusElement);
+        console.error(`[Dashboard] cardElement:`, cardElement);
+        return; // DODANE: return żeby zakończyć funkcję
     }
     
-    // UŻYJ CZYSZCZENIA DANYCH Z BACKENDU
+    // UŻYJ CZYSZCZENIA DANYCH Z BACKENDU (istniejąca funkcja)
     const cleanPending = cleanBackendValue(stationData.pending_count);
     const cleanVolume = cleanBackendValue(stationData.today_m3);
     
+    console.log(`[Dashboard] Aktualizowanie DOM dla ${stationType}:`);
+    console.log(`[Dashboard] - Pending: ${stationData.pending_count} -> ${cleanPending}`);
+    console.log(`[Dashboard] - Volume: ${stationData.today_m3} -> ${cleanVolume}`);
+    
+    // Aktualizuj wartości liczbowe z animacją (używając istniejącej funkcji)
     updateNumberWithoutGreenBackground(pendingElement, cleanPending);
     updateNumberWithoutGreenBackground(volumeElement, cleanVolume.toFixed(4));
     
@@ -1127,28 +2296,124 @@ function updateSingleStationCard(stationType, stationData, icon, displayName) {
         name: displayName,
         pending_count: cleanPending,
         today_m3: cleanVolume,
-        today_completed: cleanBackendValue(stationData.today_completed)
+        today_completed: cleanBackendValue(stationData.today_completed || 0)
     };
     
-    updateStationStatus(statusElement, cardElement, cleanStationData);
+    // Aktualizuj status kropki
+    if (statusElement && cardElement) {
+        updateStationStatus(statusElement, cardElement, cleanStationData);
+    }
     
     console.log(`[Dashboard] Zaktualizowano stanowisko ${displayName}:`, {
         original_pending: stationData.pending_count,
         clean_pending: cleanPending,
         original_volume: stationData.today_m3,
         clean_volume: cleanVolume,
-        status: statusElement?.classList.toString()
+        status: statusElement?.classList.toString() || 'brak-elementu'
     });
+}
+
+// DODATKOWA FUNKCJA DEBUG: Sprawdź czy wszystkie elementy DOM istnieją
+function debugStationElements() {
+    const stations = ['cutting', 'assembly', 'packaging'];
+    
+    console.log('=== DEBUG: Sprawdzanie elementów DOM stanowisk ===');
+    
+    stations.forEach(station => {
+        const pendingElement = document.getElementById(`${station}-pending`);
+        const volumeElement = document.getElementById(`${station}-today-m3`);
+        const statusElement = document.getElementById(`${station}-status`);
+        const cardElement = document.querySelector(`.station-card.${station}-station`);
+        
+        console.log(`${station.toUpperCase()}:`);
+        console.log(`  - Pending element (${station}-pending):`, pendingElement ? '✅' : '❌', pendingElement);
+        console.log(`  - Volume element (${station}-today-m3):`, volumeElement ? '✅' : '❌', volumeElement);
+        console.log(`  - Status element (${station}-status):`, statusElement ? '✅' : '❌', statusElement);
+        console.log(`  - Card element (.${station}-station):`, cardElement ? '✅' : '❌', cardElement);
+        
+        if (pendingElement) {
+            console.log(`  - Current pending text:`, pendingElement.textContent);
+        }
+        if (volumeElement) {
+            console.log(`  - Current volume text:`, volumeElement.textContent);
+        }
+    });
+    
+    console.log('=== KONIEC DEBUG ===');
+}
+
+// FUNKCJA TESTOWA: Wymuszenie aktualizacji
+function forceUpdateAllStations() {
+    const testData = {
+        cutting: {pending_count: 2, today_m3: 0},
+        assembly: {pending_count: 0, today_m3: 0},
+        packaging: {pending_count: 0, today_m3: 0}
+    };
+    
+    console.log('=== FORCE UPDATE TEST ===');
+    console.log('Dane testowe:', testData);
+    
+    // Sprawdź elementy DOM
+    debugStationElements();
+    
+    // Wymuszenie aktualizacji
+    updateStationsStats(testData);
+    
+    console.log('=== TEST ZAKOŃCZONY ===');
 }
 
 function updateNumberWithoutGreenBackground(element, newValue) {
     if (!element) return;
     
+    // POPRAWKA: Safe check czy SkeletonSystem jest zainicjalizowany
+    if (typeof SkeletonSystem !== 'undefined' && SkeletonSystem.activeSkeletons && SkeletonSystem.activeSkeletons.has(element)) {
+        SkeletonSystem.hideSkeleton(element, newValue.toString());
+        return;
+    }
+    
     const currentValue = element.textContent || '0';
+    const newValueStr = newValue.toString();
+    
+    console.log(`[Update Number] ${element.id}: "${currentValue}" -> "${newValueStr}"`);
+    
+    if (currentValue === newValueStr) {
+        console.log(`[Update Number] ${element.id}: Identyczne wartości, pomijam`);
+        return;
+    }
+    
+    // POPRAWKA: Safe check przed pokazaniem skeleton
+    if (currentValue === "-") {
+        console.log(`[Update Number] ${element.id}: Wymuszenie aktualizacji z myślnika`);
+        
+        // Bezpieczne sprawdzenie SkeletonSystem
+        if (typeof SkeletonSystem !== 'undefined' && SkeletonSystem.showSkeleton) {
+            SkeletonSystem.showSkeleton(element, 'stat');
+            
+            setTimeout(() => {
+                if (SkeletonSystem.hideSkeleton) {
+                    SkeletonSystem.hideSkeleton(element, newValueStr);
+                }
+            }, 200);
+        } else {
+            // Fallback - bezpośrednia aktualizacja
+            element.textContent = newValueStr;
+            element.style.transform = 'scale(1.05)';
+            element.style.transition = 'transform 0.3s ease';
+            setTimeout(() => {
+                element.style.transform = 'scale(1)';
+            }, 300);
+        }
+        return;
+    }
+    
+    // Standardowa animacja dla zmian numerycznych
     const numericNewValue = parseFloat(newValue) || 0;
     const numericCurrentValue = parseFloat(currentValue) || 0;
     
-    if (numericCurrentValue === numericNewValue) return;
+    if (numericCurrentValue === numericNewValue) {
+        console.log(`[Update Number] ${element.id}: Identyczne wartości numeryczne, pomijam`);
+        return;
+    }
     
     const duration = 800;
     const steps = 20;
@@ -1162,15 +2427,14 @@ function updateNumberWithoutGreenBackground(element, newValue) {
         const intermediateValue = numericCurrentValue + (stepValue * currentStep);
         
         if (currentStep < steps) {
-            if (newValue.toString().includes('.')) {
-                element.textContent = intermediateValue.toFixed(4); // 4 miejsca po przecinku
+            if (newValueStr.includes('.')) {
+                element.textContent = intermediateValue.toFixed(4);
             } else {
                 element.textContent = Math.round(intermediateValue);
             }
             setTimeout(animate, stepTime);
         } else {
-            element.textContent = newValue;
-            // USUNIĘTO: zielone tło, dodano tylko subtelną animację
+            element.textContent = newValueStr;
             element.style.transform = 'scale(1.05)';
             element.style.transition = 'transform 0.3s ease';
             
@@ -1257,6 +2521,14 @@ async function loadTabContent(tabName, silentRefresh = false) {
     console.log(`[Tab Dashboard] Ładowanie taba: ${tabName}, silent: ${silentRefresh}`);
     updateSystemStatus('loading', `Ładowanie taba ${tabName}...`);
     
+    // DODANE: Pokaż skeletons dla dashboard podczas ładowania
+    if (tabName === 'dashboard-tab' && !silentRefresh) {
+        SkeletonSystem.showStationsSkeleton();
+        SkeletonSystem.showTodayTotalsSkeleton();
+        SkeletonSystem.showSystemHealthSkeleton();
+        SkeletonSystem.showDeadlineAlertsSkeleton();
+    }
+    
     lastApiCall = `${new Date().toLocaleTimeString()} (${tabName})`;
     window.lastApiCall = lastApiCall;
     
@@ -1329,6 +2601,12 @@ async function loadTabContent(tabName, silentRefresh = false) {
         
     } catch (error) {
         console.error(`[Tab Dashboard] Błąd ładowania taba ${tabName}:`, error);
+        
+        // DODANE: Ukryj skeletons przy błędzie
+        if (tabName === 'dashboard-tab') {
+            SkeletonSystem.clearAll();
+        }
+        
         handleTabLoadError(tabName, error, silentRefresh);
     } finally {
         TabDashboard.state.isLoading = false;
@@ -1538,14 +2816,15 @@ function updateSystemStatus(status, message) {
     console.log(`[Tab Dashboard] Header Status: ${status} - ${message}`);
 }
 
-function showNotification(message, type = 'info') {
-    console.log(`[Tab Dashboard] Notyfikacja ${type.toUpperCase()}: ${message}`);
+function showNotification(message, type = 'info', options = {}) {
+    console.log(`[Toast Notification] ${type.toUpperCase()}: ${message}`);
     
-    if (typeof window.showToast === 'function') {
-        window.showToast(message, type);
-    } else if (typeof alert !== 'undefined') {
-        alert(message);
+    // Inicjalizuj system jeśli nie został zainicjalizowany
+    if (!ToastSystem.container) {
+        ToastSystem.init();
     }
+    
+    return ToastSystem.show(message, type, options);
 }
 
 function startRefreshCooldown() {
@@ -1820,16 +3099,224 @@ function showSystemErrorsModal() {
     
     const modal = document.getElementById('systemErrorsModal');
     if (modal) {
+        // Otwórz modal
         const bootstrapModal = new bootstrap.Modal(modal);
         bootstrapModal.show();
+        
+        // DODANE: Załaduj błędy po otwarciu modala
+        loadSystemErrorsData();
     } else {
-        window.open('/production/api/system-errors', '_blank', 'width=800,height=600,scrollbars=yes');
+        // Fallback - otwórz w nowym oknie
+        window.open('/production/admin/ajax/system-errors', '_blank', 'width=800,height=600,scrollbars=yes');
+    }
+}
+
+function loadSystemErrorsData() {
+    console.log('[Modal] Ładowanie danych błędów systemu...');
+    
+    // Pokaż loading
+    showErrorsLoading(true);
+    hideErrorsEmpty();
+    hideErrorsList();
+    
+    // Wyczyść poprzednie błędy
+    const errorsList = document.getElementById('errors-list');
+    if (errorsList) {
+        errorsList.innerHTML = '';
+    }
+    
+    // Załaduj błędy z API
+    fetch('/production/admin/ajax/system-errors', {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        console.log('[Modal] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} - ${response.statusText}`);
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error(`Oczekiwano JSON, otrzymano: ${contentType}`);
+        }
+        
+        return response.json();
+    })
+    .then(data => {
+        console.log('[Modal] Dane błędów otrzymane:', data);
+        
+        // Ukryj loading
+        showErrorsLoading(false);
+        
+        if (data.success) {
+            if (data.errors && data.errors.length > 0) {
+                // Pokaż błędy
+                displaySystemErrors(data.errors);
+                showErrorsList();
+            } else {
+                // Brak błędów
+                showErrorsEmpty();
+            }
+        } else {
+            throw new Error(data.error || 'Nieznany błąd podczas pobierania danych');
+        }
+    })
+    .catch(error => {
+        console.error('[Modal] Błąd ładowania błędów:', error);
+        showErrorsLoading(false);
+        
+        // Pokaż błąd w modalu
+        displayErrorInModal(error.message);
+    });
+}
+
+function displaySystemErrors(errors) {
+    console.log('[Modal] Wyświetlanie błędów:', errors.length);
+    
+    const errorsList = document.getElementById('errors-list');
+    if (!errorsList) {
+        console.error('[Modal] Element errors-list nie znaleziony!');
+        return;
+    }
+    
+    let errorsHTML = '';
+    
+    errors.forEach((error, index) => {
+        const errorDate = error.error_occurred_at ? 
+            new Date(error.error_occurred_at).toLocaleString('pl-PL') : 
+            'Brak daty';
+        
+        const isResolved = error.is_resolved;
+        const statusClass = isResolved ? 'resolved' : 'unresolved';
+        const statusText = isResolved ? 'Rozwiązany' : 'Nierozwiązany';
+        const statusIcon = isResolved ? '✅' : '❌';
+        
+        // Skróć długie komunikaty błędów
+        let shortMessage = error.error_message || 'Brak opisu błędu';
+        if (shortMessage.length > 100) {
+            shortMessage = shortMessage.substring(0, 100) + '...';
+        }
+        
+        errorsHTML += `
+            <div class="error-item ${statusClass}" data-error-id="${error.id}">
+                <div class="error-header">
+                    <div class="error-main-info">
+                        <h6 class="error-type">${error.error_type || 'Błąd systemu'}</h6>
+                        <p class="error-message">${shortMessage}</p>
+                    </div>
+                    <div class="error-status">
+                        <span class="badge ${isResolved ? 'bg-success' : 'bg-danger'}">
+                            ${statusIcon} ${statusText}
+                        </span>
+                    </div>
+                </div>
+                <div class="error-details">
+                    <small class="text-muted">
+                        <i class="fas fa-clock"></i> ${errorDate}
+                        ${error.related_product_id ? `| <i class="fas fa-box"></i> Produkt: ${error.related_product_id}` : ''}
+                        ${error.error_location ? `| <i class="fas fa-map-marker-alt"></i> ${error.error_location}` : ''}
+                    </small>
+                </div>
+                ${error.error_details ? `
+                    <div class="error-expandable mt-2">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleErrorDetails(${error.id})">
+                            <i class="fas fa-chevron-down"></i> Szczegóły
+                        </button>
+                        <div class="error-details-content" id="error-details-${error.id}" style="display: none;">
+                            <pre class="mt-2 p-2 bg-light border rounded"><code>${JSON.stringify(error.error_details, null, 2)}</code></pre>
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    });
+    
+    errorsList.innerHTML = errorsHTML;
+    console.log('[Modal] Błędy wyświetlone w DOM');
+}
+
+function displayErrorInModal(errorMessage) {
+    const errorsList = document.getElementById('errors-list');
+    if (!errorsList) return;
+    
+    errorsList.innerHTML = `
+        <div class="alert alert-danger">
+            <h6><i class="fas fa-exclamation-triangle"></i> Błąd ładowania</h6>
+            <p>${errorMessage}</p>
+            <button class="btn btn-sm btn-outline-danger" onclick="loadSystemErrorsData()">
+                <i class="fas fa-retry"></i> Spróbuj ponownie
+            </button>
+        </div>
+    `;
+    
+    showErrorsList();
+}
+
+function toggleErrorDetails(errorId) {
+    const detailsElement = document.getElementById(`error-details-${errorId}`);
+    const buttonElement = event.target.closest('button');
+    const icon = buttonElement.querySelector('i');
+    
+    if (detailsElement.style.display === 'none') {
+        detailsElement.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+        buttonElement.innerHTML = '<i class="fas fa-chevron-up"></i> Ukryj szczegóły';
+    } else {
+        detailsElement.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+        buttonElement.innerHTML = '<i class="fas fa-chevron-down"></i> Szczegóły';
+    }
+}
+
+// FUNKCJE POMOCNICZE DO STANÓW MODALA
+function showErrorsLoading(show = true) {
+    const loadingElement = document.getElementById('errors-loading');
+    if (loadingElement) {
+        loadingElement.style.display = show ? 'block' : 'none';
+    }
+}
+
+function showErrorsEmpty() {
+    const emptyElement = document.getElementById('errors-empty');
+    if (emptyElement) {
+        emptyElement.style.display = 'block';
+    }
+}
+
+function hideErrorsEmpty() {
+    const emptyElement = document.getElementById('errors-empty');
+    if (emptyElement) {
+        emptyElement.style.display = 'none';
+    }
+}
+
+function showErrorsList() {
+    const listElement = document.getElementById('errors-list');
+    if (listElement) {
+        listElement.style.display = 'block';
+    }
+}
+
+function hideErrorsList() {
+    const listElement = document.getElementById('errors-list');
+    if (listElement) {
+        listElement.style.display = 'none';
     }
 }
 
 function closeSystemErrorsModal() {
     const modal = document.getElementById('systemErrorsModal');
     if (modal) {
+        // Usuń focus z elementów modala przed zamknięciem
+        const focusedElement = modal.querySelector(':focus');
+        if (focusedElement) {
+            focusedElement.blur();
+        }
+        
         const bootstrapModal = bootstrap.Modal.getInstance(modal);
         if (bootstrapModal) {
             bootstrapModal.hide();
@@ -1840,25 +3327,38 @@ function closeSystemErrorsModal() {
 function clearSystemErrors() {
     console.log('[Dashboard] Czyszczenie błędów systemu');
     
-    fetch('/production/api/clear-errors', {
+    // POPRAWKA: Podobny problem może być tutaj
+    fetch('/production/admin/ajax/clear-system-errors', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         }
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('[Clear Errors] Response status:', response.status);
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error(`Endpoint zwrócił ${response.status} - ${response.statusText}`);
+        }
+        
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
-            showNotification('Błędy systemu wyczyszczone', 'success');
+            showNotification('✅ Błędy systemu wyczyszczone', 'success');
             closeSystemErrorsModal();
-            loadTabContent(TabDashboard.state.currentActiveTab, true);
+            
+            if (typeof loadTabContent === 'function') {
+                loadTabContent('dashboard-tab', true);
+            }
         } else {
-            showNotification('Błąd czyszczenia: ' + data.error, 'error');
+            showNotification('❌ Błąd czyszczenia: ' + data.error, 'error');
         }
     })
     .catch(error => {
         console.error('Błąd czyszczenia błędów:', error);
-        showNotification('Błąd połączenia', 'error');
+        showNotification('❌ Błąd połączenia', 'error');
     });
 }
 
@@ -1866,25 +3366,42 @@ function clearAllSystemErrors() {
     console.log('[Dashboard] Czyszczenie wszystkich błędów systemu');
     
     if (confirm('Czy na pewno chcesz wyczyścić wszystkie błędy systemu?')) {
-        fetch('/production/api/clear-all-errors', {
+        fetch('/production/admin/ajax/clear-system-errors', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             }
         })
-        .then(response => response.json())
+        .then(response => {
+            console.log('[Clear Errors] Response status:', response.status);
+            
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error(`Endpoint zwrócił ${response.status} - ${response.statusText}. Oczekiwano JSON, otrzymano: ${contentType}`);
+            }
+            
+            return response.json();
+        })
         .then(data => {
+            console.log('[Clear Errors] Response data:', data);
+            
             if (data.success) {
-                showNotification('Wszystkie błędy systemu wyczyszczone', 'success');
-                closeSystemErrorsModal();
-                loadTabContent(TabDashboard.state.currentActiveTab, true);
+                showNotification(`✅ ${data.message || 'Błędy systemu wyczyszczone'}`, 'success');
+                
+                // DODANE: Odśwież modal zamiast go zamykać
+                loadSystemErrorsData();
+                
+                // Odśwież dashboard
+                if (typeof loadTabContent === 'function') {
+                    loadTabContent('dashboard-tab', true);
+                }
             } else {
-                showNotification('Błąd czyszczenia: ' + data.error, 'error');
+                showNotification(`❌ Błąd czyszczenia: ${data.error || 'Nieznany błąd'}`, 'error');
             }
         })
         .catch(error => {
             console.error('Błąd czyszczenia wszystkich błędów:', error);
-            showNotification('Błąd połączenia', 'error');
+            showNotification(`❌ Błąd połączenia: ${error.message}`, 'error');
         });
     }
 }
@@ -2034,6 +3551,8 @@ window.hideChartError = hideChartError;
 window.clearChartCache = clearChartCache;
 window.enableAutoRefresh = enableAutoRefresh;
 window.disableAutoRefresh = disableAutoRefresh;
+window.showToast = showNotification;
+window.ToastSystem = ToastSystem;
 
 // Funkcje modali i akcji
 window.showSystemErrorsModal = showSystemErrorsModal;
@@ -2047,6 +3566,22 @@ window.viewProductDetails = viewProductDetails;
 window.toggleDebugPanel = toggleDebugPanel;
 window.updateDebugInfo = updateDebugInfo;
 window.refreshSystemWithTimer = refreshSystemWithTimer;
+
+// Funkcja pomocnicza
+window.clearAllToasts = () => ToastSystem.clearAll();
+window.clearPersistentToasts = () => ToastSystem.clearPersistent();
+
+// Udostępnij RefreshManager globalnie
+window.RefreshManager = RefreshManager;
+window.refreshAllNow = () => RefreshManager.refreshAllNow();
+window.getRefreshStatus = () => RefreshManager.getStatus();
+
+// Debug functions
+window.debugRefreshStatus = () => {
+    const status = RefreshManager.getStatus();
+    console.table(status.components);
+    return status;
+};
 
 // Auto-inicjalizacja po załadowaniu DOM
 if (document.readyState === 'loading') {
@@ -2095,4 +3630,18 @@ function debugStationsData(stations) {
             hasData: station !== null && station !== undefined
         });
     });
+}
+
+function debugSystemsStatus() {
+    console.log('=== DEBUG: Status systemów ===');
+    console.log('ToastSystem:', typeof ToastSystem !== 'undefined' ? '✅' : '❌');
+    console.log('SkeletonSystem:', typeof SkeletonSystem !== 'undefined' ? '✅' : '❌');
+    
+    if (typeof SkeletonSystem !== 'undefined') {
+        console.log('SkeletonSystem.activeWidgets:', SkeletonSystem.activeWidgets ? '✅' : '❌');
+        console.log('SkeletonSystem.init:', typeof SkeletonSystem.init === 'function' ? '✅' : '❌');
+    }
+    
+    console.log('TabDashboard:', typeof TabDashboard !== 'undefined' ? '✅' : '❌');
+    console.log('=== KONIEC DEBUG ===');
 }
