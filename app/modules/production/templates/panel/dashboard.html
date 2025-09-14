@@ -277,6 +277,41 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     {% endif %}
 
+    <!-- Debug Panel - tylko w trybie development -->
+    <div class="debug-panel" id="debug-panel" style="display: none;">
+        <div class="debug-header">
+            <span>System Debug</span>
+            <button onclick="toggleDebugPanel()" class="debug-close">×</button>
+        </div>
+        <div class="debug-content">
+            <div class="debug-item">
+                <span class="debug-label">Status:</span>
+                <span class="debug-value" id="debug-status">-</span>
+            </div>
+            <div class="debug-item">
+                <span class="debug-label">Aktywny tab:</span>
+                <span class="debug-value" id="debug-active-tab">-</span>
+            </div>
+            <div class="debug-item">
+                <span class="debug-label">Ostatnie API:</span>
+                <span class="debug-value" id="debug-last-api">-</span>
+            </div>
+            <div class="debug-item">
+                <span class="debug-label">Retry count:</span>
+                <span class="debug-value" id="debug-retry-count">0</span>
+            </div>
+            <div class="debug-item">
+                <span class="debug-label">Auto-refresh:</span>
+                <span class="debug-value" id="debug-auto-refresh">OFF</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Debug Toggle Button -->
+    <button class="debug-toggle" onclick="toggleDebugPanel()" title="Pokaż debug">
+        🐛
+    </button>
+
     <script>
         // Konfiguracja globalnych zmiennych
         window.productionConfig = {
@@ -295,145 +330,54 @@
             }
         };
 
-        // Stan aplikacji
-        let refreshInterval;
-        let currentActiveTab = 'dashboard-tab';
-        const REFRESH_INTERVAL_MS = 180000; // 3 minuty = 180000ms
-        
-        // Inicjalizacja po załadowaniu strony
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('Production Dashboard z tabami - inicjalizacja');
+        // Debug panel functions
+        function toggleDebugPanel() {
+            const panel = document.getElementById('debug-panel');
+            const button = document.querySelector('.debug-toggle');
             
-            // Załaduj pierwszy tab
-            loadTabContent('dashboard-tab');
-            
-            // Ustaw auto-refresh co 3 minuty dla aktywnego taba
-            refreshInterval = setInterval(() => {
-                if (currentActiveTab) {
-                    console.log(`Auto-refresh dla taba: ${currentActiveTab} (co 3min)`);
-                    loadTabContent(currentActiveTab, true); // true = silent refresh
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                button.style.display = 'none';
+                updateDebugInfo();
+                // Aktualizuj debug info co 2 sekundy gdy panel jest otwarty
+                if (!window.debugInterval) {
+                    window.debugInterval = setInterval(() => {
+                        if (panel.style.display === 'block') {
+                            updateDebugInfo();
+                        }
+                    }, 2000);
                 }
-            }, REFRESH_INTERVAL_MS);
-            
-            console.log(`Auto-refresh ustawiony na ${REFRESH_INTERVAL_MS/1000/60} minut`);
-        });
-
-        // Główna funkcja ładowania zawartości tabów przez AJAX
-        async function loadTabContent(tabName, silentRefresh = false) {
-            currentActiveTab = tabName;
-            console.log(`Ładowanie taba: ${tabName}, silent: ${silentRefresh}`);
-
-            const loadingElement = document.getElementById(`${tabName}-loading`);
-            const wrapperElement = document.getElementById(`${tabName}-wrapper`);
-            const errorElement = document.getElementById(`${tabName}-error`);
-
-            // Pokaż loading tylko jeśli nie jest to silent refresh
-            if (!silentRefresh) {
-                loadingElement.style.display = 'block';
-                wrapperElement.style.display = 'none';
-                errorElement.style.display = 'none';
-            }
-
-            try {
-                // Określ endpoint na podstawie nazwy taba
-                let endpointKey;
-                if (tabName === 'dashboard-tab') endpointKey = 'dashboardTabContent';
-                else if (tabName === 'products-tab') endpointKey = 'productsTabContent';
-                else if (tabName === 'reports-tab') endpointKey = 'reportsTabContent';
-                else if (tabName === 'stations-tab') endpointKey = 'stationsTabContent';
-                else if (tabName === 'config-tab') endpointKey = 'configTabContent';
-                else throw new Error(`Nieznany tab: ${tabName}`);
-                
-                const endpoint = window.productionConfig.endpoints[endpointKey];
-                
-                if (!endpoint) {
-                    throw new Error(`Brak endpointu dla taba: ${tabName}`);
+            } else {
+                panel.style.display = 'none';
+                button.style.display = 'block';
+                if (window.debugInterval) {
+                    clearInterval(window.debugInterval);
+                    window.debugInterval = null;
                 }
-
-                const response = await fetch(endpoint, {
-                    method: 'GET',
-                    credentials: 'same-origin',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
-
-                const data = await response.json();
-
-                if (!data.success) {
-                    throw new Error(data.error || 'Nieznany błąd API');
-                }
-
-                // Wstaw otrzymaną zawartość HTML
-                wrapperElement.innerHTML = data.html;
-                
-                // Ukryj loading, pokaż zawartość
-                loadingElement.style.display = 'none';
-                wrapperElement.style.display = 'block';
-                errorElement.style.display = 'none';
-
-                // Wykonaj callback dla specjalnych funkcji taba
-                const callbackName = `on${tabName.replace('-tab', '').charAt(0).toUpperCase() + tabName.replace('-tab', '').slice(1)}TabLoaded`;
-                if (typeof window[callbackName] === 'function') {
-                    window[callbackName](data);
-                }
-
-                console.log(`Tab ${tabName} załadowany pomyślnie`);
-
-            } catch (error) {
-                console.error(`Błąd ładowania taba ${tabName}:`, error);
-                
-                // Pokaż błąd
-                loadingElement.style.display = 'none';
-                wrapperElement.style.display = 'none';
-                errorElement.style.display = 'block';
-                document.getElementById(`${tabName}-error-message`).textContent = error.message;
             }
         }
 
-        // Callbacki dla poszczególnych tabów
-        window.onDashboardTabLoaded = function(data) {
-            console.log('Dashboard tab loaded, initializing widgets...');
-            if (window.productionConfig.currentUser.role === 'admin') {
-                initializeCharts();
-            }
-            initializeDashboardWidgets();
-        };
+        function updateDebugInfo() {
+            const status = document.getElementById('status-text')?.textContent || 'Nieznany';
+            const activeTab = window.TabDashboard?.state?.currentActiveTab || 'Nieznany';
+            const retryCount = window.TabDashboard?.state?.retryCount || 0;
+            const autoRefresh = window.TabDashboard?.state?.refreshInterval ? 'ON' : 'OFF';
+            
+            document.getElementById('debug-status').textContent = status;
+            document.getElementById('debug-active-tab').textContent = activeTab;
+            document.getElementById('debug-retry-count').textContent = retryCount;
+            document.getElementById('debug-auto-refresh').textContent = autoRefresh;
+            
+            // Używaj rzeczywistego API call timestamp
+            document.getElementById('debug-last-api').textContent = window.lastApiCall || 'Brak API calls';
+        }
 
-        window.onProductsTabLoaded = function(data) {
-            console.log('Products tab loaded, initializing filters...');
-            initializeProductFilters();
-            if (window.productionConfig.currentUser.role === 'admin') {
-                initializeDragAndDrop();
-            }
-        };
-
-        window.onReportsTabLoaded = function(data) {
-            console.log('Reports tab loaded, initializing reports...');
-            initializeReports();
-        };
-
-        window.onStationsTabLoaded = function(data) {
-            console.log('Stations tab loaded, initializing stations...');
-            initializeStations();
-        };
-
-        window.onConfigTabLoaded = function(data) {
-            console.log('Config tab loaded, initializing forms...');
-            initializeConfigForms();
-        };
-
-        // System odświeżania z timerem
+        // System odświeżania z timerem - dla przycisku refresh w headerze
         function refreshSystemWithTimer() {
             const btn = document.getElementById('refresh-system-btn');
             const timer = document.getElementById('refresh-timer');
+            
+            if (!btn || !timer) return;
             
             // Zablokuj przycisk
             btn.disabled = true;
@@ -442,8 +386,10 @@
             let seconds = 5;
             timer.textContent = `(${seconds}s)`;
             
-            // Odśwież aktywny tab
-            loadTabContent(currentActiveTab);
+            // Odśwież aktywny tab przez production-dashboard.js
+            if (typeof window.loadTabContent === 'function' && window.TabDashboard?.state?.currentActiveTab) {
+                window.loadTabContent(window.TabDashboard.state.currentActiveTab);
+            }
             
             // Odliczanie
             const countdown = setInterval(() => {
@@ -457,27 +403,7 @@
                 }
             }, 1000);
         }
-
-        // Placeholder functions - zostaną zaimplementowane później
-        function initializeCharts() { console.log('TODO: Initialize charts'); }
-        function initializeDashboardWidgets() { console.log('TODO: Initialize dashboard widgets'); }
-        function initializeProductFilters() { console.log('TODO: Initialize product filters'); }
-        function initializeDragAndDrop() { console.log('TODO: Initialize drag and drop'); }
-        function initializeReports() { console.log('TODO: Initialize reports'); }
-        function initializeStations() { console.log('TODO: Initialize stations'); }
-        function initializeConfigForms() { console.log('TODO: Initialize config forms'); }
-
-        // Status systemu
-        function updateSystemStatus(status, message) {
-            const indicator = document.getElementById('status-indicator');
-            const text = document.getElementById('status-text');
-            
-            indicator.className = `status-indicator ${status}`;
-            text.textContent = message;
-        }
-
-        // Początkowy status
-        updateSystemStatus('loading', 'Inicjalizacja systemu...');
     </script>
+
 </body>
 </html>

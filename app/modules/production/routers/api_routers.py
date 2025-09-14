@@ -1019,6 +1019,141 @@ def update_config():
             'error': str(e)
         }), 500
 
+@api_bp.route('/baselinker-health')
+@login_required
+def baselinker_health():
+    """
+    Lightweight sprawdzenie statusu Baselinker API
+    Używa minimalnego requesta aby nie obciążać API
+    
+    Returns:
+        JSON: {
+            'status': 'connected'|'slow'|'error'|'unknown',
+            'response_time': float|None,
+            'error': str|None
+        }
+    """
+    try:
+        import time
+        import requests
+        from flask import current_app
+        
+        logger.info("API: Sprawdzanie statusu Baselinker", extra={
+            'user_id': current_user.id,
+            'endpoint': 'baselinker-health'
+        })
+        
+        start_time = time.time()
+        
+        # Pobierz konfigurację API
+        api_config = current_app.config.get('API_BASELINKER', {})
+        api_key = api_config.get('api_key')
+        endpoint = api_config.get('endpoint', 'https://api.baselinker.com/connector.php')
+        
+        if not api_key:
+            logger.warning("Brak klucza API Baselinker")
+            return jsonify({
+                'status': 'error', 
+                'error': 'Brak skonfigurowanego klucza API',
+                'response_time': None
+            })
+        
+        # Minimalny request - sprawdź tylko dostępność
+        # Używamy getInventories bo to jeden z najmniejszych requestów
+        payload = {
+            'method': 'getInventories'
+        }
+        
+        headers = {
+            'X-BLToken': api_key,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        
+        response = requests.post(
+            endpoint,
+            data=payload,
+            headers=headers,
+            timeout=10  # 10 sekund timeout
+        )
+        
+        response_time = time.time() - start_time
+        
+        logger.info(f"Baselinker API response: {response.status_code}, time: {response_time:.2f}s")
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                
+                # Sprawdź czy API zwróciło błąd
+                if 'error' in data and data['error']:
+                    logger.warning(f"Baselinker API error: {data['error']}")
+                    return jsonify({
+                        'status': 'error',
+                        'error': f"API Error: {data['error']}",
+                        'response_time': response_time
+                    })
+                
+                # API działa poprawnie
+                # Określ status na podstawie czasu odpowiedzi
+                if response_time > 5.0:
+                    status = 'slow'
+                elif response_time > 3.0:
+                    status = 'slow'
+                else:
+                    status = 'connected'
+                
+                logger.info(f"Baselinker status: {status}")
+                
+                return jsonify({
+                    'status': status,
+                    'response_time': response_time,
+                    'error': None
+                })
+                
+            except ValueError as e:
+                # Błąd parsowania JSON
+                logger.error(f"Baselinker JSON parse error: {str(e)}")
+                return jsonify({
+                    'status': 'error',
+                    'error': 'Nieprawidłowa odpowiedź API (JSON)',
+                    'response_time': response_time
+                })
+        else:
+            # HTTP error
+            logger.warning(f"Baselinker HTTP error: {response.status_code}")
+            return jsonify({
+                'status': 'error',
+                'error': f'HTTP {response.status_code}: {response.reason}',
+                'response_time': response_time
+            })
+            
+    except requests.exceptions.Timeout:
+        logger.warning("Baselinker API timeout")
+        return jsonify({
+            'status': 'error',
+            'error': 'Timeout połączenia (>10s)',
+            'response_time': None
+        })
+        
+    except requests.exceptions.ConnectionError:
+        logger.error("Baselinker connection error")
+        return jsonify({
+            'status': 'error',
+            'error': 'Błąd połączenia z API',
+            'response_time': None
+        })
+        
+    except Exception as e:
+        logger.error(f"Baselinker health check error: {str(e)}", extra={
+            'error': str(e),
+            'user_id': current_user.id
+        })
+        return jsonify({
+            'status': 'error',
+            'error': f'Nieoczekiwany błąd: {str(e)}',
+            'response_time': None
+        })
+
 @api_bp.route('/health')
 def health_check():
     """
