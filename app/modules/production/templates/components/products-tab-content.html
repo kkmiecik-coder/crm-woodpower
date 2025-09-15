@@ -519,16 +519,16 @@
     function initProductsTab() {
         console.log('[Products Tab] Inicjalizacja rozbudowanej wersji...');
 
-        // Sprawdź dostępność priority-config.js
+        // Sprawdź dostępność product-list-dashboard.js
         if (typeof initProductsList === 'function') {
             initProductsList();
         } else {
-            console.warn('[Products Tab] priority-config.js nie jest załadowany - używam fallback');
+            console.warn('[Products Tab] product-list-dashboard.js nie jest załadowany - używam fallback');
             initProductsTabFallback();
         }
     }
 
-    // Fallback inicjalizacja jeśli priority-config.js nie jest dostępny
+    // Fallback inicjalizacja jeśli product-list-dashboard.js nie jest dostępny
     function initProductsTabFallback() {
         console.log('[Products Tab] Fallback inicjalizacja...');
 
