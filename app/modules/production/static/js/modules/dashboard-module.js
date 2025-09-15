@@ -1,20 +1,23 @@
-/**
- * Dashboard Module - Logika dashboard przeniesiona z production-dashboard.js
- * ========================================================================
- * 
- * Odpowiedzialności:
- * - Ładowanie i renderowanie dashboard content
- * - Zarządzanie widgetami dashboard
- * - Obsługa systemu wykresów (dla adminów)
- * - Refresh management dla dashboard
- * - System health monitoring
- * 
- * Autor: Konrad Kmiecik
- * Wersja: 1.0 - Wyciągnięcie z production-dashboard.js
- * Data: 2025-01-15
- */
+(function (global) {
+    'use strict';
 
-export class DashboardModule {
+    /**
+     * Dashboard Module - Logika dashboard przeniesiona z production-dashboard.js
+     * ========================================================================
+     *
+     * Odpowiedzialności:
+     * - Ładowanie i renderowanie dashboard content
+     * - Zarządzanie widgetami dashboard
+     * - Obsługa systemu wykresów (dla adminów)
+     * - Refresh management dla dashboard
+     * - System health monitoring
+     *
+     * Autor: Konrad Kmiecik
+     * Wersja: 1.0 - Wyciągnięcie z production-dashboard.js
+     * Data: 2025-01-15
+     */
+
+    class DashboardModule {
     constructor(shared, config) {
         this.shared = shared;
         this.config = config;
@@ -37,6 +40,25 @@ export class DashboardModule {
             systemHealthWidget: null,
             performanceChart: null
         };
+
+        // Modal / status helpers
+        this.errorsModalInstance = null;
+        this.isFetchingErrors = false;
+        this.currentChartPeriod = 7;
+        this.performanceChartInitialized = false;
+
+        // Event tracking
+        this.eventTargets = {};
+        this.chartControls = {};
+
+        // Bound handlers for cleanup
+        this.boundManualSyncHandler = this.handleManualSync.bind(this);
+        this.boundShowErrorsHandler = this.showSystemErrorsModal.bind(this);
+        this.boundClearErrorsHandler = this.handleClearErrorsClick.bind(this);
+        this.boundCloseErrorsModalHandler = this.handleCloseErrorsModal.bind(this);
+        this.boundClearModalErrorsHandler = this.handleClearModalErrorsClick.bind(this);
+        this.boundChartPeriodChangeHandler = this.handleChartPeriodChange.bind(this);
+        this.boundChartRefreshHandler = this.handleChartRefresh.bind(this);
     }
 
     // ========================================================================
@@ -53,6 +75,7 @@ export class DashboardModule {
 
         try {
             // 1. Load dashboard content from API
+            this.setSystemStatus('info', 'Ładowanie danych dashboardu...');
             await this.loadDashboardContent();
 
             // 2. Initialize widgets
@@ -113,7 +136,8 @@ export class DashboardModule {
         console.log('[Dashboard Module] Refreshing dashboard...');
 
         try {
-            await this.loadDashboardContent();
+            this.setSystemStatus('info', 'Aktualizuję dane dashboardu...');
+            await this.loadDashboardContent({ skipCache: true });
             this.updateWidgets();
             this.state.lastRefresh = new Date();
 
@@ -121,12 +145,17 @@ export class DashboardModule {
                 timestamp: this.state.lastRefresh
             });
 
+            if (this.performanceChartInitialized) {
+                this.loadChartData(this.currentChartPeriod || 7);
+            }
+
         } catch (error) {
             console.error('[Dashboard Module] Refresh failed:', error);
             this.shared.toastSystem.show(
                 'Błąd odświeżania dashboard: ' + error.message,
                 'warning'
             );
+            this.setSystemStatus('error', 'Błąd odświeżania: ' + error.message);
         }
     }
 
@@ -134,8 +163,9 @@ export class DashboardModule {
     // CONTENT LOADING
     // ========================================================================
 
-    async loadDashboardContent() {
-        const response = await this.shared.apiClient.getDashboardTabContent();
+    async loadDashboardContent(options = {}) {
+        const { skipCache = false } = options;
+        const response = await this.shared.apiClient.getDashboardTabContent({ skipCache });
 
         if (!response.success) {
             throw new Error(response.error || 'Failed to load dashboard content');
@@ -149,7 +179,13 @@ export class DashboardModule {
         }
 
         // Store stats for widgets
-        this.state.stats = response.stats;
+        this.state.stats = response.stats || {};
+
+        if (this.state.stats.system_health) {
+            this.updateProductionStatus(this.state.stats.system_health);
+        } else {
+            this.setSystemStatus('loading', 'Oczekiwanie na dane systemowe...');
+        }
 
         return response;
     }
@@ -329,6 +365,7 @@ export class DashboardModule {
         this.updateLastSync(healthData.last_sync, healthData.sync_status);
         this.updateDatabaseStatus(healthData.database_status);
         this.updateSystemErrors(healthData.errors_24h);
+        this.updateProductionStatus(healthData);
     }
 
     // ========================================================================
@@ -351,7 +388,9 @@ export class DashboardModule {
             this.initChartControls(chartContainer);
 
             // Load chart data
-            await this.loadChartData(7); // Default 7 days
+            await this.loadChartData(this.currentChartPeriod || 7); // Default 7 days
+
+            this.performanceChartInitialized = true;
 
         } catch (error) {
             console.error('[Dashboard Module] Chart initialization failed:', error);
@@ -362,47 +401,83 @@ export class DashboardModule {
         const controlsContainer = container.querySelector('.chart-controls');
         if (!controlsContainer) return;
 
-        controlsContainer.innerHTML = `
-            <select id="chart-period-select" class="form-select form-select-sm">
-                <option value="7">Ostatnie 7 dni</option>
-                <option value="14">Ostatnie 14 dni</option>
-                <option value="30">Ostatnie 30 dni</option>
-            </select>
-            <button id="chart-refresh-btn" class="btn btn-outline-primary btn-sm">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-        `;
+        if (!controlsContainer.dataset.initialized) {
+            controlsContainer.innerHTML = `
+                <div class="d-flex align-items-center gap-2">
+                    <select id="chart-period-select" class="form-select form-select-sm" aria-label="Zakres wykresu">
+                        <option value="7">Ostatnie 7 dni</option>
+                        <option value="14">Ostatnie 14 dni</option>
+                        <option value="30">Ostatnie 30 dni</option>
+                    </select>
+                    <button id="chart-refresh-btn" class="btn btn-outline-primary btn-sm" type="button" title="Odśwież wykres">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            `;
+
+            controlsContainer.dataset.initialized = 'true';
+        }
 
         // Event listeners
         const periodSelect = document.getElementById('chart-period-select');
         const refreshBtn = document.getElementById('chart-refresh-btn');
 
         if (periodSelect) {
-            periodSelect.addEventListener('change', (e) => {
-                this.loadChartData(parseInt(e.target.value));
-            });
+            periodSelect.value = String(this.currentChartPeriod || 7);
+            periodSelect.removeEventListener('change', this.boundChartPeriodChangeHandler);
+            periodSelect.addEventListener('change', this.boundChartPeriodChangeHandler);
+            this.chartControls.periodSelect = periodSelect;
         }
 
         if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
-                const period = parseInt(periodSelect?.value || 7);
-                this.loadChartData(period);
-            });
+            refreshBtn.removeEventListener('click', this.boundChartRefreshHandler);
+            refreshBtn.addEventListener('click', this.boundChartRefreshHandler);
+            this.chartControls.refreshBtn = refreshBtn;
         }
     }
 
     async loadChartData(period) {
+        const normalizedPeriod = [7, 14, 30].includes(period) ? period : 7;
+        this.currentChartPeriod = normalizedPeriod;
+
+        const chartContainer = document.querySelector('.widget.performance-chart');
+        const loader = chartContainer?.querySelector('.chart-loader');
+        const canvas = chartContainer?.querySelector('#performance-chart-canvas');
+
+        if (loader) {
+            loader.style.display = 'flex';
+        }
+
+        if (canvas) {
+            canvas.style.opacity = '0.3';
+        }
+
         try {
-            const response = await this.shared.apiClient.request(`/chart-data?period=${period}`);
+            const response = await this.shared.apiClient.request(`/chart-data?period=${normalizedPeriod}`, { skipCache: true });
 
             if (response.success) {
                 this.createOrUpdateChart(response.chart_data, response.summary);
-                this.state.chartData = response;
+                this.state.chartData = response.chart_data;
+                this.state.chartSummary = response.summary;
+
+                if (this.chartControls.periodSelect) {
+                    this.chartControls.periodSelect.value = String(normalizedPeriod);
+                }
+            } else {
+                throw new Error(response.error || 'Nie udało się pobrać danych wykresu');
             }
 
         } catch (error) {
             console.error('[Dashboard Module] Chart data loading failed:', error);
-            this.showChartError('Błąd ładowania danych wykresu');
+            this.showChartError(error.message || 'Błąd ładowania danych wykresu');
+        } finally {
+            if (loader) {
+                loader.style.display = 'none';
+            }
+
+            if (canvas) {
+                canvas.style.opacity = '1';
+            }
         }
     }
 
@@ -411,6 +486,16 @@ export class DashboardModule {
         if (!canvas) return;
 
         const ctx = canvas.getContext('2d');
+        const container = canvas.parentElement;
+
+        if (container) {
+            const errorBox = container.querySelector('.chart-error');
+            if (errorBox) {
+                errorBox.style.display = 'none';
+            }
+        }
+
+        canvas.style.display = 'block';
 
         // Destroy existing chart
         if (this.chartInstance) {
@@ -424,6 +509,10 @@ export class DashboardModule {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
                 plugins: {
                     title: {
                         display: true,
@@ -433,6 +522,15 @@ export class DashboardModule {
                     legend: {
                         display: true,
                         position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y ?? 0;
+                                return `${label}: ${value.toFixed(2)} m³`;
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -456,13 +554,28 @@ export class DashboardModule {
 
     showChartError(message) {
         const chartContainer = document.querySelector('.widget.performance-chart .widget-content');
-        if (chartContainer) {
-            chartContainer.innerHTML = `
-                <div class="alert alert-danger">
-                    <strong>Błąd wykresu:</strong> ${message}
-                </div>
-            `;
+        if (!chartContainer) return;
+
+        const canvas = chartContainer.querySelector('#performance-chart-canvas');
+        const loader = chartContainer.querySelector('.chart-loader');
+
+        if (canvas) {
+            canvas.style.display = 'none';
         }
+
+        if (loader) {
+            loader.style.display = 'none';
+        }
+
+        let errorBox = chartContainer.querySelector('.chart-error');
+        if (!errorBox) {
+            errorBox = document.createElement('div');
+            errorBox.className = 'chart-error alert alert-danger mt-3';
+            chartContainer.appendChild(errorBox);
+        }
+
+        errorBox.innerHTML = `<strong>Błąd wykresu:</strong> ${this.escapeHtml(message || 'Nieznany błąd')}`;
+        errorBox.style.display = 'block';
     }
 
     // ========================================================================
@@ -470,49 +583,115 @@ export class DashboardModule {
     // ========================================================================
 
     setupEventListeners() {
+        this.eventTargets = this.eventTargets || {};
+
         // Manual sync button
         const manualSyncBtn = document.getElementById('manual-sync-btn');
         if (manualSyncBtn) {
-            manualSyncBtn.addEventListener('click', this.handleManualSync.bind(this));
+            manualSyncBtn.removeEventListener('click', this.boundManualSyncHandler);
+            manualSyncBtn.addEventListener('click', this.boundManualSyncHandler);
+            this.eventTargets.manualSyncBtn = manualSyncBtn;
         }
 
-        // System errors modal
-        const showErrorsBtn = document.querySelector('.error-details-btn');
-        if (showErrorsBtn) {
-            showErrorsBtn.addEventListener('click', this.showSystemErrorsModal.bind(this));
-        }
+        if (this.config.user?.isAdmin) {
+            // System errors modal trigger
+            const showErrorsBtn = document.getElementById('show-errors-btn');
+            if (showErrorsBtn) {
+                showErrorsBtn.removeEventListener('click', this.boundShowErrorsHandler);
+                showErrorsBtn.addEventListener('click', this.boundShowErrorsHandler);
+                this.eventTargets.showErrorsBtn = showErrorsBtn;
+            }
 
-        // Clear errors button
-        const clearErrorsBtn = document.querySelector('[onclick*="clearSystemErrors"]');
-        if (clearErrorsBtn) {
-            clearErrorsBtn.addEventListener('click', this.clearSystemErrors.bind(this));
+            // Widget clear errors button
+            const clearErrorsBtn = document.getElementById('clear-errors-btn');
+            if (clearErrorsBtn) {
+                clearErrorsBtn.removeEventListener('click', this.boundClearErrorsHandler);
+                clearErrorsBtn.addEventListener('click', this.boundClearErrorsHandler);
+                this.eventTargets.clearErrorsBtn = clearErrorsBtn;
+            }
+
+            // Modal specific controls
+            const modalElement = document.getElementById('systemErrorsModal');
+            if (modalElement && global.bootstrap && typeof global.bootstrap.Modal === 'function') {
+                this.errorsModalInstance = global.bootstrap.Modal.getOrCreateInstance(modalElement);
+
+                const closeButton = modalElement.querySelector('[data-action="close-errors-modal"]');
+                if (closeButton) {
+                    closeButton.removeEventListener('click', this.boundCloseErrorsModalHandler);
+                    closeButton.addEventListener('click', this.boundCloseErrorsModalHandler);
+                    this.eventTargets.closeErrorsBtn = closeButton;
+                }
+
+                const modalClearBtn = document.getElementById('clear-modal-errors-btn');
+                if (modalClearBtn) {
+                    modalClearBtn.removeEventListener('click', this.boundClearModalErrorsHandler);
+                    modalClearBtn.addEventListener('click', this.boundClearModalErrorsHandler);
+                    this.eventTargets.modalClearErrorsBtn = modalClearBtn;
+                }
+            }
         }
 
         console.log('[Dashboard Module] Event listeners setup complete');
     }
 
     removeEventListeners() {
-        // Remove any manually attached listeners
-        // Most will be cleaned up when DOM is replaced
+        if (!this.eventTargets) return;
+
+        if (this.eventTargets.manualSyncBtn) {
+            this.eventTargets.manualSyncBtn.removeEventListener('click', this.boundManualSyncHandler);
+        }
+
+        if (this.eventTargets.showErrorsBtn) {
+            this.eventTargets.showErrorsBtn.removeEventListener('click', this.boundShowErrorsHandler);
+        }
+
+        if (this.eventTargets.clearErrorsBtn) {
+            this.eventTargets.clearErrorsBtn.removeEventListener('click', this.boundClearErrorsHandler);
+        }
+
+        if (this.eventTargets.closeErrorsBtn) {
+            this.eventTargets.closeErrorsBtn.removeEventListener('click', this.boundCloseErrorsModalHandler);
+        }
+
+        if (this.eventTargets.modalClearErrorsBtn) {
+            this.eventTargets.modalClearErrorsBtn.removeEventListener('click', this.boundClearModalErrorsHandler);
+        }
+
+        if (this.chartControls.periodSelect) {
+            this.chartControls.periodSelect.removeEventListener('change', this.boundChartPeriodChangeHandler);
+        }
+
+        if (this.chartControls.refreshBtn) {
+            this.chartControls.refreshBtn.removeEventListener('click', this.boundChartRefreshHandler);
+        }
+
+        this.eventTargets = {};
+        this.chartControls = {};
+        this.errorsModalInstance = null;
     }
 
     // ========================================================================
     // EVENT HANDLERS
     // ========================================================================
 
-    async handleManualSync() {
+    async handleManualSync(event) {
+        if (event) {
+            event.preventDefault();
+        }
+
         try {
             this.shared.loadingManager.show('manual-sync', 'Synchronizacja w toku...');
+            this.setSystemStatus('info', 'Rozpoczęto synchronizację danych...');
 
             const response = await this.shared.apiClient.triggerManualSync();
 
             if (response.success) {
                 this.shared.toastSystem.show('Synchronizacja zakończona pomyślnie', 'success');
+                this.setSystemStatus('info', 'Synchronizacja zakończona, odświeżam dane...');
 
-                // Refresh dashboard after sync
                 setTimeout(() => {
                     this.refresh();
-                }, 2000);
+                }, 800);
             } else {
                 throw new Error(response.error || 'Synchronizacja nie powiodła się');
             }
@@ -520,19 +699,351 @@ export class DashboardModule {
         } catch (error) {
             console.error('[Dashboard Module] Manual sync failed:', error);
             this.shared.toastSystem.show('Błąd synchronizacji: ' + error.message, 'error');
+            this.setSystemStatus('error', 'Błąd synchronizacji: ' + error.message);
         } finally {
             this.shared.loadingManager.hide('manual-sync');
         }
     }
 
-    showSystemErrorsModal() {
-        // TODO: Implement system errors modal
-        this.shared.toastSystem.show('Modal błędów systemu będzie dostępny wkrótce', 'info');
+    async showSystemErrorsModal(event) {
+        if (event) {
+            event.preventDefault();
+        }
+
+        if (!this.config.user?.isAdmin) {
+            this.shared.toastSystem.show('Brak uprawnień do podglądu błędów systemu', 'warning');
+            return;
+        }
+
+        const modalElement = document.getElementById('systemErrorsModal');
+        if (!modalElement) {
+            this.shared.toastSystem.show('Nie znaleziono modala błędów systemu', 'error');
+            return;
+        }
+
+        if (!this.errorsModalInstance && global.bootstrap && typeof global.bootstrap.Modal === 'function') {
+            this.errorsModalInstance = global.bootstrap.Modal.getOrCreateInstance(modalElement);
+        }
+
+        if (this.isFetchingErrors) {
+            if (this.errorsModalInstance) {
+                this.errorsModalInstance.show();
+            }
+            return;
+        }
+
+        this.isFetchingErrors = true;
+        this.toggleErrorsLoading(true);
+
+        try {
+            const endpoint = this.config.endpoints?.systemErrors || '/production/admin/ajax/system-errors';
+            const response = await fetch(endpoint, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.error || 'Nie udało się pobrać błędów systemu');
+            }
+
+            this.renderSystemErrors(data.errors || []);
+            this.toggleErrorsLoading(false);
+
+            if (this.errorsModalInstance) {
+                this.errorsModalInstance.show();
+            }
+        } catch (error) {
+            console.error('[Dashboard Module] Failed to load system errors:', error);
+            this.toggleErrorsLoading(false);
+            this.renderSystemErrorsError(error.message);
+            this.shared.toastSystem.show('Błąd pobierania błędów systemu: ' + error.message, 'error');
+            if (this.errorsModalInstance) {
+                this.errorsModalInstance.show();
+            }
+        } finally {
+            this.isFetchingErrors = false;
+        }
     }
 
-    clearSystemErrors() {
-        // TODO: Implement clear system errors
-        this.shared.toastSystem.show('Czyszczenie błędów systemu będzie dostępne wkrótce', 'info');
+    async clearSystemErrors(options = {}) {
+        const { fromModal = false, event = null } = options;
+
+        if (event) {
+            event.preventDefault();
+        }
+
+        if (!this.config.user?.isAdmin) {
+            this.shared.toastSystem.show('Brak uprawnień administratora', 'warning');
+            return;
+        }
+
+        const confirmed = fromModal || window.confirm('Czy na pewno chcesz oznaczyć wszystkie błędy jako rozwiązane?');
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            if (fromModal) {
+                this.toggleErrorsLoading(true);
+            }
+
+            this.shared.loadingManager.show('clear-system-errors', 'Czyszczenie błędów systemu...');
+
+            const endpoint = this.config.endpoints?.clearSystemErrors || '/production/admin/ajax/clear-system-errors';
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.error || 'Nie udało się wyczyścić błędów systemu');
+            }
+
+            this.shared.toastSystem.show(data.message || 'Błędy systemu zostały wyczyszczone', 'success');
+
+            if (this.state.stats?.system_health) {
+                this.state.stats.system_health.errors_24h = 0;
+                this.updateSystemErrors(0);
+                this.updateProductionStatus(this.state.stats.system_health);
+            }
+
+            if (fromModal) {
+                this.renderSystemErrors([]);
+            }
+
+            this.refresh();
+        } catch (error) {
+            console.error('[Dashboard Module] Failed to clear system errors:', error);
+            this.shared.toastSystem.show('Błąd czyszczenia błędów: ' + error.message, 'error');
+        } finally {
+            this.shared.loadingManager.hide('clear-system-errors');
+            if (fromModal) {
+                this.toggleErrorsLoading(false);
+            }
+        }
+    }
+
+    closeSystemErrorsModal(event) {
+        if (event) {
+            event.preventDefault();
+        }
+
+        if (this.errorsModalInstance) {
+            this.errorsModalInstance.hide();
+        }
+
+        this.isFetchingErrors = false;
+        this.toggleErrorsLoading(false);
+    }
+
+    handleClearErrorsClick(event) {
+        this.clearSystemErrors({ event });
+    }
+
+    handleCloseErrorsModal(event) {
+        this.closeSystemErrorsModal(event);
+    }
+
+    handleClearModalErrorsClick(event) {
+        this.clearSystemErrors({ fromModal: true, event });
+    }
+
+    toggleErrorsLoading(isLoading) {
+        const loadingElement = document.getElementById('errors-loading');
+        const listElement = document.getElementById('errors-list');
+        const emptyState = document.getElementById('errors-empty');
+
+        if (loadingElement) {
+            loadingElement.style.display = isLoading ? 'block' : 'none';
+        }
+
+        if (isLoading) {
+            if (listElement) {
+                listElement.style.display = 'none';
+            }
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
+        }
+    }
+
+    renderSystemErrors(errors) {
+        const listElement = document.getElementById('errors-list');
+        const emptyState = document.getElementById('errors-empty');
+
+        if (!listElement || !emptyState) {
+            return;
+        }
+
+        if (!errors || errors.length === 0) {
+            listElement.innerHTML = '';
+            listElement.style.display = 'none';
+            emptyState.style.display = 'block';
+            return;
+        }
+
+        emptyState.style.display = 'none';
+        listElement.style.display = 'block';
+        listElement.innerHTML = errors.map(error => this.createSystemErrorHTML(error)).join('');
+    }
+
+    renderSystemErrorsError(message) {
+        const listElement = document.getElementById('errors-list');
+        const emptyState = document.getElementById('errors-empty');
+
+        if (emptyState) {
+            emptyState.style.display = 'none';
+        }
+
+        if (listElement) {
+            listElement.style.display = 'block';
+            listElement.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Nie udało się pobrać błędów systemu.</strong><br>
+                    <span>${this.escapeHtml(message || 'Spróbuj ponownie później.')}</span>
+                </div>
+            `;
+        }
+    }
+
+    createSystemErrorHTML(error) {
+        const occurredAt = error?.error_occurred_at
+            ? new Date(error.error_occurred_at).toLocaleString('pl-PL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            })
+            : 'Brak danych';
+
+        const statusBadge = error?.is_resolved
+            ? '<span class="badge bg-success">Rozwiązany</span>'
+            : '<span class="badge bg-danger">Nierozwiązany</span>';
+
+        const productInfo = error?.related_product_id
+            ? `<span class="badge bg-info text-dark ms-2">Produkt #${this.escapeHtml(error.related_product_id)}</span>`
+            : '';
+
+        const orderInfo = error?.related_order_id
+            ? `<span class="badge bg-secondary ms-2">Zamówienie #${this.escapeHtml(error.related_order_id)}</span>`
+            : '';
+
+        const detailsHtml = this.formatErrorDetails(error?.error_details);
+
+        return `
+            <div class="system-error-item ${error?.is_resolved ? 'resolved' : 'unresolved'}">
+                <div class="system-error-header d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fw-semibold text-uppercase text-muted small">${this.escapeHtml(error?.error_type || 'system')}</div>
+                        <div class="system-error-message fw-semibold">${this.escapeHtml(error?.error_message || 'Brak opisu błędu')}</div>
+                    </div>
+                    <div class="text-end">
+                        ${statusBadge}
+                        <div class="text-muted small mt-1">${this.escapeHtml(occurredAt)}</div>
+                    </div>
+                </div>
+                <div class="system-error-meta mt-2">
+                    <span class="badge bg-light text-dark">Lokalizacja: ${this.escapeHtml(error?.error_location || 'Nieznana')}</span>
+                    ${productInfo}
+                    ${orderInfo}
+                </div>
+                ${detailsHtml}
+            </div>
+        `;
+    }
+
+    formatErrorDetails(details) {
+        if (!details) {
+            return '';
+        }
+
+        const normalized = typeof details === 'string'
+            ? details
+            : Array.isArray(details)
+                ? details
+                : typeof details === 'object'
+                    ? Object.entries(details)
+                    : [];
+
+        if (typeof normalized === 'string') {
+            return `<div class="system-error-details mt-2"><small class="text-muted">${this.escapeHtml(normalized)}</small></div>`;
+        }
+
+        const items = Array.isArray(normalized)
+            ? normalized.map(entry => {
+                if (Array.isArray(entry)) {
+                    const [key, value] = entry;
+                    return `<li><strong>${this.escapeHtml(key)}:</strong> ${this.escapeHtml(this.stringifyDetailValue(value))}</li>`;
+                }
+                return `<li>${this.escapeHtml(this.stringifyDetailValue(entry))}</li>`;
+            })
+            : [];
+
+        if (!items.length) {
+            return '';
+        }
+
+        return `
+            <div class="system-error-details mt-2">
+                <ul class="mb-0 small text-muted">
+                    ${items.join('')}
+                </ul>
+            </div>
+        `;
+    }
+
+    stringifyDetailValue(value) {
+        if (value === null || value === undefined) {
+            return 'brak danych';
+        }
+
+        if (typeof value === 'object') {
+            try {
+                return JSON.stringify(value);
+            } catch (error) {
+                return String(value);
+            }
+        }
+
+        return String(value);
+    }
+
+    handleChartPeriodChange(event) {
+        const target = event?.target;
+        const period = target ? parseInt(target.value, 10) : NaN;
+        const normalizedPeriod = [7, 14, 30].includes(period) ? period : 7;
+
+        this.currentChartPeriod = normalizedPeriod;
+        this.loadChartData(normalizedPeriod);
+    }
+
+    handleChartRefresh(event) {
+        if (event) {
+            event.preventDefault();
+        }
+
+        const period = this.currentChartPeriod || parseInt(this.chartControls.periodSelect?.value, 10) || 7;
+        this.loadChartData(period);
     }
 
     // ========================================================================
@@ -540,6 +1051,10 @@ export class DashboardModule {
     // ========================================================================
 
     setupAutoRefresh() {
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+        }
+
         // Refresh dashboard every 3 minutes
         this.autoRefreshInterval = setInterval(() => {
             if (!document.hidden) {
@@ -568,6 +1083,19 @@ export class DashboardModule {
         }
 
         return 0;
+    }
+
+    escapeHtml(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     updateNumberWithAnimation(element, newValue) {
@@ -729,6 +1257,95 @@ export class DashboardModule {
         }
     }
 
+    updateProductionStatus(health) {
+        const statusInfo = this.determineSystemStatus(health);
+        this.setSystemStatus(statusInfo.status, statusInfo.message);
+    }
+
+    setSystemStatus(status, message) {
+        const indicator = document.getElementById('status-indicator');
+        const textElement = document.getElementById('status-text');
+
+        if (!indicator || !textElement) {
+            return;
+        }
+
+        const statuses = ['success', 'warning', 'error', 'loading'];
+        indicator.classList.remove('success', 'warning', 'error', 'loading');
+
+        const normalizedStatus = statuses.includes(status) ? status : 'loading';
+
+        if (status === 'info') {
+            indicator.classList.add('loading');
+            indicator.style.backgroundColor = '#0d6efd';
+            indicator.style.boxShadow = '0 0 6px rgba(13, 110, 253, 0.45)';
+        } else if (normalizedStatus === 'loading') {
+            indicator.classList.add('loading');
+            indicator.style.backgroundColor = '';
+            indicator.style.boxShadow = '';
+        } else {
+            indicator.classList.add(normalizedStatus);
+            indicator.style.backgroundColor = '';
+            indicator.style.boxShadow = '';
+        }
+
+        indicator.dataset.status = status;
+        textElement.textContent = message || '';
+    }
+
+    determineSystemStatus(health) {
+        if (!health) {
+            return {
+                status: 'loading',
+                message: 'Oczekiwanie na dane systemowe...'
+            };
+        }
+
+        const databaseStatus = (health.database_status || '').toLowerCase();
+        if (databaseStatus && databaseStatus !== 'connected' && databaseStatus !== 'ok') {
+            return {
+                status: 'error',
+                message: 'Brak połączenia z bazą danych'
+            };
+        }
+
+        const syncStatus = (health.sync_status || '').toLowerCase();
+        if (['failed', 'error'].includes(syncStatus)) {
+            return {
+                status: 'error',
+                message: 'Synchronizacja zakończona błędem'
+            };
+        }
+
+        const errorsCount = Number(health.errors_24h) || 0;
+
+        if (errorsCount >= 10) {
+            return {
+                status: 'error',
+                message: `Wykryto ${errorsCount} błędów w ciągu 24h`
+            };
+        }
+
+        if (syncStatus && !['success', 'completed', 'ok'].includes(syncStatus)) {
+            return {
+                status: 'warning',
+                message: 'Synchronizacja wymaga uwagi'
+            };
+        }
+
+        if (errorsCount > 0) {
+            return {
+                status: 'warning',
+                message: `Zgłoszone błędy: ${errorsCount}`
+            };
+        }
+
+        return {
+            status: 'success',
+            message: 'System działa poprawnie'
+        };
+    }
+
     getNoAlertsHTML() {
         return `
             <div class="no-alerts-state">
@@ -764,3 +1381,11 @@ export class DashboardModule {
         `;
     }
 }
+
+    if (!global.ProductionModules) {
+        global.ProductionModules = {};
+    }
+
+    global.ProductionModules.DashboardModule = DashboardModule;
+
+})(window);

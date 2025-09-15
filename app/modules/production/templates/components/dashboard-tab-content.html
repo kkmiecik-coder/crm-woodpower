@@ -3,7 +3,7 @@
 <!-- Quick Actions Bar -->
 <div class="quick-actions-bar">
     <div class="quick-actions-list">
-        <button id="manual-sync-btn" class="quick-action-btn" onclick="triggerManualSync()">
+        <button type="button" id="manual-sync-btn" class="quick-action-btn">
             <span class="quick-action-icon">🔄</span>
             Ręczna synchronizacja
         </button>
@@ -253,10 +253,10 @@
 
             {% if current_user.role in ['admin', 'administrator'] %}
             <div class="health-actions">
-                <button class="health-action-btn error-details-btn" onclick="showSystemErrorsModal()" id="show-errors-btn">
+                <button type="button" class="health-action-btn error-details-btn" id="show-errors-btn">
                     👁️ Pokaż błędy
                 </button>
-                <button class="health-action-btn" onclick="clearSystemErrors()" id="clear-errors-btn">
+                <button type="button" class="health-action-btn" id="clear-errors-btn">
                     🧹 Wyczyść błędy
                 </button>
             </div>
@@ -268,17 +268,20 @@
     {% if current_user.role in ['admin', 'administrator'] %}
     <div class="col-lg-12">
         <div class="widget performance-chart">
-            <div class="widget-header">
+            <div class="widget-header d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <h5 class="widget-title">
                     <i class="fas fa-chart-line me-2"></i>
                     Wydajność dzienna
                 </h5>
+                <div class="chart-controls"></div>
             </div>
             <div class="widget-content">
                 <canvas id="performance-chart-canvas"></canvas>
-                <div class="chart-loader" style="display: none;">
-                    <div class="spinner"></div>
-                    <span>Ładowanie danych wykresu...</span>
+                <div class="chart-loader d-flex flex-column align-items-center gap-2" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Ładowanie...</span>
+                    </div>
+                    <span class="text-muted small">Ładowanie danych wykresu...</span>
                 </div>
             </div>
         </div>
@@ -292,7 +295,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Błędy systemu</h5>
-                <button type="button" class="btn-close" onclick="closeSystemErrorsModal()"></button>
+                <button type="button" class="btn-close" data-action="close-errors-modal" aria-label="Zamknij"></button>
             </div>
             <div class="modal-body">
                 <div class="errors-loading" id="errors-loading" style="display:none;">
@@ -313,8 +316,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeSystemErrorsModal()">Zamknij</button>
-                <button type="button" class="btn btn-danger" onclick="clearAllSystemErrors()">
+                <button type="button" class="btn btn-secondary" data-action="close-errors-modal">Zamknij</button>
+                <button type="button" class="btn btn-danger" id="clear-modal-errors-btn">
                     🧹 Wyczyść wszystkie błędy
                 </button>
             </div>
