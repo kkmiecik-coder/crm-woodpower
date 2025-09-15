@@ -138,6 +138,22 @@ class ApiClient {
         }
     }
 
+    async requestAdmin(endpoint, options = {}) {
+        const url = `/production/admin${endpoint}`;
+        const config = {
+            headers: { ...this.defaultHeaders, ...options.headers },
+            ...options
+        };
+
+        try {
+            const response = await fetch(url, config);
+            return await this.handleResponse(response);
+        } catch (error) {
+            console.error(`[ApiClient] Admin request failed: ${endpoint}`, error);
+            throw error;
+        }
+    }
+
     async handleResponse(response) {
         if (!response.ok) {
             const errorText = await response.text();
@@ -228,6 +244,19 @@ class ApiClient {
 
     async triggerManualSync() {
         return this.request('/manual-sync', {
+            method: 'POST'
+        });
+    }
+
+    async getSystemErrors() {
+        return this.requestAdmin('/ajax/system-errors', {
+            method: 'GET',
+            headers: { Accept: 'application/json' }
+        });
+    }
+
+    async clearSystemErrors() {
+        return this.requestAdmin('/ajax/clear-system-errors', {
             method: 'POST'
         });
     }
