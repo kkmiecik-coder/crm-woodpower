@@ -185,45 +185,181 @@ def products_list():
     """
     GET /production/products - Szczegółowa lista produktów (PRD Section 6.1)
     
-    Kompletna lista produktów bez paginacji z funkcjami:
-    - Wyszukiwanie, filtry
-    - Drag&drop priority (tylko admin)
-    - Kolumny: Priorytet, ID Zamówienia, Produkt, Klient, Data, Status, Deadline
+    ROZBUDOWANA WERSJA z:
+    - Zaawansowanym filtrowaniem
+    - Paginacją 
+    - Sortowaniem
+    - AJAX support
+    - Metadata dla UI
     
-    Autoryzacja: user, admin  
-    Returns: HTML z listą produktów
+    Query params:
+        page: numer strony (default: 1)
+        per_page: produktów na stronę (default: 50, max: 200)
+        status: filtr statusu
+        search: wyszukiwanie w ID/nazwie
+        client: filtr klienta (ID lub nazwa)
+        wood_species: gatunek drewna
+        technology: technologia
+        wood_class: klasa drewna
+        date_from: data od (YYYY-MM-DD)
+        date_to: data do (YYYY-MM-DD)
+        priority_min: minimalny priorytet
+        priority_max: maksymalny priorytet
+        sort_by: kolumna sortowania (default: priority_score)
+        sort_order: kierunek sortowania (asc|desc, default: desc)
+        
+    Returns: 
+        HTML: Pełna strona z listą produktów
+        JSON: Dane dla AJAX (gdy X-Requested-With: XMLHttpRequest)
     """
     try:
-        logger.info("Dostęp do listy produktów", extra={
+        logger.info("Dostęp do listy produktów - rozbudowana wersja", extra={
             'user_id': current_user.id,
-            'user_role': getattr(current_user, 'role', 'unknown')
+            'user_role': getattr(current_user, 'role', 'unknown'),
+            'query_params': dict(request.args)
         })
         
         from ..models import ProductionItem
+        from sqlalchemy import desc, asc, and_, or_
         
-        # Filtry z query params
+        # ============================================================================
+        # PARSOWANIE PARAMETRÓW
+        # ============================================================================
+        
+        # Paginacja
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 50, type=int), 200)  # Max 200
+        
+        # Filtry podstawowe
         status_filter = request.args.get('status')
         search_query = request.args.get('search', '').strip()
         
-        # Query podstawowy - wszystkie produkty bez paginacji zgodnie z PRD
+        # Filtry zaawansowane
+        client_filter = request.args.get('client', '').strip()
+        wood_species_filter = request.args.get('wood_species')
+        technology_filter = request.args.get('technology')
+        wood_class_filter = request.args.get('wood_class')
+        
+        # Filtry dat
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        # Filtry priorytetu
+        priority_min = request.args.get('priority_min', type=int)
+        priority_max = request.args.get('priority_max', type=int)
+        
+        # Sortowanie
+        sort_by = request.args.get('sort_by', 'priority_score')
+        sort_order = request.args.get('sort_order', 'desc').lower()
+        
+        # Walidacja sortowania
+        valid_sort_columns = [
+            'priority_score', 'created_at', 'deadline_date', 'current_status',
+            'short_product_id', 'internal_order_number', 'baselinker_order_id',
+            'parsed_wood_species', 'parsed_technology', 'volume_m3'
+        ]
+        
+        if sort_by not in valid_sort_columns:
+            sort_by = 'priority_score'
+        
+        if sort_order not in ['asc', 'desc']:
+            sort_order = 'desc'
+        
+        # ============================================================================
+        # BUDOWANIE QUERY
+        # ============================================================================
+        
         query = ProductionItem.query
         
-        # Filtrowanie po statusie
+        # Filtr statusu
         if status_filter and status_filter != 'all':
             query = query.filter(ProductionItem.current_status == status_filter)
         
         # Wyszukiwanie w ID zamówienia i nazwie produktu
         if search_query:
+            search_pattern = f'%{search_query}%'
             query = query.filter(
-                db.or_(
-                    ProductionItem.short_product_id.ilike(f'%{search_query}%'),
-                    ProductionItem.internal_order_number.ilike(f'%{search_query}%'),
-                    ProductionItem.original_product_name.ilike(f'%{search_query}%')
+                or_(
+                    ProductionItem.short_product_id.ilike(search_pattern),
+                    ProductionItem.internal_order_number.ilike(search_pattern),
+                    ProductionItem.original_product_name.ilike(search_pattern),
+                    ProductionItem.baselinker_order_id.ilike(search_pattern)
                 )
             )
         
-        # Sortowanie po priorytecie (najwyższy pierwszy)
-        products = query.order_by(ProductionItem.priority_score.desc()).all()
+        # Filtr gatunku drewna
+        if wood_species_filter:
+            query = query.filter(ProductionItem.parsed_wood_species == wood_species_filter)
+        
+        # Filtr technologii
+        if technology_filter:
+            query = query.filter(ProductionItem.parsed_technology == technology_filter)
+        
+        # Filtr klasy drewna
+        if wood_class_filter:
+            query = query.filter(ProductionItem.parsed_wood_class == wood_class_filter)
+        
+        # Filtry dat
+        if date_from:
+            try:
+                from datetime import datetime
+                date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+                query = query.filter(ProductionItem.created_at >= date_from_obj)
+            except ValueError:
+                logger.warning("Nieprawidłowy format date_from", extra={'date_from': date_from})
+        
+        if date_to:
+            try:
+                from datetime import datetime, timedelta
+                date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+                # Dodaj 1 dzień żeby uwzględnić cały dzień
+                date_to_end = datetime.combine(date_to_obj, datetime.max.time())
+                query = query.filter(ProductionItem.created_at <= date_to_end)
+            except ValueError:
+                logger.warning("Nieprawidłowy format date_to", extra={'date_to': date_to})
+        
+        # Filtry priorytetu
+        if priority_min is not None:
+            query = query.filter(ProductionItem.priority_score >= priority_min)
+        
+        if priority_max is not None:
+            query = query.filter(ProductionItem.priority_score <= priority_max)
+        
+        # ============================================================================
+        # SORTOWANIE
+        # ============================================================================
+        
+        sort_column = getattr(ProductionItem, sort_by)
+        if sort_order == 'desc':
+            query = query.order_by(desc(sort_column))
+        else:
+            query = query.order_by(asc(sort_column))
+        
+        # Dodaj secondary sort dla stabilności
+        if sort_by != 'priority_score':
+            query = query.order_by(desc(ProductionItem.priority_score))
+        if sort_by not in ['created_at', 'priority_score']:
+            query = query.order_by(desc(ProductionItem.created_at))
+        
+        # ============================================================================
+        # WYKONANIE QUERY Z PAGINACJĄ
+        # ============================================================================
+        
+        # Przed paginacją - policz total dla statystyk
+        total_count = query.count()
+        
+        # Wykonaj paginację
+        paginated_products = query.paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False
+        )
+        
+        products = paginated_products.items
+        
+        # ============================================================================
+        # PRZYGOTOWANIE DANYCH
+        # ============================================================================
         
         # Sprawdź czy user jest adminem (dla drag&drop)
         is_admin = hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']
@@ -238,28 +374,160 @@ def products_list():
             ('wstrzymane', 'Wstrzymane')
         ]
         
+        # Statystyki dla aktualnego filtra
+        filter_stats = {
+            'total_products': total_count,
+            'current_page': page,
+            'per_page': per_page,
+            'total_pages': paginated_products.pages,
+            'has_prev': paginated_products.has_prev,
+            'has_next': paginated_products.has_next,
+            'prev_num': paginated_products.prev_num,
+            'next_num': paginated_products.next_num
+        }
+        
+        # Dodatkowe statystyki dla filtru
+        if products:
+            from datetime import datetime
+            
+            high_priority_count = sum(1 for p in products if (p.priority_score or 0) >= 150)
+            overdue_count = sum(1 for p in products 
+                              if p.deadline_date and p.deadline_date < datetime.now().date())
+            avg_priority = sum(p.priority_score or 0 for p in products) / len(products)
+            
+            filter_stats.update({
+                'high_priority_count': high_priority_count,
+                'overdue_count': overdue_count,
+                'avg_priority': round(avg_priority, 1)
+            })
+        
+        # Aktywne filtry dla UI
+        active_filters = {
+            'status': status_filter,
+            'search': search_query,
+            'client': client_filter,
+            'wood_species': wood_species_filter,
+            'technology': technology_filter,
+            'wood_class': wood_class_filter,
+            'date_from': date_from,
+            'date_to': date_to,
+            'priority_min': priority_min,
+            'priority_max': priority_max,
+            'sort_by': sort_by,
+            'sort_order': sort_order
+        }
+        
+        # ============================================================================
+        # RESPONSE - AJAX vs HTML
+        # ============================================================================
+        
+        # Jeśli to AJAX request, zwróć JSON
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            
+            # Przygotuj produkty jako dict dla JSON
+            products_data = []
+            for product in products:
+                # Oblicz dni do deadline
+                days_to_deadline = None
+                if product.deadline_date:
+                    days_to_deadline = (product.deadline_date - datetime.now().date()).days
+                
+                product_dict = {
+                    'id': product.id,
+                    'short_product_id': product.short_product_id,
+                    'internal_order_number': product.internal_order_number,
+                    'baselinker_order_id': product.baselinker_order_id,
+                    'original_product_name': product.original_product_name,
+                    'current_status': product.current_status,
+                    'priority_score': product.priority_score or 0,
+                    'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                    'days_to_deadline': days_to_deadline,
+                    'created_at': product.created_at.isoformat() if product.created_at else None,
+                    'parsed_data': {
+                        'wood_species': product.parsed_wood_species,
+                        'technology': product.parsed_technology,
+                        'wood_class': product.parsed_wood_class,
+                        'volume_m3': float(product.volume_m3) if product.volume_m3 else None,
+                        'dimensions': f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}cm"
+                    },
+                    'financial_data': {
+                        'unit_price_net': float(product.unit_price_net) if product.unit_price_net else None,
+                        'total_value_net': float(product.total_value_net) if product.total_value_net else None
+                    },
+                    'status_flags': {
+                        'is_overdue': days_to_deadline is not None and days_to_deadline < 0,
+                        'is_urgent': days_to_deadline is not None and days_to_deadline <= 2,
+                        'is_high_priority': (product.priority_score or 0) >= 150
+                    }
+                }
+                products_data.append(product_dict)
+            
+            return jsonify({
+                'success': True,
+                'products': products_data,
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total': total_count,
+                    'pages': paginated_products.pages,
+                    'has_prev': paginated_products.has_prev,
+                    'has_next': paginated_products.has_next,
+                    'prev_num': paginated_products.prev_num,
+                    'next_num': paginated_products.next_num,
+                    'page_range': list(paginated_products.iter_pages())
+                },
+                'filters': active_filters,
+                'stats': filter_stats,
+                'sort': {
+                    'sort_by': sort_by,
+                    'sort_order': sort_order
+                }
+            })
+        
+        # ============================================================================
+        # STANDARD HTML RESPONSE
+        # ============================================================================
+        
         return render_template(
-            'panel/products.html',
+            'production/products.html',
             products=products,
+            pagination=paginated_products,
             status_filter=status_filter,
             search_query=search_query,
+            client_filter=client_filter,
+            wood_species_filter=wood_species_filter,
+            technology_filter=technology_filter,
+            wood_class_filter=wood_class_filter,
+            date_from=date_from,
+            date_to=date_to,
+            priority_min=priority_min,
+            priority_max=priority_max,
+            sort_by=sort_by,
+            sort_order=sort_order,
             status_options=status_options,
+            active_filters=active_filters,
+            filter_stats=filter_stats,
             is_admin=is_admin,
             page_title="Lista Produktów Produkcyjnych"
         )
         
     except Exception as e:
-        logger.error("Błąd listy produktów", extra={
+        logger.error("Błąd listy produktów - rozbudowana", extra={
             'user_id': current_user.id if current_user.is_authenticated else None,
-            'error': str(e)
+            'error': str(e),
+            'query_params': dict(request.args)
         })
         flash(f'Błąd ładowania listy produktów: {str(e)}', 'error')
-        # POPRAWIONE: Zmieniono ścieżkę template
-        return render_template('panel/products.html', 
+        
+        # Fallback response
+        return render_template('production/products.html', 
                              products=[], 
+                             pagination=None,
                              status_filter=None,
                              search_query='',
                              status_options=[],
+                             active_filters={},
+                             filter_stats={},
                              is_admin=False,
                              page_title="Lista Produktów Produkcyjnych")
 
@@ -332,57 +600,160 @@ def update_product_priority():
     """
     POST /production/update-priority
     
-    Aktualizuje priorytet produktu (drag&drop w liście produktów)
+    ROZBUDOWANA WERSJA - Aktualizuje priorytet produktu (drag&drop w liście produktów)
+    Obsługuje zarówno pojedyncze produkty jak i batch update
     Dostępne tylko dla adminów zgodnie z PRD.
     
-    JSON body:
-        product_id: ID produktu
-        new_priority: nowy priorytet
+    Body (JSON):
+    {
+        "product_id": 123,              // Dla pojedynczego produktu
+        "new_priority": 150,            // Nowy priorytet
         
-    Returns: JSON status
+        // LUB dla batch update:
+        "products": [                   // Lista produktów z priorytetami
+            {"id": 123, "priority": 150},
+            {"id": 124, "priority": 149},
+            ...
+        ]
+    }
+    
+    Returns: JSON z rezultatem
     """
     try:
         data = request.get_json()
-        product_id = data.get('product_id')
-        new_priority = data.get('new_priority')
-        
-        if not product_id or new_priority is None:
-            return jsonify({'success': False, 'error': 'Brak wymaganych danych'}), 400
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
         
         from ..models import ProductionItem
         
-        product = ProductionItem.query.filter_by(short_product_id=product_id).first()
-        if not product:
-            return jsonify({'success': False, 'error': 'Produkt nie znaleziony'}), 404
+        # ============================================================================
+        # SINGLE PRODUCT UPDATE
+        # ============================================================================
         
-        # Aktualizacja priorytetu
-        old_priority = product.priority_score
-        product.priority_score = int(new_priority)
-        product.updated_at = datetime.utcnow()
+        if 'product_id' in data and 'new_priority' in data:
+            product_id = data['product_id']
+            new_priority = data['new_priority']
+            
+            # Walidacja
+            if not isinstance(new_priority, int) or new_priority < 0 or new_priority > 200:
+                return jsonify({'success': False, 'error': 'Priorytet musi być liczbą 0-200'}), 400
+            
+            product = ProductionItem.query.get(product_id)
+            if not product:
+                return jsonify({'success': False, 'error': 'Produkt nie znaleziony'}), 404
+            
+            old_priority = product.priority_score
+            product.priority_score = new_priority
+            db.session.commit()
+            
+            logger.info("Zaktualizowano priorytet produktu", extra={
+                'user_id': current_user.id,
+                'product_id': product_id,
+                'product_short_id': product.short_product_id,
+                'old_priority': old_priority,
+                'new_priority': new_priority
+            })
+            
+            return jsonify({
+                'success': True,
+                'message': 'Priorytet zaktualizowany',
+                'updated_count': 1,
+                'product': {
+                    'id': product_id,
+                    'short_product_id': product.short_product_id,
+                    'old_priority': old_priority,
+                    'new_priority': new_priority
+                }
+            })
         
-        db.session.commit()
+        # ============================================================================
+        # BATCH PRODUCTS UPDATE (DRAG & DROP)
+        # ============================================================================
         
-        logger.info("Zaktualizowano priorytet produktu", extra={
-            'product_id': product_id,
-            'old_priority': old_priority,
-            'new_priority': new_priority,
-            'user_id': current_user.id
-        })
+        elif 'products' in data:
+            products_data = data['products']
+            
+            if not isinstance(products_data, list) or not products_data:
+                return jsonify({'success': False, 'error': 'Lista produktów nie może być pusta'}), 400
+            
+            updated_count = 0
+            failed_count = 0
+            errors = []
+            updated_products = []
+            
+            for product_data in products_data:
+                try:
+                    product_id = product_data.get('id')
+                    new_priority = product_data.get('priority')
+                    
+                    # Walidacja pojedynczego elementu
+                    if not product_id or new_priority is None:
+                        errors.append(f'Brak ID lub priorytetu dla elementu: {product_data}')
+                        failed_count += 1
+                        continue
+                    
+                    if not isinstance(new_priority, int) or new_priority < 0 or new_priority > 200:
+                        errors.append(f'Nieprawidłowy priorytet {new_priority} dla produktu {product_id}')
+                        failed_count += 1
+                        continue
+                    
+                    # Aktualizuj produkt
+                    product = ProductionItem.query.get(product_id)
+                    if not product:
+                        errors.append(f'Produkt {product_id} nie znaleziony')
+                        failed_count += 1
+                        continue
+                    
+                    old_priority = product.priority_score
+                    product.priority_score = new_priority
+                    
+                    updated_products.append({
+                        'id': product_id,
+                        'short_product_id': product.short_product_id,
+                        'old_priority': old_priority,
+                        'new_priority': new_priority
+                    })
+                    
+                    updated_count += 1
+                    
+                except Exception as e:
+                    errors.append(f'Błąd produktu {product_id}: {str(e)}')
+                    failed_count += 1
+            
+            # Zapisz zmiany jeśli były jakieś udane aktualizacje
+            if updated_count > 0:
+                db.session.commit()
+            
+            logger.info("Batch update priorytetów", extra={
+                'user_id': current_user.id,
+                'total_products': len(products_data),
+                'updated_count': updated_count,
+                'failed_count': failed_count
+            })
+            
+            return jsonify({
+                'success': True,
+                'message': f'Zaktualizowano {updated_count} produktów',
+                'updated_count': updated_count,
+                'failed_count': failed_count,
+                'errors': errors,
+                'updated_products': updated_products
+            })
         
-        return jsonify({
-            'success': True,
-            'message': f'Priorytet produktu {product_id} zaktualizowany'
-        })
+        else:
+            return jsonify({'success': False, 'error': 'Wymagane: product_id+new_priority lub products'}), 400
         
     except Exception as e:
         db.session.rollback()
         logger.error("Błąd aktualizacji priorytetu", extra={
-            'product_id': data.get('product_id') if 'data' in locals() else None,
-            'user_id': current_user.id,
-            'error': str(e)
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'error': str(e),
+            'request_data': data if 'data' in locals() else None
         })
-        
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
 
 # ============================================================================
 # ERROR HANDLERS

@@ -123,265 +123,212 @@ def ip_validation_required(f):
 # API ROUTERS - PRD Section 6.1 (Dashboard)
 # ============================================================================
 
-@api_bp.route('/dashboard-stats')
+@api_bp.route('/dashboard-stats', methods=['GET'])
 @login_required
 def dashboard_stats():
     """
     GET /production/api/dashboard-stats
     
-    Endpoint dla statystyk dashboard - NAPRAWIONY z sync_service
+    ROZBUDOWANA WERSJA - Zwraca statystyki dla dashboard z dodatkowymi metrykami
     
-    Response JSON zgodny z PRD:
-    - stations: statystyki stanowisk (pending_count, today_m3)
-    - today_totals: dzisiejsze podsumowanie (completed_orders, total_m3, avg_deadline_distance)
-    - deadline_alerts: alerty produktów z bliskim terminem
-    - system_health: status systemu (last_sync, sync_status, errors_24h, database_status)
-    
-    Autoryzacja: user, admin
-    Returns: JSON zgodny z PRD spec
+    Query params:
+        include_products: true|false - czy dołączyć listę produktów (default: false)
+        limit: liczba produktów do zwrócenia (default: 10, max: 50)
+        
+    Returns: JSON ze statystykami + opcjonalnie produktami
     """
     try:
-        logger.info("API: Pobieranie statystyk dashboard", extra={
-            'user_id': current_user.id,
-            'user_role': getattr(current_user, 'role', 'unknown')
-        })
+        # Parametry opcjonalne
+        include_products = request.args.get('include_products', 'false').lower() == 'true'
+        limit = min(request.args.get('limit', 10, type=int), 50)
         
-        from ..models import ProductionItem, ProductionError, ProductionSyncLog
-        from ..services.sync_service import get_sync_service
+        from ..models import ProductionItem
+        from sqlalchemy import func, desc
+        from datetime import datetime, timedelta
         
-        today = date.today()
+        # ============================================================================
+        # PODSTAWOWE STATYSTYKI (istniejące)
+        # ============================================================================
+        
+        # Statystyki per status
+        status_stats = db.session.query(
+            ProductionItem.current_status,
+            func.count(ProductionItem.id).label('count'),
+            func.avg(ProductionItem.priority_score).label('avg_priority')
+        ).group_by(ProductionItem.current_status).all()
+        
+        stations_stats = {}
+        total_products = 0
+        
+        for status, count, avg_priority in status_stats:
+            total_products += count
+            
+            if status == 'czeka_na_wyciecie':
+                stations_stats['cutting'] = {
+                    'waiting_count': count,
+                    'avg_priority': round(avg_priority or 0, 1)
+                }
+            elif status == 'czeka_na_skladanie':
+                stations_stats['assembly'] = {
+                    'waiting_count': count,
+                    'avg_priority': round(avg_priority or 0, 1)
+                }
+            elif status == 'czeka_na_pakowanie':
+                stations_stats['packaging'] = {
+                    'waiting_count': count,
+                    'avg_priority': round(avg_priority or 0, 1)
+                }
+        
+        # ============================================================================
+        # DODATKOWE STATYSTYKI (nowe)
+        # ============================================================================
+        
+        # Produkty z wysokim priorytetem (>=150)
+        high_priority_count = ProductionItem.query.filter(
+            ProductionItem.priority_score >= 150
+        ).count()
+        
+        # Produkty przeterminowane
+        today = datetime.now().date()
+        overdue_count = ProductionItem.query.filter(
+            ProductionItem.deadline_date < today,
+            ProductionItem.current_status != 'spakowane'
+        ).count()
+        
+        # Produkty spakowane dzisiaj
         today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
         
-        # Statystyki stanowisk zgodnie z PRD response structure
-        stations_stats = {
-            'cutting': {'pending_count': 0, 'today_m3': 0.0},
-            'assembly': {'pending_count': 0, 'today_m3': 0.0},
-            'packaging': {'pending_count': 0, 'today_m3': 0.0}
-        }
+        completed_today = ProductionItem.query.filter(
+            ProductionItem.current_status == 'spakowane',
+            ProductionItem.packaging_completed_at >= today_start,
+            ProductionItem.packaging_completed_at <= today_end
+        ).count() if hasattr(ProductionItem, 'packaging_completed_at') else 0
         
-        # CUTTING - oczekujące produkty + dzisiejsze m3
-        cutting_pending = ProductionItem.query.filter_by(current_status='czeka_na_wyciecie').count()
-        cutting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                                    .filter(ProductionItem.cutting_completed_at >= today_start)\
-                                    .scalar() or 0.0
+        # Produkty utworzone w tym tygodniu
+        week_ago = today - timedelta(days=7)
+        week_start = datetime.combine(week_ago, datetime.min.time())
         
-        stations_stats['cutting'] = {
-            'pending_count': cutting_pending,
-            'today_m3': float(cutting_today_m3)
-        }
+        new_this_week = ProductionItem.query.filter(
+            ProductionItem.created_at >= week_start
+        ).count()
         
-        # ASSEMBLY - oczekujące produkty + dzisiejsze m3
-        assembly_pending = ProductionItem.query.filter_by(current_status='czeka_na_skladanie').count()
-        assembly_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                                     .filter(ProductionItem.assembly_completed_at >= today_start)\
-                                     .scalar() or 0.0
-        
-        stations_stats['assembly'] = {
-            'pending_count': assembly_pending,
-            'today_m3': float(assembly_today_m3)
-        }
-        
-        # PACKAGING - oczekujące produkty + dzisiejsze m3
-        packaging_pending = ProductionItem.query.filter_by(current_status='czeka_na_pakowanie').count()
-        packaging_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                                      .filter(ProductionItem.packaging_completed_at >= today_start)\
-                                      .scalar() or 0.0
-        
-        stations_stats['packaging'] = {
-            'pending_count': packaging_pending,
-            'today_m3': float(packaging_today_m3)
-        }
-        
-        # TODAY TOTALS - dzisiejsze podsumowanie
-        completed_today = ProductionItem.query.filter_by(current_status='spakowane')\
-                                             .filter(ProductionItem.packaging_completed_at >= today_start)\
-                                             .count()
-        
-        total_m3_today = cutting_today_m3 + assembly_today_m3 + packaging_today_m3
-        
-        # Średni czas do deadline (dni)
-        avg_deadline_query = db.session.query(
-            db.func.avg(
-                db.func.datediff(ProductionItem.deadline_date, db.func.curdate())
-            )
-        ).filter(
-            ProductionItem.current_status.in_([
-                'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
-            ])
+        # Średnia objętość w produkcji
+        avg_volume = db.session.query(func.avg(ProductionItem.volume_m3)).filter(
+            ProductionItem.volume_m3.isnot(None),
+            ProductionItem.current_status != 'spakowane'
         ).scalar()
         
-        avg_deadline_distance = float(avg_deadline_query) if avg_deadline_query else 0.0
+        # ============================================================================
+        # ALERTY I OSTRZEŻENIA (nowe)
+        # ============================================================================
         
-        # DEADLINE ALERTS - produkty z bliskim terminem (≤ 3 dni)
-        deadline_alerts = []
-        alert_products = ProductionItem.query.filter(
-            and_(
-                ProductionItem.deadline_date <= date.today() + timedelta(days=3),
-                ProductionItem.current_status.in_([
-                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
-                ])
-            )
-        ).order_by(ProductionItem.deadline_date.asc()).limit(10).all()
+        alerts = []
         
-        for product in alert_products:
-            days_remaining = (product.deadline_date - date.today()).days
-            deadline_alerts.append({
-                'product_id': product.short_product_id,
-                'order_id': product.internal_order_number,
-                'description': f"{product.parsed_species} {product.parsed_dimensions}",
-                'days_remaining': days_remaining,
-                'priority_score': product.priority_score or 0
+        # Alert o przeterminowanych produktach
+        if overdue_count > 0:
+            alerts.append({
+                'type': 'danger',
+                'title': 'Produkty przeterminowane',
+                'message': f'{overdue_count} produktów przekroczyło deadline',
+                'count': overdue_count,
+                'priority': 'high'
             })
         
-        # SYSTEM HEALTH - KOMPLETNIE NAPRAWIONA wersja
-        system_health = {}
-        try:
-            import time
-            from sqlalchemy import text
-
-            # 1. Zawsze mierz czas odpowiedzi bazy danych
-            database_status = 'unknown'
-            database_response_ms = None
-
-            try:
-                start_time = time.time()
-                db.session.execute(text('SELECT 1'))
-                db.session.commit()
-                
-                database_response_ms = int((time.time() - start_time) * 1000)
-                database_status = 'healthy'
-                
-                logger.debug(f"Database response time measured: {database_response_ms}ms")
-                
-            except Exception as db_error:
-                end_time = time.time()
-                database_response_ms = int((end_time - start_time) * 1000) if 'start_time' in locals() else None
-                database_status = 'error'
-                logger.error(f"Database connection failed: {str(db_error)}")
-
-            # 2. Pobierz status synchronizacji z sync_service (NAPRAWIONE MAPOWANIE)
-            try:
-                sync_service = get_sync_service()
-                sync_status_data = sync_service.get_sync_status()
-                
-                # MAPOWANIE: get_sync_status() zwraca nested structure
-                if sync_status_data.get('last_sync'):
-                    last_sync_time = sync_status_data['last_sync'].get('timestamp')
-                    sync_status = sync_status_data['last_sync'].get('status', 'unknown')
-                else:
-                    last_sync_time = None
-                    sync_status = 'never_run'
-                    
-                logger.debug(f"Sync service data mapped: last_sync={last_sync_time}, status={sync_status}")
-                
-            except Exception as sync_error:
-                logger.error(f"Sync service error: {str(sync_error)}")
-                sync_status = 'error'
-                last_sync_time = None
-
-            # 3. Ostatnia synchronizacja z bazy danych (BACKUP)
-            if not last_sync_time:
-                try:
-                    last_sync = ProductionSyncLog.query.order_by(
-                        ProductionSyncLog.sync_started_at.desc()
-                    ).first()
-                    
-                    if last_sync:
-                        last_sync_time = last_sync.sync_completed_at.isoformat() if last_sync.sync_completed_at else last_sync.sync_started_at.isoformat()
-                        if sync_status == 'error':  # tylko gdy sync_service failed
-                            sync_status = last_sync.sync_status or 'unknown'
-                            
-                except Exception as sync_log_error:
-                    logger.error(f"Sync log backup error: {str(sync_log_error)}")
-
-            # 4. Błędy z ostatnich 24h
-            try:
-                errors_24h = ProductionError.query.filter(
-                    ProductionError.error_occurred_at >= datetime.utcnow() - timedelta(hours=24)
-                ).count()
-            except Exception as error_count_error:
-                logger.error(f"Error count error: {str(error_count_error)}")
-                errors_24h = 0
-
-            # 5. Oblicz średni czas odpowiedzi Baselinker API (NAPRAWIONE)
-            baselinker_api_avg_ms = None
-            try:
-                recent_syncs = ProductionSyncLog.query.filter(
-                    ProductionSyncLog.baselinker_api_response_time_ms.isnot(None)
-                ).order_by(ProductionSyncLog.sync_started_at.desc()).limit(10).all()
-                
-                if recent_syncs:
-                    total_time = sum(sync.baselinker_api_response_time_ms for sync in recent_syncs)
-                    baselinker_api_avg_ms = int(total_time / len(recent_syncs))
-                    
-                    logger.debug(f"Baselinker API avg time calculated: {baselinker_api_avg_ms}ms from {len(recent_syncs)} syncs")
-                else:
-                    logger.debug("No recent syncs with baselinker response time found")
-                    
-            except Exception as api_time_error:
-                logger.error(f"Baselinker API time calculation error: {str(api_time_error)}")
-                baselinker_api_avg_ms = None
-
-            # 6. Przygotuj system_health object
-            system_health = {
-                'database_status': database_status,
-                'database_response_ms': database_response_ms,
-                'sync_status': sync_status,
-                'last_sync': last_sync_time,
-                'errors_24h': errors_24h,
-                'baselinker_api_avg_ms': baselinker_api_avg_ms,
-                'timestamp': datetime.utcnow().isoformat()
-            }
-            
-            logger.debug(f"System health data prepared: {system_health}")
-            
-        except Exception as e:
-            logger.error("Błąd pobierania system health", extra={'error': str(e)})
-            # Fallback do podstawowych wartości
-            system_health = {
-                'last_sync': None,
-                'sync_status': 'error',
-                'errors_24h': 0,
-                'baselinker_api_avg_ms': None,
-                'database_status': 'error',
-                'database_response_ms': None,
-                'error_message': str(e),
-                'timestamp': datetime.utcnow().isoformat()
-            }
+        # Alert o produktach z wysokim priorytetem
+        if high_priority_count > 10:
+            alerts.append({
+                'type': 'warning',
+                'title': 'Dużo produktów wysokiego priorytetu',
+                'message': f'{high_priority_count} produktów z priorytetem ≥150',
+                'count': high_priority_count,
+                'priority': 'medium'
+            })
         
-        # Response zgodny z PRD Section 6.1
-        response_data = {
-            'stations': stations_stats,
-            'today_totals': {
-                'completed_orders': completed_today,
-                'total_m3': round(total_m3_today, 2),
-                'avg_deadline_distance': round(avg_deadline_distance, 1)
+        # Alert o zastoju w produkcji
+        cutting_backlog = stations_stats.get('cutting', {}).get('waiting_count', 0)
+        if cutting_backlog > 50:
+            alerts.append({
+                'type': 'info',
+                'title': 'Duża kolejka w wycinaniu',
+                'message': f'{cutting_backlog} produktów czeka na wycięcie',
+                'count': cutting_backlog,
+                'priority': 'low'
+            })
+        
+        # ============================================================================
+        # PRZYGOTOWANIE ODPOWIEDZI
+        # ============================================================================
+        
+        dashboard_data = {
+            'success': True,
+            'stats': {
+                'total_products': total_products,
+                'high_priority_count': high_priority_count,
+                'overdue_count': overdue_count,
+                'completed_today': completed_today,
+                'new_this_week': new_this_week,
+                'avg_volume_m3': round(avg_volume or 0, 2),
+                'stations': stations_stats
             },
-            'deadline_alerts': deadline_alerts,
-            'system_health': system_health
+            'alerts': alerts,
+            'last_updated': datetime.utcnow().isoformat()
         }
         
-        logger.info("API: Statystyki dashboard pobrane pomyślnie", extra={
+        # ============================================================================
+        # OPCJONALNE PRODUKTY
+        # ============================================================================
+        
+        if include_products:
+            # Najwyższy priorytet + najbliższe deadline
+            priority_products = ProductionItem.query.filter(
+                ProductionItem.current_status != 'spakowane'
+            ).order_by(
+                desc(ProductionItem.priority_score),
+                ProductionItem.deadline_date.asc()
+            ).limit(limit).all()
+            
+            products_data = []
+            for product in priority_products:
+                days_to_deadline = None
+                if product.deadline_date:
+                    days_to_deadline = (product.deadline_date - today).days
+                
+                products_data.append({
+                    'id': product.id,
+                    'short_product_id': product.short_product_id,
+                    'internal_order_number': product.internal_order_number,
+                    'original_product_name': product.original_product_name[:50] + '...' if len(product.original_product_name) > 50 else product.original_product_name,
+                    'current_status': product.current_status,
+                    'priority_score': product.priority_score or 0,
+                    'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                    'days_to_deadline': days_to_deadline,
+                    'is_overdue': days_to_deadline is not None and days_to_deadline < 0,
+                    'is_urgent': days_to_deadline is not None and days_to_deadline <= 2
+                })
+            
+            dashboard_data['products'] = products_data
+        
+        logger.info("Dashboard stats - rozbudowane", extra={
             'user_id': current_user.id,
-            'stations_count': len(stations_stats),
-            'alerts_count': len(deadline_alerts),
-            'last_sync': system_health.get('last_sync'),
-            'sync_status': system_health.get('sync_status')
+            'include_products': include_products,
+            'total_products': total_products,
+            'alerts_count': len(alerts)
         })
         
-        return jsonify(response_data), 200
+        return jsonify(dashboard_data)
         
     except Exception as e:
-        logger.error("API: Błąd statystyk dashboard", extra={
+        logger.error("Błąd dashboard stats - rozbudowanych", extra={
             'user_id': current_user.id if current_user.is_authenticated else None,
             'error': str(e)
         })
-        
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': f'Błąd pobierania statystyk: {str(e)}'
         }), 500
-      
+    
+          
 @api_bp.route('/chart-data')
 @admin_required
 def chart_data():
@@ -2224,6 +2171,586 @@ def config_tab_content():
             'error': str(e)
         }), 500
     
+# ============================================================================
+# NOWE API ENDPOINTY - DO DODANIA
+# ============================================================================
+# Te endpointy należy DODAĆ do pliku: app/modules/production/routers/api_routes.py
+
+# 1. BULK OPERATIONS ENDPOINT
+@api_bp.route('/products/bulk-action', methods=['POST'])
+@login_required
+def bulk_action():
+    """
+    POST /production/api/products/bulk-action
+    
+    Wykonuje masowe operacje na produktach
+    
+    Body (JSON):
+    {
+        "action": "update_status|update_priority|export|delete",
+        "product_ids": [1, 2, 3, ...],
+        "parameters": {
+            "new_status": "czeka_na_wyciecie",
+            "new_priority": 150,
+            "export_format": "excel"
+        }
+    }
+    
+    Returns: JSON z rezultatem operacji
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+        
+        action = data.get('action')
+        product_ids = data.get('product_ids', [])
+        parameters = data.get('parameters', {})
+        
+        # Walidacja
+        if not action or not product_ids:
+            return jsonify({'success': False, 'error': 'Wymagane: action i product_ids'}), 400
+        
+        valid_actions = ['update_status', 'update_priority', 'export', 'delete']
+        if action not in valid_actions:
+            return jsonify({'success': False, 'error': f'Nieprawidłowa akcja. Dostępne: {valid_actions}'}), 400
+        
+        from ..models import ProductionItem
+        
+        # Pobierz produkty
+        products = ProductionItem.query.filter(ProductionItem.id.in_(product_ids)).all()
+        
+        if not products:
+            return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
+        
+        results = {
+            'success': True,
+            'action': action,
+            'processed_count': 0,
+            'failed_count': 0,
+            'errors': []
+        }
+        
+        # Wykonaj akcję na każdym produkcie
+        for product in products:
+            try:
+                if action == 'update_status':
+                    new_status = parameters.get('new_status')
+                    if new_status and hasattr(ProductionItem, 'current_status'):
+                        product.current_status = new_status
+                        results['processed_count'] += 1
+                
+                elif action == 'update_priority':
+                    new_priority = parameters.get('new_priority')
+                    if new_priority is not None:
+                        product.priority_score = int(new_priority)
+                        results['processed_count'] += 1
+                
+                elif action == 'delete':
+                    # Tylko admin może usuwać
+                    if not (hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']):
+                        results['errors'].append(f'Brak uprawnień do usunięcia produktu {product.id}')
+                        results['failed_count'] += 1
+                        continue
+                    
+                    db.session.delete(product)
+                    results['processed_count'] += 1
+                
+                elif action == 'export':
+                    # Export będzie obsłużony w osobnym endpoincie
+                    results['processed_count'] += 1
+                
+            except Exception as e:
+                logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
+                results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
+                results['failed_count'] += 1
+        
+        # Zapisz zmiany dla akcji modyfikujących
+        if action in ['update_status', 'update_priority', 'delete']:
+            db.session.commit()
+        
+        logger.info("Bulk action wykonana", extra={
+            'user_id': current_user.id,
+            'action': action,
+            'product_count': len(product_ids),
+            'processed': results['processed_count'],
+            'failed': results['failed_count']
+        })
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Błąd bulk action", extra={
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+# 2. SZCZEGÓŁY PRODUKTU ENDPOINT
+@api_bp.route('/products/<int:product_id>/details', methods=['GET'])
+@login_required
+def product_details(product_id):
+    """
+    GET /production/api/products/<id>/details
+    
+    Zwraca szczegółowe informacje o produkcie dla modala
+    
+    Returns: JSON z kompletnymi danymi produktu
+    """
+    try:
+        from ..models import ProductionItem
+        
+        product = ProductionItem.query.get_or_404(product_id)
+        
+        # Pobierz historię statusów (jeśli tabela istnieje)
+        status_history = []
+        try:
+            # Z database_structure.md widzę że nie ma tabeli prod_status_history w obecnej strukturze
+            # Dodajemy placeholder dla przyszłej implementacji
+            status_history = [
+                {
+                    'status': product.current_status,
+                    'changed_at': product.created_at.isoformat() if product.created_at else None,
+                    'station': 'System',
+                    'notes': 'Utworzono w systemie'
+                }
+            ]
+        except:
+            pass
+        
+        # Oblicz metryki czasu (jeśli dostępne)
+        time_metrics = {}
+        if hasattr(product, 'cutting_started_at') and product.cutting_started_at:
+            time_metrics['cutting_duration'] = calculate_duration(product.cutting_started_at, product.cutting_completed_at)
+        if hasattr(product, 'assembly_started_at') and product.assembly_started_at:
+            time_metrics['assembly_duration'] = calculate_duration(product.assembly_started_at, product.assembly_completed_at)
+        if hasattr(product, 'packaging_started_at') and product.packaging_started_at:
+            time_metrics['packaging_duration'] = calculate_duration(product.packaging_started_at, product.packaging_completed_at)
+        
+        # Oblicz dni do deadline
+        days_to_deadline = None
+        if product.deadline_date:
+            days_to_deadline = (product.deadline_date - datetime.now().date()).days
+        
+        # Przygotuj kompletne dane
+        product_data = {
+            'id': product.id,
+            'short_product_id': product.short_product_id,
+            'internal_order_number': product.internal_order_number,
+            'baselinker_order_id': product.baselinker_order_id,
+            'original_product_name': product.original_product_name,
+            'current_status': product.current_status,
+            'priority_score': product.priority_score,
+            'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+            'days_to_deadline': days_to_deadline,
+            'created_at': product.created_at.isoformat() if product.created_at else None,
+            
+            # Dane parsowane
+            'parsed_data': {
+                'wood_species': product.parsed_wood_species,
+                'technology': product.parsed_technology,
+                'wood_class': product.parsed_wood_class,
+                'length_cm': float(product.parsed_length_cm) if product.parsed_length_cm else None,
+                'width_cm': float(product.parsed_width_cm) if product.parsed_width_cm else None,
+                'thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm else None,
+                'finish_state': product.parsed_finish_state,
+                'volume_m3': float(product.volume_m3) if product.volume_m3 else None,
+                'dimensions': f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}cm"
+            },
+            
+            # Dane finansowe
+            'financial_data': {
+                'unit_price_net': float(product.unit_price_net) if product.unit_price_net else None,
+                'total_value_net': float(product.total_value_net) if product.total_value_net else None
+            },
+            
+            # Historia statusów
+            'status_history': status_history,
+            
+            # Metryki czasu
+            'time_metrics': time_metrics,
+            
+            # Status flags
+            'is_overdue': days_to_deadline is not None and days_to_deadline < 0,
+            'is_urgent': days_to_deadline is not None and days_to_deadline <= 2,
+            'is_high_priority': (product.priority_score or 0) >= 150
+        }
+        
+        logger.info("Pobrano szczegóły produktu", extra={
+            'user_id': current_user.id,
+            'product_id': product_id,
+            'product_short_id': product.short_product_id
+        })
+        
+        return jsonify({
+            'success': True,
+            'product': product_data
+        })
+        
+    except Exception as e:
+        logger.error("Błąd pobierania szczegółów produktu", extra={
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'product_id': product_id,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd pobierania szczegółów: {str(e)}'
+        }), 500
+
+
+# 3. EXPORT PRODUKTÓW ENDPOINT
+@api_bp.route('/products/export', methods=['POST'])
+@login_required
+def export_products():
+    """
+    POST /production/api/products/export
+    
+    Generuje export produktów w różnych formatach
+    
+    Body (JSON):
+    {
+        "format": "excel|csv|pdf",
+        "product_ids": [1, 2, 3] | "all" | "filtered",
+        "filters": {...},  // Jeśli product_ids == "filtered"
+        "columns": ["id", "name", "status", ...]
+    }
+    
+    Returns: JSON z URL do pobrania pliku
+    """
+    try:
+        import io
+        import csv
+        from datetime import datetime
+        from flask import send_file, make_response
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+        
+        export_format = data.get('format', 'excel').lower()
+        product_selection = data.get('product_ids', 'all')
+        selected_columns = data.get('columns', [])
+        filters = data.get('filters', {})
+        
+        # Walidacja formatu
+        valid_formats = ['excel', 'csv', 'pdf']
+        if export_format not in valid_formats:
+            return jsonify({'success': False, 'error': f'Nieprawidłowy format. Dostępne: {valid_formats}'}), 400
+        
+        from ..models import ProductionItem
+        
+        # Buduj query na podstawie selekcji
+        query = ProductionItem.query
+        
+        if isinstance(product_selection, list):
+            # Konkretne IDs
+            query = query.filter(ProductionItem.id.in_(product_selection))
+        elif product_selection == "filtered":
+            # Zastosuj filtry
+            if filters.get('status'):
+                query = query.filter(ProductionItem.current_status == filters['status'])
+            if filters.get('search'):
+                search_term = f"%{filters['search']}%"
+                query = query.filter(
+                    db.or_(
+                        ProductionItem.short_product_id.ilike(search_term),
+                        ProductionItem.original_product_name.ilike(search_term)
+                    )
+                )
+        # "all" - bez dodatkowych filtrów
+        
+        products = query.all()
+        
+        if not products:
+            return jsonify({'success': False, 'error': 'Brak produktów do eksportu'}), 404
+        
+        # Przygotuj dane do eksportu
+        export_data = []
+        for product in products:
+            row = {
+                'ID Produktu': product.short_product_id,
+                'Zamówienie': product.internal_order_number,
+                'Baselinker ID': product.baselinker_order_id,
+                'Nazwa Produktu': product.original_product_name,
+                'Status': product.current_status,
+                'Priorytet': product.priority_score,
+                'Deadline': product.deadline_date.strftime('%Y-%m-%d') if product.deadline_date else '',
+                'Gatunek': product.parsed_wood_species or '',
+                'Technologia': product.parsed_technology or '',
+                'Klasa': product.parsed_wood_class or '',
+                'Wymiary': f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}cm",
+                'Objętość m³': product.volume_m3 or 0,
+                'Cena netto': product.unit_price_net or 0,
+                'Wartość całkowita': product.total_value_net or 0,
+                'Data utworzenia': product.created_at.strftime('%Y-%m-%d %H:%M') if product.created_at else ''
+            }
+            
+            # Filtruj kolumny jeśli określone
+            if selected_columns:
+                row = {k: v for k, v in row.items() if k in selected_columns}
+            
+            export_data.append(row)
+        
+        # Generuj plik na podstawie formatu
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        if export_format == 'csv':
+            output = io.StringIO()
+            if export_data:
+                writer = csv.DictWriter(output, fieldnames=export_data[0].keys())
+                writer.writeheader()
+                writer.writerows(export_data)
+            
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename=produkty_{timestamp}.csv'
+            
+            logger.info("Export CSV wygenerowany", extra={
+                'user_id': current_user.id,
+                'products_count': len(products),
+                'format': export_format
+            })
+            
+            return response
+        
+        elif export_format == 'excel':
+            # Dla Excel będziemy potrzebować pandas/openpyxl
+            # Na razie zwrócimy CSV z odpowiednim Content-Type
+            output = io.StringIO()
+            if export_data:
+                writer = csv.DictWriter(output, fieldnames=export_data[0].keys())
+                writer.writeheader()
+                writer.writerows(export_data)
+            
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'application/vnd.ms-excel'
+            response.headers['Content-Disposition'] = f'attachment; filename=produkty_{timestamp}.xls'
+            
+            return response
+        
+        elif export_format == 'pdf':
+            # PDF export będzie wymagał reportlab lub podobnej biblioteki
+            # Na razie zwracamy błąd z informacją
+            return jsonify({
+                'success': False,
+                'error': 'Export PDF będzie dostępny w przyszłej wersji'
+            }), 501
+        
+    except Exception as e:
+        logger.error("Błąd eksportu produktów", extra={
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd eksportu: {str(e)}'
+        }), 500
+
+
+# 4. DANE FILTRÓW ENDPOINT
+@api_bp.route('/products/filters-data', methods=['GET'])
+@login_required
+def get_filters_data():
+    """
+    GET /production/api/products/filters-data
+    
+    Zwraca unikalne wartości dla dropdownów filtrów
+    
+    Returns: JSON z listami unikalnych wartości
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import func, distinct
+        
+        # Pobierz unikalne wartości dla filtrów
+        
+        # Statusy - z enum w modelu
+        statuses = [
+            {'value': 'czeka_na_wyciecie', 'label': 'Czeka na wycięcie'},
+            {'value': 'czeka_na_skladanie', 'label': 'Czeka na składanie'},
+            {'value': 'czeka_na_pakowanie', 'label': 'Czeka na pakowanie'},
+            {'value': 'spakowane', 'label': 'Spakowane'},
+            {'value': 'wstrzymane', 'label': 'Wstrzymane'}
+        ]
+        
+        # Gatunki drewna
+        wood_species_query = db.session.query(distinct(ProductionItem.parsed_wood_species))\
+                                      .filter(ProductionItem.parsed_wood_species.isnot(None))\
+                                      .filter(ProductionItem.parsed_wood_species != '')\
+                                      .all()
+        wood_species = [{'value': item[0], 'label': item[0]} for item in wood_species_query]
+        
+        # Technologie
+        technology_query = db.session.query(distinct(ProductionItem.parsed_technology))\
+                                    .filter(ProductionItem.parsed_technology.isnot(None))\
+                                    .filter(ProductionItem.parsed_technology != '')\
+                                    .all()
+        technologies = [{'value': item[0], 'label': item[0]} for item in technology_query]
+        
+        # Klasy drewna
+        wood_class_query = db.session.query(distinct(ProductionItem.parsed_wood_class))\
+                                    .filter(ProductionItem.parsed_wood_class.isnot(None))\
+                                    .filter(ProductionItem.parsed_wood_class != '')\
+                                    .all()
+        wood_classes = [{'value': item[0], 'label': item[0]} for item in wood_class_query]
+        
+        # Zakres priorytetów
+        priority_stats = db.session.query(
+            func.min(ProductionItem.priority_score),
+            func.max(ProductionItem.priority_score),
+            func.avg(ProductionItem.priority_score)
+        ).filter(ProductionItem.priority_score.isnot(None)).first()
+        
+        priority_range = {
+            'min': int(priority_stats[0]) if priority_stats[0] else 0,
+            'max': int(priority_stats[1]) if priority_stats[1] else 200,
+            'avg': int(priority_stats[2]) if priority_stats[2] else 100
+        }
+        
+        # Ostatnie 30 dni dla date picker
+        from datetime import datetime, timedelta
+        date_suggestions = {
+            'today': datetime.now().date().isoformat(),
+            'yesterday': (datetime.now() - timedelta(days=1)).date().isoformat(),
+            'week_ago': (datetime.now() - timedelta(days=7)).date().isoformat(),
+            'month_ago': (datetime.now() - timedelta(days=30)).date().isoformat()
+        }
+        
+        filters_data = {
+            'statuses': statuses,
+            'wood_species': wood_species,
+            'technologies': technologies,
+            'wood_classes': wood_classes,
+            'priority_range': priority_range,
+            'date_suggestions': date_suggestions,
+            'total_products': ProductionItem.query.count()
+        }
+        
+        logger.info("Pobrano dane filtrów", extra={
+            'user_id': current_user.id,
+            'wood_species_count': len(wood_species),
+            'technologies_count': len(technologies),
+            'total_products': filters_data['total_products']
+        })
+        
+        return jsonify({
+            'success': True,
+            'filters_data': filters_data
+        })
+        
+    except Exception as e:
+        logger.error("Błąd pobierania danych filtrów", extra={
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd pobierania filtrów: {str(e)}'
+        }), 500
+
+
+# 5. UPDATE PRIORYTETU POJEDYNCZEGO PRODUKTU
+@api_bp.route('/products/<int:product_id>/priority', methods=['PUT'])
+@admin_required
+def update_single_product_priority(product_id):
+    """
+    PUT /production/api/products/<id>/priority
+    
+    Aktualizuje priorytet pojedynczego produktu
+    
+    Body (JSON):
+    {
+        "priority": 150
+    }
+    
+    Returns: JSON z rezultatem
+    """
+    try:
+        data = request.get_json()
+        if not data or 'priority' not in data:
+            return jsonify({'success': False, 'error': 'Wymagany parametr: priority'}), 400
+        
+        new_priority = data['priority']
+        
+        # Walidacja priorytetu
+        if not isinstance(new_priority, int) or new_priority < 0 or new_priority > 200:
+            return jsonify({'success': False, 'error': 'Priorytet musi być liczbą 0-200'}), 400
+        
+        from ..models import ProductionItem
+        
+        product = ProductionItem.query.get_or_404(product_id)
+        old_priority = product.priority_score
+        
+        product.priority_score = new_priority
+        db.session.commit()
+        
+        logger.info("Zaktualizowano priorytet produktu", extra={
+            'user_id': current_user.id,
+            'product_id': product_id,
+            'product_short_id': product.short_product_id,
+            'old_priority': old_priority,
+            'new_priority': new_priority
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Priorytet zaktualizowany',
+            'product_id': product_id,
+            'old_priority': old_priority,
+            'new_priority': new_priority
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Błąd aktualizacji priorytetu", extra={
+            'user_id': current_user.id if current_user.is_authenticated else None,
+            'product_id': product_id,
+            'error': str(e)
+        })
+        return jsonify({
+            'success': False,
+            'error': f'Błąd aktualizacji priorytetu: {str(e)}'
+        }), 500
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def calculate_duration(start_time, end_time):
+    """
+    Oblicza czas trwania między dwoma timestampami
+    
+    Args:
+        start_time: datetime początkowy
+        end_time: datetime końcowy (może być None)
+    
+    Returns:
+        dict: {'hours': int, 'minutes': int, 'total_minutes': int}
+    """
+    if not start_time:
+        return None
+    
+    if not end_time:
+        end_time = datetime.utcnow()
+    
+    duration = end_time - start_time
+    total_minutes = int(duration.total_seconds() / 60)
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    
+    return {
+        'hours': hours,
+        'minutes': minutes,
+        'total_minutes': total_minutes,
+        'formatted': f"{hours}h {minutes}m"
+    }
 
 logger.info("Zainicjalizowano API routers modułu production", extra={
     'blueprint_name': api_bp.name,

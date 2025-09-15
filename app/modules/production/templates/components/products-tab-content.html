@@ -1,12 +1,14 @@
 <!-- products-tab-content.html -->
-<!-- Komponent zawartości taba Lista produktów -->
-
-<!-- Filtry i wyszukiwanie -->
+<!-- POPRAWIONY - bez moment.js -->
+<!-- ============================================================================
+     SEKCJA FILTRÓW - ROZBUDOWANA WERSJA
+     ============================================================================ -->
+<!-- Podstawowe filtry -->
 <div class="products-filters">
     <div class="row g-3">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <label for="status-filter" class="form-label">Status produktu</label>
-            <select id="status-filter" class="form-select" onchange="filterProducts()">
+            <select id="status-filter" class="form-select">
                 {% for value, label in status_options %}
                 <option value="{{ value }}" {% if value == status_filter %}selected{% endif %}>
                     {{ label }}
@@ -14,228 +16,651 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-4">
             <label for="search-input" class="form-label">Wyszukaj produkt</label>
-            <input type="text" 
-                   id="search-input" 
-                   class="form-control" 
-                   placeholder="ID zamówienia, nazwa produktu..." 
-                   value="{{ search_query }}"
-                   onkeyup="debounceSearch()">
+            <div class="input-group">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text"
+                       id="search-input"
+                       class="form-control"
+                       placeholder="ID zamówienia, nazwa produktu, klient..."
+                       value="{{ search_query }}">
+                <button class="btn btn-outline-secondary" type="button" id="clear-search-btn" title="Wyczyść wyszukiwanie">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <label for="per-page-select" class="form-label">Produktów na stronę</label>
+            <select id="per-page-select" class="form-select">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+            </select>
         </div>
         <div class="col-md-2">
             <label class="form-label">&nbsp;</label>
-            <button class="btn btn-outline-secondary w-100" onclick="clearFilters()">
-                <i class="fas fa-times me-1"></i>Wyczyść
+            <button class="btn btn-outline-primary w-100" id="advanced-filters-toggle">
+                <i class="fas fa-chevron-down me-1"></i>Zaawansowane
             </button>
         </div>
     </div>
 </div>
 
-<!-- Statystyki produktów -->
-<div class="products-stats mt-3 mb-4">
+<!-- Zaawansowane filtry -->
+<div class="advanced-filters-container mt-3" id="advanced-filters-container" style="display: none;">
+    <div class="card">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Filtry zaawansowane</h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <!-- Filtry produktu -->
+                <div class="col-md-3">
+                    <label for="wood-species-filter" class="form-label">Gatunek drewna</label>
+                    <select id="wood-species-filter" class="form-select">
+                        <option value="">Wszystkie gatunki</option>
+                        <!-- Opcje będą ładowane dynamicznie z API -->
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="technology-filter" class="form-label">Technologia</label>
+                    <select id="technology-filter" class="form-select">
+                        <option value="">Wszystkie technologie</option>
+                        <!-- Opcje będą ładowane dynamicznie z API -->
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="wood-class-filter" class="form-label">Klasa drewna</label>
+                    <select id="wood-class-filter" class="form-select">
+                        <option value="">Wszystkie klasy</option>
+                        <!-- Opcje będą ładowane dynamicznie z API -->
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="client-filter" class="form-label">Klient</label>
+                    <input type="text" id="client-filter" class="form-control" placeholder="Nazwa klienta...">
+                </div>
+
+                <!-- Filtry dat -->
+                <div class="col-md-3">
+                    <label for="date-from" class="form-label">Data od</label>
+                    <input type="date" id="date-from" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label for="date-to" class="form-label">Data do</label>
+                    <input type="date" id="date-to" class="form-control">
+                </div>
+
+                <!-- Zakres priorytetów -->
+                <div class="col-md-6">
+                    <label class="form-label">Zakres priorytetów</label>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">Min</span>
+                                <input type="range" id="priority-min-slider" class="form-range" min="0" max="200" value="0">
+                                <span class="input-group-text" id="priority-min-value">0</span>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">Max</span>
+                                <input type="range" id="priority-max-slider" class="form-range" min="0" max="200" value="200">
+                                <span class="input-group-text" id="priority-max-value">200</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Akcje filtrów -->
+            <div class="row mt-3">
+                <div class="col-12">
+                    <button class="btn btn-primary me-2" onclick="AdvancedFilters.applyFilters()">
+                        <i class="fas fa-search me-1"></i>Zastosuj filtry
+                    </button>
+                    <button class="btn btn-outline-secondary" id="clear-filters-btn">
+                        <i class="fas fa-times me-1"></i>Wyczyść wszystkie
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
+     STATYSTYKI I BULK ACTIONS
+     ============================================================================ -->
+<!-- Statystyki filtrów -->
+<div class="filter-stats-bar mt-3 mb-3" id="filter-stats-bar" style="display: none;">
     <div class="row g-3">
         <div class="col-md-3">
-            <div class="stat-card">
-                <div class="stat-value">{{ stats.total_products }}</div>
-                <div class="stat-label">Produktów w liście</div>
+            <div class="stat-card stat-card-sm">
+                <div class="stat-value" id="filter-total-count">0</div>
+                <div class="stat-label">Produktów znalezionych</div>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="stat-card">
-                <div class="stat-value text-warning">{{ stats.high_priority }}</div>
+            <div class="stat-card stat-card-sm">
+                <div class="stat-value text-warning" id="filter-high-priority-count">0</div>
                 <div class="stat-label">Wysoki priorytet</div>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="stat-card">
-                <div class="stat-value text-danger">{{ stats.overdue }}</div>
-                <div class="stat-label">Opóźnione</div>
+            <div class="stat-card stat-card-sm">
+                <div class="stat-value text-danger" id="filter-overdue-count">0</div>
+                <div class="stat-label">Przeterminowane</div>
             </div>
         </div>
         <div class="col-md-3">
-            {% if is_admin %}
-            <button class="btn btn-outline-primary w-100" onclick="toggleDragMode()">
-                <i class="fas fa-arrows-alt me-1"></i>
-                <span id="drag-mode-text">Włącz sortowanie</span>
-            </button>
-            {% else %}
-            <div class="stat-card">
-                <div class="stat-value">{{ products|length }}</div>
-                <div class="stat-label">Widoczne</div>
+            <div class="stat-card stat-card-sm">
+                <div class="stat-value text-info" id="filter-avg-priority">0</div>
+                <div class="stat-label">Średni priorytet</div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Actions Bar -->
+<div class="bulk-actions-bar" id="bulk-actions-bar" style="display: none;">
+    <div class="d-flex align-items-center justify-content-between">
+        <div class="bulk-selection-info">
+            <i class="fas fa-check-square text-white me-2"></i>
+            <span id="bulk-count">0</span> produktów zaznaczonych
+        </div>
+        <div class="bulk-actions">
+            <button class="btn btn-sm btn-outline-light me-2" id="bulk-update-status">
+                <i class="fas fa-exchange-alt me-1"></i>Zmień status
+            </button>
+            {% if is_admin %}
+            <button class="btn btn-sm btn-outline-light me-2" id="bulk-update-priority">
+                <i class="fas fa-star me-1"></i>Ustaw priorytet
+            </button>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-light me-2" id="bulk-export">
+                <i class="fas fa-download me-1"></i>Eksportuj
+            </button>
+            {% if is_admin %}
+            <button class="btn btn-sm btn-outline-light" id="bulk-delete">
+                <i class="fas fa-trash me-1"></i>Usuń
+            </button>
             {% endif %}
         </div>
     </div>
 </div>
 
-<!-- Lista produktów -->
-<div class="products-list" id="products-list">
-    {% if products %}
-        <div class="table-responsive">
-            <table class="table table-hover">
-                <thead>
-                    <tr>
-                        {% if is_admin %}
-                        <th width="50">
-                            <i class="fas fa-sort" title="Przeciągnij aby zmienić priorytet"></i>
-                        </th>
-                        {% endif %}
-                        <th>Priorytet</th>
-                        <th>ID Zamówienia</th>
-                        <th>Produkt</th>
-                        <th>Status</th>
-                        <th>Deadline</th>
-                        <th>Objętość</th>
-                        <th>Akcje</th>
-                    </tr>
-                </thead>
-                <tbody id="products-table-body" {% if is_admin %}class="sortable"{% endif %}>
-                    {% for product in products %}
-                    <tr data-product-id="{{ product.id }}" data-priority="{{ product.priority_score }}">
-                        {% if is_admin %}
-                        <td class="drag-handle">
-                            <i class="fas fa-grip-vertical text-muted"></i>
-                        </td>
-                        {% endif %}
-                        <td>
-                            <span class="priority-badge priority-{{ 'high' if product.priority_score >= 150 else 'normal' if product.priority_score >= 100 else 'low' }}">
-                                {{ product.priority_score }}
-                            </span>
-                        </td>
-                        <td>
-                            <strong>{{ product.short_product_id or 'N/A' }}</strong>
+<!-- ============================================================================
+     TABELA PRODUKTÓW - ROZBUDOWANA WERSJA
+     ============================================================================ -->
+
+<div class="products-list mt-3" id="products-list">
+    <div class="table-responsive">
+        <table class="table table-hover products-table" id="products-table">
+            <thead class="table-light sticky-top">
+                <tr>
+                    <!-- Checkbox dla bulk selection -->
+                    <th width="40">
+                        <input type="checkbox" id="select-all-checkbox" class="form-check-input" title="Zaznacz wszystkie">
+                    </th>
+
+                    <!-- Drag handle dla adminów -->
+                    {% if is_admin %}
+                    <th width="40" title="Przeciągnij aby zmienić priorytet">
+                        <i class="fas fa-arrows-alt text-muted"></i>
+                    </th>
+                    {% endif %}
+
+                    <!-- Sortowalne kolumny -->
+                    <th class="sortable" data-sort="short_product_id">
+                        ID Produktu <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable" data-sort="original_product_name">
+                        Produkt <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable" data-sort="current_status">
+                        Status <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable" data-sort="priority_score">
+                        Priorytet <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable" data-sort="deadline_date">
+                        Deadline <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable" data-sort="created_at">
+                        Data utworzenia <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable" data-sort="volume_m3">
+                        Objętość <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable" data-sort="total_value_net">
+                        Wartość <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th width="120">Akcje</th>
+                </tr>
+            </thead>
+            <tbody id="products-tbody" {% if is_admin %}class="sortable-products" {% endif %}>
+                <!-- Produkty będą ładowane dynamicznie przez JavaScript -->
+                {% if products %}
+                {% for product in products %}
+                {% set today = today() %}
+                <tr class="product-row"
+                    data-product-id="{{ product.id }}"
+                    data-priority="{{ product.priority_score or 0 }}"
+                    data-status="{{ product.current_status }}">
+
+                    <!-- Checkbox -->
+                    <td>
+                        <input type="checkbox" class="product-checkbox form-check-input" value="{{ product.id }}">
+                    </td>
+
+                    <!-- Drag handle -->
+                    {% if is_admin %}
+                    <td class="drag-handle text-center">
+                        <i class="fas fa-grip-vertical text-muted"></i>
+                    </td>
+                    {% endif %}
+
+                    <!-- Product ID -->
+                    <td class="product-id-cell">
+                        <div class="product-id-container">
+                            <span class="product-id-main fw-bold">{{ product.short_product_id or product.id }}</span>
                             <br><small class="text-muted">{{ product.internal_order_number or '' }}</small>
-                        </td>
-                        <td>
-                            <div class="product-name">{{ product.original_product_name[:50] }}{% if product.original_product_name and product.original_product_name|length > 50 %}...{% endif %}</div>
-                        </td>
-                        <td>
-                            <span class="status-badge status-{{ product.current_status.replace('czeka_na_', '').replace('_', '-') }}">
-                                {{ product.current_status.replace('czeka_na_', '').replace('_', ' ').title() }}
-                            </span>
-                        </td>
-                        <td>
-                            {% if product.deadline_date %}
-                                {% set days_diff = (product.deadline_date - today).days %}
-                                <span class="deadline-badge {% if days_diff < 0 %}overdue{% elif days_diff <= 1 %}urgent{% elif days_diff <= 3 %}warning{% else %}normal{% endif %}">
-                                    {% if days_diff < 0 %}
-                                        {{ days_diff|abs }} dni temu
-                                    {% elif days_diff == 0 %}
-                                        Dziś
-                                    {% elif days_diff == 1 %}
-                                        Jutro
-                                    {% else %}
-                                        Za {{ days_diff }} dni
-                                    {% endif %}
-                                </span>
-                            {% else %}
-                                <span class="text-muted">Brak terminu</span>
+                            {% if product.baselinker_order_id %}
+                            <br><small class="text-info">BL: {{ product.baselinker_order_id }}</small>
                             {% endif %}
-                        </td>
-                        <td>
-                            {{ "%.3f"|format(product.volume_m3 or 0) }} m³
-                        </td>
-                        <td>
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-primary btn-sm" 
-                                        onclick="viewProductDetails({{ product.id }})"
-                                        title="Szczegóły produktu">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                {% if is_admin %}
-                                <button class="btn btn-outline-warning btn-sm" 
-                                        onclick="editProductPriority({{ product.id }})"
-                                        title="Edytuj priorytet">
-                                    <i class="fas fa-edit"></i>
-                                </button>
+                        </div>
+                    </td>
+
+                    <!-- Product details -->
+                    <td class="product-cell">
+                        <div class="product-info">
+                            <div class="product-name" title="{{ product.original_product_name }}">
+                                {{ product.original_product_name[:60] }}{% if product.original_product_name|length > 60 %}...{% endif %}
+                            </div>
+                            {% if product.parsed_wood_species or product.parsed_technology or product.volume_m3 %}
+                            <div class="product-specs">
+                                {% if product.parsed_wood_species %}
+                                <span class="spec-badge spec-species">{{ product.parsed_wood_species }}</span>
+                                {% endif %}
+                                {% if product.parsed_technology %}
+                                <span class="spec-badge spec-tech">{{ product.parsed_technology }}</span>
+                                {% endif %}
+                                {% if product.volume_m3 %}
+                                <span class="spec-badge spec-volume">{{ "%.3f"|format(product.volume_m3) }} m³</span>
                                 {% endif %}
                             </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                            {% endif %}
+                        </div>
+                    </td>
+
+                    <!-- Status -->
+                    <td class="status-cell">
+                        {% set status_class = 'status-' + product.current_status.replace('czeka_na_', '').replace('_', '-') %}
+                        <span class="status-badge {{ status_class }}">
+                            {{ product.current_status.replace('czeka_na_', '').replace('_', ' ').title() }}
+                        </span>
+                    </td>
+
+                    <!-- Priority -->
+                    <td class="priority-cell">
+                        <div class="priority-container">
+                            {% set priority = product.priority_score or 0 %}
+                            {% if priority >= 150 %}
+                            {% set priority_class = 'priority-critical' %}
+                            {% elif priority >= 120 %}
+                            {% set priority_class = 'priority-high' %}
+                            {% elif priority >= 80 %}
+                            {% set priority_class = 'priority-medium' %}
+                            {% else %}
+                            {% set priority_class = 'priority-low' %}
+                            {% endif %}
+
+                            <span class="priority-score {{ priority_class }}"
+                                  {% if is_admin %}onclick="editPriorityInline({{ product.id }}, this)" {% endif %}
+                                  title="{% if is_admin %}Kliknij aby edytować{% else %}Priorytet produktu{% endif %}">
+                                {{ priority }}
+                            </span>
+                            <div class="priority-bar">
+                                <div class="priority-fill" style="width: {{ (priority / 2)|round(1) }}%"></div>
+                            </div>
+                        </div>
+                    </td>
+
+                    <!-- Deadline - POPRAWIONE bez moment.js -->
+                    <td class="deadline-cell">
+                        {% if product.deadline_date %}
+                        {% set deadline_date = product.deadline_date %}
+                        {% set today_date = today() %}
+                        {% set days_diff = (deadline_date - today_date).days %}
+
+                        {% if days_diff < 0 %}
+                        {% set deadline_class = 'deadline-overdue' %}
+                        {% set deadline_text = (days_diff|abs) ~ ' dni temu' %}
+                        {% set deadline_icon = 'fas fa-exclamation-triangle' %}
+                        {% elif days_diff == 0 %}
+                        {% set deadline_class = 'deadline-today' %}
+                        {% set deadline_text = 'Dzisiaj' %}
+                        {% set deadline_icon = 'fas fa-clock' %}
+                        {% elif days_diff <= 2 %}
+                        {% set deadline_class = 'deadline-urgent' %}
+                        {% set deadline_text = 'Za ' ~ days_diff ~ ' dni' %}
+                        {% set deadline_icon = 'fas fa-exclamation' %}
+                        {% elif days_diff <= 7 %}
+                        {% set deadline_class = 'deadline-warning' %}
+                        {% set deadline_text = 'Za ' ~ days_diff ~ ' dni' %}
+                        {% set deadline_icon = '' %}
+                        {% else %}
+                        {% set deadline_class = 'deadline-normal' %}
+                        {% set deadline_text = 'Za ' ~ days_diff ~ ' dni' %}
+                        {% set deadline_icon = '' %}
+                        {% endif %}
+
+                        <span class="deadline-badge {{ deadline_class }}">
+                            {% if deadline_icon %}<i class="{{ deadline_icon }} me-1"></i>{% endif %}
+                            {{ deadline_text }}
+                        </span>
+                        <br><small class="text-muted">{{ deadline_date.strftime('%d.%m.%Y') }}</small>
+                        {% else %}
+                        <span class="text-muted">Brak terminu</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Created date -->
+                    <td class="created-cell">
+                        {% if product.created_at %}
+                        <span class="created-date">{{ product.created_at.strftime('%d.%m.%Y') }}</span>
+                        <br><small class="text-muted">{{ product.created_at.strftime('%H:%M') }}</small>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Volume -->
+                    <td class="volume-cell text-end">
+                        {% if product.volume_m3 %}
+                        <span class="volume-value">{{ "%.3f"|format(product.volume_m3) }}</span>
+                        <br><small class="text-muted">m³</small>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Value -->
+                    <td class="value-cell text-end">
+                        {% if product.total_value_net %}
+                        <span class="value-amount fw-bold">{{ "{:,.2f}"|format(product.total_value_net) }}</span>
+                        <br><small class="text-muted">PLN</small>
+                        {% elif product.unit_price_net %}
+                        <span class="value-amount">{{ "{:,.2f}"|format(product.unit_price_net) }}</span>
+                        <br><small class="text-muted">PLN/m³</small>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Actions -->
+                    <td class="actions-cell">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                    type="button"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="ProductModal.openModal({{ product.id }})">
+                                        <i class="fas fa-eye me-2"></i>Zobacz szczegóły
+                                    </a>
+                                </li>
+                                {% if is_admin %}
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="editProductPriority({{ product.id }})">
+                                        <i class="fas fa-star me-2"></i>Edytuj priorytet
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="changeProductStatus({{ product.id }})">
+                                        <i class="fas fa-exchange-alt me-2"></i>Zmień status
+                                    </a>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <a class="dropdown-item text-danger" href="#" onclick="deleteProduct({{ product.id }})">
+                                        <i class="fas fa-trash me-2"></i>Usuń produkt
+                                    </a>
+                                </li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="100%" class="text-center py-5">
+                        <div class="no-products-message">
+                            <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                            <h5>Brak produktów</h5>
+                            <p class="text-muted">Nie znaleziono produktów spełniających kryteria filtrowania.</p>
+                            <button class="btn btn-outline-primary" onclick="AdvancedFilters.clearAllFilters()">
+                                Wyczyść filtry
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ============================================================================
+         PAGINACJA
+         ============================================================================ -->
+    <div class="pagination-container mt-4" id="pagination-container">
+        <div class="row align-items-center">
+            <div class="col-md-4">
+                <div class="pagination-info">
+                    Pokazano <span id="items-from">1</span> - <span id="items-to">{{ products|length }}</span>
+                    z <span id="total-items">{{ products|length }}</span> produktów
+                </div>
+            </div>
+            <div class="col-md-4 text-center">
+                <div class="pagination-controls">
+                    <button class="btn btn-outline-secondary btn-sm" id="prev-page" disabled>
+                        <i class="fas fa-chevron-left"></i> Poprzednia
+                    </button>
+                    <span class="page-numbers mx-3" id="page-numbers">
+                        <button class="btn btn-primary btn-sm page-btn" data-page="1" disabled>1</button>
+                    </span>
+                    <button class="btn btn-outline-secondary btn-sm" id="next-page" disabled>
+                        Następna <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-4 text-end">
+                <div class="page-size-selector">
+                    <label class="form-label-sm me-2">Pokaż:</label>
+                    <select class="form-select form-select-sm d-inline-block w-auto">
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                </div>
+            </div>
         </div>
-    {% else %}
-        <div class="text-center py-5">
-            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
-            <h5 class="text-muted">Brak produktów</h5>
-            <p class="text-muted">Nie znaleziono produktów spełniających kryteria wyszukiwania.</p>
-        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
+     QUICK ACTIONS FLOATING PANEL
+     ============================================================================ -->
+<div class="quick-actions-panel" id="quick-actions-panel">
+    <button class="btn btn-primary btn-sm mb-2" onclick="refreshProductsList()" title="Odśwież listę">
+        <i class="fas fa-sync-alt"></i>
+    </button>
+    <button class="btn btn-success btn-sm mb-2" id="export-btn" title="Eksportuj produkty">
+        <i class="fas fa-download"></i>
+    </button>
+    {% if is_admin %}
+    <button class="btn btn-warning btn-sm mb-2" id="save-priorities-btn" style="display: none;" title="Zapisz priorytety">
+        <i class="fas fa-save"></i>
+    </button>
     {% endif %}
 </div>
 
+<!-- ============================================================================
+     JAVASCRIPT INITIALIZATION
+     ============================================================================ -->
 <script>
-// JavaScript dla taba produktów
-let dragModeEnabled = false;
-let searchTimeout;
+    // Inicjalizacja taba produktów - ROZBUDOWANA WERSJA
+    function initProductsTab() {
+        console.log('[Products Tab] Inicjalizacja rozbudowanej wersji...');
 
-function initProductsTab() {
-    console.log('[Products Tab] Inicjalizacja');
-    
-    // Inicjalizacja drag&drop dla adminów
-    {% if is_admin %}
-    initializeDragAndDrop();
-    {% endif %}
-}
-
-function filterProducts() {
-    console.log('[Products Tab] Filtrowanie produktów');
-    // Przeładuj tab z nowymi filtrami
-    const status = document.getElementById('status-filter').value;
-    const search = document.getElementById('search-input').value;
-    
-    // Wywołaj ponowne ładowanie taba z parametrami
-    window.loadTabContent('products-tab', false, {
-        status: status,
-        search: search
-    });
-}
-
-function debounceSearch() {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(filterProducts, 500);
-}
-
-function clearFilters() {
-    document.getElementById('status-filter').value = 'all';
-    document.getElementById('search-input').value = '';
-    filterProducts();
-}
-
-function toggleDragMode() {
-    dragModeEnabled = !dragModeEnabled;
-    const button = document.getElementById('drag-mode-text');
-    
-    if (dragModeEnabled) {
-        button.textContent = 'Wyłącz sortowanie';
-        document.getElementById('products-table-body').classList.add('drag-enabled');
-    } else {
-        button.textContent = 'Włącz sortowanie';
-        document.getElementById('products-table-body').classList.remove('drag-enabled');
+        // Sprawdź dostępność priority-config.js
+        if (typeof initProductsList === 'function') {
+            initProductsList();
+        } else {
+            console.warn('[Products Tab] priority-config.js nie jest załadowany - używam fallback');
+            initProductsTabFallback();
+        }
     }
-}
 
-function initializeDragAndDrop() {
-    console.log('[Products Tab] TODO: Inicjalizacja drag&drop');
-    // Tu będzie implementacja drag&drop
-}
+    // Fallback inicjalizacja jeśli priority-config.js nie jest dostępny
+    function initProductsTabFallback() {
+        console.log('[Products Tab] Fallback inicjalizacja...');
 
-function viewProductDetails(productId) {
-    console.log('[Products Tab] Wyświetl szczegóły produktu:', productId);
-    // Tu będzie modal ze szczegółami
-}
+        // Podstawowe event handlers
+        setupBasicEventHandlers();
 
-function editProductPriority(productId) {
-    console.log('[Products Tab] Edytuj priorytet produktu:', productId);
-    // Tu będzie modal edycji priorytetu
-}
+        // Podstawowe filtrowanie
+        setupBasicFiltering();
 
-// Auto-inicjalizacja
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initProductsTab);
-} else {
-    initProductsTab();
-}
+        // Drag & drop dla adminów
+        {% if is_admin %}
+        if (typeof Sortable !== 'undefined') {
+            setupBasicDragAndDrop();
+        }
+        {% endif %}
+    }
+
+    function setupBasicEventHandlers() {
+        // Search input
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            let searchTimeout;
+            searchInput.addEventListener('input', function () {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    filterProducts();
+                }, 300);
+            });
+        }
+
+        // Clear search button
+        const clearSearchBtn = document.getElementById('clear-search-btn');
+        if (clearSearchBtn) {
+            clearSearchBtn.addEventListener('click', function () {
+                const searchInput = document.getElementById('search-input');
+                if (searchInput) {
+                    searchInput.value = '';
+                    filterProducts();
+                }
+            });
+        }
+
+        // Status filter
+        const statusFilter = document.getElementById('status-filter');
+        if (statusFilter) {
+            statusFilter.addEventListener('change', filterProducts);
+        }
+
+        // Advanced filters toggle
+        const advancedToggle = document.getElementById('advanced-filters-toggle');
+        if (advancedToggle) {
+            advancedToggle.addEventListener('click', function () {
+                const container = document.getElementById('advanced-filters-container');
+                if (container) {
+                    const isVisible = container.style.display !== 'none';
+                    container.style.display = isVisible ? 'none' : 'block';
+                    this.innerHTML = isVisible ?
+                        '<i class="fas fa-chevron-down me-1"></i>Zaawansowane' :
+                        '<i class="fas fa-chevron-up me-1"></i>Ukryj';
+                }
+            });
+        }
+    }
+
+    function setupBasicFiltering() {
+        // Fallback filtering - basic functionality
+        console.log('[Products Tab] Setup podstawowego filtrowania');
+    }
+
+    function setupBasicDragAndDrop() {
+        const tbody = document.getElementById('products-tbody');
+        if (!tbody) return;
+
+        new Sortable(tbody, {
+            handle: '.drag-handle',
+            animation: 150,
+            onEnd: function (evt) {
+                console.log('[Products Tab] Drag & drop - zmiana kolejności:', evt.oldIndex, '->', evt.newIndex);
+                // Tutaj będzie logika aktualizacji priorytetów
+            }
+        });
+    }
+
+    // Podstawowe funkcje filtrowania (fallback)
+    function filterProducts() {
+        console.log('[Products Tab] Filtrowanie produktów...');
+
+        // Pobierz wartości filtrów
+        const status = document.getElementById('status-filter')?.value || 'all';
+        const search = document.getElementById('search-input')?.value || '';
+
+        // W pełnej wersji tu będzie wywołanie AJAX
+        // Na razie podstawowa implementacja
+        const rows = document.querySelectorAll('.product-row');
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            let shouldShow = true;
+
+            // Filter by status
+            if (status !== 'all') {
+                const rowStatus = row.dataset.status;
+                if (rowStatus !== status) {
+                    shouldShow = false;
+                }
+            }
+
+            // Filter by search
+            if (search.trim()) {
+                const productName = row.querySelector('.product-name')?.textContent || '';
+                const productId = row.querySelector('.product-id-main')?.textContent || '';
+                const searchLower = search.toLowerCase();
+
+                if (!productName.toLowerCase().includes(searchLower) &&
+                    !productId.toLowerCase().includes(searchLower)) {
+                    shouldShow = false;
+                }
+            }
+
+            row.style.display = shouldShow ? '' : 'none';
+            if (shouldShow) visibleCount++;
+        });
+
+        console.log(`[Products Tab] Filtrowanie zakończone: ${visibleCount} produktów widocznych`);
+    }
+
+    // Auto-inicjalizacja
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initProductsTab);
+    } else {
+        // Delay aby upewnić się że inne skrypty są załadowane
+        setTimeout(initProductsTab, 100);
+    }
 </script>

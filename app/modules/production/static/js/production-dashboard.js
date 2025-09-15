@@ -1194,52 +1194,88 @@ function setupAutoRefresh() {
 // Funkcja do refresh stanowisk (może być wywołana niezależnie)
 function refreshStationsData() {
     if (TabDashboard.state.currentActiveTab !== 'dashboard-tab') return;
-    
+
     console.log('[Stations Refresh] Odświeżanie danych stanowisk...');
-    
-    // Pokaż subtelny loading
-    SkeletonSystem.showStationsSkeleton();
-    
-    fetch('/production/api/dashboard-stats?component=stations', {
+
+    // ZMIANA: Użyj głównego endpointu dashboard zamiast nieistniejącego
+    fetch('/production/api/dashboard-tab-content', {
         method: 'GET',
         credentials: 'same-origin',
-        headers: { 'Accept': 'application/json' }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success && data.stations) {
-            SkeletonSystem.hideStationsSkeleton();
-            updateStationsStats(data.stations);
-            console.log('[Stations Refresh] Dane stanowisk odświeżone');
+        headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
         }
     })
-    .catch(error => {
-        console.error('[Stations Refresh] Błąd:', error);
-        SkeletonSystem.hideStationsSkeleton();
-    });
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.stats && data.stats.stations) {
+                // Ukryj skeleton przed aktualizacją
+                if (typeof SkeletonSystem !== 'undefined' && SkeletonSystem.hideStationsSkeleton) {
+                    SkeletonSystem.hideStationsSkeleton();
+                }
+
+                updateStationsStats(data.stats.stations);
+                console.log('[Stations Refresh] Dane stanowisk odświeżone');
+            } else {
+                throw new Error('Brak danych stations w odpowiedzi API');
+            }
+        })
+        .catch(error => {
+            console.error('[Stations Refresh] Błąd:', error);
+
+            // WAŻNE: Ukryj skeleton nawet przy błędzie
+            if (typeof SkeletonSystem !== 'undefined' && SkeletonSystem.hideStationsSkeleton) {
+                SkeletonSystem.hideStationsSkeleton();
+            }
+
+            // Pokaż toast o błędzie
+            if (typeof showNotification === 'function') {
+                showNotification('Błąd odświeżania danych stanowisk', 'warning');
+            }
+        });
 }
 
 // Funkcja do refresh today totals
 function refreshTodayTotals() {
     if (TabDashboard.state.currentActiveTab !== 'dashboard-tab') return;
-    
+
     console.log('[Today Totals Refresh] Odświeżanie dzisiejszych statystyk...');
-    
-    fetch('/production/api/dashboard-stats?component=today_totals', {
+
+    // ZMIANA: Również użyj głównego endpointu
+    fetch('/production/api/dashboard-tab-content', {
         method: 'GET',
         credentials: 'same-origin',
-        headers: { 'Accept': 'application/json' }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success && data.today_totals) {
-            updateTodayTotals(data.today_totals);
-            console.log('[Today Totals Refresh] Dzisiejsze statystyki odświeżone');
+        headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
         }
     })
-    .catch(error => {
-        console.error('[Today Totals Refresh] Błąd:', error);
-    });
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.stats && data.stats.today_totals) {
+                updateTodayTotals(data.stats.today_totals);
+                console.log('[Today Totals Refresh] Dzisiejsze statystyki odświeżone');
+            } else {
+                throw new Error('Brak danych today_totals w odpowiedzi API');
+            }
+        })
+        .catch(error => {
+            console.error('[Today Totals Refresh] Błąd:', error);
+
+            if (typeof showNotification === 'function') {
+                showNotification('Błąd odświeżania dzisiejszych statystyk', 'warning');
+            }
+        });
 }
 
 // ============================================================================
