@@ -29,6 +29,9 @@ class ProductionApp {
 
         this.config = window.PRODUCTION_CONFIG || {};
         this.shared = window.ProductionShared;
+        this.moduleRegistry = {
+            dashboard: 'DashboardModule'
+        };
 
         // Bind methods
         this.handleTabClick = this.handleTabClick.bind(this);
@@ -254,6 +257,34 @@ class ProductionApp {
         }
     }
 
+    async ensureModule(moduleKey) {
+        if (this.state.loadedModules.has(moduleKey)) {
+            return this.state.loadedModules.get(moduleKey);
+        }
+
+        if (!window.ProductionModules) {
+            console.error('[ProductionApp] ProductionModules namespace not available');
+            return null;
+        }
+
+        const moduleClassName = this.moduleRegistry[moduleKey];
+        if (!moduleClassName) {
+            console.warn(`[ProductionApp] No module registered for key: ${moduleKey}`);
+            return null;
+        }
+
+        const ModuleClass = window.ProductionModules[moduleClassName];
+        if (typeof ModuleClass !== 'function') {
+            console.error(`[ProductionApp] Module class ${moduleClassName} not found`);
+            return null;
+        }
+
+        const moduleInstance = new ModuleClass(this.shared, this.config);
+        this.state.loadedModules.set(moduleKey, moduleInstance);
+
+        return moduleInstance;
+    }
+
     // ========================================================================
     // TAB LOADERS
     // ========================================================================
@@ -261,40 +292,32 @@ class ProductionApp {
     async loadDashboardTab() {
         console.log('[ProductionApp] Loading dashboard tab...');
 
+        const loadingContext = `tab-dashboard-tab`;
+
         try {
-            // POPRAWKA: Load dashboard content via API instead of dynamic import
-            const loadingContext = `tab-dashboard-tab`;
-            
             this.shared.loadingManager.show(loadingContext, 'Ładowanie dashboard...');
-            
-            // Load dashboard content from API
-            const response = await this.shared.apiClient.getDashboardTabContent();
-            
-            if (!response.success) {
-                throw new Error(response.error || 'Failed to load dashboard content');
+
+            const dashboardModule = await this.ensureModule('dashboard');
+
+            if (!dashboardModule) {
+                throw new Error('Moduł dashboardu jest niedostępny');
             }
-            
-            // Update DOM with content
-            const wrapper = document.getElementById('dashboard-tab-wrapper');
+
+            await dashboardModule.load();
+
             const loading = document.getElementById('dashboard-tab-loading');
-            
-            if (wrapper) {
-                wrapper.innerHTML = response.html;
-                wrapper.style.display = 'block';
-            }
-            
             if (loading) {
                 loading.style.display = 'none';
             }
-            
+
             console.log('[ProductionApp] Dashboard tab loaded successfully');
-            
+
         } catch (error) {
             console.error('[ProductionApp] Dashboard loading failed:', error);
             this.showTabError('dashboard-tab', error.message);
             throw error;
         } finally {
-            this.shared.loadingManager.hide(`tab-dashboard-tab`);
+            this.shared.loadingManager.hide(loadingContext);
         }
     }
 

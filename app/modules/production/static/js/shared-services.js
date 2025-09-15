@@ -177,8 +177,8 @@ class ApiClient {
         return this.request('/dashboard-stats');
     }
 
-    async getDashboardTabContent() {
-        return this.request('/dashboard-tab-content');
+    async getDashboardTabContent(options = {}) {
+        return this.request('/dashboard-tab-content', options);
     }
 
     async getProductsTabContent(filters = {}) {

@@ -294,7 +294,9 @@
             configTabContent: '{{ url_for("production.production_api.config_tab_content") }}',
             chartData: '{{ url_for("production.production_api.chart_data") }}',
             manualSync: '{{ url_for("production.production_api.manual_sync") }}',
-            dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}'
+            dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
+            systemErrors: {% if current_user.role in ['admin', 'administrator'] %}'{{ url_for("production.production_admin.ajax_system_errors") }}'{% else %}null{% endif %},
+            clearSystemErrors: {% if current_user.role in ['admin', 'administrator'] %}'{{ url_for("production.production_admin.ajax_clear_system_errors") }}'{% else %}null{% endif %}
         },
         debug: {{ config.DEBUG|lower }},
         version: '2.0.0',
@@ -307,10 +309,13 @@
     <!-- 5. NOWE: Wspólne serwisy -->
     <script src="{{ url_for('production.static', filename='js/shared-services.js') }}"></script>
 
-    <!-- 6. NOWE: Główny kontroler aplikacji -->
+    <!-- 6. Moduły funkcjonalne -->
+    <script src="{{ url_for('production.static', filename='js/modules/dashboard-module.js') }}"></script>
+
+    <!-- 7. NOWE: Główny kontroler aplikacji -->
     <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>
 
-    <!-- 7. USUNIĘTE: Stare skrypty które powodowały konflikty -->
+    <!-- 8. USUNIĘTE: Stare skrypty które powodowały konflikty -->
     <!--
     STARE - USUNIĘTE:
     <script src="{{ url_for('production.static', filename='js/production-dashboard.js') }}"></script>
