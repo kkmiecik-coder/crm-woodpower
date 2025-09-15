@@ -1,5 +1,5 @@
 <!-- products-tab-content.html -->
-<!-- POPRAWIONY - bez moment.js -->
+<!-- POPRAWIONY - bez błędu today() callable -->
 <!-- ============================================================================
      SEKCJA FILTRÓW - ROZBUDOWANA WERSJA
      ============================================================================ -->
@@ -244,7 +244,6 @@
                 <!-- Produkty będą ładowane dynamicznie przez JavaScript -->
                 {% if products %}
                 {% for product in products %}
-                {% set today = today() %}
                 <tr class="product-row"
                     data-product-id="{{ product.id }}"
                     data-priority="{{ product.priority_score or 0 }}"
@@ -328,11 +327,11 @@
                         </div>
                     </td>
 
-                    <!-- Deadline - POPRAWIONE bez moment.js -->
+                    <!-- Deadline - POPRAWIONE bez błędu today() -->
                     <td class="deadline-cell">
                         {% if product.deadline_date %}
                         {% set deadline_date = product.deadline_date %}
-                        {% set today_date = today() %}
+                        {% set today_date = today %}
                         {% set days_diff = (deadline_date - today_date).days %}
 
                         {% if days_diff < 0 %}

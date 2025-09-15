@@ -92,35 +92,21 @@ const ProductsList = {
  * Inicjalizuje listę produktów - ROZBUDOWANA WERSJA
  */
 function initProductsList() {
-    console.log('[Products List] Inicjalizacja dla systemu tabów...');
-
-    // Sprawdź czy jesteśmy w kontekście taba
-    const isTabContext = document.getElementById('products-tbody') !== null;
-
-    if (!isTabContext) {
-        console.log('[Products List] Brak kontekstu taba - pomijam inicjalizację');
-        return;
-    }
+    console.log('[Products List] Inicjalizacja rozbudowanej wersji...');
 
     // Sprawdź dostępność danych
     if (typeof window.productsData === 'undefined') {
-        // W systemie tabów dane mogą być przekazane inaczej
-        window.productsData = {
-            products: [],
-            isAdmin: window.currentUser?.role === 'admin' || false
-        };
-
-        // Spróbuj pobrać dane z istniejącej tabeli
-        loadProductsFromTable();
+        console.warn('[Products List] Brak danych produktów');
+        window.productsData = { products: [], isAdmin: false };
     }
 
     // Zapisz oryginalne dane
     ProductsList.state.originalOrder = [...(window.productsData.products || [])];
 
     // Inicjalizacja wszystkich systemów
-    initTabEventListeners();
-    initTabFilterHandlers();
-    initTabPaginationHandlers();
+    initEventListeners();
+    initFilterHandlers();
+    initPaginationHandlers();
     AdvancedFilters.init();
     BulkActions.init();
     ExportManager.init();
@@ -131,164 +117,36 @@ function initProductsList() {
     // Załaduj dane filtrów z API
     loadFiltersData();
 
+    // Zastosuj filtry i odśwież
+    applyAllFilters();
+
     // Inicjalizuj drag&drop dla adminów
     if (window.productsData.isAdmin) {
-        initTabDragAndDrop();
+        initDragAndDrop();
     }
 
-    // Setup pozostałych systemów
+    // Setup keyboard shortcuts
     setupKeyboardShortcuts();
+
+    // Auto-refresh
     setupAutoRefresh();
 
-    console.log('[Products List] Inicjalizacja dla tabów zakończona');
+    console.log('[Products List] Inicjalizacja zakończona - wszystkie systemy aktywne');
 }
 
 /**
- * Ładuje produkty z istniejącej tabeli (fallback)
+ * Inicjalizuje drag & drop dla adminów - ROZBUDOWANA WERSJA
  */
-function loadProductsFromTable() {
-    const rows = document.querySelectorAll('#products-tbody .product-row');
-    const products = [];
-
-    rows.forEach(row => {
-        const productData = {
-            id: parseInt(row.dataset.productId),
-            priority_score: parseInt(row.dataset.priority) || 0,
-            current_status: row.dataset.status,
-            short_product_id: row.querySelector('.product-id-main')?.textContent,
-            original_product_name: row.querySelector('.product-name')?.textContent
-        };
-        products.push(productData);
-    });
-
-    window.productsData.products = products;
-    console.log('[Products List] Załadowano', products.length, 'produktów z tabeli');
-}
-
-/**
- * Inicjalizuje handlery zdarzeń dla systemu tabów
- */
-function initTabEventListeners() {
-    // Clear search button - NOWY w template
-    const clearSearchBtn = document.getElementById('clear-search-btn');
-    if (clearSearchBtn) {
-        clearSearchBtn.addEventListener('click', () => {
-            const searchInput = document.getElementById('search-input');
-            if (searchInput) {
-                searchInput.value = '';
-                AdvancedFilters.applyFilters();
-            }
-        });
-    }
-
-    // Export button
-    const exportBtn = document.getElementById('export-btn');
-    if (exportBtn) {
-        exportBtn.addEventListener('click', () => ExportManager.openExportModal());
-    }
-
-    // Save priorities button
-    const savePrioritiesBtn = document.getElementById('save-priorities-btn');
-    if (savePrioritiesBtn) {
-        savePrioritiesBtn.addEventListener('click', savePriorities);
-    }
-
-    // Per page selector - NOWY
-    const perPageSelect = document.getElementById('per-page-select');
-    if (perPageSelect) {
-        perPageSelect.addEventListener('change', () => {
-            PaginationManager.changePerPage();
-        });
-    }
-
-    // Sortable headers - NOWE
-    document.querySelectorAll('.sortable').forEach(header => {
-        header.addEventListener('click', () => {
-            const sortBy = header.dataset.sort;
-            handleColumnSort(sortBy);
-        });
-    });
-
-    // Keyboard shortcuts
-    document.addEventListener('keydown', handleKeyboardShortcuts);
-
-    // Przed opuszczeniem strony
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    console.log('[Products List] Tab event listenery zainicjalizowane');
-}
-
-/**
- * Inicjalizuje handlery filtrów dla systemu tabów
- */
-function initTabFilterHandlers() {
-    // Search input - z debounce
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-        searchInput.addEventListener('input', debounce(() => {
-            AdvancedFilters.applyFilters();
-        }, ProductsList.config.filterDelay));
-    }
-
-    // Status filter
-    const statusFilter = document.getElementById('status-filter');
-    if (statusFilter) {
-        statusFilter.addEventListener('change', () => {
-            AdvancedFilters.applyFilters();
-        });
-    }
-
-    // Advanced filters toggle - ZAKTUALIZOWANY selector
-    const advancedToggle = document.getElementById('advanced-filters-toggle');
-    if (advancedToggle) {
-        advancedToggle.addEventListener('click', () => {
-            AdvancedFilters.setupAdvancedToggle();
-        });
-    }
-
-    console.log('[Products List] Tab filter handlers zainicjalizowane');
-}
-
-/**
- * Inicjalizuje handlery paginacji dla systemu tabów
- */
-function initTabPaginationHandlers() {
-    // Previous/Next buttons
-    const prevBtn = document.getElementById('prev-page');
-    const nextBtn = document.getElementById('next-page');
-
-    if (prevBtn) prevBtn.addEventListener('click', () => PaginationManager.prevPage());
-    if (nextBtn) nextBtn.addEventListener('click', () => PaginationManager.nextPage());
-
-    // Page number buttons - event delegation
-    document.addEventListener('click', (event) => {
-        if (event.target.classList.contains('page-btn')) {
-            const page = parseInt(event.target.dataset.page);
-            if (page && !event.target.disabled) {
-                PaginationManager.goToPage(page);
-            }
-        }
-    });
-
-    console.log('[Products List] Tab pagination handlers zainicjalizowane');
-}
-
-/**
- * Inicjalizuje drag & drop dla systemu tabów
- */
-function initTabDragAndDrop() {
+function initDragAndDrop() {
     if (!window.productsData.isAdmin || typeof Sortable === 'undefined') {
-        console.log('[Products List] Tab Drag & drop niedostępny');
+        console.log('[Products List] Drag & drop niedostępny');
         return;
     }
 
     const tbody = document.getElementById('products-tbody');
-    if (!tbody || !tbody.classList.contains('sortable-products')) {
-        console.log('[Products List] Brak sortable tbody');
-        return;
-    }
+    if (!tbody) return;
 
-    console.log('[Products List] Inicjalizacja tab drag & drop...');
+    console.log('[Products List] Inicjalizacja zaawansowanego drag & drop...');
 
     ProductsList.state.sortable = new Sortable(tbody, {
         handle: '.drag-handle',
@@ -301,23 +159,36 @@ function initTabDragAndDrop() {
         scrollSpeed: 10,
 
         onStart: function (evt) {
-            console.log('[Tab Drag & Drop] Start:', evt.oldIndex);
+            console.log('[Drag & Drop] Start:', evt.oldIndex);
             document.body.classList.add('sorting-active');
             showDragHelp();
         },
 
         onEnd: function (evt) {
-            console.log('[Tab Drag & Drop] End:', evt.oldIndex, '->', evt.newIndex);
+            console.log('[Drag & Drop] End:', evt.oldIndex, '->', evt.newIndex);
             document.body.classList.remove('sorting-active');
             hideDragHelp();
 
             if (evt.oldIndex !== evt.newIndex) {
-                handleTabPriorityReorder(evt.oldIndex, evt.newIndex);
+                handlePriorityReorder(evt.oldIndex, evt.newIndex);
             }
+        },
+
+        onMove: function (evt, originalEvent) {
+            // Highlight drop zone
+            const related = evt.related;
+            if (related) {
+                related.classList.add('drag-hover');
+                setTimeout(() => related.classList.remove('drag-hover'), 200);
+            }
+            return true;
         }
     });
 
-    console.log('[Products List] Tab drag & drop zainicjalizowany');
+    // Add visual indicators
+    addDragVisualIndicators();
+
+    console.log('[Products List] Zaawansowany drag & drop zainicjalizowany');
 }
 
 // ============================================================================
@@ -581,7 +452,7 @@ const AdvancedFilters = {
         this.saveFiltersToStorage();
 
         // Odśwież listę produktów
-        refreshTabProductsList();
+        refreshProductsList();
     },
 
     collectCurrentFilters() {
@@ -870,7 +741,7 @@ const BulkActions = {
             if (data.success) {
                 showToast(`Zaktualizowano status ${data.processed_count} produktów`, 'success');
                 this.clearSelection();
-                refreshTabProductsList();
+                refreshProductsList();
             } else {
                 throw new Error(data.error || 'Błąd aktualizacji statusu');
             }
@@ -915,7 +786,7 @@ const BulkActions = {
             if (data.success) {
                 showToast(`Zaktualizowano priorytet ${data.processed_count} produktów`, 'success');
                 this.clearSelection();
-                refreshTabProductsList();
+                refreshProductsList();
             } else {
                 throw new Error(data.error || 'Błąd aktualizacji priorytetu');
             }
@@ -972,7 +843,7 @@ const BulkActions = {
             if (data.success) {
                 showToast(`Usunięto ${data.processed_count} produktów`, 'success');
                 this.clearSelection();
-                refreshTabProductsList();
+                refreshProductsList();
             } else {
                 throw new Error(data.error || 'Błąd usuwania produktów');
             }
@@ -1478,7 +1349,7 @@ const PaginationManager = {
         if (page === ProductsList.state.pagination.currentPage) return;
 
         ProductsList.state.pagination.currentPage = page;
-        await refreshTabProductsList();
+        await refreshProductsList();
         this.scrollToTop();
     },
 
@@ -1502,7 +1373,7 @@ const PaginationManager = {
         if (newPerPage !== ProductsList.state.pagination.perPage) {
             ProductsList.state.pagination.perPage = newPerPage;
             ProductsList.state.pagination.currentPage = 1; // Reset to first page
-            await refreshTabProductsList();
+            await refreshProductsList();
             this.scrollToTop();
         }
     },
@@ -1617,9 +1488,9 @@ const PaginationManager = {
 /**
  * Odświeża listę produktów z serwera - ROZBUDOWANA WERSJA
  */
-async function refreshTabProductsList() {
+async function refreshProductsList() {
     if (ProductsList.state.isLoading) {
-        console.log('[Tab Products List] Refresh już w trakcie - pomijam');
+        console.log('[Products List] Refresh już w trakcie - pomijam');
         return;
     }
 
@@ -1641,8 +1512,8 @@ async function refreshTabProductsList() {
             }
         });
 
-        // Wykonaj request - ZAKTUALIZOWANY endpoint
-        const response = await fetch(`/production/products?${params.toString()}`, {
+        // Wykonaj request
+        const response = await fetch(`${ProductsList.endpoints.productsList}?${params.toString()}`, {
             method: 'GET',
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
@@ -1661,7 +1532,7 @@ async function refreshTabProductsList() {
         }
 
         // Aktualizuj UI
-        updateTabProductsTable(data.products);
+        updateProductsTable(data.products);
         PaginationManager.updateControls(data.pagination);
         updateFilterStats(data.stats);
 
@@ -1671,19 +1542,19 @@ async function refreshTabProductsList() {
         // Re-initialize drag&drop if admin
         if (window.productsData.isAdmin && ProductsList.state.sortable) {
             ProductsList.state.sortable.destroy();
-            initTabDragAndDrop();
+            initDragAndDrop();
         }
 
         ProductsList.state.lastRefresh = new Date();
 
-        console.log('[Tab Products List] Lista odświeżona:', {
+        console.log('[Products List] Lista odświeżona:', {
             products: data.products.length,
             page: data.pagination.page,
             total: data.pagination.total
         });
 
     } catch (error) {
-        console.error('[Tab Products List] Błąd odświeżania:', error);
+        console.error('[Products List] Błąd odświeżania:', error);
         showToast('Błąd ładowania produktów: ' + error.message, 'error');
     } finally {
         ProductsList.state.isLoading = false;
@@ -1692,12 +1563,12 @@ async function refreshTabProductsList() {
 }
 
 /**
- * Aktualizuje tabelę produktów w systemie tabów
+ * Aktualizuje tabelę produktów z nowymi danymi
  */
-function updateTabProductsTable(products) {
+function updateProductsTable(products) {
     const tbody = document.getElementById('products-tbody');
     if (!tbody) {
-        console.error('[Tab Products List] Nie znaleziono tbody');
+        console.error('[Products List] Nie znaleziono tbody');
         return;
     }
 
@@ -1721,82 +1592,96 @@ function updateTabProductsTable(products) {
 
     let html = '';
     products.forEach(product => {
-        html += generateTabProductRowHtml(product);
+        html += generateProductRowHtml(product);
     });
 
     tbody.innerHTML = html;
 
     // Add visual enhancements
-    addTabRowInteractions();
-    updateTabRowVisualStates();
+    addRowInteractions();
+    updateRowVisualStates();
 }
 
 /**
- * Generuje HTML dla wiersza produktu w systemie tabów
+ * Generuje HTML dla wiersza produktu
  */
-function generateTabProductRowHtml(product) {
+function generateProductRowHtml(product) {
     const isAdmin = window.productsData.isAdmin;
     const statusDisplay = getStatusDisplay(product.current_status);
     const statusClass = getStatusClass(product.current_status);
     const priorityClass = getPriorityClass(product.priority_score);
     const deadlineInfo = getDeadlineInfo(product);
 
-    // Podstawowy template - rozszerz według potrzeb
     return `
         <tr class="product-row ${product.status_flags?.is_overdue ? 'row-overdue' : ''} ${product.status_flags?.is_urgent ? 'row-urgent' : ''}"
             data-product-id="${product.id}"
             data-priority="${product.priority_score || 0}"
-            data-status="${product.current_status}">
+            data-status="${product.current_status}"
+            onclick="ProductModal.openModal(${product.id})">
 
             <!-- Checkbox column -->
-            <td>
-                <input type="checkbox" class="product-checkbox form-check-input" 
-                       value="${product.id}">
+            <td class="checkbox-cell" onclick="event.stopPropagation()">
+                <input type="checkbox" class="product-checkbox" 
+                       value="${product.id}" 
+                       onchange="BulkActions.toggleProduct(${product.id})">
             </td>
 
             ${isAdmin ? `
-            <!-- Drag handle for admin -->
-            <td class="drag-handle text-center">
-                <i class="fas fa-grip-vertical text-muted"></i>
+            <!-- Priority column for admin -->
+            <td class="priority-cell" onclick="event.stopPropagation()">
+                <div class="priority-container">
+                    <div class="drag-handle" title="Przeciągnij aby zmienić priorytet">
+                        <i class="fas fa-grip-vertical"></i>
+                    </div>
+                    <div class="priority-value">
+                        <span class="priority-score ${priorityClass}" 
+                              data-original="${product.priority_score || 0}"
+                              onclick="editPriorityInline(${product.id}, this)">
+                            ${product.priority_score || 0}
+                        </span>
+                        <div class="priority-bar">
+                            <div class="priority-fill" style="width: ${Math.min((product.priority_score || 0) / 2, 100)}%"></div>
+                        </div>
+                    </div>
+                </div>
             </td>
             ` : ''}
 
             <!-- Product ID -->
             <td class="product-id-cell">
                 <div class="product-id-container">
-                    <span class="product-id-main fw-bold">${product.short_product_id || product.id}</span>
-                    <br><small class="text-muted">${product.internal_order_number || ''}</small>
+                    <span class="product-id-main" title="ID produktu">${product.short_product_id}</span>
+                    <span class="product-id-original" title="Zamówienie wewnętrzne">${product.internal_order_number}</span>
+                    ${product.baselinker_order_id ? `<span class="product-id-baselinker" title="ID Baselinker">BL: ${product.baselinker_order_id}</span>` : ''}
                 </div>
             </td>
 
-            <!-- Product details -->
+            <!-- Product name and details -->
             <td class="product-cell">
                 <div class="product-info">
                     <div class="product-name" title="${product.original_product_name}">
-                        ${product.original_product_name?.length > 60 ?
+                        ${product.original_product_name.length > 60 ?
             product.original_product_name.substring(0, 60) + '...' :
-            product.original_product_name || 'Brak nazwy'}
+            product.original_product_name}
                     </div>
+                    ${product.parsed_data ? `
+                    <div class="product-specs">
+                        ${product.parsed_data.wood_species ? `<span class="spec-item species">${product.parsed_data.wood_species}</span>` : ''}
+                        ${product.parsed_data.technology ? `<span class="spec-item tech">${product.parsed_data.technology}</span>` : ''}
+                        ${product.parsed_data.dimensions ? `<span class="spec-item dims">${product.parsed_data.dimensions}</span>` : ''}
+                        ${product.parsed_data.volume_m3 ? `<span class="spec-item volume">${product.parsed_data.volume_m3} m³</span>` : ''}
+                    </div>
+                    ` : ''}
                 </div>
             </td>
 
             <!-- Status -->
             <td class="status-cell">
-                <span class="status-badge ${statusClass}">${statusDisplay}</span>
-            </td>
-
-            <!-- Priority -->
-            <td class="priority-cell">
-                <div class="priority-container">
-                    <span class="priority-score ${priorityClass}" 
-                          ${isAdmin ? `onclick="editPriorityInline(${product.id}, this)"` : ''}
-                          title="${isAdmin ? 'Kliknij aby edytować' : 'Priorytet produktu'}">
-                        ${product.priority_score || 0}
-                    </span>
-                    <div class="priority-bar">
-                        <div class="priority-fill" style="width: ${Math.min((product.priority_score || 0) / 2, 100)}%"></div>
-                    </div>
-                </div>
+                <span class="status-badge ${statusClass}" title="Status produktu">
+                    ${statusDisplay}
+                </span>
+                ${product.status_flags?.is_overdue ? '<i class="fas fa-exclamation-triangle text-danger ms-1" title="Przeterminowane"></i>' : ''}
+                ${product.status_flags?.is_urgent ? '<i class="fas fa-clock text-warning ms-1" title="Pilne"></i>' : ''}
             </td>
 
             <!-- Deadline -->
@@ -1809,20 +1694,18 @@ function generateTabProductRowHtml(product) {
                 <span class="created-date">${formatDate(product.created_at)}</span>
             </td>
 
-            <!-- Volume -->
-            <td class="volume-cell text-end">
-                ${product.volume_m3 ? `<span class="volume-value">${product.volume_m3.toFixed(3)}</span><br><small class="text-muted">m³</small>` : '<span class="text-muted">-</span>'}
-            </td>
-
-            <!-- Value -->
-            <td class="value-cell text-end">
-                ${product.financial_data?.total_value_net ?
-            `<span class="value-amount fw-bold">${formatCurrency(product.financial_data.total_value_net)}</span>` :
-            '<span class="text-muted">-</span>'}
+            <!-- Financial data -->
+            <td class="financial-cell">
+                ${product.financial_data?.total_value_net ? `
+                <div class="financial-info">
+                    <span class="total-value">${formatCurrency(product.financial_data.total_value_net)}</span>
+                    ${product.financial_data.unit_price_net ? `<span class="unit-price">${formatCurrency(product.financial_data.unit_price_net)}/m³</span>` : ''}
+                </div>
+                ` : '<span class="text-muted">-</span>'}
             </td>
 
             <!-- Actions -->
-            <td class="actions-cell">
+            <td class="actions-cell" onclick="event.stopPropagation()">
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" 
                             type="button" data-bs-toggle="dropdown">
@@ -1831,13 +1714,24 @@ function generateTabProductRowHtml(product) {
                     <ul class="dropdown-menu">
                         <li>
                             <a class="dropdown-item" href="#" onclick="ProductModal.openModal(${product.id})">
-                                <i class="fas fa-eye me-2"></i>Zobacz szczegóły
+                                <i class="fas fa-eye"></i> Szczegóły
                             </a>
                         </li>
                         ${isAdmin ? `
                         <li>
                             <a class="dropdown-item" href="#" onclick="editProductPriority(${product.id})">
-                                <i class="fas fa-star me-2"></i>Edytuj priorytet
+                                <i class="fas fa-edit"></i> Edytuj priorytet
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="#" onclick="changeProductStatus(${product.id})">
+                                <i class="fas fa-exchange-alt"></i> Zmień status
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item text-danger" href="#" onclick="deleteProduct(${product.id})">
+                                <i class="fas fa-trash"></i> Usuń
                             </a>
                         </li>
                         ` : ''}
@@ -1848,27 +1742,13 @@ function generateTabProductRowHtml(product) {
     `;
 }
 
-
 /**
  * Dodaje interakcje do wierszy tabeli
  */
-function addTabRowInteractions() {
+function addRowInteractions() {
     const rows = document.querySelectorAll('.product-row');
 
     rows.forEach(row => {
-        // Click to select
-        row.addEventListener('click', function (e) {
-            // Ignore clicks on buttons and inputs
-            if (e.target.closest('button, input, .dropdown')) return;
-
-            const checkbox = this.querySelector('.product-checkbox');
-            if (checkbox) {
-                checkbox.checked = !checkbox.checked;
-                const event = new Event('change');
-                checkbox.dispatchEvent(event);
-            }
-        });
-
         // Hover effects
         row.addEventListener('mouseenter', function () {
             this.classList.add('row-hover');
@@ -1877,17 +1757,30 @@ function addTabRowInteractions() {
         row.addEventListener('mouseleave', function () {
             this.classList.remove('row-hover');
         });
+
+        // Context menu
+        row.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            showContextMenu(e, this);
+        });
+
+        // Double click for quick action
+        row.addEventListener('dblclick', function () {
+            const productId = this.dataset.productId;
+            ProductModal.openModal(parseInt(productId));
+        });
     });
 }
 
 /**
  * Aktualizuje stany wizualne wierszy
  */
-function updateTabRowVisualStates() {
+function updateRowVisualStates() {
     const rows = document.querySelectorAll('.product-row');
 
     rows.forEach(row => {
         const priority = parseInt(row.dataset.priority || '0');
+        const status = row.dataset.status;
 
         // Priority visual indicators
         if (priority >= 150) {
@@ -1895,6 +1788,9 @@ function updateTabRowVisualStates() {
         } else if (priority <= 50) {
             row.classList.add('low-priority');
         }
+
+        // Status visual indicators
+        row.classList.add(`status-${status.replace('_', '-')}`);
     });
 }
 
@@ -2425,9 +2321,9 @@ const ProductModal = {
 /**
  * Obsługuje zmianę kolejności priorytetów przez drag & drop
  */
-async function handleTabPriorityReorder(oldIndex, newIndex) {
+async function handlePriorityReorder(oldIndex, newIndex) {
     try {
-        console.log('[Tab Drag & Drop] Przetwarzanie zmiany kolejności...', { oldIndex, newIndex });
+        console.log('[Drag & Drop] Przetwarzanie zmiany kolejności...', { oldIndex, newIndex });
 
         const rows = document.querySelectorAll('#products-tbody .product-row');
         const products = [];
@@ -2444,8 +2340,8 @@ async function handleTabPriorityReorder(oldIndex, newIndex) {
             });
         });
 
-        // Wyślij batch update - ZAKTUALIZOWANY endpoint
-        const response = await fetch('/production/update-priority', {
+        // Wyślij batch update
+        const response = await fetch(ProductsList.endpoints.updatePriority, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -2462,7 +2358,7 @@ async function handleTabPriorityReorder(oldIndex, newIndex) {
             showToast(`Zaktualizowano priorytety ${data.updated_count} produktów`, 'success');
 
             // Aktualizuj UI bez pełnego refresh
-            updateTabPriorityDisplays(data.updated_products || products);
+            updatePriorityDisplays(data.updated_products);
 
             ProductsList.state.unsavedChanges = false;
             hideSaveButton();
@@ -2471,81 +2367,37 @@ async function handleTabPriorityReorder(oldIndex, newIndex) {
         }
 
     } catch (error) {
-        console.error('[Tab Drag & Drop] Błąd aktualizacji priorytetów:', error);
+        console.error('[Drag & Drop] Błąd aktualizacji priorytetów:', error);
         showToast('Błąd aktualizacji priorytetów: ' + error.message, 'error');
 
         // Przywróć oryginalną kolejność
-        refreshTabProductsList();
+        refreshProductsList();
     }
 }
 
 /**
  * Aktualizuje wyświetlane priorytety po drag & drop
  */
-function updateTabPriorityDisplays(updatedProducts) {
+function updatePriorityDisplays(updatedProducts) {
     updatedProducts.forEach(product => {
         const row = document.querySelector(`[data-product-id="${product.id}"]`);
         if (row) {
             const priorityScore = row.querySelector('.priority-score');
             const priorityFill = row.querySelector('.priority-fill');
 
-            const newPriority = product.new_priority || product.priority;
-
             if (priorityScore) {
-                priorityScore.textContent = newPriority;
-                priorityScore.className = `priority-score ${getPriorityClass(newPriority)}`;
+                priorityScore.textContent = product.new_priority;
+                priorityScore.className = `priority-score ${getPriorityClass(product.new_priority)}`;
             }
 
             if (priorityFill) {
-                priorityFill.style.width = Math.min((newPriority / 2), 100) + '%';
+                priorityFill.style.width = Math.min((product.new_priority / 2), 100) + '%';
             }
 
             // Aktualizuj dataset
-            row.dataset.priority = newPriority;
+            row.dataset.priority = product.new_priority;
         }
     });
-}
-
-/**
- * Aktualizuje ikony sortowania w nagłówkach
- */
-function updateSortHeaders(activeSortBy, sortOrder) {
-    document.querySelectorAll('.sortable').forEach(header => {
-        const icon = header.querySelector('.fa-sort, .fa-sort-up, .fa-sort-down');
-        const sortBy = header.dataset.sort;
-
-        if (icon) {
-            if (sortBy === activeSortBy) {
-                icon.className = sortOrder === 'asc' ? 'fas fa-sort-up text-primary ms-1' : 'fas fa-sort-down text-primary ms-1';
-            } else {
-                icon.className = 'fas fa-sort text-muted ms-1';
-            }
-        }
-    });
-}
-
-/**
- * Obsługuje sortowanie kolumn
- */
-function handleColumnSort(sortBy) {
-    const currentSort = ProductsList.state.currentFilters.sort_by;
-    const currentOrder = ProductsList.state.currentFilters.sort_order;
-
-    // Zmień kierunek jeśli ta sama kolumna
-    let newOrder = 'desc';
-    if (currentSort === sortBy && currentOrder === 'desc') {
-        newOrder = 'asc';
-    }
-
-    // Aktualizuj stan
-    ProductsList.state.currentFilters.sort_by = sortBy;
-    ProductsList.state.currentFilters.sort_order = newOrder;
-
-    // Aktualizuj UI nagłówków
-    updateSortHeaders(sortBy, newOrder);
-
-    // Zastosuj sortowanie
-    refreshTabProductsList();
 }
 
 /**
@@ -2897,7 +2749,7 @@ function initEventListeners() {
     // Refresh button
     const refreshBtn = document.getElementById('refresh-products-btn');
     if (refreshBtn) {
-        refreshBtn.addEventListener('click', refreshTabProductsList);
+        refreshBtn.addEventListener('click', refreshProductsList);
     }
 
     // Save priorities button
@@ -3004,7 +2856,7 @@ function handleKeyboardShortcuts(event) {
     // Ctrl+R - refresh
     if (event.ctrlKey && event.key === 'r') {
         event.preventDefault();
-        refreshTabProductsList();
+        refreshProductsList();
     }
 
     // Ctrl+E - export
@@ -3059,7 +2911,7 @@ function handleVisibilityChange() {
         if (ProductsList.state.lastRefresh) {
             const timeSinceRefresh = Date.now() - ProductsList.state.lastRefresh.getTime();
             if (timeSinceRefresh > ProductsList.config.refreshInterval) {
-                refreshTabProductsList();
+                refreshProductsList();
             }
         }
     }
@@ -3073,7 +2925,7 @@ function setupAutoRefresh() {
     setInterval(() => {
         if (!document.hidden && !ProductsList.state.isLoading) {
             console.log('[Products List] Auto-refresh...');
-            refreshTabProductsList();
+            refreshProductsList();
         }
     }, ProductsList.config.refreshInterval);
 }
@@ -3187,7 +3039,7 @@ async function editProductPriority(productId) {
 
         if (data.success) {
             showToast('Priorytet zaktualizowany', 'success');
-            refreshTabProductsList();
+            refreshProductsList();
         } else {
             throw new Error(data.error);
         }
@@ -3223,7 +3075,7 @@ async function changeProductStatus(productId) {
 
         if (data.success) {
             showToast('Status zaktualizowany', 'success');
-            refreshTabProductsList();
+            refreshProductsList();
         } else {
             throw new Error(data.error);
         }
@@ -3261,7 +3113,7 @@ async function deleteProduct(productId) {
 
         if (data.success) {
             showToast('Produkt został usunięty', 'success');
-            refreshTabProductsList();
+            refreshProductsList();
         } else {
             throw new Error(data.error);
         }
@@ -3288,8 +3140,3 @@ if (document.readyState === 'loading') {
     // DOM już załadowany
     setTimeout(initProductsList, 100);
 }
-
-// Eksportuj główną funkcję dla kompatybilności z istniejącym kodem
-window.refreshTabProductsList = refreshTabProductsList;
-// Alias dla funkcji inicjalizacji
-window.initTabProductsList = initProductsList;
