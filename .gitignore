@@ -202,3 +202,4 @@ app/modules/scheduler/static/.DS_Store
 app/modules/scheduler/.DS_Store
 app/modules/preview3d_ar/static/.DS_Store
 app/modules/preview3d_ar/.DS_Store
+app/config/core.json

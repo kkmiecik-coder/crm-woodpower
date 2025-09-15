@@ -156,7 +156,7 @@
 .last-updated,
 .date-info,
 .alert-count {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     color: #6c757d;
     background: #e9ecef;
     padding: var(--spacing-xs) var(--spacing-sm);
@@ -476,10 +476,11 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--spacing-md);
+    padding: var(--spacing-sm);
     border-radius: var(--border-radius);
     background: #f8f9fa;
     border: var(--border-width) solid var(--border-color);
+    gap: var(--spacing-xs);
 }
 
 .health-label {
@@ -489,7 +490,7 @@
 
 .health-value {
     font-family: 'Courier New', monospace;
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     color: #6c757d;
 }
 
@@ -1241,8 +1242,8 @@
 .error-header {
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
+    gap: var(--spacing-xl);
+    margin-bottom: var(--spacing-md);
 }
 
 .error-icon {
@@ -1280,8 +1281,8 @@
 }
 
 .error-status .badge {
-    font-size: 10px;
-    padding: 4px 6px;
+    font-size: 14px;
+    padding: 8px 12px;
 }
 
 /* Loading i empty states */
@@ -1353,7 +1354,7 @@
     .error-header {
         flex-direction: column;
         align-items: flex-start;
-        gap: var(--spacing-xs);
+        gap: var(--spacing-xl);
     }
     
     .error-status {
@@ -1680,16 +1681,6 @@ body.modal-open {
     transform: scale(1.2);
 }
 
-.last-updated {
-    font-size: 12px;
-    color: #6c757d;
-    font-style: italic;
-    background: #f8f9fa;
-    padding: 4px 8px;
-    border-radius: 12px;
-    border: 1px solid #e9ecef;
-}
-
 /* Alert count colors */
 .alert-count-critical {
     background: #dc3545 !important;
@@ -1723,6 +1714,7 @@ body.modal-open {
     font-weight: 500;
     margin-bottom: 5px;
     color: #28a745;
+    text-align: center;
 }
 
 /* Alert items */
@@ -1862,18 +1854,6 @@ body.modal-open {
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     margin-top: 16px;
-}
-
-.health-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid #e9ecef;
-}
-
-.health-item:last-child {
-    border-bottom: none;
 }
 
 .health-label {
@@ -3472,4 +3452,9 @@ body.modal-open {
     .dropdown {
         display: none !important;
     }
+}
+
+.error-message {
+    font-size: 16px;
+    max-width: none;
 }

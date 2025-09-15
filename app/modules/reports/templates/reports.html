@@ -80,189 +80,12 @@
                 </div>
             </div>
 
-            <!-- Statystyki -->
-            <div class="stats-container">
-                <!-- PODSTAWOWE -->
-                <div class="stats-group">
-                    <div class="stats-group-header">
-                        <span class="stats-header-icon">🎯</span>
-                        PODSTAWOWE
-                    </div>
-                    <div class="stats-group-content">
-                        <div class="stats-row">
-                            <span class="stats-label">Zamówienia</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statUniqueOrders">0</span>
-                                <span class="stats-comparison" id="compUniqueOrders"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Sprzedaży netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compValueNet"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Zapłacono TTL netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statPaidAmountNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compPaidAmountNet"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Do zapłaty netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statBalanceDue">0.00 zł</span>
-                                <span class="stats-comparison" id="compBalanceDue"></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- PRODUKTY -->
-                <div class="stats-group">
-                    <div class="stats-group-header">
-                        <span class="stats-header-icon">📦</span>
-                        PRODUKTY
-                    </div>
-                    <div class="stats-group-content">
-                        <div class="stats-row">
-                            <span class="stats-label">Sprzedaż klejonek netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statKlejonkaValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compKlejonkaValueNet"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">TTL m³ klejonki</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statTotalM3">0.0000 m³</span>
-                                <span class="stats-comparison" id="compTotalM3"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Średnia cena m³ netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statPricePerM3">0.00 zł</span>
-                                <span class="stats-comparison" id="compPricePerM3"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Sprzedaż deski netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statDeskaValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compDeskaValueNet"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">TTL m³ deski</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statDeskaTotalM3">0.0000 m³</span>
-                                <span class="stats-comparison" id="compDeskaTotalM3"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">TTL m³ suszenia</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statDryingTotalM3">0.0000 m³</span>
-                                <span class="stats-comparison" id="compDryingTotalM3"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Sprzedaż usług netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statServicesValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compServicesValueNet"></span>
-                            </div>
-                        </div>
-                        
-                        <!-- POPRAWKA 4: DODAJ wcięte podstatystyki -->
-                        <div class="stats-row" style="margin-left: 20px; font-size: 14px; color: #666;">
-                            <span class="stats-label">Suszenie</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statSuszenieValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compSuszenieValueNet"></span>
-                            </div>
-                        </div>
-                        
-                        <div class="stats-row" style="margin-left: 20px; font-size: 14px; color: #666;">
-                            <span class="stats-label">Klejenie</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statKlejenieValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compKlejenieValueNet"></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- PRODUKCJA -->
-                <div class="stats-group">
-                    <div class="stats-group-header">
-                        <span class="stats-header-icon">🏭</span>
-                        PRODUKCJA
-                    </div>
-                    <div class="stats-group-content">
-                        <div class="stats-row">
-                            <span class="stats-label">Ilość m³ w produkcji</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statProductionVolume">0.0000</span>
-                                <span class="stats-comparison" id="compProductionVolume"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Wartość netto w produkcji</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statProductionValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compProductionValueNet"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Wyprodukowane</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statReadyPickupVolume">0.00</span>
-                                <span class="stats-comparison" id="compReadyPickupVolume"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Wyprodukowana netto</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statReadyPickupValueNet">0.00 zł</span>
-                                <span class="stats-comparison" id="compReadyPickupValueNet"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Do odbioru</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statPickupReady">0.0000 m³</span>
-                                <span class="stats-comparison" id="compPickupReady"></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- WYKOŃCZENIE -->
-                <div class="stats-group">
-                    <div class="stats-group-header">
-                        <span class="stats-header-icon">🎨</span>
-                        WYKOŃCZENIE
-                    </div>
-                    <div class="stats-group-content">
-                        <div class="stats-row">
-                            <span class="stats-label">Olejowanie m²</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statOlejowanieSurface">0.0000</span>
-                                <span class="stats-comparison" id="compOlejowanieSurface"></span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <span class="stats-label">Lakierowanie m²</span>
-                            <div class="stats-value-container">
-                                <span class="stats-value" id="statLakierowanieSurface">0.0000</span>
-                                <span class="stats-comparison" id="compLakierowanieSurface"></span>
-                            </div>
-                        </div>
-                    </div>
+            <div class="compact-stats" id="mainStatsContainer">
+                <!-- Statystyki będą generowane dynamicznie przez JavaScript -->
+                <div class="compact-stat-button">
+                    <button class="details-btn" onclick="window.reportsManager.openStatsModal()">
+                        📊 Szczegóły
+                    </button>
                 </div>
             </div>
 
@@ -1447,5 +1270,37 @@
             }
         });
     </script>
+
+   <div class="split-modal-overlay" id="splitModalOverlay" onclick="window.reportsManager.closeStatsModal()">
+        <div class="split-modal-content" onclick="event.stopPropagation()">
+            <button class="split-modal-close" onclick="window.reportsManager.closeStatsModal()">×</button>
+            
+            <div class="split-modal-body">
+                <!-- Lewa strona - Podsumowanie -->
+                <div class="split-left-panel">
+                    <h2 class="split-summary-title">Podsumowanie</h2>
+                    
+                    <div class="split-summary-stats" id="splitSummaryStats">
+                        <!-- Dynamicznie generowane z MAIN_STATS_CONFIG -->
+                    </div>
+                    
+                    <div class="split-summary-footer">
+                        <p>Kliknij na zakładki po prawej stronie, aby zobaczyć szczegółowe statystyki dla każdej kategorii.</p>
+                    </div>
+                </div>
+                
+                <!-- Prawa strona - Szczegóły -->
+                <div class="split-right-panel">
+                    <div class="split-section-tabs" id="splitSectionTabs">
+                        <!-- Dynamicznie generowane z MODAL_STATS_CONFIG -->
+                    </div>
+                    
+                    <div class="split-tab-content-container" id="splitTabContentContainer">
+                        <!-- Dynamicznie generowana zawartość zakładek -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

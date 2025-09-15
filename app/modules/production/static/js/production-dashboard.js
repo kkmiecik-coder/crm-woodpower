@@ -2020,7 +2020,7 @@ function updateDeadlineAlerts(alerts) {
             <div class="no-alerts-state">
                 <div class="no-alerts-icon">✅</div>
                 <p class="no-alerts-text">Brak pilnych alertów</p>
-                <small class="text-muted">Wszystkie produkty są na czasie</small>
+                <small class="text-muted">Wszystkie produkty zgodne z terminem</small>
             </div>
         `;
         return;
@@ -3477,7 +3477,7 @@ function triggerManualSync() {
     .finally(() => {
         if (syncButton) {
             syncButton.disabled = false;
-            syncButton.textContent = 'Ręczna synchronizacja';
+            syncButton.textContent = '🔄 Ręczna synchronizacja';
         }
     });
 }

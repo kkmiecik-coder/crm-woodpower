@@ -26,8 +26,9 @@ from modules.reports import reports_bp
 from modules.dashboard import dashboard_bp
 from modules.dashboard.models import ChangelogEntry, ChangelogItem, UserSession
 from modules.production import production_bp
-from modules.production.routers import register_production_routes
+from modules.production.routers import register_production_routers
 from modules.dashboard.services.user_activity_service import UserActivityService
+from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
@@ -178,8 +179,13 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # Inicjalizacja Flask-Mail oraz bazy danych itp.
-    mail = Mail(app)
-    db.init_app(app)
+    from extensions import init_extensions
+    init_extensions(app)
+
+    if hasattr(app, 'login_manager'):
+        print("✅ LoginManager zainicjalizowany poprawnie", file=sys.stderr)
+    else:
+        print("❌ LoginManager nie został zainicjalizowany", file=sys.stderr)
     
     with app.app_context():
         db.create_all()
@@ -199,7 +205,7 @@ def create_app():
     app.register_blueprint(reports_bp, url_prefix='/reports')
     app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
-    register_production_routes(production_bp)
+    register_production_routers(production_bp)
     app.register_blueprint(production_bp, url_prefix='/production')
 
     @app.before_request
@@ -345,7 +351,6 @@ def create_app():
                 'error': 'Błąd serwera'
             }), 500
 
-
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         if request.method == 'POST':
@@ -356,26 +361,36 @@ def create_app():
             user = User.query.filter_by(email=email).first()
             if not user:
                 return render_template('login.html',
-                                       email_value=email,
-                                       password_error='Błędne hasło lub e-mail.',
-                                       email_error=None)
+                                    email_value=email,
+                                    password_error='Błędne hasło lub e-mail.',
+                                    email_error=None)
             if not user.active:
                 return render_template('login.html',
-                                       email_value=email,
-                                       password_error='Twoje konto zostało dezaktywowane.',
-                                       email_error=None)
+                                    email_value=email,
+                                    password_error='Twoje konto zostało dezaktywowane.',
+                                    email_error=None)
             if not check_password_hash(user.password, password):
                 return render_template('login.html',
-                                       email_value=email,
-                                       password_error='Błędne hasło lub e-mail.',
-                                       email_error=None)
+                                    email_value=email,
+                                    password_error='Błędne hasło lub e-mail.',
+                                    email_error=None)
 
-            # Jeśli wszystko jest ok, zapisujemy sesję
+            # ============================================================================
+            # SYSTEM AUTORYZACJI - STARY + NOWY
+            # ============================================================================
+            
+            # STARY SYSTEM (session) - zachowujemy dla kompatybilności
             session['user_email'] = email
             session['user_id'] = user.id
             session.permanent = True
+            
+            # NOWY SYSTEM (Flask-Login) - DODANE
+            login_user(user, remember=True)
+            
+            # Logowanie sukcesu
+            current_app.logger.info(f"[Login] Pomyślne logowanie: {email} (Flask-Login + Session)")
         
-            # DODAJ: Utwórz sesję użytkownika dla tracking
+            # DODAJ: Utwórz sesję użytkownika dla tracking (pozostaje bez zmian)
             try:
                 ip_address = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
                 if ip_address and ',' in ip_address:

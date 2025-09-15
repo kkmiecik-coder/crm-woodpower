@@ -4,6 +4,69 @@
  * Odpowiedzialny za inicjalizację i koordynację wszystkich komponentów
  */
 
+const MAIN_STATS_CONFIG = [
+    // AKTYWNE - wyświetlane na głównym dashboard i w podsumowaniu modala
+    { key: 'unique_orders', label: 'Zamówienia', format: 'number' },
+    { key: 'value_net', label: 'Sprzedaż netto', format: 'currency' },
+    { key: 'klejonka_value_net', label: 'Sprzedaż klejonek netto', format: 'currency' },
+    { key: 'total_m3', label: 'TTL m³ klejonki', format: 'volume' },
+    { key: 'production_volume', label: 'Ilość m³ w produkcji', format: 'volume' },
+    
+    // DOSTĘPNE - odkomentuj żeby aktywować
+    // { key: 'order_amount_net', label: 'Kwota zamówień netto', format: 'currency' },
+    // { key: 'avg_price_per_m3', label: 'Średnia cena m³ netto', format: 'currency' },
+    // { key: 'balance_due', label: 'Do zapłaty netto', format: 'currency' },
+];
+
+const MODAL_STATS_CONFIG = {
+    basic: {
+        label: 'Podstawowe',
+        icon: '📊',
+        stats: [
+            { key: 'unique_orders', label: 'Zamówienia', format: 'number' },
+            // { key: 'order_amount_net', label: 'Kwota zamówień netto', format: 'currency' },
+            { key: 'value_net', label: 'Sprzedaż netto', format: 'currency' },
+            { key: 'avg_price_per_m3', label: 'Średnia cena m³ netto', format: 'currency' },
+            { key: 'paid_amount_net', label: 'Zapłacono TTL netto', format: 'currency' },
+            { key: 'balance_due', label: 'Do zapłaty netto', format: 'currency' }
+        ]
+    },
+    products: {
+        label: 'Produkty',
+        icon: '🏭',
+        stats: [
+            { key: 'value_net', label: 'Sprzedaż netto', format: 'currency' },
+            { key: 'klejonka_value_net', label: 'Sprzedaż klejonek netto', format: 'currency' },
+            { key: 'total_m3', label: 'TTL m³ klejonki', format: 'volume' },
+            { key: 'deska_value_net', label: 'Sprzedaż deski netto', format: 'currency' },
+            { key: 'deska_total_m3', label: 'TTL m³ deski', format: 'volume' },
+            { key: 'drying_total_m3', label: 'TTL m³ suszenia', format: 'volume' },
+            { key: 'services_value_net', label: 'Sprzedaż usług netto', format: 'currency' },
+            { key: 'suszenie_value_net', label: '↳ Suszenie', format: 'currency', indented: true },
+            { key: 'klejenie_value_net', label: '↳ Klejenie', format: 'currency', indented: true }
+        ]
+    },
+    production: {
+        label: 'Produkcja',
+        icon: '⚙️',
+        stats: [
+            { key: 'production_volume', label: 'Ilość m³ w produkcji', format: 'volume' },
+            { key: 'production_value_net', label: 'Wartość netto w produkcji', format: 'currency' },
+            { key: 'ready_pickup_volume', label: 'Wyprodukowane', format: 'volume' },
+            { key: 'ready_pickup_value_net', label: 'Wyprodukowana netto', format: 'currency' },
+            { key: 'pickup_ready_volume', label: 'Do odbioru', format: 'volume' }
+        ]
+    },
+    finishing: {
+        label: 'Wykończenie',
+        icon: '🎨',
+        stats: [
+            { key: 'olejowanie_surface', label: 'Olejowanie m²', format: 'surface' },
+            { key: 'lakierowanie_surface', label: 'Lakierowanie m²', format: 'surface' }
+        ]
+    }
+};
+
 class ReportsManager {
 
     constructor() {
@@ -118,12 +181,25 @@ class ReportsManager {
             reportsTableBody: document.getElementById('reportsTableBody'),
 
             activeFilters: document.getElementById('activeFilters'),
-            activeFiltersList: document.getElementById('activeFiltersList')
+            activeFiltersList: document.getElementById('activeFiltersList'),
+
+            // DODAJ w this.elements obiekt:
+            mainStatsContainer: document.getElementById('mainStatsContainer'),
+            statsModalOverlay: document.getElementById('statsModalOverlay'),
+            modalBasicStats: document.getElementById('modalBasicStats'),
+            modalProductStats: document.getElementById('modalProductStats'),
+            modalProductionStats: document.getElementById('modalProductionStats'),
+            modalFinishingStats: document.getElementById('modalFinishingStats'),
+            splitModalOverlay: document.getElementById('splitModalOverlay'),
+            splitSummaryStats: document.getElementById('splitSummaryStats'),
+            splitSectionTabs: document.getElementById('splitSectionTabs'),
+            splitTabContentContainer: document.getElementById('splitTabContentContainer')
         };
 
         console.log('[ReportsManager] Elements cached');
     }
 
+    
     /**
      * Ustawienie event listenerów - POPRAWKA: Poprawiono obsługę dat
      */
@@ -224,6 +300,9 @@ class ReportsManager {
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             this.handleKeyboardShortcuts(e);
+            if (e.key === 'Escape') {
+                this.closeStatsModal();
+            }
         });
 
         // NOWE: Obsługa resize z fullscreen
@@ -323,6 +402,7 @@ class ReportsManager {
         console.log('[ReportsManager] Clearing statistics...');
 
         const emptyStats = {
+            unique_orders: 0,
             total_m3: 0,
             order_amount_net: 0,
             value_net: 0,
@@ -335,15 +415,14 @@ class ReportsManager {
             ready_pickup_volume: 0,
             drying_total_m3: 0,
             services_value_net: 0,
-            // POPRAWKA 4: Podstatystyki usług
             suszenie_value_net: 0,
             klejenie_value_net: 0,
-            ready_pickup_value_net: 0
+            ready_pickup_value_net: 0,
+            olejowanie_surface: 0,
+            lakierowanie_surface: 0
         };
 
         this.updateStatistics(emptyStats);
-        this.updateStat('statOlejowanieVolume', 0, 4, ' m³');
-        this.updateStat('statLakierowanieVolume', 0, 4, ' m³');
     }
 
     /**
@@ -1366,8 +1445,14 @@ class ReportsManager {
     updateStatistics(stats) {
         if (!stats) return;
 
-        // Aktualizuj wszystkie standardowe statystyki
-        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');  // TTL m³ klejonki
+        // Renderuj główne statystyki
+        this.renderMainStats(stats);
+
+        // Zapisz dane do modala
+        this.currentModalStats = stats;
+
+        // Zachowaj pozostałą logikę dla szczegółowych statystyk
+        this.updateStat('statTotalM3', stats.total_m3, 4, ' m³');
         this.updateStat('statOrderAmountNet', stats.order_amount_net, 2, ' PLN');
         this.updateStat('statValueNet', stats.value_net, 2, ' PLN');
         this.updateStat('statPricePerM3', stats.avg_price_per_m3, 2, ' PLN');
@@ -1402,17 +1487,278 @@ class ReportsManager {
             this.elements.statOrdersProducts.textContent = `${stats.unique_orders || 0} / ${stats.products_count || 0}`;
         }
 
-        // NOWE - oblicz i aktualizuj statystyki wykończenia na podstawie aktualnych danych
+        // NOWE - oblicz i aktualizuj statystyki wykończenia
         if (this.currentData && this.currentData.length > 0) {
             const finishStats = this.calculateFinishStatistics(this.currentData);
+            stats.olejowanie_surface = finishStats.olejowanie_surface;
+            stats.lakierowanie_surface = finishStats.lakierowanie_surface;
             this.updateStat('statOlejowanieSurface', finishStats.olejowanie_surface, 4, ' m²');
             this.updateStat('statLakierowanieSurface', finishStats.lakierowanie_surface, 4, ' m²');
-        } else {
-            this.updateStat('statOlejowanieSurface', 0, 4, ' m²');
-            this.updateStat('statLakierowanieSurface', 0, 4, ' m²');
         }
 
         console.log('[ReportsManager] Statystyki zaktualizowane', stats);
+    }
+
+    renderMainStats(stats) {
+        const container = this.elements.mainStatsContainer;
+        if (!container) return;
+
+        // Usuń istniejące statystyki (ale zostaw przycisk)
+        const existingStats = container.querySelectorAll('.compact-stat:not(.compact-stat-button)');
+        existingStats.forEach(stat => stat.remove());
+
+        // Renderuj statystyki z konfiguracji
+        MAIN_STATS_CONFIG.forEach(config => {
+            const value = this.formatStatValue(stats[config.key] || 0, config.format);
+            const statElement = this.createCompactStat(config.label, value);
+            container.insertBefore(statElement, container.querySelector('.compact-stat-button'));
+        });
+    }
+
+    createCompactStat(label, value) {
+        const statDiv = document.createElement('div');
+        statDiv.className = 'compact-stat';
+        statDiv.innerHTML = `
+            <div class="compact-stat-label">${label}</div>
+            <div class="compact-stat-value">${value}</div>
+        `;
+        return statDiv;
+    }
+
+    formatStatValue(value, format) {
+        if (value === null || value === undefined) return '0';
+        
+        const numValue = parseFloat(value) || 0;
+        
+        switch (format) {
+            case 'currency':
+                return numValue.toLocaleString('pl-PL', { 
+                    minimumFractionDigits: 2, 
+                    maximumFractionDigits: 2 
+                }) + ' PLN';
+            case 'volume':
+                return numValue.toLocaleString('pl-PL', { 
+                    minimumFractionDigits: 4, 
+                    maximumFractionDigits: 4 
+                }) + ' m³';
+            case 'surface':
+                return numValue.toLocaleString('pl-PL', { 
+                    minimumFractionDigits: 4, 
+                    maximumFractionDigits: 4 
+                }) + ' m²';
+            case 'number':
+                return Math.round(numValue).toString();
+            default:
+                return numValue.toString();
+        }
+    }
+
+    openStatsModal() {
+        const modal = this.elements.splitModalOverlay;
+        if (!modal) return;
+        
+        // Renderuj zawartość modala
+        this.renderSplitModalContent();
+        
+        // Animacja otwarcia
+        modal.style.display = 'flex';
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    closeStatsModal() {
+        const modal = this.elements.splitModalOverlay;
+        if (!modal) return;
+        
+        modal.classList.remove('open');
+        document.body.style.overflow = '';
+        
+        // Ukryj modal po animacji
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 300);
+    }
+
+    renderSplitModalContent() {
+        if (!this.currentModalStats) return;
+        
+        const stats = this.currentModalStats;
+        const comparison = this.currentComparison || {};
+        
+        // Renderuj podsumowanie (lewa strona)
+        this.renderSplitSummary(stats, comparison);
+        
+        // Renderuj zakładki (prawa strona)
+        this.renderSplitTabs(stats, comparison);
+    }
+
+    renderSplitSummary(stats, comparison) {
+        const container = this.elements.splitSummaryStats;
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        MAIN_STATS_CONFIG.forEach(config => {
+            const value = this.formatStatValue(stats[config.key] || 0, config.format);
+            const compData = comparison[config.key];
+            
+            let changeHtml = '';
+            if (compData && Math.abs(compData.change_percent) > 0.1) {
+                const sign = compData.is_positive ? '+' : '';
+                changeHtml = `<div class="split-summary-change">${sign}${compData.change_percent}%</div>`;
+            }
+            
+            const cardDiv = document.createElement('div');
+            cardDiv.className = 'split-summary-card';
+            cardDiv.innerHTML = `
+                <div class="split-summary-label">${config.label}</div>
+                <div class="split-summary-value">${value}</div>
+                ${changeHtml}
+            `;
+            
+            container.appendChild(cardDiv);
+        });
+    }
+
+    renderSplitTabs(stats, comparison) {
+        const tabsContainer = this.elements.splitSectionTabs;
+        const contentContainer = this.elements.splitTabContentContainer;
+        
+        if (!tabsContainer || !contentContainer) return;
+        
+        // Wyczyść kontenery
+        tabsContainer.innerHTML = '';
+        contentContainer.innerHTML = '';
+        
+        // Renderuj przyciski zakładek
+        Object.keys(MODAL_STATS_CONFIG).forEach((key, index) => {
+            const config = MODAL_STATS_CONFIG[key];
+            const tabBtn = document.createElement('button');
+            tabBtn.className = `split-tab-btn ${index === 0 ? 'active' : ''}`;
+            tabBtn.textContent = config.label;
+            tabBtn.onclick = () => this.switchSplitTab(key);
+            tabsContainer.appendChild(tabBtn);
+        });
+        
+        // Dodaj przycisk "Wszystkie"
+        const allBtn = document.createElement('button');
+        allBtn.className = 'split-tab-btn';
+        allBtn.textContent = 'Wszystkie';
+        allBtn.onclick = () => this.switchSplitTab('all');
+        tabsContainer.appendChild(allBtn);
+        
+        // Renderuj zawartość zakładek
+        Object.keys(MODAL_STATS_CONFIG).forEach((key, index) => {
+            const config = MODAL_STATS_CONFIG[key];
+            const contentDiv = this.createSplitTabContent(key, config.stats, stats, comparison);
+            contentDiv.className = `split-tab-content ${index === 0 ? 'active' : ''}`;
+            contentContainer.appendChild(contentDiv);
+        });
+        
+        // Renderuj zawartość "Wszystkie"
+        const allContentDiv = this.createAllSectionsContent(stats, comparison);
+        allContentDiv.className = 'split-all-sections';
+        contentContainer.appendChild(allContentDiv);
+    }
+
+    createSplitTabContent(tabKey, statsConfig, stats, comparison) {
+        const contentDiv = document.createElement('div');
+        contentDiv.id = `split-tab-${tabKey}`;
+        
+        statsConfig.forEach(item => {
+            const value = this.formatStatValue(stats[item.key] || 0, item.format);
+            const compData = comparison[item.key];
+            
+            let compHtml = '';
+            if (compData && Math.abs(compData.change_percent) > 0.1) {
+                const sign = compData.is_positive ? '+' : '';
+                const className = compData.is_positive ? 'positive' : 'negative';
+                compHtml = `<span class="split-detail-change ${className}">${sign}${compData.change_percent}%</span>`;
+            }
+            
+            const rowDiv = document.createElement('div');
+            rowDiv.className = `split-detail-row ${item.indented ? 'indented' : ''}`;
+            rowDiv.innerHTML = `
+                <span class="split-detail-label">${item.label}</span>
+                <div class="split-detail-value">
+                    ${value}
+                    ${compHtml}
+                </div>
+            `;
+            
+            contentDiv.appendChild(rowDiv);
+        });
+        
+        return contentDiv;
+    }
+
+    createAllSectionsContent(stats, comparison) {
+        const allDiv = document.createElement('div');
+        allDiv.id = 'split-all-sections';
+        
+        Object.keys(MODAL_STATS_CONFIG).forEach(key => {
+            const config = MODAL_STATS_CONFIG[key];
+            
+            const sectionDiv = document.createElement('div');
+            sectionDiv.className = 'split-all-section';
+            
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'split-all-section-header';
+            headerDiv.textContent = `${config.icon} ${config.label.toUpperCase()}`;
+            sectionDiv.appendChild(headerDiv);
+            
+            config.stats.forEach(item => {
+                const value = this.formatStatValue(stats[item.key] || 0, item.format);
+                const compData = comparison[item.key];
+                
+                let compHtml = '';
+                if (compData && Math.abs(compData.change_percent) > 0.1) {
+                    const sign = compData.is_positive ? '+' : '';
+                    const className = compData.is_positive ? 'positive' : 'negative';
+                    compHtml = `<span class="split-detail-change ${className}">${sign}${compData.change_percent}%</span>`;
+                }
+                
+                const rowDiv = document.createElement('div');
+                rowDiv.className = `split-detail-row ${item.indented ? 'indented' : ''}`;
+                rowDiv.innerHTML = `
+                    <span class="split-detail-label">${item.label}</span>
+                    <div class="split-detail-value">
+                        ${value}
+                        ${compHtml}
+                    </div>
+                `;
+                
+                sectionDiv.appendChild(rowDiv);
+            });
+            
+            allDiv.appendChild(sectionDiv);
+        });
+        
+        return allDiv;
+    }
+
+    switchSplitTab(tabKey) {
+        const tabsContainer = this.elements.splitSectionTabs;
+        const contentContainer = this.elements.splitTabContentContainer;
+        
+        if (!tabsContainer || !contentContainer) return;
+        
+        // Aktualizuj aktywny przycisk
+        tabsContainer.querySelectorAll('.split-tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
+        
+        // Aktualizuj aktywną zawartość
+        contentContainer.querySelectorAll('.split-tab-content, .split-all-sections').forEach(content => {
+            content.classList.remove('active');
+        });
+        
+        if (tabKey === 'all') {
+            contentContainer.querySelector('.split-all-sections').classList.add('active');
+        } else {
+            contentContainer.querySelector(`#split-tab-${tabKey}`).classList.add('active');
+        }
     }
 
     /**
@@ -1452,6 +1798,8 @@ class ReportsManager {
             this.clearComparisons();
             return;
         }
+
+        this.currentComparison = comparison;
 
         const fields = [
             'total_m3', 'order_amount_net', 'value_net',

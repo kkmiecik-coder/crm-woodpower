@@ -413,7 +413,13 @@ class Price(db.Model):
     def __repr__(self):
         return f"<Price id={self.id}, {self.species}, {self.wood_class}, {self.price_per_m3} PLN/m³>"
 
-class User(db.Model):
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin  # DODANE
+from extensions import db
+
+# ... inne importy i modele ...
+
+class User(UserMixin, db.Model):  # DODANE UserMixin
     __tablename__ = 'users'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -430,6 +436,44 @@ class User(db.Model):
     
     # Relacja: User → Multiplier
     multiplier = db.relationship('Multiplier', backref='users')
+
+    # ============================================================================
+    # METODY WYMAGANE PRZEZ FLASK-LOGIN (DODANE)
+    # ============================================================================
+    
+    def is_authenticated(self):
+        """Zwraca True jeśli użytkownik jest zalogowany"""
+        return True
+    
+    def is_active(self):
+        """Zwraca True jeśli konto jest aktywne"""
+        return self.active  # Używa istniejącego pola boolean
+    
+    def is_anonymous(self):
+        """Zwraca True dla użytkowników anonimowych"""
+        return False
+    
+    def get_id(self):
+        """Zwraca unikalny identyfikator użytkownika jako string"""
+        return str(self.id)
+    
+    # ============================================================================
+    # DODATKOWE METODY POMOCNICZE
+    # ============================================================================
+    
+    def get_full_name(self):
+        """Zwraca pełne imię i nazwisko lub email"""
+        if self.first_name or self.last_name:
+            return f"{self.first_name or ''} {self.last_name or ''}".strip()
+        return self.email
+    
+    def is_admin(self):
+        """Sprawdza czy użytkownik ma rolę admin"""
+        return self.role and self.role.lower() in ['admin', 'administrator']
+    
+    def can_access_production(self):
+        """Sprawdza czy użytkownik może dostać się do modułu produkcji"""
+        return self.is_active() and self.role in ['admin', 'user', 'production']
 
     def __repr__(self):
         return f"<User {self.email}>"

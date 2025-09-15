@@ -25,11 +25,9 @@ def calculator_home():
     if not user_email:
         return redirect(url_for('login'))
 
-    current_app.logger.info(">>> calculator_home: Uzytkownik zalogowany: %s", user_email)
     user = User.query.filter_by(email=user_email).first()
     user_role = user.role
     user_multiplier = user.multiplier.multiplier if user.multiplier else 1.0
-    current_app.logger.info(">>> calculator_home: Rola użytkownika: %s, mnoznik: %s", user_role, user_multiplier)
     
     prices_query = db.session.execute(text("""
         SELECT species, technology, wood_class, thickness_min, thickness_max, 
@@ -101,7 +99,6 @@ def shipping_quote():
         "senderPostCode": senderPostCode,
         "receiverPostCode": receiverPostCode
     }
-    current_app.logger.info(">>> shipping_quote: Parametry zapytania: %s", query_params)
 
     glob_config = current_app.config.get("GLOB_KURIER")
     if not glob_config:
@@ -114,11 +111,12 @@ def shipping_quote():
         "email": glob_config["login"],
         "password": glob_config["password"]
     }
+
     headers = {
         "Content-Type": "application/json",
         "accept-language": "en"
     }
-    current_app.logger.info(">>> shipping_quote: Logowanie do GlobKurier: %s", auth_url)
+
     try:
         auth_response = requests.post(auth_url, headers=headers, json=login_payload)
         if auth_response.status_code != 200:
@@ -129,7 +127,6 @@ def shipping_quote():
         if not token:
             current_app.logger.error(">>> shipping_quote: Nie otrzymano tokena")
             return jsonify({"error": "Nie otrzymano tokena"}), 401
-        current_app.logger.info(">>> shipping_quote: Token otrzymany")
     except Exception as e:
         current_app.logger.error(">>> shipping_quote: Wyjatek podczas logowania: %s", e)
         return jsonify({"error": "Wyjatek podczas logowania: " + str(e)}), 500
@@ -159,7 +156,6 @@ def shipping_quote():
                 all_products.extend(items)
             else:
                 all_products.append(items)
-        current_app.logger.info(">>> shipping_quote: Liczba wszystkich ofert: %s", len(all_products))
         if not all_products:
             result = []
         else:
@@ -216,16 +212,9 @@ def save_quote():
         # Dane grupy cenowej
         quote_client_type = data.get('quote_client_type')
         quote_multiplier = data.get('quote_multiplier', 1.0)
-        
-        current_app.logger.info(f"[save_quote_backend] Dane kuriera: courier_name='{courier_name}', shipping_netto={shipping_netto}, shipping_brutto={shipping_brutto}")
-        current_app.logger.info(f"[save_quote_backend] Grupa cenowa: client_type='{quote_client_type}', multiplier={quote_multiplier}")
-        
+                
         client_id = data.get('client_id')
         products = data.get('products')
-        current_app.logger.info("[save_quote_backend] Liczba produktow do zapisania: %s", len(products))
-
-        for i, p in enumerate(products):
-            current_app.logger.info("[save_quote_backend] Produkt #%s: %s", i + 1, json.dumps(p, indent=2, ensure_ascii=False))
 
         total_price = data.get('total_price', 0.0)
 
@@ -248,10 +237,8 @@ def save_quote():
             db.session.add(client)
             db.session.commit()
             client_id = client.id
-            current_app.logger.info("[save_quote_backend] Utworzono nowego klienta z ID: %s", client_id)
 
         if not products:
-            current_app.logger.warning("[save_quote_backend] Brak produktow w żądaniu.")
             return jsonify({"error": "Brakuje produktow."}), 400
 
         now = datetime.utcnow()
@@ -259,23 +246,18 @@ def save_quote():
         month = now.month
         year_short = str(year)[-2:]
 
-        current_app.logger.info(f"[save_quote_backend] Generuję numer wyceny dla {month:02d}/{year_short}")
-
         counter = db.session.query(QuoteCounter).filter_by(year=year, month=month).with_for_update().first()
         if not counter:
             counter = QuoteCounter(year=year, month=month, current_number=1)
             db.session.add(counter)
             db.session.flush()
             current_number = 1
-            current_app.logger.info("[save_quote_backend] Utworzono nowy licznik wycen.")
         else:
             counter.current_number += 1
             db.session.flush()
             current_number = counter.current_number
-            current_app.logger.info(f"[save_quote_backend] Aktualny licznik: {current_number}")
 
         quote_number = f"{current_number:02d}/{month:02d}/{year_short}/W"
-        current_app.logger.info(f"[save_quote_backend] Numer wyceny: {quote_number}")
 
         user = db.session.execute(text("SELECT id FROM users WHERE email = :email"), {'email': user_email}).fetchone()
         user_id = user.id if user else None
@@ -298,8 +280,6 @@ def save_quote():
         db.session.add(quote)
         db.session.flush()
 
-        current_app.logger.info(f"[save_quote_backend] Zapisano Quote z courier_name='{quote.courier_name}', client_type='{quote.quote_client_type}', multiplier={quote.quote_multiplier}")
-
         for i, product in enumerate(products):
             variants = product.get('variants', [])
 
@@ -317,9 +297,6 @@ def save_quote():
             finishing_gloss_level = product.get("finishing_gloss_level")
             finishing_price_netto = product.get("finishing_netto", 0.0)
             finishing_price_brutto = product.get("finishing_brutto", 0.0)
-            
-            current_app.logger.info(f"[save_quote_backend] Produkt #{i + 1}: quantity={product_quantity}")
-            current_app.logger.info(f"[save_quote_backend] Wykończenie produktu #{i + 1}: type={finishing_type}, variant={finishing_variant}, color={finishing_color}, gloss={finishing_gloss_level}")
             
             # Zapisz szczegóły wykończenia dla produktu
             item_details = QuoteItemDetails(
@@ -366,22 +343,15 @@ def save_quote():
                     show_on_client_page=is_available   # Tylko dostępne warianty widoczne dla klienta
                 )
                 db.session.add(quote_item)
-                current_app.logger.info(f"[save_quote_backend] Dodano variant #{j + 1} produktu #{i + 1}: {quote_item.variant_code} unit_price_brutto={quote_item.price_brutto} available={is_available}")
-
-        current_app.logger.info("[save_quote_backend] Wszystkie produkty zapisane w QuoteItem.")
 
         log = QuoteLog(
             quote_id=quote.id,
             user_id=user_id,
             description=f"Utworzono wycenę {quote_number} dla grupy cenowej '{quote_client_type or 'brak grupy'}' (mnożnik: {quote_multiplier})"
         )
-        current_app.logger.info(f"[save_quote_backend] Lacznie dodano {len(products)} pozycji do QuoteItem.")
         db.session.add(log)
 
-        current_app.logger.info("[save_quote_backend] Zapisuje wycenę do bazy...")
         db.session.commit()
-        current_app.logger.info(f"[save_quote_backend] Wycena {quote_number} zapisana pomyslnie dla klienta {client_id}")
-        current_app.logger.info(f"[save_quote_backend] Końcowe dane: courier_name='{quote.courier_name}', client_type='{quote.quote_client_type}', multiplier={quote.quote_multiplier}")
 
         return jsonify({
             "message": "Wycena zapisana.", 

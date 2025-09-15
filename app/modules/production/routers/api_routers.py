@@ -1736,15 +1736,9 @@ def dashboard_tab_content():
             'errors_24h': errors_24h,
             'database_status': 'connected'
         }
-        
-        print(f"[DEBUG] Dashboard stats: {dashboard_stats}")
-        print(f"[DEBUG] Rendering template...")
 
         rendered_html = render_template('components/dashboard-tab-content.html', 
                                     dashboard_stats=dashboard_stats)
-
-        print(f"[DEBUG] Rendered HTML length: {len(rendered_html)}")
-        print(f"[DEBUG] HTML preview: {rendered_html[:200]}...")
         
         return jsonify({
             'success': True,
