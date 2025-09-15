@@ -22,17 +22,23 @@ Data: 2025-01-09
 
 import json
 from datetime import datetime, date, timedelta
-from flask import Blueprint, request, jsonify, current_app, render_template
+from flask import Blueprint, request, jsonify, current_app, render_template, render_template_string
 from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
 from extensions import db
-from sqlalchemy import and_, or_, text
-
+from sqlalchemy import and_, or_, text, func, distinct
+import traceback
 
 # Utworzenie Blueprint dla API
 api_bp = Blueprint('production_api', __name__)
 logger = get_structured_logger('production.api')
+
+# Import modeli produkcji
+try:
+    from ..models import ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, ProductionPriorityConfig
+except ImportError:
+    from modules.production.models import ProductionItem, ProductionError, ProductionSyncLog, ProductionConfig, ProductionPriorityConfig
 
 # ============================================================================
 # DECORATORS - zabezpieczenia dla różnych typów endpointów
@@ -1760,96 +1766,108 @@ def dashboard_tab_content():
 
 
 
-@api_bp.route('/products-tab-content')
-@login_required
+@api_bp.route('/products-tab-content', methods=['GET'])
+@login_required  
 def products_tab_content():
     """
-    AJAX endpoint dla zawartości taba Lista produktów - POPRAWIONY
+    Endpoint zwracający zawartość taba produktów - używa prawdziwego szablonu
     """
     try:
-        logger.info("AJAX: Ładowanie zawartości products-tab", extra={
-            'user_id': current_user.id,
-            'user_role': getattr(current_user, 'role', 'unknown')
-        })
-        
-        from ..models import ProductionItem
-        
-        # Filtry z query params
+        # Pobierz podstawowe parametry
         status_filter = request.args.get('status', 'all')
-        search_query = request.args.get('search', '').strip()
-        limit = min(int(request.args.get('limit', 100)), 500)
+        search_query = request.args.get('search', '')
         
-        # Query podstawowy
-        query = ProductionItem.query
+        # Pobierz produkty z bazy danych
+        products_query = ProductionItem.query
         
         # Filtrowanie po statusie
         if status_filter and status_filter != 'all':
-            query = query.filter(ProductionItem.current_status == status_filter)
+            products_query = products_query.filter(ProductionItem.current_status == status_filter)
         
-        # Wyszukiwanie
+        # Wyszukiwanie - bezpieczne sprawdzenie atrybutów
         if search_query:
-            query = query.filter(
-                db.or_(
-                    ProductionItem.short_product_id.ilike(f'%{search_query}%'),
-                    ProductionItem.internal_order_number.ilike(f'%{search_query}%'),
-                    ProductionItem.original_product_name.ilike(f'%{search_query}%')
-                )
-            )
+            search_pattern = f"%{search_query}%"
+            search_conditions = []
+            
+            if hasattr(ProductionItem, 'original_product_name'):
+                search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
+            if hasattr(ProductionItem, 'short_product_id'):
+                search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
+                
+            if search_conditions:
+                products_query = products_query.filter(or_(*search_conditions))
         
-        # Sortowanie i limit
-        products = query.order_by(ProductionItem.priority_score.desc()).limit(limit).all()
+        # Sortowanie domyślne
+        if hasattr(ProductionItem, 'priority_score'):
+            products_query = products_query.order_by(ProductionItem.priority_score.desc())
+        else:
+            products_query = products_query.order_by(ProductionItem.id.desc())
         
-        # Sprawdź czy user jest adminem
-        is_admin = hasattr(current_user, 'role') and current_user.role.lower() in ['admin', 'administrator']
+        # Limit dla pierwszego ładowania
+        products = products_query.limit(100).all()
         
-        # Opcje statusów dla filtra
+        # Przygotuj dzisiejszą datę
+        today = date.today()
+        
+        # Przetwórz produkty - bezpieczne pobieranie atrybutów
+        for product in products:
+            # Dodaj obliczone pola
+            deadline_date = getattr(product, 'deadline_date', None)
+            if deadline_date:
+                days_diff = (deadline_date - today).days
+                product.days_to_deadline = days_diff
+            else:
+                product.days_to_deadline = None
+        
+        # Opcje statusów dla dropdown
         status_options = [
-            ('all', 'Wszystkie'),
+            ('all', 'Wszystkie statusy'),
             ('czeka_na_wyciecie', 'Czeka na wycięcie'),
             ('czeka_na_skladanie', 'Czeka na składanie'), 
             ('czeka_na_pakowanie', 'Czeka na pakowanie'),
             ('spakowane', 'Spakowane'),
-            ('wstrzymane', 'Wstrzymane')
+            ('wstrzymane', 'Wstrzymane'),
+            ('anulowane', 'Anulowane')
         ]
         
-        # Statystyki - DODANO: today dla template
-        today = date.today()
-        stats = {
-            'total_products': len(products),
-            'high_priority': sum(1 for p in products if p.priority_score >= 150),
-            'overdue': sum(1 for p in products if p.deadline_date and p.deadline_date < today),
-            'status_filter': status_filter,
-            'search_query': search_query
-        }
+        # Sprawdź czy użytkownik to admin
+        is_admin = current_user.role in ['admin', 'administrator'] if current_user.is_authenticated else False
         
-        # Renderuj komponent
-        rendered_html = render_template('components/products-tab-content.html',
-                              products=products,
-                              status_filter=status_filter,
-                              search_query=search_query,
-                              status_options=status_options,
-                              is_admin=is_admin,
-                              stats=stats,
-                              today=today)
+        # Renderuj prawdziwy szablon HTML
+        html_content = render_template(
+            'components/products-tab-content.html',
+            products=products,
+            status_options=status_options,
+            status_filter=status_filter,
+            search_query=search_query,
+            is_admin=is_admin,
+            today=today
+        )
         
         return jsonify({
             'success': True,
-            'html': rendered_html,
-            'stats': stats,
-            'last_updated': datetime.utcnow().isoformat()
+            'html': html_content,
+            'products_count': len(products),
+            'debug_info': {
+                'status_filter': status_filter,
+                'search_query': search_query,
+                'is_admin': is_admin,
+                'user_role': current_user.role if current_user.is_authenticated else 'anonymous'
+            }
         })
         
     except Exception as e:
-        logger.error("Błąd AJAX products-tab-content", extra={
-            'user_id': current_user.id,
-            'error': str(e)
-        })
+        # Szczegółowe logowanie błędu
+        error_traceback = traceback.format_exc()
+        logger.error(f"Błąd endpoint products-tab-content: {str(e)}")
+        logger.error(f"Traceback: {error_traceback}")
         
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'traceback': error_traceback if current_app.debug else None
         }), 500
-    
+
 
 
 @api_bp.route('/reports-tab-content')
@@ -2712,6 +2730,247 @@ def update_single_product_priority(product_id):
             'error': f'Błąd aktualizacji priorytetu: {str(e)}'
         }), 500
 
+
+@api_bp.route('/products-filtered', methods=['GET', 'POST'])
+@login_required
+def products_filtered():
+    """
+    API endpoint dla filtrowania produktów - FINALNY
+    
+    Query params:
+        status: filtr statusu ('all', 'czeka_na_wyciecie', etc.)
+        search: wyszukiwanie w nazwie/ID
+        page: numer strony (default: 1)
+        per_page: produktów na stronę (default: 50)
+        sort_by: kolumna sortowania
+        sort_order: kierunek (asc/desc)
+    
+    Returns:
+        JSON z produktami, paginacją i statystykami
+    """
+    try:
+        # Pobierz parametry filtrów
+        status_filter = request.args.get('status', 'all')
+        search_query = request.args.get('search', '').strip()
+        page = int(request.args.get('page', 1))
+        per_page = min(int(request.args.get('per_page', 50)), 200)
+        sort_by = request.args.get('sort_by', 'priority_score')
+        sort_order = request.args.get('sort_order', 'desc')
+        
+        # Rozpocznij query od wszystkich produktów
+        query = ProductionItem.query
+        
+        # Filtrowanie po statusie
+        if status_filter and status_filter != 'all':
+            query = query.filter(ProductionItem.current_status == status_filter)
+        
+        # Wyszukiwanie - bezpieczne sprawdzenie atrybutów
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            search_conditions = []
+            
+            # Sprawdź które atrybuty istnieją i dodaj je do wyszukiwania
+            if hasattr(ProductionItem, 'original_product_name'):
+                search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
+            if hasattr(ProductionItem, 'short_product_id'):
+                search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
+            if hasattr(ProductionItem, 'internal_order_number'):
+                search_conditions.append(ProductionItem.internal_order_number.ilike(search_pattern))
+            if hasattr(ProductionItem, 'client_name'):
+                search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
+            
+            if search_conditions:
+                query = query.filter(or_(*search_conditions))
+        
+        # Sortowanie - bezpieczne sprawdzenie atrybutów
+        sort_column = None
+        if sort_by == 'priority_score' and hasattr(ProductionItem, 'priority_score'):
+            sort_column = ProductionItem.priority_score
+        elif sort_by == 'deadline_date' and hasattr(ProductionItem, 'deadline_date'):
+            sort_column = ProductionItem.deadline_date
+        elif sort_by == 'created_at' and hasattr(ProductionItem, 'created_at'):
+            sort_column = ProductionItem.created_at
+        elif sort_by == 'short_product_id' and hasattr(ProductionItem, 'short_product_id'):
+            sort_column = ProductionItem.short_product_id
+        
+        if sort_column is not None:
+            if sort_order == 'desc':
+                query = query.order_by(sort_column.desc())
+            else:
+                query = query.order_by(sort_column.asc())
+        else:
+            # Domyślne sortowanie po ID jeśli nie ma priority_score
+            query = query.order_by(ProductionItem.id.desc())
+        
+        # Paginacja
+        paginated = query.paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False
+        )
+        
+        # Przygotuj dane produktów - bezpieczne pobieranie atrybutów
+        products_data = []
+        today = date.today()
+        
+        for item in paginated.items:
+            # Oblicz dni do deadline
+            days_to_deadline = None
+            deadline_date = getattr(item, 'deadline_date', None)
+            if deadline_date:
+                days_to_deadline = (deadline_date - today).days
+            
+            # Bezpieczne pobieranie atrybutów z fallback wartościami
+            product_data = {
+                'id': item.id,
+                'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
+                'internal_order_number': getattr(item, 'internal_order_number', ''),
+                'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
+                'client_name': getattr(item, 'client_name', ''),
+                'current_status': getattr(item, 'current_status', 'unknown'),
+                'priority_score': float(getattr(item, 'priority_score', 0) or 0),
+                'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
+                'total_value': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
+                'order_date': getattr(item, 'order_date', getattr(item, 'created_at', None)),
+                'deadline_date': deadline_date.isoformat() if deadline_date else None,
+                'days_to_deadline': days_to_deadline,
+                'baselinker_order_id': getattr(item, 'baselinker_order_id', None),
+                'created_at': getattr(item, 'created_at', None)
+            }
+            
+            # Konwertuj daty na ISO string
+            if product_data['order_date'] and hasattr(product_data['order_date'], 'isoformat'):
+                product_data['order_date'] = product_data['order_date'].isoformat()
+            if product_data['created_at'] and hasattr(product_data['created_at'], 'isoformat'):
+                product_data['created_at'] = product_data['created_at'].isoformat()
+            
+            products_data.append(product_data)
+        
+        # Statystyki dla filtrowanych wyników
+        stats = {
+            'total_filtered': paginated.total,
+            'total_volume': sum(float(p['volume_m3']) for p in products_data),
+            'total_value': sum(float(p['total_value']) for p in products_data),
+            'avg_priority': sum(float(p['priority_score']) for p in products_data) / len(products_data) if products_data else 0,
+            'overdue_count': len([p for p in products_data if p['days_to_deadline'] is not None and p['days_to_deadline'] < 0])
+        }
+        
+        # Informacje o paginacji
+        pagination_info = {
+            'page': paginated.page,
+            'per_page': paginated.per_page,
+            'total': paginated.total,
+            'pages': paginated.pages,
+            'has_prev': paginated.has_prev,
+            'has_next': paginated.has_next,
+            'prev_num': paginated.prev_num,
+            'next_num': paginated.next_num
+        }
+        
+        return jsonify({
+            'success': True,
+            'products': products_data,
+            'pagination': pagination_info,
+            'stats': stats,
+            'filters_applied': {
+                'status': status_filter,
+                'search': search_query,
+                'sort_by': sort_by,
+                'sort_order': sort_order
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Błąd filtrowania produktów: {str(e)}',
+            'products': [],
+            'pagination': {'page': 1, 'pages': 1, 'total': 0},
+            'stats': {},
+            'traceback': traceback.format_exc()
+        }), 500
+
+
+@api_bp.route('/update-priority', methods=['POST'])
+@login_required
+def update_priority():
+    """
+    API endpoint dla aktualizacji priorytetów produktów
+    
+    Body JSON:
+    {
+        "product_id": 123,
+        "new_priority": 150
+    }
+    LUB
+    {
+        "products": [
+            {"id": 123, "priority": 150},
+            {"id": 124, "priority": 160}
+        ]
+    }
+    
+    Returns: JSON z rezultatem operacji
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Brak danych JSON'}), 400
+        
+        updated_products = []
+        
+        # Sprawdź czy to pojedynczy produkt czy batch
+        if 'product_id' in data:
+            # Pojedynczy produkt
+            product_id = data.get('product_id')
+            new_priority = data.get('new_priority')
+            
+            if product_id is None or new_priority is None:
+                return jsonify({'success': False, 'error': 'Wymagane: product_id i new_priority'}), 400
+            
+            product = ProductionItem.query.get(product_id)
+            if not product:
+                return jsonify({'success': False, 'error': f'Produkt {product_id} nie znaleziony'}), 404
+            
+            if hasattr(product, 'priority_score'):
+                product.priority_score = new_priority
+                updated_products.append({'id': product_id, 'new_priority': new_priority})
+        
+        elif 'products' in data:
+            # Batch update
+            products_data = data.get('products', [])
+            
+            for product_data in products_data:
+                product_id = product_data.get('id')
+                new_priority = product_data.get('priority')
+                
+                if product_id is None or new_priority is None:
+                    continue
+                
+                product = ProductionItem.query.get(product_id)
+                if product and hasattr(product, 'priority_score'):
+                    product.priority_score = new_priority
+                    updated_products.append({'id': product_id, 'new_priority': new_priority})
+        
+        else:
+            return jsonify({'success': False, 'error': 'Wymagane: product_id+new_priority LUB products'}), 400
+        
+        # Zapisz zmiany
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Zaktualizowano priorytety {len(updated_products)} produktów',
+            'updated_count': len(updated_products),
+            'updated_products': updated_products
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Błąd aktualizacji priorytetów: {str(e)}'
+        }), 500
 
 # ============================================================================
 # HELPER FUNCTIONS

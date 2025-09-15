@@ -1,7 +1,7 @@
 <!-- products-tab-content.html -->
-<!-- POPRAWIONY - bez błędu today() callable -->
+<!-- POPRAWIONY - błędy naprawione -->
 <!-- ============================================================================
-     SEKCJA FILTRÓW - ROZBUDOWANA WERSJA
+     SEKCJA FILTRÓW - POPRAWIONA WERSJA
      ============================================================================ -->
 <!-- Podstawowe filtry -->
 <div class="products-filters">
@@ -9,11 +9,13 @@
         <div class="col-md-3">
             <label for="status-filter" class="form-label">Status produktu</label>
             <select id="status-filter" class="form-select">
-                {% for value, label in status_options %}
-                <option value="{{ value }}" {% if value == status_filter %}selected{% endif %}>
-                    {{ label }}
-                </option>
-                {% endfor %}
+                <option value="all">Wszystkie statusy</option>
+                <option value="czeka_na_wyciecie">Czeka na wycięcie</option>
+                <option value="czeka_na_skladanie">Czeka na składanie</option>
+                <option value="czeka_na_pakowanie">Czeka na pakowanie</option>
+                <option value="spakowane">Spakowane</option>
+                <option value="wstrzymane">Wstrzymane</option>
+                <option value="anulowane">Anulowane</option>
             </select>
         </div>
         <div class="col-md-4">
@@ -24,12 +26,13 @@
                        id="search-input"
                        class="form-control"
                        placeholder="ID zamówienia, nazwa produktu, klient..."
-                       value="{{ search_query }}">
+                       value="">
                 <button class="btn btn-outline-secondary" type="button" id="clear-search-btn" title="Wyczyść wyszukiwanie">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
         </div>
+        <!-- POPRAWKA: Usunięto duplikat per-page-select -->
         <div class="col-md-3">
             <label for="per-page-select" class="form-label">Produktów na stronę</label>
             <select id="per-page-select" class="form-select">
@@ -192,7 +195,7 @@
 </div>
 
 <!-- ============================================================================
-     TABELA PRODUKTÓW - ROZBUDOWANA WERSJA
+     TABELA PRODUKTÓW - POPRAWIONA WERSJA
      ============================================================================ -->
 
 <div class="products-list mt-3" id="products-list">
@@ -212,30 +215,23 @@
                     </th>
                     {% endif %}
 
-                    <!-- Sortowalne kolumny -->
-                    <th class="sortable" data-sort="short_product_id">
-                        ID Produktu <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable" data-sort="original_product_name">
-                        Produkt <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable" data-sort="current_status">
-                        Status <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable" data-sort="priority_score">
+                    <!-- POPRAWKA: Dodano data-sort do wszystkich nagłówków -->
+                    <th class="sortable-header" data-sort="priority_score" style="cursor: pointer;">
                         Priorytet <i class="fas fa-sort text-muted ms-1"></i>
                     </th>
-                    <th class="sortable" data-sort="deadline_date">
+                    <th class="sortable-header" data-sort="short_product_id" style="cursor: pointer;">
+                        ID Produktu <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="original_product_name" style="cursor: pointer;">
+                        Produkt <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="text-center">Objętość</th>
+                    <th class="text-center">Wartość</th>
+                    <th class="sortable-header" data-sort="current_status" style="cursor: pointer;">
+                        Status <i class="fas fa-sort text-muted ms-1"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="deadline_date" style="cursor: pointer;">
                         Deadline <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable" data-sort="created_at">
-                        Data utworzenia <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable" data-sort="volume_m3">
-                        Objętość <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable" data-sort="total_value_net">
-                        Wartość <i class="fas fa-sort text-muted ms-1"></i>
                     </th>
                     <th width="120">Akcje</th>
                 </tr>
@@ -251,7 +247,7 @@
 
                     <!-- Checkbox -->
                     <td>
-                        <input type="checkbox" class="product-checkbox form-check-input" value="{{ product.id }}">
+                        <input type="checkbox" class="product-checkbox form-check-input bulk-select" value="{{ product.id }}">
                     </td>
 
                     <!-- Drag handle -->
@@ -261,47 +257,7 @@
                     </td>
                     {% endif %}
 
-                    <!-- Product ID -->
-                    <td class="product-id-cell">
-                        <div class="product-id-container">
-                            <span class="product-id-main fw-bold">{{ product.short_product_id or product.id }}</span>
-                            <br><small class="text-muted">{{ product.internal_order_number or '' }}</small>
-                            {% if product.baselinker_order_id %}
-                            <br><small class="text-info">BL: {{ product.baselinker_order_id }}</small>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- Product details -->
-                    <td class="product-cell">
-                        <div class="product-info">
-                            <div class="product-name" title="{{ product.original_product_name }}">
-                                {{ product.original_product_name[:60] }}{% if product.original_product_name|length > 60 %}...{% endif %}
-                            </div>
-                            {% if product.parsed_wood_species or product.parsed_technology or product.volume_m3 %}
-                            <div class="product-specs">
-                                {% if product.parsed_wood_species %}
-                                <span class="spec-badge spec-species">{{ product.parsed_wood_species }}</span>
-                                {% endif %}
-                                {% if product.parsed_technology %}
-                                <span class="spec-badge spec-tech">{{ product.parsed_technology }}</span>
-                                {% endif %}
-                                {% if product.volume_m3 %}
-                                <span class="spec-badge spec-volume">{{ "%.3f"|format(product.volume_m3) }} m³</span>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- Status -->
-                    <td class="status-cell">
-                        {% set status_class = 'status-' + product.current_status.replace('czeka_na_', '').replace('_', '-') %}
-                        <span class="status-badge {{ status_class }}">
-                            {{ product.current_status.replace('czeka_na_', '').replace('_', ' ').title() }}
-                        </span>
-                    </td>
-
+                    <!-- POPRAWKA: Przeorganizowano kolumny zgodnie z nagłówkami -->
                     <!-- Priority -->
                     <td class="priority-cell">
                         <div class="priority-container">
@@ -327,73 +283,118 @@
                         </div>
                     </td>
 
+                    <!-- Product ID -->
+                    <td class="product-id-cell">
+                        <div class="product-id-container">
+                            <span class="product-id-main fw-bold">{{ product.short_product_id or product.id }}</span>
+                            {% if product.internal_order_number %}
+                            <br><small class="text-muted">{{ product.internal_order_number }}</small>
+                            {% endif %}
+                            {% if product.baselinker_order_id %}
+                            <br><small class="text-info">BaseID: {{ product.baselinker_order_id }}</small>
+                            {% endif %}
+                        </div>
+                    </td>
+
+                    <!-- Product details -->
+                    <td class="product-cell">
+                        <div class="product-info">
+                            <div class="product-name" title="{{ product.original_product_name }}">
+                                {{ product.original_product_name[:60] }}{% if product.original_product_name|length > 60 %}...{% endif %}
+                            </div>
+                            <!-- POPRAWKA: Usunięto objętość z nazwy produktu -->
+                            {% if product.parsed_wood_species or product.parsed_technology %}
+                            <div class="product-specs">
+                                {% if product.parsed_wood_species %}
+                                <span class="spec-badge spec-species">{{ product.parsed_wood_species }}</span>
+                                {% endif %}
+                                {% if product.parsed_technology %}
+                                <span class="spec-badge spec-tech">{{ product.parsed_technology }}</span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </td>
+
+                    <!-- POPRAWKA: Dodano oddzielną kolumnę objętości -->
+                    <!-- Volume -->
+                    <td class="volume-cell text-center">
+                        {% if product.volume_m3 %}
+                        <span class="volume-value">{{ "%.3f"|format(product.volume_m3) }} m³</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- POPRAWKA: Wartość wyświetlana poprawnie -->
+                    <!-- Value -->
+                    <td class="value-cell text-center">
+                        {% if product.total_value_net %}
+                        <span class="value-amount fw-bold">{{ "{:,.2f}"|format(product.total_value_net) }} zł</span>
+                        {% elif product.unit_price_net and product.volume_m3 %}
+                        <span class="value-amount">{{ "{:,.2f}"|format(product.unit_price_net * product.volume_m3) }} zł</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Status -->
+                    <td class="status-cell text-center">
+                        {% set status_class = 'status-' + product.current_status.replace('czeka_na_', '').replace('_', '-') %}
+                        <span class="status-badge {{ status_class }}">
+                            {% if product.current_status == 'czeka_na_wyciecie' %}Wycinanie
+                            {% elif product.current_status == 'czeka_na_skladanie' %}Składanie
+                            {% elif product.current_status == 'czeka_na_pakowanie' %}Pakowanie
+                            {% elif product.current_status == 'spakowane' %}Spakowane
+                            {% else %}{{ product.current_status.replace('_', ' ').title() }}
+                            {% endif %}
+                        </span>
+                    </td>
+
                     <!-- Deadline - POPRAWIONE bez błędu today() -->
-                    <td class="deadline-cell">
+                    <td class="deadline-cell text-center">
                         {% if product.deadline_date %}
+                        {% if product.deadline_info %}
+                        <!-- Użyj przygotowanych danych z backendu -->
+                        <span class="deadline-badge {{ product.deadline_info.class }}">
+                            {% if product.deadline_info.icon %}
+                            <i class="{{ product.deadline_info.icon }} me-1"></i>
+                            {% endif %}
+                            {{ product.deadline_info.text }}
+                        </span>
+                        <br><small class="text-muted">{{ product.deadline_date.strftime('%d.%m.%Y') }}</small>
+                        {% else %}
+                        <!-- Fallback jeśli deadline_info nie zostało przygotowane -->
                         {% set deadline_date = product.deadline_date %}
                         {% set today_date = today %}
                         {% set days_diff = (deadline_date - today_date).days %}
 
                         {% if days_diff < 0 %}
-                        {% set deadline_class = 'deadline-overdue' %}
-                        {% set deadline_text = (days_diff|abs) ~ ' dni temu' %}
-                        {% set deadline_icon = 'fas fa-exclamation-triangle' %}
-                        {% elif days_diff == 0 %}
-                        {% set deadline_class = 'deadline-today' %}
-                        {% set deadline_text = 'Dzisiaj' %}
-                        {% set deadline_icon = 'fas fa-clock' %}
-                        {% elif days_diff <= 2 %}
-                        {% set deadline_class = 'deadline-urgent' %}
-                        {% set deadline_text = 'Za ' ~ days_diff ~ ' dni' %}
-                        {% set deadline_icon = 'fas fa-exclamation' %}
-                        {% elif days_diff <= 7 %}
-                        {% set deadline_class = 'deadline-warning' %}
-                        {% set deadline_text = 'Za ' ~ days_diff ~ ' dni' %}
-                        {% set deadline_icon = '' %}
-                        {% else %}
-                        {% set deadline_class = 'deadline-normal' %}
-                        {% set deadline_text = 'Za ' ~ days_diff ~ ' dni' %}
-                        {% set deadline_icon = '' %}
-                        {% endif %}
-
-                        <span class="deadline-badge {{ deadline_class }}">
-                            {% if deadline_icon %}<i class="{{ deadline_icon }} me-1"></i>{% endif %}
-                            {{ deadline_text }}
+                        <span class="deadline-badge deadline-overdue text-danger">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            {{ (days_diff|abs) }} dni temu
                         </span>
+                        {% elif days_diff == 0 %}
+                        <span class="deadline-badge deadline-today text-warning">
+                            <i class="fas fa-clock me-1"></i>
+                            Dzisiaj
+                        </span>
+                        {% elif days_diff <= 2 %}
+                        <span class="deadline-badge deadline-urgent text-warning">
+                            <i class="fas fa-exclamation me-1"></i>
+                            Za {{ days_diff }} dni
+                        </span>
+                        {% elif days_diff <= 7 %}
+                        <span class="deadline-badge deadline-warning text-info">
+                            Za {{ days_diff }} dni
+                        </span>
+                        {% else %}
+                        <span class="deadline-badge deadline-normal text-success">
+                            Za {{ days_diff }} dni
+                        </span>
+                        {% endif %}
                         <br><small class="text-muted">{{ deadline_date.strftime('%d.%m.%Y') }}</small>
-                        {% else %}
-                        <span class="text-muted">Brak terminu</span>
                         {% endif %}
-                    </td>
-
-                    <!-- Created date -->
-                    <td class="created-cell">
-                        {% if product.created_at %}
-                        <span class="created-date">{{ product.created_at.strftime('%d.%m.%Y') }}</span>
-                        <br><small class="text-muted">{{ product.created_at.strftime('%H:%M') }}</small>
-                        {% else %}
-                        <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Volume -->
-                    <td class="volume-cell text-end">
-                        {% if product.volume_m3 %}
-                        <span class="volume-value">{{ "%.3f"|format(product.volume_m3) }}</span>
-                        <br><small class="text-muted">m³</small>
-                        {% else %}
-                        <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Value -->
-                    <td class="value-cell text-end">
-                        {% if product.total_value_net %}
-                        <span class="value-amount fw-bold">{{ "{:,.2f}"|format(product.total_value_net) }}</span>
-                        <br><small class="text-muted">PLN</small>
-                        {% elif product.unit_price_net %}
-                        <span class="value-amount">{{ "{:,.2f}"|format(product.unit_price_net) }}</span>
-                        <br><small class="text-muted">PLN/m³</small>
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}
@@ -401,45 +402,49 @@
 
                     <!-- Actions -->
                     <td class="actions-cell">
-                        <div class="dropdown">
-                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                                    type="button"
-                                    data-bs-toggle="dropdown"
-                                    aria-expanded="false">
-                                <i class="fas fa-ellipsis-v"></i>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-primary" onclick="ProductModal.openModal && ProductModal.openModal({{ product.id }})" title="Szczegóły">
+                                <i class="fas fa-eye"></i>
                             </button>
-                            <ul class="dropdown-menu">
-                                <li>
-                                    <a class="dropdown-item" href="#" onclick="ProductModal.openModal({{ product.id }})">
-                                        <i class="fas fa-eye me-2"></i>Zobacz szczegóły
-                                    </a>
-                                </li>
-                                {% if is_admin %}
-                                <li>
-                                    <a class="dropdown-item" href="#" onclick="editProductPriority({{ product.id }})">
-                                        <i class="fas fa-star me-2"></i>Edytuj priorytet
-                                    </a>
-                                </li>
-                                <li>
-                                    <a class="dropdown-item" href="#" onclick="changeProductStatus({{ product.id }})">
-                                        <i class="fas fa-exchange-alt me-2"></i>Zmień status
-                                    </a>
-                                </li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li>
-                                    <a class="dropdown-item text-danger" href="#" onclick="deleteProduct({{ product.id }})">
-                                        <i class="fas fa-trash me-2"></i>Usuń produkt
-                                    </a>
-                                </li>
-                                {% endif %}
-                            </ul>
+                            <!-- POPRAWKA: Dodano link do Baselinker zgodnie z template -->
+                            <a href="https://panel-f.baselinker.com/orders.php#order:{{ product.baselinker_order_id }}"
+                               target="_blank" class="btn btn-sm btn-outline-info" title="Baselinker">
+                                <i class="fas fa-external-link-alt"></i>
+                            </a>
+                            {% if is_admin %}
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                        type="button"
+                                        data-bs-toggle="dropdown">
+                                    <i class="fas fa-ellipsis-v"></i>
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <a class="dropdown-item" href="#" onclick="editProductPriority({{ product.id }})">
+                                            <i class="fas fa-star me-2"></i>Edytuj priorytet
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="#" onclick="changeProductStatus({{ product.id }})">
+                                            <i class="fas fa-exchange-alt me-2"></i>Zmień status
+                                        </a>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <a class="dropdown-item text-danger" href="#" onclick="deleteProduct({{ product.id }})">
+                                            <i class="fas fa-trash me-2"></i>Usuń produkt
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
                 {% endfor %}
                 {% else %}
                 <tr>
-                    <td colspan="100%" class="text-center py-5">
+                    <td colspan="10" class="text-center py-5">
                         <div class="no-products-message">
                             <i class="fas fa-search fa-3x text-muted mb-3"></i>
                             <h5>Brak produktów</h5>
@@ -456,7 +461,7 @@
     </div>
 
     <!-- ============================================================================
-         PAGINACJA
+         PAGINACJA - POPRAWIONA
          ============================================================================ -->
     <div class="pagination-container mt-4" id="pagination-container">
         <div class="row align-items-center">
@@ -479,16 +484,11 @@
                     </button>
                 </div>
             </div>
+            <!-- POPRAWKA: Usunięto duplikujący się selector -->
             <div class="col-md-4 text-end">
-                <div class="page-size-selector">
-                    <label class="form-label-sm me-2">Pokaż:</label>
-                    <select class="form-select form-select-sm d-inline-block w-auto">
-                        <option value="25">25</option>
-                        <option value="50" selected>50</option>
-                        <option value="100">100</option>
-                        <option value="200">200</option>
-                    </select>
-                </div>
+                <button class="btn btn-outline-primary btn-sm" onclick="refreshProductsList()" title="Odśwież listę">
+                    <i class="fas fa-sync-alt"></i> Odśwież
+                </button>
             </div>
         </div>
     </div>
@@ -512,154 +512,92 @@
 </div>
 
 <!-- ============================================================================
-     JAVASCRIPT INITIALIZATION
+     JAVASCRIPT INITIALIZATION - UPROSZCZONY
      ============================================================================ -->
 <script>
-    // Inicjalizacja taba produktów - ROZBUDOWANA WERSJA
-    function initProductsTab() {
-        console.log('[Products Tab] Inicjalizacja rozbudowanej wersji...');
+    // UPROSZCZONA inicjalizacja - usuwa konflikt z product-list-dashboard.js
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('[Products Tab HTML] DOM załadowany...');
 
-        // Sprawdź dostępność product-list-dashboard.js
-        if (typeof initProductsList === 'function') {
-            initProductsList();
+        // Sprawdź czy główny JS jest załadowany
+        if (typeof ProductsList !== 'undefined' && typeof AdvancedFilters !== 'undefined') {
+            console.log('[Products Tab HTML] Główny JS wykryty - deleguje inicjalizację');
+            // Nic nie rób - główny JS przejmuje kontrolę
         } else {
-            console.warn('[Products Tab] product-list-dashboard.js nie jest załadowany - używam fallback');
-            initProductsTabFallback();
+            console.log('[Products Tab HTML] Główny JS nie wykryty - podstawowy fallback');
+            setupBasicFallback();
         }
-    }
+    });
 
-    // Fallback inicjalizacja jeśli product-list-dashboard.js nie jest dostępny
-    function initProductsTabFallback() {
-        console.log('[Products Tab] Fallback inicjalizacja...');
-
-        // Podstawowe event handlers
-        setupBasicEventHandlers();
-
-        // Podstawowe filtrowanie
-        setupBasicFiltering();
-
-        // Drag & drop dla adminów
-        {% if is_admin %}
-        if (typeof Sortable !== 'undefined') {
-            setupBasicDragAndDrop();
-        }
-        {% endif %}
-    }
-
-    function setupBasicEventHandlers() {
+    // Podstawowy fallback tylko jeśli główny JS nie działa
+    function setupBasicFallback() {
         // Search input
         const searchInput = document.getElementById('search-input');
         if (searchInput) {
-            let searchTimeout;
             searchInput.addEventListener('input', function () {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    filterProducts();
-                }, 300);
-            });
-        }
-
-        // Clear search button
-        const clearSearchBtn = document.getElementById('clear-search-btn');
-        if (clearSearchBtn) {
-            clearSearchBtn.addEventListener('click', function () {
-                const searchInput = document.getElementById('search-input');
-                if (searchInput) {
-                    searchInput.value = '';
-                    filterProducts();
-                }
+                console.log('[Fallback] Search input:', this.value);
+                // Podstawowe filtrowanie po stronie klienta
+                basicClientSideFilter();
             });
         }
 
         // Status filter
         const statusFilter = document.getElementById('status-filter');
         if (statusFilter) {
-            statusFilter.addEventListener('change', filterProducts);
+            statusFilter.addEventListener('change', function () {
+                console.log('[Fallback] Status filter:', this.value);
+                basicClientSideFilter();
+            });
         }
 
-        // Advanced filters toggle
-        const advancedToggle = document.getElementById('advanced-filters-toggle');
-        if (advancedToggle) {
-            advancedToggle.addEventListener('click', function () {
-                const container = document.getElementById('advanced-filters-container');
-                if (container) {
-                    const isVisible = container.style.display !== 'none';
-                    container.style.display = isVisible ? 'none' : 'block';
-                    this.innerHTML = isVisible ?
-                        '<i class="fas fa-chevron-down me-1"></i>Zaawansowane' :
-                        '<i class="fas fa-chevron-up me-1"></i>Ukryj';
+        // Clear search
+        const clearBtn = document.getElementById('clear-search-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                if (searchInput) {
+                    searchInput.value = '';
+                    basicClientSideFilter();
                 }
             });
         }
     }
 
-    function setupBasicFiltering() {
-        // Fallback filtering - basic functionality
-        console.log('[Products Tab] Setup podstawowego filtrowania');
-    }
-
-    function setupBasicDragAndDrop() {
-        const tbody = document.getElementById('products-tbody');
-        if (!tbody) return;
-
-        new Sortable(tbody, {
-            handle: '.drag-handle',
-            animation: 150,
-            onEnd: function (evt) {
-                console.log('[Products Tab] Drag & drop - zmiana kolejności:', evt.oldIndex, '->', evt.newIndex);
-                // Tutaj będzie logika aktualizacji priorytetów
-            }
-        });
-    }
-
-    // Podstawowe funkcje filtrowania (fallback)
-    function filterProducts() {
-        console.log('[Products Tab] Filtrowanie produktów...');
-
-        // Pobierz wartości filtrów
-        const status = document.getElementById('status-filter')?.value || 'all';
-        const search = document.getElementById('search-input')?.value || '';
-
-        // W pełnej wersji tu będzie wywołanie AJAX
-        // Na razie podstawowa implementacja
+    // Podstawowe filtrowanie po stronie klienta (fallback)
+    function basicClientSideFilter() {
+        const searchInput = document.getElementById('search-input');
+        const statusFilter = document.getElementById('status-filter');
         const rows = document.querySelectorAll('.product-row');
+
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const selectedStatus = statusFilter ? statusFilter.value : 'all';
+
         let visibleCount = 0;
 
         rows.forEach(row => {
-            let shouldShow = true;
+            let show = true;
 
-            // Filter by status
-            if (status !== 'all') {
+            // Search filter
+            if (searchTerm) {
+                const productName = row.querySelector('.product-name')?.textContent?.toLowerCase() || '';
+                const productId = row.querySelector('.product-id-main')?.textContent?.toLowerCase() || '';
+
+                if (!productName.includes(searchTerm) && !productId.includes(searchTerm)) {
+                    show = false;
+                }
+            }
+
+            // Status filter
+            if (selectedStatus !== 'all') {
                 const rowStatus = row.dataset.status;
-                if (rowStatus !== status) {
-                    shouldShow = false;
+                if (rowStatus !== selectedStatus) {
+                    show = false;
                 }
             }
 
-            // Filter by search
-            if (search.trim()) {
-                const productName = row.querySelector('.product-name')?.textContent || '';
-                const productId = row.querySelector('.product-id-main')?.textContent || '';
-                const searchLower = search.toLowerCase();
-
-                if (!productName.toLowerCase().includes(searchLower) &&
-                    !productId.toLowerCase().includes(searchLower)) {
-                    shouldShow = false;
-                }
-            }
-
-            row.style.display = shouldShow ? '' : 'none';
-            if (shouldShow) visibleCount++;
+            row.style.display = show ? '' : 'none';
+            if (show) visibleCount++;
         });
 
-        console.log(`[Products Tab] Filtrowanie zakończone: ${visibleCount} produktów widocznych`);
-    }
-
-    // Auto-inicjalizacja
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initProductsTab);
-    } else {
-        // Delay aby upewnić się że inne skrypty są załadowane
-        setTimeout(initProductsTab, 100);
+        console.log(`[Fallback] Showing ${visibleCount} products`);
     }
 </script>
