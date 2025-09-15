@@ -3,7 +3,7 @@
 <!-- Quick Actions Bar -->
 <div class="quick-actions-bar">
     <div class="quick-actions-list">
-        <button id="manual-sync-btn" class="quick-action-btn" onclick="triggerManualSync()">
+        <button id="manual-sync-btn" class="quick-action-btn" type="button">
             <span class="quick-action-icon">🔄</span>
             Ręczna synchronizacja
         </button>
@@ -253,10 +253,10 @@
 
             {% if current_user.role in ['admin', 'administrator'] %}
             <div class="health-actions">
-                <button class="health-action-btn error-details-btn" onclick="showSystemErrorsModal()" id="show-errors-btn">
+                <button class="health-action-btn error-details-btn" id="show-errors-btn" type="button">
                     👁️ Pokaż błędy
                 </button>
-                <button class="health-action-btn" onclick="clearSystemErrors()" id="clear-errors-btn">
+                <button class="health-action-btn" id="clear-errors-btn" type="button">
                     🧹 Wyczyść błędy
                 </button>
             </div>
@@ -276,7 +276,7 @@
             </div>
             <div class="widget-content">
                 <canvas id="performance-chart-canvas"></canvas>
-                <div class="chart-loader" style="display: none;">
+                <div class="chart-loader" aria-hidden="true">
                     <div class="spinner"></div>
                     <span>Ładowanie danych wykresu...</span>
                 </div>
@@ -292,7 +292,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Błędy systemu</h5>
-                <button type="button" class="btn-close" onclick="closeSystemErrorsModal()"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
             </div>
             <div class="modal-body">
                 <div class="errors-loading" id="errors-loading" style="display:none;">
@@ -313,8 +313,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeSystemErrorsModal()">Zamknij</button>
-                <button type="button" class="btn btn-danger" onclick="clearAllSystemErrors()">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+                <button type="button" class="btn btn-danger" id="clear-all-errors-btn">
                     🧹 Wyczyść wszystkie błędy
                 </button>
             </div>

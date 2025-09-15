@@ -21,6 +21,17 @@ export class DashboardModule {
         this.isLoaded = false;
         this.autoRefreshInterval = null;
         this.chartInstance = null;
+        this.systemErrorsModalInstance = null;
+        this.systemErrorsModalElement = null;
+        this.systemErrorsHiddenListenerAttached = false;
+
+        // Bound handlers
+        this.onManualSyncClick = this.handleManualSync.bind(this);
+        this.onShowErrorsClick = this.showSystemErrorsModal.bind(this);
+        this.onClearErrorsClick = this.clearSystemErrors.bind(this);
+        this.onClearAllErrorsClick = this.clearAllSystemErrors.bind(this);
+        this.onSystemErrorsModalHidden = this.resetSystemErrorsModal.bind(this);
+        this.onSystemErrorsModalCloseClick = this.handleSystemErrorsModalClose.bind(this);
 
         // State
         this.state = {
@@ -105,6 +116,12 @@ export class DashboardModule {
         // Remove event listeners
         this.removeEventListeners();
 
+        // Reset modal references
+        this.closeSystemErrorsModal();
+        this.systemErrorsModalInstance = null;
+        this.systemErrorsModalElement = null;
+        this.systemErrorsHiddenListenerAttached = false;
+
         this.isLoaded = false;
         console.log('[Dashboard Module] Dashboard unloaded');
     }
@@ -146,6 +163,11 @@ export class DashboardModule {
         if (wrapper) {
             wrapper.innerHTML = response.html;
             wrapper.style.display = 'block';
+
+            // Reset modal references because DOM has been replaced
+            this.systemErrorsModalInstance = null;
+            this.systemErrorsModalElement = null;
+            this.systemErrorsHiddenListenerAttached = false;
         }
 
         // Store stats for widgets
@@ -392,17 +414,25 @@ export class DashboardModule {
     }
 
     async loadChartData(period) {
+        this.toggleChartLoader(true);
+
         try {
-            const response = await this.shared.apiClient.request(`/chart-data?period=${period}`);
+            const response = await this.shared.apiClient.request(`/chart-data?period=${period}`, {
+                skipCache: true
+            });
 
             if (response.success) {
                 this.createOrUpdateChart(response.chart_data, response.summary);
                 this.state.chartData = response;
+            } else {
+                throw new Error(response.error || 'Błąd ładowania danych wykresu');
             }
 
         } catch (error) {
             console.error('[Dashboard Module] Chart data loading failed:', error);
             this.showChartError('Błąd ładowania danych wykresu');
+        } finally {
+            this.toggleChartLoader(false);
         }
     }
 
@@ -465,35 +495,111 @@ export class DashboardModule {
         }
     }
 
+    toggleChartLoader(show) {
+        const loader = document.querySelector('.widget.performance-chart .chart-loader');
+        const canvas = document.getElementById('performance-chart-canvas');
+
+        if (loader) {
+            if (show) {
+                loader.classList.add('is-visible');
+                loader.setAttribute('aria-hidden', 'false');
+            } else {
+                loader.classList.remove('is-visible');
+                loader.setAttribute('aria-hidden', 'true');
+            }
+        }
+
+        if (canvas) {
+            canvas.style.opacity = show ? '0.35' : '1';
+            canvas.setAttribute('aria-busy', show ? 'true' : 'false');
+        }
+    }
+
     // ========================================================================
     // EVENT LISTENERS
     // ========================================================================
 
     setupEventListeners() {
+        // Ensure previous listeners are removed before attaching new ones
+        this.removeEventListeners();
+
         // Manual sync button
         const manualSyncBtn = document.getElementById('manual-sync-btn');
         if (manualSyncBtn) {
-            manualSyncBtn.addEventListener('click', this.handleManualSync.bind(this));
+            manualSyncBtn.addEventListener('click', this.onManualSyncClick);
         }
 
-        // System errors modal
-        const showErrorsBtn = document.querySelector('.error-details-btn');
+        // System errors modal buttons
+        const showErrorsBtn = document.getElementById('show-errors-btn');
         if (showErrorsBtn) {
-            showErrorsBtn.addEventListener('click', this.showSystemErrorsModal.bind(this));
+            showErrorsBtn.addEventListener('click', this.onShowErrorsClick);
         }
 
-        // Clear errors button
-        const clearErrorsBtn = document.querySelector('[onclick*="clearSystemErrors"]');
+        const clearErrorsBtn = document.getElementById('clear-errors-btn');
         if (clearErrorsBtn) {
-            clearErrorsBtn.addEventListener('click', this.clearSystemErrors.bind(this));
+            clearErrorsBtn.addEventListener('click', this.onClearErrorsClick);
+        }
+
+        const clearAllErrorsBtn = document.getElementById('clear-all-errors-btn');
+        if (clearAllErrorsBtn) {
+            clearAllErrorsBtn.addEventListener('click', this.onClearAllErrorsClick);
+        }
+
+        const modalElement = document.getElementById('systemErrorsModal');
+        if (modalElement) {
+            this.systemErrorsModalElement = modalElement;
+
+            const closeButtons = modalElement.querySelectorAll('[data-bs-dismiss="modal"]');
+
+            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                modalElement.addEventListener('hidden.bs.modal', this.onSystemErrorsModalHidden);
+                this.systemErrorsHiddenListenerAttached = true;
+
+                closeButtons.forEach(button => {
+                    button.removeEventListener('click', this.onSystemErrorsModalCloseClick);
+                });
+            } else {
+                closeButtons.forEach(button => {
+                    button.addEventListener('click', this.onSystemErrorsModalCloseClick);
+                });
+            }
         }
 
         console.log('[Dashboard Module] Event listeners setup complete');
     }
 
     removeEventListeners() {
-        // Remove any manually attached listeners
-        // Most will be cleaned up when DOM is replaced
+        const manualSyncBtn = document.getElementById('manual-sync-btn');
+        if (manualSyncBtn) {
+            manualSyncBtn.removeEventListener('click', this.onManualSyncClick);
+        }
+
+        const showErrorsBtn = document.getElementById('show-errors-btn');
+        if (showErrorsBtn) {
+            showErrorsBtn.removeEventListener('click', this.onShowErrorsClick);
+        }
+
+        const clearErrorsBtn = document.getElementById('clear-errors-btn');
+        if (clearErrorsBtn) {
+            clearErrorsBtn.removeEventListener('click', this.onClearErrorsClick);
+        }
+
+        const clearAllErrorsBtn = document.getElementById('clear-all-errors-btn');
+        if (clearAllErrorsBtn) {
+            clearAllErrorsBtn.removeEventListener('click', this.onClearAllErrorsClick);
+        }
+
+        if (this.systemErrorsModalElement) {
+            if (this.systemErrorsHiddenListenerAttached && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                this.systemErrorsModalElement.removeEventListener('hidden.bs.modal', this.onSystemErrorsModalHidden);
+                this.systemErrorsHiddenListenerAttached = false;
+            }
+
+            const closeButtons = this.systemErrorsModalElement.querySelectorAll('[data-bs-dismiss="modal"]');
+            closeButtons.forEach(button => {
+                button.removeEventListener('click', this.onSystemErrorsModalCloseClick);
+            });
+        }
     }
 
     // ========================================================================
@@ -525,14 +631,394 @@ export class DashboardModule {
         }
     }
 
-    showSystemErrorsModal() {
-        // TODO: Implement system errors modal
-        this.shared.toastSystem.show('Modal błędów systemu będzie dostępny wkrótce', 'info');
+    async showSystemErrorsModal(event = null) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+
+        const modalInstance = this.ensureSystemErrorsModal();
+
+        if (!this.systemErrorsModalElement) {
+            this.shared.toastSystem.show('Modal błędów systemu jest niedostępny', 'error');
+            return;
+        }
+
+        this.resetSystemErrorsModal();
+        this.toggleSystemErrorsLoading(true);
+
+        if (modalInstance && typeof modalInstance.show === 'function') {
+            modalInstance.show();
+        } else {
+            this.systemErrorsModalElement.classList.add('show');
+            this.systemErrorsModalElement.style.display = 'block';
+            this.systemErrorsModalElement.removeAttribute('aria-hidden');
+        }
+
+        try {
+            const response = await this.shared.apiClient.getSystemErrors();
+
+            if (response.success) {
+                this.renderSystemErrors(response.errors || []);
+            } else {
+                throw new Error(response.error || 'Nie udało się pobrać błędów systemu');
+            }
+
+        } catch (error) {
+            console.error('[Dashboard Module] Failed to load system errors:', error);
+            this.showSystemErrorsError('Nie udało się pobrać błędów systemu. Spróbuj ponownie później.');
+            this.shared.toastSystem.show('Nie udało się pobrać błędów systemu', 'error');
+        } finally {
+            this.toggleSystemErrorsLoading(false);
+        }
     }
 
-    clearSystemErrors() {
-        // TODO: Implement clear system errors
-        this.shared.toastSystem.show('Czyszczenie błędów systemu będzie dostępne wkrótce', 'info');
+    async clearSystemErrors(event = null, options = {}) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+
+        const { closeModal = false, refreshModal = false } = options;
+
+        try {
+            this.shared.loadingManager.show('clear-system-errors', 'Czyszczenie błędów systemu...');
+
+            const response = await this.shared.apiClient.clearSystemErrors();
+
+            if (response.success) {
+                const message = response.message || 'Wyczyszczono błędy systemu';
+                this.shared.toastSystem.show(message, 'success');
+
+                if (this.state.stats?.system_health) {
+                    this.state.stats.system_health.errors_24h = 0;
+                    if ('pending_errors' in this.state.stats.system_health) {
+                        this.state.stats.system_health.pending_errors = 0;
+                    }
+                    this.updateSystemHealthWidget(this.state.stats.system_health);
+                } else {
+                    this.updateSystemErrors(0);
+                }
+
+                if (refreshModal) {
+                    this.renderSystemErrors([]);
+                }
+
+                if (closeModal) {
+                    this.closeSystemErrorsModal();
+                }
+
+            } else {
+                throw new Error(response.error || 'Nie udało się wyczyścić błędów systemu');
+            }
+
+        } catch (error) {
+            console.error('[Dashboard Module] Clear system errors failed:', error);
+            this.shared.toastSystem.show('Błąd podczas czyszczenia błędów: ' + error.message, 'error');
+        } finally {
+            this.shared.loadingManager.hide('clear-system-errors');
+        }
+    }
+
+    async clearAllSystemErrors(event = null) {
+        await this.clearSystemErrors(event, { refreshModal: true, closeModal: false });
+    }
+
+    handleSystemErrorsModalClose(event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+
+        this.closeSystemErrorsModal();
+    }
+
+    closeSystemErrorsModal() {
+        if (this.systemErrorsModalInstance && typeof this.systemErrorsModalInstance.hide === 'function') {
+            this.systemErrorsModalInstance.hide();
+            return;
+        }
+
+        if (this.systemErrorsModalElement) {
+            this.systemErrorsModalElement.classList.remove('show');
+            this.systemErrorsModalElement.style.display = 'none';
+            this.systemErrorsModalElement.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    ensureSystemErrorsModal() {
+        const modalElement = document.getElementById('systemErrorsModal');
+
+        if (!modalElement) {
+            return null;
+        }
+
+        if (this.systemErrorsModalElement !== modalElement) {
+            if (this.systemErrorsModalElement && this.systemErrorsHiddenListenerAttached) {
+                if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                    this.systemErrorsModalElement.removeEventListener('hidden.bs.modal', this.onSystemErrorsModalHidden);
+                }
+                this.systemErrorsHiddenListenerAttached = false;
+            }
+
+            this.systemErrorsModalElement = modalElement;
+            this.systemErrorsModalInstance = null;
+        }
+
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            if (!this.systemErrorsModalInstance || !(this.systemErrorsModalInstance instanceof bootstrap.Modal)) {
+                this.systemErrorsModalInstance = new bootstrap.Modal(modalElement, { backdrop: true });
+
+                if (!this.systemErrorsHiddenListenerAttached) {
+                    modalElement.addEventListener('hidden.bs.modal', this.onSystemErrorsModalHidden);
+                    this.systemErrorsHiddenListenerAttached = true;
+                }
+            }
+
+            return this.systemErrorsModalInstance;
+        }
+
+        if (!this.systemErrorsModalInstance) {
+            this.systemErrorsModalInstance = {
+                show: () => {
+                    modalElement.classList.add('show');
+                    modalElement.style.display = 'block';
+                    modalElement.removeAttribute('aria-hidden');
+                },
+                hide: () => {
+                    modalElement.classList.remove('show');
+                    modalElement.style.display = 'none';
+                    modalElement.setAttribute('aria-hidden', 'true');
+                    this.resetSystemErrorsModal();
+                }
+            };
+        }
+
+        return this.systemErrorsModalInstance;
+    }
+
+    resetSystemErrorsModal() {
+        const listElement = document.getElementById('errors-list');
+        const emptyElement = document.getElementById('errors-empty');
+
+        if (listElement) {
+            listElement.innerHTML = '';
+            listElement.style.display = 'none';
+        }
+
+        if (emptyElement) {
+            emptyElement.style.display = 'none';
+        }
+
+        this.toggleSystemErrorsLoading(false);
+    }
+
+    toggleSystemErrorsLoading(isLoading) {
+        const loadingElement = document.getElementById('errors-loading');
+        const listElement = document.getElementById('errors-list');
+        const emptyElement = document.getElementById('errors-empty');
+
+        if (loadingElement) {
+            loadingElement.style.display = isLoading ? 'block' : 'none';
+        }
+
+        if (isLoading) {
+            if (listElement) {
+                listElement.style.display = 'none';
+            }
+
+            if (emptyElement) {
+                emptyElement.style.display = 'none';
+            }
+        }
+    }
+
+    renderSystemErrors(errors) {
+        const listElement = document.getElementById('errors-list');
+        const emptyElement = document.getElementById('errors-empty');
+
+        if (!listElement || !emptyElement) return;
+
+        listElement.innerHTML = '';
+
+        if (!errors || errors.length === 0) {
+            emptyElement.style.display = 'block';
+            listElement.style.display = 'none';
+            return;
+        }
+
+        emptyElement.style.display = 'none';
+        listElement.style.display = 'flex';
+
+        const fragment = document.createDocumentFragment();
+
+        errors.forEach(error => {
+            fragment.appendChild(this.createSystemErrorElement(error));
+        });
+
+        listElement.appendChild(fragment);
+    }
+
+    createSystemErrorElement(error) {
+        const item = document.createElement('div');
+        item.classList.add('system-error-item');
+        item.classList.add(error.is_resolved ? 'resolved' : 'unresolved');
+
+        const header = document.createElement('div');
+        header.className = 'system-error-header';
+
+        const title = document.createElement('div');
+        title.className = 'system-error-title';
+        title.textContent = error.error_message || 'Nieznany błąd systemu';
+
+        const status = document.createElement('span');
+        status.className = `system-error-status badge ${error.is_resolved ? 'bg-success' : 'bg-danger'}`;
+        status.textContent = error.is_resolved ? 'Rozwiązany' : 'Nierozwiązany';
+
+        header.append(title, status);
+        item.appendChild(header);
+
+        const meta = document.createElement('div');
+        meta.className = 'system-error-meta';
+
+        const metaEntries = [
+            error.id ? `ID: ${error.id}` : null,
+            error.error_type ? `Typ: ${error.error_type}` : null,
+            `Zgłoszono: ${this.formatErrorDate(error.error_occurred_at)}`,
+            error.error_location ? `Obszar: ${error.error_location}` : null,
+            error.related_order_id ? `Zamówienie: ${error.related_order_id}` : null,
+            error.related_product_id ? `Produkt: ${error.related_product_id}` : null
+        ].filter(Boolean);
+
+        metaEntries.forEach(entry => {
+            const span = document.createElement('span');
+            span.textContent = entry;
+            meta.appendChild(span);
+        });
+
+        if (metaEntries.length > 0) {
+            item.appendChild(meta);
+        }
+
+        const detailsEntries = this.prepareErrorDetailsEntries(error.error_details);
+
+        if (detailsEntries.length > 0) {
+            const detailsContainer = document.createElement('div');
+            detailsContainer.className = 'system-error-details';
+
+            detailsEntries.forEach(([key, value]) => {
+                const detailRow = document.createElement('div');
+                detailRow.className = 'system-error-detail';
+
+                const label = document.createElement('span');
+                label.className = 'system-error-detail-key';
+                label.textContent = `${key}:`;
+                detailRow.appendChild(label);
+
+                const formattedValue = this.formatDetailValue(value);
+
+                if (typeof value === 'object' || formattedValue.includes('\n')) {
+                    const pre = document.createElement('pre');
+                    pre.className = 'system-error-detail-value';
+                    pre.textContent = formattedValue;
+                    detailRow.appendChild(pre);
+                } else {
+                    const valueSpan = document.createElement('span');
+                    valueSpan.className = 'system-error-detail-value';
+                    valueSpan.textContent = formattedValue;
+                    detailRow.appendChild(valueSpan);
+                }
+
+                detailsContainer.appendChild(detailRow);
+            });
+
+            item.appendChild(detailsContainer);
+        }
+
+        return item;
+    }
+
+    prepareErrorDetailsEntries(details) {
+        if (!details) {
+            return [];
+        }
+
+        let normalizedDetails = details;
+
+        if (typeof normalizedDetails === 'string') {
+            try {
+                normalizedDetails = JSON.parse(normalizedDetails);
+            } catch (error) {
+                return [['Szczegóły', normalizedDetails]];
+            }
+        }
+
+        if (Array.isArray(normalizedDetails)) {
+            return normalizedDetails.map((value, index) => [`Pozycja ${index + 1}`, value]);
+        }
+
+        if (typeof normalizedDetails === 'object') {
+            return Object.entries(normalizedDetails);
+        }
+
+        return [['Wartość', String(normalizedDetails)]];
+    }
+
+    formatDetailValue(value) {
+        if (value === null || value === undefined) {
+            return '-';
+        }
+
+        if (typeof value === 'object') {
+            try {
+                return JSON.stringify(value, null, 2);
+            } catch (error) {
+                return String(value);
+            }
+        }
+
+        return String(value);
+    }
+
+    formatErrorDate(dateString) {
+        if (!dateString) {
+            return 'Brak daty';
+        }
+
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleString('pl-PL', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        } catch (error) {
+            return dateString;
+        }
+    }
+
+    showSystemErrorsError(message) {
+        const listElement = document.getElementById('errors-list');
+        const emptyElement = document.getElementById('errors-empty');
+
+        if (!listElement) {
+            return;
+        }
+
+        listElement.innerHTML = '';
+
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-danger';
+        alert.textContent = message;
+
+        listElement.appendChild(alert);
+        listElement.style.display = 'block';
+
+        if (emptyElement) {
+            emptyElement.style.display = 'none';
+        }
     }
 
     // ========================================================================
@@ -724,8 +1210,26 @@ export class DashboardModule {
 
     updateSystemErrors(errorCount) {
         const element = document.getElementById('error-count');
+        const countValue = errorCount || 0;
+
         if (element) {
-            element.textContent = errorCount || 0;
+            element.textContent = countValue;
+        }
+
+        const statusElement = document.getElementById('errors-status');
+        if (statusElement) {
+            statusElement.classList.remove('status-success', 'status-warning', 'status-error');
+
+            if (countValue === 0) {
+                statusElement.classList.add('status-success');
+                statusElement.textContent = 'OK';
+            } else if (countValue > 5) {
+                statusElement.classList.add('status-error');
+                statusElement.textContent = 'HIGH';
+            } else {
+                statusElement.classList.add('status-warning');
+                statusElement.textContent = 'MEDIUM';
+            }
         }
     }
 
