@@ -3458,3 +3458,223 @@ body.modal-open {
     font-size: 16px;
     max-width: none;
 }
+
+/*============================================================================
+CSS STYLE DLA SMART FILTRÓW
+============================================================================ */
+
+/* Smart active filters */
+.active-filters-container {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+}
+
+    .active-filters-container .badge {
+        font-size: 0.875rem;
+        padding: 0.375rem 0.75rem;
+    }
+
+    .active-filters-container .btn-close {
+        width: 0.5em;
+        height: 0.5em;
+        padding: 0;
+        margin-left: 0.25rem;
+    }
+
+/* Filter stats bar */
+.filter-stats-bar {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    color: white;
+}
+
+.stat-card-sm {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    text-align: center;
+    backdrop-filter: blur(10px);
+}
+
+    .stat-card-sm .stat-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-card-sm .stat-label {
+        font-size: 0.875rem;
+        opacity: 0.9;
+    }
+
+/* Bulk actions bar */
+.bulk-actions-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #495057;
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 2rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 1050;
+    min-width: 600px;
+}
+
+/* Priority indicators */
+.priority-critical {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.priority-high {
+    color: #fd7e14;
+    font-weight: bold;
+}
+
+.priority-medium {
+    color: #ffc107;
+    font-weight: bold;
+}
+
+.priority-low {
+    color: #28a745;
+}
+
+.priority-bar {
+    width: 100%;
+    height: 4px;
+    background-color: #e9ecef;
+    border-radius: 2px;
+    margin-top: 2px;
+}
+
+.priority-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #28a745 0%, #ffc107 50%, #fd7e14 75%, #dc3545 100%);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+/* Status badges */
+.status-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-wycinanie {
+    background-color: #fff3cd;
+    color: #664d03;
+}
+
+.status-skladanie {
+    background-color: #cff4fc;
+    color: #055160;
+}
+
+.status-pakowanie {
+    background-color: #cfe2ff;
+    color: #052c65;
+}
+
+.status-spakowane {
+    background-color: #d1e7dd;
+    color: #0a3622;
+}
+
+/* Deadline badges */
+.deadline-overdue {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c2c7;
+}
+
+.deadline-urgent {
+    background-color: #fff3cd;
+    color: #664d03;
+    border: 1px solid #ffecb5;
+}
+
+.deadline-today {
+    background-color: #fff3cd;
+    color: #664d03;
+    border: 1px solid #ffecb5;
+}
+
+.deadline-warning {
+    background-color: #cff4fc;
+    color: #055160;
+}
+
+.deadline-normal {
+    background-color: #d1e7dd;
+    color: #0a3622;
+}
+
+/* Product specs */
+.spec-badge {
+    display: inline-block;
+    padding: 0.125rem 0.375rem;
+    margin-right: 0.25rem;
+    margin-bottom: 0.125rem;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+    background-color: #e9ecef;
+    color: #495057;
+}
+
+.spec-species {
+    background-color: #e7f3ff;
+    color: #0066cc;
+}
+
+.spec-tech {
+    background-color: #fff2e7;
+    color: #cc6600;
+}
+
+/* Table enhancements */
+.sortable-header:hover {
+    background-color: #e9ecef;
+}
+
+.sortable-header.active {
+    background-color: #dee2e6;
+}
+
+.product-row:hover {
+    background-color: #f8f9fa;
+}
+
+.drag-handle {
+    cursor: grab;
+}
+
+    .drag-handle:active {
+        cursor: grabbing;
+    }
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .bulk-actions-bar {
+        position: static;
+        transform: none;
+        margin: 1rem 0;
+        min-width: auto;
+        border-radius: 0.5rem;
+    }
+
+    .filter-stats-bar {
+        padding: 0.75rem;
+    }
+
+    .stat-card-sm {
+        margin-bottom: 0.5rem;
+    }
+}

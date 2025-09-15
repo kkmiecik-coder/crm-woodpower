@@ -1,11 +1,11 @@
 <!-- products-tab-content.html -->
-<!-- POPRAWIONY - błędy naprawione -->
+<!-- NAPRAWIONY - Usunięto przycisk "Zaawansowane", naprawiono wszystkie błędy -->
 <!-- ============================================================================
-     SEKCJA FILTRÓW - POPRAWIONA WERSJA
+     SEKCJA FILTRÓW - UPROSZCZONA WERSJA (BEZ PRZYCISKU ZAAWANSOWANE)
      ============================================================================ -->
-<!-- Podstawowe filtry -->
 <div class="products-filters">
     <div class="row g-3">
+        <!-- Status produktu -->
         <div class="col-md-3">
             <label for="status-filter" class="form-label">Status produktu</label>
             <select id="status-filter" class="form-select">
@@ -18,6 +18,8 @@
                 <option value="anulowane">Anulowane</option>
             </select>
         </div>
+
+        <!-- Wyszukiwanie - JEDEN INPUT -->
         <div class="col-md-4">
             <label for="search-input" class="form-label">Wyszukaj produkt</label>
             <div class="input-group">
@@ -32,9 +34,19 @@
                 </button>
             </div>
         </div>
-        <!-- POPRAWKA: Usunięto duplikat per-page-select -->
-        <div class="col-md-3">
-            <label for="per-page-select" class="form-label">Produktów na stronę</label>
+
+        <!-- Gatunek drewna -->
+        <div class="col-md-2">
+            <label for="wood-species-filter" class="form-label">Gatunek drewna</label>
+            <select id="wood-species-filter" class="form-select">
+                <option value="">Wszystkie</option>
+                <!-- Opcje będą ładowane dynamicznie -->
+            </select>
+        </div>
+
+        <!-- Produktów na stronę -->
+        <div class="col-md-2">
+            <label for="per-page-select" class="form-label">Na stronę</label>
             <select id="per-page-select" class="form-select">
                 <option value="25">25</option>
                 <option value="50" selected>50</option>
@@ -42,101 +54,69 @@
                 <option value="200">200</option>
             </select>
         </div>
-        <div class="col-md-2">
+
+        <!-- Przycisk odświeżania -->
+        <div class="col-md-1">
             <label class="form-label">&nbsp;</label>
-            <button class="btn btn-outline-primary w-100" id="advanced-filters-toggle">
-                <i class="fas fa-chevron-down me-1"></i>Zaawansowane
+            <button class="btn btn-outline-primary w-100" onclick="refreshProductsList()" title="Odśwież listę">
+                <i class="fas fa-sync-alt"></i>
             </button>
         </div>
     </div>
-</div>
 
-<!-- Zaawansowane filtry -->
-<div class="advanced-filters-container mt-3" id="advanced-filters-container" style="display: none;">
-    <div class="card">
-        <div class="card-header">
-            <h6 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Filtry zaawansowane</h6>
+    <!-- Drugi rząd filtrów -->
+    <div class="row g-3 mt-2">
+        <!-- Technologia -->
+        <div class="col-md-2">
+            <label for="technology-filter" class="form-label">Technologia</label>
+            <select id="technology-filter" class="form-select">
+                <option value="">Wszystkie</option>
+                <!-- Opcje będą ładowane dynamicznie -->
+            </select>
         </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <!-- Filtry produktu -->
-                <div class="col-md-3">
-                    <label for="wood-species-filter" class="form-label">Gatunek drewna</label>
-                    <select id="wood-species-filter" class="form-select">
-                        <option value="">Wszystkie gatunki</option>
-                        <!-- Opcje będą ładowane dynamicznie z API -->
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label for="technology-filter" class="form-label">Technologia</label>
-                    <select id="technology-filter" class="form-select">
-                        <option value="">Wszystkie technologie</option>
-                        <!-- Opcje będą ładowane dynamicznie z API -->
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label for="wood-class-filter" class="form-label">Klasa drewna</label>
-                    <select id="wood-class-filter" class="form-select">
-                        <option value="">Wszystkie klasy</option>
-                        <!-- Opcje będą ładowane dynamicznie z API -->
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label for="client-filter" class="form-label">Klient</label>
-                    <input type="text" id="client-filter" class="form-control" placeholder="Nazwa klienta...">
-                </div>
 
-                <!-- Filtry dat -->
-                <div class="col-md-3">
-                    <label for="date-from" class="form-label">Data od</label>
-                    <input type="date" id="date-from" class="form-control">
-                </div>
-                <div class="col-md-3">
-                    <label for="date-to" class="form-label">Data do</label>
-                    <input type="date" id="date-to" class="form-control">
-                </div>
-
-                <!-- Zakres priorytetów -->
-                <div class="col-md-6">
-                    <label class="form-label">Zakres priorytetów</label>
-                    <div class="row g-2">
-                        <div class="col-6">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text">Min</span>
-                                <input type="range" id="priority-min-slider" class="form-range" min="0" max="200" value="0">
-                                <span class="input-group-text" id="priority-min-value">0</span>
-                            </div>
-                        </div>
-                        <div class="col-6">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text">Max</span>
-                                <input type="range" id="priority-max-slider" class="form-range" min="0" max="200" value="200">
-                                <span class="input-group-text" id="priority-max-value">200</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Akcje filtrów -->
-            <div class="row mt-3">
-                <div class="col-12">
-                    <button class="btn btn-primary me-2" onclick="AdvancedFilters.applyFilters()">
-                        <i class="fas fa-search me-1"></i>Zastosuj filtry
-                    </button>
-                    <button class="btn btn-outline-secondary" id="clear-filters-btn">
-                        <i class="fas fa-times me-1"></i>Wyczyść wszystkie
-                    </button>
-                </div>
-            </div>
+        <!-- Klasa drewna -->
+        <div class="col-md-2">
+            <label for="wood-class-filter" class="form-label">Klasa drewna</label>
+            <select id="wood-class-filter" class="form-select">
+                <option value="">Wszystkie</option>
+                <!-- Opcje będą ładowane dynamicznie -->
+            </select>
         </div>
+
+        <!-- Klient -->
+        <div class="col-md-3">
+            <label for="client-filter" class="form-label">Klient</label>
+            <input type="text" id="client-filter" class="form-control" placeholder="Nazwa klienta...">
+        </div>
+
+        <!-- Data od -->
+        <div class="col-md-2">
+            <label for="date-from" class="form-label">Data od</label>
+            <input type="date" id="date-from" class="form-control">
+        </div>
+
+        <!-- Data do -->
+        <div class="col-md-2">
+            <label for="date-to" class="form-label">Data do</label>
+            <input type="date" id="date-to" class="form-control">
+        </div>
+
+        <!-- Placeholder dla wyrównania -->
+        <div class="col-md-1"></div>
     </div>
 </div>
 
 <!-- ============================================================================
-     STATYSTYKI I BULK ACTIONS
+     SMART SYSTEM AKTYWNYCH FILTRÓW - NOWY
      ============================================================================ -->
-<!-- Statystyki filtrów -->
+<div id="active-filters-container" class="active-filters-container mt-2 mb-3" style="display: none;">
+    <!-- Badges z aktywnymi filtrami będą wstawiane tutaj przez JavaScript -->
+</div>
+
+<!-- ============================================================================
+     STATYSTYKI FILTRÓW
+     ============================================================================ -->
 <div class="filter-stats-bar mt-3 mb-3" id="filter-stats-bar" style="display: none;">
     <div class="row g-3">
         <div class="col-md-3">
@@ -166,7 +146,9 @@
     </div>
 </div>
 
-<!-- Bulk Actions Bar -->
+<!-- ============================================================================
+     BULK ACTIONS BAR
+     ============================================================================ -->
 <div class="bulk-actions-bar" id="bulk-actions-bar" style="display: none;">
     <div class="d-flex align-items-center justify-content-between">
         <div class="bulk-selection-info">
@@ -195,9 +177,8 @@
 </div>
 
 <!-- ============================================================================
-     TABELA PRODUKTÓW - POPRAWIONA WERSJA
+     TABELA PRODUKTÓW - NAPRAWIONA
      ============================================================================ -->
-
 <div class="products-list mt-3" id="products-list">
     <div class="table-responsive">
         <table class="table table-hover products-table" id="products-table">
@@ -215,7 +196,7 @@
                     </th>
                     {% endif %}
 
-                    <!-- POPRAWKA: Dodano data-sort do wszystkich nagłówków -->
+                    <!-- Sortowalne nagłówki -->
                     <th class="sortable-header" data-sort="priority_score" style="cursor: pointer;">
                         Priorytet <i class="fas fa-sort text-muted ms-1"></i>
                     </th>
@@ -257,7 +238,6 @@
                     </td>
                     {% endif %}
 
-                    <!-- POPRAWKA: Przeorganizowano kolumny zgodnie z nagłówkami -->
                     <!-- Priority -->
                     <td class="priority-cell">
                         <div class="priority-container">
@@ -302,7 +282,6 @@
                             <div class="product-name" title="{{ product.original_product_name }}">
                                 {{ product.original_product_name[:60] }}{% if product.original_product_name|length > 60 %}...{% endif %}
                             </div>
-                            <!-- POPRAWKA: Usunięto objętość z nazwy produktu -->
                             {% if product.parsed_wood_species or product.parsed_technology %}
                             <div class="product-specs">
                                 {% if product.parsed_wood_species %}
@@ -316,7 +295,6 @@
                         </div>
                     </td>
 
-                    <!-- POPRAWKA: Dodano oddzielną kolumnę objętości -->
                     <!-- Volume -->
                     <td class="volume-cell text-center">
                         {% if product.volume_m3 %}
@@ -326,7 +304,6 @@
                         {% endif %}
                     </td>
 
-                    <!-- POPRAWKA: Wartość wyświetlana poprawnie -->
                     <!-- Value -->
                     <td class="value-cell text-center">
                         {% if product.total_value_net %}
@@ -351,20 +328,9 @@
                         </span>
                     </td>
 
-                    <!-- Deadline - POPRAWIONE bez błędu today() -->
+                    <!-- Deadline -->
                     <td class="deadline-cell text-center">
                         {% if product.deadline_date %}
-                        {% if product.deadline_info %}
-                        <!-- Użyj przygotowanych danych z backendu -->
-                        <span class="deadline-badge {{ product.deadline_info.class }}">
-                            {% if product.deadline_info.icon %}
-                            <i class="{{ product.deadline_info.icon }} me-1"></i>
-                            {% endif %}
-                            {{ product.deadline_info.text }}
-                        </span>
-                        <br><small class="text-muted">{{ product.deadline_date.strftime('%d.%m.%Y') }}</small>
-                        {% else %}
-                        <!-- Fallback jeśli deadline_info nie zostało przygotowane -->
                         {% set deadline_date = product.deadline_date %}
                         {% set today_date = today %}
                         {% set days_diff = (deadline_date - today_date).days %}
@@ -394,7 +360,6 @@
                         </span>
                         {% endif %}
                         <br><small class="text-muted">{{ deadline_date.strftime('%d.%m.%Y') }}</small>
-                        {% endif %}
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}
@@ -406,7 +371,6 @@
                             <button class="btn btn-sm btn-outline-primary" onclick="ProductModal.openModal && ProductModal.openModal({{ product.id }})" title="Szczegóły">
                                 <i class="fas fa-eye"></i>
                             </button>
-                            <!-- POPRAWKA: Dodano link do Baselinker zgodnie z template -->
                             <a href="https://panel-f.baselinker.com/orders.php#order:{{ product.baselinker_order_id }}"
                                target="_blank" class="btn btn-sm btn-outline-info" title="Baselinker">
                                 <i class="fas fa-external-link-alt"></i>
@@ -461,7 +425,7 @@
     </div>
 
     <!-- ============================================================================
-         PAGINACJA - POPRAWIONA
+         PAGINACJA
          ============================================================================ -->
     <div class="pagination-container mt-4" id="pagination-container">
         <div class="row align-items-center">
@@ -484,45 +448,31 @@
                     </button>
                 </div>
             </div>
-            <!-- POPRAWKA: Usunięto duplikujący się selector -->
             <div class="col-md-4 text-end">
-                <button class="btn btn-outline-primary btn-sm" onclick="refreshProductsList()" title="Odśwież listę">
-                    <i class="fas fa-sync-alt"></i> Odśwież
-                </button>
+                <div class="pagination-actions">
+                    <button class="btn btn-outline-success btn-sm me-2" id="export-btn" title="Eksportuj produkty">
+                        <i class="fas fa-download"></i> Eksport
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="refreshProductsList()" title="Odśwież listę">
+                        <i class="fas fa-sync-alt"></i> Odśwież
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
 <!-- ============================================================================
-     QUICK ACTIONS FLOATING PANEL
-     ============================================================================ -->
-<div class="quick-actions-panel" id="quick-actions-panel">
-    <button class="btn btn-primary btn-sm mb-2" onclick="refreshProductsList()" title="Odśwież listę">
-        <i class="fas fa-sync-alt"></i>
-    </button>
-    <button class="btn btn-success btn-sm mb-2" id="export-btn" title="Eksportuj produkty">
-        <i class="fas fa-download"></i>
-    </button>
-    {% if is_admin %}
-    <button class="btn btn-warning btn-sm mb-2" id="save-priorities-btn" style="display: none;" title="Zapisz priorytety">
-        <i class="fas fa-save"></i>
-    </button>
-    {% endif %}
-</div>
-
-<!-- ============================================================================
      JAVASCRIPT INITIALIZATION - UPROSZCZONY
      ============================================================================ -->
 <script>
-    // UPROSZCZONA inicjalizacja - usuwa konflikt z product-list-dashboard.js
     document.addEventListener('DOMContentLoaded', function () {
         console.log('[Products Tab HTML] DOM załadowany...');
 
         // Sprawdź czy główny JS jest załadowany
         if (typeof ProductsList !== 'undefined' && typeof AdvancedFilters !== 'undefined') {
             console.log('[Products Tab HTML] Główny JS wykryty - deleguje inicjalizację');
-            // Nic nie rób - główny JS przejmuje kontrolę
+            // Główny JS przejmuje kontrolę
         } else {
             console.log('[Products Tab HTML] Główny JS nie wykryty - podstawowy fallback');
             setupBasicFallback();
@@ -536,7 +486,6 @@
         if (searchInput) {
             searchInput.addEventListener('input', function () {
                 console.log('[Fallback] Search input:', this.value);
-                // Podstawowe filtrowanie po stronie klienta
                 basicClientSideFilter();
             });
         }
@@ -598,6 +547,25 @@
             if (show) visibleCount++;
         });
 
-        console.log(`[Fallback] Showing ${visibleCount} products`);
+        console.log(`[Fallback] Pokazano ${visibleCount} produktów`);
+
+        // Aktualizuj licznik jeśli istnieje
+        const totalElement = document.getElementById('total-items');
+        if (totalElement) {
+            totalElement.textContent = visibleCount;
+        }
+    }
+
+    // Funkcja odświeżania dla przycisku (fallback)
+    function refreshProductsList() {
+        console.log('[Fallback] Odświeżanie listy produktów...');
+
+        // Sprawdź czy główny system jest dostępny
+        if (typeof AdvancedFilters !== 'undefined' && AdvancedFilters.applyFilters) {
+            AdvancedFilters.applyFilters();
+        } else {
+            // Fallback - reload strony
+            window.location.reload();
+        }
     }
 </script>

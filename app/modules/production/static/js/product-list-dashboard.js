@@ -90,7 +90,7 @@ const ProductsList = {
 // ============================================================================
 
 /**
- * Inicjalizuje listę produktów - ROZBUDOWANA WERSJA
+ * Inicjalizuje listę produktów - POPRAWIONA WERSJA
  */
 function initProductsList() {
     console.log('[Products List] Inicjalizacja rozbudowanej wersji...');
@@ -104,39 +104,138 @@ function initProductsList() {
     // Zapisz oryginalne dane
     ProductsList.state.originalOrder = [...(window.productsData.products || [])];
 
-    // Inicjalizacja wszystkich systemów
-    initEventListeners();
-    initFilterHandlers();
-    initPaginationHandlers();
-    AdvancedFilters.init();
-    BulkActions.init();
-    ExportManager.init();
+    // POPRAWIONA KOLEJNOŚĆ inicjalizacji
+    try {
+        // 1. Podstawowe event listenery
+        initEventListeners();
 
-    // Załaduj filtry z URL/localStorage
-    loadFiltersFromStorage();
+        // 2. System filtrów - GŁÓWNY
+        AdvancedFilters.init();
 
-    // Załaduj dane filtrów z API
-    loadFiltersData();
+        // 3. Pozostałe systemy
+        initPaginationHandlers();
 
-    // Zastosuj filtry i odśwież
-    applyAllFilters();
+        // 4. Opcjonalne systemy (mogą nie istnieć)
+        if (typeof BulkActions !== 'undefined') {
+            BulkActions.init();
+        }
 
-    // Inicjalizuj drag&drop dla adminów
-    if (window.productsData.isAdmin) {
-        initDragAndDrop();
+        if (typeof ExportManager !== 'undefined') {
+            ExportManager.init();
+        }
+
+        // 5. Załaduj filtry z storage
+        loadFiltersFromStorage();
+
+        // 6. Załaduj dane filtrów z API (opcjonalnie)
+        loadFiltersData();
+
+        // 7. Zastosuj filtry początkowe
+        applyAllFilters();
+
+        // 8. Drag&drop dla adminów
+        if (window.productsData.isAdmin) {
+            initDragAndDrop();
+        }
+
+        // 9. Dodatkowe funkcje
+        setupKeyboardShortcuts();
+        setupAutoRefresh();
+
+        console.log('[Products List] Inicjalizacja zakończona - wszystkie systemy aktywne');
+
+    } catch (error) {
+        console.error('[Products List] Błąd inicjalizacji:', error);
+
+        // Fallback initialization
+        console.log('[Products List] Uruchamiam fallback initialization...');
+        initBasicFallback();
     }
-
-    // Setup keyboard shortcuts
-    setupKeyboardShortcuts();
-
-    // Auto-refresh
-    setupAutoRefresh();
-
-    console.log('[Products List] Inicjalizacja zakończona - wszystkie systemy aktywne');
 }
 
 /**
- * Inicjalizuje drag & drop dla adminów - ROZBUDOWANA WERSJA
+ * Podstawowa inicjalizacja fallback
+ */
+function initBasicFallback() {
+    // Tylko podstawowe funkcje
+    const statusFilter = document.getElementById('status-filter');
+    if (statusFilter) {
+        statusFilter.addEventListener('change', function () {
+            console.log('[Fallback] Status filter changed:', this.value);
+            // Podstawowe filtrowanie po stronie klienta
+            basicClientSideFilter();
+        });
+    }
+
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', function () {
+            console.log('[Fallback] Search input changed:', this.value);
+            // Podstawowe filtrowanie po stronie klienta
+            setTimeout(() => basicClientSideFilter(), 300);
+        });
+    }
+
+    const clearBtn = document.getElementById('clear-search-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function () {
+            if (searchInput) {
+                searchInput.value = '';
+                basicClientSideFilter();
+            }
+        });
+    }
+}
+
+/**
+ * Podstawowe filtrowanie po stronie klienta (fallback)
+ */
+function basicClientSideFilter() {
+    const searchInput = document.getElementById('search-input');
+    const statusFilter = document.getElementById('status-filter');
+    const rows = document.querySelectorAll('.product-row');
+
+    const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+    const selectedStatus = statusFilter ? statusFilter.value : 'all';
+
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+        let show = true;
+
+        // Search filter
+        if (searchTerm) {
+            const productName = row.querySelector('.product-name')?.textContent?.toLowerCase() || '';
+            const productId = row.querySelector('.product-id-main')?.textContent?.toLowerCase() || '';
+
+            if (!productName.includes(searchTerm) && !productId.includes(searchTerm)) {
+                show = false;
+            }
+        }
+
+        // Status filter
+        if (selectedStatus !== 'all') {
+            const rowStatus = row.dataset.status;
+            if (rowStatus !== selectedStatus) {
+                show = false;
+            }
+        }
+
+        row.style.display = show ? '' : 'none';
+        if (show) visibleCount++;
+    });
+
+    console.log(`[Fallback] Pokazano ${visibleCount} produktów`);
+
+    // Aktualizuj licznik jeśli istnieje
+    const totalElement = document.getElementById('total-items');
+    if (totalElement) {
+        totalElement.textContent = visibleCount;
+    }
+}
+
+/**
+ * Inicjalizuje drag & drop dla adminów
  */
 function initDragAndDrop() {
     if (!window.productsData.isAdmin || typeof Sortable === 'undefined') {
@@ -147,7 +246,7 @@ function initDragAndDrop() {
     const tbody = document.getElementById('products-tbody');
     if (!tbody) return;
 
-    console.log('[Products List] Inicjalizacja zaawansowanego drag & drop...');
+    console.log('[Products List] Inicjalizacja drag & drop...');
 
     ProductsList.state.sortable = new Sortable(tbody, {
         handle: '.drag-handle',
@@ -155,41 +254,15 @@ function initDragAndDrop() {
         ghostClass: 'sortable-ghost',
         chosenClass: 'sortable-chosen',
         dragClass: 'sortable-drag',
-        scroll: true,
-        scrollSensitivity: 100,
-        scrollSpeed: 10,
-
-        onStart: function (evt) {
-            console.log('[Drag & Drop] Start:', evt.oldIndex);
-            document.body.classList.add('sorting-active');
-            showDragHelp();
-        },
 
         onEnd: function (evt) {
             console.log('[Drag & Drop] End:', evt.oldIndex, '->', evt.newIndex);
-            document.body.classList.remove('sorting-active');
-            hideDragHelp();
 
             if (evt.oldIndex !== evt.newIndex) {
                 handlePriorityReorder(evt.oldIndex, evt.newIndex);
             }
-        },
-
-        onMove: function (evt, originalEvent) {
-            // Highlight drop zone
-            const related = evt.related;
-            if (related) {
-                related.classList.add('drag-hover');
-                setTimeout(() => related.classList.remove('drag-hover'), 200);
-            }
-            return true;
         }
     });
-
-    // Add visual indicators
-    addDragVisualIndicators();
-
-    console.log('[Products List] Zaawansowany drag & drop zainicjalizowany');
 }
 
 // ============================================================================
@@ -199,14 +272,15 @@ function initDragAndDrop() {
 const AdvancedFilters = {
     init() {
         console.log('[Advanced Filters] Inicjalizacja zintegrowanego systemu...');
-        this.setupFilterHandlers();
+        this.setupBasicFilters(); // POPRAWKA: była błędna nazwa metody
+        this.setupFilterHandlers(); // Teraz ta metoda będzie istnieć
+        this.setupActiveFiltersDisplay(); // NOWE: system aktywnych filtrów
+        // USUNIĘTO: setupAdvancedToggle() - nie potrzebne
         this.setupDateRangePickers();
         this.setupPrioritySliders();
-        this.setupAdvancedToggle();
-        this.setupBasicFilters(); // NOWE
     },
 
-    // NOWA FUNKCJA - podstawowe filtry
+    // NOWA POPRAWIONA FUNKCJA - podstawowe filtry z real-time
     setupBasicFilters() {
         // Status filter - natychmiastowe filtrowanie
         const statusFilter = document.getElementById('status-filter');
@@ -214,6 +288,7 @@ const AdvancedFilters = {
             statusFilter.addEventListener('change', (e) => {
                 this.updateFilter('status', e.target.value);
                 this.applyFilters(); // Bez opóźnienia dla select
+                this.updateActiveFiltersDisplay(); // NOWE
             });
             console.log('[Advanced Filters] Podłączono status filter');
         }
@@ -224,6 +299,7 @@ const AdvancedFilters = {
             searchInput.addEventListener('input', debounce((e) => {
                 this.updateFilter('search', e.target.value);
                 this.applyFilters();
+                this.updateActiveFiltersDisplay(); // NOWE
             }, ProductsList.config.filterDelay));
             console.log('[Advanced Filters] Podłączono search input');
         }
@@ -247,55 +323,209 @@ const AdvancedFilters = {
             });
         }
 
-        // Header sorting - NOWE
+        // Header sorting
         this.setupHeaderSorting();
     },
 
-    // NOWA FUNKCJA - sortowanie przez nagłówki
-    setupHeaderSorting() {
-        const sortableHeaders = document.querySelectorAll('[data-sort]');
-
-        sortableHeaders.forEach(header => {
-            header.style.cursor = 'pointer';
-            header.addEventListener('click', (e) => {
-                e.preventDefault();
-
-                const sortBy = header.dataset.sort;
-                if (!sortBy) return;
-
-                // Zmień kierunek sortowania jeśli kliknięto ten sam nagłówek
-                let sortOrder = 'desc';
-                if (ProductsList.state.currentFilters.sort_by === sortBy &&
-                    ProductsList.state.currentFilters.sort_order === 'desc') {
-                    sortOrder = 'asc';
-                }
-
-                this.updateFilter('sort_by', sortBy);
-                this.updateFilter('sort_order', sortOrder);
+    // NOWA FUNKCJA - obsługa pozostałych filtrów (jeśli istnieją)
+    setupFilterHandlers() {
+        // Wood species filter
+        const woodSpeciesFilter = document.getElementById('wood-species-filter');
+        if (woodSpeciesFilter) {
+            woodSpeciesFilter.addEventListener('change', (e) => {
+                this.updateFilter('wood_species', e.target.value);
                 this.applyFilters();
-
-                // Zaktualizuj wizualnie nagłówki
-                this.updateSortingVisuals(sortBy, sortOrder);
+                this.updateActiveFiltersDisplay();
             });
-        });
+        }
 
-        console.log(`[Advanced Filters] Podłączono sortowanie dla ${sortableHeaders.length} nagłówków`);
+        // Technology filter
+        const technologyFilter = document.getElementById('technology-filter');
+        if (technologyFilter) {
+            technologyFilter.addEventListener('change', (e) => {
+                this.updateFilter('technology', e.target.value);
+                this.applyFilters();
+                this.updateActiveFiltersDisplay();
+            });
+        }
+
+        // Wood class filter
+        const woodClassFilter = document.getElementById('wood-class-filter');
+        if (woodClassFilter) {
+            woodClassFilter.addEventListener('change', (e) => {
+                this.updateFilter('wood_class', e.target.value);
+                this.applyFilters();
+                this.updateActiveFiltersDisplay();
+            });
+        }
+
+        // Client filter
+        const clientFilter = document.getElementById('client-filter');
+        if (clientFilter) {
+            clientFilter.addEventListener('input', debounce((e) => {
+                this.updateFilter('client', e.target.value);
+                this.applyFilters();
+                this.updateActiveFiltersDisplay();
+            }, ProductsList.config.filterDelay));
+        }
+
+        console.log('[Advanced Filters] Wszystkie handlery filtrów podłączone');
     },
 
-    // NOWA FUNKCJA - wizualne wskaźniki sortowania
-    updateSortingVisuals(activeSortBy, sortOrder) {
-        // Usuń wszystkie istniejące wskaźniki
-        document.querySelectorAll('.sort-indicator').forEach(indicator => {
-            indicator.remove();
-        });
+    // NOWA FUNKCJA - system aktywnych filtrów z badges
+    setupActiveFiltersDisplay() {
+        // Utwórz kontener dla aktywnych filtrów jeśli nie istnieje
+        let activeFiltersContainer = document.getElementById('active-filters-container');
+        if (!activeFiltersContainer) {
+            activeFiltersContainer = document.createElement('div');
+            activeFiltersContainer.id = 'active-filters-container';
+            activeFiltersContainer.className = 'active-filters-container mt-2 mb-3';
+            activeFiltersContainer.style.display = 'none';
 
-        // Dodaj wskaźnik do aktywnego nagłówka
-        const activeHeader = document.querySelector(`[data-sort="${activeSortBy}"]`);
-        if (activeHeader) {
-            const indicator = document.createElement('i');
-            indicator.className = `fas fa-chevron-${sortOrder === 'desc' ? 'down' : 'up'} sort-indicator ms-1`;
-            activeHeader.appendChild(indicator);
+            // Wstaw po sekcji filtrów
+            const filtersSection = document.querySelector('.products-filters');
+            if (filtersSection) {
+                filtersSection.after(activeFiltersContainer);
+            }
         }
+
+        this.updateActiveFiltersDisplay();
+    },
+
+    // NOWA FUNKCJA - aktualizacja wyświetlania aktywnych filtrów
+    updateActiveFiltersDisplay() {
+        const container = document.getElementById('active-filters-container');
+        if (!container) return;
+
+        const activeFilters = this.getActiveFilters();
+
+        if (activeFilters.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div class="d-flex align-items-center flex-wrap">
+                <span class="me-2 text-muted small">Aktywne filtry:</span>
+                ${activeFilters.map(filter => `
+                    <span class="badge bg-primary me-2 mb-1">
+                        ${filter.label}: ${filter.value}
+                        <button type="button" class="btn-close btn-close-white ms-1" 
+                                onclick="AdvancedFilters.removeFilter('${filter.key}')"
+                                style="font-size: 0.7em;"></button>
+                    </span>
+                `).join('')}
+                <button class="btn btn-outline-secondary btn-sm ms-2 mb-1" 
+                        onclick="AdvancedFilters.clearAllFilters()">
+                    <i class="fas fa-times me-1"></i>Wyczyść wszystkie
+                </button>
+            </div>
+        `;
+    },
+
+    // NOWA FUNKCJA - pobiera aktywne filtry do wyświetlenia
+    getActiveFilters() {
+        const filters = [];
+        const currentFilters = ProductsList.state.currentFilters;
+
+        // Sprawdź każdy filtr
+        if (currentFilters.status && currentFilters.status !== 'all') {
+            const statusLabels = {
+                'czeka_na_wyciecie': 'Czeka na wycięcie',
+                'czeka_na_skladanie': 'Czeka na składanie',
+                'czeka_na_pakowanie': 'Czeka na pakowanie',
+                'spakowane': 'Spakowane',
+                'wstrzymane': 'Wstrzymane'
+            };
+            filters.push({
+                key: 'status',
+                label: 'Status',
+                value: statusLabels[currentFilters.status] || currentFilters.status
+            });
+        }
+
+        if (currentFilters.search && currentFilters.search.trim()) {
+            filters.push({
+                key: 'search',
+                label: 'Wyszukiwanie',
+                value: currentFilters.search.length > 20 ?
+                    currentFilters.search.substring(0, 20) + '...' :
+                    currentFilters.search
+            });
+        }
+
+        if (currentFilters.wood_species) {
+            filters.push({
+                key: 'wood_species',
+                label: 'Gatunek',
+                value: currentFilters.wood_species
+            });
+        }
+
+        if (currentFilters.technology) {
+            filters.push({
+                key: 'technology',
+                label: 'Technologia',
+                value: currentFilters.technology
+            });
+        }
+
+        if (currentFilters.wood_class) {
+            filters.push({
+                key: 'wood_class',
+                label: 'Klasa',
+                value: currentFilters.wood_class
+            });
+        }
+
+        if (currentFilters.client) {
+            filters.push({
+                key: 'client',
+                label: 'Klient',
+                value: currentFilters.client.length > 15 ?
+                    currentFilters.client.substring(0, 15) + '...' :
+                    currentFilters.client
+            });
+        }
+
+        return filters;
+    },
+
+    // NOWA FUNKCJA - usuń pojedynczy filtr
+    removeFilter(filterKey) {
+        // Wyczyść filtr w stanie
+        this.updateFilter(filterKey, filterKey === 'status' ? 'all' : '');
+
+        // Wyczyść w UI
+        const elementId = this.getElementIdForFilter(filterKey);
+        const element = document.getElementById(elementId);
+        if (element) {
+            if (element.type === 'select-one') {
+                element.selectedIndex = 0;
+            } else {
+                element.value = '';
+            }
+        }
+
+        // Zastosuj filtry
+        this.applyFilters();
+        this.updateActiveFiltersDisplay();
+
+        showToast(`Usunięto filtr: ${filterKey}`, 'info', 2000);
+    },
+
+    // NOWA FUNKCJA - mapowanie kluczy filtrów na ID elementów
+    getElementIdForFilter(filterKey) {
+        const mapping = {
+            'status': 'status-filter',
+            'search': 'search-input',
+            'wood_species': 'wood-species-filter',
+            'technology': 'technology-filter',
+            'wood_class': 'wood-class-filter',
+            'client': 'client-filter'
+        };
+        return mapping[filterKey] || filterKey;
     },
 
     // ZAKTUALIZOWANA FUNKCJA - stosowanie filtrów
@@ -316,11 +546,11 @@ const AdvancedFilters = {
         // Zapisz filtry do localStorage
         this.saveFiltersToStorage();
 
-        // Wywołaj nowy endpoint filtrowania
+        // Wywołaj endpoint filtrowania - POPRAWIONY endpoint
         await this.fetchFilteredProducts();
     },
 
-    // NOWA FUNKCJA - wywołanie API filtrowania
+    // ZAKTUALIZOWANA FUNKCJA - wywołanie API filtrowania
     async fetchFilteredProducts() {
         if (ProductsList.state.isLoading) {
             console.log('[Advanced Filters] Filtrowanie już w toku...');
@@ -341,7 +571,7 @@ const AdvancedFilters = {
 
             console.log(`[Advanced Filters] Wysyłanie zapytania: ${queryParams.toString()}`);
 
-            // Wyślij zapytanie do nowego endpointu
+            // POPRAWKA: Użyj istniejącego endpointu
             const response = await fetch(`${ProductsList.endpoints.productsFiltered}?${queryParams.toString()}`, {
                 method: 'GET',
                 headers: {
@@ -399,7 +629,266 @@ const AdvancedFilters = {
         }
     },
 
-    // NOWA FUNKCJA - aktualizacja listy produktów
+    // POPRAWIONA FUNKCJA - czyszczenie wyszukiwania
+    clearSearch() {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.value = '';
+            this.updateFilter('search', '');
+            this.applyFilters();
+            this.updateActiveFiltersDisplay();
+            console.log('[Advanced Filters] Wyczyszczono wyszukiwanie');
+        }
+    },
+
+    // ZAKTUALIZOWANA FUNKCJA - czyszczenie wszystkich filtrów
+    clearAllFilters() {
+        console.log('[Advanced Filters] Czyszczenie wszystkich filtrów...');
+
+        // Reset UI elements
+        const filterElements = [
+            'status-filter', 'search-input', 'per-page-select',
+            'wood-species-filter', 'technology-filter',
+            'wood-class-filter', 'client-filter'
+        ];
+
+        filterElements.forEach(elementId => {
+            const element = document.getElementById(elementId);
+            if (element) {
+                if (element.type === 'select-one') {
+                    element.selectedIndex = 0;
+                } else {
+                    element.value = element.id === 'per-page-select' ? '50' : '';
+                }
+            }
+        });
+
+        // Reset state
+        ProductsList.state.currentFilters = {
+            status: 'all',
+            search: '',
+            page: 1,
+            per_page: 50,
+            sort_by: 'priority_score',
+            sort_order: 'desc'
+        };
+
+        // Clear localStorage
+        localStorage.removeItem('productsListFilters');
+
+        // Apply filters
+        this.applyFilters();
+        this.updateActiveFiltersDisplay();
+
+        if (typeof showToast === 'function') {
+            showToast('Wszystkie filtry zostały wyczyszczone', 'info');
+        }
+    },
+
+    // Pozostałe metody bez zmian...
+    setupHeaderSorting() {
+        const sortableHeaders = document.querySelectorAll('[data-sort]');
+
+        sortableHeaders.forEach(header => {
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', (e) => {
+                e.preventDefault();
+
+                const sortBy = header.dataset.sort;
+                if (!sortBy) return;
+
+                // Zmień kierunek sortowania jeśli kliknięto ten sam nagłówek
+                let sortOrder = 'desc';
+                if (ProductsList.state.currentFilters.sort_by === sortBy &&
+                    ProductsList.state.currentFilters.sort_order === 'desc') {
+                    sortOrder = 'asc';
+                }
+
+                this.updateFilter('sort_by', sortBy);
+                this.updateFilter('sort_order', sortOrder);
+                this.applyFilters();
+
+                // Zaktualizuj wizualnie nagłówki
+                this.updateSortingVisuals(sortBy, sortOrder);
+            });
+        });
+
+        console.log(`[Advanced Filters] Podłączono sortowanie dla ${sortableHeaders.length} nagłówków`);
+    },
+
+    updateSortingVisuals(activeSortBy, sortOrder) {
+        // Usuń wszystkie istniejące wskaźniki
+        document.querySelectorAll('.sort-indicator').forEach(indicator => {
+            indicator.remove();
+        });
+
+        // Dodaj wskaźnik do aktywnego nagłówka
+        const activeHeader = document.querySelector(`[data-sort="${activeSortBy}"]`);
+        if (activeHeader) {
+            const indicator = document.createElement('i');
+            indicator.className = `fas fa-chevron-${sortOrder === 'desc' ? 'down' : 'up'} sort-indicator ms-1`;
+            activeHeader.appendChild(indicator);
+        }
+    },
+
+    collectCurrentFilters() {
+        return {
+            status: this.getElementValue('status-filter'),
+            search: this.getElementValue('search-input'),
+            wood_species: this.getElementValue('wood-species-filter'),
+            technology: this.getElementValue('technology-filter'),
+            wood_class: this.getElementValue('wood-class-filter'),
+            client: this.getElementValue('client-filter'),
+            page: ProductsList.state.currentFilters.page || 1,
+            per_page: this.getElementValue('per-page-select', 'int') || ProductsList.config.defaultPerPage,
+            sort_by: ProductsList.state.currentFilters.sort_by || 'priority_score',
+            sort_order: ProductsList.state.currentFilters.sort_order || 'desc'
+        };
+    },
+
+    getElementValue(elementId, type = 'string') {
+        const element = document.getElementById(elementId);
+        if (!element) return type === 'int' ? null : '';
+
+        const value = element.value;
+        if (type === 'int') {
+            return value ? parseInt(value) : null;
+        }
+        return value || '';
+    },
+
+    updateFilter(key, value) {
+        ProductsList.state.currentFilters[key] = value;
+        console.log(`[Advanced Filters] Zaktualizowano filtr: ${key} = ${value}`);
+    },
+
+    saveFiltersToStorage() {
+        try {
+            localStorage.setItem('productsListFilters', JSON.stringify(ProductsList.state.currentFilters));
+        } catch (error) {
+            console.warn('[Advanced Filters] Nie można zapisać filtrów do localStorage:', error);
+        }
+    },
+
+    // ... pozostałe metody pomocnicze pozostają bez zmian
+    showLoadingState() {
+        const tbody = document.getElementById('products-tbody');
+        if (tbody && tbody.children.length > 0) {
+            tbody.style.opacity = '0.6';
+            tbody.style.pointerEvents = 'none';
+        }
+
+        // Wyłącz filtry podczas ładowania
+        document.querySelectorAll('#status-filter, #search-input').forEach(el => {
+            el.disabled = true;
+        });
+    },
+
+    hideLoadingState() {
+        const tbody = document.getElementById('products-tbody');
+        if (tbody) {
+            tbody.style.opacity = '1';
+            tbody.style.pointerEvents = 'auto';
+        }
+
+        // Włącz filtry po ładowaniu
+        document.querySelectorAll('#status-filter, #search-input').forEach(el => {
+            el.disabled = false;
+        });
+    },
+
+    showErrorState() {
+        const tbody = document.getElementById('products-tbody');
+        if (tbody) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="10" class="text-center py-4 text-danger">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Wystąpił błąd podczas ładowania produktów. 
+                        <button class="btn btn-sm btn-outline-primary ms-2" onclick="AdvancedFilters.applyFilters()">
+                            Spróbuj ponownie
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }
+    },
+
+    // Pozostałe metody...
+    setupDateRangePickers() {
+        const dateFromInput = document.getElementById('date-from');
+        const dateToInput = document.getElementById('date-to');
+
+        if (dateFromInput && dateToInput) {
+            const today = new Date().toISOString().split('T')[0];
+            dateFromInput.max = today;
+            dateToInput.max = today;
+
+            dateFromInput.addEventListener('change', () => {
+                if (dateFromInput.value && dateToInput.value) {
+                    if (dateFromInput.value > dateToInput.value) {
+                        dateToInput.value = dateFromInput.value;
+                    }
+                }
+                this.updateFilter('date_from', dateFromInput.value);
+                this.applyFilters();
+                this.updateActiveFiltersDisplay();
+            });
+
+            dateToInput.addEventListener('change', () => {
+                if (dateFromInput.value && dateToInput.value) {
+                    if (dateToInput.value < dateFromInput.value) {
+                        dateFromInput.value = dateToInput.value;
+                    }
+                }
+                this.updateFilter('date_to', dateToInput.value);
+                this.applyFilters();
+                this.updateActiveFiltersDisplay();
+            });
+        }
+    },
+
+    setupPrioritySliders() {
+        const priorityMinSlider = document.getElementById('priority-min-slider');
+        const priorityMaxSlider = document.getElementById('priority-max-slider');
+        const priorityMinValue = document.getElementById('priority-min-value');
+        const priorityMaxValue = document.getElementById('priority-max-value');
+
+        if (priorityMinSlider && priorityMaxSlider) {
+            priorityMinSlider.addEventListener('input', () => {
+                const minVal = parseInt(priorityMinSlider.value);
+                const maxVal = parseInt(priorityMaxSlider.value);
+
+                if (minVal > maxVal) {
+                    priorityMaxSlider.value = minVal;
+                }
+
+                if (priorityMinValue) priorityMinValue.textContent = minVal;
+                if (priorityMaxValue) priorityMaxValue.textContent = priorityMaxSlider.value;
+
+                this.updateFilter('priority_min', minVal);
+                this.applyFilters();
+                this.updateActiveFiltersDisplay();
+            });
+
+            priorityMaxSlider.addEventListener('input', () => {
+                const minVal = parseInt(priorityMinSlider.value);
+                const maxVal = parseInt(priorityMaxSlider.value);
+
+                if (maxVal < minVal) {
+                    priorityMinSlider.value = maxVal;
+                }
+
+                if (priorityMinValue) priorityMinValue.textContent = priorityMinSlider.value;
+                if (priorityMaxValue) priorityMaxValue.textContent = maxVal;
+
+                this.updateFilter('priority_max', maxVal);
+                this.applyFilters();
+                this.updateActiveFiltersDisplay();
+            });
+        }
+    },
+
     updateProductsList(products) {
         const tbody = document.getElementById('products-tbody');
         if (!tbody) {
@@ -425,7 +914,7 @@ const AdvancedFilters = {
             return;
         }
 
-        // Generuj HTML dla produktów używając istniejącej funkcji lub nowej
+        // Generuj HTML dla produktów
         let html = '';
         products.forEach((product, index) => {
             html += this.generateProductRowHtml(product, index);
@@ -439,7 +928,6 @@ const AdvancedFilters = {
         }
     },
 
-    // NOWA FUNKCJA - generowanie HTML wiersza (uproszczona wersja)
     generateProductRowHtml(product, index) {
         const isAdmin = window.productsData && window.productsData.isAdmin;
         const statusBadge = this.getStatusBadge(product.current_status);
@@ -492,7 +980,6 @@ const AdvancedFilters = {
         `;
     },
 
-    // NOWA FUNKCJA - pomocnicze funkcje formatowania
     getStatusBadge(status) {
         const statusMap = {
             'czeka_na_wyciecie': { class: 'warning', text: 'Wycinanie' },
@@ -524,7 +1011,6 @@ const AdvancedFilters = {
         }
     },
 
-    // NOWA FUNKCJA - aktualizacja paginacji
     updatePagination(pagination) {
         if (!pagination) return;
 
@@ -544,14 +1030,13 @@ const AdvancedFilters = {
         console.log('[Advanced Filters] Paginacja zaktualizowana:', pagination);
     },
 
-    // NOWA FUNKCJA - aktualizacja statystyk
     updateStats(stats) {
         if (!stats) return;
 
         // Aktualizuj elementy statystyk
         const elements = {
             'filter-total-count': stats.total_filtered,
-            'filter-high-priority-count': stats.overdue_count,
+            'filter-high-priority-count': stats.high_priority_count || 0,
             'filter-overdue-count': stats.overdue_count,
             'filter-avg-priority': Math.round(stats.avg_priority || 0)
         };
@@ -566,236 +1051,11 @@ const AdvancedFilters = {
         // Pokaż/ukryj pasek statystyk
         const statsBar = document.getElementById('filter-stats-bar');
         if (statsBar) {
-            const hasActiveFilters = Object.values(ProductsList.state.currentFilters)
-                .some(value => value && value !== '' && value !== 'all');
-
+            const hasActiveFilters = this.getActiveFilters().length > 0;
             statsBar.style.display = hasActiveFilters ? 'block' : 'none';
         }
 
         console.log('[Advanced Filters] Statystyki zaktualizowane:', stats);
-    },
-
-    // POMOCNICZE FUNKCJE - stan ładowania
-    showLoadingState() {
-        const tbody = document.getElementById('products-tbody');
-        if (tbody && tbody.children.length > 0) {
-            tbody.style.opacity = '0.6';
-            tbody.style.pointerEvents = 'none';
-        }
-
-        // Wyłącz filtry podczas ładowania
-        document.querySelectorAll('#status-filter, #search-input').forEach(el => {
-            el.disabled = true;
-        });
-    },
-
-    hideLoadingState() {
-        const tbody = document.getElementById('products-tbody');
-        if (tbody) {
-            tbody.style.opacity = '1';
-            tbody.style.pointerEvents = 'auto';
-        }
-
-        // Włącz filtry po ładowaniu
-        document.querySelectorAll('#status-filter, #search-input').forEach(el => {
-            el.disabled = false;
-        });
-    },
-
-    showErrorState() {
-        const tbody = document.getElementById('products-tbody');
-        if (tbody) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="10" class="text-center py-4 text-danger">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        Wystąpił błąd podczas ładowania produktów. 
-                        <button class="btn btn-sm btn-outline-primary ms-2" onclick="AdvancedFilters.applyFilters()">
-                            Spróbuj ponownie
-                        </button>
-                    </td>
-                </tr>
-            `;
-        }
-    },
-
-    // POMOCNICZE FUNKCJE - zarządzanie filtrami
-    updateFilter(key, value) {
-        ProductsList.state.currentFilters[key] = value;
-        console.log(`[Advanced Filters] Zaktualizowano filtr: ${key} = ${value}`);
-    },
-
-    clearSearch() {
-        const searchInput = document.getElementById('search-input');
-        if (searchInput) {
-            searchInput.value = '';
-            this.updateFilter('search', '');
-            this.applyFilters();
-            console.log('[Advanced Filters] Wyczyszczono wyszukiwanie');
-        }
-    },
-
-    collectCurrentFilters() {
-        return {
-            status: this.getElementValue('status-filter'),
-            search: this.getElementValue('search-input'),
-            page: ProductsList.state.currentFilters.page || 1,
-            per_page: this.getElementValue('per-page-select', 'int') || ProductsList.config.defaultPerPage,
-            sort_by: ProductsList.state.currentFilters.sort_by || 'priority_score',
-            sort_order: ProductsList.state.currentFilters.sort_order || 'desc'
-        };
-    },
-
-    getElementValue(elementId, type = 'string') {
-        const element = document.getElementById(elementId);
-        if (!element) return type === 'int' ? null : '';
-
-        const value = element.value;
-        if (type === 'int') {
-            return value ? parseInt(value) : null;
-        }
-        return value || '';
-    },
-
-    clearAllFilters() {
-        console.log('[Advanced Filters] Czyszczenie wszystkich filtrów...');
-
-        // Reset UI elements
-        const filterElements = [
-            'status-filter', 'search-input', 'per-page-select'
-        ];
-
-        filterElements.forEach(elementId => {
-            const element = document.getElementById(elementId);
-            if (element) {
-                if (element.type === 'select-one') {
-                    element.selectedIndex = 0;
-                } else {
-                    element.value = element.id === 'per-page-select' ? '50' : '';
-                }
-            }
-        });
-
-        // Reset state
-        ProductsList.state.currentFilters = {
-            status: 'all',
-            search: '',
-            page: 1,
-            per_page: 50,
-            sort_by: 'priority_score',
-            sort_order: 'desc'
-        };
-
-        // Clear localStorage
-        localStorage.removeItem('productsListFilters');
-
-        // Apply filters
-        this.applyFilters();
-
-        if (typeof showToast === 'function') {
-            showToast('Filtry zostały wyczyszczone', 'info');
-        }
-    },
-
-    saveFiltersToStorage() {
-        try {
-            localStorage.setItem('productsListFilters', JSON.stringify(ProductsList.state.currentFilters));
-        } catch (error) {
-            console.warn('[Advanced Filters] Nie można zapisać filtrów do localStorage:', error);
-        }
-    },
-
-    // Zachowaj pozostałe funkcje z oryginalnego AdvancedFilters
-    setupDateRangePickers() {
-        const dateFromInput = document.getElementById('date-from');
-        const dateToInput = document.getElementById('date-to');
-
-        if (dateFromInput && dateToInput) {
-            // Ustaw max date na dzisiaj
-            const today = new Date().toISOString().split('T')[0];
-            dateFromInput.max = today;
-            dateToInput.max = today;
-
-            // Walidacja zakresu dat
-            dateFromInput.addEventListener('change', () => {
-                if (dateFromInput.value && dateToInput.value) {
-                    if (dateFromInput.value > dateToInput.value) {
-                        dateToInput.value = dateFromInput.value;
-                    }
-                }
-                this.applyFilters();
-            });
-
-            dateToInput.addEventListener('change', () => {
-                if (dateFromInput.value && dateToInput.value) {
-                    if (dateToInput.value < dateFromInput.value) {
-                        dateFromInput.value = dateToInput.value;
-                    }
-                }
-                this.applyFilters();
-            });
-        }
-    },
-
-    setupPrioritySliders() {
-        const priorityMinSlider = document.getElementById('priority-min-slider');
-        const priorityMaxSlider = document.getElementById('priority-max-slider');
-        const priorityMinValue = document.getElementById('priority-min-value');
-        const priorityMaxValue = document.getElementById('priority-max-value');
-
-        if (priorityMinSlider && priorityMaxSlider) {
-            priorityMinSlider.addEventListener('input', () => {
-                const minVal = parseInt(priorityMinSlider.value);
-                const maxVal = parseInt(priorityMaxSlider.value);
-
-                if (minVal > maxVal) {
-                    priorityMaxSlider.value = minVal;
-                }
-
-                if (priorityMinValue) priorityMinValue.textContent = minVal;
-                if (priorityMaxValue) priorityMaxValue.textContent = priorityMaxSlider.value;
-
-                this.applyFilters();
-            });
-
-            priorityMaxSlider.addEventListener('input', () => {
-                const minVal = parseInt(priorityMinSlider.value);
-                const maxVal = parseInt(priorityMaxSlider.value);
-
-                if (maxVal < minVal) {
-                    priorityMinSlider.value = maxVal;
-                }
-
-                if (priorityMinValue) priorityMinValue.textContent = priorityMinSlider.value;
-                if (priorityMaxValue) priorityMaxValue.textContent = maxVal;
-
-                this.applyFilters();
-            });
-        }
-    },
-
-    setupAdvancedToggle() {
-        const toggleBtn = document.getElementById('advanced-filters-toggle');
-        const advancedContainer = document.getElementById('advanced-filters-container');
-
-        if (toggleBtn && advancedContainer) {
-            toggleBtn.addEventListener('click', () => {
-                const isVisible = advancedContainer.style.display !== 'none';
-
-                if (isVisible) {
-                    advancedContainer.style.display = 'none';
-                    toggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Pokaż zaawansowane filtry';
-                } else {
-                    advancedContainer.style.display = 'block';
-                    toggleBtn.innerHTML = '<i class="fas fa-chevron-up"></i> Ukryj zaawansowane filtry';
-
-                    // Załaduj dane jeśli jeszcze nie załadowane
-                    if (!ProductsList.cache.filtersData) {
-                        this.loadFilterData();
-                    }
-                }
-            });
-        }
     },
 
     async loadFilterData() {
@@ -838,11 +1098,45 @@ const AdvancedFilters = {
 
         } catch (error) {
             console.error('[Advanced Filters] Błąd ładowania danych filtrów:', error);
-            showToast('Błąd ładowania filtrów: ' + error.message, 'error');
+            if (typeof showToast === 'function') {
+                showToast('Błąd ładowania filtrów: ' + error.message, 'error');
+            }
         } finally {
             hideSpinner();
         }
     },
+
+    populateFilterDropdowns(filtersData) {
+        // Gatunki drewna
+        const woodSpeciesSelect = document.getElementById('wood-species-filter');
+        if (woodSpeciesSelect && filtersData.wood_species) {
+            this.populateSelect(woodSpeciesSelect, filtersData.wood_species, 'Wszystkie gatunki');
+        }
+
+        // Technologie
+        const technologySelect = document.getElementById('technology-filter');
+        if (technologySelect && filtersData.technologies) {
+            this.populateSelect(technologySelect, filtersData.technologies, 'Wszystkie technologie');
+        }
+
+        // Klasy drewna
+        const woodClassSelect = document.getElementById('wood-class-filter');
+        if (woodClassSelect && filtersData.wood_classes) {
+            this.populateSelect(woodClassSelect, filtersData.wood_classes, 'Wszystkie klasy');
+        }
+    },
+
+    populateSelect(selectElement, options, placeholder) {
+        // Clear existing options except placeholder
+        selectElement.innerHTML = `<option value="">${placeholder}</option>`;
+
+        options.forEach(option => {
+            const optionElement = document.createElement('option');
+            optionElement.value = option.value;
+            optionElement.textContent = option.label;
+            selectElement.appendChild(optionElement);
+        });
+    }
 };
 
 // ============================================================================
@@ -1794,8 +2088,14 @@ const PaginationManager = {
 async function refreshProductsList() {
     console.log('[Products List] Odświeżanie przez zintegrowany system...');
 
-    // Użyj nowego systemu filtrowania
-    await AdvancedFilters.applyFilters();
+    // POPRAWKA: Sprawdź czy AdvancedFilters jest zainicjalizowany
+    if (typeof AdvancedFilters !== 'undefined' && AdvancedFilters.applyFilters) {
+        await AdvancedFilters.applyFilters();
+    } else {
+        console.warn('[Products List] AdvancedFilters nie dostępny - używam fallback');
+        // Fallback - reload strony
+        window.location.reload();
+    }
 }
 
 /**
@@ -2554,6 +2854,7 @@ const ProductModal = {
 // FUNKCJE POMOCNICZE - DRAG & DROP
 // ============================================================================
 
+
 /**
  * Obsługuje zmianę kolejności priorytetów przez drag & drop
  */
@@ -2567,7 +2868,6 @@ async function handlePriorityReorder(oldIndex, newIndex) {
         // Zbierz wszystkie produkty z ich nowymi pozycjami
         rows.forEach((row, index) => {
             const productId = parseInt(row.dataset.productId);
-            // Oblicz nowy priorytet na podstawie pozycji (odwrotnie - wyższy index = niższy priorytet)
             const newPriority = Math.max(0, 200 - (index * 2));
 
             products.push({
@@ -2591,20 +2891,18 @@ async function handlePriorityReorder(oldIndex, newIndex) {
         const data = await response.json();
 
         if (data.success) {
-            showToast(`Zaktualizowano priorytety ${data.updated_count} produktów`, 'success');
-
-            // Aktualizuj UI bez pełnego refresh
-            updatePriorityDisplays(data.updated_products);
-
-            ProductsList.state.unsavedChanges = false;
-            hideSaveButton();
+            if (typeof showToast === 'function') {
+                showToast(`Zaktualizowano priorytety ${data.updated_count} produktów`, 'success');
+            }
         } else {
             throw new Error(data.error || 'Błąd aktualizacji priorytetów');
         }
 
     } catch (error) {
         console.error('[Drag & Drop] Błąd aktualizacji priorytetów:', error);
-        showToast('Błąd aktualizacji priorytetów: ' + error.message, 'error');
+        if (typeof showToast === 'function') {
+            showToast('Błąd aktualizacji priorytetów: ' + error.message, 'error');
+        }
 
         // Przywróć oryginalną kolejność
         refreshProductsList();
@@ -3014,10 +3312,14 @@ function initEventListeners() {
         exportBtn.addEventListener('click', () => ExportManager.openExportModal());
     }
 
-    // Clear filters button
+    // Clear filters button  
     const clearFiltersBtn = document.getElementById('clear-filters-btn');
     if (clearFiltersBtn) {
-        clearFiltersBtn.addEventListener('click', () => AdvancedFilters.clearAllFilters());
+        clearFiltersBtn.addEventListener('click', () => {
+            if (typeof AdvancedFilters !== 'undefined') {
+                AdvancedFilters.clearAllFilters();
+            }
+        });
     }
 
     // Keyboard shortcuts
@@ -3036,7 +3338,9 @@ function initEventListeners() {
  * Inicjalizuje handlery paginacji
  */
 function initPaginationHandlers() {
-    PaginationManager.init();
+    if (typeof PaginationManager !== 'undefined') {
+        PaginationManager.init();
+    }
 }
 
 /**
@@ -3050,7 +3354,9 @@ function initFilterHandlers() {
  * Ładuje dane filtrów z API
  */
 async function loadFiltersData() {
-    await AdvancedFilters.loadFilterData();
+    if (typeof AdvancedFilters !== 'undefined') {
+        await AdvancedFilters.loadFilterData();
+    }
 }
 
 /**
@@ -3089,7 +3395,9 @@ function applyFiltersToUI(filters) {
  * Stosuje wszystkie filtry
  */
 function applyAllFilters() {
-    AdvancedFilters.applyFilters();
+    if (typeof AdvancedFilters !== 'undefined') {
+        AdvancedFilters.applyFilters();
+    }
 }
 
 /**
@@ -3109,12 +3417,6 @@ function handleKeyboardShortcuts(event) {
         refreshProductsList();
     }
 
-    // Ctrl+E - export
-    if (event.ctrlKey && event.key === 'e') {
-        event.preventDefault();
-        ExportManager.openExportModal();
-    }
-
     // Ctrl+F - focus search
     if (event.ctrlKey && event.key === 'f') {
         event.preventDefault();
@@ -3125,9 +3427,8 @@ function handleKeyboardShortcuts(event) {
         }
     }
 
-    // Escape - clear search/selection
+    // Escape - clear search
     if (event.key === 'Escape') {
-        BulkActions.clearSelection();
         const searchInput = document.getElementById('search-input');
         if (searchInput && searchInput === document.activeElement) {
             searchInput.blur();
@@ -3171,7 +3472,6 @@ function handleVisibilityChange() {
  * Setupuje auto-refresh
  */
 function setupAutoRefresh() {
-    // Auto-refresh co minute jeśli strona jest widoczna
     setInterval(() => {
         if (!document.hidden && !ProductsList.state.isLoading) {
             console.log('[Products List] Auto-refresh...');
@@ -3379,14 +3679,16 @@ async function deleteProduct(productId) {
 // Auto-inicjalizacja gdy DOM jest gotowy
 document.addEventListener('DOMContentLoaded', function () {
     console.log('[Products List] DOM załadowany - inicjalizacja...');
-    initProductsList();
+
+    // Delay aby upewnić się że inne skrypty są załadowane
+    setTimeout(() => {
+        initProductsList();
+    }, 100);
 });
 
 // Fallback jeśli DOMContentLoaded już przeszedł
 if (document.readyState === 'loading') {
-    // DOM jeszcze się ładuje
     document.addEventListener('DOMContentLoaded', initProductsList);
 } else {
-    // DOM już załadowany
-    setTimeout(initProductsList, 100);
+    setTimeout(initProductsList, 200);
 }
