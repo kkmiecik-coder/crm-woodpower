@@ -181,8 +181,28 @@ class ApiClient {
         return this.request('/dashboard-tab-content');
     }
 
-    async getProductsTabContent() {
-        return this.request('/products-tab-content');
+    async getProductsTabContent(filters = {}) {
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== null && value !== '' && value !== 'all') {
+                params.append(key, value);
+            }
+        });
+
+        const endpoint = `/products-tab-content${params.toString() ? '?' + params.toString() : ''}`;
+        return this.request(endpoint);
+    }
+
+    async getStationsTabContent() {
+        return this.request('/stations-tab-content');
+    }
+
+    async getReportsTabContent() {
+        return this.request('/reports-tab-content');  
+    }
+
+    async getConfigTabContent() {
+        return this.request('/config-tab-content');
     }
 
     async getFilteredProducts(filters) {

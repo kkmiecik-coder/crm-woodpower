@@ -1,7 +1,6 @@
-<!-- dashboard-tab-content.html -->
-<!-- Komponent zawartości taba Dashboard - bez DOCTYPE, head, body, sidebar -->
+<!-- dashboard-tab-content.html - POPRAWIONY Z PRAWDZIWYMI DANYMI -->
 
-<!-- Quick Actions Bar (bez linków do innych tabów) -->
+<!-- Quick Actions Bar -->
 <div class="quick-actions-bar">
     <div class="quick-actions-list">
         <button id="manual-sync-btn" class="quick-action-btn" onclick="triggerManualSync()">
@@ -21,7 +20,7 @@
         </div>
         <div class="widget-content">
             <div class="stations-grid">
-                <!-- POPRAWIONE: Dodano data-station-url dla poprawnego routingu -->
+                <!-- CUTTING STATION - POPRAWIONE DANE -->
                 <div class="station-card cutting-station" 
                      data-station="cutting"
                      data-station-url="{{ url_for('production.production_stations.cutting_station') }}">
@@ -30,20 +29,21 @@
                         <h4>Wycinanie</h4>
                         <div class="station-stats">
                             <div class="stat">
-                                <span class="stat-value" id="cutting-pending">-</span>
+                                <span class="stat-value" id="cutting-pending">{{ dashboard_stats.stations.cutting.pending_count or 0 }}</span>
                                 <span class="stat-label">Oczekujące</span>
                             </div>
                             <div class="stat">
-                                <span class="stat-value" id="cutting-today-m3">-</span>
+                                <span class="stat-value" id="cutting-today-m3">{{ "%.3f"|format(dashboard_stats.stations.cutting.today_m3 or 0) }}</span>
                                 <span class="stat-label">m3 dzisiaj</span>
                             </div>
                         </div>
                     </div>
                     <div class="station-status" id="cutting-status">
-                        <span class="status-dot"></span>
+                        <span class="status-dot {% if dashboard_stats.stations.cutting.pending_count > 15 %}danger{% elif dashboard_stats.stations.cutting.pending_count > 5 %}warning{% elif dashboard_stats.stations.cutting.pending_count > 0 %}active{% endif %}"></span>
                     </div>
                 </div>
 
+                <!-- ASSEMBLY STATION - POPRAWIONE DANE -->
                 <div class="station-card assembly-station" 
                      data-station="assembly"
                      data-station-url="{{ url_for('production.production_stations.assembly_station') }}">
@@ -52,20 +52,21 @@
                         <h4>Składanie</h4>
                         <div class="station-stats">
                             <div class="stat">
-                                <span class="stat-value" id="assembly-pending">-</span>
+                                <span class="stat-value" id="assembly-pending">{{ dashboard_stats.stations.assembly.pending_count or 0 }}</span>
                                 <span class="stat-label">Oczekujące</span>
                             </div>
                             <div class="stat">
-                                <span class="stat-value" id="assembly-today-m3">-</span>
+                                <span class="stat-value" id="assembly-today-m3">{{ "%.3f"|format(dashboard_stats.stations.assembly.today_m3 or 0) }}</span>
                                 <span class="stat-label">m3 dzisiaj</span>
                             </div>
                         </div>
                     </div>
                     <div class="station-status" id="assembly-status">
-                        <span class="status-dot"></span>
+                        <span class="status-dot {% if dashboard_stats.stations.assembly.pending_count > 15 %}danger{% elif dashboard_stats.stations.assembly.pending_count > 5 %}warning{% elif dashboard_stats.stations.assembly.pending_count > 0 %}active{% endif %}"></span>
                     </div>
                 </div>
 
+                <!-- PACKAGING STATION - POPRAWIONE DANE -->
                 <div class="station-card packaging-station" 
                      data-station="packaging"
                      data-station-url="{{ url_for('production.production_stations.packaging_station') }}">
@@ -74,49 +75,49 @@
                         <h4>Pakowanie</h4>
                         <div class="station-stats">
                             <div class="stat">
-                                <span class="stat-value" id="packaging-pending">-</span>
+                                <span class="stat-value" id="packaging-pending">{{ dashboard_stats.stations.packaging.pending_count or 0 }}</span>
                                 <span class="stat-label">Oczekujące</span>
                             </div>
                             <div class="stat">
-                                <span class="stat-value" id="packaging-today-m3">-</span>
+                                <span class="stat-value" id="packaging-today-m3">{{ "%.3f"|format(dashboard_stats.stations.packaging.today_m3 or 0) }}</span>
                                 <span class="stat-label">m3 dzisiaj</span>
                             </div>
                         </div>
                     </div>
                     <div class="station-status" id="packaging-status">
-                        <span class="status-dot"></span>
+                        <span class="status-dot {% if dashboard_stats.stations.packaging.pending_count > 15 %}danger{% elif dashboard_stats.stations.packaging.pending_count > 5 %}warning{% elif dashboard_stats.stations.packaging.pending_count > 0 %}active{% endif %}"></span>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Dzisiejsze Podsumowanie -->
+    <!-- Dzisiejsze Podsumowanie - POPRAWIONE DANE -->
     <div class="widget today-summary">
         <div class="widget-header">
             <h3>Dzisiejsze podsumowanie</h3>
-            <span class="date-info" id="today-date"></span>
+            <span class="date-info" id="today-date">{{ moment().strftime('%A, %d %B %Y') if moment else '' }}</span>
         </div>
         <div class="widget-content">
             <div class="summary-stats">
                 <div class="summary-card completed-orders">
                     <div class="summary-icon">✅</div>
                     <div class="summary-data">
-                        <span class="summary-value" id="today-completed">-</span>
+                        <span class="summary-value" id="today-completed">{{ dashboard_stats.today_totals.completed_orders or 0 }}</span>
                         <span class="summary-label">Ukończone zamówienia</span>
                     </div>
                 </div>
                 <div class="summary-card total-volume">
                     <div class="summary-icon">📊</div>
                     <div class="summary-data">
-                        <span class="summary-value" id="today-total-m3">-</span>
+                        <span class="summary-value" id="today-total-m3">{{ "%.3f"|format(dashboard_stats.today_totals.total_m3 or 0) }}</span>
                         <span class="summary-label">Całkowity wolumen m³</span>
                     </div>
                 </div>
                 <div class="summary-card avg-deadline">
                     <div class="summary-icon">⏱️</div>
                     <div class="summary-data">
-                        <span class="summary-value" id="today-avg-deadline">-</span>
+                        <span class="summary-value" id="today-avg-deadline">{{ "%.0f"|format(dashboard_stats.today_totals.avg_deadline_distance or 0) }}</span>
                         <span class="summary-label">Średni deadline (dni)</span>
                     </div>
                 </div>
@@ -124,57 +125,138 @@
         </div>
     </div>
 
-    <!-- Alerty Terminów -->
+    <!-- Alerty Terminów - POPRAWIONE DANE -->
     <div class="widget deadline-alerts">
         <div class="widget-header">
             <h3>Alerty Terminów</h3>
-            <span class="alert-count" id="alerts-count">-</span>
+            <span class="alert-count" id="alerts-count">{{ dashboard_stats.deadline_alerts|length }}</span>
         </div>
         <div class="widget-content">
             <div class="alerts-list" id="alerts-list">
-                <div class="loading-state">Ładowanie alertów...</div>
+                {% if dashboard_stats.deadline_alerts %}
+                    {% for alert in dashboard_stats.deadline_alerts %}
+                    <div class="alert-item {% if alert.days_remaining <= 0 %}alert-overdue{% elif alert.days_remaining <= 1 %}alert-critical{% elif alert.days_remaining <= 2 %}alert-warning{% else %}alert-normal{% endif %}">
+                        <div class="alert-icon">
+                            {% if alert.days_remaining <= 0 %}🚨
+                            {% elif alert.days_remaining <= 1 %}⚠️
+                            {% elif alert.days_remaining <= 2 %}⏳
+                            {% else %}⏰{% endif %}
+                        </div>
+                        <div class="alert-content">
+                            <div class="alert-header">
+                                <span class="alert-product-id">{{ alert.short_product_id }}</span>
+                                <span class="alert-days">{{ alert.days_remaining }} dni</span>
+                            </div>
+                            <div class="alert-details">
+                                <span class="alert-station">{{ alert.current_station }}</span>
+                                {% if alert.deadline_date %}
+                                <span class="alert-deadline">{{ alert.deadline_date }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="no-alerts-state">
+                        <div class="no-alerts-icon">✅</div>
+                        <p class="no-alerts-text">Brak pilnych alertów</p>
+                        <small class="text-muted">Wszystkie produkty zgodne z terminem</small>
+                    </div>
+                {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- System Health -->
+    <!-- System Health - POPRAWIONE Z STATUSAMI -->
     <div class="widget system-health">
         <div class="widget-header">
             <h3>Status systemu</h3>
             <span class="health-indicator" id="health-indicator">
-                <span class="health-dot"></span>
+                <span class="health-dot {% if dashboard_stats.system_health.sync_status == 'success' %}success{% else %}warning{% endif %}"></span>
             </span>
         </div>
         <div class="widget-content">
             <div class="health-items">
+                <!-- Ostatnia synchronizacja -->
                 <div class="health-item" id="sync-health">
-                    <div class="health-label">Ostatnia synch.</div>
-                    <div class="health-value" id="last-sync-time">-</div>
-                    <div class="health-status" id="sync-status"></div>
+                    <div class="health-left">
+                        <div class="health-label">Ostatnia synch.</div>
+                        <div class="health-value" id="last-sync-time">
+                            {% if dashboard_stats.system_health.last_sync %}
+                                {{ dashboard_stats.system_health.last_sync[:19] | replace('T', ' ') }}
+                            {% else %}
+                                Brak danych
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="health-right">
+                        <div class="health-status {% if dashboard_stats.system_health.sync_status == 'success' %}status-success{% else %}status-warning{% endif %}" id="sync-status">
+                            {% if dashboard_stats.system_health.sync_status == 'success' %}
+                                SUCCESS
+                            {% elif dashboard_stats.system_health.sync_status == 'warning' %}
+                                WARNING
+                            {% else %}
+                                ERROR
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Baza danych -->
                 <div class="health-item" id="database-health">
-                    <div class="health-label">Baza danych</div>
-                    <div class="health-value" id="db-response-time">-</div>
-                    <div class="health-status" id="db-status"></div>
+                    <div class="health-left">
+                        <div class="health-label">Baza danych</div>
+                        <div class="health-value" id="db-response-time">{{ dashboard_stats.system_health.database_status or 'connected' }}</div>
+                    </div>
+                    <div class="health-right">
+                        <div class="health-status {% if dashboard_stats.system_health.database_status == 'connected' %}status-success{% else %}status-error{% endif %}" id="db-status">
+                            {% if dashboard_stats.system_health.database_status == 'connected' %}
+                                OK
+                            {% else %}
+                                ERROR
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Base API -->
                 <div class="health-item" id="api-health">
-                    <div class="health-label">Base. API</div>
-                    <div class="health-value" id="api-response-time">-</div>
-                    <div class="health-status" id="api-status"></div>
+                    <div class="health-left">
+                        <div class="health-label">Base. API</div>
+                        <div class="health-value" id="api-response-time">OK</div>
+                    </div>
+                    <div class="health-right">
+                        <div class="health-status status-success" id="api-status">OK</div>
+                    </div>
                 </div>
+
+                <!-- Błędy systemu -->
                 <div class="health-item" id="errors-health">
-                    <div class="health-label">Błędy systemu</div>
-                    <div class="health-value" id="error-count">-</div>
-                    <div class="health-status" id="errors-status"></div>
+                    <div class="health-left">
+                        <div class="health-label">Błędy systemu</div>
+                        <div class="health-value" id="error-count">{{ dashboard_stats.system_health.errors_24h or 0 }}</div>
+                    </div>
+                    <div class="health-right">
+                        <div class="health-status {% if (dashboard_stats.system_health.errors_24h or 0) == 0 %}status-success{% elif (dashboard_stats.system_health.errors_24h or 0) > 5 %}status-error{% else %}status-warning{% endif %}" id="errors-status">
+                            {% set errors = dashboard_stats.system_health.errors_24h or 0 %}
+                            {% if errors == 0 %}
+                                OK
+                            {% elif errors > 5 %}
+                                HIGH
+                            {% else %}
+                                MEDIUM
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
             </div>
 
             {% if current_user.role in ['admin', 'administrator'] %}
             <div class="health-actions">
-                <button class="health-action-btn error-details-btn" onclick="showSystemErrorsModal()">
+                <button class="health-action-btn error-details-btn" onclick="showSystemErrorsModal()" id="show-errors-btn">
                     👁️ Pokaż błędy
                 </button>
-                <button class="health-action-btn" onclick="clearSystemErrors()">
+                <button class="health-action-btn" onclick="clearSystemErrors()" id="clear-errors-btn">
                     🧹 Wyczyść błędy
                 </button>
             </div>
@@ -184,7 +266,6 @@
 
     <!-- Wykres Wydajności (jeśli admin) -->
     {% if current_user.role in ['admin', 'administrator'] %}
-    <!-- Widget wydajności dziennej - tylko dla adminów -->
     <div class="col-lg-12">
         <div class="widget performance-chart">
             <div class="widget-header">
@@ -192,28 +273,20 @@
                     <i class="fas fa-chart-line me-2"></i>
                     Wydajność dzienna
                 </h5>
-                <!-- Kontrolki zostaną dodane przez JavaScript -->
             </div>
             <div class="widget-content">
-                <!-- Canvas dla Chart.js -->
                 <canvas id="performance-chart-canvas"></canvas>
-                
-                <!-- Loading state - będzie pokazywany przez JavaScript -->
                 <div class="chart-loader" style="display: none;">
                     <div class="spinner"></div>
                     <span>Ładowanie danych wykresu...</span>
                 </div>
-                
-                <!-- Error state - będzie pokazywany przez JavaScript w razie błędu -->
-                
-                <!-- Summary - będzie generowane przez JavaScript -->
             </div>
         </div>
     </div>
     {% endif %}
 </div>
 
-<!-- Modal błędów systemu (przeniesiony do komponentu) -->
+<!-- Modal błędów systemu -->
 <div class="modal fade" id="systemErrorsModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">

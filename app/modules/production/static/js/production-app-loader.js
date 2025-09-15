@@ -131,6 +131,12 @@ class ProductionApp {
     }
 
     async switchToTab(tabName) {
+        // POPRAWKA: Walidacja parametrów
+        if (!tabName) {
+            console.error('[ProductionApp] switchToTab called with null/undefined tabName');
+            return;
+        }
+
         if (this.state.isLoading) {
             console.log('[ProductionApp] Tab switch ignored - currently loading');
             return;
@@ -141,13 +147,15 @@ class ProductionApp {
             return;
         }
 
-        console.log(`[ProductionApp] Switching from ${this.state.currentTab} to ${tabName}`);
+        console.log(`[ProductionApp] Switching from ${this.state.currentTab || 'null'} to ${tabName}`);
 
         try {
             this.state.isLoading = true;
 
-            // 1. Cleanup previous tab
-            await this.cleanupTab(this.state.currentTab);
+            // 1. Cleanup previous tab (only if there was one)
+            if (this.state.currentTab) {
+                await this.cleanupTab(this.state.currentTab);
+            }
 
             // 2. Update UI state
             this.updateTabUI(tabName);
@@ -207,7 +215,10 @@ class ProductionApp {
             // Show tab-specific loading state
             this.showTabLoading(tabName);
 
-            switch (tabName) {
+            // POPRAWKA: Normalizuj nazwę taba
+            const normalizedTabName = tabName.endsWith('-tab') ? tabName : `${tabName}-tab`;
+
+            switch (normalizedTabName) {
                 case 'dashboard-tab':
                     await this.loadDashboardTab();
                     break;
@@ -229,7 +240,7 @@ class ProductionApp {
                     break;
 
                 default:
-                    throw new Error(`Unknown tab: ${tabName}`);
+                    throw new Error(`Unknown tab: ${normalizedTabName}`);
             }
 
             this.hideTabLoading(tabName);
@@ -250,70 +261,129 @@ class ProductionApp {
     async loadDashboardTab() {
         console.log('[ProductionApp] Loading dashboard tab...');
 
-        // Check if dashboard module is already loaded
-        if (!this.state.loadedModules.has('dashboard')) {
-            // Load dashboard module
-            const { DashboardModule } = await import('./modules/dashboard-module.js');
-            const dashboardModule = new DashboardModule(this.shared, this.config);
-
-            this.state.loadedModules.set('dashboard', dashboardModule);
+        try {
+            // POPRAWKA: Load dashboard content via API instead of dynamic import
+            const loadingContext = `tab-dashboard-tab`;
+            
+            this.shared.loadingManager.show(loadingContext, 'Ładowanie dashboard...');
+            
+            // Load dashboard content from API
+            const response = await this.shared.apiClient.getDashboardTabContent();
+            
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to load dashboard content');
+            }
+            
+            // Update DOM with content
+            const wrapper = document.getElementById('dashboard-tab-wrapper');
+            const loading = document.getElementById('dashboard-tab-loading');
+            
+            if (wrapper) {
+                wrapper.innerHTML = response.html;
+                wrapper.style.display = 'block';
+            }
+            
+            if (loading) {
+                loading.style.display = 'none';
+            }
+            
+            console.log('[ProductionApp] Dashboard tab loaded successfully');
+            
+        } catch (error) {
+            console.error('[ProductionApp] Dashboard loading failed:', error);
+            this.showTabError('dashboard-tab', error.message);
+            throw error;
+        } finally {
+            this.shared.loadingManager.hide(`tab-dashboard-tab`);
         }
-
-        const dashboardModule = this.state.loadedModules.get('dashboard');
-        await dashboardModule.load();
     }
 
     async loadProductsTab() {
         console.log('[ProductionApp] Loading products tab...');
 
-        // For now, load via AJAX (later will be replaced with standalone module)
-        const response = await this.shared.apiClient.getProductsTabContent();
+        try {
+            const response = await this.shared.apiClient.getProductsTabContent();
 
-        if (response.success) {
-            const wrapper = document.getElementById('products-tab-wrapper');
-            if (wrapper) {
-                wrapper.innerHTML = response.html;
-                wrapper.style.display = 'block';
-            }
+            if (response.success) {
+                const wrapper = document.getElementById('products-tab-wrapper');
+                const loading = document.getElementById('products-tab-loading');
+                
+                if (wrapper) {
+                    wrapper.innerHTML = response.html;
+                    wrapper.style.display = 'block';
+                }
+                
+                if (loading) {
+                    loading.style.display = 'none';
+                }
 
-            // Initialize products module if needed
-            if (typeof window.initProductsList === 'function') {
-                window.initProductsList();
+                // Initialize products functionality if available
+                if (typeof window.initProductsList === 'function') {
+                    window.initProductsList();
+                }
+            } else {
+                throw new Error(response.error || 'Failed to load products');
             }
-        } else {
-            throw new Error(response.error || 'Failed to load products');
+        } catch (error) {
+            console.error('[ProductionApp] Products loading failed:', error);
+            this.showTabError('products-tab', error.message);
+            throw error;
         }
     }
 
     async loadReportsTab() {
         console.log('[ProductionApp] Loading reports tab...');
 
-        // TODO: Implement reports module
-        const wrapper = document.getElementById('reports-tab-wrapper');
-        if (wrapper) {
-            wrapper.innerHTML = `
-                <div class="alert alert-info">
-                    <h5>Raporty</h5>
-                    <p>Moduł raportów będzie dostępny wkrótce.</p>
-                </div>
-            `;
-            wrapper.style.display = 'block';
+        try {
+            const response = await this.shared.apiClient.getReportsTabContent();
+
+            if (response.success) {
+                const wrapper = document.getElementById('reports-tab-wrapper');
+                const loading = document.getElementById('reports-tab-loading');
+                
+                if (wrapper) {
+                    wrapper.innerHTML = response.html;
+                    wrapper.style.display = 'block';
+                }
+                
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+            } else {
+                throw new Error(response.error || 'Failed to load reports');
+            }
+        } catch (error) {
+            console.error('[ProductionApp] Reports loading failed:', error);
+            this.showTabError('reports-tab', error.message);
+            throw error;
         }
     }
 
     async loadStationsTab() {
         console.log('[ProductionApp] Loading stations tab...');
 
-        // TODO: Implement stations module
-        const wrapper = document.getElementById('stations-tab-wrapper');
-        if (wrapper) {
-            wrapper.innerHTML = `
-                <div class="alert alert-info">
-                    <h5>Stanowiska</h5>
-                    <p>Moduł zarządzania stanowiskami będzie dostępny wkrótce.</p>
-                </div>
-            `;
-            wrapper.style.display = 'block';
+        try {
+            const response = await this.shared.apiClient.getStationsTabContent();
+
+            if (response.success) {
+                const wrapper = document.getElementById('stations-tab-wrapper');
+                const loading = document.getElementById('stations-tab-loading');
+                
+                if (wrapper) {
+                    wrapper.innerHTML = response.html;
+                    wrapper.style.display = 'block';
+                }
+                
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+            } else {
+                throw new Error(response.error || 'Failed to load stations');
+            }
+        } catch (error) {
+            console.error('[ProductionApp] Stations loading failed:', error);
+            this.showTabError('stations-tab', error.message);
+            throw error;
         }
     }
 
@@ -321,20 +391,32 @@ class ProductionApp {
         console.log('[ProductionApp] Loading config tab...');
 
         // Admin only
-        if (!this.config.user || this.config.user.role !== 'admin') {
+        if (!this.config.user || !this.config.user.isAdmin) {
             throw new Error('Brak uprawnień administratora');
         }
 
-        // TODO: Implement config module
-        const wrapper = document.getElementById('config-tab-wrapper');
-        if (wrapper) {
-            wrapper.innerHTML = `
-                <div class="alert alert-info">
-                    <h5>Konfiguracja</h5>
-                    <p>Panel konfiguracji będzie dostępny wkrótce.</p>
-                </div>
-            `;
-            wrapper.style.display = 'block';
+        try {
+            const response = await this.shared.apiClient.getConfigTabContent();
+
+            if (response.success) {
+                const wrapper = document.getElementById('config-tab-wrapper');
+                const loading = document.getElementById('config-tab-loading');
+                
+                if (wrapper) {
+                    wrapper.innerHTML = response.html;
+                    wrapper.style.display = 'block';
+                }
+                
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+            } else {
+                throw new Error(response.error || 'Failed to load config');
+            }
+        } catch (error) {
+            console.error('[ProductionApp] Config loading failed:', error);
+            this.showTabError('config-tab', error.message);
+            throw error;
         }
     }
 
@@ -343,9 +425,22 @@ class ProductionApp {
     // ========================================================================
 
     async cleanupTab(tabName) {
-        const module = this.state.loadedModules.get(tabName.replace('-tab', ''));
+        // POPRAWKA: Sprawdź czy tabName nie jest null/undefined
+        if (!tabName) {
+            console.log('[ProductionApp] No tab to cleanup');
+            return;
+        }
+
+        const moduleName = tabName.replace('-tab', '');
+        const module = this.state.loadedModules.get(moduleName);
+        
         if (module && typeof module.unload === 'function') {
-            await module.unload();
+            try {
+                await module.unload();
+                console.log(`[ProductionApp] Module ${moduleName} unloaded`);
+            } catch (error) {
+                console.warn(`[ProductionApp] Error unloading module ${moduleName}:`, error);
+            }
         }
 
         // Hide any tab-specific loading/error states
@@ -401,7 +496,11 @@ class ProductionApp {
     }
 
     async refreshCurrentTab() {
-        if (this.state.isLoading) return;
+        // POPRAWKA: Sprawdź czy jest aktywny tab
+        if (this.state.isLoading || !this.state.currentTab) {
+            console.log('[ProductionApp] Skipping refresh - no current tab or loading');
+            return;
+        }
 
         console.log(`[ProductionApp] Auto-refreshing current tab: ${this.state.currentTab}`);
 
@@ -410,6 +509,7 @@ class ProductionApp {
             console.log('[ProductionApp] Auto-refresh completed');
         } catch (error) {
             console.error('[ProductionApp] Auto-refresh failed:', error);
+            // Don't show error toast for auto-refresh failures
         }
     }
 
@@ -506,7 +606,28 @@ class ProductionApp {
         }
 
         console.log(`[ProductionApp] Loading initial tab: ${initialTab}`);
-        await this.switchToTab(initialTab);
+        
+        // POPRAWKA: Bezpośrednio załaduj zawartość bez switchToTab
+        try {
+            this.state.isLoading = true;
+            
+            // Update UI state
+            this.updateTabUI(initialTab);
+            
+            // Load tab content
+            await this.loadTabContent(initialTab);
+            
+            // Set current tab AFTER successful loading
+            this.state.currentTab = initialTab;
+            
+            console.log(`[ProductionApp] Initial tab ${initialTab} loaded successfully`);
+            
+        } catch (error) {
+            console.error(`[ProductionApp] Error loading initial tab ${initialTab}:`, error);
+            this.shared.toastSystem.show(`Błąd ładowania: ${error.message}`, 'error');
+        } finally {
+            this.state.isLoading = false;
+        }
     }
 
     // ========================================================================
