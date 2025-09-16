@@ -154,6 +154,11 @@ class BaselinkerSyncService:
         """
         sync_started_at = datetime.utcnow()
         
+        # DODAJ: Wyczyść cache ID generatora na początku sync
+        from ..services.id_generator import ProductIDGenerator
+        ProductIDGenerator.clear_order_cache()
+        logger.info("Wyczyszczono cache generatora ID na początku synchronizacji")
+    
         # Rozpoczęcie logowania synchronizacji
         sync_log = self._create_sync_log(sync_type, sync_started_at)
         
@@ -962,7 +967,7 @@ class BaselinkerSyncService:
             order (Dict[str, Any]): Dane zamówienia
             products (List[Dict[str, Any]]): Lista produktów w zamówieniu
             dry_run (bool): Czy wykonać przetwarzanie w trybie symulacji (bez zapisów w bazie)
-            
+        
         Returns:
             Dict[str, Any]: Wyniki przetwarzania zamówienia
         """
@@ -972,79 +977,127 @@ class BaselinkerSyncService:
             'errors': 0,
             'error_details': []
         }
-        
+    
         baselinker_order_id = order['order_id']
-        
+    
         try:
             from ..services.id_generator import ProductIDGenerator
             from ..services.parser_service import get_parser_service
             from ..services.priority_service import get_priority_calculator
             from ..models import ProductionItem
-            
+        
+            # KROK 1: Przygotowanie wspólnych danych dla zamówienia
+            logger.info("Przetwarzanie zamówienia", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'products_count': len(products)
+            })
+        
+            # Wyciągnij dane klienta (wspólne dla całego zamówienia)
+            client_data = self._extract_client_data(order)
+        
+            # Oblicz deadline (wspólny dla całego zamówienia)  
+            deadline_date = self._calculate_deadline_date(order)
+        
+            # KROK 2: Policz łączną liczbę produktów (suma quantity)
+            total_products_count = 0
+            for product in products:
+                quantity = self._coerce_quantity(product.get('quantity', 1))
+                total_products_count += quantity
+        
+            logger.debug("Policzono produkty w zamówieniu", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'product_items': len(products),
+                'total_products_count': total_products_count
+            })
+        
+            # KROK 3: Wygeneruj ID dla całego zamówienia naraz
+            id_result = ProductIDGenerator.generate_product_id_for_order(
+                baselinker_order_id, total_products_count
+            )
+        
+            # KROK 4: Przetwórz produkty z sekwencyjnym numerowaniem  
+            sequence_counter = 1
             parser = get_parser_service()
             priority_calc = get_priority_calculator()
-            
-            sequence_counter = 1
-            
+        
             for product in products:
                 try:
                     product_name = product.get('name', '')
                     quantity = self._coerce_quantity(product.get('quantity', 1))
+                    order_product_id = product.get('order_product_id')  # ← WAŻNE!
+
+                    logger.debug("Przetwarzanie produktu", extra={
+                        'product_name': product_name[:50],
+                        'quantity': quantity,
+                        'order_product_id': order_product_id
+                    })
 
                     # Tworzenie produktów według quantity (każda sztuka = osobny rekord)
                     for qty_index in range(quantity):
-                        if dry_run:
+                        try:
+                            # Użyj pre-wygenerowanych ID z cache
+                            product_id = id_result['product_ids'][sequence_counter - 1]
+                        
+                            # Parsowanie nazwy produktu
+                            parsed_data = parser.parse_product_name(product_name)
+                        
+                            # Przygotowanie danych produktu
+                            product_data = self._prepare_product_data_new(
+                                order, product, product_id, id_result, parsed_data, 
+                                client_data, deadline_date, order_product_id, sequence_counter
+                            )
+                        
+                            # Obliczenie priorytetu
+                            priority_score = priority_calc.calculate_priority(product_data)
+                            product_data['priority_score'] = priority_score
+                        
+                            if not dry_run:
+                                # Zapis do bazy danych
+                                production_item = ProductionItem(**product_data)
+                                db.session.add(production_item)
+                            
                             results['created'] += 1
                             sequence_counter += 1
-                            continue
-
-                        # Generowanie Product ID
-                        id_result = ProductIDGenerator.generate_product_id(
-                            baselinker_order_id, sequence_counter
-                        )
-
-                        # Parsowanie nazwy produktu
-                        parsed_data = parser.parse_product_name(product_name) if parser else {}
-
-                        # Przygotowanie danych produktu
-                        product_data = self._prepare_product_data(
-                            order, product, id_result, parsed_data
-                        )
-
-                        # Obliczenie priorytetu
-                        if priority_calc:
-                            priority = priority_calc.calculate_priority(product_data)
-                            product_data['priority_score'] = priority
-
-                        # Utworzenie rekordu ProductionItem
-                        production_item = ProductionItem(**product_data)
-
-                        db.session.add(production_item)
-                        results['created'] += 1
-                        sequence_counter += 1
-
-                        logger.debug("Utworzono produkt", extra={
-                            'product_id': id_result['product_id'],
-                            'order_id': baselinker_order_id,
-                            'product_name': product_name[:50]
-                        })
-                
+                        
+                            logger.debug("Utworzono produkt", extra={
+                                'product_id': product_id,
+                                'sequence': sequence_counter - 1,
+                                'priority_score': priority_score
+                            })
+                        
+                        except Exception as e:
+                            results['errors'] += 1
+                            results['error_details'].append({
+                                'product_name': product_name,
+                                'sequence': sequence_counter,
+                                'error': str(e)
+                            })
+                            logger.error("Błąd tworzenia produktu", extra={
+                                'product_name': product_name,
+                                'sequence': sequence_counter,
+                                'baselinker_order_id': baselinker_order_id,
+                                'error': str(e)
+                            })
+                            sequence_counter += 1  # Zwiększ nawet przy błędzie
+                        
                 except Exception as e:
                     results['errors'] += 1
                     results['error_details'].append({
-                        'error': str(e),
-                        'product_name': product.get('name', 'unknown'),
-                        'order_id': baselinker_order_id
-                    })
-                    logger.error("Błąd przetwarzania produktu", extra={
                         'product_name': product.get('name'),
                         'order_id': baselinker_order_id,
                         'error': str(e)
                     })
-            
+        
             # Commit wszystkich produktów z zamówienia
             if not dry_run:
                 db.session.commit()
+            
+            logger.info("Zakończono przetwarzanie zamówienia", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'created': results['created'],
+                'errors': results['errors'],
+                'internal_order_number': id_result['internal_order_number']
+            })
 
         except Exception as e:
             if not dry_run:
@@ -1058,11 +1111,10 @@ class BaselinkerSyncService:
                 'order_id': baselinker_order_id,
                 'error': str(e)
             })
-        
-        return results
     
-    def _prepare_product_data(self, order: Dict[str, Any], product: Dict[str, Any], 
-                            id_result: Dict[str, Any], parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+        return results
+
+    def _prepare_product_data(self, order: Dict[str, Any], product: Dict[str, Any], id_result: Dict[str, Any], parsed_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Przygotowuje dane produktu do zapisania w bazie
         
@@ -1122,6 +1174,96 @@ class BaselinkerSyncService:
             'current_status': 'czeka_na_wyciecie'  # Domyślny status początkowy
         })
         
+        return product_data
+
+    def _prepare_product_data_new(
+        self, 
+        order: Dict[str, Any], 
+        product: Dict[str, Any], 
+        product_id: str,
+        id_result: Dict[str, Any], 
+        parsed_data: Dict[str, Any],
+        client_data: Dict[str, str],
+        deadline_date: date,
+        order_product_id: Any,
+        sequence_number: int) -> Dict[str, Any]:
+        """
+        Przygotowuje dane produktu do zapisania w bazie - NOWA WERSJA
+    
+        Args:
+            order: Dane zamówienia z Baselinker
+            product: Dane produktu z Baselinker  
+            product_id: Wygenerowany short_product_id
+            id_result: Wynik generowania ID
+            parsed_data: Sparsowane dane nazwy produktu
+            client_data: Dane klienta
+            deadline_date: Obliczona data deadline
+            order_product_id: ID produktu w zamówieniu z Baselinker
+            sequence_number: Numer sekwencyjny w zamówieniu
+        
+        Returns:
+            Dict[str, Any]: Przygotowane dane produktu
+        """
+    
+        # Podstawowe dane z ID generator
+        product_data = {
+            'short_product_id': product_id,
+            'internal_order_number': id_result['internal_order_number'],
+            'product_sequence_in_order': sequence_number,
+            'baselinker_order_id': order['order_id'],
+            'baselinker_product_id': str(order_product_id) if order_product_id else None,
+            'original_product_name': product.get('name', ''),
+            'baselinker_status_id': order.get('order_status_id'),
+        
+            # Dane klienta
+            'client_name': client_data['client_name'],
+            'client_email': client_data['client_email'],  
+            'client_phone': client_data['client_phone'],
+            'delivery_address': client_data['delivery_address'],
+        
+            # Deadline
+            'deadline_date': deadline_date,
+        
+            # Status początkowy
+            'current_status': 'czeka_na_wyciecie'
+        }
+    
+        # Dane sparsowane z nazwy produktu
+        if parsed_data:
+            product_data.update({
+                'parsed_wood_species': parsed_data.get('wood_species'),
+                'parsed_technology': parsed_data.get('technology'),
+                'parsed_wood_class': parsed_data.get('wood_class'),
+                'parsed_length_cm': parsed_data.get('length_cm'),
+                'parsed_width_cm': parsed_data.get('width_cm'),
+                'parsed_thickness_cm': parsed_data.get('thickness_cm'),
+                'parsed_finish_state': parsed_data.get('finish_state'),
+                'volume_m3': parsed_data.get('volume_m3')
+            })
+    
+        # Dane finansowe z produktu Baselinker
+        try:
+            price_brutto = float(product.get('price_brutto', 0))
+            tax_rate = float(product.get('tax_rate', 23))
+        
+            # Oblicz cenę netto
+            price_netto = price_brutto / (1 + tax_rate/100) if tax_rate > 0 else price_brutto
+        
+            product_data.update({
+                'unit_price_net': round(price_netto, 2),
+                'total_value_net': round(price_netto, 2)  # dla quantity=1 per rekord
+            })
+        except (ValueError, TypeError) as e:
+            logger.warning("Błąd obliczania cen produktu", extra={
+                'product_name': product.get('name', '')[:50],
+                'price_brutto': product.get('price_brutto'),
+                'error': str(e)
+            })
+            product_data.update({
+                'unit_price_net': 0,
+                'total_value_net': 0
+            })
+    
         return product_data
     
     def _update_product_priorities(self):
@@ -1366,6 +1508,98 @@ class BaselinkerSyncService:
             bool: True jeśli aktualizacja się powiodła
         """
         return self.update_order_status_in_baselinker(internal_order_number)
+
+    def _extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Wyciąga dane klienta w hierarchii:
+        delivery_fullname > invoice_fullname > user_login > email > phone
+        """
+        client_name = (
+            order.get('delivery_fullname') or
+            order.get('invoice_fullname') or 
+            order.get('user_login') or
+            order.get('email') or
+            order.get('phone') or
+            'Nieznany klient'
+        )
+    
+        # Skróć nazwę klienta do maksymalnie 255 znaków (limit bazy danych)
+        if len(client_name) > 255:
+            client_name = client_name[:252] + "..."
+    
+        # Przygotuj adres dostawy
+        delivery_parts = [
+            order.get('delivery_address', '').strip(),
+            order.get('delivery_city', '').strip(),
+            order.get('delivery_postcode', '').strip()
+        ]
+        delivery_address = ' '.join(part for part in delivery_parts if part)
+    
+        return {
+            'client_name': client_name,
+            'client_email': order.get('email', ''),
+            'client_phone': order.get('phone', ''),
+            'delivery_address': delivery_address
+        }
+
+    def _calculate_deadline_date(self, order: Dict[str, Any]) -> datetime.date:
+        """
+        Oblicza deadline na podstawie date_confirmed + konfigurowalne dni robocze
+        """
+        try:
+            from ..services.config_service import get_config_service
+            from datetime import timedelta
+        
+            date_confirmed_timestamp = order.get('date_confirmed')
+            if not date_confirmed_timestamp:
+                # Fallback: data dzisiejsza
+                base_date = datetime.now().date()
+                logger.warning("Brak date_confirmed w zamówieniu, używam daty dzisiejszej", extra={
+                    'order_id': order.get('order_id')
+                })
+            else:
+                # Konwersja timestamp Unix na date
+                base_date = datetime.fromtimestamp(int(date_confirmed_timestamp)).date()
+        
+            # Pobierz konfigurowalne dni robocze (zapisane raz na początku sync)
+            if not hasattr(self, '_cached_deadline_days'):
+                config_service = get_config_service()
+                self._cached_deadline_days = int(config_service.get_config('DEADLINE_DEFAULT_DAYS', '14'))
+        
+            # Oblicz deadline pomijając weekendy
+            deadline_date = self._add_business_days(base_date, self._cached_deadline_days)
+        
+            logger.debug("Obliczono deadline", extra={
+                'order_id': order.get('order_id'),
+                'date_confirmed': base_date.isoformat() if base_date else None,
+                'deadline_days': self._cached_deadline_days,
+                'calculated_deadline': deadline_date.isoformat()
+            })
+        
+            return deadline_date
+        
+        except Exception as e:
+            logger.error("Błąd obliczania deadline", extra={
+                'order_id': order.get('order_id'),
+                'error': str(e)
+            })
+            # Fallback: dzisiejsza data + 14 dni roboczych
+            return self._add_business_days(datetime.now().date(), 14)
+
+    def _add_business_days(self, start_date: date, business_days: int) -> date:
+        """Dodaje dni robocze pomijając weekendy (sobota=5, niedziela=6)"""
+        from datetime import timedelta
+    
+        current_date = start_date
+        days_added = 0
+    
+        while days_added < business_days:
+            current_date += timedelta(days=1)
+            # Weekday: Poniedziałek=0, Wtorek=1, ..., Sobota=5, Niedziela=6
+            if current_date.weekday() < 5:  # 0-4 = Poniedziałek-Piątek
+                days_added += 1
+            
+        return current_date
 
 # Singleton instance dla globalnego dostępu
 _sync_service_instance = None

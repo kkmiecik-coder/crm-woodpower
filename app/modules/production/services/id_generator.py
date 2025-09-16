@@ -25,6 +25,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from extensions import db
 from modules.logging import get_structured_logger
+import threading
+import sys
 
 logger = get_structured_logger('production.id_generator')
 
@@ -39,10 +41,92 @@ class ProductIDGenerator:
     Klasa statyczna zarządzająca generowaniem i walidacją ID produktów
     w nowym formacie skróconym dla optimalizacji workflow produkcyjnego.
     """
+
+    # Cache dla mapowania baselinker_order_id -> internal_order_number
+    _order_mapping_cache = {}
+    _cache_lock = threading.Lock() if 'threading' in sys.modules else None
     
     # Pattern dla walidacji formatu ID
     PRODUCT_ID_PATTERN = re.compile(r'^(\d{2})_(\d{5})_(\d+)$')
     INTERNAL_ORDER_PATTERN = re.compile(r'^(\d{2})_(\d{5})$')
+
+    @classmethod
+    def generate_product_id_for_order(cls, baselinker_order_id, total_products_count):
+        """
+        Generuje jeden internal_order_number dla całego zamówienia
+        i zwraca listę wszystkich product_id dla tego zamówienia
+    
+        Args:
+            baselinker_order_id (int): ID zamówienia w Baselinker
+            total_products_count (int): Łączna liczba produktów w zamówieniu
+        
+        Returns:
+            dict: {
+                'internal_order_number': str,  # '25_01029'
+                'product_ids': [str],          # ['25_01029_1', '25_01029_2', ...]
+                'year_code': str,              # '25'
+                'order_counter': int           # 1029
+            }
+        """
+        try:
+            # Sprawdź cache - czy to zamówienie już było przetwarzane
+            if baselinker_order_id in cls._order_mapping_cache:
+                cached = cls._order_mapping_cache[baselinker_order_id]
+                # Wygeneruj listę product_ids dla cache'owanego zamówienia
+                product_ids = []
+                for seq in range(1, total_products_count + 1):
+                    product_ids.append(f"{cached['internal_order_number']}_{seq}")
+            
+                return {
+                    'internal_order_number': cached['internal_order_number'],
+                    'product_ids': product_ids,
+                    'year_code': cached['year_code'],
+                    'order_counter': cached['order_counter']
+                }
+        
+            # Generuj nowy internal_order_number
+            current_year = datetime.now().year
+            year_code = str(current_year)[-2:]
+            order_counter = cls._get_next_order_counter(current_year)
+        
+            internal_order_number = f"{year_code}_{order_counter:05d}"
+        
+            # Wygeneruj listę wszystkich product_ids dla tego zamówienia
+            product_ids = []
+            for sequence in range(1, total_products_count + 1):
+                product_ids.append(f"{internal_order_number}_{sequence}")
+        
+            result = {
+                'internal_order_number': internal_order_number,
+                'product_ids': product_ids,
+                'year_code': year_code,
+                'order_counter': order_counter
+            }
+        
+            # Zapisz w cache
+            cls._order_mapping_cache[baselinker_order_id] = {
+                'internal_order_number': internal_order_number,
+                'year_code': year_code,
+                'order_counter': order_counter
+            }
+        
+            logger.info("Wygenerowano ID dla zamówienia", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'internal_order_number': internal_order_number,
+                'total_products': total_products_count,
+                'first_id': product_ids[0] if product_ids else None,
+                'last_id': product_ids[-1] if product_ids else None
+            })
+        
+            return result
+        
+        except Exception as e:
+            logger.error("Błąd generowania ID dla zamówienia", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'total_products_count': total_products_count,
+                'error': str(e)
+            })
+            raise ProductIDGeneratorError(f"Nie można wygenerować ID dla zamówienia: {str(e)}")
     
     @classmethod
     def generate_product_id(cls, baselinker_order_id, sequence_number):
@@ -459,6 +543,12 @@ class ProductIDGenerator:
                 'error': str(e)
             })
             raise ProductIDGeneratorError(f"Nie można zresetować licznika: {str(e)}")
+
+    @classmethod
+    def clear_order_cache(cls):
+        """Czyści cache mapowania zamówień (użyj po zakończeniu synchronizacji)"""
+        cls._order_mapping_cache.clear()
+        logger.info("Wyczyszczono cache mapowania zamówień")
 
 # Funkcje pomocnicze na poziomie modułu
 def generate_product_id(baselinker_order_id, sequence_number):
