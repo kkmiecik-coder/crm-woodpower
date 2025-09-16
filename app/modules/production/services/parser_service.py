@@ -149,15 +149,22 @@ class ProductNameParser:
         })
     
     def _init_reports_parser(self):
-        """Inicjalizacja parsera z modułu reports"""
+        """ Inicjalizacja parsera z modułu reports """
         try:
-            # Import parsera z modułu reports
-            from modules.reports.parser import parse_product_name as reports_parse
-            self._reports_parser = reports_parse
+            from modules.reports.parser import ProductNameParser as ReportsProductNameParser
+            reports_parser_instance = ReportsProductNameParser()
+            self._reports_parser = reports_parser_instance.parse_product_name
             logger.info("Zainicjalizowano parser z modułu reports")
-            
+        
         except ImportError as e:
             logger.warning("Nie można zaimportować parsera z modułu reports", extra={
+                'error': str(e),
+                'fallback': 'Używanie wbudowanego parsera'
+            })
+            self._reports_parser = None
+        
+        except Exception as e:
+            logger.warning("Błąd inicjalizacji parsera z modułu reports", extra={
                 'error': str(e),
                 'fallback': 'Używanie wbudowanego parsera'
             })
@@ -278,17 +285,15 @@ class ProductNameParser:
             # 1. Próba parsowania przez parser z modułu reports
             if self._reports_parser:
                 try:
-                    reports_result = self._reports_parser(original_name)
+                    reports_result = self._reports_parser(original_name) if self._reports_parser else None
                     if reports_result and isinstance(reports_result, dict):
-                        # Mapowanie wyników z parsera reports
                         result.update(self._map_reports_parser_result(reports_result))
-                        confidence_factors.append(0.8)  # Wysokie zaufanie do parsera reports
+                        confidence_factors.append(0.8)
                         logger.debug("Użyto parsera z modułu reports", extra={
                             'parsed_fields': list(reports_result.keys())
                         })
                     else:
                         errors.append("Parser reports zwrócił pusty wynik")
-                        
                 except Exception as e:
                     errors.append(f"Błąd parsera reports: {str(e)}")
                     logger.debug("Błąd parsera reports, używam wbudowanego", extra={
