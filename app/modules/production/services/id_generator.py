@@ -128,79 +128,6 @@ class ProductIDGenerator:
             })
             raise ProductIDGeneratorError(f"Nie można wygenerować ID dla zamówienia: {str(e)}")
     
-    @classmethod
-    def generate_product_id(cls, baselinker_order_id, sequence_number):
-        """
-        Generuje nowy Product ID w formacie YY_NNNNN_S
-        
-        Args:
-            baselinker_order_id (int): ID zamówienia w Baselinker
-            sequence_number (int): Numer sekwencji produktu w zamówieniu (1, 2, 3...)
-            
-        Returns:
-            dict: {
-                'product_id': str,           # Kompletny ID produktu (25_05248_1)
-                'internal_order_number': str, # Numer zamówienia wewnętrznego (25_05248)
-                'year_code': str,            # Kod roku (25)
-                'order_counter': int,        # Licznik zamówienia (5248)
-                'sequence': int              # Numer sekwencji (1)
-            }
-            
-        Raises:
-            ProductIDGeneratorError: W przypadku błędu generowania
-        """
-        try:
-            # Walidacja parametrów wejściowych
-            if not isinstance(baselinker_order_id, int) or baselinker_order_id <= 0:
-                raise ProductIDGeneratorError(f"Nieprawidłowy baselinker_order_id: {baselinker_order_id}")
-                
-            if not isinstance(sequence_number, int) or sequence_number <= 0:
-                raise ProductIDGeneratorError(f"Nieprawidłowy sequence_number: {sequence_number}")
-            
-            # Pobranie aktualnego roku i konwersja na 2-cyfrowy kod
-            current_year = datetime.now().year
-            year_code = str(current_year)[-2:]  # 2025 -> 25
-            
-            # Pobranie/utworzenie licznika dla roku
-            order_counter = cls._get_next_order_counter(current_year)
-            
-            # Formatowanie licznika do 5 cyfr z zerem wiodącym
-            formatted_counter = f"{order_counter:05d}"
-            
-            # Tworzenie ID
-            internal_order_number = f"{year_code}_{formatted_counter}"
-            product_id = f"{internal_order_number}_{sequence_number}"
-            
-            # Walidacja wygenerowanego ID
-            if not cls.validate_product_id_format(product_id):
-                raise ProductIDGeneratorError(f"Wygenerowany ID ma nieprawidłowy format: {product_id}")
-            
-            result = {
-                'product_id': product_id,
-                'internal_order_number': internal_order_number,
-                'year_code': year_code,
-                'order_counter': order_counter,
-                'sequence': sequence_number
-            }
-            
-            logger.info("Wygenerowano nowy Product ID", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'generated_id': product_id,
-                'internal_order': internal_order_number,
-                'year': current_year,
-                'counter': order_counter,
-                'sequence': sequence_number
-            })
-            
-            return result
-            
-        except Exception as e:
-            logger.error("Błąd generowania Product ID", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'sequence_number': sequence_number,
-                'error': str(e)
-            })
-            raise ProductIDGeneratorError(f"Nie można wygenerować Product ID: {str(e)}")
     
     @classmethod
     def _get_next_order_counter(cls, year):
@@ -391,17 +318,14 @@ class ProductIDGenerator:
     @classmethod
     def generate_multiple_product_ids(cls, baselinker_order_id, product_count):
         """
-        Generuje wiele Product ID dla tego samego zamówienia
+        Generuje wiele Product ID dla tego samego zamówienia - UŻYWA generate_product_id_for_order()
         
         Args:
             baselinker_order_id (int): ID zamówienia w Baselinker
             product_count (int): Liczba produktów do wygenerowania
             
         Returns:
-            list: Lista słowników z wygenerowanymi ID
-            
-        Raises:
-            ProductIDGeneratorError: W przypadku błędu
+            list: Lista słowników z wygenerowanymi ID w starym formacie dla zgodności
         """
         if not isinstance(product_count, int) or product_count <= 0:
             raise ProductIDGeneratorError(f"Nieprawidłowa liczba produktów: {product_count}")
@@ -410,32 +334,26 @@ class ProductIDGenerator:
             raise ProductIDGeneratorError(f"Zbyt duża liczba produktów: {product_count} (max 999)")
         
         try:
-            # Wygenerowanie ID dla pierwszego produktu (pobiera nowy licznik)
-            first_id = cls.generate_product_id(baselinker_order_id, 1)
-            results = [first_id]
+            # UŻYJ poprawnej metody generate_product_id_for_order()
+            order_result = cls.generate_product_id_for_order(baselinker_order_id, product_count)
             
-            # Generowanie kolejnych ID z tym samym internal_order_number
-            internal_order = first_id['internal_order_number']
-            year_code = first_id['year_code']
-            order_counter = first_id['order_counter']
-            
-            for sequence in range(2, product_count + 1):
-                product_id = f"{internal_order}_{sequence}"
-                
+            # Przekonwertuj na stary format dla zgodności z istniejącym kodem
+            results = []
+            for i, product_id in enumerate(order_result['product_ids']):
                 result = {
-                    'product_id': product_id,
-                    'internal_order_number': internal_order,
-                    'year_code': year_code,
-                    'order_counter': order_counter,
-                    'sequence': sequence
+                    'product_id': product_id,  # '25_00024_1'
+                    'internal_order_number': order_result['internal_order_number'],  # '25_00024'
+                    'year_code': order_result['year_code'],  # '25'
+                    'order_counter': order_result['order_counter'],  # 24
+                    'sequence': i + 1  # 1, 2, 3, ...
                 }
                 results.append(result)
             
             logger.info("Wygenerowano wiele Product ID", extra={
                 'baselinker_order_id': baselinker_order_id,
                 'product_count': product_count,
-                'internal_order': internal_order,
-                'first_id': first_id['product_id'],
+                'internal_order': order_result['internal_order_number'],
+                'first_id': results[0]['product_id'],
                 'last_id': results[-1]['product_id']
             })
             
@@ -552,8 +470,27 @@ class ProductIDGenerator:
 
 # Funkcje pomocnicze na poziomie modułu
 def generate_product_id(baselinker_order_id, sequence_number):
-    """Wrapper funkcji generowania ID"""
-    return ProductIDGenerator.generate_product_id(baselinker_order_id, sequence_number)
+    """
+    Wrapper funkcji generowania ID - DEPRECATED, użyj generate_product_id_for_order()
+    
+    UWAGA: Ta funkcja jest zachowana tylko dla zgodności wstecznej.
+    Dla nowych implementacji używaj ProductIDGenerator.generate_product_id_for_order()
+    """
+    logger.warning("Użyto deprecated funkcji generate_product_id()", extra={
+        'baselinker_order_id': baselinker_order_id,
+        'sequence_number': sequence_number
+    })
+    
+    # Wygeneruj ID dla pojedynczego produktu używając poprawnej metody
+    order_result = ProductIDGenerator.generate_product_id_for_order(baselinker_order_id, 1)
+    
+    return {
+        'product_id': order_result['product_ids'][0],  # Pierwszy (i jedyny) ID
+        'internal_order_number': order_result['internal_order_number'],
+        'year_code': order_result['year_code'],
+        'order_counter': order_result['order_counter'],
+        'sequence': sequence_number
+    }
 
 def validate_product_id(product_id):
     """Wrapper funkcji walidacji ID"""
