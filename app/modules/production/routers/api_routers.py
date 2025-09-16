@@ -724,6 +724,61 @@ def cron_sync():
             'timestamp': datetime.utcnow().isoformat()
         }), 500
 
+@api_bp.route('/sync/baselinker', methods=['POST'])
+@admin_required
+def baselinker_manual_sync_modal():
+    """Endpoint obsługujący manualną synchronizację z Baselinkerem z poziomu modalu."""
+
+    try:
+        payload = request.get_json() or {}
+
+        logger.info(
+            "API: Rozpoczęcie ręcznej synchronizacji Baselinker (modal)",
+            extra={
+                'user_id': getattr(current_user, 'id', None),
+                'target_statuses': payload.get('target_statuses'),
+                'period_days': payload.get('period_days'),
+                'limit_per_page': payload.get('limit_per_page'),
+                'dry_run': payload.get('dry_run', False),
+                'force_update': payload.get('force_update', False)
+            }
+        )
+
+        from ..services.sync_service import manual_sync_with_filtering as run_manual_sync_with_filtering
+
+        result = run_manual_sync_with_filtering(payload)
+
+        error_message = (result.get('error') or '').lower()
+        status_code = 200 if result.get('success') else (500 if 'nieoczekiwany' in error_message else 400)
+
+        logger.info(
+            "API: Zakończono synchronizację Baselinker (modal)",
+            extra={
+                'user_id': getattr(current_user, 'id', None),
+                'success': result.get('success'),
+                'orders_processed': result.get('data', {}).get('stats', {}).get('orders_processed'),
+                'products_created': result.get('data', {}).get('stats', {}).get('products_created'),
+                'errors_count': result.get('data', {}).get('stats', {}).get('errors_count')
+            }
+        )
+
+        return jsonify(result), status_code
+
+    except Exception as exc:
+        logger.exception(
+            "API: Błąd ręcznej synchronizacji Baselinker (modal)",
+            extra={'user_id': getattr(current_user, 'id', None)}
+        )
+
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'data': {
+                'status': 'failed',
+                'started_at': datetime.utcnow().isoformat()
+            }
+        }), 500
+
 @api_bp.route('/manual-sync', methods=['POST'])
 @admin_required
 def manual_sync():

@@ -11,7 +11,7 @@ POPRAWKA: Rozszerzono obsługę formatów wymiarów:
 """
 
 import re
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from decimal import Decimal
 from modules.logging import get_structured_logger
 # Inicjalizacja loggera
@@ -146,7 +146,7 @@ class ProductNameParser:
         self.compiled_dimension_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.dimension_patterns]
         self.compiled_class_pattern = re.compile(self.class_pattern)
     
-    def parse_product_name(self, product_name: str) -> Dict[str, any]:
+    def parse_product_name(self, product_name: str) -> Dict[str, Any]:
         """
         Parsuje nazwę produktu i wyciąga wszystkie możliwe informacje
         
@@ -154,7 +154,7 @@ class ProductNameParser:
             product_name (str): Nazwa produktu z Baselinker
             
         Returns:
-            Dict[str, any]: Słownik z wyciągniętymi informacjami
+            Dict[str, Any]: Słownik z wyciągniętymi informacjami
         """
         if not product_name:
             return self._empty_result()
@@ -296,7 +296,7 @@ class ProductNameParser:
         
         return has_dimensions and has_basic_info
     
-    def _empty_result(self) -> Dict[str, any]:
+    def _empty_result(self) -> Dict[str, Any]:
         """Zwraca pusty wynik - domyślnie klejonka"""
         return {
             'product_type': 'klejonka',  # domyślnie klejonka
@@ -315,7 +315,7 @@ class ProductNameParser:
 
 # ===== FUNKCJE POMOCNICZE =====
 
-def parse_single_product(product_name: str) -> Dict[str, any]:
+def parse_single_product(product_name: str) -> Dict[str, Any]:
     """
     Funkcja pomocnicza do parsowania pojedynczej nazwy produktu
     
@@ -323,7 +323,7 @@ def parse_single_product(product_name: str) -> Dict[str, any]:
         product_name (str): Nazwa produktu
         
     Returns:
-        Dict[str, any]: Wynik parsowania
+        Dict[str, Any]: Wynik parsowania
     """
     parser = ProductNameParser()
     return parser.parse_product_name(product_name)

@@ -7386,7 +7386,7 @@ body.fullscreen-mode {
     color: #666;
     transition: all 0.2s;
     white-space: nowrap;
-    min-width: 80px;
+    min-width: 120px;
 }
 
 .split-tab-btn.active {

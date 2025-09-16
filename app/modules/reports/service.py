@@ -2051,16 +2051,33 @@ class BaselinkerReportsService:
                              hours_back=hours_back)
             return False, 0
 
-    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False) -> Dict[str, any]:
+    def fetch_orders_from_date_range(self, date_from: datetime, date_to: datetime, get_all_statuses: bool = False, limit_per_page: int = 100) -> Dict[str, any]:
         """
-        NOWA METODA: Pobiera zamówienia z Baselinker dla konkretnego zakresu dat
-        Używana przez nowy system wyboru zamówień
+        NOWA METODA: Pobiera zamówienia z Baselinker dla konkretnego zakresu dat.
+
+        Args:
+            date_from (datetime): Data początkowa zakresu.
+            date_to (datetime): Data końcowa zakresu.
+            get_all_statuses (bool): Czy pobierać również anulowane/nieopłacone.
+            limit_per_page (int): Limit zamówień zwracanych w pojedynczym zapytaniu API (1-200).
         """
         try:
+            try:
+                limit_per_page_int = int(limit_per_page)
+            except (TypeError, ValueError):
+                limit_per_page_int = 100
+
+            # Baselinker API obsługuje limit 100 na zapytanie, ale pozwalamy na bezpieczny zakres
+            if limit_per_page_int < 1:
+                limit_per_page_int = 1
+            if limit_per_page_int > 200:
+                limit_per_page_int = 200
+
             self.logger.info("Pobieranie zamówień dla zakresu dat",
                             date_from=date_from.isoformat(),
                             date_to=date_to.isoformat(),
-                            get_all_statuses=get_all_statuses)
+                            get_all_statuses=get_all_statuses,
+                            limit_per_page=limit_per_page_int)
 
             headers = {
                 'X-BLToken': self.api_key,
@@ -2089,7 +2106,8 @@ class BaselinkerReportsService:
                     "get_unconfirmed_orders": True,
                     # Filtrowanie po dacie złożenia zamówienia (date_add)
                     "date_from": date_from_timestamp,
-                    "date_to": date_to_timestamp
+                    "date_to": date_to_timestamp,
+                    "limit": limit_per_page_int
                 }
 
                 # POPRAWKA: Domyślnie wykluczamy anulowane i nieopłacone (chyba że explicite żądamy wszystkich)
@@ -2175,7 +2193,8 @@ class BaselinkerReportsService:
                         return {
                             'success': False,
                             'orders': [],
-                            'error': f'Błąd API: {error_msg} (kod: {error_code})'
+                            'error': f'Błąd API: {error_msg} (kod: {error_code})',
+                            'pages_processed': page
                         }
 
                 except requests.exceptions.Timeout:
@@ -2198,7 +2217,8 @@ class BaselinkerReportsService:
             return {
                 'success': True,
                 'orders': all_orders,
-                'error': None
+                'error': None,
+                'pages_processed': page
             }
 
         except Exception as e:
@@ -2210,7 +2230,8 @@ class BaselinkerReportsService:
             return {
                 'success': False,
                 'orders': [],
-                'error': f'Błąd serwera: {str(e)}'
+                'error': f'Błąd serwera: {str(e)}',
+                'pages_processed': 0
             }
 
     def set_dimension_fixes(self, fixes: Dict):

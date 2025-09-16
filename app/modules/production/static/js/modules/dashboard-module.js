@@ -1030,8 +1030,8 @@ class DashboardModule {
             return {
                 level: 'warning',
                 title: 'Synchronizacja opóźniona',
-                message: `Ostatnia sync: ${syncAge}h temu`,
-                details: 'Rekomendowana sync co 1-2h'
+                message: `Ostatnie pobranie: ${syncAge}h temu`,
+                details: 'Zalecane pobieranie. co 1-2h'
             };
         }
         

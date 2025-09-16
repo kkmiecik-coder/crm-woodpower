@@ -90,37 +90,57 @@ class ProductNameParser:
         # Mapowanie gatunków drewna
         self._wood_species_mapping = {
             'dab': 'dąb',
+            'dąb': 'dąb',
+            'dębowa': 'dąb',
+            'dębowy': 'dąb',
+            'dębowe': 'dąb',
             'oak': 'dąb',
-            'buk': 'buk', 
+            'buk': 'buk',
+            'bukowa': 'buk',
+            'bukowy': 'buk', 
+            'bukowe': 'buk',
             'beech': 'buk',
             'jesion': 'jesion',
-            'ash': 'jesion',
-            'brzoza': 'brzoza',
-            'birch': 'brzoza',
-            'sosna': 'sosna',
-            'pine': 'sosna',
-            'świerk': 'świerk',
-            'spruce': 'świerk',
-            'grab': 'grab',
-            'hornbeam': 'grab',
-            'wiaz': 'wiąz',
-            'elm': 'wiąz',
-            'klon': 'klon',
-            'maple': 'klon'
+            'jesionowa': 'jesion',
+            'jesionowy': 'jesion',
+            'jesionowe': 'jesion',
+            'ash': 'jesion'
+        }
+
+        # Mapowanie klasy drewna
+        self._wood_class_mapping = {
+            'A/B': 'A/B',
+            'a/B': 'A/B',
+            'A/b': 'A/B',
+            'a/b': 'A/B',
+            'a-b': 'A/B',
+            'A-B': 'A/B',
+            'A-b': 'A/B',
+            'a-B': 'A/B',
+            'AB': 'A/B', 
+            'Ab': 'A/B',
+            'aB': 'A/B',
+            'ab': 'A/B',
+            'B/B': 'B/B',
+            'b/B': 'B/B',
+            'B/b': 'B/B',
+            'b/b': 'B/B',
+            'b-b': 'B/B',
+            'B-B': 'B/B',
+            'B-b': 'B/B',
+            'b-B': 'B/B',
+            'BB': 'B/B', 
+            'Bb': 'B/B',
+            'bB': 'B/B',
+            'bb': 'B/B'
         }
         
         # Mapowanie technologii
         self._technology_mapping = {
-            'klejonka': 'klejonka',
-            'glued': 'klejonka',
-            'solid': 'klejonka',
-            'deska': 'deska', 
-            'board': 'deska',
-            'plank': 'deska',
-            'fornir': 'fornir',
-            'veneer': 'fornir',
-            'laminat': 'laminat',
-            'laminate': 'laminat'
+            'lity': 'lity',
+            'lita': 'lity',
+            'lite': 'lity',
+            'mikrowczep': 'mikrowczep'
         }
         
         logger.info("Inicjalizacja ProductNameParser", extra={
@@ -459,35 +479,17 @@ class ProductNameParser:
     
     def _parse_wood_class(self, name: str) -> Optional[str]:
         """
-        Parsuje klasę drewna z nazwy
+        Parsuje klase drewna z nazwy
         
         Args:
             name (str): Nazwa do parsowania
             
         Returns:
-            Optional[str]: Klasa drewna lub None
+            Optional[str]: Klasa wykończenia lub None
         """
-        # Wzorce dla klas drewna
-        class_patterns = [
-            (r'\bclass\s*([abc])\b', r'\1'),
-            (r'\bklasa\s*([abc])\b', r'\1'),
-            (r'\b([abc])\s*class\b', r'\1'),
-            (r'\b([abc])\s*klasa\b', r'\1'),
-            (r'\b(rustic)\b', 'rustic'),
-            (r'\b(rustyk)\b', 'rustic'),
-            (r'\b(select)\b', 'select'),
-            (r'\b(premium)\b', 'premium'),
-            (r'\b(nature)\b', 'nature'),
-            (r'\b(natura)\b', 'nature')
-        ]
-        
-        for pattern, replacement in class_patterns:
-            match = re.search(pattern, name, re.IGNORECASE)
-            if match:
-                if replacement.startswith(r'\1'):
-                    return match.group(1).upper()
-                else:
-                    return replacement
+        for key, finish in self._wood_class_mapping.items():
+            if key in name:
+                return finish
         
         return None
     

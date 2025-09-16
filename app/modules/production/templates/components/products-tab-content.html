@@ -306,9 +306,9 @@
                     <!-- Value -->
                     <td class="value-cell text-center">
                         {% if product.total_value_net %}
-                        <span class="value-amount fw-bold">{{ "{:,.2f}"|format(product.total_value_net) }} zł</span>
+                        <span class="value-amount fw-bold">{{ "{:,.2f}".format(product.total_value_net).replace(",", " ") }} zł</span>
                         {% elif product.unit_price_net and product.volume_m3 %}
-                        <span class="value-amount">{{ "{:,.2f}"|format(product.unit_price_net * product.volume_m3) }} zł</span>
+                        <span class="value-amount">{{ "{:,.2f}".format(product.unit_price_net * product.volume_m3).replace(",", " ") }} zł</span>
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}

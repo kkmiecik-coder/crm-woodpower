@@ -580,24 +580,34 @@ class LoadingManager {
             align-items: center;
             justify-content: center;
             z-index: 9999;
-            flex-direction: column;
-            gap: 20px;
         `;
 
         this.globalSpinner.innerHTML = `
             <div style="
-                width: 50px;
-                height: 50px;
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #3498db;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-            "></div>
-            <div id="spinner-message" style="
-                color: white;
-                font-size: 16px;
-                font-weight: 500;
-            ">Ładowanie...</div>
+                display: flex;
+                flex-direction: column;
+                padding: 24px 32px;
+                gap: 20px;
+                color: #314254;
+                align-items: center;
+                background-color: #fff;
+                border-radius: var(--border-radius-lg);
+                    ">
+                    <div style="
+                        width: 50px;
+                        height: 50px;
+                        border: 4px solid #f3f3f3;
+                        border-top: 4px solid #3498db;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    "></div>
+                    <div id="spinner-message" style="
+                        color: #314254;
+                        font-size: 16px;
+                        font-weight: 500;
+                        font-family: Poppins, sans-serif;
+                    ">Ładowanie...</div>
+            </div>
         `;
 
         // Add spin animation

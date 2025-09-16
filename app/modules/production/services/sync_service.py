@@ -26,6 +26,7 @@ Data: 2025-01-08
 """
 
 import json
+import math
 import requests
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional, Tuple
@@ -220,31 +221,480 @@ class BaselinkerSyncService:
     def _create_sync_log(self, sync_type: str, sync_started_at: datetime) -> Optional['ProductionSyncLog']:
         """
         Tworzy rekord synchronizacji w bazie danych
-        
+
         Args:
             sync_type (str): Typ synchronizacji
             sync_started_at (datetime): Czas rozpoczęcia
-            
+
         Returns:
             Optional[ProductionSyncLog]: Rekord logu lub None przy błędzie
         """
         try:
             from ..models import ProductionSyncLog
-            
+
             sync_log = ProductionSyncLog(
                 sync_type=sync_type,
                 sync_started_at=sync_started_at,
                 processed_status_ids=','.join(map(str, self.source_statuses))
             )
-            
+
             db.session.add(sync_log)
             db.session.commit()
-            
+
             return sync_log
-            
+
         except Exception as e:
             logger.error("Błąd tworzenia logu synchronizacji", extra={'error': str(e)})
             return None
+
+
+    def manual_sync_with_filtering(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Ręczna synchronizacja z Baselinkerem z filtrowaniem produktów."""
+
+        sync_started_at = datetime.utcnow()
+        sync_log = self._create_sync_log('manual_trigger', sync_started_at)
+
+        stats = {
+            'pages_processed': 0,
+            'orders_found': 0,
+            'orders_matched_status': 0,
+            'orders_processed': 0,
+            'orders_skipped_existing': 0,
+            'products_created': 0,
+            'products_updated': 0,
+            'products_skipped': 0,
+            'errors_count': 0
+        }
+        error_details: List[Dict[str, Any]] = []
+        log_entries: List[Dict[str, Any]] = []
+
+        try:
+            target_statuses_raw = params.get('target_statuses') or []
+            target_statuses = {
+                status for status in (
+                    self._safe_int(value) for value in target_statuses_raw
+                ) if status is not None
+            }
+
+            if not target_statuses:
+                raise SyncError('Brak docelowych statusów zamówień do synchronizacji.')
+
+            try:
+                period_days = int(params.get('period_days', 25))
+            except (TypeError, ValueError):
+                period_days = 25
+            period_days = max(1, min(period_days, 90))
+
+            try:
+                limit_per_page = int(params.get('limit_per_page', 100))
+            except (TypeError, ValueError):
+                limit_per_page = 100
+            limit_per_page = max(10, min(limit_per_page, 200))
+
+            force_update = bool(params.get('force_update'))
+            skip_validation = bool(params.get('skip_validation'))
+            dry_run = bool(params.get('dry_run'))
+            debug_mode = bool(params.get('debug_mode'))
+
+            excluded_keywords = {
+                str(keyword).lower().strip()
+                for keyword in params.get('excluded_keywords', [])
+                if isinstance(keyword, str) and keyword.strip()
+            }
+
+            if sync_log:
+                sync_log.processed_status_ids = ','.join(map(str, sorted(target_statuses)))
+
+            def add_log(message: str, level: str = 'info', **context: Any) -> None:
+                timestamp = datetime.utcnow().isoformat()
+                entry: Dict[str, Any] = {
+                    'timestamp': timestamp,
+                    'level': level,
+                    'message': message
+                }
+                if context:
+                    entry['context'] = context
+                log_entries.append(entry)
+
+                if level == 'error':
+                    logger.error(message, extra={'context': 'manual_sync', **{f'ctx_{k}': v for k, v in context.items()}})
+                elif level == 'warning':
+                    logger.warning(message, extra={'context': 'manual_sync', **{f'ctx_{k}': v for k, v in context.items()}})
+                elif level == 'debug':
+                    if debug_mode:
+                        logger.debug(message, extra={'context': 'manual_sync', **{f'ctx_{k}': v for k, v in context.items()}})
+                else:
+                    logger.info(message, extra={'context': 'manual_sync', **{f'ctx_{k}': v for k, v in context.items()}})
+
+            add_log('Rozpoczynanie ręcznej synchronizacji z Baselinker.', 'info')
+            add_log(
+                'Parametry synchronizacji',
+                'debug' if debug_mode else 'info',
+                period_days=period_days,
+                limit_per_page=limit_per_page,
+                force_update=force_update,
+                skip_validation=skip_validation,
+                dry_run=dry_run,
+                debug_mode=debug_mode,
+                target_statuses=sorted(target_statuses)
+            )
+
+            date_to = datetime.utcnow()
+            date_from = date_to - timedelta(days=period_days)
+            add_log(
+                f'Zakres synchronizacji: {date_from.date()} → {date_to.date()}',
+                'info'
+            )
+
+            from modules.reports.service import get_reports_service
+
+            reports_service = get_reports_service()
+            if not reports_service:
+                raise SyncError('Nie można zainicjować serwisu raportów Baselinker.')
+
+            fetch_result = reports_service.fetch_orders_from_date_range(
+                date_from=date_from,
+                date_to=date_to,
+                get_all_statuses=True,
+                limit_per_page=limit_per_page
+            )
+
+            if not fetch_result.get('success'):
+                raise SyncError(fetch_result.get('error', 'Nie udało się pobrać zamówień z Baselinker.'))
+
+            orders = fetch_result.get('orders', []) or []
+            stats['orders_found'] = len(orders)
+            stats['pages_processed'] = fetch_result.get('pages_processed') or 0
+            if stats['pages_processed'] == 0 and stats['orders_found'] > 0:
+                stats['pages_processed'] = max(1, math.ceil(stats['orders_found'] / max(limit_per_page, 1)))
+
+            add_log(
+                f'Pobrano {stats["orders_found"]} zamówień (strony API: {stats["pages_processed"]}).',
+                'info'
+            )
+
+            target_statuses_set = set(target_statuses)
+            orders_after_status: List[Dict[str, Any]] = []
+            for order in orders:
+                status_value = self._safe_int(order.get('order_status_id') or order.get('status_id'))
+                if status_value is None:
+                    if debug_mode:
+                        add_log(
+                            'Pominięto zamówienie bez statusu.',
+                            'debug',
+                            order_id=order.get('order_id')
+                        )
+                    continue
+
+                if status_value not in target_statuses_set:
+                    continue
+
+                orders_after_status.append(order)
+
+            stats['orders_matched_status'] = len(orders_after_status)
+            add_log(
+                f'Do dalszego przetworzenia zakwalifikowano {stats["orders_matched_status"]} zamówień.',
+                'info'
+            )
+
+            reports_parser = None
+            try:
+                from modules.reports.parser import ProductNameParser as ReportsProductNameParser
+                reports_parser = ReportsProductNameParser()
+                if debug_mode:
+                    add_log('Zainicjowano parser nazw produktów z modułu reports.', 'debug')
+            except Exception as parser_error:
+                add_log(
+                    'Nie udało się zainicjować parsera nazw produktów z modułu reports. '
+                    'Używane będzie podstawowe filtrowanie słów kluczowych.',
+                    'warning'
+                )
+                logger.debug(
+                    'Parser reports niedostępny',
+                    extra={'context': 'manual_sync', 'error': str(parser_error)}
+                )
+
+            excluded_product_types = {'suszenie', 'worek opałowy', 'tarcica', 'deska'}
+
+            for order in orders_after_status:
+                order_id_val = self._safe_int(order.get('order_id'))
+                if order_id_val is None:
+                    stats['errors_count'] += 1
+                    error_details.append({'error': 'Brak identyfikatora zamówienia', 'order': order})
+                    add_log('Pominięto zamówienie bez identyfikatora.', 'error')
+                    continue
+
+                if not force_update and self._order_already_processed(order_id_val):
+                    stats['orders_skipped_existing'] += 1
+                    add_log(
+                        f'Zamówienie {order_id_val} było już zsynchronizowane - pominięto.',
+                        'info'
+                    )
+                    continue
+
+                if force_update and not dry_run:
+                    try:
+                        removed_count = self._delete_existing_items(order_id_val)
+                        if removed_count:
+                            stats['products_skipped'] += removed_count
+                            add_log(
+                                f'Usunięto {removed_count} istniejących pozycji zamówienia {order_id_val}.',
+                                'info'
+                            )
+                    except Exception as delete_error:
+                        stats['errors_count'] += 1
+                        error_details.append({'error': str(delete_error), 'order_id': order_id_val})
+                        add_log(
+                            f'Nie udało się usunąć istniejących pozycji zamówienia {order_id_val}.',
+                            'error'
+                        )
+                        continue
+
+                products = order.get('products') or []
+                if not products:
+                    if debug_mode:
+                        add_log(
+                            f'Zamówienie {order_id_val} nie zawiera produktów - pominięto.',
+                            'debug'
+                        )
+                    continue
+
+                filtered_products: List[Dict[str, Any]] = []
+
+                for product in products:
+                    product_name_raw = product.get('name', '')
+                    product_name = product_name_raw.strip() if isinstance(product_name_raw, str) else ''
+                    if not product_name and skip_validation:
+                        product_name = 'Produkt bez nazwy'
+
+                    if not product_name and not skip_validation:
+                        skipped_qty = self._coerce_quantity(product.get('quantity', 1))
+                        stats['products_skipped'] += skipped_qty
+                        add_log(
+                            f'Pominięto pozycję bez nazwy w zamówieniu {order_id_val}.',
+                            'warning'
+                        )
+                        continue
+
+                    quantity_value = self._coerce_quantity(product.get('quantity', 1))
+                    if quantity_value <= 0:
+                        if skip_validation:
+                            quantity_value = 1
+                        else:
+                            stats['products_skipped'] += 1
+                            if debug_mode:
+                                add_log(
+                                    f'Pominięto pozycję {product_name or product_name_raw} (nieprawidłowa ilość).',
+                                    'debug',
+                                    order_id=order_id_val
+                                )
+                            continue
+
+                    name_lower = product_name.lower()
+                    if excluded_keywords and any(keyword in name_lower for keyword in excluded_keywords):
+                        stats['products_skipped'] += quantity_value
+                        if debug_mode:
+                            add_log(
+                                f"Wykluczono '{product_name}' na podstawie słów kluczowych.",
+                                'debug',
+                                order_id=order_id_val
+                            )
+                        continue
+
+                    if reports_parser:
+                        try:
+                            parsed = reports_parser.parse_product_name(product_name)
+                            product_type = (parsed.get('product_type') or '').lower()
+                        except Exception as parse_error:
+                            product_type = ''
+                            if debug_mode:
+                                add_log(
+                                    f"Błąd parsowania '{product_name}': {parse_error}",
+                                    'debug',
+                                    order_id=order_id_val
+                                )
+                        if product_type and product_type in excluded_product_types:
+                            stats['products_skipped'] += quantity_value
+                            if debug_mode:
+                                add_log(
+                                    f"Wykluczono '{product_name}' (typ: {product_type}).",
+                                    'debug',
+                                    order_id=order_id_val
+                                )
+                            continue
+
+                    sanitized_product = dict(product)
+                    sanitized_product['name'] = product_name if product_name else product.get('name', '')
+                    sanitized_product['quantity'] = quantity_value
+                    filtered_products.append(sanitized_product)
+
+                if not filtered_products:
+                    if debug_mode:
+                        add_log(
+                            f'Brak produktów do utworzenia dla zamówienia {order_id_val} po filtrach.',
+                            'debug'
+                        )
+                    continue
+
+                if dry_run:
+                    quantity_total = sum(prod.get('quantity', 0) or 0 for prod in filtered_products)
+                    stats['products_created'] += quantity_total
+                    stats['orders_processed'] += 1
+                    add_log(
+                        f"[DRY RUN] Zamówienie {order_id_val}: {quantity_total} pozycji kwalifikuje się do utworzenia.",
+                        'info'
+                    )
+                    continue
+
+                order_results = self._process_single_order(order, filtered_products, dry_run=False)
+                stats['orders_processed'] += 1
+                stats['products_created'] += order_results.get('created', 0)
+                stats['products_updated'] += order_results.get('updated', 0)
+                stats['errors_count'] += order_results.get('errors', 0)
+
+                if order_results.get('error_details'):
+                    error_details.extend(order_results['error_details'])
+                    add_log(
+                        f"Zamówienie {order_id_val} zakończone z błędami ({len(order_results['error_details'])}).",
+                        'warning'
+                    )
+
+                add_log(
+                    f"Przetworzono zamówienie {order_id_val} - utworzono {order_results.get('created', 0)} pozycji.",
+                    'info'
+                )
+
+            add_log(
+                f"Synchronizacja zakończona. Zamówienia przetworzone: {stats['orders_processed']},"
+                f" utworzone produkty: {stats['products_created']}.",
+                'info'
+            )
+
+            if sync_log:
+                sync_log.orders_fetched = stats['orders_matched_status']
+                sync_log.products_created = stats['products_created']
+                sync_log.products_updated = stats['products_updated']
+                sync_log.products_skipped = stats['products_skipped']
+                sync_log.error_count = stats['errors_count']
+                if error_details:
+                    sync_log.error_details = json.dumps({'errors': error_details})
+                sync_log.mark_completed()
+                db.session.commit()
+
+            sync_completed_at = datetime.utcnow()
+            duration_seconds = int((sync_completed_at - sync_started_at).total_seconds())
+            status_label = 'dry_run' if dry_run else ('partial' if stats['errors_count'] > 0 else 'completed')
+
+            stats_payload = {
+                'pages_processed': int(stats['pages_processed']),
+                'orders_found': int(stats['orders_found']),
+                'orders_matched': int(stats['orders_matched_status']),
+                'orders_processed': int(stats['orders_processed']),
+                'orders_skipped_existing': int(stats['orders_skipped_existing']),
+                'products_created': int(stats['products_created']),
+                'products_updated': int(stats['products_updated']),
+                'products_skipped': int(stats['products_skipped']),
+                'errors_count': int(stats['errors_count'])
+            }
+
+            response = {
+                'success': True,
+                'message': 'Synchronizacja Baselinker zakończona pomyślnie.',
+                'data': {
+                    'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
+                    'status': status_label,
+                    'started_at': sync_started_at.isoformat(),
+                    'completed_at': sync_completed_at.isoformat(),
+                    'duration_seconds': duration_seconds,
+                    'options': {
+                        'force_update': force_update,
+                        'skip_validation': skip_validation,
+                        'dry_run': dry_run,
+                        'debug_mode': debug_mode,
+                        'limit_per_page': limit_per_page,
+                        'period_days': period_days,
+                        'target_statuses': sorted(target_statuses),
+                        'excluded_keywords': sorted(excluded_keywords)
+                    },
+                    'stats': stats_payload,
+                    'log_entries': log_entries
+                }
+            }
+
+            return response
+
+        except SyncError as sync_error:
+            logger.warning('Manual Baselinker sync validation error', extra={'error': str(sync_error)})
+            if sync_log:
+                sync_log.sync_status = 'failed'
+                sync_log.error_count = (sync_log.error_count or 0) + 1
+                sync_log.error_details = json.dumps({'error': str(sync_error), 'logs': log_entries[-20:]})
+                sync_log.mark_completed()
+                db.session.commit()
+
+            add_log(str(sync_error), 'error')
+            sync_completed_at = datetime.utcnow()
+            stats_payload = {
+                'pages_processed': int(stats['pages_processed']),
+                'orders_found': int(stats['orders_found']),
+                'orders_matched': int(stats['orders_matched_status']),
+                'orders_processed': int(stats['orders_processed']),
+                'orders_skipped_existing': int(stats['orders_skipped_existing']),
+                'products_created': int(stats['products_created']),
+                'products_updated': int(stats['products_updated']),
+                'products_skipped': int(stats['products_skipped']),
+                'errors_count': int(stats['errors_count'] + 1)
+            }
+
+            return {
+                'success': False,
+                'error': str(sync_error),
+                'data': {
+                    'status': 'failed',
+                    'started_at': sync_started_at.isoformat(),
+                    'completed_at': sync_completed_at.isoformat(),
+                    'duration_seconds': int((sync_completed_at - sync_started_at).total_seconds()),
+                    'stats': stats_payload,
+                    'log_entries': log_entries
+                }
+            }
+
+        except Exception as exc:
+            logger.exception('Manual Baselinker sync unexpected error')
+            if sync_log:
+                sync_log.sync_status = 'failed'
+                sync_log.error_count = (sync_log.error_count or 0) + 1
+                sync_log.error_details = json.dumps({'error': str(exc), 'logs': log_entries[-20:]})
+                sync_log.mark_completed()
+                db.session.commit()
+
+            add_log(str(exc), 'error')
+            sync_completed_at = datetime.utcnow()
+            stats_payload = {
+                'pages_processed': int(stats['pages_processed']),
+                'orders_found': int(stats['orders_found']),
+                'orders_matched': int(stats['orders_matched_status']),
+                'orders_processed': int(stats['orders_processed']),
+                'orders_skipped_existing': int(stats['orders_skipped_existing']),
+                'products_created': int(stats['products_created']),
+                'products_updated': int(stats['products_updated']),
+                'products_skipped': int(stats['products_skipped']),
+                'errors_count': int(stats['errors_count'] + 1)
+            }
+
+            return {
+                'success': False,
+                'error': 'Wystąpił nieoczekiwany błąd podczas synchronizacji.',
+                'data': {
+                    'status': 'failed',
+                    'started_at': sync_started_at.isoformat(),
+                    'completed_at': sync_completed_at.isoformat(),
+                    'duration_seconds': int((sync_completed_at - sync_started_at).total_seconds()),
+                    'stats': stats_payload,
+                    'log_entries': log_entries
+                }
+            }
+
     
     def _fetch_orders_from_baselinker(self) -> List[Dict[str, Any]]:
         """
@@ -360,7 +810,7 @@ class BaselinkerSyncService:
                 
         raise SyncError(f"Nie udało się wykonać requestu po {self.max_retries} próbach: {last_error}")
     
-    def _process_orders_to_products(self, orders_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _process_orders_to_products(self, orders_data: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, Any]:
         """
         Przetwarza zamówienia z Baselinker na produkty produkcyjne
         
@@ -398,7 +848,7 @@ class BaselinkerSyncService:
                     results['skipped'] += 1
                     continue
                 
-                order_results = self._process_single_order(order, products)
+                order_results = self._process_single_order(order, products, dry_run=dry_run)
                 results['created'] += order_results['created']
                 results['updated'] += order_results['updated']
                 results['errors'] += order_results['errors']
@@ -442,14 +892,76 @@ class BaselinkerSyncService:
                 'error': str(e)
             })
             return False
+
+
+    def _coerce_quantity(self, value: Any, default: int = 1) -> int:
+        """Konwertuje wartość quantity na bezpieczną liczbę całkowitą."""
+        try:
+            if value is None:
+                return default
+
+            if isinstance(value, (int, float)):
+                quantity = int(float(value))
+            else:
+                value_str = str(value).strip()
+                if not value_str:
+                    return default
+                quantity = int(float(value_str.replace(',', '.')))
+
+            if quantity <= 0:
+                return default
+
+            return quantity
+
+        except (TypeError, ValueError):
+            return default
+
+    def _safe_int(self, value: Any) -> Optional[int]:
+        """Bezpiecznie konwertuje wartość na int lub zwraca None."""
+        try:
+            if value is None:
+                return None
+
+            if isinstance(value, (int, float)):
+                converted = int(float(value))
+            else:
+                value_str = str(value).strip()
+                if not value_str:
+                    return None
+                converted = int(float(value_str))
+
+            return converted
+
+        except (TypeError, ValueError):
+            return None
+
+    def _delete_existing_items(self, baselinker_order_id: int) -> int:
+        """Usuwa istniejące produkty powiązane z zamówieniem Baselinker."""
+        from ..models import ProductionItem
+
+        try:
+            deleted_count = ProductionItem.query.filter_by(
+                baselinker_order_id=baselinker_order_id
+            ).delete()
+            db.session.commit()
+            return deleted_count or 0
+        except Exception as exc:
+            db.session.rollback()
+            logger.error("Błąd usuwania istniejących produktów", extra={
+                'order_id': baselinker_order_id,
+                'error': str(exc)
+            })
+            raise
+
     
-    def _process_single_order(self, order: Dict[str, Any], products: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _process_single_order(self, order: Dict[str, Any], products: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, Any]:
         """
         Przetwarza pojedyncze zamówienie na produkty
-        
+
         Args:
             order (Dict[str, Any]): Dane zamówienia
             products (List[Dict[str, Any]]): Lista produktów w zamówieniu
+            dry_run (bool): Czy wykonać przetwarzanie w trybie symulacji (bez zapisów w bazie)
             
         Returns:
             Dict[str, Any]: Wyniki przetwarzania zamówienia
@@ -477,35 +989,40 @@ class BaselinkerSyncService:
             for product in products:
                 try:
                     product_name = product.get('name', '')
-                    quantity = int(product.get('quantity', 1))
-                    
+                    quantity = self._coerce_quantity(product.get('quantity', 1))
+
                     # Tworzenie produktów według quantity (każda sztuka = osobny rekord)
                     for qty_index in range(quantity):
+                        if dry_run:
+                            results['created'] += 1
+                            sequence_counter += 1
+                            continue
+
                         # Generowanie Product ID
                         id_result = ProductIDGenerator.generate_product_id(
                             baselinker_order_id, sequence_counter
                         )
-                        
+
                         # Parsowanie nazwy produktu
                         parsed_data = parser.parse_product_name(product_name) if parser else {}
-                        
+
                         # Przygotowanie danych produktu
                         product_data = self._prepare_product_data(
                             order, product, id_result, parsed_data
                         )
-                        
+
                         # Obliczenie priorytetu
                         if priority_calc:
                             priority = priority_calc.calculate_priority(product_data)
                             product_data['priority_score'] = priority
-                        
+
                         # Utworzenie rekordu ProductionItem
                         production_item = ProductionItem(**product_data)
-                        
+
                         db.session.add(production_item)
                         results['created'] += 1
                         sequence_counter += 1
-                        
+
                         logger.debug("Utworzono produkt", extra={
                             'product_id': id_result['product_id'],
                             'order_id': baselinker_order_id,
@@ -526,10 +1043,12 @@ class BaselinkerSyncService:
                     })
             
             # Commit wszystkich produktów z zamówienia
-            db.session.commit()
-            
+            if not dry_run:
+                db.session.commit()
+
         except Exception as e:
-            db.session.rollback()
+            if not dry_run:
+                db.session.rollback()
             results['errors'] += 1
             results['error_details'].append({
                 'error': str(e),
@@ -870,6 +1389,10 @@ def get_sync_service() -> BaselinkerSyncService:
 def sync_orders_from_baselinker(sync_type: str = 'manual_trigger') -> Dict[str, Any]:
     """Helper function dla synchronizacji zamówień"""
     return get_sync_service().sync_orders_from_baselinker(sync_type)
+
+def manual_sync_with_filtering(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Helper function dla ręcznej synchronizacji z filtrami."""
+    return get_sync_service().manual_sync_with_filtering(params)
 
 def update_order_status_in_baselinker(internal_order_number: str) -> bool:
     """Helper function dla aktualizacji statusu"""
