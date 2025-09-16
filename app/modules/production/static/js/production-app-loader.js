@@ -1,5 +1,5 @@
 /**
- * Production App Loader - Główny kontroler aplikacji
+ * Production App Loader - Główny kontroler aplikacji - production-app-loader.js
  * ==================================================
  * 
  * Odpowiedzialności:
@@ -17,6 +17,15 @@
 // ============================================================================
 // MAIN APPLICATION CLASS
 // ============================================================================
+
+console.log('[ProductionApp] Checking required dependencies...');
+console.log('- ProductionShared:', typeof window.ProductionShared !== 'undefined');
+console.log('- DashboardModule:', typeof DashboardModule !== 'undefined');
+
+// Jeśli DashboardModule nie istnieje, może trzeba go załadować dynamicznie
+if (typeof DashboardModule === 'undefined') {
+    console.warn('[ProductionApp] DashboardModule not found! Dashboard functionality will be limited.');
+}
 
 class ProductionApp {
     constructor() {
@@ -207,6 +216,12 @@ class ProductionApp {
     }
 
     async loadTabContent(tabName) {
+        // Sprawdź czy modal jest aktywny przed jakimkolwiek refresh
+        if (typeof window.isBaselinkerSyncModalActive === 'function' && window.isBaselinkerSyncModalActive()) {
+            console.log('[ProductionApp] Nie można załadować taba - modal synchronizacji jest aktywny');
+            return;
+        }
+
         const loadingContext = `tab-${tabName}`;
 
         try {
@@ -262,7 +277,6 @@ class ProductionApp {
         console.log('[ProductionApp] Loading dashboard tab...');
 
         try {
-            // POPRAWKA: Load dashboard content via API instead of dynamic import
             const loadingContext = `tab-dashboard-tab`;
             
             this.shared.loadingManager.show(loadingContext, 'Ładowanie dashboard...');
@@ -286,6 +300,9 @@ class ProductionApp {
             if (loading) {
                 loading.style.display = 'none';
             }
+
+            // NOWE: Inicjalizuj DashboardModule po załadowaniu HTML
+            await this.initializeDashboardModule();
             
             console.log('[ProductionApp] Dashboard tab loaded successfully');
             
@@ -425,19 +442,29 @@ class ProductionApp {
     // ========================================================================
 
     async cleanupTab(tabName) {
-        // POPRAWKA: Sprawdź czy tabName nie jest null/undefined
+        // Sprawdź czy tabName nie jest null/undefined
         if (!tabName) {
             console.log('[ProductionApp] No tab to cleanup');
             return;
         }
 
-        const moduleName = tabName.replace('-tab', '');
+        console.log(`[ProductionApp] Cleaning up tab: ${tabName}`);
+
+        // NOWE: Określ nazwę modułu na podstawie taba
+        let moduleName = tabName.replace('-tab', '');
+        
+        // Specjalne mapowanie jeśli potrzebne
+        if (moduleName === 'dashboard') {
+            moduleName = 'dashboard';
+        }
+        
         const module = this.state.loadedModules.get(moduleName);
         
         if (module && typeof module.unload === 'function') {
             try {
                 await module.unload();
-                console.log(`[ProductionApp] Module ${moduleName} unloaded`);
+                this.state.loadedModules.delete(moduleName);
+                console.log(`[ProductionApp] Module ${moduleName} unloaded and removed`);
             } catch (error) {
                 console.warn(`[ProductionApp] Error unloading module ${moduleName}:`, error);
             }
@@ -502,8 +529,13 @@ class ProductionApp {
             return;
         }
 
-        console.log(`[ProductionApp] Auto-refreshing current tab: ${this.state.currentTab}`);
+        // NOWA POPRAWKA: Sprawdź czy modal synchronizacji jest aktywny
+        if (typeof window.isBaselinkerSyncModalActive === 'function' && window.isBaselinkerSyncModalActive()) {
+            console.log('[ProductionApp] Skipping refresh - modal synchronizacji jest aktywny');
+            return;
+        }
 
+        console.log(`[ProductionApp] Auto-refreshing current tab: ${this.state.currentTab}`);
         try {
             await this.loadTabContent(this.state.currentTab);
             console.log('[ProductionApp] Auto-refresh completed');
@@ -582,6 +614,41 @@ class ProductionApp {
     // INITIALIZATION HELPERS
     // ========================================================================
 
+    async initializeDashboardModule() {
+        console.log('[ProductionApp] Initializing DashboardModule...');
+        
+        try {
+            // Sprawdź czy DashboardModule jest dostępny
+            if (typeof DashboardModule === 'undefined') {
+                console.error('[ProductionApp] DashboardModule class not found! Make sure dashboard-module.js is loaded.');
+                return;
+            }
+            
+            // Usuń poprzednią instancję jeśli istnieje
+            if (this.state.loadedModules.has('dashboard')) {
+                const existingModule = this.state.loadedModules.get('dashboard');
+                if (existingModule && typeof existingModule.unload === 'function') {
+                    await existingModule.unload();
+                }
+            }
+            
+            // Utwórz nową instancję DashboardModule
+            const dashboardModule = new DashboardModule(this.shared, this.config);
+            
+            // Załaduj moduł
+            await dashboardModule.load();
+            
+            // Zapisz w state
+            this.state.loadedModules.set('dashboard', dashboardModule);
+            
+            console.log('[ProductionApp] DashboardModule initialized successfully');
+            
+        } catch (error) {
+            console.error('[ProductionApp] Failed to initialize DashboardModule:', error);
+            throw error;
+        }
+    }
+
     async loadInitialTab() {
         // Determine initial tab from URL hash or active tab
         let initialTab = 'dashboard-tab';
@@ -648,6 +715,24 @@ class ProductionApp {
 
     async forceRefresh() {
         await this.refreshCurrentTab();
+    }
+
+    debugModuleState() {
+        console.log('[ProductionApp] Current module state:');
+        console.log('- Loaded modules:', Array.from(this.state.loadedModules.keys()));
+        console.log('- Current tab:', this.state.currentTab);
+        console.log('- Is loading:', this.state.isLoading);
+        
+        // Sprawdź czy DashboardModule istnieje globalnie
+        console.log('- DashboardModule available:', typeof DashboardModule !== 'undefined');
+        
+        // Sprawdź czy dashboard module jest załadowany
+        const dashboardModule = this.state.loadedModules.get('dashboard');
+        if (dashboardModule) {
+            console.log('- Dashboard module loaded:', dashboardModule.isLoaded);
+        } else {
+            console.log('- Dashboard module: NOT LOADED');
+        }
     }
 }
 

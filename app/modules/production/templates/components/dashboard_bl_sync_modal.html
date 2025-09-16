@@ -1,0 +1,288 @@
+<!-- Modal ręcznej synchronizacji z Baselinker - app/modules/production/templates/components/dashboard_bl_sync_modal.html -->
+<div class="modal fade" id="baselinkerSyncModal" tabindex="-1" role="dialog" aria-labelledby="baselinkerSyncModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="baselinkerSyncModalLabel">
+                    <i class="fas fa-sync-alt"></i> Synchronizacja z Baselinker
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Krok 1: Konfiguracja synchronizacji -->
+                <div id="sync-step-1" class="sync-step">
+                    <div class="alert alert-info mb-4">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Synchronizacja produkcji</strong><br>
+                        System pobierze zamówienia z ostatnich 25 dni z Baselinker i utworzy produkty w systemie produkcji.
+                        Pozycje usługowe i materiałowe zostaną automatycznie pominięte.
+                    </div>
+
+                    <form id="baselinker-sync-form">
+                        <!-- Opcje synchronizacji -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="sync-type" class="form-label">Typ synchronizacji</label>
+                                    <select class="form-select" id="sync-type" name="sync_type">
+                                        <option value="incremental" selected>Przyrostowa (zalecane)</option>
+                                        <option value="full">Pełna (wolniejsza)</option>
+                                    </select>
+                                    <div class="form-text">Przyrostowa pomija już istniejące produkty</div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="sync-limit" class="form-label">Limit zamówień na zapytanie</label>
+                                    <select class="form-select" id="sync-limit" name="limit">
+                                        <option value="50">50 zamówień</option>
+                                        <option value="100" selected>100 zamówień</option>
+                                        <option value="200">200 zamówień</option>
+                                    </select>
+                                    <div class="form-text">API Baselinker ma limit, większe będą paginowane</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Statusy zamówień -->
+                        <div class="mb-4">
+                            <label class="form-label">Statusy zamówień do pobrania</label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="status-production" value="138619" checked>
+                                        <label class="form-check-label" for="status-production">
+                                            <strong>W produkcji</strong> (138619)
+                                        </label>
+                                    </div>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="status-ready" value="148832" checked>
+                                        <label class="form-check-label" for="status-ready">
+                                            <strong>Gotowe do pakowania</strong> (148832)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="status-packed" value="148831">
+                                        <label class="form-check-label" for="status-packed">
+                                            <strong>Spakowane</strong> (148831)
+                                        </label>
+                                    </div>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="status-other" value="custom">
+                                        <label class="form-check-label" for="status-other">
+                                            <strong>Inne statusy</strong> (konfigurowane)
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Opcje zaawansowane -->
+                        <div class="accordion mb-3" id="advanced-options">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#advanced-collapse">
+                                        <i class="fas fa-cog me-2"></i> Opcje zaawansowane
+                                    </button>
+                                </h2>
+                                <div id="advanced-collapse" class="accordion-collapse collapse">
+                                    <div class="accordion-body">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <div class="form-check mb-3">
+                                                    <input class="form-check-input" type="checkbox" id="force-update" name="force_update">
+                                                    <label class="form-check-label" for="force-update">
+                                                        <strong>Wymuś aktualizację istniejących</strong>
+                                                        <div class="form-text">Zaktualizuje produkty które już istnieją</div>
+                                                    </label>
+                                                </div>
+
+                                                <div class="form-check mb-3">
+                                                    <input class="form-check-input" type="checkbox" id="skip-validation" name="skip_validation">
+                                                    <label class="form-check-label" for="skip-validation">
+                                                        <strong>Pomiń walidację produktów</strong>
+                                                        <div class="form-text">Importuje produkty z niekompletnymi danymi</div>
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div class="col-md-6">
+                                                <div class="form-check mb-3">
+                                                    <input class="form-check-input" type="checkbox" id="dry-run" name="dry_run">
+                                                    <label class="form-check-label" for="dry-run">
+                                                        <strong>Tryb testowy (Dry Run)</strong>
+                                                        <div class="form-text">Sprawdza co zostanie zaimportowane bez zapisywania</div>
+                                                    </label>
+                                                </div>
+
+                                                <div class="form-check mb-3">
+                                                    <input class="form-check-input" type="checkbox" id="debug-mode" name="debug_mode">
+                                                    <label class="form-check-label" for="debug-mode">
+                                                        <strong>Tryb debug</strong>
+                                                        <div class="form-text">Szczegółowe logi w konsoli</div>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Filtry automatyczne - tylko informacyjnie -->
+                                        <div class="alert alert-warning mt-3">
+                                            <strong><i class="fas fa-filter me-2"></i>Automatyczne filtry:</strong><br>
+                                            System automatycznie pominie pozycje zawierające:
+                                            <em>"Usługa", "Usługi", "Usługowa", "Deska", "Worek", "Tarcica"</em> oraz podobne słowa.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Krok 2: Progress synchronizacji -->
+                <div id="sync-step-2" class="sync-step" style="display: none;">
+                    <div class="text-center mb-4">
+                        <div class="spinner-border text-primary mb-3" role="status" id="sync-spinner">
+                            <span class="visually-hidden">Synchronizacja w toku...</span>
+                        </div>
+                        <h5 class="mb-2" id="sync-status">Inicjalizacja synchronizacji...</h5>
+                        <p class="text-muted mb-3" id="sync-details">Przygotowywanie połączenia z Baselinker...</p>
+                        <small class="text-muted" id="sync-time">Rozpoczęto: <span id="sync-start-time">--:--</span></small>
+                    </div>
+
+                    <!-- Progress bar -->
+                    <div class="progress mb-4" style="height: 10px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                             id="sync-progress"
+                             role="progressbar"
+                             style="width: 0%"
+                             aria-valuenow="0"
+                             aria-valuemin="0"
+                             aria-valuemax="100"></div>
+                    </div>
+
+                    <!-- Live stats -->
+                    <div class="row text-center mb-4">
+                        <div class="col-3">
+                            <div class="stat-card bg-light p-3 rounded">
+                                <h4 class="text-primary mb-1" id="stat-pages">0</h4>
+                                <small class="text-muted">Strony API</small>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="stat-card bg-light p-3 rounded">
+                                <h4 class="text-info mb-1" id="stat-orders">0</h4>
+                                <small class="text-muted">Zamówienia</small>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="stat-card bg-light p-3 rounded">
+                                <h4 class="text-success mb-1" id="stat-products">0</h4>
+                                <small class="text-muted">Produkty</small>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="stat-card bg-light p-3 rounded">
+                                <h4 class="text-warning mb-1" id="stat-skipped">0</h4>
+                                <small class="text-muted">Pominięte</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Current operation display -->
+                    <div class="current-operation mb-4">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-grow spinner-grow-sm text-success me-2" id="operation-spinner"></div>
+                            <strong id="current-operation">Oczekiwanie na start...</strong>
+                        </div>
+                        <div class="progress mt-2" style="height: 4px;">
+                            <div class="progress-bar bg-success" id="operation-progress" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Results log -->
+                    <div class="sync-log-container">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="mb-0"><i class="fas fa-list me-2"></i>Log synchronizacji</h6>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <input type="radio" class="btn-check" name="log-filter" id="log-all" checked>
+                                <label class="btn btn-outline-secondary" for="log-all">Wszystkie</label>
+
+                                <input type="radio" class="btn-check" name="log-filter" id="log-errors">
+                                <label class="btn btn-outline-danger" for="log-errors">Błędy</label>
+
+                                <input type="radio" class="btn-check" name="log-filter" id="log-success">
+                                <label class="btn btn-outline-success" for="log-success">Sukces</label>
+                            </div>
+                        </div>
+                        <div class="sync-log bg-light border rounded p-3" style="height: 250px; overflow-y: auto; font-family: 'Courier New', monospace;" id="sync-log">
+                            <!-- Log entries będą dodawane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Krok 3: Wyniki końcowe -->
+                <div id="sync-step-3" class="sync-step" style="display: none;">
+                    <div class="text-center mb-4">
+                        <div class="result-icon mb-3" id="result-icon">
+                            <!-- Ikona będzie ustawiona przez JavaScript -->
+                        </div>
+                        <h4 class="mb-2" id="sync-result-title">Wyniki synchronizacji</h4>
+                        <p class="text-muted mb-3" id="sync-result-summary">Podsumowanie operacji</p>
+                        <div class="sync-duration">
+                            <small class="text-muted">
+                                Czas trwania: <strong id="total-duration">--:--</strong>
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Detailed results -->
+                    <div class="results-details mb-4">
+                        <div class="alert" id="sync-results-alert">
+                            <div id="sync-results-content">
+                                <!-- Zawartość będzie wypełniona przez JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Summary stats -->
+                    <div class="row mb-4" id="final-stats">
+                        <!-- Stats będą dodane przez JavaScript -->
+                    </div>
+
+                    <!-- Quick actions -->
+                    <div class="quick-actions text-center">
+                        <button type="button" class="btn btn-primary me-2" onclick="window.location.reload()">
+                            <i class="fas fa-sync-alt me-1"></i> Odśwież dashboard
+                        </button>
+                        <button type="button" class="btn btn-success me-2" id="view-products-btn">
+                            <i class="fas fa-boxes me-1"></i> Zobacz produkty
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary me-2" id="export-log-btn">
+                            <i class="fas fa-download me-1"></i> Pobierz log
+                        </button>
+                        <button type="button" class="btn btn-outline-info" id="sync-again-btn">
+                            <i class="fas fa-redo me-1"></i> Synchronizuj ponownie
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="modal-cancel-btn" data-bs-dismiss="modal">
+                    <span id="cancel-btn-text">Anuluj</span>
+                </button>
+                <button type="button" class="btn btn-primary" id="start-sync-btn">
+                    <i class="fas fa-play me-1"></i> Rozpocznij synchronizację
+                </button>
+                <button type="button" class="btn btn-success" id="finish-sync-btn" style="display: none;" data-bs-dismiss="modal">
+                    <i class="fas fa-check me-1"></i> Zakończ
+                </button>
+                <button type="button" class="btn btn-warning" id="stop-sync-btn" style="display: none;">
+                    <i class="fas fa-stop me-1"></i> Zatrzymaj
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

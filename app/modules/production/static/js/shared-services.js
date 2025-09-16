@@ -1,5 +1,5 @@
 /**
- * Shared Services dla Production Module
+ * Shared Services dla Production Module - shared-services.js
  * ====================================
  * 
  * Wspólne serwisy używane przez wszystkie moduły:
@@ -138,6 +138,43 @@ class ApiClient {
         }
     }
 
+    async getSystemHealth() {
+        try {
+            const response = await this.request('/health');
+            
+            // Przekształć format odpowiedzi
+            return {
+                success: true,
+                health: {
+                    database_status: response.components?.database === 'error' ? 'error' : 'connected',
+                    sync_status: response.status === 'healthy' ? 'completed' : 'warning', 
+                    errors_24h: response.pending_errors || 0,
+                    total_unresolved_errors: response.pending_errors || 0,
+                    last_sync: response.last_sync,
+                    baselinker_api_avg_ms: 0
+                }
+            };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async requestAdmin(endpoint, options = {}) {
+        const url = `/production/admin${endpoint}`;
+        const config = {
+            headers: { ...this.defaultHeaders, ...options.headers },
+            ...options
+        };
+
+        try {
+            const response = await fetch(url, config);
+            return await this.handleResponse(response);
+        } catch (error) {
+            console.error(`[ApiClient] Admin request failed: ${endpoint}`, error);
+            throw error;
+        }
+    }
+
     async handleResponse(response) {
         if (!response.ok) {
             const errorText = await response.text();
@@ -226,8 +263,67 @@ class ApiClient {
         });
     }
 
-    async triggerManualSync() {
-        return this.request('/manual-sync', {
+    async triggerManualSync(options = {}) {
+        const {
+            syncType = 'incremental',
+            targetStatusIds = null,
+            limit = null
+        } = options;
+        
+        const payload = {
+            sync_type: syncType,
+            initiated_by: 'dashboard_manual_trigger',
+            timestamp: new Date().toISOString()
+        };
+        
+        // Dodaj opcjonalne parametry jeśli zostały podane
+        if (targetStatusIds && Array.isArray(targetStatusIds)) {
+            payload.target_status_ids = targetStatusIds;
+        }
+        
+        if (limit && typeof limit === 'number') {
+            payload.limit = limit;
+        }
+        
+        try {
+            console.log('[ApiClient] Triggering manual sync with payload:', payload);
+            
+            const response = await this.request('/manual-sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            console.log('[ApiClient] Manual sync response:', response);
+            return response;
+            
+        } catch (error) {
+            console.error('[ApiClient] Manual sync failed:', error);
+            
+            // Przekaż bardziej szczegółowy błąd
+            if (error.message.includes('HTTP 500')) {
+                throw new Error('Błąd serwera podczas synchronizacji. Sprawdź logi backendu.');
+            } else if (error.message.includes('HTTP 400')) {
+                throw new Error('Nieprawidłowe parametry synchronizacji.');
+            } else if (error.message.includes('HTTP 409')) {
+                throw new Error('Synchronizacja jest już w toku.');
+            }
+            
+            throw error;
+        }
+    }
+
+    async getSystemErrors() {
+        return this.requestAdmin('/ajax/system-errors', {
+            method: 'GET',
+            headers: { Accept: 'application/json' }
+        });
+    }
+
+    async clearSystemErrors() {
+        return this.requestAdmin('/ajax/clear-system-errors', {
             method: 'POST'
         });
     }

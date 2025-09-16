@@ -80,38 +80,66 @@ class BaselinkerSyncService:
             'target_status': self.target_completed_status,
             'max_items_per_batch': self.max_items_per_batch
         })
+
     
     def _load_config(self):
-        """Ładuje konfigurację z pliku config i bazy danych"""
+        """Ładuje konfigurację z Flask app.config (zamiast bezpośrednio z pliku)"""
         try:
-            # Import konfiguracji z core.json
-            import json
-            import os
-            
-            config_path = os.path.join('app', 'config', 'core.json')
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-                    api_config = config.get('API_BASELINKER', {})
-                    self.api_key = api_config.get('api_key')
-                    if api_config.get('endpoint'):
-                        self.api_endpoint = api_config['endpoint']
-            
+            # POPRAWKA: Używaj current_app.config zamiast bezpośredniego czytania pliku
+            from flask import current_app
+        
+            # Pobierz konfigurację API Baselinker z Flask config
+            api_config = current_app.config.get('API_BASELINKER', {})
+            self.api_key = api_config.get('api_key')
+            if api_config.get('endpoint'):
+                self.api_endpoint = api_config['endpoint']
+        
+            logger.info("Załadowano konfigurację API Baselinker", extra={
+                'api_key_present': bool(self.api_key),
+                'endpoint': self.api_endpoint
+            })
+        
             # Sprawdzenie konfiguracji z modułu production
             try:
                 from .config_service import get_config
-                
+            
                 self.max_items_per_batch = get_config('MAX_SYNC_ITEMS_PER_BATCH', 1000)
                 self.target_completed_status = get_config('BASELINKER_TARGET_STATUS_COMPLETED', 138623)
-                
+            
             except ImportError:
                 logger.warning("Nie można załadować konfiguracji z ProductionConfigService")
-            
+        
+            # Sprawdzenie czy klucz API został załadowany
             if not self.api_key:
                 logger.error("Brak klucza API Baselinker w konfiguracji")
-                
+                logger.error("Dostępne klucze w current_app.config: %s", list(current_app.config.keys()))
+            else:
+                logger.info("Klucz API Baselinker załadowany pomyślnie")
+            
         except Exception as e:
             logger.error("Błąd ładowania konfiguracji", extra={'error': str(e)})
+        
+            # FALLBACK: Jeśli current_app nie jest dostępne, spróbuj starej metody
+            logger.warning("Próba fallback z bezpośrednim czytaniem pliku")
+            try:
+                import json
+                import os
+            
+                config_path = os.path.join('app', 'config', 'core.json')
+                if os.path.exists(config_path):
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                        api_config = config.get('API_BASELINKER', {})
+                        self.api_key = api_config.get('api_key')
+                        if api_config.get('endpoint'):
+                            self.api_endpoint = api_config['endpoint']
+                    logger.info("Fallback: Załadowano konfigurację z pliku")
+                else:
+                    logger.error("Fallback: Plik konfiguracji nie istnieje: %s", config_path)
+                
+            except Exception as fallback_error:
+                logger.error("Fallback również się nie powiódł", extra={'error': str(fallback_error)})
+
     
     def sync_orders_from_baselinker(self, sync_type: str = 'cron_auto') -> Dict[str, Any]:
         """

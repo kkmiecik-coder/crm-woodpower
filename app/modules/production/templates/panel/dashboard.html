@@ -294,7 +294,9 @@
             configTabContent: '{{ url_for("production.production_api.config_tab_content") }}',
             chartData: '{{ url_for("production.production_api.chart_data") }}',
             manualSync: '{{ url_for("production.production_api.manual_sync") }}',
-            dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}'
+            dashboardStats: '{{ url_for("production.production_api.dashboard_stats") }}',
+            systemErrors: {% if current_user.role in ['admin', 'administrator'] %}'{{ url_for("production.production_admin.ajax_system_errors") }}'{% else %}null{% endif %},
+            clearSystemErrors: {% if current_user.role in ['admin', 'administrator'] %}'{{ url_for("production.production_admin.ajax_clear_system_errors") }}'{% else %}null{% endif %}
         },
         debug: {{ config.DEBUG|lower }},
         version: '2.0.0',
@@ -304,66 +306,14 @@
     console.log('[HTML] Production config loaded:', window.PRODUCTION_CONFIG);
     </script>
 
-    <!-- 5. NOWE: Wspólne serwisy -->
+    <!-- Wspólne serwisy -->
     <script src="{{ url_for('production.static', filename='js/shared-services.js') }}"></script>
-
-    <!-- 6. NOWE: Główny kontroler aplikacji -->
+    <!-- Moduły funkcjonalne -->
+    <script src="{{ url_for('production.static', filename='js/modules/dashboard-module.js') }}"></script>
+    <!-- Główny kontroler aplikacji -->
     <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>
-
-    <!-- 7. USUNIĘTE: Stare skrypty które powodowały konflikty -->
-    <!--
-    STARE - USUNIĘTE:
-    <script src="{{ url_for('production.static', filename='js/production-dashboard.js') }}"></script>
-    <script src="{{ url_for('production.static', filename='js/product-list-dashboard.js') }}"></script>
-    -->
-    <!-- ========================================= -->
-    <!-- DEBUG PANEL (opcjonalny)                -->
-    <!-- ========================================= -->
-    {% if config.DEBUG %}
-    <div class="debug-panel" id="debug-panel" style="display: none; position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 15px; border-radius: 8px; z-index: 10001; font-family: monospace; font-size: 12px;">
-        <div class="debug-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <span style="font-weight: bold;">🐛 Debug Panel</span>
-            <button onclick="toggleDebugPanel()" style="background: none; border: none; color: white; cursor: pointer;">×</button>
-        </div>
-        <div class="debug-content">
-            <div><strong>Current Tab:</strong> <span id="debug-current-tab">-</span></div>
-            <div><strong>Loaded Modules:</strong> <span id="debug-loaded-modules">-</span></div>
-            <div><strong>App Status:</strong> <span id="debug-app-status">-</span></div>
-            <div><strong>Last API Call:</strong> <span id="debug-last-api">-</span></div>
-            <div style="margin-top: 10px;">
-                <button onclick="ProductionApp?.forceRefresh()" style="background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">Force Refresh</button>
-                <button onclick="console.log('Production App State:', ProductionApp)" style="background: #28a745; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-left: 5px;">Log State</button>
-            </div>
-        </div>
-    </div>
-
-    <button onclick="toggleDebugPanel()" style="position: fixed; bottom: 20px; left: 20px; background: #333; color: white; border: none; padding: 10px; border-radius: 50%; cursor: pointer; z-index: 10000; font-size: 16px;" title="Toggle Debug Panel">🐛</button>
-
-    <script>
-        function toggleDebugPanel() {
-            const panel = document.getElementById('debug-panel');
-            if (panel) {
-                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-                if (panel.style.display === 'block') {
-                    updateDebugPanel();
-                    setInterval(updateDebugPanel, 2000);
-                }
-            }
-        }
-
-        function updateDebugPanel() {
-            if (window.ProductionApp) {
-                document.getElementById('debug-current-tab').textContent = ProductionApp.getCurrentTab() || 'unknown';
-                document.getElementById('debug-loaded-modules').textContent = ProductionApp.getLoadedModules().join(', ') || 'none';
-                document.getElementById('debug-app-status').textContent = ProductionApp.state?.isInitialized ? 'initialized' : 'loading';
-            }
-
-            if (window.ProductionShared?.apiClient) {
-                document.getElementById('debug-last-api').textContent = 'API client ready';
-            }
-        }
-    </script>
-    {% endif %}
+    <!-- Obsługa modala synchronizacji z Baselinkerem -->
+    <script src="{{ url_for('production.static', filename='js/modules/dashboard_bl_sync_modal.js') }}"></script>
 
 </body>
 </html>
