@@ -3556,7 +3556,7 @@ def save_selected_orders():
             data_section = sync_result.get('data', {})
             stats = data_section.get('stats', {})
             
-            orders_created = stats.get('orders_matched_status', 0)
+            orders_created = stats.get('orders_matched', 0) or stats.get('orders_processed', 0)
             products_created = stats.get('products_created', 0) 
             products_skipped = stats.get('products_skipped', 0)
             
@@ -3683,23 +3683,25 @@ def dashboard_data():
         
         # Sprawdź opóźnione zamówienia
         today = date.today()
-        overdue_orders = ProductionItem.query.filter(
-            ProductionItem.deadline_date < today,
+        deadline_alerts = ProductionItem.query.filter(
+            ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
-        ).count()
+        ).order_by(ProductionItem.deadline_date.asc()).limit(10).all()
         
-        if overdue_orders > 0:
-            alerts_data.append({
-                'type': 'warning',
-                'icon': 'clock',
-                'message': f'{overdue_orders} zamówień po terminie',
-                'time': 'wymaga uwagi'
-            })
+        alerts_data = [
+            {
+                'short_product_id': alert.short_product_id,
+                'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
+                'days_remaining': (alert.deadline_date - today).days if alert.deadline_date else 0,
+                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown'
+            }
+            for alert in deadline_alerts
+        ]
         
         # Zwróć dane w formacie JSON
         response_data = {
             'stations': stations_data,
-            'alerts': alerts_data,
+            'alerts': alerts_data,  # ZMIENIONA STRUKTURA
             'errors_count': errors_24h,
             'timestamp': datetime.utcnow().isoformat()
         }
@@ -3828,15 +3830,83 @@ def dashboard_stats_data():
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
         
+        # === DEBUGGING COMPLETED TODAY ===
+        logger.debug("=== DEBUGGING COMPLETED TODAY ===")
+        
+        # Sprawdź wszystkie statusy
+        all_statuses = db.session.query(
+            ProductionItem.current_status, 
+            db.func.count(ProductionItem.id)
+        ).group_by(ProductionItem.current_status).all()
+        
+        logger.debug(f"Wszystkie statusy w bazie: {all_statuses}")
+        
+        # Sprawdź czy pole packaging_completed_at istnieje i ma dane
+        try:
+            test_packaging = ProductionItem.query.filter(
+                ProductionItem.packaging_completed_at.isnot(None)
+            ).limit(5).all()
+            logger.debug(f"Znaleziono {len(test_packaging)} rekordów z packaging_completed_at")
+            
+            for item in test_packaging:
+                logger.debug(f"Item {item.id}: packaging_completed_at={item.packaging_completed_at}")
+        except Exception as e:
+            logger.debug(f"Błąd packaging_completed_at: {e}")
+        
+        # Sprawdź alternatywne pola dat
+        try:
+            spakowane_items = ProductionItem.query.filter(
+                ProductionItem.current_status == 'spakowane'
+            ).limit(5).all()
+            logger.debug(f"Znaleziono {len(spakowane_items)} rekordów ze statusem 'spakowane'")
+            
+            for item in spakowane_items:
+                # Sprawdź wszystkie możliwe pola dat
+                created_at = getattr(item, 'created_at', None)
+                updated_at = getattr(item, 'updated_at', None)
+                packaging_completed_at = getattr(item, 'packaging_completed_at', None)
+                
+                logger.debug(f"Item {item.id}: status={item.current_status}, created_at={created_at}, updated_at={updated_at}, packaging_completed_at={packaging_completed_at}")
+        except Exception as e:
+            logger.debug(f"Błąd sprawdzania statusów: {e}")
+        
         # Całkowita liczba zamówień w systemie
         total_orders = ProductionItem.query.count()
         
-        # Zamówienia ukończone dzisiaj
-        completed_today = ProductionItem.query.filter(
+        # ORYGINALNA LOGIKA - zamówienia ukończone dzisiaj
+        completed_today_original = ProductionItem.query.filter(
             ProductionItem.current_status == 'spakowane',
             ProductionItem.packaging_completed_at >= today_start,
             ProductionItem.packaging_completed_at <= today_end
         ).count()
+        
+        # ALTERNATYWNA LOGIKA - wszystkie spakowane (bez filtra daty)
+        completed_today_alternative = ProductionItem.query.filter(
+            ProductionItem.current_status == 'spakowane'
+        ).count()
+        
+        # ALTERNATYWNA LOGIKA 2 - używając updated_at zamiast packaging_completed_at
+        completed_today_updated_at = 0
+        try:
+            completed_today_updated_at = ProductionItem.query.filter(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.updated_at >= today_start,
+                ProductionItem.updated_at <= today_end
+            ).count()
+        except Exception as e:
+            logger.debug(f"Błąd updated_at: {e}")
+        
+        logger.debug(f"Completed today (oryginalna logika): {completed_today_original}")
+        logger.debug(f"Completed today (wszystkie spakowane): {completed_today_alternative}")
+        logger.debug(f"Completed today (updated_at): {completed_today_updated_at}")
+        logger.debug(f"Today start: {today_start}, Today end: {today_end}")
+        
+        # Użyj alternatywnej logiki jeśli oryginalna zwraca 0
+        if completed_today_original == 0 and completed_today_alternative > 0:
+            logger.warning("Używam alternatywnej logiki - brak packaging_completed_at lub problem z datami")
+            completed_today = completed_today_updated_at if completed_today_updated_at > 0 else completed_today_alternative
+        else:
+            completed_today = completed_today_original
         
         # Zamówienia priorytetowe oczekujące
         pending_priority = ProductionItem.query.filter(
@@ -3846,7 +3916,6 @@ def dashboard_stats_data():
                 'czeka_na_pakowanie'
             ])
         ).filter(
-            # Zakładamy że priorytetowe to te z deadline_date w ciągu 3 dni
             ProductionItem.deadline_date <= (today + timedelta(days=3))
         ).count()
         
@@ -3856,16 +3925,25 @@ def dashboard_stats_data():
             ProductionError.is_resolved == False
         ).count()
         
-        # Łączna objętość dzisiaj ukończona (jeśli pole istnieje)
+        # Łączna objętość dzisiaj ukończona
         total_volume_today = 0.0
         try:
-            volume_result = db.session.query(
-                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
-            ).filter(
-                ProductionItem.current_status == 'spakowane',
-                ProductionItem.packaging_completed_at >= today_start,
-                ProductionItem.packaging_completed_at <= today_end
-            ).scalar()
+            if completed_today_original > 0:
+                # Użyj oryginalnej logiki jeśli działa
+                volume_result = db.session.query(
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                ).filter(
+                    ProductionItem.current_status == 'spakowane',
+                    ProductionItem.packaging_completed_at >= today_start,
+                    ProductionItem.packaging_completed_at <= today_end
+                ).scalar()
+            else:
+                # Użyj alternatywnej logiki
+                volume_result = db.session.query(
+                    db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+                ).filter(
+                    ProductionItem.current_status == 'spakowane'
+                ).scalar()
             
             total_volume_today = float(volume_result) if volume_result else 0.0
             
@@ -3884,11 +3962,15 @@ def dashboard_stats_data():
             'last_updated': datetime.utcnow().isoformat()
         }
         
-        logger.debug("API: dashboard-stats-data - statystyki pobrane", extra={
+        logger.debug("API: dashboard-stats-data - FINALNE statystyki", extra={
             'total_orders': total_orders,
             'completed_today': completed_today,
+            'completed_today_original': completed_today_original,
+            'completed_today_alternative': completed_today_alternative,
+            'completed_today_updated_at': completed_today_updated_at,
             'pending_priority': pending_priority,
-            'errors_24h': errors_24h
+            'errors_24h': errors_24h,
+            'total_volume_today': total_volume_today
         })
         
         return jsonify({

@@ -22,6 +22,7 @@ class DashboardBLSyncModal {
         this.isOpen = false;
         this.currentStep = 1;
         this.syncInProgress = false;
+        this.toastSystem = window.ProductionShared?.toastSystem || null;
 
         // Dane synchronizacji
         this.selectedDays = 7; // domyślnie 7 dni
@@ -254,7 +255,9 @@ class DashboardBLSyncModal {
 
         } catch (error) {
             console.error('[BL Sync Modal v2] Błąd otwierania modalu:', error);
-            this.showToast('Błąd otwierania modalu synchronizacji', 'error');
+            if (this.toastSystem) {
+                this.toastSystem.show(`Błąd otwierania modalu synchronizacji`, 'error');
+            }
         }
     }
 
@@ -632,7 +635,9 @@ class DashboardBLSyncModal {
      */
     async startFetchingOrders() {
         if (!this.validateStep1()) {
-            this.showToast('Wybierz zakres dni i przynajmniej jeden status', 'warning');
+            if (this.toastSystem) {
+                this.toastSystem.show(`Wybierz zakres dni i przynajmniej jeden status`, 'warning');
+            }
             return;
         }
 
@@ -771,7 +776,9 @@ class DashboardBLSyncModal {
             console.error('[BL Sync Modal v2] Błąd pobierania zamówień:', error);
             this.addLog('error', `Błąd pobierania: ${error.message}`);
             this.updateProgressBar(0, 'Błąd pobierania zamówień');
-            this.showToast(`Błąd pobierania zamówień: ${error.message}`, 'error');
+            if (this.toastSystem) {
+                this.toastSystem.show(`Błąd pobierania zamówień: ${error.message}`, 'error');
+            }
 
             // Aktywuj przycisk Cancel jako "Zamknij"
             if (this.elements.step2Cancel) {
@@ -1181,7 +1188,9 @@ class DashboardBLSyncModal {
      */
     async startSavingOrders() {
         if (this.selectedOrders.length === 0) {
-            this.showToast('Wybierz przynajmniej jedno zamówienie do zapisania', 'warning');
+            if (this.toastSystem) {
+                this.toastSystem.show('Wybierz przynajmniej jedno zamówienie do zapisania', 'warning');
+            }
             return;
         }
 
@@ -1263,6 +1272,10 @@ class DashboardBLSyncModal {
             }
 
             const data = await response.json();
+            console.log('[Modal Debug] API Response:', data);
+            console.log('[Modal Debug] orders_created:', data.orders_created);
+            console.log('[Modal Debug] products_created:', data.products_created);
+
             this.updateSaveProgressBar(80, 'Finalizowanie...');
 
             if (data.success) {
@@ -1287,7 +1300,9 @@ class DashboardBLSyncModal {
                 }
 
                 // Pokaż toast sukcesu
-                this.showToast(`Zapisano ${this.stats.savedProducts} produktów z ${this.stats.savedOrders} zamówień`, 'success');
+                if (this.toastSystem) {
+                    this.toastSystem.show(`Zapisano ${this.stats.savedProducts} produktów z ${this.stats.savedOrders} zamówień`, 'success');
+                }
 
             } else {
                 throw new Error(data.error || 'Nieznany błąd zapisu');
@@ -1297,7 +1312,9 @@ class DashboardBLSyncModal {
             console.error('[BL Sync Modal v2] Błąd zapisu zamówień:', error);
             this.addLog('error', `Błąd zapisu: ${error.message}`);
             this.updateSaveProgressBar(0, 'Błąd zapisu zamówień');
-            this.showToast(`Błąd zapisu zamówień: ${error.message}`, 'error');
+            if (this.toastSystem) {
+                this.toastSystem.show(`Błąd zapisu zamówień: ${error.message}`, 'error');
+            }
 
             // Pokaż przycisk Finish jako "Zamknij"
             if (this.elements.step4Finish) {
@@ -1401,6 +1418,12 @@ class DashboardBLSyncModal {
      * Aktualizacja statystyk zapisu (krok 4)
      */
     updateSaveStats() {
+        console.log('[Modal Debug] updateSaveStats called with:', {
+            savedOrders: this.stats.savedOrders,
+            savedProducts: this.stats.savedProducts,
+            allStats: this.stats
+        });
+
         if (this.elements.statSaveOrders) {
             this.elements.statSaveOrders.textContent = this.stats.savedOrders;
         }

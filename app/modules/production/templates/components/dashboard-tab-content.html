@@ -1,4 +1,4 @@
-<!-- dashboard-tab-content.html - POPRAWIONY Z PRAWDZIWYMI DANYMI -->
+<!-- dashboard-tab-content.html - POPRAWIONY Z PRAWDZIWYMI DANYMI I ID -->
 <!-- Quick Actions Bar -->
 <div class="quick-actions-bar">
     <div class="quick-actions-list">
@@ -94,7 +94,7 @@
         </div>
     </div>
 
-    <!-- Dzisiejsze Podsumowanie - POPRAWIONE DANE -->
+    <!-- Dzisiejsze Podsumowanie - POPRAWIONE DANE Z WSZYSTKIMI ID -->
     <div class="widget today-summary">
         <div class="widget-header">
             <h3>Dzisiejsze podsumowanie</h3>
@@ -121,6 +121,39 @@
                     <div class="summary-data">
                         <span class="summary-value" id="today-avg-deadline">{{ "%.0f"|format(dashboard_stats.today_totals.avg_deadline_distance or 0) }}</span>
                         <span class="summary-label">Średni deadline (dni)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NOWY WIDGET - Statystyki ogólne systemu -->
+    <div class="widget system-stats">
+        <div class="widget-header">
+            <h3>Statystyki systemu</h3>
+            <span class="last-updated" id="system-stats-updated">Aktualizacja...</span>
+        </div>
+        <div class="widget-content">
+            <div class="system-stats-grid">
+                <div class="stat-card total-orders">
+                    <div class="stat-icon">📋</div>
+                    <div class="stat-data">
+                        <span class="stat-value" id="total-orders-count">{{ dashboard_stats.today_totals.total_orders or 0 }}</span>
+                        <span class="stat-label">Zamówienia w systemie</span>
+                    </div>
+                </div>
+                <div class="stat-card priority-orders">
+                    <div class="stat-icon">🔥</div>
+                    <div class="stat-data">
+                        <span class="stat-value" id="pending-priority-count">0</span>
+                        <span class="stat-label">Priorytetowe</span>
+                    </div>
+                </div>
+                <div class="stat-card system-errors">
+                    <div class="stat-icon">⚠️</div>
+                    <div class="stat-data">
+                        <span class="stat-value" id="errors-24h-count">{{ dashboard_stats.system_health.errors_24h or 0 }}</span>
+                        <span class="stat-label">Błędy 24h</span>
                     </div>
                 </div>
             </div>
@@ -159,7 +192,7 @@
                 </div>
                 {% endfor %}
                 {% else %}
-                <div class="no-alerts-state">
+                <div class="no-alerts-state" id="alerts-empty">
                     <div class="no-alerts-icon">✅</div>
                     <p class="no-alerts-text">Brak pilnych alertów</p>
                     <small class="text-muted">Wszystkie produkty zgodne z terminem</small>
@@ -236,7 +269,7 @@
                 <div class="health-item" id="errors-health">
                     <div class="health-left">
                         <div class="health-label">Błędy systemu</div>
-                        <div class="health-value" id="errors-24h-count">{{ dashboard_stats.system_health.errors_24h or 0 }}</div>
+                        <div class="health-value">{{ dashboard_stats.system_health.errors_24h or 0 }}</div>
                     </div>
                     <div class="health-right">
                         <div class="health-status {% if (dashboard_stats.system_health.errors_24h or 0) == 0 %}status-success{% elif (dashboard_stats.system_health.errors_24h or 0) > 5 %}status-error{% else %}status-warning{% endif %}" id="errors-status">

@@ -202,6 +202,54 @@ class DashboardModule {
         });
 
         console.log(`[Dashboard Module] Registered ${this.dataRefresh.getRegisteredWidgets().length} refresh handlers`);
+
+        this.setupModalRefreshListener();
+    }
+
+    setupModalRefreshListener() {
+        console.log('[Dashboard Module] Setting up modal refresh listener...');
+        
+        // Nasłuchuj na event zamknięcia modala baselinker
+        if (this.shared.eventBus) {
+            this.shared.eventBus.on('modal:baselinker:closed', async () => {
+                console.log('[Dashboard Module] Baselinker modal closed - refreshing data...');
+                try {
+                    // Wyczyść cache żeby mieć pewność że pobierzemy świeże dane
+                    this.shared.apiClient.clearCache();
+                    
+                    // Odśwież wszystkie dane
+                    await this.refreshDataOnly();
+                    
+                    console.log('[Dashboard Module] Data refreshed after modal close');
+                    
+                    // Pokaż toast
+                    this.shared.toastSystem.show(
+                        'Dane zaktualizowane po synchronizacji',
+                        'info'
+                    );
+                    
+                } catch (error) {
+                    console.error('[Dashboard Module] Failed to refresh after modal close:', error);
+                }
+            });
+        }
+        
+        // Alternatywnie - nasłuchuj bezpośrednio na DOM event
+        const modal = document.getElementById('baselinkerSyncModal');
+        if (modal) {
+            modal.addEventListener('hidden.bs.modal', async () => {
+                console.log('[Dashboard Module] Modal hidden event - refreshing data...');
+                try {
+                    this.shared.apiClient.clearCache();
+                    await this.refreshDataOnly();
+                    console.log('[Dashboard Module] Data refreshed via DOM event');
+                } catch (error) {
+                    console.error('[Dashboard Module] DOM event refresh failed:', error);
+                }
+            });
+            
+            console.log('[Dashboard Module] Modal DOM listener attached');
+        }
     }
 
     // ========================================================================
@@ -242,37 +290,6 @@ class DashboardModule {
         }
     }
 
-    updateStationsWidget(stationsData) {
-        console.log('[Dashboard Module] Updating stations widget...', stationsData);
-
-        stationsData.forEach(station => {
-            // Aktualizuj liczby oczekujących dla każdej stacji
-            const pendingElement = document.getElementById(`${station.code}-pending`);
-            if (pendingElement) {
-                this.updateNumberWithAnimation(pendingElement, station.active_orders);
-            }
-
-            // Aktualizuj status dot
-            const statusElement = document.getElementById(`${station.code}-status`);
-            if (statusElement) {
-                const statusDot = statusElement.querySelector('.status-dot');
-                if (statusDot) {
-                    // Usuń poprzednie klasy statusu
-                    statusDot.classList.remove('active', 'warning', 'danger');
-
-                    // Dodaj nową klasę na podstawie liczby zamówień
-                    if (station.active_orders > 15) {
-                        statusDot.classList.add('danger');
-                    } else if (station.active_orders > 5) {
-                        statusDot.classList.add('warning');
-                    } else if (station.active_orders > 0) {
-                        statusDot.classList.add('active');
-                    }
-                }
-            }
-        });
-    }
-
     updateTotalsWidget(statsData) {
         console.log('[Dashboard Module] Updating totals widget...', statsData);
 
@@ -296,32 +313,80 @@ class DashboardModule {
             document.getElementById('errors-24h-count'),
             statsData.errors_24h || 0
         );
+
+        // Aktualizuj timestamp dla statystyk systemu
+        const systemStatsUpdatedElement = document.getElementById('system-stats-updated');
+        if (systemStatsUpdatedElement) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('pl-PL', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            systemStatsUpdatedElement.textContent = `Aktualizacja: ${timeString}`;
+        }
     }
 
     updateAlertsWidget(alertsData) {
         console.log('[Dashboard Module] Updating alerts widget...', alertsData);
 
         const alertsList = document.getElementById('alerts-list');
-        const emptyElement = document.getElementById('alerts-empty');
+        const alertsCount = document.getElementById('alerts-count');
+
+        // Aktualizuj licznik alertów
+        if (alertsCount) {
+            alertsCount.textContent = alertsData ? alertsData.length : 0;
+        }
 
         if (!alertsData || alertsData.length === 0) {
-            if (alertsList) alertsList.style.display = 'none';
-            if (emptyElement) emptyElement.style.display = 'block';
-        } else {
-            if (emptyElement) emptyElement.style.display = 'none';
             if (alertsList) {
-                alertsList.style.display = 'block';
-
-                // Aktualizuj zawartość listy alertów
-                alertsList.innerHTML = alertsData.map(alert => `
-                    <div class="alert-item alert-${alert.type || 'info'}">
-                        <i class="fas fa-${alert.icon || 'info-circle'}"></i>
-                        <span>${alert.message || 'Brak opisu'}</span>
-                        <small>${alert.time || 'nieznany czas'}</small>
+                alertsList.innerHTML = `
+                    <div class="no-alerts-state" id="alerts-empty">
+                        <div class="no-alerts-icon">✅</div>
+                        <p class="no-alerts-text">Brak pilnych alertów</p>
+                        <small class="text-muted">Wszystkie produkty zgodne z terminem</small>
                     </div>
-                `).join('');
+                `;
+            }
+        } else {
+            if (alertsList) {
+                // NOWA LOGIKA - obsługuje format z API dashboard-data
+                alertsList.innerHTML = alertsData.map(alert => {
+                    // Format z API: {type, icon, message, time}
+                    const alertType = alert.type || 'info';
+                    const alertIcon = this.getAlertIcon(alert.icon);
+                    const message = alert.message || 'Brak opisu';
+                    const time = alert.time || 'nieznany czas';
+                    
+                    return `
+                        <div class="alert-item alert-${alertType}">
+                            <div class="alert-icon">${alertIcon}</div>
+                            <div class="alert-content">
+                                <div class="alert-header">
+                                    <span class="alert-message">${message}</span>
+                                </div>
+                                <div class="alert-details">
+                                    <span class="alert-time">${time}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
             }
         }
+    }
+
+    // DODAJ NOWĄ FUNKCJĘ POMOCNICZĄ:
+    getAlertIcon(iconName) {
+        const iconMap = {
+            'clock': '⏰',
+            'warning': '⚠️',
+            'error': '🚨',
+            'info': 'ℹ️',
+            'exclamation-triangle': '⚠️'
+        };
+        
+        return iconMap[iconName] || '⚠️';
     }
 
     updateProductionStatusWidget(statusData) {
@@ -573,11 +638,53 @@ class DashboardModule {
     // ========================================================================
 
     updateStationsWidget(stationsData) {
-        if (!stationsData) return;
+        console.log('[Dashboard Module] Updating stations widget...', stationsData);
 
-        Object.entries(stationsData).forEach(([stationType, data]) => {
-            this.updateSingleStationCard(stationType, data);
+        stationsData.forEach(station => {
+            // Aktualizuj liczby oczekujących dla każdej stacji
+            const pendingElement = document.getElementById(`${station.code}-pending`);
+            if (pendingElement) {
+                console.log(`[Dashboard Module] Updating ${station.code}-pending to ${station.active_orders}`);
+                this.updateNumberWithAnimation(pendingElement, station.active_orders);
+            } else {
+                console.warn(`[Dashboard Module] Element ${station.code}-pending not found`);
+            }
+
+            // Aktualizuj status dot
+            const statusElement = document.getElementById(`${station.code}-status`);
+            if (statusElement) {
+                const statusDot = statusElement.querySelector('.status-dot');
+                if (statusDot) {
+                    // Usuń poprzednie klasy statusu
+                    statusDot.classList.remove('active', 'warning', 'danger');
+
+                    // Dodaj nową klasę na podstawie liczby zamówień
+                    if (station.active_orders > 15) {
+                        statusDot.classList.add('danger');
+                    } else if (station.active_orders > 5) {
+                        statusDot.classList.add('warning');
+                    } else if (station.active_orders > 0) {
+                        statusDot.classList.add('active');
+                    }
+                    
+                    console.log(`[Dashboard Module] Updated status for ${station.code}: ${station.active_orders} orders`);
+                }
+            } else {
+                console.warn(`[Dashboard Module] Status element ${station.code}-status not found`);
+            }
         });
+
+        // Aktualizuj timestamp ostatniej aktualizacji stacji
+        const stationsUpdatedElement = document.getElementById('stations-updated');
+        if (stationsUpdatedElement) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('pl-PL', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            stationsUpdatedElement.textContent = `Aktualizacja: ${timeString}`;
+        }
     }
 
     updateSingleStationCard(stationType, stationData) {
