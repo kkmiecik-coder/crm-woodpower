@@ -1,22 +1,8 @@
-# modules/production/services/id_generator.py
+
+# modules/production/services/id_generator.py - POPRAWIONA LOGIKA
 """
-Generator ID produktów dla modułu Production
-============================================
-
-Implementuje system generowania unikalnych identyfikatorów produktów w formacie:
-YY_NNNNN_S gdzie:
-- YY = rok (25 dla 2025, 26 dla 2026)
-- NNNNN = numer zamówienia w bazie (5-cyfrowy z padding)
-- S = numer produktu w zamówieniu (1, 2, 3...)
-
-Przykłady:
-- 25_05248_1 (pierwszy produkt w zamówieniu 5248 z 2025)
-- 25_05248_2 (drugi produkt w tym samym zamówieniu)
-- 26_00001_1 (pierwszy produkt pierwszego zamówienia z 2026)
-
-Autor: Konrad Kmiecik
-Wersja: 1.2 (Finalna - z zabezpieczeniami)
-Data: 2025-01-08
+Generator ID produktów - POPRAWIONA WERSJA
+Zgodna ze specyfikacją: YY_XXXXX_ZZ
 """
 
 import re
@@ -36,10 +22,12 @@ class ProductIDGeneratorError(Exception):
 
 class ProductIDGenerator:
     """
-    Generator unikalnych ID produktów z automatycznym licznikiem per rok
+    Generator unikalnych ID produktów - POPRAWIONA WERSJA
     
-    Klasa statyczna zarządzająca generowaniem i walidacją ID produktów
-    w nowym formacie skróconym dla optimalizacji workflow produkcyjnego.
+    Format: YY_XXXXX_ZZ gdzie:
+    - YY = rok (25 dla 2025)
+    - XXXXX = numer zamówienia (unikalny, inkrementalny)
+    - ZZ = numer produktu w zamówieniu (1, 2, 3...)
     """
 
     # Cache dla mapowania baselinker_order_id -> internal_order_number
@@ -53,122 +41,176 @@ class ProductIDGenerator:
     @classmethod
     def generate_product_id_for_order(cls, baselinker_order_id, total_products_count):
         """
-        Generuje jeden internal_order_number dla całego zamówienia
-        i zwraca listę wszystkich product_id dla tego zamówienia
-    
+        POPRAWIONA WERSJA: Generuje ID zgodnie ze specyfikacją
+        
         Args:
             baselinker_order_id (int): ID zamówienia w Baselinker
-            total_products_count (int): Łączna liczba produktów w zamówieniu
+            total_products_count (int): Łączna liczba produktów (suma wszystkich quantity)
         
         Returns:
             dict: {
-                'internal_order_number': str,  # '25_01029'
-                'product_ids': [str],          # ['25_01029_1', '25_01029_2', ...]
-                'year_code': str,              # '25'
-                'order_counter': int           # 1029
+                'internal_order_number': str,    # '25_00048'
+                'product_ids': [str],            # ['25_00048_1', '25_00048_2', ...]
+                'year_code': str,                # '25'
+                'order_counter': int             # 48
             }
         """
         try:
-            # Sprawdź cache - czy to zamówienie już było przetwarzane
-            if baselinker_order_id in cls._order_mapping_cache:
-                cached = cls._order_mapping_cache[baselinker_order_id]
-                # Wygeneruj listę product_ids dla cache'owanego zamówienia
-                product_ids = []
-                for seq in range(1, total_products_count + 1):
-                    product_ids.append(f"{cached['internal_order_number']}_{seq}")
+            logger.info("Rozpoczęcie generowania ID dla zamówienia", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'total_products_count': total_products_count
+            })
+
+            # KROK 1: Sprawdź czy zamówienie już istnieje w bazie
+            from ..models import ProductionItem
+            existing_items = ProductionItem.query.filter_by(
+                baselinker_order_id=baselinker_order_id
+            ).all()
             
-                return {
-                    'internal_order_number': cached['internal_order_number'],
-                    'product_ids': product_ids,
-                    'year_code': cached['year_code'],
-                    'order_counter': cached['order_counter']
-                }
-        
-            # Generuj nowy internal_order_number
+            if existing_items:
+                logger.error("BŁĄD: Próba generowania ID dla istniejącego zamówienia", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'existing_items_count': len(existing_items),
+                    'existing_ids': [item.short_product_id for item in existing_items[:5]]
+                })
+                raise ProductIDGeneratorError(f"Zamówienie {baselinker_order_id} już istnieje w bazie danych")
+
+            # KROK 2: Sprawdź cache
+            if baselinker_order_id in cls._order_mapping_cache:
+                logger.warning("UWAGA: Zamówienie w cache ale nie w bazie - czyścimy cache", extra={
+                    'baselinker_order_id': baselinker_order_id
+                })
+                # Usuń z cache i kontynuuj generowanie
+                del cls._order_mapping_cache[baselinker_order_id]
+
+            # KROK 3: Wygeneruj nowy XXXXX (numer zamówienia)
             current_year = datetime.now().year
-            year_code = str(current_year)[-2:]
+            year_code = str(current_year)[-2:]  # "25" dla 2025
+            
+            # Pobierz następny unikalny numer zamówienia
             order_counter = cls._get_next_order_counter(current_year)
-        
-            internal_order_number = f"{year_code}_{order_counter:05d}"
-        
-            # Wygeneruj listę wszystkich product_ids dla tego zamówienia
+            internal_order_number = f"{year_code}_{order_counter:05d}"  # "25_00048"
+            
+            # KROK 4: Sprawdź czy internal_order_number jest unikalny
+            existing_with_internal = ProductionItem.query.filter_by(
+                internal_order_number=internal_order_number
+            ).first()
+            
+            if existing_with_internal:
+                logger.error("BŁĄD KRYTYCZNY: Wygenerowany internal_order_number już istnieje!", extra={
+                    'internal_order_number': internal_order_number,
+                    'existing_record_id': existing_with_internal.id,
+                    'order_counter': order_counter
+                })
+                raise ProductIDGeneratorError(f"Wygenerowany internal_order_number {internal_order_number} już istnieje!")
+
+            # KROK 5: Wygeneruj wszystkie product_ids (ZZ = 1, 2, 3, ...)
             product_ids = []
-            for sequence in range(1, total_products_count + 1):
-                product_ids.append(f"{internal_order_number}_{sequence}")
-        
+            for zz in range(1, total_products_count + 1):
+                product_id = f"{internal_order_number}_{zz}"  # "25_00048_1", "25_00048_2", ...
+                product_ids.append(product_id)
+
+            # KROK 6: Sprawdź unikalność wszystkich product_ids
+            conflicting_ids = []
+            for product_id in product_ids:
+                existing_product = ProductionItem.query.filter_by(
+                    short_product_id=product_id
+                ).first()
+                
+                if existing_product:
+                    conflicting_ids.append({
+                        'product_id': product_id,
+                        'existing_record_id': existing_product.id,
+                        'existing_order_id': existing_product.baselinker_order_id
+                    })
+
+            if conflicting_ids:
+                logger.error("BŁĄD: Wygenerowane product_ids już istnieją!", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'internal_order_number': internal_order_number,
+                    'conflicting_ids': conflicting_ids[:3],  # Pokaż pierwsze 3
+                    'total_conflicts': len(conflicting_ids)
+                })
+                raise ProductIDGeneratorError(f"Konflikty ID: {len(conflicting_ids)} z {total_products_count} już istnieje")
+
+            # KROK 7: Wszystko OK - zapisz do cache
             result = {
                 'internal_order_number': internal_order_number,
                 'product_ids': product_ids,
                 'year_code': year_code,
                 'order_counter': order_counter
             }
-        
-            # Zapisz w cache
+            
             cls._order_mapping_cache[baselinker_order_id] = {
                 'internal_order_number': internal_order_number,
                 'year_code': year_code,
                 'order_counter': order_counter
             }
-        
-            logger.info("Wygenerowano ID dla zamówienia", extra={
+            
+            logger.info("SUKCES: Wygenerowano unikalne ID dla zamówienia", extra={
                 'baselinker_order_id': baselinker_order_id,
                 'internal_order_number': internal_order_number,
                 'total_products': total_products_count,
                 'first_id': product_ids[0] if product_ids else None,
-                'last_id': product_ids[-1] if product_ids else None
+                'last_id': product_ids[-1] if product_ids else None,
+                'order_counter': order_counter,
+                'all_ids': product_ids  # DEBUGOWANIE: pokaż wszystkie ID
             })
-        
+            
             return result
-        
+            
         except Exception as e:
-            logger.error("Błąd generowania ID dla zamówienia", extra={
+            logger.error("BŁĄD krytyczny w generowaniu ID", extra={
                 'baselinker_order_id': baselinker_order_id,
                 'total_products_count': total_products_count,
                 'error': str(e)
             })
-            raise ProductIDGeneratorError(f"Nie można wygenerować ID dla zamówienia: {str(e)}")
+            raise ProductIDGeneratorError(f"Nie można wygenerować ID dla zamówienia {baselinker_order_id}: {str(e)}")
     
     
     @classmethod
     def _get_next_order_counter(cls, year):
         """
         Pobiera i inkrementuje licznik zamówień dla podanego roku
-    
+        
+        WAŻNE: Ta metoda zwiększa licznik o 1 za każdym wywołaniem
+        
         Args:
             year (int): Rok dla którego pobrać licznik
         
         Returns:
-            int: Następny numer w sekwencji
-        
-        Raises:
-            ProductIDGeneratorError: W przypadku błędu bazy danych
+            int: Następny numer w sekwencji (XXXXX)
         """
         try:
-            # Import lokalny aby uniknąć circular imports
             from ..models import ProductionOrderCounter
         
-            # USUŃ with db.session.begin(): - to powoduje konflikt
             # Szukanie istniejącego licznika
             counter = ProductionOrderCounter.query.filter_by(year=year).first()
         
             if not counter:
-                # Utworzenie nowego licznika dla roku
+                # Utworzenie nowego licznika dla roku - rozpoczynamy od 1
                 counter = ProductionOrderCounter(
                     year=year,
                     current_counter=1
                 )
                 db.session.add(counter)
+                logger.info("Utworzono nowy licznik dla roku", extra={
+                    'year': year,
+                    'starting_counter': 1
+                })
             else:
-                # Inkrementacja licznika
+                # Inkrementacja istniejącego licznika
                 counter.current_counter += 1
                 counter.last_updated_at = datetime.utcnow()
+                logger.debug("Zinkrementowano licznik", extra={
+                    'year': year,
+                    'new_counter': counter.current_counter
+                })
         
             next_counter = counter.current_counter
-        
-            # Commit bez transakcji bloku
             db.session.commit()
         
-            logger.debug("Pobrano kolejny licznik zamówienia", extra={
+            logger.info("Pobrano kolejny licznik zamówienia", extra={
                 'year': year,
                 'counter': next_counter
             })
@@ -211,26 +253,17 @@ class ProductIDGenerator:
             
         year_code, order_number, sequence = match.groups()
         
-        # Sprawdzenie czy rok jest sensowny (20-99 dla lat 2020-2099)
         try:
             year_int = int(year_code)
             if not (20 <= year_int <= 99):
                 return False
-        except ValueError:
-            return False
-            
-        # Sprawdzenie czy numer zamówienia jest w zakresie
-        try:
+                
             order_int = int(order_number)
             if not (1 <= order_int <= 99999):
                 return False
-        except ValueError:
-            return False
-            
-        # Sprawdzenie czy sekwencja jest sensowna
-        try:
+                
             sequence_int = int(sequence)
-            if not (1 <= sequence_int <= 999):  # Max 999 produktów w zamówieniu
+            if not (1 <= sequence_int <= 999):
                 return False
         except ValueError:
             return False
@@ -255,28 +288,13 @@ class ProductIDGenerator:
     
     @classmethod
     def parse_product_id(cls, product_id):
-        """
-        Parsuje Product ID na komponenty
-        
-        Args:
-            product_id (str): ID do sparsowania
-            
-        Returns:
-            dict: {
-                'year_code': str,
-                'order_counter': int,
-                'sequence': int,
-                'internal_order_number': str,
-                'full_year': int
-            } lub None jeśli format niepoprawny
-        """
+        """Parsuje Product ID na komponenty"""
         if not cls.validate_product_id_format(product_id):
             return None
             
         match = cls.PRODUCT_ID_PATTERN.match(product_id)
         year_code, order_number, sequence = match.groups()
         
-        # Konwersja 2-cyfrowego roku na pełny rok
         year_int = int(year_code)
         full_year = 2000 + year_int if year_int >= 20 else 1900 + year_int
         
@@ -461,12 +479,96 @@ class ProductIDGenerator:
                 'error': str(e)
             })
             raise ProductIDGeneratorError(f"Nie można zresetować licznika: {str(e)}")
+        
+    @classmethod
+    def validate_database_consistency(cls):
+        """Waliduje spójność liczników z danymi w bazie"""
+        try:
+            from ..models import ProductionItem, ProductionOrderCounter
+            
+            logger.info("Rozpoczęcie walidacji spójności bazy danych")
+            
+            current_year = datetime.now().year
+            year_code = str(current_year)[-2:]
+            
+            # Sprawdź duplikaty short_product_id
+            duplicates_query = db.session.execute(text("""
+                SELECT short_product_id, COUNT(*) as count 
+                FROM prod_items 
+                WHERE short_product_id IS NOT NULL
+                GROUP BY short_product_id 
+                HAVING COUNT(*) > 1
+                LIMIT 10
+            """))
+            
+            duplicates = duplicates_query.fetchall()
+            if duplicates:
+                logger.error("DUPLIKATY: Znaleziono duplikaty short_product_id", extra={
+                    'duplicates_count': len(duplicates),
+                    'sample_duplicates': [{'id': d[0], 'count': d[1]} for d in duplicates]
+                })
+                return {'duplicates_found': len(duplicates), 'valid': False}
+            
+            # Sprawdź synchronizację licznika
+            counter_record = ProductionOrderCounter.query.filter_by(year=current_year).first()
+            
+            if counter_record:
+                # Znajdź najwyższy numer zamówienia w bazie dla bieżącego roku
+                max_order_query = db.session.execute(text("""
+                    SELECT MAX(
+                        CASE 
+                            WHEN internal_order_number REGEXP '^[0-9]{2}_[0-9]{5}$'
+                            THEN CAST(SUBSTRING(internal_order_number, 4, 5) AS UNSIGNED)
+                            ELSE 0
+                        END
+                    ) as max_order
+                    FROM prod_items 
+                    WHERE internal_order_number LIKE :year_pattern
+                """), {'year_pattern': f'{year_code}_%'})
+                
+                max_order_result = max_order_query.fetchone()
+                max_order_in_db = max_order_result[0] if max_order_result and max_order_result[0] else 0
+                
+                is_synchronized = counter_record.current_counter >= max_order_in_db
+                
+                logger.info("Walidacja synchronizacji licznika", extra={
+                    'current_counter': counter_record.current_counter,
+                    'max_order_in_db': max_order_in_db,
+                    'is_synchronized': is_synchronized,
+                    'year': current_year
+                })
+                
+                if not is_synchronized:
+                    logger.error("DESYNC: Licznik jest mniejszy niż najwyższy numer w bazie!", extra={
+                        'counter_value': counter_record.current_counter,
+                        'max_in_db': max_order_in_db,
+                        'difference': max_order_in_db - counter_record.current_counter
+                    })
+                    return {'duplicates_found': 0, 'synchronized': False, 'valid': False}
+            
+            return {'duplicates_found': 0, 'synchronized': True, 'valid': True}
+            
+        except Exception as e:
+            logger.error("Błąd walidacji spójności bazy danych", extra={'error': str(e)})
+            return {'error': str(e), 'valid': False}
+
 
     @classmethod
     def clear_order_cache(cls):
-        """Czyści cache mapowania zamówień (użyj po zakończeniu synchronizacji)"""
+        """Czyści cache mapowania zamówień z logowaniem"""
+        cache_size_before = len(cls._order_mapping_cache)
+        
+        if cache_size_before > 0:
+            logger.info("Czyszczenie cache mapowania zamówień", extra={
+                'cached_orders_count': cache_size_before,
+                'cached_orders': list(cls._order_mapping_cache.keys())[:10]  # Pokaż pierwsze 10
+            })
+        
         cls._order_mapping_cache.clear()
-        logger.info("Wyczyszczono cache mapowania zamówień")
+        
+        logger.info("Wyczyszczono cache mapowania zamówień", extra={
+            'cleared_orders_count': cache_size_before
+        })
 
 # Funkcje pomocnicze na poziomie modułu
 def generate_product_id(baselinker_order_id, sequence_number):

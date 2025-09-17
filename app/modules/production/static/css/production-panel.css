@@ -84,11 +84,6 @@ body {
     min-width: 700px;
 }
 
-.production-dashboard-grid .widget.performance-chart {
-    grid-column: span 2;
-    min-width: 700px;
-}
-
 .user-greeting {
     display: flex;
     flex-direction: column;

@@ -81,7 +81,7 @@ class ProductionItem(db.Model):
     id = Column(Integer, primary_key=True)
     
     # IDENTYFIKATORY SYSTEMU
-    short_product_id = Column(String(10), unique=True, nullable=False, index=True)
+    short_product_id = Column(String(16), unique=True, nullable=False, index=True)
     internal_order_number = Column(String(8), nullable=False, index=True)
     product_sequence_in_order = Column(Integer, nullable=False)
     
@@ -392,7 +392,7 @@ class ProductionError(db.Model):
     ), nullable=False, index=True)
     
     # KONTEKST BŁĘDU
-    related_product_id = Column(String(10), ForeignKey('prod_items.short_product_id'))
+    related_product_id = Column(String(16), ForeignKey('prod_items.short_product_id'))
     related_order_id = Column(Integer)
     error_location = Column(String(100), nullable=False)
     
