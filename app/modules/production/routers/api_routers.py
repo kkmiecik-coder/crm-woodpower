@@ -3060,6 +3060,509 @@ def calculate_duration(start_time, end_time):
         'formatted': f"{hours}h {minutes}m"
     }
 
+# ============================================================================
+# POBIERANIE ZAMÓWIEŃ MODAL PRODUCTION - PANEL ZARZĄDZANIA
+# ============================================================================
+
+@api_bp.route('/baselinker_statuses', methods=['GET'])
+@login_required
+def baselinker_statuses():
+    """
+    GET /api/baselinker_statuses - Pobieranie statusów Baselinker z cache
+    
+    Endpoint dla nowego modalu synchronizacji - pobiera statusy z Baselinker API
+    z 7-dniowym cache w tabeli prod_config.
+    
+    Cache structure w prod_config:
+    - key: 'baselinker_statuses_cache' 
+    - value: JSON z listą statusów + timestamp
+    - type: 'json'
+    
+    Returns:
+        JSON: {
+            'success': True,
+            'statuses': [{'id': int, 'name': str}, ...],
+            'cached': bool,
+            'cache_age_hours': float
+        }
+    """
+    try:
+        logger.info("API: Pobieranie statusów Baselinker z cache", extra={
+            'user_id': current_user.id,
+            'endpoint': 'baselinker_statuses'
+        })
+        
+        from ..services.config_service import ProductionConfigService
+        config_service = ProductionConfigService()
+        
+        # Sprawdź cache statusów
+        cache_key = 'baselinker_statuses_cache'
+        cached_data = config_service.get_config(cache_key, default=None)
+        
+        statuses = []
+        cached = False
+        cache_age_hours = 0
+        
+        if cached_data:
+            try:
+                cache_data = json.loads(cached_data) if isinstance(cached_data, str) else cached_data
+                cache_timestamp = cache_data.get('timestamp')
+                
+                if cache_timestamp:
+                    # Oblicz wiek cache
+                    cache_dt = datetime.fromisoformat(cache_timestamp.replace('Z', '+00:00'))
+                    cache_age = datetime.utcnow() - cache_dt.replace(tzinfo=None)
+                    cache_age_hours = cache_age.total_seconds() / 3600
+                    
+                    # Cache ważny przez 7 dni (168 godzin)
+                    if cache_age_hours < 168:  # 7 dni * 24h
+                        statuses = cache_data.get('statuses', [])
+                        cached = True
+                        logger.info("API: Użyto cache statusów Baselinker", extra={
+                            'cache_age_hours': round(cache_age_hours, 2),
+                            'statuses_count': len(statuses)
+                        })
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                logger.warning("API: Błędny format cache statusów", extra={'error': str(e)})
+        
+        # Jeśli brak cache lub przedawniony, pobierz z API
+        if not cached:
+            logger.info("API: Pobieranie statusów z Baselinker API")
+            
+            try:
+                # Użyj BaselinkerSyncService
+                from ..services.sync_service import get_sync_service
+                sync_service = get_sync_service()
+                
+                if not sync_service:
+                    raise Exception('Nie można zainicjować serwisu synchronizacji Baselinker')
+                
+                # Pobierz statusy przez naszą metodę
+                api_statuses = sync_service.get_baselinker_statuses()
+                
+                if api_statuses and len(api_statuses) > 0:
+                    # Formatuj statusy dla frontendu
+                    statuses = [
+                        {
+                            'id': int(status_id),
+                            'name': status_name
+                        }
+                        for status_id, status_name in api_statuses.items()
+                    ]
+                    
+                    # Zapisz do cache
+                    cache_data = {
+                        'statuses': statuses,
+                        'timestamp': datetime.utcnow().isoformat() + 'Z',
+                        'source': 'baselinker_api'
+                    }
+                    
+                    config_service.set_config(
+                        key=cache_key,
+                        value=json.dumps(cache_data),
+                        config_type='json',
+                        user_id=current_user.id,
+                        description='Cache statusów Baselinker (7 dni TTL)'
+                    )
+                    
+                    logger.info("API: Statusy pobrane i zapisane do cache", extra={
+                        'statuses_count': len(statuses)
+                    })
+                else:
+                    raise Exception('Brak statusów w odpowiedzi API Baselinker')
+                    
+            except Exception as e:
+                logger.error("API: Błąd pobierania statusów z Baselinker", extra={
+                    'error': str(e),
+                    'user_id': current_user.id
+                })
+                
+                # Fallback - zwróć podstawowe statusy jeśli API nie działa
+                statuses = [
+                    {'id': 138618, 'name': 'W produkcji'},
+                    {'id': 138619, 'name': 'Gotowe'},
+                    {'id': 138623, 'name': 'Spakowane'}
+                ]
+                logger.warning("API: Użyto fallback statusów", extra={
+                    'fallback_count': len(statuses)
+                })
+        
+        return jsonify({
+            'success': True,
+            'statuses': statuses,
+            'cached': cached,
+            'cache_age_hours': round(cache_age_hours, 2),
+            'count': len(statuses)
+        }), 200
+        
+    except Exception as e:
+        logger.error("API: Błąd endpoint baselinker_statuses", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'fallback_statuses': [
+                {'id': 138618, 'name': 'W produkcji'},
+                {'id': 138619, 'name': 'Gotowe'},
+                {'id': 138623, 'name': 'Spakowane'}
+            ]
+        }), 500
+
+
+@api_bp.route('/get_config_days_range', methods=['GET'])
+@login_required 
+def get_config_days_range():
+    """
+    GET /api/get_config_days_range - Pobieranie zakresu dni synchronizacji z konfiguracji
+    
+    Endpoint dla nowego modalu synchronizacji - pobiera skonfigurowany zakres dni
+    z tabeli prod_config (klucz: 'baselinker_sync_days_range').
+    
+    Returns:
+        JSON: {
+            'success': True,
+            'days_range': int,
+            'source': 'config'|'default'
+        }
+    """
+    try:
+        logger.info("API: Pobieranie zakresu dni synchronizacji", extra={
+            'user_id': current_user.id,
+            'endpoint': 'get_config_days_range'
+        })
+        
+        from ..services.config_service import ProductionConfigService
+        config_service = ProductionConfigService()
+        
+        # Pobierz zakres dni z konfiguracji (domyślnie 7)
+        days_range = config_service.get_config('baselinker_sync_days_range', default=7)
+        
+        # Konwertuj na int jeśli to string
+        if isinstance(days_range, str):
+            try:
+                days_range = int(days_range)
+            except ValueError:
+                days_range = 7
+        
+        # Walidacja zakresu (1-30 dni)
+        if not isinstance(days_range, int) or days_range < 1 or days_range > 30:
+            logger.warning("API: Nieprawidłowy zakres dni w config", extra={
+                'days_range': days_range,
+                'user_id': current_user.id
+            })
+            days_range = 7
+            source = 'default'
+        else:
+            source = 'config'
+        
+        logger.info("API: Zwrócono zakres dni", extra={
+            'days_range': days_range,
+            'source': source,
+            'user_id': current_user.id
+        })
+        
+        return jsonify({
+            'success': True,
+            'days_range': days_range,
+            'source': source
+        }), 200
+        
+    except Exception as e:
+        logger.error("API: Błąd endpoint get_config_days_range", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+        
+        return jsonify({
+            'success': True,  # Nie blokuj UI - zwróć domyślną wartość
+            'days_range': 7,
+            'source': 'fallback',
+            'error': str(e)
+        }), 200
+
+
+@api_bp.route('/fetch_orders_preview', methods=['POST'])
+@login_required
+def fetch_orders_preview():
+    """
+    POST /api/fetch_orders_preview - Pobieranie zamówień bez zapisu (preview)
+    
+    Endpoint dla nowego modalu synchronizacji - pobiera zamówienia z Baselinker
+    bez zapisywania ich do bazy danych. Służy do preview listy zamówień.
+    
+    Body:
+    {
+        "days_range": int,        # Zakres dni wstecz (1-30)
+        "status_ids": [int, ...]  # Lista ID statusów do pobrania
+    }
+    
+    Returns:
+        JSON: {
+            'success': True,
+            'orders': [...],         # Lista zamówień
+            'pages_processed': int,  # Ilość stron API
+            'total_count': int,      # Łączna liczba zamówień
+            'filtered_count': int    # Liczba zamówień po filtrowaniu
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        days_range = data.get('days_range', 7)
+        status_ids = data.get('status_ids', [])
+        
+        logger.info("API: Pobieranie zamówień preview", extra={
+            'user_id': current_user.id,
+            'days_range': days_range,
+            'status_ids': status_ids,
+            'endpoint': 'fetch_orders_preview'
+        })
+        
+        # Walidacja parametrów
+        if not isinstance(days_range, int) or days_range < 1 or days_range > 30:
+            return jsonify({
+                'success': False,
+                'error': 'days_range musi być liczbą między 1 a 30'
+            }), 400
+            
+        if not isinstance(status_ids, list) or len(status_ids) == 0:
+            return jsonify({
+                'success': False,
+                'error': 'status_ids musi być niepustą listą'
+            }), 400
+        
+        # Konwersja dat
+        date_to = datetime.utcnow()
+        date_from = date_to - timedelta(days=days_range)
+        
+        logger.info("API: Zakres dat pobierania", extra={
+            'date_from': date_from.isoformat(),
+            'date_to': date_to.isoformat(),
+            'days_range': days_range
+        })
+        
+        # Użyj serwisu z modułu reports dla spójności
+        from modules.reports.service import get_reports_service
+        reports_service = get_reports_service()
+        
+        if not reports_service:
+            raise Exception('Nie można zainicjować serwisu raportów Baselinker')
+        
+        # Pobierz zamówienia z Baselinker (bez zapisu)
+        fetch_result = reports_service.fetch_orders_from_date_range(
+            date_from=date_from,
+            date_to=date_to,
+            get_all_statuses=True,  # Pobierz wszystkie statusy, przefiltrujemy później
+            limit_per_page=100      # Standardowy limit
+        )
+        
+        if not fetch_result.get('success'):
+            raise Exception(fetch_result.get('error', 'Nie udało się pobrać zamówień z Baselinker'))
+        
+        all_orders = fetch_result.get('orders', []) or []
+        pages_processed = fetch_result.get('pages_processed') or 0
+        
+        # Filtruj zamówienia po statusach
+        status_ids_set = set(status_ids)
+        filtered_orders = []
+        
+        for order in all_orders:
+            order_status = order.get('order_status_id') or order.get('status_id')
+            if order_status in status_ids_set:
+                # Dodaj dodatkowe pola dla frontendu
+                order['id'] = order.get('order_id')
+                order['customer_name'] = order.get('delivery_fullname') or order.get('buyer_name') or 'Brak nazwy'
+                order['baselinker_order_id'] = order.get('order_id')
+                order['status_id'] = order_status
+                order['order_date'] = order.get('date_add')
+                
+                # Przetwórz produkty
+                if 'products' in order and order['products']:
+                    processed_products = []
+                    for product in order['products']:
+                        processed_products.append({
+                            'name': product.get('name', 'Bez nazwy'),
+                            'sku': product.get('sku', ''),
+                            'variant': product.get('variant', ''),
+                            'quantity': float(product.get('quantity', 0)),
+                            'price': float(product.get('price_brutto', 0)),
+                            'unit': product.get('unit', 'szt.')
+                        })
+                    order['products'] = processed_products
+                
+                filtered_orders.append(order)
+        
+        logger.info("API: Zamówienia pobrane pomyślnie", extra={
+            'total_orders': len(all_orders),
+            'filtered_orders': len(filtered_orders),
+            'pages_processed': pages_processed,
+            'user_id': current_user.id
+        })
+        
+        return jsonify({
+            'success': True,
+            'orders': filtered_orders,
+            'pages_processed': pages_processed,
+            'total_count': len(all_orders),
+            'filtered_count': len(filtered_orders),
+            'date_range': {
+                'from': date_from.isoformat(),
+                'to': date_to.isoformat(),
+                'days': days_range
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error("API: Błąd endpoint fetch_orders_preview", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'request_data': data if 'data' in locals() else None
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/save_selected_orders', methods=['POST'])
+@login_required
+def save_selected_orders():
+    """
+    POST /api/save_selected_orders - Zapis wybranych zamówień do produkcji
+    
+    Endpoint dla nowego modalu synchronizacji - zapisuje wybrane przez użytkownika
+    zamówienia jako pozycje produkcyjne. Używa istniejącej logiki manual_sync_with_filtering.
+    
+    Body:
+    {
+        "order_ids": [int, ...],  # Lista ID zamówień do zapisania
+        "days_range": int,        # Zakres dni (dla logiki sync service)
+        "status_ids": [int, ...]  # Lista statusów (dla logiki sync service)
+    }
+    
+    Returns:
+        JSON: {
+            'success': True,
+            'orders_created': int,    # Liczba utworzonych zamówień
+            'products_created': int,  # Liczba utworzonych produktów
+            'products_skipped': int,  # Liczba pominiętych produktów
+            'summary': str           # Podsumowanie operacji
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        order_ids = data.get('order_ids', [])
+        days_range = data.get('days_range', 7)
+        status_ids = data.get('status_ids', [])
+        
+        logger.info("API: Zapis wybranych zamówień", extra={
+            'user_id': current_user.id,
+            'order_ids': order_ids,
+            'order_count': len(order_ids),
+            'days_range': days_range,
+            'status_ids': status_ids,
+            'endpoint': 'save_selected_orders'
+        })
+        
+        # Walidacja parametrów
+        if not isinstance(order_ids, list) or len(order_ids) == 0:
+            return jsonify({
+                'success': False,
+                'error': 'order_ids musi być niepustą listą'
+            }), 400
+            
+        if len(order_ids) > 100:  # Zabezpieczenie przed zbyt dużą liczbą
+            return jsonify({
+                'success': False,
+                'error': 'Maksymalnie 100 zamówień na raz'
+            }), 400
+        
+        # Użyj istniejącej logiki manual_sync_with_filtering z modyfikacją
+        from ..services.sync_service import manual_sync_with_filtering
+        
+        # Przygotuj payload dla sync service
+        sync_payload = {
+            'target_statuses': status_ids,
+            'period_days': days_range,
+            'limit_per_page': 100,
+            'dry_run': False,
+            'force_update': True,
+            'debug_mode': False,
+            'skip_validation': False,
+            # Dodatkowe parametry dla filtrowania po order_ids
+            'filter_order_ids': order_ids,  # Nowy parametr
+            'selected_orders_only': True    # Flaga dla sync service
+        }
+        
+        logger.info("API: Wywołanie manual_sync_with_filtering", extra={
+            'sync_payload': sync_payload,
+            'user_id': current_user.id
+        })
+        
+        # Wykonaj synchronizację z filtrowaniem
+        sync_result = manual_sync_with_filtering(sync_payload)
+        
+        if sync_result.get('success'):
+            data_section = sync_result.get('data', {})
+            stats = data_section.get('stats', {})
+            
+            orders_created = stats.get('orders_matched_status', 0)
+            products_created = stats.get('products_created', 0) 
+            products_skipped = stats.get('products_skipped', 0)
+            
+            logger.info("API: Zapis zamówień zakończony pomyślnie", extra={
+                'orders_created': orders_created,
+                'products_created': products_created,
+                'products_skipped': products_skipped,
+                'user_id': current_user.id
+            })
+            
+            summary = f"Utworzono {products_created} produktów z {orders_created} zamówień"
+            if products_skipped > 0:
+                summary += f". Pominięto {products_skipped} produktów (filtrowanie)"
+            
+            return jsonify({
+                'success': True,
+                'orders_created': orders_created,
+                'products_created': products_created,
+                'products_skipped': products_skipped,
+                'summary': summary,
+                'stats': stats
+            }), 200
+        else:
+            error_msg = sync_result.get('error', 'Nieznany błąd synchronizacji')
+            logger.error("API: Błąd zapisu zamówień", extra={
+                'error': error_msg,
+                'user_id': current_user.id,
+                'sync_result': sync_result
+            })
+            
+            return jsonify({
+                'success': False,
+                'error': error_msg,
+                'sync_details': sync_result
+            }), 500
+            
+    except Exception as e:
+        logger.error("API: Błąd endpoint save_selected_orders", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'request_data': data if 'data' in locals() else None
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 logger.info("Zainicjalizowano API routers modułu production", extra={
     'blueprint_name': api_bp.name,
     'total_endpoints': 7,  # dashboard-stats, complete-task, cron-sync, manual-sync, update-config, health, complete-packaging

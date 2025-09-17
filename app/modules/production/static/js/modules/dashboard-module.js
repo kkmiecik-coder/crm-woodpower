@@ -33,12 +33,15 @@ class DashboardModule {
         this.onClearAllErrorsClick = this.clearAllSystemErrors.bind(this);
         this.onSystemErrorsModalHidden = this.resetSystemErrorsModal.bind(this);
         this.onSystemErrorsModalCloseClick = this.handleSystemErrorsModalClose.bind(this);
+        this.onRefreshSystemClick = this.handleRefreshSystem.bind(this);
 
         // State
         this.state = {
             lastRefresh: null,
             widgetStates: {},
-            chartData: null
+            chartData: null,
+            isRefreshing: false,
+            lastManualRefresh: null
         };
 
         // Components registry
@@ -141,11 +144,28 @@ class DashboardModule {
         console.log('[Dashboard Module] Refreshing dashboard...');
 
         try {
+            // Zniszcz istniejący wykres PRZED zastąpieniem HTML
+            if (this.chartInstance) {
+                console.log('[Dashboard Module] Destroying existing chart before refresh');
+                this.chartInstance.destroy();
+                this.chartInstance = null;
+            }
+
             await this.loadDashboardContent();
-            this.updateWidgets();
-            
+
+            // Po załadowaniu nowego HTML, trzeba ponownie zainicjalizować komponenty
+            this.initializeWidgets();
+
+            // Ponownie skonfiguruj event listeners (bo HTML został zastąpiony)
+            this.setupEventListeners();
+
+            // Ponownie zainicjalizuj wykres jeśli użytkownik to admin
+            if (this.config.user?.isAdmin) {
+                await this.initializePerformanceChart();
+            }
+
             await this.updateProductionStatus();
-            
+
             this.state.lastRefresh = new Date();
 
             this.shared.eventBus.emit('dashboard:refreshed', {
@@ -319,14 +339,6 @@ class DashboardModule {
             if (response.success) {
                 console.log('[Dashboard Module] API success, health data:', response.health);
                 
-                // DODAJ: Szczegółowe logowanie każdego pola
-                console.log('[Dashboard Module] Health data breakdown:');
-                console.log('- database_status:', response.health.database_status);
-                console.log('- sync_status:', response.health.sync_status);
-                console.log('- errors_24h:', response.health.errors_24h);
-                console.log('- total_unresolved_errors:', response.health.total_unresolved_errors);
-                console.log('- last_sync:', response.health.last_sync);
-                
                 this.renderProductionStatus(response.health);
             } else {
                 throw new Error(response.error || 'Błąd pobierania statusu systemu');
@@ -423,16 +435,25 @@ class DashboardModule {
 
         try {
             const chartContainer = document.querySelector('.widget.performance-chart');
-            if (!chartContainer) return;
+            if (!chartContainer) {
+                console.warn('[Dashboard Module] Chart container not found');
+                return;
+            }
+
+            // DODAJ: Pokaż loader od razu na początku inicjalizacji
+            this.toggleChartLoader(true);
 
             // Initialize chart controls
             this.initChartControls(chartContainer);
 
-            // Load chart data
+            // Load chart data - loadChartData już ma swój własny toggleChartLoader
             await this.loadChartData(7); // Default 7 days
 
         } catch (error) {
             console.error('[Dashboard Module] Chart initialization failed:', error);
+            // DODAJ: Ukryj loader w przypadku błędu
+            this.toggleChartLoader(false);
+            this.showChartError('Błąd inicjalizacji wykresu: ' + error.message);
         }
     }
 
@@ -494,50 +515,82 @@ class DashboardModule {
 
     createOrUpdateChart(chartData, summary) {
         const canvas = document.getElementById('performance-chart-canvas');
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
-
-        // Destroy existing chart
-        if (this.chartInstance) {
-            this.chartInstance.destroy();
+        if (!canvas) {
+            console.warn('[Dashboard Module] Canvas element not found for chart');
+            return;
         }
 
-        // Create new chart
-        this.chartInstance = new Chart(ctx, {
-            type: 'line',
-            data: chartData,
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: `Wydajność produkcji (${summary.period_days} dni)`,
-                        font: { size: 14, weight: 'bold' }
-                    },
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    }
-                },
-                scales: {
-                    x: {
+        console.log('[Dashboard Module] Creating/updating chart...');
+
+        // Bardziej agresywne niszczenie istniejącego wykresu
+        if (this.chartInstance) {
+            console.log('[Dashboard Module] Destroying existing chart instance');
+            try {
+                this.chartInstance.destroy();
+            } catch (destroyError) {
+                console.warn('[Dashboard Module] Error destroying chart:', destroyError);
+            }
+            this.chartInstance = null;
+        }
+
+        // Sprawdź czy canvas nie ma już przypisanego wykresu Chart.js
+        if (canvas.chart) {
+            console.log('[Dashboard Module] Found existing chart on canvas, destroying...');
+            try {
+                canvas.chart.destroy();
+            } catch (canvasError) {
+                console.warn('[Dashboard Module] Error destroying canvas chart:', canvasError);
+            }
+            delete canvas.chart;
+        }
+
+        // Wyczyść canvas context jako dodatkowe zabezpieczenie
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        try {
+            // Create new chart
+            this.chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
                         title: {
                             display: true,
-                            text: 'Data'
+                            text: `Wydajność produkcji (${summary.period_days} dni)`,
+                            font: { size: 14, weight: 'bold' }
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top'
                         }
                     },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Objętość (m³)'
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Data'
+                            }
                         },
-                        beginAtZero: true
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Objętość (m³)'
+                            },
+                            beginAtZero: true
+                        }
                     }
                 }
-            }
-        });
+            });
+
+            console.log('[Dashboard Module] Chart created successfully with ID:', this.chartInstance.id);
+
+        } catch (chartError) {
+            console.error('[Dashboard Module] Failed to create chart:', chartError);
+            this.showChartError('Błąd tworzenia wykresu: ' + chartError.message);
+        }
     }
 
     showChartError(message) {
@@ -555,14 +608,23 @@ class DashboardModule {
         const loader = document.querySelector('.widget.performance-chart .chart-loader');
         const canvas = document.getElementById('performance-chart-canvas');
 
+        console.log('[Dashboard Module] Toggle chart loader:', show);
+
         if (loader) {
             if (show) {
+                // POPRAWKA: Usuń !important z CSS przez nadpisanie inline style
+                loader.style.display = 'flex';
                 loader.classList.add('is-visible');
                 loader.setAttribute('aria-hidden', 'false');
+                console.log('[Dashboard Module] Chart loader shown');
             } else {
+                loader.style.display = 'none';
                 loader.classList.remove('is-visible');
                 loader.setAttribute('aria-hidden', 'true');
+                console.log('[Dashboard Module] Chart loader hidden');
             }
+        } else {
+            console.warn('[Dashboard Module] Chart loader element not found');
         }
 
         if (canvas) {
@@ -599,6 +661,14 @@ class DashboardModule {
         const clearAllErrorsBtn = document.getElementById('clear-all-errors-btn');
         if (clearAllErrorsBtn) {
             clearAllErrorsBtn.addEventListener('click', this.onClearAllErrorsClick);
+        }
+
+        const refreshSystemBtn = document.getElementById('refresh-system-btn');
+        if (refreshSystemBtn) {
+            refreshSystemBtn.addEventListener('click', this.onRefreshSystemClick);
+            console.log('[Dashboard Module] Refresh system button listener attached');
+        } else {
+            console.warn('[Dashboard Module] Refresh system button not found');
         }
 
         const modalElement = document.getElementById('systemErrorsModal');
@@ -643,6 +713,14 @@ class DashboardModule {
         const clearAllErrorsBtn = document.getElementById('clear-all-errors-btn');
         if (clearAllErrorsBtn) {
             clearAllErrorsBtn.removeEventListener('click', this.onClearAllErrorsClick);
+        }
+
+        const refreshSystemBtn = document.getElementById('refresh-system-btn');
+        if (refreshSystemBtn) {
+            refreshSystemBtn.addEventListener('click', this.onRefreshSystemClick);
+            console.log('[Dashboard Module] Refresh system button listener attached');
+        } else {
+            console.warn('[Dashboard Module] Refresh system button not found');
         }
 
         if (this.systemErrorsModalElement) {
@@ -1242,6 +1320,95 @@ class DashboardModule {
         }
     }
 
+    async handleRefreshSystem() {
+        console.log('[Dashboard Module] Manual refresh system triggered');
+
+        if (this.state.isRefreshing) {
+            console.log('[Dashboard Module] Refresh already in progress, ignoring request');
+            return;
+        }
+
+        const refreshBtn = document.getElementById('refresh-system-btn');
+        const refreshIcon = refreshBtn?.querySelector('.refresh-icon');
+        const refreshText = refreshBtn?.querySelector('.refresh-text');
+        const refreshTimer = document.getElementById('refresh-timer');
+
+        try {
+            // Ustaw stan odświeżania
+            this.state.isRefreshing = true;
+
+            // Aktualizuj UI przycisku - wyłącz i pokaż animację
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.style.opacity = '0.7';
+            }
+
+            if (refreshIcon) {
+                refreshIcon.style.animation = 'spin 1s linear infinite';
+                refreshIcon.style.transformOrigin = 'center';
+            }
+
+            if (refreshText) {
+                refreshText.textContent = 'Odświeżanie...';
+            }
+
+            // Pokaż timer odliczający
+            if (refreshTimer) {
+                refreshTimer.style.display = 'inline';
+                this.startRefreshTimer(refreshTimer);
+            }
+
+            console.log('[Dashboard Module] Starting manual dashboard refresh...');
+
+            // Wyczyść cache API żeby mieć pewność że pobierzemy świeże dane
+            this.shared.apiClient.clearCache();
+
+            // Wykonaj odświeżenie dashboardu
+            await this.refresh();
+
+            // Zapisz czas ostatniego ręcznego odświeżenia
+            this.state.lastManualRefresh = new Date();
+
+            // Pokaż toast o sukcesie
+            this.shared.toastSystem.show(
+                'Dashboard został odświeżony pomyślnie',
+                'success'
+            );
+
+            console.log('[Dashboard Module] Manual refresh completed successfully');
+
+        } catch (error) {
+            console.error('[Dashboard Module] Manual refresh failed:', error);
+
+            // Pokaż toast o błędzie
+            this.shared.toastSystem.show(
+                'Błąd podczas odświeżania: ' + error.message,
+                'error'
+            );
+        } finally {
+            // Przywróć stan przycisku
+            this.state.isRefreshing = false;
+
+            if (refreshBtn) {
+                refreshBtn.disabled = false;
+                refreshBtn.style.opacity = '1';
+            }
+
+            if (refreshIcon) {
+                refreshIcon.style.animation = 'none';
+            }
+
+            if (refreshText) {
+                refreshText.textContent = 'Odśwież system';
+            }
+
+            if (refreshTimer) {
+                refreshTimer.style.display = 'none';
+                refreshTimer.textContent = '';
+            }
+        }
+    }
+
     // ========================================================================
     // AUTO REFRESH
     // ========================================================================
@@ -1252,7 +1419,7 @@ class DashboardModule {
             if (!document.hidden) {
                 this.refresh();
             }
-        }, 180000);
+        }, 1 * 60 * 1000);
 
         // Zapisz referencję do timera production status
         this.productionStatusInterval = setInterval(() => {
@@ -1261,12 +1428,31 @@ class DashboardModule {
             }
         }, 30000);
 
-        console.log('[Dashboard Module] Auto-refresh setup (3 minutes)');
+        console.log('[Dashboard Module] Auto-refresh setup (5 minutes)');
     }
 
     // ========================================================================
     // UTILITY METHODS
     // ========================================================================
+
+    startRefreshTimer(timerElement) {
+        if (!timerElement) return;
+
+        let seconds = 0;
+        const interval = setInterval(() => {
+            seconds++;
+            timerElement.textContent = `(${seconds}s)`;
+
+            // Zatrzymaj timer po 30 sekundach (fallback)
+            if (seconds >= 30 || !this.state.isRefreshing) {
+                clearInterval(interval);
+                timerElement.textContent = '';
+            }
+        }, 1000);
+
+        // Przechowaj referencję do intervalu w przypadku potrzeby wcześniejszego zatrzymania
+        timerElement._refreshInterval = interval;
+    }
 
     cleanBackendValue(value) {
         if (value === "-" || value === null || value === undefined || value === "") {

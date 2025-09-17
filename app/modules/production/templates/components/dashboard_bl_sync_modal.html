@@ -1,288 +1,334 @@
-<!-- Modal ręcznej synchronizacji z Baselinker - app/modules/production/templates/components/dashboard_bl_sync_modal.html -->
-<div class="modal fade" id="baselinkerSyncModal" tabindex="-1" role="dialog" aria-labelledby="baselinkerSyncModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl" role="document">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="baselinkerSyncModalLabel">
-                    <i class="fas fa-sync-alt"></i> Synchronizacja z Baselinker
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <!-- Krok 1: Konfiguracja synchronizacji -->
-                <div id="sync-step-1" class="sync-step">
-                    <div class="alert alert-info mb-4">
-                        <i class="fas fa-info-circle me-2"></i>
-                        <strong>Synchronizacja produkcji</strong><br>
-                        System pobierze zamówienia z ostatnich 25 dni z Baselinker i utworzy produkty w systemie produkcji.
-                        Pozycje usługowe i materiałowe zostaną automatycznie pominięte.
-                    </div>
+<!--
+dashboard_bl_sync_modal.html - Nowy modal synchronizacji Baselinker
+Lokalizacja: app/modules/production/templates/components/dashboard_bl_sync_modal.html
 
-                    <form id="baselinker-sync-form">
-                        <!-- Opcje synchronizacji -->
-                        <div class="row mb-4">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="sync-type" class="form-label">Typ synchronizacji</label>
-                                    <select class="form-select" id="sync-type" name="sync_type">
-                                        <option value="incremental" selected>Przyrostowa (zalecane)</option>
-                                        <option value="full">Pełna (wolniejsza)</option>
-                                    </select>
-                                    <div class="form-text">Przyrostowa pomija już istniejące produkty</div>
-                                </div>
-                            </div>
+4-etapowy workflow:
+1. Formularz ustawień (zakres dni + statusy)
+2. Progress pobierania (strony API + zamówienia)
+3. Lista zamówień (checkboxy + filtrowanie)
+4. Progress zapisu wybranych
 
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="sync-limit" class="form-label">Limit zamówień na zapytanie</label>
-                                    <select class="form-select" id="sync-limit" name="limit">
-                                        <option value="50">50 zamówień</option>
-                                        <option value="100" selected>100 zamówień</option>
-                                        <option value="200">200 zamówień</option>
-                                    </select>
-                                    <div class="form-text">API Baselinker ma limit, większe będą paginowane</div>
-                                </div>
-                            </div>
-                        </div>
+Wzorowane na modulu reports z pełną responsywnością
+Data: 2025-01-17
+-->
+<!-- GŁÓWNY WRAPPER MODALA -->
+<div id="baselinkerSyncModal" class="modal-bl-sync-wrapper" style="display: none;">
+    <div class="modal-bl-sync-overlay"></div>
+    <div class="modal-bl-sync-container">
 
-                        <!-- Statusy zamówień -->
-                        <div class="mb-4">
-                            <label class="form-label">Statusy zamówień do pobrania</label>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="form-check mb-2">
-                                        <input class="form-check-input" type="checkbox" id="status-production" value="138619" checked>
-                                        <label class="form-check-label" for="status-production">
-                                            <strong>W produkcji</strong> (138619)
-                                        </label>
-                                    </div>
-                                    <div class="form-check mb-2">
-                                        <input class="form-check-input" type="checkbox" id="status-ready" value="148832" checked>
-                                        <label class="form-check-label" for="status-ready">
-                                            <strong>Gotowe do pakowania</strong> (148832)
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="form-check mb-2">
-                                        <input class="form-check-input" type="checkbox" id="status-packed" value="148831">
-                                        <label class="form-check-label" for="status-packed">
-                                            <strong>Spakowane</strong> (148831)
-                                        </label>
-                                    </div>
-                                    <div class="form-check mb-2">
-                                        <input class="form-check-input" type="checkbox" id="status-other" value="custom">
-                                        <label class="form-check-label" for="status-other">
-                                            <strong>Inne statusy</strong> (konfigurowane)
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+        <!-- ============================================================================
+             KROK 1: KONFIGURACJA SYNCHRONIZACJI
+             ============================================================================ -->
+        <div id="syncStep1" class="modal-bl-sync-step" data-step="1">
 
-                        <!-- Opcje zaawansowane -->
-                        <div class="accordion mb-3" id="advanced-options">
-                            <div class="accordion-item">
-                                <h2 class="accordion-header">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#advanced-collapse">
-                                        <i class="fas fa-cog me-2"></i> Opcje zaawansowane
-                                    </button>
-                                </h2>
-                                <div id="advanced-collapse" class="accordion-collapse collapse">
-                                    <div class="accordion-body">
-                                        <div class="row">
-                                            <div class="col-md-6">
-                                                <div class="form-check mb-3">
-                                                    <input class="form-check-input" type="checkbox" id="force-update" name="force_update">
-                                                    <label class="form-check-label" for="force-update">
-                                                        <strong>Wymuś aktualizację istniejących</strong>
-                                                        <div class="form-text">Zaktualizuje produkty które już istnieją</div>
-                                                    </label>
-                                                </div>
-
-                                                <div class="form-check mb-3">
-                                                    <input class="form-check-input" type="checkbox" id="skip-validation" name="skip_validation">
-                                                    <label class="form-check-label" for="skip-validation">
-                                                        <strong>Pomiń walidację produktów</strong>
-                                                        <div class="form-text">Importuje produkty z niekompletnymi danymi</div>
-                                                    </label>
-                                                </div>
-                                            </div>
-
-                                            <div class="col-md-6">
-                                                <div class="form-check mb-3">
-                                                    <input class="form-check-input" type="checkbox" id="dry-run" name="dry_run">
-                                                    <label class="form-check-label" for="dry-run">
-                                                        <strong>Tryb testowy (Dry Run)</strong>
-                                                        <div class="form-text">Sprawdza co zostanie zaimportowane bez zapisywania</div>
-                                                    </label>
-                                                </div>
-
-                                                <div class="form-check mb-3">
-                                                    <input class="form-check-input" type="checkbox" id="debug-mode" name="debug_mode">
-                                                    <label class="form-check-label" for="debug-mode">
-                                                        <strong>Tryb debug</strong>
-                                                        <div class="form-text">Szczegółowe logi w konsoli</div>
-                                                    </label>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Filtry automatyczne - tylko informacyjnie -->
-                                        <div class="alert alert-warning mt-3">
-                                            <strong><i class="fas fa-filter me-2"></i>Automatyczne filtry:</strong><br>
-                                            System automatycznie pominie pozycje zawierające:
-                                            <em>"Usługa", "Usługi", "Usługowa", "Deska", "Worek", "Tarcica"</em> oraz podobne słowa.
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </form>
+            <!-- Header -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">
+                        <i class="fas fa-sync-alt" style="color: #FF8F33;"></i>
+                        Synchronizacja z Baselinker
+                    </h2>
+                    <span class="modal-bl-sync-subtitle">Konfiguracja pobierania zamówień</span>
                 </div>
-
-                <!-- Krok 2: Progress synchronizacji -->
-                <div id="sync-step-2" class="sync-step" style="display: none;">
-                    <div class="text-center mb-4">
-                        <div class="spinner-border text-primary mb-3" role="status" id="sync-spinner">
-                            <span class="visually-hidden">Synchronizacja w toku...</span>
-                        </div>
-                        <h5 class="mb-2" id="sync-status">Inicjalizacja synchronizacji...</h5>
-                        <p class="text-muted mb-3" id="sync-details">Przygotowywanie połączenia z Baselinker...</p>
-                        <small class="text-muted" id="sync-time">Rozpoczęto: <span id="sync-start-time">--:--</span></small>
-                    </div>
-
-                    <!-- Progress bar -->
-                    <div class="progress mb-4" style="height: 10px;">
-                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
-                             id="sync-progress"
-                             role="progressbar"
-                             style="width: 0%"
-                             aria-valuenow="0"
-                             aria-valuemin="0"
-                             aria-valuemax="100"></div>
-                    </div>
-
-                    <!-- Live stats -->
-                    <div class="row text-center mb-4">
-                        <div class="col-3">
-                            <div class="stat-card bg-light p-3 rounded">
-                                <h4 class="text-primary mb-1" id="stat-pages">0</h4>
-                                <small class="text-muted">Strony API</small>
-                            </div>
-                        </div>
-                        <div class="col-3">
-                            <div class="stat-card bg-light p-3 rounded">
-                                <h4 class="text-info mb-1" id="stat-orders">0</h4>
-                                <small class="text-muted">Zamówienia</small>
-                            </div>
-                        </div>
-                        <div class="col-3">
-                            <div class="stat-card bg-light p-3 rounded">
-                                <h4 class="text-success mb-1" id="stat-products">0</h4>
-                                <small class="text-muted">Produkty</small>
-                            </div>
-                        </div>
-                        <div class="col-3">
-                            <div class="stat-card bg-light p-3 rounded">
-                                <h4 class="text-warning mb-1" id="stat-skipped">0</h4>
-                                <small class="text-muted">Pominięte</small>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Current operation display -->
-                    <div class="current-operation mb-4">
-                        <div class="d-flex align-items-center">
-                            <div class="spinner-grow spinner-grow-sm text-success me-2" id="operation-spinner"></div>
-                            <strong id="current-operation">Oczekiwanie na start...</strong>
-                        </div>
-                        <div class="progress mt-2" style="height: 4px;">
-                            <div class="progress-bar bg-success" id="operation-progress" style="width: 0%"></div>
-                        </div>
-                    </div>
-
-                    <!-- Results log -->
-                    <div class="sync-log-container">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h6 class="mb-0"><i class="fas fa-list me-2"></i>Log synchronizacji</h6>
-                            <div class="btn-group btn-group-sm" role="group">
-                                <input type="radio" class="btn-check" name="log-filter" id="log-all" checked>
-                                <label class="btn btn-outline-secondary" for="log-all">Wszystkie</label>
-
-                                <input type="radio" class="btn-check" name="log-filter" id="log-errors">
-                                <label class="btn btn-outline-danger" for="log-errors">Błędy</label>
-
-                                <input type="radio" class="btn-check" name="log-filter" id="log-success">
-                                <label class="btn btn-outline-success" for="log-success">Sukces</label>
-                            </div>
-                        </div>
-                        <div class="sync-log bg-light border rounded p-3" style="height: 250px; overflow-y: auto; font-family: 'Courier New', monospace;" id="sync-log">
-                            <!-- Log entries będą dodawane dynamicznie -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Krok 3: Wyniki końcowe -->
-                <div id="sync-step-3" class="sync-step" style="display: none;">
-                    <div class="text-center mb-4">
-                        <div class="result-icon mb-3" id="result-icon">
-                            <!-- Ikona będzie ustawiona przez JavaScript -->
-                        </div>
-                        <h4 class="mb-2" id="sync-result-title">Wyniki synchronizacji</h4>
-                        <p class="text-muted mb-3" id="sync-result-summary">Podsumowanie operacji</p>
-                        <div class="sync-duration">
-                            <small class="text-muted">
-                                Czas trwania: <strong id="total-duration">--:--</strong>
-                            </small>
-                        </div>
-                    </div>
-
-                    <!-- Detailed results -->
-                    <div class="results-details mb-4">
-                        <div class="alert" id="sync-results-alert">
-                            <div id="sync-results-content">
-                                <!-- Zawartość będzie wypełniona przez JavaScript -->
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Summary stats -->
-                    <div class="row mb-4" id="final-stats">
-                        <!-- Stats będą dodane przez JavaScript -->
-                    </div>
-
-                    <!-- Quick actions -->
-                    <div class="quick-actions text-center">
-                        <button type="button" class="btn btn-primary me-2" onclick="window.location.reload()">
-                            <i class="fas fa-sync-alt me-1"></i> Odśwież dashboard
-                        </button>
-                        <button type="button" class="btn btn-success me-2" id="view-products-btn">
-                            <i class="fas fa-boxes me-1"></i> Zobacz produkty
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary me-2" id="export-log-btn">
-                            <i class="fas fa-download me-1"></i> Pobierz log
-                        </button>
-                        <button type="button" class="btn btn-outline-info" id="sync-again-btn">
-                            <i class="fas fa-redo me-1"></i> Synchronizuj ponownie
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" id="modal-cancel-btn" data-bs-dismiss="modal">
-                    <span id="cancel-btn-text">Anuluj</span>
-                </button>
-                <button type="button" class="btn btn-primary" id="start-sync-btn">
-                    <i class="fas fa-play me-1"></i> Rozpocznij synchronizację
-                </button>
-                <button type="button" class="btn btn-success" id="finish-sync-btn" style="display: none;" data-bs-dismiss="modal">
-                    <i class="fas fa-check me-1"></i> Zakończ
-                </button>
-                <button type="button" class="btn btn-warning" id="stop-sync-btn" style="display: none;">
-                    <i class="fas fa-stop me-1"></i> Zatrzymaj
+                <button class="modal-bl-sync-close" id="syncModalClose">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M1 1L11 11M11 1L1 11" stroke="#314254" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
                 </button>
             </div>
+
+            <!-- Content -->
+            <div class="modal-bl-sync-content">
+                <div class="sync-config-container">
+
+                    <!-- Info Alert -->
+                    <div class="sync-config-alert">
+                        <i class="fas fa-info-circle"></i>
+                        <div class="sync-config-alert-content">
+                            <strong>Synchronizacja produkcji</strong><br>
+                            System pobierze zamówienia z wybranego zakresu dat i wyświetli je do zaznaczenia.
+                            Pozycje usługowe i materiałowe zostaną automatycznie przefiltrowane.
+                        </div>
+                    </div>
+
+                    <!-- Konfiguracja zakresu dni -->
+                    <div class="sync-config-section">
+                        <label class="sync-config-label">
+                            <i class="fas fa-calendar-alt"></i>
+                            Zakres pobierania (dni wstecz)
+                        </label>
+
+                        <div class="sync-config-range-container">
+                            <input type="range"
+                                   id="syncDaysRange"
+                                   class="sync-config-range-slider"
+                                   min="1"
+                                   max="30"
+                                   value="7"
+                                   step="1">
+                            <div class="sync-config-range-display">
+                                <span id="syncDaysValue">7</span> dni
+                            </div>
+                        </div>
+
+                        <div class="sync-config-date-preview" id="syncDatePreview">
+                            Zakres: <span id="dateFromPreview">—</span> → <span id="dateToPreview">—</span>
+                        </div>
+                    </div>
+
+                    <!-- Statusy Baselinker -->
+                    <div class="sync-config-section">
+                        <label class="sync-config-label">
+                            <i class="fas fa-tags"></i>
+                            Statusy do pobrania
+                        </label>
+
+                        <div class="sync-config-statuses" id="syncStatusesContainer">
+                            <!-- Loading statusów -->
+                            <div class="sync-statuses-loading" id="statusesLoading">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                Pobieranie statusów z Baselinker...
+                            </div>
+
+                            <!-- Lista statusów - wypełniana przez JS -->
+                            <div class="sync-statuses-list" id="statusesList" style="display: none;">
+                                <!-- Dynamicznie generowane checkboxy statusów -->
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-cancel" id="syncStep1Cancel">Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-primary" id="syncStep1Next" disabled>
+                    <i class="fas fa-download"></i>
+                    Pobierz zamówienia
+                </button>
+            </div>
+
         </div>
+
+        <!-- ============================================================================
+             KROK 2: PROGRESS POBIERANIA ZAMÓWIEŃ
+             ============================================================================ -->
+        <div id="syncStep2" class="modal-bl-sync-step" data-step="2" style="display: none;">
+
+            <!-- Header -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">
+                        <i class="fas fa-download" style="color: #FF8F33;"></i>
+                        Pobieranie zamówień
+                    </h2>
+                    <span class="modal-bl-sync-subtitle" id="syncStep2Subtitle">Trwa pobieranie z Baselinker API...</span>
+                </div>
+            </div>
+
+            <!-- Content -->
+            <div class="modal-bl-sync-content">
+
+                <!-- Statystyki -->
+                <div class="sync-progress-stats">
+                    <div class="sync-progress-stat-item">
+                        <div class="sync-progress-stat-value" id="statApiPages">0</div>
+                        <div class="sync-progress-stat-label">Strony API</div>
+                    </div>
+                    <div class="sync-progress-stat-item">
+                        <div class="sync-progress-stat-value" id="statOrdersCount">0</div>
+                        <div class="sync-progress-stat-label">Ilość zamówień</div>
+                    </div>
+                </div>
+
+                <!-- Zakres dat -->
+                <div class="sync-progress-date-range" id="syncStep2DateRange">
+                    Pobieranie za okres: <strong id="step2DateFrom">—</strong> → <strong id="step2DateTo">—</strong>
+                </div>
+
+                <!-- Progress bar -->
+                <div class="sync-progress-container">
+                    <div class="sync-progress-bar">
+                        <div class="sync-progress-bar-fill" id="syncProgressBarFill" style="width: 0%;"></div>
+                    </div>
+                    <div class="sync-progress-text" id="syncProgressText">Inicjalizacja...</div>
+                </div>
+
+                <!-- Logi synchronizacji -->
+                <div class="sync-logs-container">
+                    <div class="sync-logs-header">
+                        <span class="sync-logs-title">
+                            <i class="fas fa-list-ul"></i>
+                            Logi synchronizacji
+                        </span>
+                        <button class="sync-logs-toggle" id="syncLogsToggle" title="Pokaż/ukryj szczegóły">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <div class="sync-logs-content" id="syncLogsContent">
+                        <!-- Logi generowane dynamicznie przez JS -->
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-cancel" id="syncStep2Cancel" disabled>Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-primary" id="syncStep2Next" style="display: none;">
+                    Przejdź do listy zamówień
+                </button>
+            </div>
+
+        </div>
+
+        <!-- ============================================================================
+             KROK 3: LISTA ZAMÓWIEŃ DO ZAZNACZENIA
+             ============================================================================ -->
+        <div id="syncStep3" class="modal-bl-sync-step" data-step="3" style="display: none;">
+
+            <!-- Header -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">
+                        <i class="fas fa-list-check" style="color: #FF8F33;"></i>
+                        Wybierz zamówienia
+                    </h2>
+                    <div class="modal-bl-sync-orders-stats" id="syncStep3Stats">
+                        <span id="syncOrdersCount">0 zamówień</span> •
+                        <span id="syncProductsCount">0 produktów</span>
+                    </div>
+                </div>
+                <button class="modal-bl-sync-close" id="syncStep3Close">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M1 1L11 11M11 1L1 11" stroke="#314254" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Content -->
+            <div class="modal-bl-sync-content">
+
+                <!-- Controls -->
+                <div class="modal-bl-sync-controls">
+                    <div class="modal-bl-sync-controls-left">
+                        <!-- Toggle logów -->
+                        <button class="modal-bl-sync-btn-toggle" id="toggleSyncLogs">
+                            <i class="fas fa-eye"></i>
+                            Pokaż logi
+                        </button>
+                    </div>
+                    <div class="modal-bl-sync-buttons-group">
+                        <button class="modal-bl-sync-btn-select-all" id="selectAllOrders">Zaznacz wszystkie</button>
+                        <button class="modal-bl-sync-btn-deselect-all" id="deselectAllOrders">Odznacz wszystkie</button>
+                    </div>
+                </div>
+
+                <!-- Sekcja logów (ukryta domyślnie) -->
+                <div class="modal-bl-sync-logs-section" id="syncLogsSection" style="display: none;">
+                    <div class="sync-logs-container-small">
+                        <div class="sync-logs-content-small" id="syncStep3Logs">
+                            <!-- Logi z poprzedniego kroku -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lista zamówień -->
+                <div class="modal-bl-sync-orders-container">
+                    <div class="modal-bl-sync-orders-grid" id="ordersListContainer">
+                        <!-- Zamówienia będą wstawiane tutaj dynamicznie przez JS -->
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <button class="modal-bl-sync-btn-back" id="syncStep3Back">Wstecz</button>
+                    <button class="modal-bl-sync-btn-cancel" id="syncStep3Cancel">Anuluj</button>
+                </div>
+                <button class="modal-bl-sync-btn-save" id="syncStep3Save" disabled>
+                    <i class="fas fa-save"></i>
+                    Zapisz zamówienia (0)
+                </button>
+            </div>
+
+        </div>
+
+        <!-- ============================================================================
+             KROK 4: PROGRESS ZAPISU WYBRANYCH ZAMÓWIEŃ
+             ============================================================================ -->
+        <div id="syncStep4" class="modal-bl-sync-step" data-step="4" style="display: none;">
+
+            <!-- Header -->
+            <div class="modal-bl-sync-header">
+                <div class="modal-bl-sync-title-section">
+                    <h2 class="modal-bl-sync-title">
+                        <i class="fas fa-save" style="color: #FF8F33;"></i>
+                        Zapisywanie zamówień
+                    </h2>
+                    <span class="modal-bl-sync-subtitle" id="syncStep4Subtitle">Trwa tworzenie pozycji produkcyjnych...</span>
+                </div>
+            </div>
+
+            <!-- Content -->
+            <div class="modal-bl-sync-content">
+
+                <!-- Statystyki zapisu -->
+                <div class="sync-progress-stats">
+                    <div class="sync-progress-stat-item">
+                        <div class="sync-progress-stat-value" id="statSaveOrders">0</div>
+                        <div class="sync-progress-stat-label">Zamówienia</div>
+                    </div>
+                    <div class="sync-progress-stat-item">
+                        <div class="sync-progress-stat-value" id="statSaveProducts">0</div>
+                        <div class="sync-progress-stat-label">Produkty</div>
+                    </div>
+                    <div class="sync-progress-stat-item">
+                        <div class="sync-progress-stat-value" id="statSaveSkipped">0</div>
+                        <div class="sync-progress-stat-label">Pominięte</div>
+                    </div>
+                </div>
+
+                <!-- Progress bar -->
+                <div class="sync-progress-container">
+                    <div class="sync-progress-bar">
+                        <div class="sync-progress-bar-fill" id="syncSaveProgressBarFill" style="width: 0%;"></div>
+                    </div>
+                    <div class="sync-progress-text" id="syncSaveProgressText">Inicjalizacja zapisu...</div>
+                </div>
+
+                <!-- Wyniki zapisu -->
+                <div class="sync-save-results" id="syncSaveResults" style="display: none;">
+                    <div class="sync-save-results-content">
+                        <i class="fas fa-check-circle sync-save-success-icon"></i>
+                        <h3 class="sync-save-results-title">Synchronizacja zakończona!</h3>
+                        <div class="sync-save-results-summary" id="syncSaveResultsSummary">
+                            <!-- Podsumowanie generowane przez JS -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="modal-bl-sync-footer">
+                <div class="modal-bl-sync-footer-left">
+                    <!-- Puste miejsce - nie ma opcji wstecz/anuluj podczas zapisu -->
+                </div>
+                <button class="modal-bl-sync-btn-primary" id="syncStep4Finish" style="display: none;">
+                    <i class="fas fa-check"></i>
+                    Zakończ
+                </button>
+            </div>
+
+        </div>
+
     </div>
 </div>

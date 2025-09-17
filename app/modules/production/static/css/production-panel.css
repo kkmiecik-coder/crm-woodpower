@@ -58,7 +58,7 @@
    LAYOUT GŁÓWNY
    ============================================================================ */
 body {
-    font-family: Poppins, var(--font-family);
+    font-family: Poppins, var(--font-family) !important;
 }
 
 .main-content {
@@ -80,11 +80,6 @@ body {
 }
 
 .production-dashboard-grid .widget.stations-overview {
-    grid-column: span 2;
-    min-width: 700px;
-}
-
-.production-dashboard-grid .widget.performance-chart {
     grid-column: span 2;
     min-width: 700px;
 }
@@ -145,12 +140,12 @@ body {
 .alert-count {
     background: var(--status-danger);
     color: white;
-    min-width: 24px;
+    min-width: 32px;
     height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
+    border-radius: var(--border-radius-lg);
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
 }
@@ -505,6 +500,14 @@ body {
     color: #155724;
     background-color: #d4edda;
     border-radius: var(--border-radius-sm);
+    border: 1px solid #155724;
+}
+
+.health-warning {
+    color: #856404;
+    background-color: #fff3cd;
+    border-radius: var(--border-radius-sm);
+    border: 1px solid #856404;
 }
 
 .health-dot {
@@ -744,6 +747,98 @@ body {
     font-size: 10px;
     opacity: 0.8;
     margin-left: var(--spacing-xs);
+}
+
+/* Płynne przejścia dla przycisku */
+.refresh-system-btn {
+    transition: all 0.3s ease;
+}
+
+    /* Styl dla wyłączonego przycisku - poprawiony */
+    .refresh-system-btn:disabled {
+        cursor: not-allowed !important;
+        background: linear-gradient(135deg, #6c757d, #5a6268) !important;
+        color: rgba(255, 255, 255, 0.7) !important;
+        transform: none !important;
+        box-shadow: var(--shadow-sm) !important;
+    }
+
+        .refresh-system-btn:disabled:hover {
+            background: linear-gradient(135deg, #6c757d, #5a6268) !important;
+            transform: none !important;
+        }
+
+/* Timer odliczający - poprawiony */
+.refresh-timer {
+    font-size: 0.85em;
+    color: #ffffff !important;
+    background: rgba(0, 0, 0, 0.3);
+    margin-left: 4px;
+    font-weight: var(--font-weight-medium);
+    padding: 2px 6px;
+    border-radius: 3px;
+    transition: opacity 0.3s ease;
+    opacity: 1;
+}
+
+/* Timer w stanie wyłączonym */
+.refresh-system-btn:disabled .refresh-timer {
+    color: rgba(255, 255, 255, 0.9) !important;
+    background: rgba(0, 0, 0, 0.4);
+}
+
+/* Dodatkowe style dla responsywności */
+@media (max-width: 768px) {
+    .refresh-system-btn .refresh-text {
+        display: none;
+    }
+
+    .refresh-system-btn {
+        padding: 8px 10px;
+        min-width: auto;
+    }
+
+    .refresh-timer {
+        font-size: 0.8em;
+        padding: 1px 4px;
+    }
+}
+
+/* Efekt hover dla ikony */
+.refresh-system-btn:not(:disabled):hover .refresh-icon {
+    transition: transform 0.3s ease;
+}
+
+.refresh-system-btn .refresh-icon {
+    transition: transform 0.3s ease;
+}
+
+/* Ikona i tekst - płynne przejścia */
+.refresh-system-btn .refresh-icon,
+.refresh-system-btn .refresh-text {
+    transition: all 0.3s ease;
+}
+
+/* Stan wyłączony - elementy wewnętrzne */
+.refresh-system-btn:disabled .refresh-icon,
+.refresh-system-btn:disabled .refresh-text {
+    opacity: 0.8;
+}
+
+/* Style dla różnych stanów przycisku */
+.refresh-system-btn.refreshing {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    transition: background 0.3s ease;
+}
+
+.refresh-system-btn.success {
+    background: linear-gradient(135deg, #28a745, #1e7e34);
+    transition: background 0.3s ease;
+}
+
+.refresh-system-btn.error {
+    background: linear-gradient(135deg, #dc3545, #c82333);
+    transition: background 0.3s ease;
 }
 
 /* ============================================================================
@@ -1937,4 +2032,10 @@ body {
     .row .col-3 {
         margin-bottom: 1rem;
     }
+}
+
+.toast-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }

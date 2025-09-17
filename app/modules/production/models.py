@@ -81,7 +81,7 @@ class ProductionItem(db.Model):
     id = Column(Integer, primary_key=True)
     
     # IDENTYFIKATORY SYSTEMU
-    short_product_id = Column(String(10), unique=True, nullable=False, index=True)
+    short_product_id = Column(String(16), unique=True, nullable=False, index=True)
     internal_order_number = Column(String(8), nullable=False, index=True)
     product_sequence_in_order = Column(Integer, nullable=False)
     
@@ -104,6 +104,12 @@ class ProductionItem(db.Model):
     volume_m3 = Column(Numeric(10, 4))
     unit_price_net = Column(Numeric(10, 2))
     total_value_net = Column(Numeric(10, 2))
+
+    # DANE KLIENTA
+    client_name = Column(String(255), index=True)
+    client_email = Column(String(255))
+    client_phone = Column(String(50))
+    delivery_address = Column(Text)
     
     # STATUS PRODUKCJI
     current_status = Column(Enum(
@@ -386,7 +392,7 @@ class ProductionError(db.Model):
     ), nullable=False, index=True)
     
     # KONTEKST BŁĘDU
-    related_product_id = Column(String(10), ForeignKey('prod_items.short_product_id'))
+    related_product_id = Column(String(16), ForeignKey('prod_items.short_product_id'))
     related_order_id = Column(Integer)
     error_location = Column(String(100), nullable=False)
     

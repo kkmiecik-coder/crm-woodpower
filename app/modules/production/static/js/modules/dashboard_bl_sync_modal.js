@@ -1,829 +1,1575 @@
 /**
- * Dashboard Baselinker Sync Modal
+ * Dashboard Baselinker Sync Modal - NOWY REFACTOR
  * app/modules/production/static/js/modules/dashboard_bl_sync_modal.js
  * 
- * Obsługa modalu synchronizacji z Baselinkerem dla modułu production
- * Wersja: 1.0
- * Data: 2024-09-16
+ * 4-etapowy workflow synchronizacji z Baselinker:
+ * 1. Formularz ustawień (zakres dni + statusy)
+ * 2. Progress pobierania (strony API + zamówienia) 
+ * 3. Lista zamówień (checkboxy + filtrowanie)
+ * 4. Progress zapisu wybranych zamówień
+ * 
+ * Wzorowane na module reports z filtrowaniem produktów w JavaScript
+ * 
+ * Autor: System
+ * Data: 2025-01-17
+ * Wersja: 2.0 (Refactor)
  */
 
 class DashboardBLSyncModal {
     constructor() {
+        // Stan modalu
         this.modalElement = null;
-        this.modalInstance = null;
+        this.isOpen = false;
+        this.currentStep = 1;
         this.syncInProgress = false;
-        this.syncStartTime = null;
-        this.logEntries = [];
-        this.statsCounters = {
-            pages: 0,
-            orders: 0,
-            products: 0,
-            skipped: 0,
-            errors: 0
+
+        // Dane synchronizacji
+        this.selectedDays = 7; // domyślnie 7 dni
+        this.selectedStatuses = [];
+        this.availableStatuses = [];
+        this.fetchedOrders = [];
+        this.selectedOrders = [];
+        this.syncResults = null;
+
+        // Statystyki
+        this.stats = {
+            apiPages: 0,
+            ordersCount: 0,
+            productsCount: 0,
+            selectedOrdersCount: 0,
+            selectedProductsCount: 0,
+            savedOrders: 0,
+            savedProducts: 0,
+            skippedProducts: 0
         };
 
-        // Referencje do elementów DOM
-        this.domElements = {};
+        // Logi synchronizacji
+        this.syncLogs = [];
+        this.logsVisible = false;
 
-        // Konfiguracja
-        this.config = {
-            syncPeriodDays: 25, // Zawsze 25 dni wstecz
-            apiTimeout: 30000,  // 30 sekund timeout
-            maxRetries: 3,
-            logMaxEntries: 1000,
-            excludedKeywords: [
-                'usługa', 'usługi', 'usługowa', 'usługowe',
-                'deska', 'deski', 'worek', 'worki', 'worków',
-                'tarcica', 'tarcicy'
-            ]
+        // Konfiguracja filtrowania produktów (skopiowana z reports)
+        this.productFilterKeywords = [
+            'usługa', 'usługi', 'usługowa', 'usługowe',
+            'deska', 'deski',
+            'worek', 'worki', 'worków',
+            'tarcica', 'tarcicy'
+        ];
+
+        // Elementy DOM
+        this.elements = {};
+
+        // Konfiguracja endpointów
+        this.endpoints = {
+            fetchStatuses: '/production/api/baselinker_statuses',
+            fetchOrdersPreview: '/production/api/fetch_orders_preview',
+            saveSelectedOrders: '/production/api/save_selected_orders',
+            getConfigDaysRange: '/production/api/get_config_days_range'
         };
 
-        console.log('[BL Sync Modal] Inicjalizacja modalu synchronizacji');
+        console.log('[BL Sync Modal v2] Inicjalizacja nowego modalu');
         this.init();
     }
 
     /**
      * Inicjalizacja modalu
      */
-    init() {
+    async init() {
         try {
+            // Znajdź element modalu
             this.modalElement = document.getElementById('baselinkerSyncModal');
             if (!this.modalElement) {
-                console.error('[BL Sync Modal] Element modal nie znaleziony');
+                console.error('[BL Sync Modal v2] Element modalu nie znaleziony');
                 return;
             }
 
-            // Inicjalizacja Bootstrap Modal
-            this.modalInstance = new bootstrap.Modal(this.modalElement, {
-                backdrop: 'static',
-                keyboard: false
-            });
+            // Cachuj elementy DOM
+            this.cacheElements();
 
-            // Cachowanie referencji DOM
-            this.cacheDOMReferences();
-
-            // Setup event listeners
+            // Ustaw event listenery
             this.setupEventListeners();
 
-            console.log('[BL Sync Modal] Modal zainicjalizowany pomyślnie');
+            // Załaduj konfigurację domyślną
+            await this.loadDefaultConfig();
+
+            console.log('[BL Sync Modal v2] Modal zainicjalizowany pomyślnie');
 
         } catch (error) {
-            console.error('[BL Sync Modal] Błąd inicjalizacji:', error);
+            console.error('[BL Sync Modal v2] Błąd inicjalizacji:', error);
         }
     }
 
     /**
-     * Cachowanie referencji do elementów DOM
+     * Cachowanie elementów DOM
      */
-    cacheDOMReferences() {
-        this.domElements = {
-            // Steps
-            step1: document.getElementById('sync-step-1'),
-            step2: document.getElementById('sync-step-2'),
-            step3: document.getElementById('sync-step-3'),
+    cacheElements() {
+        this.elements = {
+            // Modal główny
+            modal: this.modalElement,
+            overlay: this.modalElement.querySelector('.modal-bl-sync-overlay'),
+            container: this.modalElement.querySelector('.modal-bl-sync-container'),
 
-            // Form elements
-            form: document.getElementById('baselinker-sync-form'),
-            syncType: document.getElementById('sync-type'),
-            syncLimit: document.getElementById('sync-limit'),
-            forceUpdate: document.getElementById('force-update'),
-            skipValidation: document.getElementById('skip-validation'),
-            dryRun: document.getElementById('dry-run'),
-            debugMode: document.getElementById('debug-mode'),
+            // Kroki
+            step1: document.getElementById('syncStep1'),
+            step2: document.getElementById('syncStep2'),
+            step3: document.getElementById('syncStep3'),
+            step4: document.getElementById('syncStep4'),
 
-            // Status checkboxes
-            statusProduction: document.getElementById('status-production'),
-            statusReady: document.getElementById('status-ready'),
-            statusPacked: document.getElementById('status-packed'),
-            statusOther: document.getElementById('status-other'),
+            // Krok 1 - Konfiguracja
+            syncDaysRange: document.getElementById('syncDaysRange'),
+            syncDaysValue: document.getElementById('syncDaysValue'),
+            dateFromPreview: document.getElementById('dateFromPreview'),
+            dateToPreview: document.getElementById('dateToPreview'),
+            statusesContainer: document.getElementById('syncStatusesContainer'),
+            statusesLoading: document.getElementById('statusesLoading'),
+            statusesList: document.getElementById('statusesList'),
+            step1Cancel: document.getElementById('syncStep1Cancel'),
+            step1Next: document.getElementById('syncStep1Next'),
 
-            // Progress elements
-            syncStatus: document.getElementById('sync-status'),
-            syncDetails: document.getElementById('sync-details'),
-            syncStartTime: document.getElementById('sync-start-time'),
-            syncProgress: document.getElementById('sync-progress'),
-            currentOperation: document.getElementById('current-operation'),
-            operationProgress: document.getElementById('operation-progress'),
+            // Krok 2 - Progress pobierania
+            statApiPages: document.getElementById('statApiPages'),
+            statOrdersCount: document.getElementById('statOrdersCount'),
+            syncStep2Subtitle: document.getElementById('syncStep2Subtitle'),
+            step2DateFrom: document.getElementById('step2DateFrom'),
+            step2DateTo: document.getElementById('step2DateTo'),
+            syncProgressBarFill: document.getElementById('syncProgressBarFill'),
+            syncProgressText: document.getElementById('syncProgressText'),
+            syncLogsContent: document.getElementById('syncLogsContent'),
+            syncLogsToggle: document.getElementById('syncLogsToggle'),
+            step2Cancel: document.getElementById('syncStep2Cancel'),
+            step2Next: document.getElementById('syncStep2Next'),
 
-            // Stats counters
-            statPages: document.getElementById('stat-pages'),
-            statOrders: document.getElementById('stat-orders'),
-            statProducts: document.getElementById('stat-products'),
-            statSkipped: document.getElementById('stat-skipped'),
+            // Krok 3 - Lista zamówień
+            syncOrdersCount: document.getElementById('syncOrdersCount'),
+            syncProductsCount: document.getElementById('syncProductsCount'),
+            toggleSyncLogs: document.getElementById('toggleSyncLogs'),
+            syncLogsSection: document.getElementById('syncLogsSection'),
+            syncStep3Logs: document.getElementById('syncStep3Logs'),
+            selectAllOrders: document.getElementById('selectAllOrders'),
+            deselectAllOrders: document.getElementById('deselectAllOrders'),
+            ordersListContainer: document.getElementById('ordersListContainer'),
+            step3Back: document.getElementById('syncStep3Back'),
+            step3Cancel: document.getElementById('syncStep3Cancel'),
+            step3Save: document.getElementById('syncStep3Save'),
 
-            // Log
-            syncLog: document.getElementById('sync-log'),
+            // Krok 4 - Progress zapisu
+            syncStep4Subtitle: document.getElementById('syncStep4Subtitle'),
+            statSaveOrders: document.getElementById('statSaveOrders'),
+            statSaveProducts: document.getElementById('statSaveProducts'),
+            statSaveSkipped: document.getElementById('statSaveSkipped'),
+            syncSaveProgressBarFill: document.getElementById('syncSaveProgressBarFill'),
+            syncSaveProgressText: document.getElementById('syncSaveProgressText'),
+            syncSaveResults: document.getElementById('syncSaveResults'),
+            syncSaveResultsSummary: document.getElementById('syncSaveResultsSummary'),
+            step4Finish: document.getElementById('syncStep4Finish'),
 
-            // Results
-            resultIcon: document.getElementById('result-icon'),
-            syncResultTitle: document.getElementById('sync-result-title'),
-            syncResultSummary: document.getElementById('sync-result-summary'),
-            totalDuration: document.getElementById('total-duration'),
-            syncResultsAlert: document.getElementById('sync-results-alert'),
-            syncResultsContent: document.getElementById('sync-results-content'),
-            finalStats: document.getElementById('final-stats'),
-
-            // Buttons
-            startSyncBtn: document.getElementById('start-sync-btn'),
-            stopSyncBtn: document.getElementById('stop-sync-btn'),
-            finishSyncBtn: document.getElementById('finish-sync-btn'),
-            modalCancelBtn: document.getElementById('modal-cancel-btn'),
-            cancelBtnText: document.getElementById('cancel-btn-text'),
-            viewProductsBtn: document.getElementById('view-products-btn'),
-            exportLogBtn: document.getElementById('export-log-btn'),
-            syncAgainBtn: document.getElementById('sync-again-btn')
+            // Przyciski zamknięcia
+            closeButtons: this.modalElement.querySelectorAll('.modal-bl-sync-close, #syncModalClose, #syncStep3Close')
         };
+
+        console.log('[BL Sync Modal v2] Elementy DOM zacachowane:', Object.keys(this.elements).length);
     }
 
     /**
-     * Setup event listeners
+     * Ustawienie event listenerów
      */
     setupEventListeners() {
-        // Start synchronization
-        if (this.domElements.startSyncBtn) {
-            this.domElements.startSyncBtn.addEventListener('click', () => {
-                this.startSynchronization();
+        try {
+            // Zamykanie modalu
+            this.elements.closeButtons.forEach(btn => {
+                btn.addEventListener('click', () => this.closeModal());
             });
-        }
 
-        // Stop synchronization
-        if (this.domElements.stopSyncBtn) {
-            this.domElements.stopSyncBtn.addEventListener('click', () => {
-                this.stopSynchronization();
+            this.elements.overlay?.addEventListener('click', () => this.closeModal());
+
+            // Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this.isOpen) {
+                    this.closeModal();
+                }
             });
-        }
 
-        // Sync again
-        if (this.domElements.syncAgainBtn) {
-            this.domElements.syncAgainBtn.addEventListener('click', () => {
-                this.resetModal();
-                this.showStep(1);
+            // KROK 1 - Konfiguracja
+            this.elements.syncDaysRange?.addEventListener('input', (e) => {
+                this.onDaysRangeChange(parseInt(e.target.value));
             });
+
+            this.elements.step1Cancel?.addEventListener('click', () => this.closeModal());
+            this.elements.step1Next?.addEventListener('click', () => this.startFetchingOrders());
+
+            // KROK 2 - Progress pobierania
+            this.elements.syncLogsToggle?.addEventListener('click', () => this.toggleLogs());
+            this.elements.step2Cancel?.addEventListener('click', () => this.cancelFetching());
+            this.elements.step2Next?.addEventListener('click', () => this.goToStep(3));
+
+            // KROK 3 - Lista zamówień
+            this.elements.toggleSyncLogs?.addEventListener('click', () => this.toggleStep3Logs());
+            this.elements.selectAllOrders?.addEventListener('click', () => this.selectAllOrders());
+            this.elements.deselectAllOrders?.addEventListener('click', () => this.deselectAllOrders());
+            this.elements.step3Back?.addEventListener('click', () => this.goToStep(2));
+            this.elements.step3Cancel?.addEventListener('click', () => this.closeModal());
+            this.elements.step3Save?.addEventListener('click', () => this.startSavingOrders());
+
+            // KROK 4 - Progress zapisu
+            this.elements.step4Finish?.addEventListener('click', () => this.closeModal());
+
+            console.log('[BL Sync Modal v2] Event listenery ustawione');
+
+        } catch (error) {
+            console.error('[BL Sync Modal v2] Błąd ustawiania event listenerów:', error);
         }
+    }
 
-        // View products
-        if (this.domElements.viewProductsBtn) {
-            this.domElements.viewProductsBtn.addEventListener('click', () => {
-                this.navigateToProducts();
-            });
+    // ============================================================================
+    // PUBLICZNE METODY KONTROLUJĄCE MODAL
+    // ============================================================================
+
+    /**
+     * Otwiera modal
+     */
+    async openModal() {
+        if (this.isOpen) return;
+
+        try {
+            console.log('[BL Sync Modal v2] Otwieranie modalu');
+
+            // Reset stanu
+            this.resetModalState();
+
+            // Idź do kroku 1
+            await this.goToStep(1);
+
+            // Pokaż modal
+            this.elements.modal.style.display = 'block';
+            this.isOpen = true;
+
+            // Załaduj statusy z Baselinker
+            await this.loadBaselinkerStatuses();
+
+            // Animacja
+            setTimeout(() => {
+                this.elements.container?.classList.add('active');
+            }, 10);
+
+            console.log('[BL Sync Modal v2] Modal otwarty');
+
+        } catch (error) {
+            console.error('[BL Sync Modal v2] Błąd otwierania modalu:', error);
+            this.showToast('Błąd otwierania modalu synchronizacji', 'error');
         }
-
-        // Export log
-        if (this.domElements.exportLogBtn) {
-            this.domElements.exportLogBtn.addEventListener('click', () => {
-                this.exportSyncLog();
-            });
-        }
-
-        // Log filtering
-        this.setupLogFiltering();
-
-        // Modal events
-        this.modalElement.addEventListener('hidden.bs.modal', () => {
-            if (this.syncInProgress) {
-                this.stopSynchronization();
-            }
-        });
     }
 
     /**
-     * Setup log filtering functionality
+     * Zamyka modal
      */
-    setupLogFiltering() {
-        const filterButtons = document.querySelectorAll('input[name="log-filter"]');
-        filterButtons.forEach(btn => {
-            btn.addEventListener('change', (e) => {
-                this.filterLogEntries(e.target.id);
-            });
-        });
-    }
+    closeModal() {
+        if (!this.isOpen) return;
 
-    /**
-     * Pokazuje modal synchronizacji
-     */
-    show() {
-        console.log('[BL Sync Modal] Pokazywanie modalu');
-        this.resetModal();
-        this.modalInstance.show();
-    }
+        console.log('[BL Sync Modal v2] Zamykanie modalu');
 
-    /**
-     * Ukrywa modal synchronizacji
-     */
-    hide() {
-        console.log('[BL Sync Modal] Ukrywanie modalu');
+        // Jeśli synchronizacja w toku, zapytaj o potwierdzenie
         if (this.syncInProgress) {
-            this.stopSynchronization();
+            if (!confirm('Synchronizacja jest w toku. Czy na pewno chcesz zamknąć modal?')) {
+                return;
+            }
         }
-        this.modalInstance.hide();
+
+        // Animacja zamykania
+        this.elements.container?.classList.remove('active');
+
+        setTimeout(() => {
+            this.elements.modal.style.display = 'none';
+            this.isOpen = false;
+            this.resetModalState();
+
+            // FIX: Usuń Bootstrap backdrop jeśli istnieje
+            this.removeBootstrapBackdrop();
+
+            console.log('[BL Sync Modal v2] Modal zamknięty');
+        }, 300);
     }
 
     /**
-     * Resetuje modal do stanu początkowego
+     * FIX: Usuwa Bootstrap backdrop pozostawiony przez inne modale
      */
-    resetModal() {
-        console.log('[BL Sync Modal] Reset modalu');
+    removeBootstrapBackdrop() {
+        try {
+            // Znajdź wszystkie backdrop'y Bootstrap (różne selektory)
+            const backdrops = document.querySelectorAll('.modal-backdrop, .modal-backdrop.show, .modal-backdrop.fade');
+            backdrops.forEach(backdrop => {
+                backdrop.remove();
+            });
 
-        // Reset kroków
-        this.showStep(1);
+            // Usuń klasy z body dodane przez Bootstrap
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
 
-        // Reset formularza
-        if (this.domElements.form) {
-            this.domElements.form.reset();
-            this.domElements.syncType.value = 'incremental';
-            this.domElements.syncLimit.value = '100';
-            this.domElements.statusProduction.checked = true;
-            this.domElements.statusReady.checked = true;
-            this.domElements.statusPacked.checked = false;
-            this.domElements.statusOther.checked = false;
+            // FIX: Dodatkowe czyszczenie atrybutów body
+            document.body.removeAttribute('style');
+
+            console.log('[BL Sync Modal v2] Bootstrap backdrop usunięty');
+        } catch (error) {
+            console.warn('[BL Sync Modal v2] Problem z usuwaniem Bootstrap backdrop:', error);
         }
+    }
 
-        // Reset stats
-        this.resetStats();
-
-        // Reset log
-        this.logEntries = [];
-        if (this.domElements.syncLog) {
-            this.domElements.syncLog.innerHTML = '';
-        }
-
-        // Reset progress
-        if (this.domElements.syncProgress) {
-            this.domElements.syncProgress.style.width = '0%';
-            this.domElements.syncProgress.setAttribute('aria-valuenow', '0');
-        }
-
-        if (this.domElements.operationProgress) {
-            this.domElements.operationProgress.style.width = '0%';
-        }
-
-        // Reset buttons
-        this.updateButtons('ready');
-
+    /**
+     * Reset stanu modalu
+     */
+    resetModalState() {
+        this.currentStep = 1;
         this.syncInProgress = false;
-        this.syncStartTime = null;
+        this.selectedStatuses = [];
+        this.fetchedOrders = [];
+        this.selectedOrders = [];
+        this.syncResults = null;
+        this.syncLogs = [];
+        this.logsVisible = false;
+
+        // Reset statystyk
+        this.stats = {
+            apiPages: 0,
+            ordersCount: 0,
+            productsCount: 0,
+            selectedOrdersCount: 0,
+            selectedProductsCount: 0,
+            savedOrders: 0,
+            savedProducts: 0,
+            skippedProducts: 0
+        };
+
+        // Reset UI
+        this.updateProgressBar(0, 'Gotowy do synchronizacji');
+        this.updateStats();
     }
 
+    // ============================================================================
+    // KROK 1: KONFIGURACJA SYNCHRONIZACJI
+    // ============================================================================
+
     /**
-     * Pokazuje określony krok modalu
+     * Przejście do wybranego kroku
      */
-    showStep(stepNumber) {
-        console.log(`[BL Sync Modal] Przełączanie na krok ${stepNumber}`);
+    async goToStep(stepNumber) {
+        console.log(`[BL Sync Modal v2] Przejście do kroku ${stepNumber}`);
 
         // Ukryj wszystkie kroki
-        [1, 2, 3].forEach(num => {
-            const step = this.domElements[`step${num}`];
+        [1, 2, 3, 4].forEach(num => {
+            const step = this.elements[`step${num}`];
             if (step) {
                 step.style.display = 'none';
+                step.classList.remove('active');
             }
         });
 
         // Pokaż wybrany krok
-        const targetStep = this.domElements[`step${stepNumber}`];
+        const targetStep = this.elements[`step${stepNumber}`];
         if (targetStep) {
             targetStep.style.display = 'block';
+
+            // FIX: Upewnij się że modal container jest widoczny
+            if (this.elements.modal) {
+                this.elements.modal.style.display = 'block';
+            }
+
+            // Krótkie opóźnienie dla animacji
+            setTimeout(() => {
+                targetStep.classList.add('active');
+            }, 50);
         }
 
-        // Aktualizuj przyciski
+        this.currentStep = stepNumber;
+
+        // Wykonaj specyficzne akcje dla kroku
         switch (stepNumber) {
             case 1:
-                this.updateButtons('ready');
+                await this.initStep1();
                 break;
             case 2:
-                this.updateButtons('syncing');
+                this.initStep2();
                 break;
             case 3:
-                this.updateButtons('finished');
+                this.initStep3();
+                break;
+            case 4:
+                this.initStep4();
                 break;
         }
     }
 
     /**
-     * Aktualizuje stan przycisków
+     * Inicjalizacja kroku 1
      */
-    updateButtons(state) {
-        const elements = this.domElements;
+    async initStep1() {
+        console.log('[BL Sync Modal v2] Inicjalizacja kroku 1');
 
-        switch (state) {
-            case 'ready':
-                if (elements.startSyncBtn) elements.startSyncBtn.style.display = 'inline-block';
-                if (elements.stopSyncBtn) elements.stopSyncBtn.style.display = 'none';
-                if (elements.finishSyncBtn) elements.finishSyncBtn.style.display = 'none';
-                if (elements.cancelBtnText) elements.cancelBtnText.textContent = 'Anuluj';
-                break;
+        // Ustaw domyślną wartość suwaka
+        if (this.elements.syncDaysRange) {
+            this.elements.syncDaysRange.value = this.selectedDays;
+        }
 
-            case 'syncing':
-                if (elements.startSyncBtn) elements.startSyncBtn.style.display = 'none';
-                if (elements.stopSyncBtn) elements.stopSyncBtn.style.display = 'inline-block';
-                if (elements.finishSyncBtn) elements.finishSyncBtn.style.display = 'none';
-                if (elements.cancelBtnText) elements.cancelBtnText.textContent = 'Anuluj';
-                break;
+        // Aktualizuj preview dat
+        this.updateDatePreview();
 
-            case 'finished':
-                if (elements.startSyncBtn) elements.startSyncBtn.style.display = 'none';
-                if (elements.stopSyncBtn) elements.stopSyncBtn.style.display = 'none';
-                if (elements.finishSyncBtn) elements.finishSyncBtn.style.display = 'inline-block';
-                if (elements.cancelBtnText) elements.cancelBtnText.textContent = 'Zamknij';
-                break;
+        // Sprawdź czy statusy zostały załadowane
+        if (this.availableStatuses.length === 0) {
+            await this.loadBaselinkerStatuses();
         }
     }
 
     /**
-     * Resetuje statystyki
+     * Ładowanie konfiguracji domyślnej
      */
-    resetStats() {
-        this.statsCounters = {
-            pages: 0,
-            orders: 0,
-            products: 0,
-            skipped: 0,
-            errors: 0
-        };
-        this.updateStatsDisplay();
-    }
-
-    /**
-     * Aktualizuje wyświetlanie statystyk
-     */
-    updateStatsDisplay() {
-        const elements = this.domElements;
-        if (elements.statPages) elements.statPages.textContent = this.statsCounters.pages;
-        if (elements.statOrders) elements.statOrders.textContent = this.statsCounters.orders;
-        if (elements.statProducts) elements.statProducts.textContent = this.statsCounters.products;
-        if (elements.statSkipped) elements.statSkipped.textContent = this.statsCounters.skipped;
-    }
-
-    /**
-     * Rozpoczyna synchronizację
-     */
-    async startSynchronization() {
-        console.log('[BL Sync Modal] Rozpoczynanie synchronizacji');
-
+    async loadDefaultConfig() {
         try {
-            // Walidacja formularza
-            const params = this.collectFormParameters();
-            if (!this.validateParameters(params)) {
-                return;
+            console.log('[BL Sync Modal v2] Ładowanie domyślnej konfiguracji');
+
+            // Spróbuj pobrać zakres dni z konfiguracji
+            const response = await fetch(this.endpoints.getConfigDaysRange, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                this.selectedDays = data.days_range || 7;
+                console.log(`[BL Sync Modal v2] Załadowano zakres dni: ${this.selectedDays}`);
+            } else {
+                console.warn('[BL Sync Modal v2] Nie udało się pobrać konfiguracji, używam domyślnej');
+                this.selectedDays = 7;
             }
-
-            // Przełącz na krok 2
-            this.showStep(2);
-
-            // Setup initial state
-            this.syncInProgress = true;
-            this.syncStartTime = new Date();
-
-            if (this.domElements.syncStartTime) {
-                this.domElements.syncStartTime.textContent = this.syncStartTime.toLocaleTimeString();
-            }
-
-            this.addLogEntry('🚀 Rozpoczynanie synchronizacji z Baselinker...', 'info');
-            this.addLogEntry(`📋 Parametry: ${JSON.stringify(params, null, 2)}`, 'debug');
-
-            // Start sync process
-            await this.performSynchronization(params);
 
         } catch (error) {
-            console.error('[BL Sync Modal] Błąd podczas synchronizacji:', error);
-            this.handleSyncError(error);
+            console.error('[BL Sync Modal v2] Błąd ładowania konfiguracji:', error);
+            this.selectedDays = 7;
         }
     }
 
     /**
-     * Zbiera parametry z formularza
+     * Zmiana zakresu dni
      */
-    collectFormParameters() {
-        const elements = this.domElements;
+    onDaysRangeChange(days) {
+        this.selectedDays = days;
 
-        // Zbierz zaznaczone statusy
-        const targetStatuses = [];
-        if (elements.statusProduction?.checked) targetStatuses.push('138619');
-        if (elements.statusReady?.checked) targetStatuses.push('148832');
-        if (elements.statusPacked?.checked) targetStatuses.push('148831');
+        // Aktualizuj wyświetlanie
+        if (this.elements.syncDaysValue) {
+            this.elements.syncDaysValue.textContent = days;
+        }
 
-        return {
-            sync_type: elements.syncType?.value || 'incremental',
-            period_days: this.config.syncPeriodDays, // Zawsze 25 dni
-            limit_per_page: parseInt(elements.syncLimit?.value || '100'),
-            target_statuses: targetStatuses,
-            force_update: elements.forceUpdate?.checked || false,
-            skip_validation: elements.skipValidation?.checked || false,
-            dry_run: elements.dryRun?.checked || false,
-            debug_mode: elements.debugMode?.checked || false,
-            excluded_keywords: this.config.excludedKeywords
+        // Aktualizuj preview dat
+        this.updateDatePreview();
+
+        // Sprawdź czy można aktywować przycisk Next
+        this.validateStep1();
+    }
+
+    /**
+     * Aktualizacja podglądu dat
+     */
+    updateDatePreview() {
+        const today = new Date();
+        const fromDate = new Date(today.getTime() - (this.selectedDays * 24 * 60 * 60 * 1000));
+
+        const formatDate = (date) => {
+            return date.toLocaleDateString('pl-PL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
         };
+
+        if (this.elements.dateFromPreview) {
+            this.elements.dateFromPreview.textContent = formatDate(fromDate);
+        }
+
+        if (this.elements.dateToPreview) {
+            this.elements.dateToPreview.textContent = formatDate(today);
+        }
     }
 
     /**
-     * Waliduje parametry synchronizacji
+     * Ładowanie statusów z Baselinker
      */
-    validateParameters(params) {
-        if (!params.target_statuses || params.target_statuses.length === 0) {
-            this.addLogEntry('❌ Błąd: Nie wybrano żadnego statusu zamówień', 'error');
-            alert('Wybierz przynajmniej jeden status zamówień do synchronizacji.');
-            return false;
-        }
-
-        if (params.limit_per_page < 10 || params.limit_per_page > 200) {
-            this.addLogEntry('❌ Błąd: Nieprawidłowy limit na stronę', 'error');
-            alert('Limit zamówień na stronę musi być między 10 a 200.');
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Wykonuje proces synchronizacji
-     */
-    async performSynchronization(params) {
-        this.updateProgress(5, 'Inicjalizacja połączenia...');
-        this.updateCurrentOperation('Łączenie z API Baselinker', 10);
-
+    async loadBaselinkerStatuses() {
         try {
-            // Wywołaj API synchronizacji
-            const response = await fetch('/production/api/sync/baselinker', {
-                method: 'POST',
+            console.log('[BL Sync Modal v2] Ładowanie statusów Baselinker');
+
+            // Pokaż loading
+            if (this.elements.statusesLoading) {
+                this.elements.statusesLoading.style.display = 'block';
+            }
+            if (this.elements.statusesList) {
+                this.elements.statusesList.style.display = 'none';
+            }
+
+            const response = await fetch(this.endpoints.fetchStatuses, {
+                method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify(params),
-                signal: AbortSignal.timeout(this.config.apiTimeout)
+                    'Content-Type': 'application/json'
+                }
             });
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const result = await response.json();
+            const data = await response.json();
 
-            if (result.success) {
-                await this.handleSyncSuccess(result);
+            if (data.success && data.statuses) {
+                this.availableStatuses = data.statuses;
+                this.renderStatusesList();
+                console.log(`[BL Sync Modal v2] Załadowano ${this.availableStatuses.length} statusów`);
             } else {
-                throw new Error(result.error || 'Nieznany błąd synchronizacji');
+                throw new Error(data.error || 'Nie udało się pobrać statusów');
             }
 
         } catch (error) {
-            if (error.name === 'AbortError') {
-                this.addLogEntry('⏰ Timeout: Przekroczono czas oczekiwania na odpowiedź', 'warning');
-                throw new Error('Timeout synchronizacji - spróbuj ponownie');
+            console.error('[BL Sync Modal v2] Błąd ładowania statusów:', error);
+            this.showStatusesError(error.message);
+        } finally {
+            // Ukryj loading
+            if (this.elements.statusesLoading) {
+                this.elements.statusesLoading.style.display = 'none';
             }
-            throw error;
         }
     }
 
     /**
-     * Obsługuje sukces synchronizacji
+     * Renderowanie listy statusów
      */
-    async handleSyncSuccess(result) {
-        console.log('[BL Sync Modal] Synchronizacja zakończona sukcesem:', result);
+    renderStatusesList() {
+        if (!this.elements.statusesList || !this.availableStatuses.length) return;
 
-        this.updateProgress(100, 'Synchronizacja zakończona');
-        this.updateCurrentOperation('Finalizowanie...', 100);
+        let html = '';
 
-        // Aktualizuj statystyki z wyniku
-        if (result.data && result.data.stats) {
-            const stats = result.data.stats;
-            this.statsCounters.pages = stats.pages_processed || 0;
-            this.statsCounters.orders = stats.orders_processed || 0;
-            this.statsCounters.products = stats.products_created || 0;
-            this.statsCounters.skipped = stats.products_skipped || 0;
-            this.statsCounters.errors = stats.errors_count || 0;
-            this.updateStatsDisplay();
-        }
+        // Domyślne statusy do zaznaczenia (można skonfigurować)
+        const defaultStatuses = ['production', 'ready', 'packed'];
 
-        this.addLogEntry('✅ Synchronizacja zakończona pomyślnie!', 'success');
+        this.availableStatuses.forEach(status => {
+            const isChecked = defaultStatuses.includes(status.name.toLowerCase());
+            if (isChecked) {
+                this.selectedStatuses.push(status.id);
+            }
 
-        // Przechodzi do kroku 3 po krótkiej pauzie
-        setTimeout(() => {
-            this.showSyncResults(result, 'success');
-        }, 1000);
+            html += `
+                <div class="sync-status-item">
+                    <input type="checkbox" 
+                           id="status_${status.id}" 
+                           value="${status.id}"
+                           ${isChecked ? 'checked' : ''}
+                           onchange="window.dashboardBLSyncModal.onStatusChange(${status.id}, this.checked)">
+                    <label for="status_${status.id}">
+                        ${status.name} (ID: ${status.id})
+                    </label>
+                </div>
+            `;
+        });
+
+        this.elements.statusesList.innerHTML = html;
+        this.elements.statusesList.style.display = 'block';
+
+        // Waliduj krok 1
+        this.validateStep1();
     }
 
     /**
-     * Obsługuje błąd synchronizacji
+     * Zmiana statusu
      */
-    handleSyncError(error) {
-        console.error('[BL Sync Modal] Błąd synchronizacji:', error);
-
-        this.syncInProgress = false;
-        this.addLogEntry(`❌ Błąd synchronizacji: ${error.message}`, 'error');
-
-        // Przechodzi do kroku 3 z błędem
-        setTimeout(() => {
-            this.showSyncResults({ error: error.message }, 'error');
-        }, 1000);
-    }
-
-    /**
-     * Zatrzymuje synchronizację
-     */
-    stopSynchronization() {
-        console.log('[BL Sync Modal] Zatrzymywanie synchronizacji');
-
-        this.syncInProgress = false;
-        this.addLogEntry('🛑 Synchronizacja zatrzymana przez użytkownika', 'warning');
-
-        // Reset do kroku 1
-        setTimeout(() => {
-            this.resetModal();
-        }, 500);
-    }
-
-    /**
-     * Pokazuje wyniki synchronizacji
-     */
-    showSyncResults(result, type) {
-        console.log('[BL Sync Modal] Pokazywanie wyników:', type);
-
-        this.showStep(3);
-        this.syncInProgress = false;
-
-        const elements = this.domElements;
-
-        // Oblicz czas trwania
-        const duration = this.syncStartTime ?
-            Math.floor((new Date() - this.syncStartTime) / 1000) : 0;
-        const durationFormatted = this.formatDuration(duration);
-
-        if (elements.totalDuration) {
-            elements.totalDuration.textContent = durationFormatted;
-        }
-
-        if (type === 'success') {
-            // Sukces
-            if (elements.resultIcon) {
-                elements.resultIcon.innerHTML = '<i class="fas fa-check-circle text-success"></i>';
+    onStatusChange(statusId, isChecked) {
+        if (isChecked) {
+            if (!this.selectedStatuses.includes(statusId)) {
+                this.selectedStatuses.push(statusId);
             }
-            if (elements.syncResultTitle) {
-                elements.syncResultTitle.textContent = 'Synchronizacja zakończona pomyślnie!';
-            }
-            if (elements.syncResultSummary) {
-                elements.syncResultSummary.textContent = 'Wszystkie dane zostały zsynchronizowane z Baselinker.';
-            }
-
-            this.showSuccessResults(result);
-
         } else {
-            // Błąd
-            if (elements.resultIcon) {
-                elements.resultIcon.innerHTML = '<i class="fas fa-exclamation-circle text-danger"></i>';
-            }
-            if (elements.syncResultTitle) {
-                elements.syncResultTitle.textContent = 'Błąd synchronizacji';
-            }
-            if (elements.syncResultSummary) {
-                elements.syncResultSummary.textContent = 'Synchronizacja nie została ukończona z powodu błędu.';
-            }
-
-            this.showErrorResults(result);
+            this.selectedStatuses = this.selectedStatuses.filter(id => id !== statusId);
         }
+
+        console.log('[BL Sync Modal v2] Wybrane statusy:', this.selectedStatuses);
+        this.validateStep1();
     }
 
     /**
-     * Pokazuje szczegóły sukcesu
+     * Pokazanie błędu statusów
      */
-    showSuccessResults(result) {
-        const elements = this.domElements;
-        const stats = result.data?.stats || {};
+    showStatusesError(errorMessage) {
+        if (!this.elements.statusesList) return;
 
-        if (elements.syncResultsAlert) {
-            elements.syncResultsAlert.className = 'alert alert-success';
-        }
-
-        if (elements.syncResultsContent) {
-            elements.syncResultsContent.innerHTML = `
-                <h6><i class="fas fa-chart-bar me-2"></i>Podsumowanie synchronizacji</h6>
-                <div class="row">
-                    <div class="col-md-6">
-                        <ul class="mb-0">
-                            <li><strong>Strony API przetworzono:</strong> ${stats.pages_processed || 0}</li>
-                            <li><strong>Zamówienia pobrane:</strong> ${stats.orders_processed || 0}</li>
-                            <li><strong>Produkty utworzone:</strong> ${stats.products_created || 0}</li>
-                        </ul>
-                    </div>
-                    <div class="col-md-6">
-                        <ul class="mb-0">
-                            <li><strong>Produkty zaktualizowane:</strong> ${stats.products_updated || 0}</li>
-                            <li><strong>Pozycje pominięte:</strong> ${stats.products_skipped || 0}</li>
-                            <li><strong>Błędy:</strong> ${stats.errors_count || 0}</li>
-                        </ul>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Aktualizuj finalne statystyki
-        this.showFinalStats(stats);
-    }
-
-    /**
-     * Pokazuje szczegóły błędu
-     */
-    showErrorResults(result) {
-        const elements = this.domElements;
-
-        if (elements.syncResultsAlert) {
-            elements.syncResultsAlert.className = 'alert alert-danger';
-        }
-
-        if (elements.syncResultsContent) {
-            elements.syncResultsContent.innerHTML = `
-                <h6><i class="fas fa-exclamation-triangle me-2"></i>Szczegóły błędu</h6>
-                <p class="mb-2"><strong>Komunikat:</strong></p>
-                <div class="bg-light p-2 rounded">
-                    <code>${result.error || 'Nieznany błąd'}</code>
-                </div>
-                <p class="mt-3 mb-0">
-                    <small class="text-muted">
-                        Sprawdź logi powyżej aby uzyskać więcej informacji. 
-                        Jeśli problem się powtarza, skontaktuj się z administratorem.
-                    </small>
-                </p>
-            `;
-        }
-    }
-
-    /**
-     * Pokazuje finalne statystyki
-     */
-    showFinalStats(stats) {
-        if (!this.domElements.finalStats) return;
-
-        this.domElements.finalStats.innerHTML = `
-            <div class="col-3">
-                <div class="stat-card bg-info text-white p-3 rounded text-center">
-                    <h4 class="mb-1">${stats.orders_processed || 0}</h4>
-                    <small>Zamówienia</small>
-                </div>
-            </div>
-            <div class="col-3">
-                <div class="stat-card bg-success text-white p-3 rounded text-center">
-                    <h4 class="mb-1">${stats.products_created || 0}</h4>
-                    <small>Utworzone</small>
-                </div>
-            </div>
-            <div class="col-3">
-                <div class="stat-card bg-warning text-white p-3 rounded text-center">
-                    <h4 class="mb-1">${stats.products_skipped || 0}</h4>
-                    <small>Pominięte</small>
-                </div>
-            </div>
-            <div class="col-3">
-                <div class="stat-card bg-danger text-white p-3 rounded text-center">
-                    <h4 class="mb-1">${stats.errors_count || 0}</h4>
-                    <small>Błędy</small>
-                </div>
+        this.elements.statusesList.innerHTML = `
+            <div style="padding: 20px; text-align: center; color: #dc2626;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 24px; margin-bottom: 8px;"></i><br>
+                <strong>Błąd ładowania statusów</strong><br>
+                <small>${errorMessage}</small><br>
+                <button onclick="window.dashboardBLSyncModal.loadBaselinkerStatuses()" 
+                        style="margin-top: 12px; padding: 6px 12px; background: #FF8F33; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    Spróbuj ponownie
+                </button>
             </div>
         `;
+        this.elements.statusesList.style.display = 'block';
     }
 
     /**
-     * Aktualizuje progress bar
+     * Walidacja kroku 1
      */
-    updateProgress(percent, message) {
-        if (this.domElements.syncProgress) {
-            this.domElements.syncProgress.style.width = `${percent}%`;
-            this.domElements.syncProgress.setAttribute('aria-valuenow', percent);
+    validateStep1() {
+        const isValid = this.selectedDays > 0 && this.selectedStatuses.length > 0;
+
+        if (this.elements.step1Next) {
+            this.elements.step1Next.disabled = !isValid;
         }
 
-        if (this.domElements.syncDetails && message) {
-            this.domElements.syncDetails.textContent = message;
-        }
+        return isValid;
     }
 
-    /**
-     * Aktualizuje aktualną operację
-     */
-    updateCurrentOperation(operation, percent = null) {
-        if (this.domElements.currentOperation) {
-            this.domElements.currentOperation.textContent = operation;
-        }
-
-        if (percent !== null && this.domElements.operationProgress) {
-            this.domElements.operationProgress.style.width = `${percent}%`;
-        }
-    }
+    // ============================================================================
+    // KROK 2: POBIERANIE ZAMÓWIEŃ
+    // ============================================================================
 
     /**
-     * Dodaje wpis do loga
+     * Rozpoczęcie pobierania zamówień
      */
-    addLogEntry(message, type = 'info') {
-        const timestamp = new Date().toLocaleTimeString();
-        const entry = {
-            timestamp,
-            message,
-            type,
-            id: Date.now() + Math.random()
-        };
-
-        this.logEntries.push(entry);
-
-        // Limit entries
-        if (this.logEntries.length > this.config.logMaxEntries) {
-            this.logEntries.shift();
-        }
-
-        // Add to DOM
-        this.addLogEntryToDOM(entry);
-
-        // Debug output
-        if (type === 'debug' && (!this.domElements.debugMode || !this.domElements.debugMode.checked)) {
+    async startFetchingOrders() {
+        if (!this.validateStep1()) {
+            this.showToast('Wybierz zakres dni i przynajmniej jeden status', 'warning');
             return;
         }
 
-        console.log(`[BL Sync Modal] ${type.toUpperCase()}: ${message}`);
+        console.log('[BL Sync Modal v2] Rozpoczynanie pobierania zamówień');
+
+        // Przejdź do kroku 2
+        await this.goToStep(2);
+
+        // Rozpocznij pobieranie
+        await this.fetchOrdersFromBaselinker();
     }
 
     /**
-     * Dodaje wpis do DOM loga
+     * Inicjalizacja kroku 2
      */
-    addLogEntryToDOM(entry) {
-        if (!this.domElements.syncLog) return;
+    initStep2() {
+        console.log('[BL Sync Modal v2] Inicjalizacja kroku 2');
 
-        const entryElement = document.createElement('div');
-        entryElement.className = `log-entry log-${entry.type}`;
-        entryElement.setAttribute('data-type', entry.type);
-        entryElement.innerHTML = `
-            <span class="log-timestamp">[${entry.timestamp}]</span> ${entry.message}
-        `;
+        // Reset progress
+        this.updateProgressBar(0, 'Przygotowanie do pobierania...');
+        this.updateStats();
 
-        this.domElements.syncLog.appendChild(entryElement);
-        this.domElements.syncLog.scrollTop = this.domElements.syncLog.scrollHeight;
+        // Ukryj przycisk Next
+        if (this.elements.step2Next) {
+            this.elements.step2Next.style.display = 'none';
+        }
+
+        // Aktywuj przycisk Cancel
+        if (this.elements.step2Cancel) {
+            this.elements.step2Cancel.disabled = false;
+        }
+
+        // Ustaw daty w headerze
+        this.updateStep2DateRange();
+
+        // Reset logów
+        this.syncLogs = [];
+        this.updateLogsDisplay();
     }
 
     /**
-     * Filtruje wpisy loga
+     * Aktualizacja zakresu dat w kroku 2
      */
-    filterLogEntries(filterType) {
-        const entries = this.domElements.syncLog.querySelectorAll('.log-entry');
+    updateStep2DateRange() {
+        const today = new Date();
+        const fromDate = new Date(today.getTime() - (this.selectedDays * 24 * 60 * 60 * 1000));
 
-        entries.forEach(entry => {
-            const type = entry.getAttribute('data-type');
-            let show = false;
+        const formatDate = (date) => {
+            return date.toLocaleDateString('pl-PL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+        };
 
-            switch (filterType) {
-                case 'log-all':
-                    show = true;
-                    break;
-                case 'log-errors':
-                    show = type === 'error';
-                    break;
-                case 'log-success':
-                    show = type === 'success';
-                    break;
+        if (this.elements.step2DateFrom) {
+            this.elements.step2DateFrom.textContent = formatDate(fromDate);
+        }
+
+        if (this.elements.step2DateTo) {
+            this.elements.step2DateTo.textContent = formatDate(today);
+        }
+    }
+
+    /**
+     * Pobieranie zamówień z Baselinker
+     */
+    async fetchOrdersFromBaselinker() {
+        try {
+            this.syncInProgress = true;
+            this.addLog('info', 'Rozpoczynanie pobierania zamówień z Baselinker');
+
+            // Aktualizuj subtitle
+            if (this.elements.syncStep2Subtitle) {
+                this.elements.syncStep2Subtitle.textContent = 'Łączenie z Baselinker API...';
             }
 
-            entry.classList.toggle('filtered-out', !show);
+            this.updateProgressBar(10, 'Wysyłanie zapytania do Baselinker...');
+
+            const requestData = {
+                days_range: this.selectedDays,
+                status_ids: this.selectedStatuses
+            };
+
+            this.addLog('info', `Parametry: ${this.selectedDays} dni, statusy: ${this.selectedStatuses.join(', ')}`);
+
+            const response = await fetch(this.endpoints.fetchOrdersPreview, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            this.updateProgressBar(30, 'Otrzymano odpowiedź z Baselinker...');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            this.updateProgressBar(50, 'Przetwarzanie otrzymanych danych...');
+
+            if (data.success) {
+                this.fetchedOrders = data.orders || [];
+                this.stats.apiPages = data.pages_processed || 0;
+                this.stats.ordersCount = this.fetchedOrders.length;
+
+                // Policz produkty i przefiltruj
+                this.processOrdersData();
+
+                this.addLog('info', `Pobrano ${this.stats.ordersCount} zamówień z ${this.stats.apiPages} stron API`);
+                this.updateProgressBar(80, 'Filtrowanie produktów...');
+
+                // Symuluj krótkie opóźnienie dla UX
+                await this.delay(1000);
+
+                this.updateProgressBar(100, 'Pobieranie zakończone!');
+                this.addLog('success', 'Pobieranie zamówień zakończone pomyślnie');
+
+                // Pokaż przycisk Next
+                if (this.elements.step2Next) {
+                    this.elements.step2Next.style.display = 'block';
+                }
+
+                // Aktualizuj subtitle
+                if (this.elements.syncStep2Subtitle) {
+                    this.elements.syncStep2Subtitle.textContent = `Pobrano ${this.stats.ordersCount} zamówień`;
+                }
+
+            } else {
+                throw new Error(data.error || 'Nieznany błąd pobierania');
+            }
+
+        } catch (error) {
+            console.error('[BL Sync Modal v2] Błąd pobierania zamówień:', error);
+            this.addLog('error', `Błąd pobierania: ${error.message}`);
+            this.updateProgressBar(0, 'Błąd pobierania zamówień');
+            this.showToast(`Błąd pobierania zamówień: ${error.message}`, 'error');
+
+            // Aktywuj przycisk Cancel jako "Zamknij"
+            if (this.elements.step2Cancel) {
+                this.elements.step2Cancel.textContent = 'Zamknij';
+                this.elements.step2Cancel.disabled = false;
+            }
+
+        } finally {
+            this.syncInProgress = false;
+
+            // Aktualizuj statystyki
+            this.updateStats();
+        }
+    }
+
+    /**
+     * Przetwarzanie danych zamówień
+     */
+    processOrdersData() {
+        let totalProducts = 0;
+
+        this.fetchedOrders.forEach(order => {
+            if (order.products) {
+                const filteredProducts = order.products.filter(product =>
+                    !this.isProductFiltered(product)
+                );
+                order.originalProducts = [...order.products];
+                order.filteredProducts = filteredProducts;
+                totalProducts += filteredProducts.length;
+                order.filteredCount = order.products.length - filteredProducts.length;
+            }
+        });
+
+        this.stats.productsCount = totalProducts;
+        this.selectedOrders = [...this.fetchedOrders];
+        this.updateSelectedStats();
+
+        // FIX: Wywołaj update przycisku z opóźnieniem
+        setTimeout(() => {
+            this.updateStep3SaveButton();
+        }, 100);
+
+        console.log(`[BL Sync Modal v2] Przetworzono ${this.fetchedOrders.length} zamówień, ${totalProducts} produktów`);
+    }
+
+    /**
+     * Sprawdzanie czy produkt jest filtrowany (logika skopiowana z reports)
+     */
+    isProductFiltered(product) {
+        if (!product || !product.name) return false;
+
+        const productName = product.name.toLowerCase().trim();
+
+        // Sprawdź czy nazwa produktu zawiera słowa kluczowe do filtrowania
+        return this.productFilterKeywords.some(keyword =>
+            productName.includes(keyword.toLowerCase())
+        );
+    }
+
+    /**
+     * Anulowanie pobierania
+     */
+    cancelFetching() {
+        if (this.syncInProgress) {
+            this.syncInProgress = false;
+            this.addLog('warning', 'Pobieranie anulowane przez użytkownika');
+        }
+
+        this.closeModal();
+    }
+
+    // ============================================================================
+    // KROK 3: LISTA ZAMÓWIEŃ DO ZAZNACZENIA
+    // ============================================================================
+
+    /**
+     * Inicjalizacja kroku 3
+     */
+    initStep3() {
+        console.log('[BL Sync Modal v2] Inicjalizacja kroku 3');
+
+        // Renderuj listę zamówień
+        this.renderOrdersList();
+
+        // Aktualizuj statystyki w headerze
+        this.updateStep3Stats();
+
+        // Skopiuj logi z kroku 2
+        this.copyLogsToStep3();
+
+        // Reset widoczności logów
+        this.logsVisible = false;
+        this.updateStep3LogsVisibility();
+
+        // FIX: Wymuszenie aktualizacji UI z opóźnieniem
+        setTimeout(() => {
+            this.updateAllOrdersUI();
+            this.updateSelectedStats();
+            this.updateStep3SaveButton();
+        }, 200);
+    }
+
+    /**
+     * Renderowanie listy zamówień
+     */
+    renderOrdersList() {
+        if (!this.elements.ordersListContainer) return;
+
+        if (this.fetchedOrders.length === 0) {
+            this.elements.ordersListContainer.innerHTML = `
+                <div class="sync-no-orders">
+                    <i class="fas fa-inbox" style="font-size: 48px; color: #9ca3af; margin-bottom: 16px;"></i>
+                    <h3 style="color: #6b7280; margin-bottom: 8px;">Brak zamówień</h3>
+                    <p style="color: #9ca3af; font-size: 14px;">
+                        Nie znaleziono zamówień w wybranym zakresie dat i statusach.
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+
+        this.fetchedOrders.forEach((order, index) => {
+            const isSelected = this.selectedOrders.includes(order);
+            const hasFilteredProducts = order.filteredCount > 0;
+
+            html += `
+                <div class="sync-order-item ${isSelected ? 'selected' : ''}" data-order-id="${order.id || index}">
+                    <div class="sync-order-header" onclick="window.dashboardBLSyncModal.toggleOrderSelection(${index})">
+                        <input type="checkbox" 
+                               class="sync-order-checkbox" 
+                               ${isSelected ? 'checked' : ''}
+                               onclick="event.stopPropagation(); window.dashboardBLSyncModal.toggleOrderSelection(${index})">
+                        
+                        <div class="sync-order-info">
+                            <div class="sync-order-main">
+                                <div class="sync-order-id">
+                                    Zamówienie #${order.baselinker_order_id || order.id || `TEMP-${index}`}
+                                </div>
+                                <div class="sync-order-customer">
+                                    ${order.customer_name || order.delivery_fullname || 'Brak nazwy klienta'}
+                                </div>
+                            </div>
+                            
+                            <div class="sync-order-meta">
+                                <div class="sync-order-status status-${this.getStatusClass(order.status_id)}">
+                                    ${this.getStatusName(order.status_id)}
+                                </div>
+                                <div class="sync-order-date">
+                                    ${this.formatDate(order.date_add || order.order_date)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="sync-order-products">
+                        ${this.renderOrderProducts(order)}
+                    </div>
+                </div>
+            `;
+        });
+
+        this.elements.ordersListContainer.innerHTML = html;
+        console.log(`[BL Sync Modal v2] Wyrenderowano ${this.fetchedOrders.length} zamówień`);
+    }
+
+    /**
+     * Renderowanie produktów zamówienia
+     */
+    renderOrderProducts(order) {
+        if (!order.products || order.products.length === 0) {
+            return '<div class="sync-no-products">Brak produktów</div>';
+        }
+
+        let html = '';
+        let totalQuantity = 0;
+        let totalValue = 0;
+
+        order.products.forEach(product => {
+            const isFiltered = this.isProductFiltered(product);
+            const quantity = parseFloat(product.quantity || 0);
+            const price = parseFloat(product.price || 0);
+            const value = quantity * price;
+
+            if (!isFiltered) {
+                totalQuantity += quantity;
+                totalValue += value;
+            }
+
+            html += `
+                <div class="sync-product-item ${isFiltered ? 'filtered' : ''}">
+                    <div class="sync-product-info">
+                        <div class="sync-product-name">
+                            ${product.name || 'Bez nazwy'}
+                            ${isFiltered ? ' <small style="color: #dc2626;">(pominięty)</small>' : ''}
+                        </div>
+                        <div class="sync-product-details">
+                            ${product.sku ? `SKU: ${product.sku}` : ''}
+                            ${product.variant ? ` • Wariant: ${product.variant}` : ''}
+                        </div>
+                    </div>
+                    
+                    <div class="sync-product-quantity">
+                        ${quantity}${product.unit ? ` ${product.unit}` : ' szt.'}
+                    </div>
+                    
+                    <div class="sync-product-price">
+                        ${value.toFixed(2)} zł
+                    </div>
+                </div>
+            `;
+        });
+
+        // Dodaj podsumowanie
+        if (totalQuantity > 0) {
+            html += `
+                <div class="sync-order-summary">
+                    <span><strong>Razem:</strong> ${totalQuantity} produktów • ${totalValue.toFixed(2)} zł</span>
+                    ${order.filteredCount > 0 ? ` <span style="color: #dc2626;">(pominięto ${order.filteredCount} poz.)</span>` : ''}
+                </div>
+            `;
+        }
+
+        return html;
+    }
+
+    /**
+     * Przełączanie zaznaczenia zamówienia
+     */
+    toggleOrderSelection(orderIndex) {
+        const order = this.fetchedOrders[orderIndex];
+        if (!order) return;
+
+        const isSelected = this.selectedOrders.includes(order);
+
+        if (isSelected) {
+            // Usuń z zaznaczonych
+            this.selectedOrders = this.selectedOrders.filter(o => o !== order);
+        } else {
+            // Dodaj do zaznaczonych
+            this.selectedOrders.push(order);
+        }
+
+        // Aktualizuj UI
+        this.updateOrderItemUI(orderIndex, !isSelected);
+        this.updateSelectedStats();
+        this.updateStep3SaveButton();
+
+        console.log(`[BL Sync Modal v2] Zamówienie ${orderIndex} ${!isSelected ? 'zaznaczone' : 'odznaczone'}`);
+    }
+
+    /**
+     * Aktualizacja UI elementu zamówienia
+     */
+    updateOrderItemUI(orderIndex, isSelected) {
+        const orderElement = this.elements.ordersListContainer?.querySelector(`[data-order-id="${this.fetchedOrders[orderIndex]?.id || orderIndex}"]`);
+        if (!orderElement) return;
+
+        const checkbox = orderElement.querySelector('.sync-order-checkbox');
+
+        if (isSelected) {
+            orderElement.classList.add('selected');
+            if (checkbox) checkbox.checked = true;
+        } else {
+            orderElement.classList.remove('selected');
+            if (checkbox) checkbox.checked = false;
+        }
+    }
+
+    /**
+     * Zaznaczenie wszystkich zamówień
+     */
+    selectAllOrders() {
+        this.selectedOrders = [...this.fetchedOrders];
+        this.updateAllOrdersUI();
+        this.updateSelectedStats();
+        this.updateStep3SaveButton();
+        console.log('[BL Sync Modal v2] Zaznaczono wszystkie zamówienia');
+    }
+
+    /**
+     * Odznaczenie wszystkich zamówień
+     */
+    deselectAllOrders() {
+        this.selectedOrders = [];
+        this.updateAllOrdersUI();
+        this.updateSelectedStats();
+        this.updateStep3SaveButton();
+        console.log('[BL Sync Modal v2] Odznaczono wszystkie zamówienia');
+    }
+
+    /**
+     * Aktualizacja UI wszystkich zamówień
+     */
+    updateAllOrdersUI() {
+        const orderElements = this.elements.ordersListContainer?.querySelectorAll('.sync-order-item');
+        if (!orderElements) return;
+
+        orderElements.forEach((element, index) => {
+            const order = this.fetchedOrders[index];
+            const isSelected = this.selectedOrders.includes(order);
+            const checkbox = element.querySelector('.sync-order-checkbox');
+
+            if (isSelected) {
+                element.classList.add('selected');
+                if (checkbox) checkbox.checked = true;
+            } else {
+                element.classList.remove('selected');
+                if (checkbox) checkbox.checked = false;
+            }
         });
     }
 
     /**
-     * Eksportuje log synchronizacji
+     * Aktualizacja statystyk wybranych zamówień
      */
-    exportSyncLog() {
-        const logText = this.logEntries
-            .map(entry => `[${entry.timestamp}] ${entry.type.toUpperCase()}: ${entry.message}`)
-            .join('\n');
+    updateSelectedStats() {
+        let selectedProductsCount = 0;
 
-        const blob = new Blob([logText], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
+        this.selectedOrders.forEach(order => {
+            if (order.filteredProducts) {
+                selectedProductsCount += order.filteredProducts.length;
+            }
+        });
 
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `baselinker-sync-log-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        this.addLogEntry('📁 Log został wyeksportowany', 'info');
+        this.stats.selectedOrdersCount = this.selectedOrders.length;
+        this.stats.selectedProductsCount = selectedProductsCount;
     }
 
     /**
-     * Nawiguje do listy produktów
+     * Aktualizacja statystyk w kroku 3
      */
-    navigateToProducts() {
-        // Sprawdź czy jesteśmy w aplikacji z zakładkami
-        if (typeof window.ProductionApp !== 'undefined' && window.ProductionApp.switchToTab) {
-            window.ProductionApp.switchToTab('products-tab');
-            this.hide();
-        } else {
-            // Redirect bezpośredni
-            window.location.href = '/production/products';
+    updateStep3Stats() {
+        if (this.elements.syncOrdersCount) {
+            this.elements.syncOrdersCount.textContent = `${this.stats.ordersCount} zamówień`;
+        }
+
+        if (this.elements.syncProductsCount) {
+            this.elements.syncProductsCount.textContent = `${this.stats.productsCount} produktów`;
         }
     }
 
     /**
-     * Formatuje czas trwania
+     * Aktualizacja przycisku zapisz
      */
-    formatDuration(seconds) {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    updateStep3SaveButton() {
+        if (this.elements.step3Save) {
+            const count = this.stats.selectedOrdersCount;
+            this.elements.step3Save.disabled = count === 0;
+            this.elements.step3Save.innerHTML = `
+                <i class="fas fa-save"></i>
+                Zapisz zamówienia (${count})
+            `;
+        }
+    }
+
+    /**
+     * Toggle widoczności logów w kroku 3
+     */
+    toggleStep3Logs() {
+        this.logsVisible = !this.logsVisible;
+        this.updateStep3LogsVisibility();
+
+        if (this.elements.toggleSyncLogs) {
+            this.elements.toggleSyncLogs.innerHTML = `
+                <i class="fas fa-eye${this.logsVisible ? '-slash' : ''}"></i>
+                ${this.logsVisible ? 'Ukryj' : 'Pokaż'} logi
+            `;
+
+            if (this.logsVisible) {
+                this.elements.toggleSyncLogs.classList.add('active');
+            } else {
+                this.elements.toggleSyncLogs.classList.remove('active');
+            }
+        }
+    }
+
+    /**
+     * Aktualizacja widoczności logów w kroku 3
+     */
+    updateStep3LogsVisibility() {
+        if (this.elements.syncLogsSection) {
+            this.elements.syncLogsSection.style.display = this.logsVisible ? 'block' : 'none';
+        }
+    }
+
+    /**
+     * Kopiowanie logów do kroku 3
+     */
+    copyLogsToStep3() {
+        if (this.elements.syncStep3Logs && this.syncLogs.length > 0) {
+            const logsText = this.syncLogs.map(log =>
+                `[${log.time}] ${log.message}`
+            ).join('<br>');
+
+            this.elements.syncStep3Logs.innerHTML = logsText;
+        }
+    }
+
+    // ============================================================================
+    // KROK 4: ZAPISYWANIE WYBRANYCH ZAMÓWIEŃ
+    // ============================================================================
+
+    /**
+     * Rozpoczęcie zapisywania zamówień
+     */
+    async startSavingOrders() {
+        if (this.selectedOrders.length === 0) {
+            this.showToast('Wybierz przynajmniej jedno zamówienie do zapisania', 'warning');
+            return;
+        }
+
+        console.log(`[BL Sync Modal v2] Rozpoczynanie zapisu ${this.selectedOrders.length} zamówień`);
+
+        // Przejdź do kroku 4
+        await this.goToStep(4);
+
+        // Rozpocznij zapis
+        await this.saveSelectedOrders();
+    }
+
+    /**
+     * Inicjalizacja kroku 4
+     */
+    initStep4() {
+        console.log('[BL Sync Modal v2] Inicjalizacja kroku 4');
+
+        // Reset progress
+        this.updateSaveProgressBar(0, 'Przygotowanie do zapisu...');
+
+        // Ukryj wyniki
+        if (this.elements.syncSaveResults) {
+            this.elements.syncSaveResults.style.display = 'none';
+        }
+
+        // Ukryj przycisk Finish
+        if (this.elements.step4Finish) {
+            this.elements.step4Finish.style.display = 'none';
+        }
+
+        // Reset statystyk zapisu
+        this.stats.savedOrders = 0;
+        this.stats.savedProducts = 0;
+        this.stats.skippedProducts = 0;
+        this.updateSaveStats();
+    }
+
+    /**
+     * Zapisywanie wybranych zamówień
+     */
+    async saveSelectedOrders() {
+        try {
+            this.syncInProgress = true;
+            this.addLog('info', `Rozpoczynanie zapisu ${this.selectedOrders.length} zamówień`);
+
+            // Aktualizuj subtitle
+            if (this.elements.syncStep4Subtitle) {
+                this.elements.syncStep4Subtitle.textContent = 'Tworzenie pozycji produkcyjnych...';
+            }
+
+            this.updateSaveProgressBar(10, 'Przygotowanie danych...');
+
+            // Przygotuj dane do wysłania
+            const orderIds = this.selectedOrders.map(order => order.id || order.baselinker_order_id).filter(id => id);
+
+            this.addLog('info', `Wysyłanie ${orderIds.length} zamówień do zapisu`);
+
+            const requestData = {
+                order_ids: orderIds,
+                days_range: this.selectedDays,
+                status_ids: this.selectedStatuses
+            };
+
+            this.updateSaveProgressBar(30, 'Wysyłanie do serwera...');
+
+            const response = await fetch(this.endpoints.saveSelectedOrders, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            this.updateSaveProgressBar(50, 'Przetwarzanie na serwerze...');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            this.updateSaveProgressBar(80, 'Finalizowanie...');
+
+            if (data.success) {
+                this.syncResults = data;
+                this.stats.savedOrders = data.orders_created || 0;
+                this.stats.savedProducts = data.products_created || 0;
+                this.stats.skippedProducts = data.products_skipped || 0;
+
+                this.addLog('success', `Zapisano pomyślnie: ${this.stats.savedOrders} zamówień, ${this.stats.savedProducts} produktów`);
+
+                // Symuluj krótkie opóźnienie dla UX
+                await this.delay(1000);
+
+                this.updateSaveProgressBar(100, 'Zapis zakończony!');
+
+                // Pokaż wyniki
+                this.showSaveResults();
+
+                // Aktualizuj subtitle
+                if (this.elements.syncStep4Subtitle) {
+                    this.elements.syncStep4Subtitle.textContent = 'Synchronizacja zakończona pomyślnie';
+                }
+
+                // Pokaż toast sukcesu
+                this.showToast(`Zapisano ${this.stats.savedProducts} produktów z ${this.stats.savedOrders} zamówień`, 'success');
+
+            } else {
+                throw new Error(data.error || 'Nieznany błąd zapisu');
+            }
+
+        } catch (error) {
+            console.error('[BL Sync Modal v2] Błąd zapisu zamówień:', error);
+            this.addLog('error', `Błąd zapisu: ${error.message}`);
+            this.updateSaveProgressBar(0, 'Błąd zapisu zamówień');
+            this.showToast(`Błąd zapisu zamówień: ${error.message}`, 'error');
+
+            // Pokaż przycisk Finish jako "Zamknij"
+            if (this.elements.step4Finish) {
+                this.elements.step4Finish.innerHTML = '<i class="fas fa-times"></i> Zamknij';
+                this.elements.step4Finish.style.display = 'block';
+            }
+
+        } finally {
+            this.syncInProgress = false;
+            this.updateSaveStats();
+        }
+    }
+
+    /**
+     * Pokazanie wyników zapisu
+     */
+    showSaveResults() {
+        if (!this.elements.syncSaveResults) return;
+
+        // Przygotuj podsumowanie
+        let summaryHTML = `
+            <div style="margin-bottom: 16px;">
+                <div style="font-size: 18px; margin-bottom: 8px;">
+                    ✅ <strong>${this.stats.savedOrders}</strong> zamówień utworzonych<br>
+                    ✅ <strong>${this.stats.savedProducts}</strong> produktów dodanych do produkcji
+                </div>
+        `;
+
+        if (this.stats.skippedProducts > 0) {
+            summaryHTML += `
+                <div style="color: #d97706; margin-top: 8px;">
+                    ⚠️ ${this.stats.skippedProducts} produktów pominięto (filtrowanie)
+                </div>
+            `;
+        }
+
+        summaryHTML += '</div>';
+
+        if (this.syncResults && this.syncResults.summary) {
+            summaryHTML += `<div style="font-size: 14px; color: #6b7280; text-align: left;">${this.syncResults.summary}</div>`;
+        }
+
+        if (this.elements.syncSaveResultsSummary) {
+            this.elements.syncSaveResultsSummary.innerHTML = summaryHTML;
+        }
+
+        // Pokaż sekcję wyników
+        this.elements.syncSaveResults.style.display = 'block';
+
+        // Pokaż przycisk Finish
+        if (this.elements.step4Finish) {
+            this.elements.step4Finish.innerHTML = '<i class="fas fa-check"></i> Zakończ';
+            this.elements.step4Finish.style.display = 'block';
+        }
+    }
+
+    // ============================================================================
+    // METODY POMOCNICZE
+    // ============================================================================
+
+    /**
+     * Aktualizacja progress bara (krok 2)
+     */
+    updateProgressBar(percentage, message) {
+        if (this.elements.syncProgressBarFill) {
+            this.elements.syncProgressBarFill.style.width = `${percentage}%`;
+        }
+
+        if (this.elements.syncProgressText) {
+            this.elements.syncProgressText.textContent = message || '';
+        }
+    }
+
+    /**
+     * Aktualizacja progress bara zapisu (krok 4)
+     */
+    updateSaveProgressBar(percentage, message) {
+        if (this.elements.syncSaveProgressBarFill) {
+            this.elements.syncSaveProgressBarFill.style.width = `${percentage}%`;
+        }
+
+        if (this.elements.syncSaveProgressText) {
+            this.elements.syncSaveProgressText.textContent = message || '';
+        }
+    }
+
+    /**
+     * Aktualizacja statystyk (krok 2)
+     */
+    updateStats() {
+        if (this.elements.statApiPages) {
+            this.elements.statApiPages.textContent = this.stats.apiPages;
+        }
+
+        if (this.elements.statOrdersCount) {
+            this.elements.statOrdersCount.textContent = this.stats.ordersCount;
+        }
+    }
+
+    /**
+     * Aktualizacja statystyk zapisu (krok 4)
+     */
+    updateSaveStats() {
+        if (this.elements.statSaveOrders) {
+            this.elements.statSaveOrders.textContent = this.stats.savedOrders;
+        }
+
+        if (this.elements.statSaveProducts) {
+            this.elements.statSaveProducts.textContent = this.stats.savedProducts;
+        }
+
+        if (this.elements.statSaveSkipped) {
+            this.elements.statSaveSkipped.textContent = this.stats.skippedProducts;
+        }
+    }
+
+    /**
+     * Dodanie wpisu do logów
+     */
+    addLog(type, message) {
+        const timestamp = new Date().toLocaleTimeString('pl-PL');
+        const logEntry = {
+            type: type, // 'info', 'success', 'warning', 'error'
+            time: timestamp,
+            message: message
+        };
+
+        this.syncLogs.push(logEntry);
+
+        // Ogranicz liczbę logów
+        if (this.syncLogs.length > 100) {
+            this.syncLogs = this.syncLogs.slice(-100);
+        }
+
+        // Aktualizuj wyświetlanie
+        this.updateLogsDisplay();
+
+        console.log(`[BL Sync Modal v2] Log [${type}]: ${message}`);
+    }
+
+    /**
+     * Aktualizacja wyświetlania logów
+     */
+    updateLogsDisplay() {
+        if (!this.elements.syncLogsContent) return;
+
+        const logsHTML = this.syncLogs.map(log => `
+            <div class="sync-log-entry ${log.type}">
+                <span class="sync-log-time">${log.time}</span>
+                <span class="sync-log-message">${log.message}</span>
+            </div>
+        `).join('');
+
+        this.elements.syncLogsContent.innerHTML = logsHTML;
+
+        // Przewiń na dół
+        this.elements.syncLogsContent.scrollTop = this.elements.syncLogsContent.scrollHeight;
+    }
+
+    /**
+     * Toggle widoczności logów (krok 2)
+     */
+    toggleLogs() {
+        const logsContainer = this.elements.syncLogsContent?.parentElement;
+        if (!logsContainer) return;
+
+        const isVisible = logsContainer.style.maxHeight !== '0px';
+
+        if (isVisible) {
+            logsContainer.style.maxHeight = '0px';
+            logsContainer.style.padding = '0 16px';
+        } else {
+            logsContainer.style.maxHeight = '200px';
+            logsContainer.style.padding = '';
+        }
+
+        // Aktualizuj ikonę przycisku
+        if (this.elements.syncLogsToggle) {
+            const icon = this.elements.syncLogsToggle.querySelector('i');
+            if (icon) {
+                icon.className = isVisible ? 'fas fa-eye' : 'fas fa-eye-slash';
+            }
+        }
+    }
+
+    /**
+     * Formatowanie daty
+     */
+    formatDate(dateString) {
+        if (!dateString) return '—';
+
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('pl-PL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+        } catch (error) {
+            return '—';
+        }
+    }
+
+    /**
+     * Pobieranie nazwy statusu
+     */
+    getStatusName(statusId) {
+        const status = this.availableStatuses.find(s => s.id === statusId);
+        return status ? status.name : `Status ${statusId}`;
+    }
+
+    /**
+     * Pobieranie klasy CSS statusu
+     */
+    getStatusClass(statusId) {
+        const status = this.availableStatuses.find(s => s.id === statusId);
+        if (!status) return 'unknown';
+
+        const statusName = status.name.toLowerCase();
+
+        if (statusName.includes('new-paid') || statusName.includes('nowe - opłacone')) return 'new-paid';
+
+        if (statusName.includes('new-topay') || statusName.includes('nowe - nieopłacone')) return 'new-topaid';
+
+        if (statusName.includes('new-topay') || statusName.includes('nowe - nieopłacone')) return 'new-topaid';
+
+        if (statusName.includes('production') || statusName.includes('w produkcj')) return 'production';
+
+        if (statusName.includes('ready') || statusName.includes('produkcja zakończona')) return 'ready';
+
+        if (statusName.includes('tosend') || statusName.includes('paczka zgłoszona')) return 'to-send';
+
+        if (statusName.includes('shipped') || statusName.includes('wysłan') || statusName.includes('odbiór osobisty')) return 'shipped';
+
+        if (statusName.includes('odebrane') || statusName.includes('dostarcz')) return 'delivered';
+
+        if (statusName.includes('odebrane') || statusName.includes('dostarcz')) return 'delivered';
+
+        return 'other';
+    }
+
+    /**
+     * Pokazanie toast notification
+     */
+    showToast(message, type = 'info') {
+        // Sprawdź czy istnieje globalna funkcja toast
+        if (typeof window.showToast === 'function') {
+            window.showToast(message, type);
+            return;
+        }
+
+        // Fallback - użyj alert
+        if (type === 'error') {
+            alert(`Błąd: ${message}`);
+        } else if (type === 'success') {
+            alert(`Sukces: ${message}`);
+        } else {
+            alert(message);
+        }
+    }
+
+    /**
+     * Opóźnienie (dla UX)
+     */
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
+
+// ============================================================================
+// GLOBALNA INSTANCJA I FUNKCJE
+// ============================================================================
 
 /**
  * Globalna instancja modalu
@@ -831,67 +1577,88 @@ class DashboardBLSyncModal {
 let dashboardBLSyncModal = null;
 
 /**
- * Inicjalizacja po załadowaniu DOM
+ * Inicjalizacja po załadowaniu DOM z opóźnieniem
  */
 function initializeBLSyncModal() {
-    console.log('[BL Sync Modal] Próba inicjalizacji modalu...');
+    console.log('[BL Sync Modal v2] Inicjalizacja z opóźnieniem...');
 
-    const modalElement = document.getElementById('baselinkerSyncModal');
-    if (modalElement) {
+    try {
+        // FIX: Zawsze sprawdź czy modal istnieje w DOM - może zniknąć po odświeżeniu dashboard
+        const modalElement = document.getElementById('baselinkerSyncModal');
+        if (!modalElement) {
+            console.warn('[BL Sync Modal v2] Element modalu nie znaleziony - prawdopodobnie po odświeżeniu dashboard');
+
+            // Reset globalnej instancji jeśli modal zniknął
+            if (dashboardBLSyncModal) {
+                dashboardBLSyncModal = null;
+                window.dashboardBLSyncModal = null;
+            }
+
+            return false;
+        }
+
+        // FIX: Jeśli modal istnieje ale instancja została utracona, utwórz nową
         if (!dashboardBLSyncModal) {
             dashboardBLSyncModal = new DashboardBLSyncModal();
-            console.log('[BL Sync Modal] Modal zainicjalizowany i gotowy');
+
+            // Przypisz do window dla dostępu globalnego
+            window.dashboardBLSyncModal = dashboardBLSyncModal;
+
+            console.log('[BL Sync Modal v2] Modal zainicjalizowany i gotowy');
+            return true;
         }
+
+        // FIX: Jeśli instancja istnieje ale modalElement się zmienił, odśwież referencję
+        if (dashboardBLSyncModal.modalElement !== modalElement) {
+            console.log('[BL Sync Modal v2] Odświeżanie referencji do modalu po odświeżeniu dashboard');
+            dashboardBLSyncModal.modalElement = modalElement;
+            dashboardBLSyncModal.cacheElements();
+            dashboardBLSyncModal.setupEventListeners();
+        }
+
         return true;
-    } else {
-        console.warn('[BL Sync Modal] Element modal nie znaleziony');
+    } catch (error) {
+        console.error('[BL Sync Modal v2] Błąd inicjalizacji:', error);
         return false;
     }
 }
 
-// Spróbuj na DOMContentLoaded
-document.addEventListener('DOMContentLoaded', initializeBLSyncModal);
-
-// Fallback - spróbuj ponownie po 1 sekundzie jeśli nie udało się
-setTimeout(() => {
-    if (!dashboardBLSyncModal) {
-        console.log('[BL Sync Modal] Retry inicjalizacji...');
-        initializeBLSyncModal();
-    }
-}, 1000);
-
 /**
- * Globalne funkcje pomocnicze
+ * Globalne funkcje API
  */
 
 /**
  * Pokazuje modal synchronizacji z Baselinkerem
- * Może być wywołana z innych części aplikacji
  */
-window.showBaselinkerSyncModal = function() {
-    console.log('[BL Sync Modal] Wywołano showBaselinkerSyncModal()');
+window.showBaselinkerSyncModal = function () {
+    console.log('[BL Sync Modal v2] Wywołano showBaselinkerSyncModal()');
 
-    if (dashboardBLSyncModal) {
-        dashboardBLSyncModal.show();
-    } else {
-        // Spróbuj zainicjalizować ponownie
-        console.log('[BL Sync Modal] Próba ponownej inicjalizacji...');
-        if (initializeBLSyncModal()) {
-            dashboardBLSyncModal.show();
-        } else {
-            alert('Modal synchronizacji nie jest dostępny. Odśwież stronę i spróbuj ponownie.');
-        }
+    if (!dashboardBLSyncModal) {
+        console.warn('[BL Sync Modal v2] Modal nie zainicjalizowany, próba opóźnionej inicjalizacji...');
+
+        // Spróbuj zainicjalizować z małym opóźnieniem
+        setTimeout(() => {
+            if (initializeBLSyncModal()) {
+                dashboardBLSyncModal.openModal();
+            } else {
+                console.error('[BL Sync Modal v2] Nie udało się zainicjalizować modalu');
+                alert('Modal synchronizacji nie jest dostępny. Spróbuj odświeżyć stronę.');
+            }
+        }, 100);
+        return;
     }
+
+    dashboardBLSyncModal.openModal();
 };
 
 /**
  * Ukrywa modal synchronizacji
  */
 window.hideBaselinkerSyncModal = function () {
-    console.log('[BL Sync Modal] Wywołano hideBaselinkerSyncModal()');
+    console.log('[BL Sync Modal v2] Wywołano hideBaselinkerSyncModal()');
 
     if (dashboardBLSyncModal) {
-        dashboardBLSyncModal.hide();
+        dashboardBLSyncModal.closeModal();
     }
 };
 
@@ -899,77 +1666,231 @@ window.hideBaselinkerSyncModal = function () {
  * Sprawdza czy modal jest aktywny
  */
 window.isBaselinkerSyncModalActive = function () {
-    return dashboardBLSyncModal ? dashboardBLSyncModal.syncInProgress : false;
+    return dashboardBLSyncModal ? dashboardBLSyncModal.isOpen : false;
 };
 
 /**
- * Integracja z istniejącym DashboardModule
- * Jeśli istnieje globalny DashboardModule, zastąp jego metodę handleManualSync
+ * Sprawdza czy synchronizacja jest w toku
  */
-if (typeof window.DashboardModule !== 'undefined') {
-    console.log('[BL Sync Modal] Znaleziono DashboardModule - zastępowanie handleManualSync');
+window.isBaselinkerSyncInProgress = function () {
+    return dashboardBLSyncModal ? dashboardBLSyncModal.syncInProgress : false;
+};
 
-    // Zachowaj oryginalną metodę jako backup
-    window.DashboardModule.originalHandleManualSync = window.DashboardModule.handleManualSync;
+// ============================================================================
+// INTEGRACJA Z DASHBOARD REFRESH - FIX dla problemu po odświeżeniu
+// ============================================================================
 
-    // Zastąp metodę nową implementacją
-    window.DashboardModule.handleManualSync = function () {
-        console.log('[Dashboard Module] handleManualSync przekierowane do modalu');
-        window.showBaselinkerSyncModal();
-    };
-} else {
-    console.log('[BL Sync Modal] DashboardModule nie znaleziony - modal będzie działał niezależnie');
+/**
+ * Nasłuchuje na event dashboard:refreshed i reinicjalizuje modal
+ */
+function setupDashboardRefreshListener() {
+    // FIX: EventBus jest pod window.ProductionShared.eventBus (małe 'e')
+    let eventBus = null;
+
+    if (window.ProductionShared?.eventBus) {
+        eventBus = window.ProductionShared.eventBus;
+        console.log('[BL Sync Modal v2] EventBus znaleziony w ProductionShared.eventBus');
+    } else if (window.ProductionShared?.EventBus) {
+        eventBus = window.ProductionShared.EventBus;
+        console.log('[BL Sync Modal v2] EventBus znaleziony w ProductionShared.EventBus');
+    } else if (window.SharedServices?.EventBus) {
+        eventBus = window.SharedServices.EventBus;
+        console.log('[BL Sync Modal v2] EventBus znaleziony w SharedServices');
+    } else if (window.EventBus) {
+        eventBus = window.EventBus;
+        console.log('[BL Sync Modal v2] EventBus znaleziony w window');
+    }
+
+    if (eventBus) {
+        eventBus.on('dashboard:refreshed', function () {
+            console.log('[BL Sync Modal v2] Dashboard odświeżony - sprawdzanie modalu...');
+
+            setTimeout(() => {
+                const modalExists = document.getElementById('baselinkerSyncModal');
+                if (modalExists && !dashboardBLSyncModal) {
+                    console.log('[BL Sync Modal v2] Reinicjalizacja po odświeżeniu dashboard');
+                    initializeBLSyncModal();
+                    integratWithDashboardModule();
+                    attachToSyncButtons();
+                } else if (!modalExists) {
+                    console.warn('[BL Sync Modal v2] Modal zniknął po odświeżeniu dashboard');
+                    dashboardBLSyncModal = null;
+                    window.dashboardBLSyncModal = null;
+                }
+            }, 500);
+        });
+
+        console.log('[BL Sync Modal v2] Nasłuch na dashboard:refreshed skonfigurowany');
+    } else {
+        console.log('[BL Sync Modal v2] EventBus niedostępny - sprawdź obiekty window');
+    }
 }
 
 /**
- * Obsługa przycisków synchronizacji w dashboard
- * Automatyczne podłączenie do przycisków z odpowiednimi ID lub klasami
+ * Integracja z istniejącym DashboardModule
+ * Zastąp metodę handleManualSync przekierowaniem do nowego modalu
  */
-document.addEventListener('DOMContentLoaded', function () {
-    // Znajdź przyciski synchronizacji
+function integratWithDashboardModule() {
+    if (typeof window.DashboardModule !== 'undefined') {
+        console.log('[BL Sync Modal v2] Integracja z DashboardModule');
+
+        // Zachowaj oryginalną metodę jako backup
+        if (window.DashboardModule.handleManualSync) {
+            window.DashboardModule.originalHandleManualSync = window.DashboardModule.handleManualSync;
+        }
+
+        // Zastąp metodę nową implementacją
+        window.DashboardModule.handleManualSync = function () {
+            console.log('[Dashboard Module] handleManualSync przekierowane do nowego modalu v2');
+            window.showBaselinkerSyncModal();
+        };
+
+        console.log('[BL Sync Modal v2] Integracja z DashboardModule ukończona');
+    } else {
+        console.log('[BL Sync Modal v2] DashboardModule nie znaleziony - modal będzie działał niezależnie');
+    }
+}
+
+// ============================================================================
+// AUTOMATYCZNE PODŁĄCZANIE DO PRZYCISKÓW SYNCHRONIZACJI
+// ============================================================================
+
+/**
+ * Automatyczne podłączanie do przycisków synchronizacji w DOM
+ */
+function attachToSyncButtons() {
     const syncButtons = document.querySelectorAll(
         '#manual-sync-btn, .manual-sync-btn, [data-action="manual-sync"], [data-sync="baselinker"]'
     );
 
     if (syncButtons.length > 0) {
-        console.log(`[BL Sync Modal] Znaleziono ${syncButtons.length} przycisk(ów) synchronizacji`);
+        console.log(`[BL Sync Modal v2] Znaleziono ${syncButtons.length} przycisk(ów) synchronizacji`);
 
         syncButtons.forEach((btn, index) => {
-            btn.addEventListener('click', function (e) {
+            // Usuń poprzednie event listenery
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+
+            // Dodaj nowy event listener
+            newBtn.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
 
-                console.log(`[BL Sync Modal] Kliknięto przycisk synchronizacji #${index}`);
+                console.log(`[BL Sync Modal v2] Kliknięto przycisk synchronizacji #${index}`);
                 window.showBaselinkerSyncModal();
             });
         });
+
+        console.log('[BL Sync Modal v2] Przyciski synchronizacji podłączone');
     } else {
-        console.warn('[BL Sync Modal] Nie znaleziono przycisków synchronizacji do podłączenia');
+        console.warn('[BL Sync Modal v2] Nie znaleziono przycisków synchronizacji do podłączenia');
     }
-});
+}
+
+// ============================================================================
+// INICJALIZACJA I STARTUP
+// ============================================================================
 
 /**
- * Debug functions - dostępne w konsoli deweloperskiej
+ * Główna funkcja startup z opóźnieniem dla template rendering
  */
+function startupBLSyncModal() {
+    console.log('[BL Sync Modal v2] Startup modalu z opóźnieniem 1s...');
+
+    // Opóźnienie 1s na renderowanie template przez Flask/Jinja
+    setTimeout(() => {
+        console.log('[BL Sync Modal v2] Rozpoczynanie inicjalizacji po opóźnieniu...');
+
+        // 1. Inicjalizuj modal
+        const modalInitialized = initializeBLSyncModal();
+
+        if (modalInitialized) {
+            // 2. Integracja z DashboardModule (tylko jeśli modal się zainicjalizował)
+            integratWithDashboardModule();
+
+            // 3. Podłącz do przycisków
+            attachToSyncButtons();
+
+            // 4. FIX: Skonfiguruj nasłuch na refresh dashboard
+            setupDashboardRefreshListener();
+
+            console.log('[BL Sync Modal v2] Startup ukończony pomyślnie');
+        } else {
+            console.warn('[BL Sync Modal v2] Startup nieudany - modal nie został znaleziony');
+
+            // Dodatkowe fallback po kolejnych 2 sekundach
+            setTimeout(() => {
+                console.log('[BL Sync Modal v2] Final retry startup...');
+                const finalTry = initializeBLSyncModal();
+
+                if (finalTry) {
+                    integratWithDashboardModule();
+                    attachToSyncButtons();
+                    setupDashboardRefreshListener();
+                    console.log('[BL Sync Modal v2] Startup ukończony w final retry');
+                } else {
+                    console.error('[BL Sync Modal v2] Final startup failed - template może nie być wyrenderowany');
+                }
+            }, 2000);
+        }
+
+    }, 1000); // 1 sekunda opóźnienia na renderowanie template
+}
+
+// ============================================================================
+// EVENT LISTENERS I AUTO-STARTUP Z OPÓŹNIENIEM
+// ============================================================================
+
+// Startup po załadowaniu DOM
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startupBLSyncModal);
+} else {
+    // DOM już załadowany - uruchom z opóźnieniem
+    startupBLSyncModal();
+}
+
+// Usuwamy stare fallbacki - mamy teraz kontrolowane opóźnienie w startupBLSyncModal
+
+// ============================================================================
+// DEBUG FUNCTIONS (dostępne w konsoli deweloperskiej)
+// ============================================================================
+
 if (typeof window.debugMode !== 'undefined' && window.debugMode) {
-    window.debugBLSyncModal = {
+    window.debugBLSyncModalV2 = {
         showModal: () => window.showBaselinkerSyncModal(),
         hideModal: () => window.hideBaselinkerSyncModal(),
-        resetModal: () => dashboardBLSyncModal?.resetModal(),
-        getStats: () => dashboardBLSyncModal?.statsCounters,
-        getLogEntries: () => dashboardBLSyncModal?.logEntries,
+        getInstance: () => dashboardBLSyncModal,
         isActive: () => window.isBaselinkerSyncModalActive(),
-        instance: () => dashboardBLSyncModal
+        isInProgress: () => window.isBaselinkerSyncInProgress(),
+        resetModal: () => dashboardBLSyncModal?.resetModalState(),
+        getStats: () => dashboardBLSyncModal?.stats,
+        getLogs: () => dashboardBLSyncModal?.syncLogs,
+        getCurrentStep: () => dashboardBLSyncModal?.currentStep,
+        getSelectedOrders: () => dashboardBLSyncModal?.selectedOrders,
+        getFetchedOrders: () => dashboardBLSyncModal?.fetchedOrders,
+
+        // Test functions
+        testStep: (stepNumber) => dashboardBLSyncModal?.goToStep(stepNumber),
+        testLog: (type, message) => dashboardBLSyncModal?.addLog(type, message),
+        testProgress: (percentage, message) => dashboardBLSyncModal?.updateProgressBar(percentage, message),
+        testToast: (message, type) => dashboardBLSyncModal?.showToast(message, type)
     };
 
-    console.log('[BL Sync Modal] Debug functions dostępne w window.debugBLSyncModal');
+    console.log('[BL Sync Modal v2] Debug functions dostępne w window.debugBLSyncModalV2');
+    console.log('Dostępne metody debugowania:', Object.keys(window.debugBLSyncModalV2));
 }
 
-/**
- * Export dla modułów ES6 (jeśli potrzebne)
- */
+// ============================================================================
+// EXPORT DLA MODUŁÓW ES6 (jeśli potrzebne)
+// ============================================================================
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = DashboardBLSyncModal;
+    module.exports = {
+        DashboardBLSyncModal,
+        showBaselinkerSyncModal: window.showBaselinkerSyncModal,
+        hideBaselinkerSyncModal: window.hideBaselinkerSyncModal,
+        isBaselinkerSyncModalActive: window.isBaselinkerSyncModalActive
+    };
 }
 
-console.log('[BL Sync Modal] Plik załadowany pomyślnie - wersja 1.0');
+console.log('[BL Sync Modal v2] Plik załadowany pomyślnie - wersja 2.0 (Refactor Complete)');
