@@ -1997,6 +1997,134 @@ class BaselinkerSyncService:
 
         return results
 
+
+    def get_baselinker_statuses(self) -> Dict[int, str]:
+        """
+        Pobiera listę wszystkich statusów z Baselinker API
+    
+        Returns:
+            Dict[int, str]: Słownik {status_id: status_name}
+        
+        Raises:
+            SyncError: W przypadku błędu komunikacji z API
+        """
+        if not self.api_key:
+            raise SyncError("Brak klucza API Baselinker")
+    
+        logger.debug("Pobieranie statusów z Baselinker API")
+    
+        try:
+            # Przygotowanie requestu do Baselinker
+            request_data = {
+                'token': self.api_key,
+                'method': 'getOrderStatusList',  # Baselinker API method dla statusów
+                'parameters': json.dumps({})     # Brak dodatkowych parametrów
+            }
+        
+            # Wykonanie requestu z retry mechanism
+            logger.info("Wykonywanie requestu getOrderStatusList", extra={
+                'method': 'getOrderStatusList',
+                'endpoint': self.api_endpoint
+            })
+        
+            response_data = self._make_api_request(request_data)
+        
+            # DODANE: Szczegółowe logowanie response
+            logger.info("Raw response z _make_api_request", extra={
+                'response_type': type(response_data).__name__,
+                'response_keys': list(response_data.keys()) if isinstance(response_data, dict) else 'NOT_DICT',
+                'response_content': str(response_data)[:300]  # Pierwsze 300 znaków
+            })
+        
+            if response_data.get('status') == 'SUCCESS':
+                statuses_data = response_data.get('statuses', [])
+            
+                # DODANE: Jeszcze więcej szczegółów
+                logger.info("Szczegóły statuses_data", extra={
+                    'statuses_type': type(statuses_data).__name__,
+                    'statuses_length': len(statuses_data) if hasattr(statuses_data, '__len__') else 'NO_LENGTH',
+                    'statuses_first_item': statuses_data[0] if (isinstance(statuses_data, list) and len(statuses_data) > 0) else 'NO_FIRST_ITEM',
+                    'statuses_sample': str(statuses_data)[:200]  # Pierwsze 200 znaków
+                })
+            
+                statuses = {}
+            
+                # Sprawdź czy to lista czy słownik
+                if isinstance(statuses_data, list):
+                    # Format: [{"id": 123, "name": "Status"}, ...]
+                    for status_item in statuses_data:
+                        try:
+                            if isinstance(status_item, dict):
+                                status_id = status_item.get('id')
+                                status_name = status_item.get('name', f'Status {status_id}')
+                            
+                                if status_id is not None:
+                                    statuses[int(status_id)] = status_name
+                            else:
+                                logger.warning("Nieoczekiwany format item statusu", extra={
+                                    'status_item': status_item,
+                                    'type': type(status_item).__name__
+                                })
+                        except (ValueError, TypeError) as e:
+                            logger.warning("Błąd parsowania statusu", extra={
+                                'status_item': status_item,
+                                'error': str(e)
+                            })
+                            continue
+                        
+                elif isinstance(statuses_data, dict):
+                    # Format: {"123": {"name": "Status"}, ...}
+                    for status_id, status_info in statuses_data.items():
+                        try:
+                            status_id_int = int(status_id)
+                            if isinstance(status_info, dict):
+                                status_name = status_info.get('name', f'Status {status_id}')
+                            else:
+                                # Fallback jeśli status_info to string
+                                status_name = str(status_info)
+                        
+                            statuses[status_id_int] = status_name
+                        except (ValueError, TypeError) as e:
+                            logger.warning("Błąd parsowania statusu dict", extra={
+                                'status_id': status_id,
+                                'status_info': status_info,
+                                'error': str(e)
+                            })
+                            continue
+                else:
+                    logger.warning("Nieoczekiwany format statusów z API", extra={
+                        'type': type(statuses_data).__name__,
+                        'content': str(statuses_data)
+                    })
+            
+                logger.info("Pobrano statusy z Baselinker", extra={
+                    'statuses_count': len(statuses),
+                    'status_ids': list(statuses.keys()),
+                    'parsed_statuses': statuses
+                })
+            
+                return statuses
+            
+            else:
+                error_msg = response_data.get('error_message', 'Nieznany błąd API')
+                error_code = response_data.get('error_code', 'UNKNOWN')
+                raise SyncError(f'Baselinker API error [{error_code}]: {error_msg}')
+            
+        except requests.exceptions.RequestException as e:
+            logger.error("Błąd komunikacji z Baselinker API (statusy)", extra={
+                'error': str(e),
+                'endpoint': self.api_endpoint
+            })
+            raise SyncError(f'Błąd połączenia z Baselinker: {str(e)}')
+        
+        except Exception as e:
+            logger.error("Nieoczekiwany błąd pobierania statusów", extra={
+                'error': str(e),
+                'error_type': type(e).__name__
+            })
+            raise SyncError(f'Błąd pobierania statusów: {str(e)}')
+
+
 # Singleton instance dla globalnego dostępu
 _sync_service_instance = None
 

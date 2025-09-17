@@ -19,6 +19,10 @@ class DashboardModule {
         this.shared = shared;
         this.config = config;
         this.isLoaded = false;
+
+        this.templateLoaded = false;  // Czy template HTML został załadowany
+        this.dataRefresh = null;      // Instance DataRefreshService - inicjalizowane w load()
+
         this.autoRefreshInterval = null;
         this.productionStatusInterval = null;
         this.chartInstance = null;
@@ -59,48 +63,290 @@ class DashboardModule {
     // ========================================================================
 
     async load() {
-        if (this.isLoaded) {
-            console.log('[Dashboard Module] Already loaded, refreshing...');
-            return this.refresh();
-        }
-
         console.log('[Dashboard Module] Loading dashboard...');
 
+        // Inicjalizuj DataRefreshService jeśli jeszcze nie ma
+        if (!this.dataRefresh) {
+            this.dataRefresh = new DataRefreshService(this.shared.apiClient);
+            console.log('[Dashboard Module] DataRefreshService initialized');
+        }
+
+        if (!this.templateLoaded) {
+            // PIERWSZY RAZ - ładuj template HTML + dane
+            console.log('[Dashboard Module] First load - loading template...');
+            await this.loadDashboardTemplate();
+            this.templateLoaded = true;
+        } else {
+            // KOLEJNE RAZY - tylko odśwież dane
+            console.log('[Dashboard Module] Template already loaded - refreshing data only...');
+            await this.refreshDataOnly();
+        }
+
+        this.isLoaded = true;
+        this.state.lastRefresh = new Date();
+        console.log('[Dashboard Module] Dashboard loaded successfully');
+    }
+
+    async loadDashboardTemplate() {
+        console.log('[Dashboard Module] Loading HTML template for first time...');
+
         try {
+            // Załaduj template z parametrem initial_load=true
+            const response = await this.shared.apiClient.getDashboardTabContent(true);
 
-            // 2. Load dashboard content from API
-            await this.loadDashboardContent();
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to load dashboard template');
+            }
 
-            // 3. Initialize widgets
+            // Update DOM with template HTML
+            const wrapper = document.getElementById('dashboard-tab-wrapper');
+            if (wrapper) {
+                wrapper.innerHTML = response.html;
+                wrapper.style.display = 'block';
+
+                // Reset modal references because DOM has been replaced
+                this.systemErrorsModalInstance = null;
+                this.systemErrorsModalElement = null;
+                this.systemErrorsHiddenListenerAttached = false;
+            }
+
+            // Inicjalizacja komponentów (tylko raz przy ładowaniu template)
             this.initializeWidgets();
-
-            // 4. Setup event listeners
             this.setupEventListeners();
+            this.setupDataRefreshHandlers(); // NOWA METODA - będzie w kroku 3.5
 
-            // 5. Setup auto-refresh
+            // Setup auto-refresh
             this.setupAutoRefresh();
 
-            // 6. Initialize charts for admins
+            // Initialize charts for admins
             if (this.config.user?.isAdmin) {
                 await this.initializePerformanceChart();
             }
 
-            // 7. Initialize production status
+            // Initialize production status
             await this.initializeProductionStatus();
 
-            this.isLoaded = true;
-            this.state.lastRefresh = new Date();
+            // Załaduj początkowe dane jeśli są dostępne
+            if (response.initial_data) {
+                console.log('[Dashboard Module] Loading initial data from template response');
+                await this.updateWidgetsWithInitialData(response.initial_data); // NOWA METODA - będzie w kroku 3.6
+            }
 
-            console.log('[Dashboard Module] Dashboard loaded successfully');
+            console.log('[Dashboard Module] Template loaded and initialized successfully');
 
         } catch (error) {
-            console.error('[Dashboard Module] Failed to load dashboard:', error);
+            console.error('[Dashboard Module] Failed to load dashboard template:', error);
             throw error;
+        }
+    }
+
+    async refreshDataOnly() {
+        console.log('[Dashboard Module] Refreshing data without template reload...');
+
+        try {
+            // Użyj DataRefreshService do odświeżenia wszystkich widgetów
+            await this.dataRefresh.refreshAllWidgets();
+
+            this.state.lastRefresh = new Date();
+
+            // Emit event o odświeżeniu danych (bez przeładowania template)
+            this.shared.eventBus.emit('dashboard:data-refreshed', {
+                timestamp: this.state.lastRefresh
+            });
+
+            console.log('[Dashboard Module] Data refresh completed successfully');
+
+        } catch (error) {
+            console.error('[Dashboard Module] Data refresh failed:', error);
+            this.shared.toastSystem.show(
+                'Błąd odświeżania danych: ' + error.message,
+                'warning'
+            );
+            throw error;
+        }
+    }
+
+    setupDataRefreshHandlers() {
+        console.log('[Dashboard Module] Setting up data refresh handlers...');
+
+        // Handler dla widgetu stacji
+        this.dataRefresh.registerRefreshHandler('stations', async () => {
+            const data = await this.shared.apiClient.getDashboardData();
+            if (data.success) {
+                this.updateStationsWidget(data.data.stations);
+            }
+        });
+
+        // Handler dla statystyk/totals
+        this.dataRefresh.registerRefreshHandler('totals', async () => {
+            const data = await this.shared.apiClient.getDashboardStatsData();
+            if (data.success) {
+                this.updateTotalsWidget(data.data);
+            }
+        });
+
+        // Handler dla alertów
+        this.dataRefresh.registerRefreshHandler('alerts', async () => {
+            const data = await this.shared.apiClient.getDashboardData();
+            if (data.success) {
+                this.updateAlertsWidget(data.data.alerts);
+            }
+        });
+
+        // Handler dla statusu produkcji
+        this.dataRefresh.registerRefreshHandler('production-status', async () => {
+            const data = await this.shared.apiClient.getProductionStatusData();
+            if (data.success) {
+                this.updateProductionStatusWidget(data.data);
+            }
+        });
+
+        console.log(`[Dashboard Module] Registered ${this.dataRefresh.getRegisteredWidgets().length} refresh handlers`);
+    }
+
+    // ========================================================================
+    // WIDGET UPDATE METHODS - NOWE
+    // ========================================================================
+
+    async updateWidgetsWithInitialData(initialData) {
+        console.log('[Dashboard Module] Updating widgets with initial data...');
+
+        try {
+            if (initialData.stations) {
+                // Konwertuj format ze słownika na array dla updateStationsWidget
+                const stationsArray = Object.keys(initialData.stations).map(key => ({
+                    code: key,
+                    name: key === 'cutting' ? 'Wycinanie' : key === 'assembly' ? 'Składanie' : 'Pakowanie',
+                    active_orders: initialData.stations[key].pending_count,
+                    status: initialData.stations[key].status,
+                    status_class: initialData.stations[key].status_class
+                }));
+                this.updateStationsWidget(stationsArray);
+            }
+
+            if (initialData.today_totals) {
+                this.updateTotalsWidget({
+                    total_orders: initialData.today_totals.total_orders || 0,
+                    completed_today: initialData.today_totals.completed_orders || 0,
+                    pending_priority: 0, // Będzie aktualizowane przez osobny handler
+                    errors_24h: initialData.system_health?.errors_24h || 0
+                });
+            }
+
+            if (initialData.deadline_alerts) {
+                this.updateAlertsWidget(initialData.deadline_alerts);
+            }
+
+        } catch (error) {
+            console.error('[Dashboard Module] Error updating widgets with initial data:', error);
+        }
+    }
+
+    updateStationsWidget(stationsData) {
+        console.log('[Dashboard Module] Updating stations widget...', stationsData);
+
+        stationsData.forEach(station => {
+            // Aktualizuj liczby oczekujących dla każdej stacji
+            const pendingElement = document.getElementById(`${station.code}-pending`);
+            if (pendingElement) {
+                this.updateNumberWithAnimation(pendingElement, station.active_orders);
+            }
+
+            // Aktualizuj status dot
+            const statusElement = document.getElementById(`${station.code}-status`);
+            if (statusElement) {
+                const statusDot = statusElement.querySelector('.status-dot');
+                if (statusDot) {
+                    // Usuń poprzednie klasy statusu
+                    statusDot.classList.remove('active', 'warning', 'danger');
+
+                    // Dodaj nową klasę na podstawie liczby zamówień
+                    if (station.active_orders > 15) {
+                        statusDot.classList.add('danger');
+                    } else if (station.active_orders > 5) {
+                        statusDot.classList.add('warning');
+                    } else if (station.active_orders > 0) {
+                        statusDot.classList.add('active');
+                    }
+                }
+            }
+        });
+    }
+
+    updateTotalsWidget(statsData) {
+        console.log('[Dashboard Module] Updating totals widget...', statsData);
+
+        // Aktualizuj liczby z animacją
+        this.updateNumberWithAnimation(
+            document.getElementById('today-completed'),
+            statsData.completed_today || 0
+        );
+
+        this.updateNumberWithAnimation(
+            document.getElementById('total-orders-count'),
+            statsData.total_orders || 0
+        );
+
+        this.updateNumberWithAnimation(
+            document.getElementById('pending-priority-count'),
+            statsData.pending_priority || 0
+        );
+
+        this.updateNumberWithAnimation(
+            document.getElementById('errors-24h-count'),
+            statsData.errors_24h || 0
+        );
+    }
+
+    updateAlertsWidget(alertsData) {
+        console.log('[Dashboard Module] Updating alerts widget...', alertsData);
+
+        const alertsList = document.getElementById('alerts-list');
+        const emptyElement = document.getElementById('alerts-empty');
+
+        if (!alertsData || alertsData.length === 0) {
+            if (alertsList) alertsList.style.display = 'none';
+            if (emptyElement) emptyElement.style.display = 'block';
+        } else {
+            if (emptyElement) emptyElement.style.display = 'none';
+            if (alertsList) {
+                alertsList.style.display = 'block';
+
+                // Aktualizuj zawartość listy alertów
+                alertsList.innerHTML = alertsData.map(alert => `
+                    <div class="alert-item alert-${alert.type || 'info'}">
+                        <i class="fas fa-${alert.icon || 'info-circle'}"></i>
+                        <span>${alert.message || 'Brak opisu'}</span>
+                        <small>${alert.time || 'nieznany czas'}</small>
+                    </div>
+                `).join('');
+            }
+        }
+    }
+
+    updateProductionStatusWidget(statusData) {
+        console.log('[Dashboard Module] Updating production status widget...', statusData);
+
+        // Aktualizuj wskaźnik statusu w header
+        const indicator = document.getElementById('status-indicator');
+        const text = document.getElementById('status-text');
+
+        if (indicator) {
+            indicator.className = `status-indicator ${statusData.indicator_class || 'status-idle'}`;
+        }
+
+        if (text) {
+            text.textContent = statusData.status_text || 'Status nieznany';
         }
     }
 
     async unload() {
         console.log('[Dashboard Module] Unloading dashboard...');
+
+        // NOWE - wyczyść DataRefreshService
+        if (this.dataRefresh) {
+            this.dataRefresh.clearAllHandlers();
+        }
 
         // Clear intervals
         if (this.autoRefreshInterval) {
@@ -141,43 +387,15 @@ class DashboardModule {
     }
 
     async refresh() {
-        console.log('[Dashboard Module] Refreshing dashboard...');
+        console.log('[Dashboard Module] Refresh called...');
 
-        try {
-            // Zniszcz istniejący wykres PRZED zastąpieniem HTML
-            if (this.chartInstance) {
-                console.log('[Dashboard Module] Destroying existing chart before refresh');
-                this.chartInstance.destroy();
-                this.chartInstance = null;
-            }
-
-            await this.loadDashboardContent();
-
-            // Po załadowaniu nowego HTML, trzeba ponownie zainicjalizować komponenty
-            this.initializeWidgets();
-
-            // Ponownie skonfiguruj event listeners (bo HTML został zastąpiony)
-            this.setupEventListeners();
-
-            // Ponownie zainicjalizuj wykres jeśli użytkownik to admin
-            if (this.config.user?.isAdmin) {
-                await this.initializePerformanceChart();
-            }
-
-            await this.updateProductionStatus();
-
-            this.state.lastRefresh = new Date();
-
-            this.shared.eventBus.emit('dashboard:refreshed', {
-                timestamp: this.state.lastRefresh
-            });
-
-        } catch (error) {
-            console.error('[Dashboard Module] Refresh failed:', error);
-            this.shared.toastSystem.show(
-                'Błąd odświeżania dashboard: ' + error.message,
-                'warning'
-            );
+        // NOWA LOGIKA - sprawdź czy template jest załadowany
+        if (!this.templateLoaded) {
+            console.log('[Dashboard Module] Template not loaded yet - doing full load');
+            return this.load(); // Pierwsze ładowanie
+        } else {
+            console.log('[Dashboard Module] Template already loaded - refreshing data only');
+            return this.refreshDataOnly(); // Tylko dane
         }
     }
 
@@ -1358,24 +1576,24 @@ class DashboardModule {
                 this.startRefreshTimer(refreshTimer);
             }
 
-            console.log('[Dashboard Module] Starting manual dashboard refresh...');
+            console.log('[Dashboard Module] Starting manual data refresh (no template reload)...');
 
             // Wyczyść cache API żeby mieć pewność że pobierzemy świeże dane
             this.shared.apiClient.clearCache();
 
-            // Wykonaj odświeżenie dashboardu
-            await this.refresh();
+            // ZMIANA - wykonaj tylko odświeżenie danych, nie template
+            await this.refreshDataOnly();
 
             // Zapisz czas ostatniego ręcznego odświeżenia
             this.state.lastManualRefresh = new Date();
 
             // Pokaż toast o sukcesie
             this.shared.toastSystem.show(
-                'Dashboard został odświeżony pomyślnie',
+                'Dane zostały odświeżone pomyślnie',
                 'success'
             );
 
-            console.log('[Dashboard Module] Manual refresh completed successfully');
+            console.log('[Dashboard Module] Manual data refresh completed successfully');
 
         } catch (error) {
             console.error('[Dashboard Module] Manual refresh failed:', error);
@@ -1386,7 +1604,7 @@ class DashboardModule {
                 'error'
             );
         } finally {
-            // Przywróć stan przycisku
+            // Przywróć stan przycisku - REFERENCJE POZOSTAJĄ WAŻNE
             this.state.isRefreshing = false;
 
             if (refreshBtn) {
@@ -1414,21 +1632,29 @@ class DashboardModule {
     // ========================================================================
 
     setupAutoRefresh() {
-        // Refresh dashboard every 3 minutes
+        console.log('[Dashboard Module] Setting up auto-refresh (data-only mode)...');
+
+        // ZMIANA - Dashboard content refresh co minutę (tylko dane)
         this.autoRefreshInterval = setInterval(() => {
-            if (!document.hidden) {
-                this.refresh();
+            if (!document.hidden && !this.state.isLoading && this.templateLoaded) {
+                console.log('[Dashboard Module] Auto-refresh: refreshing data only...');
+                this.refreshDataOnly().catch(error => {
+                    console.error('[Dashboard Module] Auto-refresh failed:', error);
+                });
             }
-        }, 1 * 60 * 1000);
+        }, 1 * 60 * 1000); // 1 minuta
 
-        // Zapisz referencję do timera production status
+        // ZMIANA - Production status refresh co 30 sekund (tylko dane)
         this.productionStatusInterval = setInterval(() => {
-            if (!document.hidden && !this.state.isLoading) {
-                this.updateProductionStatus();
+            if (!document.hidden && !this.state.isLoading && this.templateLoaded) {
+                console.log('[Dashboard Module] Auto-refresh: production status...');
+                this.dataRefresh.refreshWidget('production-status').catch(error => {
+                    console.error('[Dashboard Module] Production status refresh failed:', error);
+                });
             }
-        }, 30000);
+        }, 30000); // 30 sekund
 
-        console.log('[Dashboard Module] Auto-refresh setup (5 minutes)');
+        console.log('[Dashboard Module] Auto-refresh setup complete (data-only mode)');
     }
 
     // ========================================================================

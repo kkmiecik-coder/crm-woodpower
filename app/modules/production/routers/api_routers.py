@@ -1690,100 +1690,140 @@ def add_api_headers(response):
 @login_required
 def dashboard_tab_content():
     """
-    AJAX endpoint dla zawartości taba Dashboard - POPRAWIONY
+    AJAX endpoint dla zawartości taba Dashboard
+    - initial_load=true: zwraca pełny HTML template + początkowe dane
+    - initial_load=false/brak: przekierowuje do dashboard-data (tylko JSON)
     """
     try:
-        logger.info("AJAX: Ładowanie zawartości dashboard-tab", extra={
+        # Sprawdź czy to pierwsze ładowanie template
+        initial_load = request.args.get('initial_load', 'false').lower() == 'true'
+        
+        logger.info("AJAX: dashboard-tab-content", extra={
             'user_id': current_user.id,
-            'user_role': getattr(current_user, 'role', 'unknown')
+            'user_role': getattr(current_user, 'role', 'unknown'),
+            'initial_load': initial_load
         })
         
+        if not initial_load:
+            # Dla odświeżania danych - przekieruj do dashboard-data
+            from flask import redirect, url_for
+            return redirect(url_for('production.production_api.dashboard_data'))
+        
+        # PIERWSZE ŁADOWANIE - zwróć pełny HTML template
         from ..models import ProductionItem, ProductionError, ProductionSyncLog
         
         today = date.today()
-        today_start = datetime.combine(today, datetime.min.time())
         
-        # Statystyki stanowisk
-        dashboard_stats = {
-            'stations': {
-                'cutting': {'pending_count': 0, 'today_m3': 0.0},
-                'assembly': {'pending_count': 0, 'today_m3': 0.0},
-                'packaging': {'pending_count': 0, 'today_m3': 0.0}
+        # Pobierz dane dashboard (identycznie jak w dashboard-data)
+        dashboard_stats = {}
+        
+        # Statystyki stacji - POPRAWIONA STRUKTURA dla template
+        cutting_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_wyciecie').count()
+        assembly_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_skladanie').count()
+        packaging_count = ProductionItem.query.filter(ProductionItem.current_status == 'czeka_na_pakowanie').count()
+        
+        # Oblicz dzisiejsze m3 dla każdej stacji
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
+        
+        cutting_m3_today = 0.0
+        assembly_m3_today = 0.0
+        packaging_m3_today = 0.0
+        
+        try:
+            # M3 wyciętych dzisiaj
+            cutting_m3_today = db.session.query(
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            ).filter(
+                ProductionItem.cutting_completed_at >= today_start,
+                ProductionItem.cutting_completed_at <= today_end
+            ).scalar() or 0.0
+            
+            # M3 składanych dzisiaj
+            assembly_m3_today = db.session.query(
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            ).filter(
+                ProductionItem.assembly_completed_at >= today_start,
+                ProductionItem.assembly_completed_at <= today_end
+            ).scalar() or 0.0
+            
+            # M3 pakowanych dzisiaj
+            packaging_m3_today = db.session.query(
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            ).filter(
+                ProductionItem.packaging_completed_at >= today_start,
+                ProductionItem.packaging_completed_at <= today_end
+            ).scalar() or 0.0
+            
+        except Exception as volume_error:
+            logger.warning("Nie udało się pobrać volume_m3 dla stacji", extra={'error': str(volume_error)})
+        
+        # STRUKTURA ZGODNA Z TEMPLATE - jako słownik, nie lista
+        dashboard_stats['stations'] = {
+            'cutting': {
+                'pending_count': cutting_count,
+                'today_m3': float(cutting_m3_today),
+                'status': 'active' if cutting_count > 0 else 'idle',
+                'status_class': 'station-active' if cutting_count > 0 else 'station-idle'
             },
-            'today_totals': {
-                'completed_orders': 0,
-                'total_m3': 0.0,
-                'avg_deadline_distance': 0.0
+            'assembly': {
+                'pending_count': assembly_count,
+                'today_m3': float(assembly_m3_today),
+                'status': 'active' if assembly_count > 0 else 'idle',
+                'status_class': 'station-active' if assembly_count > 0 else 'station-idle'
             },
-            'deadline_alerts': [],
-            'system_health': {
-                'last_sync': None,
-                'sync_status': 'unknown',
-                'errors_24h': 0,
-                'database_status': 'connected'
+            'packaging': {
+                'pending_count': packaging_count,
+                'today_m3': float(packaging_m3_today),
+                'status': 'active' if packaging_count > 0 else 'idle',
+                'status_class': 'station-active' if packaging_count > 0 else 'station-idle'
             }
         }
         
-        # CUTTING
-        cutting_pending = ProductionItem.query.filter_by(current_status='czeka_na_wyciecie').count()
-        cutting_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                                    .filter(ProductionItem.cutting_completed_at >= today_start)\
-                                    .scalar() or 0.0
+        # Dzisiejsze sumy
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
         
-        # ASSEMBLY
-        assembly_pending = ProductionItem.query.filter_by(current_status='czeka_na_skladanie').count()
-        assembly_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                                     .filter(ProductionItem.assembly_completed_at >= today_start)\
-                                     .scalar() or 0.0
-        
-        # PACKAGING
-        packaging_pending = ProductionItem.query.filter_by(current_status='czeka_na_pakowanie').count()
-        packaging_today_m3 = db.session.query(db.func.sum(ProductionItem.volume_m3))\
-                                      .filter(ProductionItem.packaging_completed_at >= today_start)\
-                                      .scalar() or 0.0
-        
-        dashboard_stats['stations'] = {
-            'cutting': {'pending_count': cutting_pending, 'today_m3': float(cutting_today_m3)},
-            'assembly': {'pending_count': assembly_pending, 'today_m3': float(assembly_today_m3)},
-            'packaging': {'pending_count': packaging_pending, 'today_m3': float(packaging_today_m3)}
-        }
-        
-        # Dzisiejsze podsumowania
         completed_today = ProductionItem.query.filter(
             ProductionItem.current_status == 'spakowane',
-            ProductionItem.packaging_completed_at >= today_start
+            ProductionItem.packaging_completed_at >= today_start,
+            ProductionItem.packaging_completed_at <= today_end
         ).count()
         
-        total_m3_today = cutting_today_m3 + assembly_today_m3 + packaging_today_m3
-        
-        # Średni deadline
-        avg_deadline = db.session.query(db.func.avg(
-            db.func.datediff(ProductionItem.deadline_date, db.func.current_date())
-        )).filter(ProductionItem.deadline_date.isnot(None)).scalar()
+        total_m3_today = 0.0
+        try:
+            total_m3_today = db.session.query(
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            ).filter(
+                ProductionItem.packaging_completed_at >= today_start,
+                ProductionItem.packaging_completed_at <= today_end
+            ).scalar() or 0.0
+        except:
+            total_m3_today = 0.0
         
         dashboard_stats['today_totals'] = {
             'completed_orders': completed_today,
             'total_m3': float(total_m3_today),
-            'avg_deadline_distance': float(avg_deadline) if avg_deadline else 0.0
+            'total_orders': ProductionItem.query.count()
         }
         
         # Alerty terminów
         deadline_alerts = ProductionItem.query.filter(
             ProductionItem.deadline_date <= (today + timedelta(days=3)),
             ProductionItem.current_status != 'spakowane'
-        ).order_by(ProductionItem.deadline_date.asc()).limit(10).all()
+        ).order_by(ProductionItem.deadline_date.asc()).limit(5).all()
         
         dashboard_stats['deadline_alerts'] = [
             {
                 'short_product_id': alert.short_product_id,
                 'deadline_date': alert.deadline_date.isoformat() if alert.deadline_date else None,
                 'days_remaining': (alert.deadline_date - today).days if alert.deadline_date else 0,
-                'current_station': alert.current_status.replace('czeka_na_', '')
+                'current_station': alert.current_status.replace('czeka_na_', '') if alert.current_status else 'unknown'
             }
             for alert in deadline_alerts
         ]
         
-        # System health - POPRAWIONE: sync_status zamiast status
+        # System health
         errors_24h = ProductionError.query.filter(
             ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
             ProductionError.is_resolved == False
@@ -1797,21 +1837,25 @@ def dashboard_tab_content():
             'errors_24h': errors_24h,
             'database_status': 'connected'
         }
-
-        rendered_html = render_template('components/dashboard-tab-content.html', 
-                                    dashboard_stats=dashboard_stats)
+        
+        # Renderuj template
+        rendered_html = render_template(
+            'components/dashboard-tab-content.html', 
+            dashboard_stats=dashboard_stats
+        )
         
         return jsonify({
             'success': True,
             'html': rendered_html,
-            'stats': dashboard_stats,
+            'initial_data': dashboard_stats,  # NOWE - dane początkowe dla frontend
             'last_updated': datetime.utcnow().isoformat()
         })
         
     except Exception as e:
         logger.error("Błąd AJAX dashboard-tab-content", extra={
             'user_id': current_user.id,
-            'error': str(e)
+            'error': str(e),
+            'initial_load': initial_load if 'initial_load' in locals() else 'unknown'
         })
         
         return jsonify({
@@ -3130,7 +3174,7 @@ def baselinker_statuses():
             logger.info("API: Pobieranie statusów z Baselinker API")
             
             try:
-                # Użyj BaselinkerSyncService
+                #Użyj BaselinkerSyncService
                 from ..services.sync_service import get_sync_service
                 sync_service = get_sync_service()
                 
@@ -3555,6 +3599,308 @@ def save_selected_orders():
             'error': str(e),
             'traceback': traceback.format_exc(),
             'request_data': data if 'data' in locals() else None
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/dashboard-data', methods=['GET'])
+@login_required
+def dashboard_data():
+    """
+    Zwraca TYLKO dane dla dashboard (bez HTML)
+    Używane do odświeżania danych bez przeładowywania template
+    """
+    try:
+        logger.info("API: dashboard-data - pobieranie danych", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionItem, ProductionError
+        
+        # Pobierz dane stacji produkcyjnych
+        stations_data = []
+        
+        # Stacja wycinania
+        cutting_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_wyciecie'
+        ).count()
+        
+        stations_data.append({
+            'code': 'cutting',
+            'name': 'Wycinanie',
+            'status': 'active' if cutting_count > 0 else 'idle',
+            'status_class': 'station-active' if cutting_count > 0 else 'station-idle',
+            'active_orders': cutting_count
+        })
+        
+        # Stacja składania
+        assembly_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_skladanie'
+        ).count()
+        
+        stations_data.append({
+            'code': 'assembly', 
+            'name': 'Składanie',
+            'status': 'active' if assembly_count > 0 else 'idle',
+            'status_class': 'station-active' if assembly_count > 0 else 'station-idle',
+            'active_orders': assembly_count
+        })
+        
+        # Stacja pakowania
+        packaging_count = ProductionItem.query.filter(
+            ProductionItem.current_status == 'czeka_na_pakowanie'
+        ).count()
+        
+        stations_data.append({
+            'code': 'packaging',
+            'name': 'Pakowanie', 
+            'status': 'active' if packaging_count > 0 else 'idle',
+            'status_class': 'station-active' if packaging_count > 0 else 'station-idle',
+            'active_orders': packaging_count
+        })
+        
+        # Alerty systemowe
+        alerts_data = []
+        
+        # Sprawdź błędy z ostatnich 24h
+        errors_24h = ProductionError.query.filter(
+            ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
+            ProductionError.is_resolved == False
+        ).count()
+        
+        if errors_24h > 0:
+            alerts_data.append({
+                'type': 'error',
+                'icon': 'exclamation-triangle',
+                'message': f'Znaleziono {errors_24h} błędów systemowych',
+                'time': 'ostatnie 24h'
+            })
+        
+        # Sprawdź opóźnione zamówienia
+        today = date.today()
+        overdue_orders = ProductionItem.query.filter(
+            ProductionItem.deadline_date < today,
+            ProductionItem.current_status != 'spakowane'
+        ).count()
+        
+        if overdue_orders > 0:
+            alerts_data.append({
+                'type': 'warning',
+                'icon': 'clock',
+                'message': f'{overdue_orders} zamówień po terminie',
+                'time': 'wymaga uwagi'
+            })
+        
+        # Zwróć dane w formacie JSON
+        response_data = {
+            'stations': stations_data,
+            'alerts': alerts_data,
+            'errors_count': errors_24h,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        logger.debug("API: dashboard-data - dane pobrane", extra={
+            'stations_count': len(stations_data),
+            'alerts_count': len(alerts_data),
+            'errors_24h': errors_24h
+        })
+        
+        return jsonify({
+            'success': True,
+            'data': response_data
+        })
+        
+    except Exception as e:
+        logger.error("API: Błąd dashboard-data", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/production-status-data', methods=['GET'])
+@login_required
+def production_status_data():
+    """
+    Zwraca TYLKO status produkcji (bez HTML)
+    Używane do odświeżania wskaźnika statusu w header dashboard
+    """
+    try:
+        logger.info("API: production-status-data - pobieranie statusu", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionItem, ProductionSyncLog
+        
+        # Sprawdź aktywność produkcji
+        active_orders = ProductionItem.query.filter(
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie',
+                'czeka_na_skladanie', 
+                'czeka_na_pakowanie'
+            ])
+        ).count()
+        
+        # Sprawdź ostatnią synchronizację
+        last_sync = ProductionSyncLog.query.order_by(
+            ProductionSyncLog.sync_started_at.desc()
+        ).first()
+        
+        # Określ status systemu
+        if active_orders > 0:
+            status = 'active'
+            status_text = f'Produkcja aktywna ({active_orders} zamówień)'
+            indicator_class = 'status-active'
+        else:
+            status = 'idle'
+            status_text = 'Produkcja w trybie oczekiwania'
+            indicator_class = 'status-idle'
+        
+        # Sprawdź czy są problemy synchronizacji
+        if last_sync:
+            sync_age_hours = (datetime.utcnow() - last_sync.sync_started_at).total_seconds() / 3600
+            if sync_age_hours > 2:  # Jeśli ostatnia sync była > 2h temu
+                status = 'warning'
+                status_text = 'Problemy z synchronizacją'
+                indicator_class = 'status-warning'
+        
+        # Przygotuj odpowiedź
+        response_data = {
+            'status': status,
+            'status_text': status_text,
+            'indicator_class': indicator_class,
+            'active_orders': active_orders,
+            'last_sync': last_sync.sync_started_at.isoformat() if last_sync else None,
+            'last_update': datetime.utcnow().isoformat()
+        }
+        
+        logger.debug("API: production-status-data - status określony", extra={
+            'status': status,
+            'active_orders': active_orders,
+            'last_sync_age_hours': sync_age_hours if last_sync else None
+        })
+        
+        return jsonify({
+            'success': True,
+            'data': response_data
+        })
+        
+    except Exception as e:
+        logger.error("API: Błąd production-status-data", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/dashboard-stats-data', methods=['GET'])
+@login_required  
+def dashboard_stats_data():
+    """
+    Zwraca TYLKO statystyki liczbowe dla dashboard (bez HTML)
+    Używane do odświeżania widgetów z liczbami
+    """
+    try:
+        logger.info("API: dashboard-stats-data - pobieranie statystyk", extra={
+            'user_id': current_user.id,
+            'user_role': getattr(current_user, 'role', 'unknown')
+        })
+        
+        from ..models import ProductionItem, ProductionError
+        
+        today = date.today()
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
+        
+        # Całkowita liczba zamówień w systemie
+        total_orders = ProductionItem.query.count()
+        
+        # Zamówienia ukończone dzisiaj
+        completed_today = ProductionItem.query.filter(
+            ProductionItem.current_status == 'spakowane',
+            ProductionItem.packaging_completed_at >= today_start,
+            ProductionItem.packaging_completed_at <= today_end
+        ).count()
+        
+        # Zamówienia priorytetowe oczekujące
+        pending_priority = ProductionItem.query.filter(
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie',
+                'czeka_na_skladanie', 
+                'czeka_na_pakowanie'
+            ])
+        ).filter(
+            # Zakładamy że priorytetowe to te z deadline_date w ciągu 3 dni
+            ProductionItem.deadline_date <= (today + timedelta(days=3))
+        ).count()
+        
+        # Błędy z ostatnich 24h
+        errors_24h = ProductionError.query.filter(
+            ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
+            ProductionError.is_resolved == False
+        ).count()
+        
+        # Łączna objętość dzisiaj ukończona (jeśli pole istnieje)
+        total_volume_today = 0.0
+        try:
+            volume_result = db.session.query(
+                db.func.coalesce(db.func.sum(ProductionItem.volume_m3), 0)
+            ).filter(
+                ProductionItem.current_status == 'spakowane',
+                ProductionItem.packaging_completed_at >= today_start,
+                ProductionItem.packaging_completed_at <= today_end
+            ).scalar()
+            
+            total_volume_today = float(volume_result) if volume_result else 0.0
+            
+        except Exception as volume_error:
+            logger.warning("Nie udało się pobrać volume_m3", extra={'error': str(volume_error)})
+            total_volume_today = 0.0
+        
+        # Przygotuj statystyki
+        stats_data = {
+            'total_orders': total_orders,
+            'completed_today': completed_today,
+            'pending_priority': pending_priority,
+            'errors_24h': errors_24h,
+            'total_volume_today_m3': total_volume_today,
+            'completion_rate_today': round((completed_today / max(total_orders, 1)) * 100, 1),
+            'last_updated': datetime.utcnow().isoformat()
+        }
+        
+        logger.debug("API: dashboard-stats-data - statystyki pobrane", extra={
+            'total_orders': total_orders,
+            'completed_today': completed_today,
+            'pending_priority': pending_priority,
+            'errors_24h': errors_24h
+        })
+        
+        return jsonify({
+            'success': True,
+            'data': stats_data
+        })
+        
+    except Exception as e:
+        logger.error("API: Błąd dashboard-stats-data", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'traceback': traceback.format_exc()
         })
         
         return jsonify({

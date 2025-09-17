@@ -537,11 +537,18 @@ class ProductionApp {
 
         console.log(`[ProductionApp] Auto-refreshing current tab: ${this.state.currentTab}`);
         try {
-            await this.loadTabContent(this.state.currentTab);
-            console.log('[ProductionApp] Auto-refresh completed');
+            // ZMIANA: Deleguj odświeżanie do modułu zamiast przeładowywania całego taba
+            const module = this.modules[this.state.currentTab];
+            if (module && typeof module.refresh === 'function') {
+                console.log(`[ProductionApp] Delegating refresh to module: ${this.state.currentTab}`);
+                await module.refresh(); // Moduł sam zdecyduje - template vs dane
+            } else {
+                console.log(`[ProductionApp] No refresh method found for module: ${this.state.currentTab}`);
+                // Fallback do starego systemu dla innych tabów
+                await this.loadTabContent(this.state.currentTab, true);
+            }
         } catch (error) {
-            console.error('[ProductionApp] Auto-refresh failed:', error);
-            // Don't show error toast for auto-refresh failures
+            console.error(`[ProductionApp] Tab refresh failed: ${this.state.currentTab}`, error);
         }
     }
 

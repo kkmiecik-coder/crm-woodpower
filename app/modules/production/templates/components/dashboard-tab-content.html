@@ -236,7 +236,7 @@
                 <div class="health-item" id="errors-health">
                     <div class="health-left">
                         <div class="health-label">Błędy systemu</div>
-                        <div class="health-value" id="error-count">{{ dashboard_stats.system_health.errors_24h or 0 }}</div>
+                        <div class="health-value" id="errors-24h-count">{{ dashboard_stats.system_health.errors_24h or 0 }}</div>
                     </div>
                     <div class="health-right">
                         <div class="health-status {% if (dashboard_stats.system_health.errors_24h or 0) == 0 %}status-success{% elif (dashboard_stats.system_health.errors_24h or 0) > 5 %}status-error{% else %}status-warning{% endif %}" id="errors-status">

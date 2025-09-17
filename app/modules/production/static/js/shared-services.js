@@ -214,8 +214,16 @@ class ApiClient {
         return this.request('/dashboard-stats');
     }
 
-    async getDashboardTabContent() {
-        return this.request('/dashboard-tab-content');
+    /**
+     * Pobiera zawartość taba dashboard
+     * @param {boolean} initialLoad - czy to pierwsze ładowanie (template + dane) czy tylko dane
+     */
+    async getDashboardTabContent(initialLoad = false) {
+        const params = initialLoad ? '?initial_load=true' : '';
+        const endpoint = `/dashboard-tab-content${params}`;
+
+        console.log(`[ApiClient] Pobieranie dashboard tab content (initialLoad: ${initialLoad})`);
+        return this.request(endpoint);
     }
 
     async getProductsTabContent(filters = {}) {
@@ -326,6 +334,34 @@ class ApiClient {
         return this.requestAdmin('/ajax/clear-system-errors', {
             method: 'POST'
         });
+    }
+
+    // ============================================================================
+    // NOWE METODY - dla refaktoryzacji odświeżania dashboard
+    // ============================================================================
+
+    /**
+     * Pobiera dane dashboard bez HTML (tylko JSON)
+     */
+    async getDashboardData() {
+        console.log('[ApiClient] Pobieranie danych dashboard...');
+        return this.request('/dashboard-data');
+    }
+
+    /**
+     * Pobiera status produkcji bez HTML (tylko JSON)
+     */
+    async getProductionStatusData() {
+        console.log('[ApiClient] Pobieranie statusu produkcji...');
+        return this.request('/production-status-data');
+    }
+
+    /**
+     * Pobiera statystyki dashboard bez HTML (tylko JSON)
+     */
+    async getDashboardStatsData() {
+        console.log('[ApiClient] Pobieranie statystyk dashboard...');
+        return this.request('/dashboard-stats-data');
     }
 }
 
@@ -656,6 +692,144 @@ class LoadingManager {
     clear() {
         this.activeLoaders.clear();
         this.globalSpinner.style.display = 'none';
+    }
+}
+
+// ============================================================================
+// DATA REFRESH SERVICE - Nowa klasa dla refaktoryzacji odświeżania
+// ============================================================================
+
+/**
+ * Serwis zarządzania odświeżaniem danych widgetów
+ * Rozdziela odświeżanie danych od ładowania template
+ */
+class DataRefreshService {
+    constructor(apiClient) {
+        this.apiClient = apiClient;
+        this.refreshHandlers = new Map();
+        this.isRefreshing = false;
+        this.lastRefresh = null;
+    }
+
+    /**
+     * Rejestracja handlera odświeżania dla konkretnego widgetu
+     * @param {string} widgetName - nazwa widgetu (np. 'stations', 'totals')
+     * @param {function} handler - funkcja odświeżająca dane widgetu
+     */
+    registerRefreshHandler(widgetName, handler) {
+        if (typeof handler !== 'function') {
+            console.error(`[DataRefreshService] Handler dla ${widgetName} musi być funkcją`);
+            return;
+        }
+
+        this.refreshHandlers.set(widgetName, handler);
+        console.log(`[DataRefreshService] Zarejestrowano handler dla widgetu: ${widgetName}`);
+    }
+
+    /**
+     * Odświeżenie konkretnego widgetu
+     * @param {string} widgetName - nazwa widgetu do odświeżenia
+     */
+    async refreshWidget(widgetName) {
+        const handler = this.refreshHandlers.get(widgetName);
+        if (!handler) {
+            console.warn(`[DataRefreshService] Brak handlera dla widgetu: ${widgetName}`);
+            return;
+        }
+
+        try {
+            console.log(`[DataRefreshService] Odświeżanie widgetu: ${widgetName}`);
+            await handler();
+            console.log(`[DataRefreshService] Widget ${widgetName} odświeżony pomyślnie`);
+        } catch (error) {
+            console.error(`[DataRefreshService] Błąd odświeżania widgetu ${widgetName}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Odświeżenie wszystkich zarejestrowanych widgetów
+     */
+    async refreshAllWidgets() {
+        if (this.isRefreshing) {
+            console.log('[DataRefreshService] Odświeżanie już w toku, pomijam');
+            return;
+        }
+
+        this.isRefreshing = true;
+        const startTime = Date.now();
+
+        try {
+            console.log(`[DataRefreshService] Rozpoczynam odświeżanie ${this.refreshHandlers.size} widgetów`);
+
+            const refreshPromises = [];
+            for (const [widgetName, handler] of this.refreshHandlers) {
+                refreshPromises.push(
+                    this.refreshWidget(widgetName).catch(error => {
+                        console.error(`[DataRefreshService] Widget ${widgetName} failed:`, error);
+                        return { widgetName, error }; // Nie przerywamy innych
+                    })
+                );
+            }
+
+            const results = await Promise.allSettled(refreshPromises);
+            const duration = Date.now() - startTime;
+
+            // Policz sukcesy i błędy
+            const successful = results.filter(r => r.status === 'fulfilled' && !r.value?.error).length;
+            const failed = results.filter(r => r.status === 'rejected' || r.value?.error).length;
+
+            this.lastRefresh = new Date();
+
+            console.log(`[DataRefreshService] Odświeżanie zakończone: ${successful} sukces, ${failed} błędów (${duration}ms)`);
+
+            if (failed > 0) {
+                throw new Error(`${failed} widgetów nie udało się odświeżyć`);
+            }
+
+        } finally {
+            this.isRefreshing = false;
+        }
+    }
+
+    /**
+     * Sprawdza czy jest w trakcie odświeżania
+     */
+    isCurrentlyRefreshing() {
+        return this.isRefreshing;
+    }
+
+    /**
+     * Zwraca czas ostatniego odświeżenia
+     */
+    getLastRefreshTime() {
+        return this.lastRefresh;
+    }
+
+    /**
+     * Usuwa handler dla widgetu
+     */
+    unregisterRefreshHandler(widgetName) {
+        if (this.refreshHandlers.has(widgetName)) {
+            this.refreshHandlers.delete(widgetName);
+            console.log(`[DataRefreshService] Usunięto handler dla widgetu: ${widgetName}`);
+        }
+    }
+
+    /**
+     * Czyści wszystkie handlery
+     */
+    clearAllHandlers() {
+        const count = this.refreshHandlers.size;
+        this.refreshHandlers.clear();
+        console.log(`[DataRefreshService] Wyczyszczono ${count} handlerów`);
+    }
+
+    /**
+     * Zwraca listę zarejestrowanych widgetów
+     */
+    getRegisteredWidgets() {
+        return Array.from(this.refreshHandlers.keys());
     }
 }
 
