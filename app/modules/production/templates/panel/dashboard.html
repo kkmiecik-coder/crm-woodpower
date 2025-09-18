@@ -5,8 +5,13 @@
     <title>Dashboard Produkcji - WoodPower CRM</title>
     <link rel="icon" href="{{ url_for('static', filename='images/favicon.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- CSS dla tabów -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
+    <!-- CSS dla komponentów -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/dashboard_bl_sync_modal.css') }}">
+    <!-- CSS uzupełniające -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -307,12 +312,13 @@
     console.log('[HTML] Production config loaded:', window.PRODUCTION_CONFIG);
     </script>
 
-    <!-- Wspólne serwisy -->
-    <script src="{{ url_for('production.static', filename='js/shared-services.js') }}"></script>
     <!-- Moduły funkcjonalne -->
     <script src="{{ url_for('production.static', filename='js/modules/dashboard-module.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/products-module.js') }}"></script>
     <!-- Główny kontroler aplikacji -->
     <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>
+    <!-- Wspólne serwisy -->
+    <script src="{{ url_for('production.static', filename='js/shared-services.js') }}"></script>
     <!-- Obsługa modala synchronizacji z Baselinkerem -->
     <script src="{{ url_for('production.static', filename='js/modules/dashboard_bl_sync_modal.js') }}"></script>
 

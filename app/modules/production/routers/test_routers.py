@@ -34,7 +34,7 @@ def test_backend_complete():
     """
     
     test_results = {
-        'test_timestamp': datetime.utcnow().isoformat(),
+        'test_timestamp': get_local_now().isoformat(),
         'test_status': 'UNKNOWN',
         'overall_success': False,
         'components': {},
@@ -815,7 +815,7 @@ def test_integration_suite():
             if created is None:
                 # fallback: policz po bazie (ostatnie 60s)
                 from datetime import datetime, timedelta
-                cutoff = datetime.utcnow() - timedelta(seconds=60)
+                cutoff = get_local_now() - timedelta(seconds=60)
                 created = ProductionItem.query.filter(ProductionItem.created_at >= cutoff).count()
             report["created_items"] = created
         except Exception as e:

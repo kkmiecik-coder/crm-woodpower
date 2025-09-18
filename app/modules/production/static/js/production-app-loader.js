@@ -21,6 +21,7 @@
 console.log('[ProductionApp] Checking required dependencies...');
 console.log('- ProductionShared:', typeof window.ProductionShared !== 'undefined');
 console.log('- DashboardModule:', typeof DashboardModule !== 'undefined');
+console.log('- ProductsModule:', typeof ProductsModule !== 'undefined');
 
 // Jeśli DashboardModule nie istnieje, może trzeba go załadować dynamicznie
 if (typeof DashboardModule === 'undefined') {
@@ -334,10 +335,8 @@ class ProductionApp {
                     loading.style.display = 'none';
                 }
 
-                // Initialize products functionality if available
-                if (typeof window.initProductsList === 'function') {
-                    window.initProductsList();
-                }
+                // Inicjalizuj ProductsModule podobnie jak DashboardModule
+                await this.initializeProductsModule();
             } else {
                 throw new Error(response.error || 'Failed to load products');
             }
@@ -652,6 +651,31 @@ class ProductionApp {
             
         } catch (error) {
             console.error('[ProductionApp] Failed to initialize DashboardModule:', error);
+            throw error;
+        }
+    }
+
+    async initializeProductsModule() {
+        console.log('[ProductionApp] Initializing ProductsModule...');
+
+        if (typeof ProductsModule === 'undefined') {
+            console.error('[ProductionApp] ProductsModule not available');
+            this.shared.toastSystem.show('ProductsModule nie jest dostępny', 'error');
+            return;
+        }
+
+        try {
+            const productsModule = new ProductsModule(this.shared, this.config);
+            await productsModule.load();
+
+            // Store reference to module
+            this.state.loadedModules.set('products', productsModule);
+
+            console.log('[ProductionApp] ProductsModule initialized successfully');
+
+        } catch (error) {
+            console.error('[ProductionApp] Failed to initialize ProductsModule:', error);
+            this.shared.toastSystem.show('Błąd inicjalizacji modułu produktów: ' + error.message, 'error');
             throw error;
         }
     }

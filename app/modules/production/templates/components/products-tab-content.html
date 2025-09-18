@@ -1,570 +1,721 @@
 <!-- products-tab-content.html -->
 <!-- ============================================================================
-     SEKCJA FILTRÓW - UPROSZCZONA WERSJA (BEZ PRZYCISKU ZAAWANSOWANE)
+     PRODUCTS TAB CONTENT - NOWA STRUKTURA - RESTRUKTURYZACJA 2025
+     ============================================================================
+
+     Zawiera:
+     - Mini statystyki nad filtrami
+     - Text search z fuzzy + 5 multi-select dropdownów
+     - System badges aktywnych filtrów
+     - Virtual scrolling container
+     - Template tags dla komponentów
+     - Loading states i error states
+     - Bulk actions bar
      ============================================================================ -->
-<div class="products-filters">
-    <div class="row g-3">
-        <!-- Status produktu -->
-        <div class="col-md-3">
-            <label for="status-filter" class="form-label">Status produktu</label>
-            <select id="status-filter" class="form-select">
-                <option value="all">Wszystkie statusy</option>
-                <option value="czeka_na_wyciecie">Czeka na wycięcie</option>
-                <option value="czeka_na_skladanie">Czeka na składanie</option>
-                <option value="czeka_na_pakowanie">Czeka na pakowanie</option>
-                <option value="spakowane">Spakowane</option>
-                <option value="wstrzymane">Wstrzymane</option>
-                <option value="anulowane">Anulowane</option>
-            </select>
-        </div>
+<!-- CONTAINER GŁÓWNY -->
+<div id="products-module-container" class="products-module-container">
 
-        <!-- Wyszukiwanie - JEDEN INPUT -->
-        <div class="col-md-4">
-            <label for="search-input" class="form-label">Wyszukaj produkt</label>
-            <div class="input-group">
-                <span class="input-group-text"><i class="fas fa-search"></i></span>
-                <input type="text"
-                       id="search-input"
-                       class="form-control"
-                       placeholder="ID zamówienia, nazwa produktu, klient..."
-                       value="">
-                <button class="btn btn-outline-secondary" type="button" id="clear-search-btn" title="Wyczyść wyszukiwanie">
-                    <i class="fas fa-times"></i>
-                </button>
+    <!-- MINI STATYSTYKI NAD FILTRAMI -->
+    <div class="products-stats-bar" id="products-stats-bar">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value" id="stats-total-count">0</div>
+                    <div class="stat-label">Produktów</div>
+                </div>
             </div>
-        </div>
-
-        <!-- Gatunek drewna -->
-        <div class="col-md-2">
-            <label for="wood-species-filter" class="form-label">Gatunek drewna</label>
-            <select id="wood-species-filter" class="form-select">
-                <option value="">Wszystkie</option>
-                <!-- Opcje będą ładowane dynamicznie -->
-            </select>
-        </div>
-
-        <!-- Produktów na stronę -->
-        <div class="col-md-2">
-            <label for="per-page-select" class="form-label">Na stronę</label>
-            <select id="per-page-select" class="form-select">
-                <option value="25">25</option>
-                <option value="50" selected>50</option>
-                <option value="100">100</option>
-                <option value="200">200</option>
-            </select>
-        </div>
-
-        <!-- Przycisk odświeżania -->
-        <div class="col-md-1">
-            <label class="form-label">&nbsp;</label>
-            <button class="btn btn-outline-primary w-100" onclick="refreshProductsList()" title="Odśwież listę">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-        </div>
-    </div>
-
-    <!-- Drugi rząd filtrów -->
-    <div class="row g-3 mt-2">
-        <!-- Technologia -->
-        <div class="col-md-2">
-            <label for="technology-filter" class="form-label">Technologia</label>
-            <select id="technology-filter" class="form-select">
-                <option value="">Wszystkie</option>
-                <!-- Opcje będą ładowane dynamicznie -->
-            </select>
-        </div>
-
-        <!-- Klasa drewna -->
-        <div class="col-md-2">
-            <label for="wood-class-filter" class="form-label">Klasa drewna</label>
-            <select id="wood-class-filter" class="form-select">
-                <option value="">Wszystkie</option>
-                <!-- Opcje będą ładowane dynamicznie -->
-            </select>
-        </div>
-
-        <!-- Klient -->
-        <div class="col-md-3">
-            <label for="client-filter" class="form-label">Klient</label>
-            <input type="text" id="client-filter" class="form-control" placeholder="Nazwa klienta...">
-        </div>
-
-        <!-- Data od -->
-        <div class="col-md-2">
-            <label for="date-from" class="form-label">Data od</label>
-            <input type="date" id="date-from" class="form-control">
-        </div>
-
-        <!-- Data do -->
-        <div class="col-md-2">
-            <label for="date-to" class="form-label">Data do</label>
-            <input type="date" id="date-to" class="form-control">
-        </div>
-
-        <!-- Placeholder dla wyrównania -->
-        <div class="col-md-1"></div>
-    </div>
-</div>
-
-<!-- ============================================================================
-     SMART SYSTEM AKTYWNYCH FILTRÓW - NOWY
-     ============================================================================ -->
-<div id="active-filters-container" class="active-filters-container mt-2 mb-3" style="display: none;">
-    <!-- Badges z aktywnymi filtrami będą wstawiane tutaj przez JavaScript -->
-</div>
-
-<!-- ============================================================================
-     STATYSTYKI FILTRÓW
-     ============================================================================ -->
-<div class="filter-stats-bar mt-3 mb-3" id="filter-stats-bar" style="display: none;">
-    <div class="row g-3">
-        <div class="col-md-3">
-            <div class="stat-card stat-card-sm">
-                <div class="stat-value" id="filter-total-count">0</div>
-                <div class="stat-label">Produktów znalezionych</div>
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value text-info" id="stats-total-volume">0.000</div>
+                    <div class="stat-label">m³</div>
+                </div>
             </div>
-        </div>
-        <div class="col-md-3">
-            <div class="stat-card stat-card-sm">
-                <div class="stat-value text-warning" id="filter-high-priority-count">0</div>
-                <div class="stat-label">Wysoki priorytet</div>
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value text-success" id="stats-total-value">0</div>
+                    <div class="stat-label">zł wartość</div>
+                </div>
             </div>
-        </div>
-        <div class="col-md-3">
-            <div class="stat-card stat-card-sm">
-                <div class="stat-value text-danger" id="filter-overdue-count">0</div>
-                <div class="stat-label">Przeterminowane</div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="stat-card stat-card-sm">
-                <div class="stat-value text-info" id="filter-avg-priority">0</div>
-                <div class="stat-label">Średni priorytet</div>
+            <div class="col-md-3">
+                <div class="stat-card stat-card-sm">
+                    <div class="stat-value text-warning" id="stats-urgent-count">0</div>
+                    <div class="stat-label">pilnych</div>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- ============================================================================
-     BULK ACTIONS BAR
-     ============================================================================ -->
-<div class="bulk-actions-bar" id="bulk-actions-bar" style="display: none;">
-    <div class="d-flex align-items-center justify-content-between">
-        <div class="bulk-selection-info">
-            <i class="fas fa-check-square text-white me-2"></i>
-            <span id="bulk-count">0</span> produktów zaznaczonych
-        </div>
-        <div class="bulk-actions">
-            <button class="btn btn-sm btn-outline-light me-2" id="bulk-update-status">
-                <i class="fas fa-exchange-alt me-1"></i>Zmień status
-            </button>
-            {% if is_admin %}
-            <button class="btn btn-sm btn-outline-light me-2" id="bulk-update-priority">
-                <i class="fas fa-star me-1"></i>Ustaw priorytet
-            </button>
-            {% endif %}
-            <button class="btn btn-sm btn-outline-light me-2" id="bulk-export">
-                <i class="fas fa-download me-1"></i>Eksportuj
-            </button>
-            {% if is_admin %}
-            <button class="btn btn-sm btn-outline-light" id="bulk-delete">
-                <i class="fas fa-trash me-1"></i>Usuń
-            </button>
-            {% endif %}
-        </div>
-    </div>
-</div>
-
-<!-- ============================================================================
-     TABELA PRODUKTÓW - NAPRAWIONA
-     ============================================================================ -->
-<div class="products-list mt-3" id="products-list">
-    <div class="table-responsive">
-        <table class="table table-hover products-table" id="products-table">
-            <thead class="table-light sticky-top">
-                <tr>
-                    <!-- Checkbox dla bulk selection -->
-                    <th width="40">
-                        <input type="checkbox" id="select-all-checkbox" class="form-check-input" title="Zaznacz wszystkie">
-                    </th>
-
-                    <!-- Drag handle dla adminów -->
-                    {% if is_admin %}
-                    <th width="40" title="Przeciągnij aby zmienić priorytet">
-                        <i class="fas fa-arrows-alt text-muted"></i>
-                    </th>
-                    {% endif %}
-
-                    <!-- Sortowalne nagłówki -->
-                    <th class="sortable-header" data-sort="priority_score" style="cursor: pointer;">
-                        Priorytet <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable-header" data-sort="short_product_id" style="cursor: pointer;">
-                        ID Produktu <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable-header" data-sort="original_product_name" style="cursor: pointer;">
-                        Produkt <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="text-center">Objętość</th>
-                    <th class="text-center">Wartość</th>
-                    <th class="sortable-header" data-sort="current_status" style="cursor: pointer;">
-                        Status <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th class="sortable-header" data-sort="deadline_date" style="cursor: pointer;">
-                        Deadline <i class="fas fa-sort text-muted ms-1"></i>
-                    </th>
-                    <th width="120">Akcje</th>
-                </tr>
-            </thead>
-            <tbody id="products-tbody" {% if is_admin %}class="sortable-products" {% endif %}>
-                <!-- Produkty będą ładowane dynamicznie przez JavaScript -->
-                {% if products %}
-                {% for product in products %}
-                <tr class="product-row"
-                    data-product-id="{{ product.id }}"
-                    data-priority="{{ product.priority_score or 0 }}"
-                    data-status="{{ product.current_status }}">
-
-                    <!-- Checkbox -->
-                    <td>
-                        <input type="checkbox" class="product-checkbox form-check-input bulk-select" value="{{ product.id }}">
-                    </td>
-
-                    <!-- Drag handle -->
-                    {% if is_admin %}
-                    <td class="drag-handle text-center">
-                        <i class="fas fa-grip-vertical text-muted"></i>
-                    </td>
-                    {% endif %}
-
-                    <!-- Priority -->
-                    <td class="priority-cell">
-                        <div class="priority-container">
-                            {% set priority = product.priority_score or 0 %}
-                            {% if priority >= 150 %}
-                            {% set priority_class = 'priority-critical' %}
-                            {% elif priority >= 120 %}
-                            {% set priority_class = 'priority-high' %}
-                            {% elif priority >= 80 %}
-                            {% set priority_class = 'priority-medium' %}
-                            {% else %}
-                            {% set priority_class = 'priority-low' %}
-                            {% endif %}
-
-                            <span class="priority-score {{ priority_class }}"
-                                  {% if is_admin %}onclick="editPriorityInline({{ product.id }}, this)" {% endif %}
-                                  title="{% if is_admin %}Kliknij aby edytować{% else %}Priorytet produktu{% endif %}">
-                                {{ priority }}
-                            </span>
-                            <div class="priority-bar">
-                                <div class="priority-fill" style="width: {{ (priority / 2)|round(1) }}%"></div>
-                            </div>
-                        </div>
-                    </td>
-
-                    <!-- Product ID -->
-                    <td class="product-id-cell">
-                        <div class="product-id-container">
-                            <span class="product-id-main fw-bold">{{ product.short_product_id or product.id }}</span>
-                            {% if product.internal_order_number %}
-                            <br><small class="text-muted">{{ product.internal_order_number }}</small>
-                            {% endif %}
-                            {% if product.baselinker_order_id %}
-                            <br><small class="text-info">BaseID: {{ product.baselinker_order_id }}</small>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- Product details -->
-                    <td class="product-cell">
-                        <div class="product-info">
-                            <div class="product-name" title="{{ product.original_product_name }}">
-                                {{ product.original_product_name[:60] }}{% if product.original_product_name|length > 60 %}...{% endif %}
-                            </div>
-                            {% if product.parsed_wood_species or product.parsed_technology %}
-                            <div class="product-specs">
-                                {% if product.parsed_wood_species %}
-                                <span class="spec-badge spec-species">{{ product.parsed_wood_species }}</span>
-                                {% endif %}
-                                {% if product.parsed_technology %}
-                                <span class="spec-badge spec-tech">{{ product.parsed_technology }}</span>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- Volume -->
-                    <td class="volume-cell text-center">
-                        {% if product.volume_m3 %}
-                        <span class="volume-value">{{ "%.3f"|format(product.volume_m3) }} m³</span>
-                        {% else %}
-                        <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Value -->
-                    <td class="value-cell text-center">
-                        {% if product.total_value_net %}
-                        <span class="value-amount fw-bold">{{ "{:,.2f}".format(product.total_value_net).replace(",", " ") }} zł</span>
-                        {% elif product.unit_price_net and product.volume_m3 %}
-                        <span class="value-amount">{{ "{:,.2f}".format(product.unit_price_net * product.volume_m3).replace(",", " ") }} zł</span>
-                        {% else %}
-                        <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Status -->
-                    <td class="status-cell text-center">
-                        {% set status_class = 'status-' + product.current_status.replace('czeka_na_', '').replace('_', '-') %}
-                        <span class="status-badge {{ status_class }}">
-                            {% if product.current_status == 'czeka_na_wyciecie' %}Wycinanie
-                            {% elif product.current_status == 'czeka_na_skladanie' %}Składanie
-                            {% elif product.current_status == 'czeka_na_pakowanie' %}Pakowanie
-                            {% elif product.current_status == 'spakowane' %}Spakowane
-                            {% else %}{{ product.current_status.replace('_', ' ').title() }}
-                            {% endif %}
-                        </span>
-                    </td>
-
-                    <!-- Deadline -->
-                    <td class="deadline-cell text-center">
-                        {% if product.deadline_date %}
-                        {% set deadline_date = product.deadline_date %}
-                        {% set today_date = today %}
-                        {% set days_diff = (deadline_date - today_date).days %}
-
-                        {% if days_diff < 0 %}
-                        <span class="deadline-badge deadline-overdue text-danger">
-                            <i class="fas fa-exclamation-triangle me-1"></i>
-                            {{ (days_diff|abs) }} dni temu
-                        </span>
-                        {% elif days_diff == 0 %}
-                        <span class="deadline-badge deadline-today text-warning">
-                            <i class="fas fa-clock me-1"></i>
-                            Dzisiaj
-                        </span>
-                        {% elif days_diff <= 2 %}
-                        <span class="deadline-badge deadline-urgent text-warning">
-                            <i class="fas fa-exclamation me-1"></i>
-                            Za {{ days_diff }} dni
-                        </span>
-                        {% elif days_diff <= 7 %}
-                        <span class="deadline-badge deadline-warning text-info">
-                            Za {{ days_diff }} dni
-                        </span>
-                        {% else %}
-                        <span class="deadline-badge deadline-normal text-success">
-                            Za {{ days_diff }} dni
-                        </span>
-                        {% endif %}
-                        <br><small class="text-muted">{{ deadline_date.strftime('%d.%m.%Y') }}</small>
-                        {% else %}
-                        <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Actions -->
-                    <td class="actions-cell">
-                        <div class="btn-group">
-                            <button class="btn btn-sm btn-outline-primary" onclick="ProductModal.openModal && ProductModal.openModal({{ product.id }})" title="Szczegóły">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                            <a href="https://panel-f.baselinker.com/orders.php#order:{{ product.baselinker_order_id }}"
-                               target="_blank" class="btn btn-sm btn-outline-info" title="Baselinker">
-                                <i class="fas fa-external-link-alt"></i>
-                            </a>
-                            {% if is_admin %}
-                            <div class="dropdown">
-                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                                        type="button"
-                                        data-bs-toggle="dropdown">
-                                    <i class="fas fa-ellipsis-v"></i>
-                                </button>
-                                <ul class="dropdown-menu">
-                                    <li>
-                                        <a class="dropdown-item" href="#" onclick="editProductPriority({{ product.id }})">
-                                            <i class="fas fa-star me-2"></i>Edytuj priorytet
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item" href="#" onclick="changeProductStatus({{ product.id }})">
-                                            <i class="fas fa-exchange-alt me-2"></i>Zmień status
-                                        </a>
-                                    </li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li>
-                                        <a class="dropdown-item text-danger" href="#" onclick="deleteProduct({{ product.id }})">
-                                            <i class="fas fa-trash me-2"></i>Usuń produkt
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                            {% endif %}
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-                {% else %}
-                <tr>
-                    <td colspan="10" class="text-center py-5">
-                        <div class="no-products-message">
-                            <i class="fas fa-search fa-3x text-muted mb-3"></i>
-                            <h5>Brak produktów</h5>
-                            <p class="text-muted">Nie znaleziono produktów spełniających kryteria filtrowania.</p>
-                            <button class="btn btn-outline-primary" onclick="AdvancedFilters.clearAllFilters()">
-                                Wyczyść filtry
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-                {% endif %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- ============================================================================
-         PAGINACJA
-         ============================================================================ -->
-    <div class="pagination-container mt-4" id="pagination-container">
-        <div class="row align-items-center">
+    <!-- SEKCJA FILTRÓW -->
+    <div class="products-filters-container" id="products-filters-container">
+        <div class="row g-3">
+            <!-- TEXT SEARCH z FUZZY -->
             <div class="col-md-4">
-                <div class="pagination-info">
-                    Pokazano <span id="items-from">1</span> - <span id="items-to">{{ products|length }}</span>
-                    z <span id="total-items">{{ products|length }}</span> produktów
-                </div>
-            </div>
-            <div class="col-md-4 text-center">
-                <div class="pagination-controls">
-                    <button class="btn btn-outline-secondary btn-sm" id="prev-page" disabled>
-                        <i class="fas fa-chevron-left"></i> Poprzednia
-                    </button>
-                    <span class="page-numbers mx-3" id="page-numbers">
-                        <button class="btn btn-primary btn-sm page-btn" data-page="1" disabled>1</button>
+                <label for="products-text-search" class="form-label">
+                    <i class="fas fa-search me-1"></i>Wyszukaj produkt
+                </label>
+                <div class="input-group">
+                    <input type="text"
+                           id="products-text-search"
+                           class="form-control"
+                           placeholder="Numer, nazwa, klient... (toleruje literówki)"
+                           autocomplete="off">
+                    <span class="input-group-text search-spinner d-none">
+                        <i class="fas fa-spinner fa-spin"></i>
                     </span>
-                    <button class="btn btn-outline-secondary btn-sm" id="next-page" disabled>
-                        Następna <i class="fas fa-chevron-right"></i>
+                    <button class="btn btn-outline-secondary" type="button" id="clear-text-search">
+                        <i class="fas fa-times"></i>
                     </button>
                 </div>
             </div>
-            <div class="col-md-4 text-end">
-                <div class="pagination-actions">
-                    <button class="btn btn-outline-success btn-sm me-2" id="export-btn" title="Eksportuj produkty">
-                        <i class="fas fa-download"></i> Eksport
+
+            <!-- MULTI-SELECT 1: GATUNEK DREWNA -->
+            <div class="col-md-2">
+                <label class="form-label">Gatunek drewna</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-wood-species" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-wood-species">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj gatunku..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="wood-species-all">
+                                <label for="wood-species-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 2: TECHNOLOGIA -->
+            <div class="col-md-2">
+                <label class="form-label">Technologia</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-technology" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-technology">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj technologii..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="technology-all">
+                                <label for="technology-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 3: KLASA DREWNA -->
+            <div class="col-md-2">
+                <label class="form-label">Klasa drewna</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-wood-class" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-wood-class">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj klasy..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="wood-class-all">
+                                <label for="wood-class-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SELECT 4: GRUBOŚĆ -->
+            <div class="col-md-2">
+                <label class="form-label">Grubość</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-thickness" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-thickness">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj grubości..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="thickness-all">
+                                <label for="thickness-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mt-1">
+            <!-- MULTI-SELECT 5: STATUS -->
+            <div class="col-md-2">
+                <label class="form-label">Status</label>
+                <div class="multi-select-wrapper">
+                    <div class="multi-select-display" id="filter-status" tabindex="0">
+                        <span class="multi-select-placeholder">Wszystkie</span>
+                        <i class="fas fa-chevron-down multi-select-arrow"></i>
+                    </div>
+                    <div class="multi-select-dropdown" id="dropdown-status">
+                        <div class="multi-select-search">
+                            <input type="text" placeholder="Szukaj statusu..." class="form-control form-control-sm">
+                        </div>
+                        <div class="multi-select-options">
+                            <div class="multi-select-option multi-select-all">
+                                <input type="checkbox" id="status-all">
+                                <label for="status-all">Zaznacz wszystkie</label>
+                            </div>
+                            <!-- Opcje będą ładowane dynamicznie -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AUTO-REFRESH TOGGLE -->
+            <div class="col-md-2">
+                <label class="form-label">Auto-odświeżanie</label>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="auto-refresh-toggle">
+                    <label class="form-check-label" for="auto-refresh-toggle">
+                        <span id="auto-refresh-status">Wyłączone</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- EXPORT BUTTON -->
+            <div class="col-md-2">
+                <label class="form-label">&nbsp;</label>
+                <div class="export-dropdown">
+                    <button class="btn btn-success w-100" id="export-products-btn">
+                        <i class="fas fa-download me-1"></i>Export
+                        <i class="fas fa-chevron-down ms-1"></i>
                     </button>
-                    <button class="btn btn-outline-primary btn-sm" onclick="refreshProductsList()" title="Odśwież listę">
-                        <i class="fas fa-sync-alt"></i> Odśwież
+                    <div class="export-options" id="export-options">
+                        <button class="export-option" data-export-type="filtered">
+                            <i class="fas fa-filter me-2"></i>Przefiltrowane produkty
+                        </button>
+                        <button class="export-option" data-export-type="selected">
+                            <i class="fas fa-check-square me-2"></i>Zaznaczone produkty
+                        </button>
+                        <button class="export-option" data-export-type="all">
+                            <i class="fas fa-list me-2"></i>Wszystkie produkty
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KEYBOARD SHORTCUTS INFO -->
+            <div class="col-md-6">
+                <label class="form-label">&nbsp;</label>
+                <div class="text-muted small">
+                    <i class="fas fa-keyboard me-1"></i>
+                    <kbd>Ctrl+A</kbd> zaznacz wszystkie |
+                    <kbd>Ctrl+E</kbd> export |
+                    <kbd>ESC</kbd> zamknij modal
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SYSTEM BADGES AKTYWNYCH FILTRÓW -->
+    <div class="active-filters-container" id="active-filters-container" style="display: none;">
+        <div class="active-filters-header">
+            <h6 class="active-filters-title">
+                <i class="fas fa-filter me-1"></i>Aktywne filtry
+            </h6>
+            <button class="clear-all-filters" id="clear-all-filters">
+                <i class="fas fa-times me-1"></i>Wyczyść wszystkie
+            </button>
+        </div>
+        <div class="filter-badges" id="filter-badges">
+            <!-- Badges będą dodawane dynamicznie przez JavaScript -->
+        </div>
+    </div>
+
+    <!-- VIRTUAL SCROLLING CONTAINER -->
+    <div class="virtual-scroll-container" id="virtual-scroll-container">
+
+        <!-- NAGŁÓWEK LISTY PRODUKTÓW -->
+        <div class="products-list-header">
+            <div class="header-cell">
+                <input type="checkbox" id="select-all-products" class="form-check-input">
+                <span class="sr-only">Zaznacz wszystkie produkty</span>
+            </div>
+            <div class="header-cell">
+                <i class="fas fa-arrows-alt text-muted" title="Przeciągnij aby zmienić priorytet"></i>
+                <span class="sr-only">Drag handle</span>
+            </div>
+            <div class="header-cell sortable-header" data-sort="priority_score" tabindex="0">
+                Priorytet <i class="fas fa-sort"></i>
+            </div>
+            <div class="header-cell sortable-header" data-sort="short_product_id" tabindex="0">
+                ID Produktu <i class="fas fa-sort"></i>
+            </div>
+            <div class="header-cell sortable-header" data-sort="original_product_name" tabindex="0">
+                Produkt <i class="fas fa-sort"></i>
+            </div>
+            <div class="header-cell sortable-header" data-sort="volume_m3" tabindex="0">
+                Objętość <i class="fas fa-sort"></i>
+            </div>
+            <div class="header-cell sortable-header" data-sort="total_value_net" tabindex="0">
+                Wartość <i class="fas fa-sort"></i>
+            </div>
+            <div class="header-cell sortable-header" data-sort="current_status" tabindex="0">
+                Status <i class="fas fa-sort"></i>
+            </div>
+            <div class="header-cell sortable-header" data-sort="deadline_date" tabindex="0">
+                Deadline <i class="fas fa-sort"></i>
+            </div>
+            <div class="header-cell">
+                Akcje
+            </div>
+        </div>
+
+        <!-- VIRTUAL SCROLL SPACER TOP -->
+        <div class="virtual-scroll-spacer-top" id="virtual-scroll-spacer-top"></div>
+
+        <!-- VIRTUAL SCROLL VIEWPORT -->
+        <div class="virtual-scroll-viewport" id="virtual-scroll-viewport">
+            <!-- Wiersze produktów będą renderowane tutaj przez JavaScript -->
+        </div>
+
+        <!-- VIRTUAL SCROLL SPACER BOTTOM -->
+        <div class="virtual-scroll-spacer-bottom" id="virtual-scroll-spacer-bottom"></div>
+
+        <!-- LOADING STATE -->
+        <div class="products-loading" id="products-loading" style="display: none;">
+            <div class="spinner"></div>
+            <h5>Ładowanie produktów...</h5>
+            <p>Pobieranie danych z serwera</p>
+        </div>
+
+        <!-- EMPTY STATE -->
+        <div class="products-empty-state" id="products-empty-state" style="display: none;">
+            <div class="empty-icon">
+                <i class="fas fa-search"></i>
+            </div>
+            <h4>Brak produktów</h4>
+            <p>Nie znaleziono produktów spełniających kryteria filtrowania.</p>
+            <button class="btn btn-outline-primary" id="clear-filters-empty">
+                <i class="fas fa-times me-1"></i>Wyczyść filtry
+            </button>
+        </div>
+
+        <!-- ERROR STATE -->
+        <div class="products-error-state" id="products-error-state" style="display: none;">
+            <div class="empty-icon text-danger">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h4 class="text-danger">Błąd ładowania</h4>
+            <p id="error-message">Wystąpił błąd podczas pobierania danych produktów.</p>
+            <button class="btn btn-outline-primary" id="retry-load-products">
+                <i class="fas fa-redo me-1"></i>Spróbuj ponownie
+            </button>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- BULK ACTIONS BAR - POJAWIA SIĘ PO ZAZNACZENIU PRODUKTÓW (POZA KONTENEREM GŁÓWNYM) -->
+<div class="bulk-actions-bar" id="bulk-actions-bar" style="display: none;">
+    <div class="bulk-selection-info">
+        <i class="fas fa-check-square me-2"></i>
+        <span id="bulk-selected-count">0</span> produktów zaznaczonych
+    </div>
+    <div class="bulk-actions">
+        <button class="btn btn-sm btn-outline-light me-2" id="bulk-change-status">
+            <i class="fas fa-exchange-alt me-1"></i>Zmień status
+        </button>
+        <button class="btn btn-sm btn-outline-light me-2" id="bulk-set-priority">
+            <i class="fas fa-star me-1"></i>Ustaw priorytet
+        </button>
+        <button class="btn btn-sm btn-outline-light me-2" id="bulk-export-selected">
+            <i class="fas fa-download me-1"></i>Eksportuj
+        </button>
+        <button class="btn btn-sm btn-outline-light" id="bulk-delete">
+            <i class="fas fa-trash me-1"></i>Usuń
+        </button>
+    </div>
+</div>
+
+<!-- ============================================================================
+     TEMPLATE TAGS DLA KOMPONENTÓW (POZA GŁÓWNYM KONTENEREM)
+     ============================================================================ -->
+<!-- TEMPLATE: WIERSZ PRODUKTU -->
+<template id="product-row-template">
+    <div class="product-row" data-product-id="" data-priority="" data-status="">
+        <div class="product-checkbox-cell">
+            <input type="checkbox" class="form-check-input product-checkbox" />
+        </div>
+        <div class="product-drag-cell" draggable="true">
+            <i class="fas fa-grip-vertical"></i>
+        </div>
+        <div class="product-priority-cell">
+            <span class="priority-score priority-low">0</span>
+            <div class="priority-bar">
+                <div class="priority-fill" style="width: 0%"></div>
+            </div>
+        </div>
+        <div class="product-id-cell">
+            <div class="product-id-main"></div>
+            <div class="product-id-sub text-muted"></div>
+        </div>
+        <div class="product-info-cell">
+            <div class="product-name"></div>
+            <div class="product-specs"></div>
+        </div>
+        <div class="product-volume-cell"></div>
+        <div class="product-value-cell"></div>
+        <div class="product-status-cell">
+            <span class="status-badge"></span>
+        </div>
+        <div class="product-deadline-cell">
+            <span class="deadline-badge"></span>
+            <div class="deadline-date text-muted"></div>
+        </div>
+        <div class="product-actions-cell">
+            <button class="btn btn-sm btn-outline-primary product-details-btn" title="Szczegóły">
+                <i class="fas fa-eye"></i>
+            </button>
+            <a class="btn btn-sm btn-outline-info baselinker-btn" target="_blank" title="Baselinker">
+                <i class="fas fa-external-link-alt"></i>
+            </a>
+            <div class="dropdown">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                    <i class="fas fa-ellipsis-v"></i>
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item edit-priority-item" href="#"><i class="fas fa-star me-2"></i>Edytuj priorytet</a></li>
+                    <li><a class="dropdown-item change-status-item" href="#"><i class="fas fa-exchange-alt me-2"></i>Zmień status</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger delete-product-item" href="#"><i class="fas fa-trash me-2"></i>Usuń</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- TEMPLATE: BADGE FILTRA -->
+<template id="filter-badge-template">
+    <span class="filter-badge" data-filter-type="" data-filter-value="">
+        <span class="filter-badge-label"></span>
+        <i class="fas fa-times remove-filter"></i>
+    </span>
+</template>
+
+<!-- TEMPLATE: MODAL AKCJI GRUPOWYCH -->
+<template id="bulk-actions-modal-template">
+    <div class="modal fade products-modal" id="bulk-actions-modal" tabindex="-1" aria-labelledby="bulk-actions-modal-title">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="bulk-actions-modal-title">
+                        <i class="fas fa-tasks me-2"></i>Akcje grupowe
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="bulk-action-selection">
+                        <p class="text-muted">
+                            Wybierz akcję do wykonania na <strong id="bulk-modal-count">0</strong> zaznaczonych produktach:
+                        </p>
+
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary bulk-action-btn" data-action="change-status">
+                                <i class="fas fa-exchange-alt me-2"></i>
+                                <div>
+                                    <strong>Zmień status</strong>
+                                    <br><small>Ustaw nowy status dla produktów</small>
+                                </div>
+                            </button>
+
+                            <button class="btn btn-outline-warning bulk-action-btn" data-action="set-priority">
+                                <i class="fas fa-star me-2"></i>
+                                <div>
+                                    <strong>Ustaw priorytet</strong>
+                                    <br><small>Zmień priorytet produktów</small>
+                                </div>
+                            </button>
+
+                            <button class="btn btn-outline-success bulk-action-btn" data-action="export">
+                                <i class="fas fa-download me-2"></i>
+                                <div>
+                                    <strong>Eksportuj do Excel</strong>
+                                    <br><small>Pobierz dane zaznaczonych produktów</small>
+                                </div>
+                            </button>
+
+                            <button class="btn btn-outline-danger bulk-action-btn" data-action="delete">
+                                <i class="fas fa-trash me-2"></i>
+                                <div>
+                                    <strong>Usuń produkty</strong>
+                                    <br><small class="text-danger">Nieodwracalne usunięcie</small>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Formularz zmiany statusu -->
+                    <div class="bulk-status-form" style="display: none;">
+                        <h6>Zmień status na:</h6>
+                        <select class="form-select" id="bulk-new-status">
+                            <option value="">Wybierz status...</option>
+                            <option value="czeka_na_wyciecie">Czeka na wycięcie</option>
+                            <option value="w_trakcie_ciecia">W trakcie cięcia</option>
+                            <option value="czeka_na_skladanie">Czeka na składanie</option>
+                            <option value="w_trakcie_skladania">W trakcie składania</option>
+                            <option value="czeka_na_pakowanie">Czeka na pakowanie</option>
+                            <option value="w_trakcie_pakowania">W trakcie pakowania</option>
+                            <option value="spakowane">Spakowane</option>
+                            <option value="wstrzymane">Wstrzymane</option>
+                            <option value="anulowane">Anulowane</option>
+                        </select>
+                        <div class="mt-2">
+                            <label for="bulk-status-note" class="form-label">Notatka (opcjonalna):</label>
+                            <textarea class="form-control" id="bulk-status-note" rows="2" placeholder="Uzasadnienie zmiany statusu..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Formularz ustawiania priorytetu -->
+                    <div class="bulk-priority-form" style="display: none;">
+                        <h6>Ustaw priorytet:</h6>
+                        <div class="row">
+                            <div class="col-6">
+                                <input type="range" class="form-range" id="bulk-priority-slider" min="0" max="200" value="100">
+                            </div>
+                            <div class="col-6">
+                                <input type="number" class="form-control" id="bulk-priority-input" min="0" max="200" value="100">
+                            </div>
+                        </div>
+                        <div class="priority-preview mt-2">
+                            <span class="priority-score priority-medium">100</span>
+                        </div>
+                    </div>
+
+                    <!-- Progress bar dla długich operacji -->
+                    <div class="bulk-progress" style="display: none;">
+                        <h6>Przetwarzanie...</h6>
+                        <div class="progress">
+                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="text-muted small mt-2">
+                            <span id="bulk-progress-text">Przygotowywanie...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-primary" id="execute-bulk-action" disabled>Wykonaj</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- TEMPLATE: MODAL SZCZEGÓŁÓW PRODUKTU -->
+<template id="product-details-modal-template">
+    <div class="modal fade products-modal" id="product-details-modal" tabindex="-1" aria-labelledby="product-details-modal-title">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="product-details-modal-title">
+                        <i class="fas fa-cube me-2"></i>
+                        Szczegóły produktu: <span id="product-modal-id"></span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Tabs nawigacji -->
+                    <ul class="nav nav-tabs" id="product-details-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="basic-tab" data-bs-toggle="tab" data-bs-target="#basic-info" type="button" role="tab">
+                                <i class="fas fa-info-circle me-1"></i>Podstawowe
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="specs-tab" data-bs-toggle="tab" data-bs-target="#specifications" type="button" role="tab">
+                                <i class="fas fa-cogs me-1"></i>Specyfikacja
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history" type="button" role="tab">
+                                <i class="fas fa-history me-1"></i>Historia
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab">
+                                <i class="fas fa-sticky-note me-1"></i>Notatki
+                            </button>
+                        </li>
+                    </ul>
+
+                    <!-- Zawartość tabów -->
+                    <div class="tab-content" id="product-details-content">
+                        <!-- Podstawowe informacje -->
+                        <div class="tab-pane fade show active" id="basic-info" role="tabpanel">
+                            <div class="row g-3 mt-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Nazwa produktu:</label>
+                                    <input type="text" class="form-control" id="product-name" readonly>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Objętość (m³):</label>
+                                    <input type="text" class="form-control" id="product-volume" readonly>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Wartość netto:</label>
+                                    <input type="text" class="form-control" id="product-value" readonly>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Klient:</label>
+                                    <input type="text" class="form-control" id="product-client" readonly>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Adres dostawy:</label>
+                                    <textarea class="form-control" id="product-address" rows="2" readonly></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Specyfikacja -->
+                        <div class="tab-pane fade" id="specifications" role="tabpanel">
+                            <div class="row g-3 mt-2">
+                                <div class="col-md-4">
+                                    <label class="form-label">Gatunek drewna:</label>
+                                    <input type="text" class="form-control" id="product-wood-species" readonly>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Technologia:</label>
+                                    <input type="text" class="form-control" id="product-technology" readonly>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Klasa drewna:</label>
+                                    <input type="text" class="form-control" id="product-wood-class" readonly>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Grubość:</label>
+                                    <input type="text" class="form-control" id="product-thickness" readonly>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Szerokość:</label>
+                                    <input type="text" class="form-control" id="product-width" readonly>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Długość:</label>
+                                    <input type="text" class="form-control" id="product-length" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Historia zmian -->
+                        <div class="tab-pane fade" id="history" role="tabpanel">
+                            <div class="timeline mt-3" id="product-history-timeline">
+                                <!-- Historia będzie ładowana dynamicznie -->
+                                <div class="text-center text-muted py-4">
+                                    <i class="fas fa-spinner fa-spin me-2"></i>Ładowanie historii...
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Notatki -->
+                        <div class="tab-pane fade" id="notes" role="tabpanel">
+                            <div class="mt-3">
+                                <div class="mb-3">
+                                    <label for="product-notes" class="form-label">Notatki produkcyjne:</label>
+                                    <textarea class="form-control" id="product-notes" rows="4" placeholder="Dodaj notatkę..."></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="product-quality-issues" class="form-label">Problemy jakościowe:</label>
+                                    <textarea class="form-control" id="product-quality-issues" rows="3" placeholder="Opisz problemy jakościowe..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <a class="btn btn-info" id="open-in-baselinker" target="_blank">
+                        <i class="fas fa-external-link-alt me-1"></i>Otwórz w Baselinker
+                    </a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+                    <button type="button" class="btn btn-primary" id="save-product-changes">
+                        <i class="fas fa-save me-1"></i>Zapisz zmiany
                     </button>
                 </div>
             </div>
         </div>
     </div>
-</div>
+</template>
 
 <!-- ============================================================================
-     JAVASCRIPT INITIALIZATION - UPROSZCZONY
+     INICJALIZACJA JAVASCRIPT - PLACEHOLDER
      ============================================================================ -->
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        console.log('[Products Tab HTML] DOM załadowany...');
+        console.log('[Products Tab HTML] DOM załadowany, czekam na ProductsModule...');
 
-        // Sprawdź czy główny JS jest załadowany
-        if (typeof ProductsList !== 'undefined' && typeof AdvancedFilters !== 'undefined') {
-            console.log('[Products Tab HTML] Główny JS wykryty - deleguje inicjalizację');
-            // Główny JS przejmuje kontrolę
+        // Sprawdź czy ProductsModule jest dostępny
+        if (typeof window.ProductionApp !== 'undefined' &&
+            window.ProductionApp.state &&
+            window.ProductionApp.state.loadedModules.has('products')) {
+
+            console.log('[Products Tab HTML] ProductsModule wykryty - deleguje inicjalizację');
+            // ProductsModule przejmie kontrolę
+
         } else {
-            console.log('[Products Tab HTML] Główny JS nie wykryty - podstawowy fallback');
+            console.log('[Products Tab HTML] ProductsModule nie wykryty - podstawowy fallback');
             setupBasicFallback();
         }
     });
 
-    // Podstawowy fallback tylko jeśli główny JS nie działa
+    // Podstawowy fallback na wypadek problemów z ProductsModule
     function setupBasicFallback() {
-        // Search input
-        const searchInput = document.getElementById('search-input');
-        if (searchInput) {
-            searchInput.addEventListener('input', function () {
-                console.log('[Fallback] Search input:', this.value);
-                basicClientSideFilter();
+        // Text search fallback
+        const textSearch = document.getElementById('products-text-search');
+        if (textSearch) {
+            textSearch.addEventListener('input', function () {
+                console.log('[Fallback] Text search:', this.value);
             });
         }
 
-        // Status filter
-        const statusFilter = document.getElementById('status-filter');
-        if (statusFilter) {
-            statusFilter.addEventListener('change', function () {
-                console.log('[Fallback] Status filter:', this.value);
-                basicClientSideFilter();
+        // Clear search fallback
+        const clearSearch = document.getElementById('clear-text-search');
+        if (clearSearch) {
+            clearSearch.addEventListener('click', function () {
+                if (textSearch) textSearch.value = '';
             });
         }
 
-        // Clear search
-        const clearBtn = document.getElementById('clear-search-btn');
-        if (clearBtn) {
-            clearBtn.addEventListener('click', function () {
-                if (searchInput) {
-                    searchInput.value = '';
-                    basicClientSideFilter();
-                }
+        // Multi-select fallbacks
+        const multiSelects = document.querySelectorAll('.multi-select-display');
+        multiSelects.forEach(display => {
+            display.addEventListener('click', function () {
+                console.log('[Fallback] Multi-select clicked:', this.id);
             });
-        }
-    }
-
-    // Podstawowe filtrowanie po stronie klienta (fallback)
-    function basicClientSideFilter() {
-        const searchInput = document.getElementById('search-input');
-        const statusFilter = document.getElementById('status-filter');
-        const rows = document.querySelectorAll('.product-row');
-
-        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
-        const selectedStatus = statusFilter ? statusFilter.value : 'all';
-
-        let visibleCount = 0;
-
-        rows.forEach(row => {
-            let show = true;
-
-            // Search filter
-            if (searchTerm) {
-                const productName = row.querySelector('.product-name')?.textContent?.toLowerCase() || '';
-                const productId = row.querySelector('.product-id-main')?.textContent?.toLowerCase() || '';
-
-                if (!productName.includes(searchTerm) && !productId.includes(searchTerm)) {
-                    show = false;
-                }
-            }
-
-            // Status filter
-            if (selectedStatus !== 'all') {
-                const rowStatus = row.dataset.status;
-                if (rowStatus !== selectedStatus) {
-                    show = false;
-                }
-            }
-
-            row.style.display = show ? '' : 'none';
-            if (show) visibleCount++;
         });
 
-        console.log(`[Fallback] Pokazano ${visibleCount} produktów`);
-
-        // Aktualizuj licznik jeśli istnieje
-        const totalElement = document.getElementById('total-items');
-        if (totalElement) {
-            totalElement.textContent = visibleCount;
+        // Export button fallback
+        const exportBtn = document.getElementById('export-products-btn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', function () {
+                console.log('[Fallback] Export clicked');
+            });
         }
-    }
 
-    // Funkcja odświeżania dla przycisku (fallback)
-    function refreshProductsList() {
-        console.log('[Fallback] Odświeżanie listy produktów...');
-
-        // Sprawdź czy główny system jest dostępny
-        if (typeof AdvancedFilters !== 'undefined' && AdvancedFilters.applyFilters) {
-            AdvancedFilters.applyFilters();
-        } else {
-            // Fallback - reload strony
-            window.location.reload();
-        }
+        console.log('[Products Tab HTML] Basic fallback setup complete');
     }
 </script>

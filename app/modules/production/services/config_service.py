@@ -292,7 +292,7 @@ class ProductionConfigService:
                     old_value = config.config_value
                     config.config_value = string_value
                     config.updated_by = user_id
-                    config.updated_at = datetime.utcnow()
+                    config.updated_at = get_local_now()
                     if description:
                         config.config_description = description
                 else:
@@ -519,7 +519,7 @@ class ProductionConfigService:
             configs = filtered_configs
         
         export_data = {
-            'export_timestamp': datetime.utcnow().isoformat(),
+            'export_timestamp': get_local_now().isoformat(),
             'configs_count': len(configs),
             'include_sensitive': include_sensitive,
             'configs': configs

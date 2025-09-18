@@ -387,7 +387,7 @@ class IPSecurityService:
             error_details = {
                 'event_type': event_type,
                 'ip_address': ip_address,
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': get_local_now().isoformat(),
                 'user_agent': request.headers.get('User-Agent', 'Unknown') if request else 'Unknown',
                 'details': details or {}
             }
