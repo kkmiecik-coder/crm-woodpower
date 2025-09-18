@@ -29,6 +29,7 @@ from modules.logging import get_structured_logger
 from extensions import db
 from sqlalchemy import and_, or_, text, func, distinct
 import traceback
+import pytz
 
 # Utworzenie Blueprint dla API
 api_bp = Blueprint('production_api', __name__)
@@ -43,6 +44,14 @@ except ImportError:
 # ============================================================================
 # DECORATORS - zabezpieczenia dla różnych typów endpointów
 # ============================================================================
+
+def get_local_now():
+    """
+    Zwraca aktualny czas w strefie czasowej Polski
+    Zastępuje datetime.utcnow() dla poprawnego wyświetlania czasu
+    """
+    poland_tz = pytz.timezone('Europe/Warsaw')
+    return datetime.now(poland_tz).replace(tzinfo=None)  # Remove timezone info for MySQL compatibility
 
 def admin_required(f):
     """
@@ -278,7 +287,7 @@ def dashboard_stats():
                 'stations': stations_stats
             },
             'alerts': alerts,
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': get_local_now().isoformat()
         }
         
         # ============================================================================
@@ -491,7 +500,7 @@ def chart_data():
                 'start': start_date.isoformat(),
                 'end': end_date.isoformat()
             },
-            'generated_at': datetime.utcnow().isoformat()
+            'generated_at': get_local_now().isoformat()
         }
         
         logger.info("Pomyślnie wygenerowano dane wykresów", extra={
@@ -614,7 +623,7 @@ def complete_task():
                 'product_id': product.short_product_id,
                 'old_status': old_status,
                 'new_status': product.current_status,
-                'completed_at': datetime.utcnow().isoformat()
+                'completed_at': get_local_now().isoformat()
             }
         }), 200
         
@@ -696,7 +705,7 @@ def cron_sync():
                     'duration_seconds': sync_result.get('sync_duration_seconds', 0)
                 },
                 'status': 'completed' if sync_result.get('error_count', 0) == 0 else 'partial',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': get_local_now().isoformat()
             }), 200
         else:
             return jsonify({
@@ -721,7 +730,7 @@ def cron_sync():
             'success': False,
             'error': str(e),
             'status': 'failed',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': get_local_now().isoformat()
         }), 500
 
 @api_bp.route('/sync/baselinker', methods=['POST'])
@@ -775,7 +784,7 @@ def baselinker_manual_sync_modal():
             'error': str(exc),
             'data': {
                 'status': 'failed',
-                'started_at': datetime.utcnow().isoformat()
+                'started_at': get_local_now().isoformat()
             }
         }), 500
 
@@ -854,9 +863,9 @@ def manual_sync():
                 'success': True,
                 'message': 'Ręczna synchronizacja zakończona pomyślnie',
                 'data': {
-                    'sync_id': f'manual_{int(datetime.utcnow().timestamp())}',
+                    'sync_id': f'manual_{int(get_local_now().timestamp())}',
                     'status': 'completed' if sync_result.get('error_count', 0) == 0 else 'partial',
-                    'initiated_at': datetime.utcnow().isoformat(),
+                    'initiated_at': get_local_now().isoformat(),
                     'initiated_by': current_user.id,
                     'duration_seconds': sync_result.get('sync_duration_seconds', 0),
                     'stats': {
@@ -874,9 +883,9 @@ def manual_sync():
                 'success': False,
                 'error': sync_result.get('error', 'Nieznany błąd synchronizacji'),
                 'data': {
-                    'sync_id': f'manual_failed_{int(datetime.utcnow().timestamp())}',
+                    'sync_id': f'manual_failed_{int(get_local_now().timestamp())}',
                     'status': 'failed',
-                    'initiated_at': datetime.utcnow().isoformat(),
+                    'initiated_at': get_local_now().isoformat(),
                     'initiated_by': current_user.id,
                     'error_count': sync_result.get('error_count', 1)
                 }
@@ -986,7 +995,7 @@ def update_config():
                 'config_key': config_key,
                 'config_value': config_value,
                 'config_type': config_type,
-                'updated_at': datetime.utcnow().isoformat(),
+                'updated_at': get_local_now().isoformat(),
                 'updated_by': current_user.id
             }
         }), 200
@@ -1161,7 +1170,7 @@ def health_check():
         
         health_data = {
             'status': 'healthy',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': get_local_now().isoformat(),
             'last_sync': None,
             'database': 'disconnected',
             'baselinker_api': 'unknown',
@@ -1275,7 +1284,7 @@ def health_check():
         
         return jsonify({
             'status': 'error',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': get_local_now().isoformat(),
             'error': str(e),
             'database': 'unknown',
             'baselinker_api': 'unknown',
@@ -1510,7 +1519,7 @@ def complete_packaging():
                     'success': baselinker_update_success,
                     'error': baselinker_error
                 },
-                'completed_at': datetime.utcnow().isoformat()
+                'completed_at': get_local_now().isoformat()
             }
         }
         
@@ -1541,7 +1550,7 @@ def complete_packaging():
             'success': False,
             'error': str(e),
             'data': {
-                'completed_at': datetime.utcnow().isoformat(),
+                'completed_at': get_local_now().isoformat(),
                 'rollback_performed': True
             }
         }), 500
@@ -1825,7 +1834,7 @@ def dashboard_tab_content():
         
         # System health
         errors_24h = ProductionError.query.filter(
-            ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
+            ProductionError.error_occurred_at >= (get_local_now() - timedelta(hours=24)),
             ProductionError.is_resolved == False
         ).count()
         
@@ -1848,7 +1857,7 @@ def dashboard_tab_content():
             'success': True,
             'html': rendered_html,
             'initial_data': dashboard_stats,  # NOWE - dane początkowe dla frontend
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': get_local_now().isoformat()
         })
         
     except Exception as e:
@@ -2059,7 +2068,7 @@ def reports_tab_content():
             'success': True,
             'html': rendered_html,
             'data': reports_data,
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': get_local_now().isoformat()
         })
         
     except Exception as e:
@@ -2174,7 +2183,7 @@ def stations_tab_content():
             'success': True,
             'html': rendered_html,
             'data': stations_data,
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': get_local_now().isoformat()
         })
         
     except Exception as e:
@@ -2268,7 +2277,7 @@ def config_tab_content():
             'success': True,
             'html': rendered_html,
             'data': config_data,
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': get_local_now().isoformat()
         })
         
     except Exception as e:
@@ -3090,7 +3099,7 @@ def calculate_duration(start_time, end_time):
         return None
     
     if not end_time:
-        end_time = datetime.utcnow()
+        end_time = get_local_now()
     
     duration = end_time - start_time
     total_minutes = int(duration.total_seconds() / 60)
@@ -3314,7 +3323,7 @@ def fetch_orders_preview():
             }), 400
         
         # Konwersja dat
-        date_to = datetime.utcnow()
+        date_to = get_local_now()
         date_from = date_to - timedelta(days=days_range)
         
         logger.info("API: Zakres dat pobierania", extra={
@@ -3603,7 +3612,7 @@ def dashboard_data():
         
         # Sprawdź błędy z ostatnich 24h
         errors_24h = ProductionError.query.filter(
-            ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
+            ProductionError.error_occurred_at >= (get_local_now() - timedelta(hours=24)),
             ProductionError.is_resolved == False
         ).count()
         
@@ -3637,7 +3646,7 @@ def dashboard_data():
             'stations': stations_data,
             'alerts': alerts_data,  # ZMIENIONA STRUKTURA
             'errors_count': errors_24h,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': get_local_now().isoformat()
         }
         
         logger.debug("API: dashboard-data - dane pobrane", extra={
@@ -3705,7 +3714,7 @@ def production_status_data():
         
         # Sprawdź czy są problemy synchronizacji
         if last_sync:
-            sync_age_hours = (datetime.utcnow() - last_sync.sync_started_at).total_seconds() / 3600
+            sync_age_hours = (get_local_now() - last_sync.sync_started_at).total_seconds() / 3600
             if sync_age_hours > 2:  # Jeśli ostatnia sync była > 2h temu
                 status = 'warning'
                 status_text = 'Problemy z synchronizacją'
@@ -3718,7 +3727,7 @@ def production_status_data():
             'indicator_class': indicator_class,
             'active_orders': active_orders,
             'last_sync': last_sync.sync_started_at.isoformat() if last_sync else None,
-            'last_update': datetime.utcnow().isoformat()
+            'last_update': get_local_now().isoformat()
         }
         
         logger.debug("API: production-status-data - status określony", extra={
@@ -3855,7 +3864,7 @@ def dashboard_stats_data():
         
         # Błędy z ostatnich 24h
         errors_24h = ProductionError.query.filter(
-            ProductionError.error_occurred_at >= (datetime.utcnow() - timedelta(hours=24)),
+            ProductionError.error_occurred_at >= (get_local_now() - timedelta(hours=24)),
             ProductionError.is_resolved == False
         ).count()
         
@@ -3893,7 +3902,7 @@ def dashboard_stats_data():
             'errors_24h': errors_24h,
             'total_volume_today_m3': total_volume_today,
             'completion_rate_today': round((completed_today / max(total_orders, 1)) * 100, 1),
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': get_local_now().isoformat()
         }
         
         logger.debug("API: dashboard-stats-data - FINALNE statystyki", extra={

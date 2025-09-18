@@ -39,6 +39,10 @@ class DashboardModule {
         this.onSystemErrorsModalCloseClick = this.handleSystemErrorsModalClose.bind(this);
         this.onRefreshSystemClick = this.handleRefreshSystem.bind(this);
 
+        this.autoRefreshTimer = null; // Timer pokazujący pozostały czas do auto-refresh
+        this.autoRefreshCountdown = 60; // 60 sekund (1 minuta)
+        this.refreshDuration = 0; // Czas trwania ostatniego odświeżenia
+
         // State
         this.state = {
             lastRefresh: null,
@@ -381,46 +385,9 @@ class DashboardModule {
     async unload() {
         console.log('[Dashboard Module] Unloading dashboard...');
 
-        // NOWE - wyczyść DataRefreshService
-        if (this.dataRefresh) {
-            this.dataRefresh.clearAllHandlers();
-        }
+        // Użyj nowej metody destroy() zamiast duplikowania kodu
+        this.destroy();
 
-        // Clear intervals
-        if (this.autoRefreshInterval) {
-            clearInterval(this.autoRefreshInterval);
-            this.autoRefreshInterval = null;
-        }
-
-        // POPRAWKA: Dodaj czyszczenie production status timer
-        if (this.productionStatusInterval) {
-            clearInterval(this.productionStatusInterval);
-            this.productionStatusInterval = null;
-        }
-
-        // Destroy chart
-        if (this.chartInstance) {
-            this.chartInstance.destroy();
-            this.chartInstance = null;
-        }
-
-        // Clean up components
-        Object.values(this.components).forEach(component => {
-            if (component && typeof component.destroy === 'function') {
-                component.destroy();
-            }
-        });
-
-        // Remove event listeners
-        this.removeEventListeners();
-
-        // Reset modal references
-        this.closeSystemErrorsModal();
-        this.systemErrorsModalInstance = null;
-        this.systemErrorsModalElement = null;
-        this.systemErrorsHiddenListenerAttached = false;
-
-        this.isLoaded = false;
         console.log('[Dashboard Module] Dashboard unloaded');
     }
 
@@ -490,7 +457,18 @@ class DashboardModule {
         this.components.alertsWidget = this.initAlertsWidget();
         this.components.systemHealthWidget = this.initSystemHealthWidget();
 
-        this.updateWidgets();
+        // POPRAWKA: Użyj setTimeout żeby DOM był w pełni gotowy
+        setTimeout(() => {
+            console.log('[Dashboard Module] DOM ready, updating widgets...');
+            this.updateWidgets();
+
+            // DODAJ: Wymuszenie aktualizacji daty jeśli nie została zaktualizowana
+            const dateElement = document.getElementById('today-date');
+            if (dateElement && !dateElement.classList.contains('date-updated')) {
+                console.log('[Dashboard Module] Forcing today-date update...');
+                this.updateTodayDate();
+            }
+        }, 100); // 100ms opóźnienia
     }
 
     initStationsWidget() {
@@ -993,11 +971,15 @@ class DashboardModule {
     }
 
     removeEventListeners() {
+        console.log('[Dashboard Module] Removing event listeners...');
+
+        // Manual sync button
         const manualSyncBtn = document.getElementById('manual-sync-btn');
         if (manualSyncBtn) {
             manualSyncBtn.removeEventListener('click', this.onManualSyncClick);
         }
 
+        // System errors modal buttons
         const showErrorsBtn = document.getElementById('show-errors-btn');
         if (showErrorsBtn) {
             showErrorsBtn.removeEventListener('click', this.onShowErrorsClick);
@@ -1013,25 +995,28 @@ class DashboardModule {
             clearAllErrorsBtn.removeEventListener('click', this.onClearAllErrorsClick);
         }
 
+        // DODAJ: Refresh system button
         const refreshSystemBtn = document.getElementById('refresh-system-btn');
         if (refreshSystemBtn) {
-            refreshSystemBtn.addEventListener('click', this.onRefreshSystemClick);
-            console.log('[Dashboard Module] Refresh system button listener attached');
-        } else {
-            console.warn('[Dashboard Module] Refresh system button not found');
+            refreshSystemBtn.removeEventListener('click', this.onRefreshSystemClick);
+            console.log('[Dashboard Module] Refresh system button listener removed');
         }
 
+        // System errors modal
         if (this.systemErrorsModalElement) {
-            if (this.systemErrorsHiddenListenerAttached && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            if (this.systemErrorsHiddenListenerAttached) {
                 this.systemErrorsModalElement.removeEventListener('hidden.bs.modal', this.onSystemErrorsModalHidden);
                 this.systemErrorsHiddenListenerAttached = false;
             }
 
+            // Usuń listenery z przycisków zamykania
             const closeButtons = this.systemErrorsModalElement.querySelectorAll('[data-bs-dismiss="modal"]');
             closeButtons.forEach(button => {
                 button.removeEventListener('click', this.onSystemErrorsModalCloseClick);
             });
         }
+
+        console.log('[Dashboard Module] All event listeners removed');
     }
 
     // ========================================================================
@@ -1323,32 +1308,87 @@ class DashboardModule {
         console.log(`[Dashboard Module] Production status updated: ${systemStatus.level}`);
     }
 
+    // Dodaj więcej debugowania w determineSystemStatus() w dashboard-module.js
+
     determineSystemStatus(healthData) {
         console.log('[Dashboard Module] Determining system status from data:', healthData);
-        
+
         const errors24h = healthData.errors_24h || 0;
         const totalErrors = healthData.total_unresolved_errors || 0;
         const dbStatus = healthData.database_status;
         const syncStatus = healthData.sync_status;
         const lastSync = healthData.last_sync;
-        
+
         console.log('[Dashboard Module] Status check variables:');
         console.log('- errors24h:', errors24h);
         console.log('- totalErrors:', totalErrors);
         console.log('- dbStatus:', dbStatus, typeof dbStatus);
         console.log('- syncStatus:', syncStatus);
         console.log('- lastSync:', lastSync);
-        
-        // Sprawdź czy ostatnia synchronizacja była dawno
+        console.log('- lastSync type:', typeof lastSync);
+
+        // POPRAWKA: Lepsze debugowanie czasu synchronizacji
         let syncAge = 0;
+        let syncMinutes = 0;
+        let syncMessage = 'System aktywny';
+
         if (lastSync) {
+            console.log('[Dashboard Module] Processing lastSync:', lastSync);
+
+            // Backend wysyła czas w formacie ISO
             const lastSyncTime = new Date(lastSync);
             const now = new Date();
-            syncAge = Math.floor((now - lastSyncTime) / (1000 * 60 * 60)); // godziny
+
+            console.log('[Dashboard Module] Time parsing:');
+            console.log('- lastSyncTime (parsed):', lastSyncTime);
+            console.log('- lastSyncTime (ISO):', lastSyncTime.toISOString());
+            console.log('- now (ISO):', now.toISOString());
+            console.log('- isValid lastSyncTime:', !isNaN(lastSyncTime.getTime()));
+
+            // Sprawdź czy parsing się udał
+            if (isNaN(lastSyncTime.getTime())) {
+                console.warn('[Dashboard Module] Invalid lastSync date:', lastSync);
+                syncMessage = 'Błąd parsowania daty sync';
+            } else {
+                // Oblicz różnicę w milisekundach, minutach i godzinach
+                const timeDiffMs = now - lastSyncTime;
+                syncMinutes = Math.floor(timeDiffMs / (1000 * 60));
+                syncAge = Math.floor(timeDiffMs / (1000 * 60 * 60));
+
+                console.log('[Dashboard Module] Time calculations:');
+                console.log('- timeDiffMs:', timeDiffMs);
+                console.log('- syncMinutes:', syncMinutes);
+                console.log('- syncAge (hours):', syncAge);
+
+                // POPRAWKA: Lepsze formatowanie komunikatu
+                if (syncMinutes < 1) {
+                    syncMessage = 'Ostatnia synchronizacja: przed chwilą';
+                } else if (syncMinutes < 60) {
+                    syncMessage = `Ostatnia synchronizacja: ${syncMinutes} min. temu`;
+                } else if (syncAge < 24) {
+                    syncMessage = `Ostatnia synchronizacja:: ${syncAge}h temu`;
+                } else {
+                    const syncDays = Math.floor(syncAge / 24);
+                    syncMessage = `Ostatnia synchronizacja: ${syncDays} dni temu`;
+                }
+
+                console.log('[Dashboard Module] Final sync message:', syncMessage);
+
+                // DODATKOWA WALIDACJA: jeśli syncAge jest ujemne, coś jest nie tak
+                if (timeDiffMs < 0) {
+                    console.warn('[Dashboard Module] Negative time diff detected - sync time in future!');
+                    syncMessage = 'Ostatnia synchronizacja: dane w przyszłości (błąd czasu)';
+                    syncAge = 0;
+                }
+            }
+        } else {
+            console.log('[Dashboard Module] No lastSync data available');
+            syncMessage = 'Brak danych o ostatniej sync';
         }
-        
-        console.log('- syncAge (hours):', syncAge);
-        
+
+        console.log('- final syncAge (hours):', syncAge);
+        console.log('- final syncMessage:', syncMessage);
+
         // CZERWONY - Błędy krytyczne (tylko naprawdę krytyczne problemy)
         if (dbStatus !== 'ok' && dbStatus !== 'connected') {
             console.log('[Dashboard Module] CRITICAL: Database status check failed');
@@ -1359,7 +1399,7 @@ class DashboardModule {
                 details: `Status DB: ${dbStatus}`
             };
         }
-        
+
         if (errors24h > 10) {
             console.log('[Dashboard Module] CRITICAL: Too many errors in 24h');
             return {
@@ -1369,18 +1409,18 @@ class DashboardModule {
                 details: 'Wymagana interwencja administratora'
             };
         }
-        
+
         // ŻÓŁTY - Ostrzeżenia (w tym stara synchronizacja)
         if (syncAge > 25) {
             console.log('[Dashboard Module] WARNING: Sync age too old (moved from critical)');
             return {
                 level: 'warning',
                 title: 'Synchronizacja przestarzała',
-                message: `Ostatnia sync: ${Math.floor(syncAge / 24)} dni temu`,
+                message: `Ostatnia synchronizacja: ${Math.floor(syncAge / 24)} dni temu`,
                 details: syncAge > 168 ? 'Synchronizacja ponad tydzień temu' : `Synchronizacja ${syncAge}h temu`
             };
         }
-        
+
         if (syncStatus !== 'success' && syncStatus !== 'completed') {
             console.log('[Dashboard Module] WARNING: Sync status not successful');
             return {
@@ -1390,7 +1430,7 @@ class DashboardModule {
                 details: `Status: ${syncStatus}`
             };
         }
-        
+
         if (errors24h > 0 || totalErrors > 0) {
             console.log('[Dashboard Module] WARNING: Some errors detected');
             return {
@@ -1400,17 +1440,17 @@ class DashboardModule {
                 details: `${errors24h} nowych w ciągu 24h`
             };
         }
-        
+
         if (syncAge > 2) {
             console.log('[Dashboard Module] WARNING: Sync slightly delayed');
             return {
                 level: 'warning',
                 title: 'Synchronizacja opóźniona',
                 message: `Ostatnie pobranie: ${syncAge}h temu`,
-                details: 'Zalecane pobieranie. co 1-2h'
+                details: 'Zalecane pobieranie co 1-2h'
             };
         }
-        
+
         // NIEBIESKI - Procesy w toku
         if (syncStatus === 'running') {
             console.log('[Dashboard Module] PROCESSING: Sync in progress');
@@ -1421,14 +1461,15 @@ class DashboardModule {
                 details: 'Proszę czekać na zakończenie'
             };
         }
-        
+
         // ZIELONY - Wszystko OK
         console.log('[Dashboard Module] HEALTHY: All checks passed');
+
         return {
             level: 'healthy',
             title: 'System działa prawidłowo',
             message: 'Wszystkie komponenty sprawne',
-            details: syncAge > 0 ? `Ostatnia sync: ${syncAge}h temu` : 'System aktywny'
+            details: syncMessage  // TUTAJ POWINIEN BYĆ CZAS SYNC
         };
     }
 
@@ -1631,11 +1672,18 @@ class DashboardModule {
         const refreshText = refreshBtn?.querySelector('.refresh-text');
         const refreshTimer = document.getElementById('refresh-timer');
 
+        // Reset countdown po ręcznym refresh
+        this.autoRefreshCountdown = 60;
+
+        const startTime = Date.now();
+        let durationTimer;
+
         try {
             // Ustaw stan odświeżania
             this.state.isRefreshing = true;
+            this.refreshDuration = 0;
 
-            // Aktualizuj UI przycisku - wyłącz i pokaż animację
+            // Aktualizuj UI przycisku
             if (refreshBtn) {
                 refreshBtn.disabled = true;
                 refreshBtn.style.opacity = '0.7';
@@ -1646,45 +1694,47 @@ class DashboardModule {
                 refreshIcon.style.transformOrigin = 'center';
             }
 
-            if (refreshText) {
-                refreshText.textContent = 'Odświeżanie...';
-            }
+            // Timer pokazujący czas trwania refresh (aktualizowany co 0.1s)
+            durationTimer = setInterval(() => {
+                this.refreshDuration = (Date.now() - startTime) / 1000;
+                this.updateRefreshButtonText();
+            }, 100);
 
-            // Pokaż timer odliczający
-            if (refreshTimer) {
-                refreshTimer.style.display = 'inline';
-                this.startRefreshTimer(refreshTimer);
-            }
+            console.log('[Dashboard Module] Starting manual data refresh...');
 
-            console.log('[Dashboard Module] Starting manual data refresh (no template reload)...');
-
-            // Wyczyść cache API żeby mieć pewność że pobierzemy świeże dane
+            // Wyczyść cache API
             this.shared.apiClient.clearCache();
 
-            // ZMIANA - wykonaj tylko odświeżenie danych, nie template
+            // Wykonaj odświeżenie danych
             await this.refreshDataOnly();
 
             // Zapisz czas ostatniego ręcznego odświeżenia
             this.state.lastManualRefresh = new Date();
 
-            // Pokaż toast o sukcesie
+            const totalDuration = (Date.now() - startTime) / 1000;
+
+            // Pokaż toast o sukcesie z czasem
             this.shared.toastSystem.show(
-                'Dane zostały odświeżone pomyślnie',
+                `Dane zostały odświeżone pomyślnie (${totalDuration.toFixed(1)}s)`,
                 'success'
             );
 
-            console.log('[Dashboard Module] Manual data refresh completed successfully');
+            console.log(`[Dashboard Module] Manual refresh completed in ${totalDuration.toFixed(1)}s`);
 
         } catch (error) {
             console.error('[Dashboard Module] Manual refresh failed:', error);
 
-            // Pokaż toast o błędzie
             this.shared.toastSystem.show(
                 'Błąd podczas odświeżania: ' + error.message,
                 'error'
             );
         } finally {
-            // Przywróć stan przycisku - REFERENCJE POZOSTAJĄ WAŻNE
+            // Wyczyść timer duration
+            if (durationTimer) {
+                clearInterval(durationTimer);
+            }
+
+            // Przywróć stan przycisku
             this.state.isRefreshing = false;
 
             if (refreshBtn) {
@@ -1696,14 +1746,8 @@ class DashboardModule {
                 refreshIcon.style.animation = 'none';
             }
 
-            if (refreshText) {
-                refreshText.textContent = 'Odśwież system';
-            }
-
-            if (refreshTimer) {
-                refreshTimer.style.display = 'none';
-                refreshTimer.textContent = '';
-            }
+            // Przywróć normalny tekst (z countdown)
+            this.updateRefreshButtonText();
         }
     }
 
@@ -1712,21 +1756,33 @@ class DashboardModule {
     // ========================================================================
 
     setupAutoRefresh() {
-        console.log('[Dashboard Module] Setting up auto-refresh (data-only mode)...');
+        console.log('[Dashboard Module] Setting up auto-refresh with countdown...');
 
-        // ZMIANA - Dashboard content refresh co minutę (tylko dane)
+        // Wyczyść poprzednie timery jeśli istnieją
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+        }
+        if (this.productionStatusInterval) {
+            clearInterval(this.productionStatusInterval);
+        }
+        if (this.autoRefreshTimer) {
+            clearInterval(this.autoRefreshTimer);
+        }
+
+        // Timer odliczający do następnego auto-refresh (aktualizowany co sekundę)
+        this.setupAutoRefreshCountdown();
+
+        // Główny auto-refresh co minutę
         this.autoRefreshInterval = setInterval(() => {
-            if (!document.hidden && !this.state.isLoading && this.templateLoaded) {
-                console.log('[Dashboard Module] Auto-refresh: refreshing data only...');
-                this.refreshDataOnly().catch(error => {
-                    console.error('[Dashboard Module] Auto-refresh failed:', error);
-                });
+            if (!document.hidden && !this.state.isLoading && this.templateLoaded && !this.state.isRefreshing) {
+                console.log('[Dashboard Module] Auto-refresh: starting...');
+                this.performAutoRefresh();
             }
-        }, 1 * 60 * 1000); // 1 minuta
+        }, 60 * 1000); // 60 sekund = 1 minuta
 
-        // ZMIANA - Production status refresh co 30 sekund (tylko dane)
+        // Production status refresh co 30 sekund  
         this.productionStatusInterval = setInterval(() => {
-            if (!document.hidden && !this.state.isLoading && this.templateLoaded) {
+            if (!document.hidden && !this.state.isLoading && this.templateLoaded && !this.state.isRefreshing) {
                 console.log('[Dashboard Module] Auto-refresh: production status...');
                 this.dataRefresh.refreshWidget('production-status').catch(error => {
                     console.error('[Dashboard Module] Production status refresh failed:', error);
@@ -1734,7 +1790,225 @@ class DashboardModule {
             }
         }, 30000); // 30 sekund
 
-        console.log('[Dashboard Module] Auto-refresh setup complete (data-only mode)');
+        console.log('[Dashboard Module] Auto-refresh setup complete');
+    }
+
+    setupAutoRefreshCountdown() {
+        this.autoRefreshCountdown = 60; // Reset countdown
+
+        this.autoRefreshTimer = setInterval(() => {
+            if (!this.state.isRefreshing) {
+                this.autoRefreshCountdown--;
+                this.updateRefreshButtonText();
+
+                if (this.autoRefreshCountdown <= 0) {
+                    this.autoRefreshCountdown = 60; // Reset na kolejny cykl
+                }
+            }
+        }, 1000); // Co sekundę
+    }
+
+    // NOWA metoda - aktualizacja tekstu przycisku
+    updateRefreshButtonText() {
+        const refreshText = document.querySelector('.refresh-text');
+        const refreshTimer = document.getElementById('refresh-timer');
+
+        if (!refreshText || !refreshTimer) return;
+
+        if (this.state.isRefreshing) {
+            // Podczas refresh - pokaż czas trwania
+            refreshText.textContent = 'Odświeżanie...';
+            const duration = Math.floor(this.refreshDuration);
+            refreshTimer.textContent = `(${duration}s)`;
+            refreshTimer.style.display = 'inline';
+        } else {
+            // Normalny stan - pokaż countdown do auto-refresh
+            refreshText.textContent = 'Odśwież system';
+            refreshTimer.textContent = `(auto za ${this.autoRefreshCountdown}s)`;
+            refreshTimer.style.display = 'inline';
+            refreshTimer.style.color = '#ffffff';
+            refreshTimer.style.opacity = '0.8';
+        }
+    }
+
+    // NOWA metoda - wykonanie auto-refresh z pomiarem czasu
+    async performAutoRefresh() {
+        const startTime = Date.now();
+
+        try {
+            console.log('[Dashboard Module] Starting auto-refresh...');
+
+            // Wyczyść cache API
+            this.shared.apiClient.clearCache();
+
+            // Wykonaj odświeżenie danych
+            await this.refreshDataOnly();
+
+            const duration = (Date.now() - startTime) / 1000;
+            console.log(`[Dashboard Module] Auto-refresh completed in ${duration.toFixed(1)}s`);
+
+            // Pokaż krótką informację o sukcesie (tylko w konsoli)
+            console.log('[Dashboard Module] Auto-refresh successful');
+
+        } catch (error) {
+            console.error('[Dashboard Module] Auto-refresh failed:', error);
+        }
+    }
+
+    // NOWA METODA - destroy() (główna metoda cleanup)
+    destroy() {
+        console.log('[Dashboard Module] Destroying dashboard module...');
+
+        try {
+            // Wyczyść wszystkie timery
+            this.clearAllTimers();
+
+            // Wyczyść DataRefreshService
+            if (this.dataRefresh) {
+                this.dataRefresh.clearAllHandlers();
+                this.dataRefresh = null;
+            }
+
+            // Zniszcz wykres Chart.js
+            this.destroyChart();
+
+            // Wyczyść komponenty
+            this.destroyComponents();
+
+            // Usuń event listenery
+            this.removeEventListeners();
+
+            // Wyczyść modals
+            this.cleanupModals();
+
+            // Reset stanu
+            this.resetState();
+
+            console.log('[Dashboard Module] Dashboard module destroyed successfully');
+
+        } catch (error) {
+            console.error('[Dashboard Module] Error during cleanup:', error);
+        }
+    }
+
+    // NOWA METODA - wyczyść wszystkie timery
+    clearAllTimers() {
+        console.log('[Dashboard Module] Clearing all timers...');
+
+        // Główne timery auto-refresh
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+            this.autoRefreshInterval = null;
+            console.log('[Dashboard Module] Auto-refresh interval cleared');
+        }
+
+        if (this.productionStatusInterval) {
+            clearInterval(this.productionStatusInterval);
+            this.productionStatusInterval = null;
+            console.log('[Dashboard Module] Production status interval cleared');
+        }
+
+        // Timer countdown do auto-refresh (z nowego kodu)
+        if (this.autoRefreshTimer) {
+            clearInterval(this.autoRefreshTimer);
+            this.autoRefreshTimer = null;
+            console.log('[Dashboard Module] Auto-refresh timer cleared');
+        }
+
+        // Ewentualne inne timery
+        if (this.chartRefreshTimer) {
+            clearInterval(this.chartRefreshTimer);
+            this.chartRefreshTimer = null;
+        }
+
+        // Wyczyść timer z refresh przycisku
+        const refreshTimer = document.getElementById('refresh-timer');
+        if (refreshTimer && refreshTimer._refreshInterval) {
+            clearInterval(refreshTimer._refreshInterval);
+            delete refreshTimer._refreshInterval;
+        }
+    }
+
+    // NOWA METODA - zniszcz wykres Chart.js
+    destroyChart() {
+        if (this.chartInstance) {
+            console.log('[Dashboard Module] Destroying chart instance...');
+            try {
+                this.chartInstance.destroy();
+            } catch (error) {
+                console.warn('[Dashboard Module] Error destroying chart:', error);
+            }
+            this.chartInstance = null;
+        }
+
+        // Wyczyść canvas chart reference
+        const canvas = document.getElementById('performance-chart-canvas');
+        if (canvas && canvas.chart) {
+            try {
+                canvas.chart.destroy();
+            } catch (error) {
+                console.warn('[Dashboard Module] Error destroying canvas chart:', error);
+            }
+            delete canvas.chart;
+        }
+    }
+
+    // NOWA METODA - zniszcz komponenty widgetów  
+    destroyComponents() {
+        console.log('[Dashboard Module] Destroying widget components...');
+
+        Object.keys(this.components).forEach(componentName => {
+            const component = this.components[componentName];
+            if (component && typeof component.destroy === 'function') {
+                try {
+                    component.destroy();
+                    console.log(`[Dashboard Module] Component ${componentName} destroyed`);
+                } catch (error) {
+                    console.warn(`[Dashboard Module] Error destroying component ${componentName}:`, error);
+                }
+            }
+            this.components[componentName] = null;
+        });
+    }
+
+    // NOWA METODA - wyczyść modals
+    cleanupModals() {
+        console.log('[Dashboard Module] Cleaning up modals...');
+
+        // Zamknij i wyczyść system errors modal
+        this.closeSystemErrorsModal();
+
+        if (this.systemErrorsModalInstance) {
+            try {
+                this.systemErrorsModalInstance.dispose();
+            } catch (error) {
+                console.warn('[Dashboard Module] Error disposing modal:', error);
+            }
+            this.systemErrorsModalInstance = null;
+        }
+
+        this.systemErrorsModalElement = null;
+        this.systemErrorsHiddenListenerAttached = false;
+    }
+
+    // NOWA METODA - reset stanu
+    resetState() {
+        console.log('[Dashboard Module] Resetting state...');
+
+        this.isLoaded = false;
+        this.templateLoaded = false;
+
+        this.state = {
+            lastRefresh: null,
+            widgetStates: {},
+            chartData: null,
+            isRefreshing: false,
+            lastManualRefresh: null
+        };
+
+        // Reset właściwości z nowego kodu timerów
+        this.autoRefreshCountdown = 60;
+        this.refreshDuration = 0;
     }
 
     // ========================================================================
@@ -1834,7 +2108,11 @@ class DashboardModule {
     }
 
     updateTodayDate() {
+        console.log('[Dashboard Module] Attempting to update today-date element...');
+
         const dateElement = document.getElementById('today-date');
+        console.log('[Dashboard Module] Found today-date element:', dateElement);
+
         if (dateElement) {
             const today = new Date();
             const dateString = today.toLocaleDateString('pl-PL', {
@@ -1843,7 +2121,21 @@ class DashboardModule {
                 month: 'long',
                 day: 'numeric'
             });
+
+            console.log('[Dashboard Module] Setting date to:', dateString);
             dateElement.textContent = dateString;
+
+            // Dodaj wizualną klasę, żeby sprawdzić czy element jest aktualizowany
+            dateElement.classList.add('date-updated');
+
+            console.log('[Dashboard Module] Today date updated successfully');
+        } else {
+            console.error('[Dashboard Module] Element today-date not found!');
+            // Sprawdź czy jakiś podobny element istnieje
+            const allDateElements = document.querySelectorAll('[id*="date"], .date-info, [class*="date"]');
+            console.log('[Dashboard Module] Available date-related elements:',
+                Array.from(allDateElements).map(el => ({ id: el.id, class: el.className, text: el.textContent }))
+            );
         }
     }
 
@@ -1882,25 +2174,51 @@ class DashboardModule {
     }
 
     updateHealthIndicator(health) {
+        console.log('[Dashboard Module] Updating health indicator with data:', health);
+
         const indicator = document.getElementById('health-indicator');
-        if (!indicator) return;
+        if (!indicator) {
+            console.warn('[Dashboard Module] Health indicator element not found');
+            return;
+        }
 
-        let overallStatus = 'healthy';
+        // Znajdź kropkę health-dot w środku wskaźnika
+        const healthDot = indicator.querySelector('.health-dot');
+        if (!healthDot) {
+            console.warn('[Dashboard Module] Health dot element not found');
+            return;
+        }
+
+        let overallStatus = 'success'; // Domyślnie zielony
         let statusText = 'System działa poprawnie';
+        let dotClass = 'success'; // Dla health-dot
 
+        // Określ status na podstawie danych
         if (health.database_status !== 'connected') {
             overallStatus = 'critical';
             statusText = 'Problemy z bazą danych';
+            dotClass = 'error';
         } else if (health.sync_status !== 'success') {
             overallStatus = 'warning';
             statusText = 'Problemy z synchronizacją';
+            dotClass = 'warning';
         } else if (health.errors_24h && health.errors_24h > 5) {
             overallStatus = 'warning';
             statusText = 'Wykryto błędy systemu';
+            dotClass = 'warning';
         }
 
+        // Aktualizuj klasy wskaźnika
         indicator.className = `health-indicator health-${overallStatus}`;
-        indicator.textContent = statusText;
+
+        // Aktualizuj klasy kropki - usuń stare i dodaj nową
+        healthDot.classList.remove('success', 'warning', 'error');
+        healthDot.classList.add(dotClass);
+
+        console.log(`[Dashboard Module] Health indicator updated: status=${overallStatus}, dotClass=${dotClass}`);
+
+        // Opcjonalnie: dodaj tekst statusu jeśli jest miejsce w UI
+        indicator.setAttribute('title', statusText); // Tooltip
     }
 
     updateLastSync(lastSync, syncStatus) {

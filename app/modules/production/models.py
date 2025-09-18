@@ -22,8 +22,17 @@ from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 from extensions import db
 from modules.logging import get_structured_logger
+import pytz
 
 logger = get_structured_logger('production.models')
+
+def get_local_now():
+    """
+    Zwraca aktualny czas w strefie czasowej Polski
+    Zastępuje get_local_now() dla poprawnego wyświetlania czasu
+    """
+    poland_tz = pytz.timezone('Europe/Warsaw')
+    return datetime.now(poland_tz).replace(tzinfo=None)
 
 class ProductionOrderCounter(db.Model):
     """
@@ -60,7 +69,7 @@ class ProductionOrderCounter(db.Model):
             db.session.add(counter)
             
         counter.current_counter += 1
-        counter.last_updated_at = datetime.utcnow()
+        counter.last_updated_at = get_local_now()
         
         db.session.commit()
         
@@ -150,8 +159,8 @@ class ProductionItem(db.Model):
     quality_issues = Column(Text)
     
     # METADANE
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_local_now, index=True)
+    updated_at = Column(DateTime, default=get_local_now, onupdate=get_local_now)
     sync_source = Column(Enum('baselinker_auto', 'manual_entry', name='sync_source'), 
                         default='baselinker_auto')
     
@@ -229,7 +238,7 @@ class ProductionItem(db.Model):
             station_code (str): Kod stanowiska ('cutting', 'assembly', 'packaging')
             worker_id (int, optional): ID pracownika
         """
-        now = datetime.utcnow()
+        now = get_local_now()
         
         if station_code == 'cutting':
             self.cutting_started_at = now
@@ -257,7 +266,7 @@ class ProductionItem(db.Model):
         Args:
             station_code (str): Kod stanowiska
         """
-        now = datetime.utcnow()
+        now = get_local_now()
         
         if station_code == 'cutting':
             self.cutting_completed_at = now
@@ -361,7 +370,7 @@ class ProductionSyncLog(db.Model):
     
     def mark_completed(self):
         """Oznacza synchronizację jako ukończoną"""
-        self.sync_completed_at = datetime.utcnow()
+        self.sync_completed_at = get_local_now()
         if self.sync_started_at:
             self.sync_duration_seconds = int(
                 (self.sync_completed_at - self.sync_started_at).total_seconds()
@@ -428,7 +437,7 @@ class ProductionError(db.Model):
             resolution_notes (str, optional): Notatki rozwiązania
         """
         self.is_resolved = True
-        self.resolved_at = datetime.utcnow()
+        self.resolved_at = get_local_now()
         self.resolved_by = user_id
         if resolution_notes:
             self.resolution_notes = resolution_notes
@@ -519,7 +528,7 @@ class ProductionConfig(db.Model):
         if config:
             config.config_value = str(value)
             config.updated_by = user_id
-            config.updated_at = datetime.utcnow()
+            config.updated_at = get_local_now()
         else:
             config = cls(
                 config_key=key,

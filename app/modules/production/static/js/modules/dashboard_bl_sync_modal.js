@@ -289,6 +289,21 @@ class DashboardBLSyncModal {
 
             console.log('[BL Sync Modal v2] Modal zamknięty');
         }, 300);
+
+        // POPRAWKA: Emit event + fallback
+        setTimeout(() => {
+            // Spróbuj EventBus
+            const eventBus = window.ProductionShared?.eventBus;
+            if (eventBus?.emit) {
+                eventBus.emit('modal:baselinker:closed', { timestamp: new Date() });
+                console.log('[BL Sync Modal v2] Event modal:baselinker:closed wyemitowany');
+            }
+            // Fallback: bezpośredni refresh
+            else if (window.productionApp?.state?.loadedModules?.get('dashboard')?.refreshDataOnly) {
+                window.productionApp.state.loadedModules.get('dashboard').refreshDataOnly();
+                console.log('[BL Sync Modal v2] Dashboard refresh przez fallback');
+            }
+        }, 100); // Krótkie opóźnienie
     }
 
     /**

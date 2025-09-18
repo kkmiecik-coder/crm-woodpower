@@ -210,9 +210,10 @@ body {
    STATIONS OVERVIEW WIDGET
    ============================================================================ */
 .stations-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    grid-gap: var(--spacing-lg);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-lg);
+    width: 100%;
 }
 
 .station-card {
@@ -225,25 +226,44 @@ body {
     cursor: pointer;
     position: relative;
     overflow: hidden;
+    /* Kluczowe ustawienia dla responsywnego zachowania */
+    min-width: 320px;
+    flex: 1 1 320px; /* flex-grow: 1, flex-shrink: 1, flex-basis: 320px */
+    max-width: 100%;
 }
 
-.station-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: var(--border-color);
-    transition: all 0.3s ease;
+    .station-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: var(--border-color);
+        transition: all 0.3s ease;
+    }
+
+    .station-card:hover {
+        border-color: var(--production-secondary);
+        box-shadow: var(--shadow-md);
+        transform: translateY(-2px);
+    }
+
+/* Zachowanie dla różnych szerokości ekranu */
+
+/* Małe ekrany - jedna karta na rzędzie, zmniejszony gap */
+@media (max-width: 767px) {
+    .stations-grid {
+        gap: var(--spacing-md);
+    }
+
+    .station-card {
+        min-width: 280px; /* Trochę mniejsze minimum dla małych ekranów */
+        flex: 1 1 100%;
+    }
 }
 
-.station-card:hover {
-    border-color: var(--production-secondary);
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
-}
-
+/* Pozostałe style station-card pozostają bez zmian */
 .cutting-station::before {
     background: var(--cutting-color);
 }
@@ -272,28 +292,35 @@ body {
     font-size: 2.5rem;
     margin-right: var(--spacing-lg);
     opacity: 0.8;
+    flex-shrink: 0; /* Dodane, aby ikona nie się nie kurczyła */
 }
 
 .station-info {
     flex: 1;
+    min-width: 0; /* Pozwala na prawidłowe skracanie tekstu */
 }
 
-.station-info h4 {
-    margin: 0 0 var(--spacing-sm) 0;
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-medium);
-    color: var(--production-dark);
-}
+    .station-info h4 {
+        margin: 0 0 var(--spacing-sm) 0;
+        font-size: var(--font-size-lg);
+        font-weight: var(--font-weight-medium);
+        color: var(--production-dark);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 
 .station-stats {
     display: flex;
     gap: var(--spacing-lg);
+    flex-wrap: wrap;
 }
 
 .stat {
     display: flex;
     flex-direction: column;
     align-items: center;
+    min-width: 60px; /* Minimalna szerokość dla statystyk */
 }
 
 .stat-value {
@@ -307,31 +334,12 @@ body {
     font-size: var(--font-size-sm);
     color: #6c757d;
     margin-top: var(--spacing-xs);
+    text-align: center;
 }
 
 .station-status {
     margin-left: var(--spacing-md);
-}
-
-.status-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--status-inactive);
-    display: inline-block;
-    animation: pulse 2s infinite;
-}
-
-.status-dot.active {
-    background: var(--status-active);
-}
-
-.status-dot.warning {
-    background: var(--status-warning);
-}
-
-.status-dot.danger {
-    background: var(--status-danger);
+    flex-shrink: 0; /* Status nie się kurczy */
 }
 
 /* ============================================================================
@@ -651,56 +659,11 @@ body {
 .production-status {
     border: 1px solid #e5e7eb;
     border-radius: 6px;
-    padding: 12px;
-    padding-left: 18px;
+    padding: 12px 32px 12px 24px;
     background: #ffffff;
     transition: all 0.3s ease;
     max-width: 100%;
     overflow: hidden;
-}
-
-.status-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    margin-top: 3px;
-    animation: pulse 2s infinite;
-}
-
-.status-dot.healthy {
-    background-color: #10b981;
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-}
-
-.status-dot.processing {
-    background-color: #3b82f6;
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
-}
-
-.status-dot.warning {
-    background-color: #f59e0b;
-    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
-}
-
-.status-dot.critical {
-    background-color: #ef4444;
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-}
-
-@keyframes pulse {
-    0% {
-        transform: scale(0.95);
-        box-shadow: 0 0 0 0 currentColor;
-    }
-    70% {
-        transform: scale(1);
-        box-shadow: 0 0 0 4px transparent;
-    }
-    100% {
-        transform: scale(0.95);
-        box-shadow: 0 0 0 0 transparent;
-    }
 }
 
 /* ============================================================================
@@ -710,12 +673,14 @@ body {
     margin-top: var(--spacing-sm);
 }
 
+/* Ulepszone style dla przycisku refresh z timerami */
+
 .refresh-system-btn {
     background: linear-gradient(135deg, #17a2b8, #138496);
     color: white;
     border: none;
     border-radius: var(--border-radius-sm);
-    padding: 8px 12px 10px;
+    padding: 8px;
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
     cursor: pointer;
@@ -724,122 +689,129 @@ body {
     gap: var(--spacing-xs);
     transition: all 0.3s ease;
     box-shadow: var(--shadow-sm);
+    width: 275px;
+    justify-content: center;
 }
 
-.refresh-system-btn:hover:not(:disabled) {
-    background: linear-gradient(135deg, #138496, #117a8b);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
-}
+    .refresh-system-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+    }
 
-.refresh-system-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-}
-
-.refresh-icon,
-.refresh-text {
-    font-size: 16px;
-}
-
-.refresh-timer {
-    font-size: 10px;
-    opacity: 0.8;
-    margin-left: var(--spacing-xs);
-}
-
-/* Płynne przejścia dla przycisku */
-.refresh-system-btn {
-    transition: all 0.3s ease;
-}
-
-    /* Styl dla wyłączonego przycisku - poprawiony */
     .refresh-system-btn:disabled {
-        cursor: not-allowed !important;
-        background: linear-gradient(135deg, #6c757d, #5a6268) !important;
-        color: rgba(255, 255, 255, 0.7) !important;
-        transform: none !important;
-        box-shadow: var(--shadow-sm) !important;
+        opacity: 0.8;
+        cursor: not-allowed;
+        transform: none;
     }
 
         .refresh-system-btn:disabled:hover {
-            background: linear-gradient(135deg, #6c757d, #5a6268) !important;
             transform: none !important;
         }
 
-/* Timer odliczający - poprawiony */
+/* Elementy wewnętrzne przycisku */
+.refresh-icon {
+    font-size: 16px;
+    line-height: 1;
+    transition: transform 0.3s ease;
+}
+
+.refresh-text {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
 .refresh-timer {
-    font-size: 0.85em;
-    color: #ffffff !important;
-    background: rgba(0, 0, 0, 0.3);
-    margin-left: 4px;
-    font-weight: var(--font-weight-medium);
-    padding: 2px 6px;
+    font-size: 12px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.9);
     border-radius: 3px;
-    transition: opacity 0.3s ease;
-    opacity: 1;
+    margin-left: 4px;
+    white-space: nowrap;
+    transition: all 0.3s ease;
 }
 
-/* Timer w stanie wyłączonym */
+/* Timer w stanie normalnym (countdown) */
+.refresh-system-btn:not(:disabled) .refresh-timer {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* Timer podczas refresh (czas trwania) */
 .refresh-system-btn:disabled .refresh-timer {
-    color: rgba(255, 255, 255, 0.9) !important;
-    background: rgba(0, 0, 0, 0.4);
+    color: rgba(255, 255, 255, 0.95);
+    animation: pulse-timer 1.5s ease-in-out infinite;
 }
 
-/* Dodatkowe style dla responsywności */
-@media (max-width: 768px) {
-    .refresh-system-btn .refresh-text {
-        display: none;
+/* Animacja dla timera podczas refresh */
+@keyframes pulse-timer {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
     }
 
+    50% {
+        opacity: 0.8;
+        transform: scale(1.02);
+    }
+}
+
+/* Animacja dla ikony podczas refresh */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.refresh-system-btn:disabled .refresh-icon {
+    animation: spin 1s linear infinite;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
     .refresh-system-btn {
-        padding: 8px 10px;
-        min-width: auto;
+        min-width: 160px;
+        padding: 6px 10px 8px;
+    }
+
+    .refresh-text {
+        font-size: 13px;
     }
 
     .refresh-timer {
-        font-size: 0.8em;
+        font-size: 11px;
         padding: 1px 4px;
     }
 }
 
-/* Efekt hover dla ikony */
-.refresh-system-btn:not(:disabled):hover .refresh-icon {
-    transition: transform 0.3s ease;
+@media (max-width: 576px) {
+    .refresh-system-btn {
+        min-width: 140px;
+        padding: 6px 8px;
+    }
+
+    .refresh-text {
+        display: none; /* Ukryj tekst na bardzo małych ekranach */
+    }
+
+    .refresh-timer {
+        margin-left: 2px;
+        font-size: 10px;
+    }
 }
 
-.refresh-system-btn .refresh-icon {
-    transition: transform 0.3s ease;
-}
-
-/* Ikona i tekst - płynne przejścia */
-.refresh-system-btn .refresh-icon,
-.refresh-system-btn .refresh-text {
-    transition: all 0.3s ease;
-}
-
-/* Stan wyłączony - elementy wewnętrzne */
-.refresh-system-btn:disabled .refresh-icon,
-.refresh-system-btn:disabled .refresh-text {
-    opacity: 0.8;
-}
-
-/* Style dla różnych stanów przycisku */
-.refresh-system-btn.refreshing {
-    background: linear-gradient(135deg, #007bff, #0056b3);
-    transition: background 0.3s ease;
-}
-
+/* Stan sukcesu (krótkotrwały) */
 .refresh-system-btn.success {
-    background: linear-gradient(135deg, #28a745, #1e7e34);
-    transition: background 0.3s ease;
+    transition: background 0.5s ease;
 }
 
-.refresh-system-btn.error {
-    background: linear-gradient(135deg, #dc3545, #c82333);
-    transition: background 0.3s ease;
-}
+    .refresh-system-btn.success .refresh-timer {
+        color: rgba(255, 255, 255, 1);
+    }
 
 /* ============================================================================
    PERFORMANCE CHART WIDGET
@@ -1854,7 +1826,7 @@ body {
 .status-indicator {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 23px;
 }
 
 .status-dot {
@@ -1888,9 +1860,8 @@ body {
 
 .status-title {
     font-weight: 600;
-    font-size: 16px;
+    font-size: 18px;
     color: #1f2937;
-    margin-bottom: 4px;
 }
 
 .status-message {
@@ -1902,6 +1873,7 @@ body {
 .status-details {
     font-size: 12px;
     color: #9ca3af;
+    margin-top: 4px;
 }
 
 .status-critical .status-content {
@@ -2039,3 +2011,138 @@ body {
     flex-direction: column;
     gap: 0.5rem;
 }
+
+/* Podstawowa klasa status-dot */
+.status-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 3px;
+    position: relative;
+    background: var(--status-inactive);
+    animation: pulse 2s infinite;
+}
+
+    /* Klasy kolorów z odpowiednimi animacjami */
+    .status-dot.healthy {
+        background-color: #10b981;
+        animation: pulse-healthy 2s infinite;
+    }
+
+    .status-dot.processing {
+        background-color: #3b82f6;
+        animation: pulse-processing 2s infinite;
+    }
+
+    .status-dot.warning {
+        background-color: #f59e0b;
+        animation: pulse-warning 2s infinite;
+    }
+
+    .status-dot.critical,
+    .status-dot.danger {
+        background-color: #ef4444;
+        animation: pulse-critical 2s infinite;
+    }
+
+    /* Również dodajemy dla innych możliwych klas */
+    .status-dot.active {
+        background-color: #10b981;
+        animation: pulse-healthy 2s infinite;
+    }
+
+/* Oddzielne animacje keyframes dla każdego koloru */
+@keyframes pulse-healthy {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+}
+
+@keyframes pulse-processing {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+}
+
+@keyframes pulse-warning {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+    }
+}
+
+@keyframes pulse-critical {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
+/* Animacje dla health-dot */
+.health-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: #6c757d;
+    animation: pulse-inactive 2s infinite;
+}
+
+    .health-dot.success {
+        background-color: #10b981;
+        animation: pulse-healthy 2s infinite;
+    }
+
+    .health-dot.warning {
+        background-color: #f59e0b;
+        animation: pulse-warning 2s infinite;
+    }
+
+    .health-dot.error {
+        background-color: #ef4444;
+        animation: pulse-critical 2s infinite;
+    }
+

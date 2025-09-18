@@ -27,6 +27,7 @@ from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
 from extensions import db
+import pytz
 
 # Utworzenie Blueprint dla panelu admin
 admin_bp = Blueprint('production_admin', __name__)
@@ -35,6 +36,14 @@ logger = get_structured_logger('production.admin')
 # ============================================================================
 # DECORATORS I HELPERS
 # ============================================================================
+
+def get_local_now():
+    """
+    Zwraca aktualny czas w strefie czasowej Polski
+    Zastępuje datetime.utcnow() dla poprawnego wyświetlania czasu
+    """
+    poland_tz = pytz.timezone('Europe/Warsaw')
+    return datetime.now(poland_tz).replace(tzinfo=None)  # Remove timezone info for MySQL compatibility
 
 def admin_required(f):
     """
@@ -89,7 +98,7 @@ def get_admin_dashboard_data():
         completed_today = ProductionItem.query.filter(
             and_(
                 ProductionItem.current_status == 'spakowane',
-                ProductionItem.packaging_completed_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                ProductionItem.packaging_completed_at >= get_local_now().replace(hour=0, minute=0, second=0, microsecond=0)
             )
         ).count()
         
@@ -98,7 +107,7 @@ def get_admin_dashboard_data():
         unresolved_errors = ProductionError.query.filter_by(is_resolved=False).count()
         
         errors_last_24h = ProductionError.query.filter(
-            ProductionError.error_occurred_at >= datetime.utcnow() - timedelta(hours=24)
+            ProductionError.error_occurred_at >= get_local_now() - timedelta(hours=24)
         ).count()
         
         # Statystyki synchronizacji
@@ -107,12 +116,12 @@ def get_admin_dashboard_data():
         ).first()
         
         syncs_last_24h = ProductionSyncLog.query.filter(
-            ProductionSyncLog.sync_started_at >= datetime.utcnow() - timedelta(hours=24)
+            ProductionSyncLog.sync_started_at >= get_local_now() - timedelta(hours=24)
         ).count()
         
         failed_syncs_last_24h = ProductionSyncLog.query.filter(
             and_(
-                ProductionSyncLog.sync_started_at >= datetime.utcnow() - timedelta(hours=24),
+                ProductionSyncLog.sync_started_at >= get_local_now() - timedelta(hours=24),
                 ProductionSyncLog.sync_status == 'failed'
             )
         ).count()
@@ -125,7 +134,7 @@ def get_admin_dashboard_data():
             system_health = 'warning'
             health_issues.append(f"{unresolved_errors} nierozwiązanych błędów")
         
-        if last_sync and last_sync.sync_started_at < datetime.utcnow() - timedelta(hours=25):
+        if last_sync and last_sync.sync_started_at < get_local_now() - timedelta(hours=25):
             system_health = 'warning'
             health_issues.append("Ostatnia synchronizacja ponad 25h temu")
         
@@ -174,7 +183,7 @@ def get_admin_dashboard_data():
                 'products_created': last_sync.products_created if last_sync else 0,
                 'error_count': last_sync.error_count if last_sync else 0
             } if last_sync else None,
-            'generated_at': datetime.utcnow()
+            'generated_at': get_local_now()
         }
         
         return dashboard_data
@@ -186,7 +195,7 @@ def get_admin_dashboard_data():
             'health_issues': [f'Błąd pobierania danych: {str(e)}'],
             'stats': {},
             'last_sync': None,
-            'generated_at': datetime.utcnow()
+            'generated_at': get_local_now()
         }
 
 # ============================================================================
@@ -220,7 +229,7 @@ def dashboard():
         from ..models import ProductionItem
         from sqlalchemy import func, and_
         
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = get_local_now() - timedelta(days=7)
         station_stats = {}
         
         for station in ['cutting', 'assembly', 'packaging']:
@@ -552,7 +561,7 @@ def update_priority_config(config_id):
         config.weight_percentage = weight
         config.is_active = is_active
         config.criteria_json = criteria_json
-        config.updated_at = datetime.utcnow()
+        config.updated_at = get_local_now()
         
         db.session.commit()
         
@@ -626,7 +635,7 @@ def recalculate_all_priorities():
                 
                 if new_priority != product.priority_score:
                     product.priority_score = new_priority
-                    product.updated_at = datetime.utcnow()
+                    product.updated_at = get_local_now()
                     updated_count += 1
                     
             except Exception as e:
@@ -961,7 +970,7 @@ def error_management():
         from sqlalchemy import and_
         
         recent_errors_count = ProductionError.query.filter(
-            ProductionError.error_occurred_at >= datetime.utcnow() - timedelta(hours=24)
+            ProductionError.error_occurred_at >= get_local_now() - timedelta(hours=24)
         ).count()
         
         return render_template(
@@ -1184,7 +1193,7 @@ def detailed_stats():
         from sqlalchemy import func, and_, extract
         
         # Określenie zakresu czasowego
-        now = datetime.utcnow()
+        now = get_local_now()
         if period == 'today':
             start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
         elif period == 'week':
@@ -1412,7 +1421,7 @@ def user_management():
             ).filter(
                 and_(
                     getattr(ProductionItem, assigned_field).isnot(None),
-                    getattr(ProductionItem, completed_field) >= datetime.utcnow() - timedelta(days=30)
+                    getattr(ProductionItem, completed_field) >= get_local_now() - timedelta(days=30)
                 )
             ).group_by(getattr(ProductionItem, assigned_field)).all()
             
@@ -1595,7 +1604,7 @@ def inject_admin_context():
     try:
         # Podstawowe informacje
         context = {
-            'current_time': datetime.utcnow(),
+            'current_time': get_local_now(),
             'current_date': date.today(),
             'admin_version': '1.2.0',
             'current_admin_user': current_user if current_user.is_authenticated else None
@@ -1629,7 +1638,7 @@ def inject_admin_context():
     except Exception as e:
         logger.error("Błąd context processor admin", extra={'error': str(e)})
         return {
-            'current_time': datetime.utcnow(),
+            'current_time': get_local_now(),
             'current_date': date.today(),
             'admin_version': '1.2.0'
         }
@@ -1656,7 +1665,7 @@ def format_datetime_filter(dt):
         if isinstance(dt, str):
             dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
         
-        now = datetime.utcnow()
+        now = get_local_now()
         diff = now - dt
         
         if diff.days > 7:
@@ -1884,7 +1893,7 @@ def ajax_system_errors():
         
         # Pobierz nierozwiązane błędy z ostatnich 7 dni
         from datetime import datetime, timedelta
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = get_local_now() - timedelta(days=7)
         
         errors = ProductionError.query.filter(
             ProductionError.error_occurred_at >= week_ago
@@ -2017,7 +2026,7 @@ def ajax_system_health():
         
         # Nierozwiązane błędy z ostatnich 24h
         from datetime import datetime, timedelta
-        day_ago = datetime.utcnow() - timedelta(hours=24)
+        day_ago = get_local_now() - timedelta(hours=24)
         
         unresolved_errors_24h = ProductionError.query.filter(
             ProductionError.error_occurred_at >= day_ago,
@@ -2113,7 +2122,7 @@ def debug_module_info():
                 'endpoint': request.endpoint,
                 'remote_addr': request.remote_addr
             },
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': get_local_now().isoformat()
         }
         
         return jsonify({

@@ -34,8 +34,17 @@ from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from extensions import db
 from modules.logging import get_structured_logger
+import pytz
 
 logger = get_structured_logger('production.sync')
+
+def get_local_now():
+    """
+    Zwraca aktualny czas w strefie czasowej Polski
+    Zastępuje datetime.utcnow() dla poprawnego wyświetlania czasu
+    """
+    poland_tz = pytz.timezone('Europe/Warsaw')
+    return datetime.now(poland_tz).replace(tzinfo=None)  # Remove timezone info for MySQL compatibility
 
 class SyncError(Exception):
     """Wyjątek dla błędów synchronizacji"""
@@ -152,7 +161,7 @@ class BaselinkerSyncService:
         Returns:
             Dict[str, Any]: Wyniki synchronizacji
         """
-        sync_started_at = datetime.utcnow()
+        sync_started_at = get_local_now()
         
         # DODAJ: Wyczyść cache ID generatora na początku sync
         from ..services.id_generator import ProductIDGenerator
@@ -256,7 +265,7 @@ class BaselinkerSyncService:
     def manual_sync_with_filtering(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Ręczna synchronizacja z Baselinkerem z filtrowaniem produktów."""
 
-        sync_started_at = datetime.utcnow()
+        sync_started_at = get_local_now()
         sync_log = self._create_sync_log('manual_trigger', sync_started_at)
 
         stats = {
@@ -311,7 +320,7 @@ class BaselinkerSyncService:
                 sync_log.processed_status_ids = ','.join(map(str, sorted(target_statuses)))
 
             def add_log(message: str, level: str = 'info', **context: Any) -> None:
-                timestamp = datetime.utcnow().isoformat()
+                timestamp = get_local_now().isoformat()
                 entry: Dict[str, Any] = {
                     'timestamp': timestamp,
                     'level': level,
@@ -344,7 +353,7 @@ class BaselinkerSyncService:
                 target_statuses=sorted(target_statuses)
             )
 
-            date_to = datetime.utcnow()
+            date_to = get_local_now()
             date_from = date_to - timedelta(days=period_days)
             add_log(
                 f'Zakres synchronizacji: {date_from.date()} → {date_to.date()}',
@@ -586,7 +595,7 @@ class BaselinkerSyncService:
                 sync_log.mark_completed()
                 db.session.commit()
 
-            sync_completed_at = datetime.utcnow()
+            sync_completed_at = get_local_now()
             duration_seconds = int((sync_completed_at - sync_started_at).total_seconds())
             status_label = 'dry_run' if dry_run else ('partial' if stats['errors_count'] > 0 else 'completed')
 
@@ -638,7 +647,7 @@ class BaselinkerSyncService:
                 db.session.commit()
 
             add_log(str(sync_error), 'error')
-            sync_completed_at = datetime.utcnow()
+            sync_completed_at = get_local_now()
             stats_payload = {
                 'pages_processed': int(stats['pages_processed']),
                 'orders_found': int(stats['orders_found']),
@@ -674,7 +683,7 @@ class BaselinkerSyncService:
                 db.session.commit()
 
             add_log(str(exc), 'error')
-            sync_completed_at = datetime.utcnow()
+            sync_completed_at = get_local_now()
             stats_payload = {
                 'pages_processed': int(stats['pages_processed']),
                 'orders_found': int(stats['orders_found']),
@@ -1388,7 +1397,7 @@ class BaselinkerSyncService:
                     
                     if new_priority != product.priority_score:
                         product.priority_score = new_priority
-                        product.updated_at = datetime.utcnow()
+                        product.updated_at = get_local_now()
                         updated_count += 1
                         
                 except Exception as e:
@@ -1522,7 +1531,7 @@ class BaselinkerSyncService:
             ).first()
             
             # Statystyki ostatnich 24h
-            since_24h = datetime.utcnow() - timedelta(hours=24)
+            since_24h = get_local_now() - timedelta(hours=24)
             recent_syncs = ProductionSyncLog.query.filter(
                 ProductionSyncLog.sync_started_at >= since_24h
             ).all()
@@ -1564,7 +1573,7 @@ class BaselinkerSyncService:
         try:
             from ..models import ProductionSyncLog
             
-            cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+            cutoff_date = get_local_now() - timedelta(days=days_to_keep)
             
             deleted_count = ProductionSyncLog.query.filter(
                 ProductionSyncLog.sync_started_at < cutoff_date
