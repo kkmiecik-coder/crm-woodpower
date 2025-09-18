@@ -47,9 +47,9 @@
 
     <!-- SEKCJA FILTRÓW -->
     <div class="products-filters-container" id="products-filters-container">
-        <div class="row g-3">
+        <div class="filtr-main-conteiner">
             <!-- TEXT SEARCH z FUZZY -->
-            <div class="col-md-4">
+            <div class="filtr-conteiner">
                 <label for="products-text-search" class="form-label">
                     <i class="fas fa-search me-1"></i>Wyszukaj produkt
                 </label>
@@ -57,19 +57,16 @@
                     <input type="text"
                            id="products-text-search"
                            class="form-control"
-                           placeholder="Numer, nazwa, klient... (toleruje literówki)"
+                           placeholder="Numer, nazwa produktu, klient..."
                            autocomplete="off">
                     <span class="input-group-text search-spinner d-none">
                         <i class="fas fa-spinner fa-spin"></i>
                     </span>
-                    <button class="btn btn-outline-secondary" type="button" id="clear-text-search">
-                        <i class="fas fa-times"></i>
-                    </button>
                 </div>
             </div>
 
             <!-- MULTI-SELECT 1: GATUNEK DREWNA -->
-            <div class="col-md-2">
+            <div class="filtr-conteiner">
                 <label class="form-label">Gatunek drewna</label>
                 <div class="multi-select-wrapper">
                     <div class="multi-select-display" id="filter-wood-species" tabindex="0">
@@ -92,7 +89,7 @@
             </div>
 
             <!-- MULTI-SELECT 2: TECHNOLOGIA -->
-            <div class="col-md-2">
+            <div class="filtr-conteiner">
                 <label class="form-label">Technologia</label>
                 <div class="multi-select-wrapper">
                     <div class="multi-select-display" id="filter-technology" tabindex="0">
@@ -115,7 +112,7 @@
             </div>
 
             <!-- MULTI-SELECT 3: KLASA DREWNA -->
-            <div class="col-md-2">
+            <div class="filtr-conteiner">
                 <label class="form-label">Klasa drewna</label>
                 <div class="multi-select-wrapper">
                     <div class="multi-select-display" id="filter-wood-class" tabindex="0">
@@ -138,7 +135,7 @@
             </div>
 
             <!-- MULTI-SELECT 4: GRUBOŚĆ -->
-            <div class="col-md-2">
+            <div class="filtr-conteiner">
                 <label class="form-label">Grubość</label>
                 <div class="multi-select-wrapper">
                     <div class="multi-select-display" id="filter-thickness" tabindex="0">
@@ -159,11 +156,9 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="row g-3 mt-1">
             <!-- MULTI-SELECT 5: STATUS -->
-            <div class="col-md-2">
+            <div class="filtr-conteiner">
                 <label class="form-label">Status</label>
                 <div class="multi-select-wrapper">
                     <div class="multi-select-display" id="filter-status" tabindex="0">
@@ -184,6 +179,10 @@
                     </div>
                 </div>
             </div>
+
+        </div>
+
+        <div class="row g-3 mt-1">
 
             <!-- AUTO-REFRESH TOGGLE -->
             <div class="col-md-2">
@@ -233,17 +232,20 @@
 
     <!-- SYSTEM BADGES AKTYWNYCH FILTRÓW -->
     <div class="active-filters-container" id="active-filters-container" style="display: none;">
-        <div class="active-filters-header">
-            <h6 class="active-filters-title">
-                <i class="fas fa-filter me-1"></i>Aktywne filtry
-            </h6>
-            <button class="clear-all-filters" id="clear-all-filters">
-                <i class="fas fa-times me-1"></i>Wyczyść wszystkie
-            </button>
+        <div>
+            <div class="active-filters-header">
+                <h6 class="active-filters-title">
+                    <i class="fas fa-filter me-1"></i>Aktywne filtry
+                </h6>
+            </div>
+            <div class="filter-badges" id="filter-badges">
+                <!-- Badges będą dodawane dynamicznie przez JavaScript -->
+            </div>
         </div>
-        <div class="filter-badges" id="filter-badges">
-            <!-- Badges będą dodawane dynamicznie przez JavaScript -->
-        </div>
+
+        <button class="clear-all-filters" id="clear-all-filters">
+            <i class="fas fa-times me-1"></i>Wyczyść wszystkie
+        </button>
     </div>
 
     <!-- VIRTUAL SCROLLING CONTAINER -->
@@ -596,27 +598,27 @@
                         <div class="tab-pane fade" id="specifications" role="tabpanel">
                             <div class="row g-3 mt-2">
                                 <div class="col-md-4">
-                                    <label class="form-label">Gatunek drewna:</label>
+                                    <label class="form-label"></label>
                                     <input type="text" class="form-control" id="product-wood-species" readonly>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">Technologia:</label>
+                                    <label class="form-label"></label>
                                     <input type="text" class="form-control" id="product-technology" readonly>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">Klasa drewna:</label>
+                                    <label class="form-label"></label>
                                     <input type="text" class="form-control" id="product-wood-class" readonly>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">Grubość:</label>
+                                    <label class="form-label"></label>
                                     <input type="text" class="form-control" id="product-thickness" readonly>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">Szerokość:</label>
+                                    <label class="form-label"></label>
                                     <input type="text" class="form-control" id="product-width" readonly>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">Długość:</label>
+                                    <label class="form-label"></label>
                                     <input type="text" class="form-control" id="product-length" readonly>
                                 </div>
                             </div>

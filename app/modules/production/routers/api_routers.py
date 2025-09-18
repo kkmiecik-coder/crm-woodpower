@@ -1873,7 +1873,6 @@ def dashboard_tab_content():
         }), 500
 
 
-
 @api_bp.route('/products-tab-content', methods=['GET'])
 @login_required  
 def products_tab_content():
@@ -1952,9 +1951,45 @@ def products_tab_content():
             today=today
         )
         
+        # Przygotuj dane produktów dla frontendu
+        products_data = []
+        for product in products:
+            product_dict = {
+                'id': product.id,
+                'short_product_id': product.short_product_id,
+                'original_product_name': product.original_product_name,
+                'current_status': product.current_status,
+                'priority_score': product.priority_score or 0,
+                'volume_m3': float(product.volume_m3 or 0),
+                'total_value_net': float(product.total_value_net or 0),
+                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
+                'days_to_deadline': product.days_to_deadline,
+                'baselinker_order_id': product.baselinker_order_id,
+                'internal_order_number': product.internal_order_number,
+                'client_name': getattr(product, 'client_name', None),
+                'wood_species': getattr(product, 'wood_species', None),
+                'technology': getattr(product, 'technology', None),
+                'wood_class': getattr(product, 'wood_class', None),
+                'thickness': getattr(product, 'thickness', None),
+                'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None
+            }
+            products_data.append(product_dict)
+        
+        # Przygotuj statystyki
+        stats_data = {
+            'total_count': len(products_data),
+            'total_volume': sum(p['volume_m3'] for p in products_data),
+            'total_value': sum(p['total_value_net'] for p in products_data),
+            'urgent_count': len([p for p in products_data if p['days_to_deadline'] is not None and p['days_to_deadline'] < 0])
+        }
+        
         return jsonify({
             'success': True,
             'html': html_content,
+            'initial_data': {
+                'products': products_data,
+                'stats': stats_data
+            },
             'products_count': len(products),
             'debug_info': {
                 'status_filter': status_filter,
@@ -1975,7 +2010,6 @@ def products_tab_content():
             'error': str(e),
             'traceback': error_traceback if current_app.debug else None
         }), 500
-
 
 
 @api_bp.route('/reports-tab-content')

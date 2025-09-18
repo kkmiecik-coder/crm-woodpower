@@ -255,7 +255,27 @@
 /* ============================================================================
    SYSTEM BADGES FILTRÓW
    ============================================================================ */
+
+.filtr-main-conteiner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.form-control {
+    width: 100% !important;
+    min-width: 330px !important;
+    border-radius: 6px !important;
+}
+
+.filtr-conteiner {
+    display: block;
+    min-width: 330px;
+}
+
 .active-filters-container {
+    display: flex;
+    justify-content: space-between;
     margin-bottom: 1rem;
     padding: 0.75rem 1rem;
     background: #f8f9fa;
@@ -281,15 +301,19 @@
     background: none;
     border: none;
     color: #dc3545;
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     cursor: pointer;
-    padding: 0.2rem 0.4rem;
+    padding: 0.2rem 1.5rem;
     border-radius: 4px;
     transition: var(--transition-fast);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(220, 53, 69, 0.1);
 }
 
     .clear-all-filters:hover {
-        background: rgba(220, 53, 69, 0.1);
+        background: rgba(220, 53, 69, 0.2);
     }
 
 .filter-badges {
@@ -956,7 +980,7 @@
 
     .products-empty-state p {
         margin-bottom: 1.5rem;
-        max-width: 400px;
+        text-align: center;
     }
 
 /* ============================================================================
@@ -1302,43 +1326,4 @@
     background: rgba(44, 85, 48, 0.1);
     outline: 2px solid var(--products-primary);
     outline-offset: -2px;
-}
-
-/* ============================================================================
-   DARK MODE SUPPORT (opcjonalne)
-   ============================================================================ */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --products-light: #1a1a1a;
-        --products-dark: #ffffff;
-        --urgency-normal: #2d2d2d;
-        --urgency-warning: #1a2e1a;
-        --urgency-urgent: #2e1a00;
-        --urgency-overdue: #2e1a1a;
-    }
-
-    .products-stats-bar,
-    .products-filters-container,
-    .virtual-scroll-container,
-    .products-list-header,
-    .product-row {
-        background: #1a1a1a;
-        color: #ffffff;
-        border-color: #444;
-    }
-
-    .multi-select-dropdown,
-    .export-options {
-        background: #1a1a1a;
-        border-color: #444;
-    }
-
-    .multi-select-display {
-        background: #2d2d2d;
-        border-color: #555;
-    }
-
-    .product-row:hover {
-        background: #2d2d2d;
-    }
 }
