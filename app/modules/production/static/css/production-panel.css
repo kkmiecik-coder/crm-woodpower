@@ -971,7 +971,8 @@ body {
 }
 
 .system-error-status {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-sm) !important;
+    font-weight: var(--font-weight-medium) !important;
 }
 
 .system-error-meta {
