@@ -3117,6 +3117,12 @@ def baselinker_statuses():
     Endpoint dla nowego modalu synchronizacji - pobiera statusy z Baselinker API
     z 7-dniowym cache w tabeli prod_config.
     
+    Workflow:
+    1. Sprawdź cache w prod_config (klucz: baselinker_statuses_cache)
+    2. Jeśli cache ważny (< 7 dni) - zwróć dane z cache
+    3. Jeśli cache przedawniony - pobierz z API i zapisz do cache
+    4. W przypadku błędu API - zwróć fallback statusy
+    
     Cache structure w prod_config:
     - key: 'baselinker_statuses_cache' 
     - value: JSON z listą statusów + timestamp
@@ -3136,107 +3142,29 @@ def baselinker_statuses():
             'endpoint': 'baselinker_statuses'
         })
         
-        from ..services.config_service import ProductionConfigService
-        config_service = ProductionConfigService()
+        # Użyj dedykowanego serwisu cache statusów
+        from ..services.baselinker_status_service import get_baselinker_statuses
         
-        # Sprawdź cache statusów
-        cache_key = 'baselinker_statuses_cache'
-        cached_data = config_service.get_config(cache_key, default=None)
+        statuses, cached, cache_age_hours = get_baselinker_statuses(user_id=current_user.id)
         
-        statuses = []
-        cached = False
-        cache_age_hours = 0
-        
-        if cached_data:
-            try:
-                cache_data = json.loads(cached_data) if isinstance(cached_data, str) else cached_data
-                cache_timestamp = cache_data.get('timestamp')
-                
-                if cache_timestamp:
-                    # Oblicz wiek cache
-                    cache_dt = datetime.fromisoformat(cache_timestamp.replace('Z', '+00:00'))
-                    cache_age = datetime.utcnow() - cache_dt.replace(tzinfo=None)
-                    cache_age_hours = cache_age.total_seconds() / 3600
-                    
-                    # Cache ważny przez 7 dni (168 godzin)
-                    if cache_age_hours < 168:  # 7 dni * 24h
-                        statuses = cache_data.get('statuses', [])
-                        cached = True
-                        logger.info("API: Użyto cache statusów Baselinker", extra={
-                            'cache_age_hours': round(cache_age_hours, 2),
-                            'statuses_count': len(statuses)
-                        })
-            except (json.JSONDecodeError, ValueError, KeyError) as e:
-                logger.warning("API: Błędny format cache statusów", extra={'error': str(e)})
-        
-        # Jeśli brak cache lub przedawniony, pobierz z API
-        if not cached:
-            logger.info("API: Pobieranie statusów z Baselinker API")
-            
-            try:
-                #Użyj BaselinkerSyncService
-                from ..services.sync_service import get_sync_service
-                sync_service = get_sync_service()
-                
-                if not sync_service:
-                    raise Exception('Nie można zainicjować serwisu synchronizacji Baselinker')
-                
-                # Pobierz statusy przez naszą metodę
-                api_statuses = sync_service.get_baselinker_statuses()
-                
-                if api_statuses and len(api_statuses) > 0:
-                    # Formatuj statusy dla frontendu
-                    statuses = [
-                        {
-                            'id': int(status_id),
-                            'name': status_name
-                        }
-                        for status_id, status_name in api_statuses.items()
-                    ]
-                    
-                    # Zapisz do cache
-                    cache_data = {
-                        'statuses': statuses,
-                        'timestamp': datetime.utcnow().isoformat() + 'Z',
-                        'source': 'baselinker_api'
-                    }
-                    
-                    config_service.set_config(
-                        key=cache_key,
-                        value=json.dumps(cache_data),
-                        config_type='json',
-                        user_id=current_user.id,
-                        description='Cache statusów Baselinker (7 dni TTL)'
-                    )
-                    
-                    logger.info("API: Statusy pobrane i zapisane do cache", extra={
-                        'statuses_count': len(statuses)
-                    })
-                else:
-                    raise Exception('Brak statusów w odpowiedzi API Baselinker')
-                    
-            except Exception as e:
-                logger.error("API: Błąd pobierania statusów z Baselinker", extra={
-                    'error': str(e),
-                    'user_id': current_user.id
-                })
-                
-                # Fallback - zwróć podstawowe statusy jeśli API nie działa
-                statuses = [
-                    {'id': 138618, 'name': 'W produkcji'},
-                    {'id': 138619, 'name': 'Gotowe'},
-                    {'id': 138623, 'name': 'Spakowane'}
-                ]
-                logger.warning("API: Użyto fallback statusów", extra={
-                    'fallback_count': len(statuses)
-                })
+        logger.info("API: Zwrócono statusy Baselinker", extra={
+            'statuses_count': len(statuses),
+            'cached': cached,
+            'cache_age_hours': round(cache_age_hours, 2),
+            'user_id': current_user.id
+        })
         
         return jsonify({
             'success': True,
             'statuses': statuses,
             'cached': cached,
             'cache_age_hours': round(cache_age_hours, 2),
-            'count': len(statuses)
+            'count': len(statuses),
+            'cache_info': {
+                'ttl_days': 7,
+                'expired': cache_age_hours >= (7 * 24) if cache_age_hours else None,
+                'last_refresh': 'just_now' if not cached else f'{cache_age_hours:.1f}h ago'
+            }
         }), 200
         
     except Exception as e:
@@ -3246,14 +3174,20 @@ def baselinker_statuses():
             'traceback': traceback.format_exc()
         })
         
+        # Fallback w przypadku błędu
+        fallback_statuses = [
+            {'id': 138618, 'name': 'W produkcji'},
+            {'id': 138619, 'name': 'Gotowe'},
+            {'id': 138623, 'name': 'Spakowane'},
+            {'id': 155824, 'name': 'Nowe - opłacone'}
+        ]
+        
         return jsonify({
             'success': False,
             'error': str(e),
-            'fallback_statuses': [
-                {'id': 138618, 'name': 'W produkcji'},
-                {'id': 138619, 'name': 'Gotowe'},
-                {'id': 138623, 'name': 'Spakowane'}
-            ]
+            'fallback_statuses': fallback_statuses,
+            'cached': False,
+            'cache_age_hours': 0
         }), 500
 
 

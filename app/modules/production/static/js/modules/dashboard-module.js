@@ -298,33 +298,6 @@ class DashboardModule {
             document.getElementById('today-completed'),
             statsData.completed_today || 0
         );
-
-        this.updateNumberWithAnimation(
-            document.getElementById('total-orders-count'),
-            statsData.total_orders || 0
-        );
-
-        this.updateNumberWithAnimation(
-            document.getElementById('pending-priority-count'),
-            statsData.pending_priority || 0
-        );
-
-        this.updateNumberWithAnimation(
-            document.getElementById('errors-24h-count'),
-            statsData.errors_24h || 0
-        );
-
-        // Aktualizuj timestamp dla statystyk systemu
-        const systemStatsUpdatedElement = document.getElementById('system-stats-updated');
-        if (systemStatsUpdatedElement) {
-            const now = new Date();
-            const timeString = now.toLocaleTimeString('pl-PL', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            systemStatsUpdatedElement.textContent = `Aktualizacja: ${timeString}`;
-        }
     }
 
     updateAlertsWidget(alertsData) {
