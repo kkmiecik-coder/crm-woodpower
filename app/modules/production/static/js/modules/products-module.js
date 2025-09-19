@@ -6,7 +6,7 @@
  * 
  * Odpowiedzialności:
  * - Zaawansowane filtrowanie produktów (text search + 5 multi-select dropdownów)
- * - Virtual scrolling dla wydajności (1000+ produktów)
+ * - Proste renderowanie listy produktów (bez virtual scroll)
  * - Drag & drop z animacjami feedback
  * - Akcje grupowe (bulk actions) z modal
  * - Export Excel z opcjami
@@ -14,7 +14,7 @@
  * - System color coding i urgency indicators
  * 
  * Autor: Konrad Kmiecik
- * Wersja: 1.0 - Nowy moduł wydzielony z dashboard
+ * Wersja: 2.0 - Przepisany bez virtual scrolling
  * Data: 2025-01-15
  */
 
@@ -23,8 +23,6 @@ class ProductsModule {
         this.shared = shared;
         this.config = config;
         this.isLoaded = false;
-
-        // Template loading state
         this.templateLoaded = false;
 
         // Debounce timers
@@ -32,6 +30,9 @@ class ProductsModule {
             textSearch: null,
             filtersUpdate: null
         };
+
+        // Filter update timeout for custom multi-selects
+        this.filterUpdateTimeout = null;
 
         // Main components
         this.components = {
@@ -60,6 +61,7 @@ class ProductsModule {
 
             // Lista i sortowanie
             products: [],
+            filteredProducts: [],
             sortColumn: null,
             sortDirection: 'asc',
 
@@ -70,27 +72,41 @@ class ProductsModule {
             // UI state
             isRefreshing: false,
             isExporting: false,
+            isLoading: false,
 
             // Statystyki
             stats: {
                 totalCount: 0,
+                filteredCount: 0,
                 totalVolume: 0,
                 totalValue: 0,
                 statusBreakdown: {}
             }
         };
 
-        // Bound event handlers - będą dodawane stopniowo
+        // DOM elements
+        this.elements = {
+            container: null,
+            viewport: null,
+            loadingState: null,
+            emptyState: null,
+            errorState: null,
+            textSearch: null,
+            selectAllCheckbox: null,
+            productsCount: null
+        };
+
+        // Bound event handlers
         this.onTextSearchInput = this.handleTextSearchInput.bind(this);
         this.onFilterChange = this.handleFilterChange.bind(this);
         this.onProductSelect = this.handleProductSelect.bind(this);
         this.onSelectAll = this.handleSelectAll.bind(this);
         this.onBulkAction = this.handleBulkAction.bind(this);
         this.onExport = this.handleExport.bind(this);
-        this.onProductDrag = this.handleProductDrag.bind(this);
-        this.onProductDrop = this.handleProductDrop.bind(this);
+        this.onSort = this.handleSort.bind(this);
+        this.onKeydown = this.handleKeydown.bind(this);
 
-        console.log('[ProductsModule] Initialized with state management');
+        console.log('[ProductsModule] Constructor completed');
     }
 
     // ========================================================================
@@ -98,114 +114,57 @@ class ProductsModule {
     // ========================================================================
 
     async load() {
-        console.log('[ProductsModule] Loading products module...');
-
         try {
-            if (!this.templateLoaded) {
-                // PIERWSZY RAZ - ładuj template HTML + dane
-                console.log('[ProductsModule] First load - loading template...');
-                await this.loadProductsTemplate();
-                this.templateLoaded = true;
-            } else {
-                // KOLEJNE RAZY - tylko odśwież dane
-                console.log('[ProductsModule] Template already loaded - refreshing data only...');
-                await this.refreshDataOnly();
-            }
+            console.log('[ProductsModule] Loading module...');
 
-            this.initializeProductsList();
+            // Inicjalizuj komponenty
+            await this.initializeComponents();
+
+            // Setup event listeners
+            this.setupEventListeners();
+
+            // Pokaż loading i załaduj produkty z opóźnieniem
+            // (loadFiltersData() będzie wywołane po załadowaniu produktów)
+            this.showLoadingAndLoadProducts();
 
             this.isLoaded = true;
-            this.state.lastUpdate = new Date();
-            console.log('[ProductsModule] Products module loaded successfully');
+            console.log('[ProductsModule] Module loaded successfully');
 
         } catch (error) {
-            console.error('[ProductsModule] Failed to load products module:', error);
-            throw error;
-        }
-    }
-
-    async loadProductsTemplate() {
-        console.log('[ProductsModule] Loading HTML template for first time...');
-
-        try {
-            // Na razie używamy istniejącego endpointu - w kolejnych krokach zostanie rozbudowany
-            const response = await this.shared.apiClient.getProductsTabContent();
-
-            if (!response.success) {
-                throw new Error(response.error || 'Failed to load products template');
-            }
-
-            // Update DOM with template HTML
-            const wrapper = document.getElementById('products-tab-wrapper');
-            if (wrapper) {
-                wrapper.innerHTML = response.html;
-                wrapper.style.display = 'block';
-
-                console.log('[ProductsModule] Products template HTML loaded');
-
-                // Inicjalizacja komponentów (tylko raz przy ładowaniu template)
-                this.initializeComponents();
-                this.setupEventListeners();
-
-                // Załaduj początkowe dane jeśli są dostępne
-                if (response.initial_data) {
-                    console.log('[ProductsModule] Loading initial data from template response');
-                    await this.updateWithInitialData(response.initial_data);
-                }
-
-            } else {
-                throw new Error('Products tab wrapper not found');
-            }
-
-            console.log('[ProductsModule] Template loaded and initialized successfully');
-
-        } catch (error) {
-            console.error('[ProductsModule] Failed to load products template:', error);
-            throw error;
-        }
-    }
-
-    async refreshDataOnly() {
-        console.log('[ProductsModule] Refreshing data without template reload...');
-
-        try {
-            // W kolejnych krokach implementujemy dedykowane API do refresh
-            const response = await this.shared.apiClient.getProductsTabContent();
-
-            if (response.success) {
-                await this.updateWithInitialData(response.initial_data || response.data);
-                this.state.lastUpdate = new Date();
-                console.log('[ProductsModule] Data refresh completed successfully');
-            }
-
-        } catch (error) {
-            console.error('[ProductsModule] Data refresh failed:', error);
-            this.shared.toastSystem.show(
-                'Błąd odświeżania danych: ' + error.message,
-                'error'
-            );
-            throw error;
+            console.error('[ProductsModule] Failed to load module:', error);
+            this.showErrorState('Nie udało się załadować modułu produktów');
         }
     }
 
     async unload() {
-        console.log('[ProductsModule] Unloading products module...');
-
         try {
-            // Wyczyść intervals
-            this.clearAllTimers();
+            console.log('[ProductsModule] Unloading module...');
+
+            // Wyczyść timery
+            Object.values(this.debounceTimers).forEach(timer => {
+                if (timer) clearTimeout(timer);
+            });
+
+            if (this.state.refreshInterval) {
+                clearInterval(this.state.refreshInterval);
+            }
 
             // Usuń event listeners
             this.removeEventListeners();
 
-            // Zniszcz komponenty
-            this.destroyComponents();
+            // Wyczyść dane
+            this.state.products = [];
+            this.state.filteredProducts = [];
+            this.state.selectedProducts.clear();
+            this.components.searchCache.clear();
 
-            // Reset stanu
-            this.resetState();
+            // Wyczyść UI
+            if (this.elements.viewport) {
+                this.elements.viewport.innerHTML = '';
+            }
 
             this.isLoaded = false;
-            console.log('[ProductsModule] Products module unloaded successfully');
+            console.log('[ProductsModule] Module unloaded');
 
         } catch (error) {
             console.error('[ProductsModule] Error during unload:', error);
@@ -213,3368 +172,2042 @@ class ProductsModule {
     }
 
     async refresh() {
-        console.log('[ProductsModule] Manual refresh requested...');
-
-        if (this.state.isRefreshing) {
-            console.warn('[ProductsModule] Refresh already in progress');
-            return;
-        }
+        if (this.state.isRefreshing) return;
 
         try {
             this.state.isRefreshing = true;
-            await this.refreshDataOnly();
+            console.log('[ProductsModule] Refreshing data...');
 
-            // Emit refresh event
-            this.shared.eventBus.emit('products:refreshed', {
-                timestamp: this.state.lastUpdate
-            });
+            await this.loadProductsData();
+            this.applyAllFilters();
+            this.renderProductsList();
+            this.updateStats();
 
+            console.log('[ProductsModule] Data refreshed successfully');
+
+        } catch (error) {
+            console.error('[ProductsModule] Failed to refresh data:', error);
         } finally {
             this.state.isRefreshing = false;
         }
     }
 
     destroy() {
-        console.log('[ProductsModule] Destroying products module...');
         this.unload();
+        this.components = null;
+        this.state = null;
+        this.elements = null;
+        console.log('[ProductsModule] Module destroyed');
     }
 
     // ========================================================================
-    // INITIALIZATION METHODS - będą implementowane w kolejnych krokach
+    // INITIALIZATION METHODS
     // ========================================================================
 
-    /**
-     * Inicjalizuje prostą listę produktów (bez virtual scrolling)
-     */
-    initializeProductsList() {
+    async initializeComponents() {
         try {
-            console.log('[ProductsModule] Initializing simple products list...');
+            console.log('[ProductsModule] Initializing components...');
 
             // Pobierz elementy DOM
-            this.listElements = {
+            this.elements = {
                 container: document.getElementById('virtual-scroll-container'),
                 viewport: document.getElementById('virtual-scroll-viewport'),
                 loadingState: document.getElementById('products-loading'),
                 emptyState: document.getElementById('products-empty-state'),
-                errorState: document.getElementById('products-error-state')
+                errorState: document.getElementById('products-error-state'),
+                textSearch: document.getElementById('products-text-search'),
+                selectAllCheckbox: document.getElementById('select-all-products'),
+                productsCount: document.getElementById('products-count')
             };
 
-            // Walidacja elementów
-            if (!this.listElements.container || !this.listElements.viewport) {
+            // Walidacja kluczowych elementów
+            if (!this.elements.container || !this.elements.viewport) {
                 throw new Error('Required DOM elements not found');
             }
 
-            // Usuń spacery - nie potrzebujemy ich
+            // Ukryj spacery - nie potrzebujemy ich dla prostego renderowania
             const spacerTop = document.getElementById('virtual-scroll-spacer-top');
             const spacerBottom = document.getElementById('virtual-scroll-spacer-bottom');
             if (spacerTop) spacerTop.style.display = 'none';
             if (spacerBottom) spacerBottom.style.display = 'none';
 
             // Ustaw CSS dla prostego renderowania
-            this.listElements.container.style.overflow = 'auto';
-            this.listElements.container.style.maxHeight = '70vh';
-            this.listElements.viewport.style.position = 'relative';
-            this.listElements.viewport.style.display = 'block';
+            this.elements.container.style.overflow = 'auto';
+            this.elements.container.style.maxHeight = '70vh';
+            this.elements.viewport.style.position = 'relative';
+            this.elements.viewport.style.display = 'block';
 
-            // Stan prostej listy
-            this.listState = {
-                isLoading: false,
-                isLoaded: false,
-                renderedProducts: [],
-                currentSort: null,
-                currentSortDirection: 'asc'
-            };
+            // Inicjalizuj fuzzy search
+            this.initializeFuzzySearch();
 
-            // Inicjalizuj komponenty (filtry, etc)
-            this.initializeComponents();
+            // Inicjalizuj filtry badges
+            this.initializeFilterBadges();
 
-            // Setup event listeners
-            this.setupEventListeners();
+            // Inicjalizuj drag & drop
+            this.initializeDragDrop();
 
-            // POKAŻ LOADING I ZAŁADUJ PRODUKTY z opóźnieniem
-            this.showLoadingAndLoadProducts();
-
-            console.log('[ProductsModule] Simple products list initialized');
+            console.log('[ProductsModule] Components initialized');
             return true;
 
         } catch (error) {
-            console.error('[ProductsModule] Failed to initialize simple list:', error);
+            console.error('[ProductsModule] Failed to initialize components:', error);
             return false;
         }
     }
 
-    /**
-     * Pokazuje loading i ładuje produkty z opóźnieniem
-     */
-    async showLoadingAndLoadProducts() {
-        console.log('[ProductsModule] Starting product loading sequence...');
+    initializeFuzzySearch() {
+        // Prosty fuzzy search engine z Levenshtein distance
+        this.components.fuzzySearchEngine = {
+            search: (query, items, options = {}) => {
+                if (!query || query.length < 2) return items;
 
-        // Pokaż loading state
-        this.showLoadingState();
+                const threshold = options.threshold || 3; // max distance
+                const fields = options.fields || ['original_product_name', 'short_product_id', 'client_name'];
 
-        // Simuluj opóźnienie ładowania (można usunąć w production)
-        await new Promise(resolve => setTimeout(resolve, 800));
-
-        try {
-            // Załaduj dane produktów
-            await this.loadProductsData();
-
-            // Renderuj listę
-            this.renderProductsList();
-
-            // Ukryj loading
-            this.hideLoadingState();
-
-            console.log('[ProductsModule] Product loading sequence completed');
-
-        } catch (error) {
-            console.error('[ProductsModule] Error loading products:', error);
-            this.showErrorState(error.message);
-        }
-    }
-
-    /**
- * Pokazuje stan ładowania
- */
-    showLoadingState() {
-        console.log('[ProductsModule] Showing loading state...');
-
-        // Ukryj inne stany
-        this.hideEmptyState();
-        this.hideErrorState();
-
-        // Wyczyść viewport
-        this.listElements.viewport.innerHTML = '';
-
-        // Pokaż loading
-        if (this.listElements.loadingState) {
-            this.listElements.loadingState.style.display = 'flex';
-        }
-
-        this.listState.isLoading = true;
-    }
-
-    /**
-     * Ukrywa stan ładowania
-     */
-    hideLoadingState() {
-        if (this.listElements.loadingState) {
-            this.listElements.loadingState.style.display = 'none';
-        }
-        this.listState.isLoading = false;
-    }
-
-    /**
-     * Pokazuje stan błędu
-     */
-    showErrorState(message = 'Wystąpił błąd podczas ładowania produktów') {
-        console.log('[ProductsModule] Showing error state:', message);
-
-        this.hideLoadingState();
-        this.hideEmptyState();
-
-        if (this.listElements.errorState) {
-            const errorMessage = this.listElements.errorState.querySelector('#error-message');
-            if (errorMessage) {
-                errorMessage.textContent = message;
+                return items.filter(item => {
+                    return fields.some(field => {
+                        const value = item[field];
+                        if (!value) return false;
+                        
+                        const distance = this.calculateLevenshteinDistance(
+                            query.toLowerCase(),
+                            value.toString().toLowerCase()
+                        );
+                        
+                        return distance <= threshold || value.toString().toLowerCase().includes(query.toLowerCase());
+                    });
+                });
             }
-            this.listElements.errorState.style.display = 'flex';
+        };
+    }
+
+    calculateLevenshteinDistance(a, b) {
+        if (a.length === 0) return b.length;
+        if (b.length === 0) return a.length;
+
+        const matrix = [];
+
+        for (let i = 0; i <= b.length; i++) {
+            matrix[i] = [i];
+        }
+
+        for (let j = 0; j <= a.length; j++) {
+            matrix[0][j] = j;
+        }
+
+        for (let i = 1; i <= b.length; i++) {
+            for (let j = 1; j <= a.length; j++) {
+                if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1,
+                        matrix[i][j - 1] + 1,
+                        matrix[i - 1][j] + 1
+                    );
+                }
+            }
+        }
+
+        return matrix[b.length][a.length];
+    }
+
+    initializeFilterBadges() {
+        this.badgesConfig = {
+            badgesWrapper: document.getElementById('active-filters-container'),
+            badgesContainer: document.getElementById('filter-badges'),
+            clearAllBtn: document.getElementById('clear-all-filters'),
+            activeFiltersCount: 0
+        };
+
+        // DEBUG: Sprawdź czy elementy zostały znalezione
+        console.log('[ProductsModule] Initialize filter badges:', {
+            badgesWrapper: !!this.badgesConfig.badgesWrapper,
+            badgesContainer: !!this.badgesConfig.badgesContainer,
+            clearAllBtn: !!this.badgesConfig.clearAllBtn
+        });
+
+        if (this.badgesConfig.clearAllBtn) {
+            this.badgesConfig.clearAllBtn.addEventListener('click', () => {
+                this.clearAllFilters();
+            });
+        }
+
+        // Also setup clear filters button in empty state
+        const clearFiltersEmpty = document.getElementById('clear-filters-empty');
+        if (clearFiltersEmpty) {
+            clearFiltersEmpty.addEventListener('click', () => {
+                this.clearAllFilters();
+            });
+        }
+
+        // Jeśli elementy nie zostały znalezione, spróbuj ponownie za chwilę
+        if (!this.badgesConfig.badgesWrapper || !this.badgesConfig.badgesContainer) {
+            console.warn('[ProductsModule] Badges elements not found during init, will retry...');
+            setTimeout(() => {
+                this.retryInitializeFilterBadges();
+            }, 1000);
         }
     }
 
-    /**
-     * Ukrywa stan błędu
-     */
-    hideErrorState() {
-        if (this.listElements.errorState) {
-            this.listElements.errorState.style.display = 'none';
-        }
-    }
-
-    initializeComponents() {
-        console.log('[ProductsModule-new] Initializing components...');
+    retryInitializeFilterBadges() {
+        console.log('[ProductsModule] Retrying filter badges initialization...');
         
-        try {
-            // KROK 3.1: Inicjalizuj text search z fuzzy ✅
-            const textSearchSuccess = this.setupTextSearch();
-            if (!textSearchSuccess) {
-                console.warn('[ProductsModule-new] Text search initialization failed');
+        const wrapper = document.getElementById('active-filters-container');
+        const container = document.getElementById('filter-badges');
+        const clearBtn = document.getElementById('clear-all-filters');
+        
+        if (wrapper && container) {
+            this.badgesConfig.badgesWrapper = wrapper;
+            this.badgesConfig.badgesContainer = container;
+            this.badgesConfig.clearAllBtn = clearBtn;
+            
+            console.log('[ProductsModule] Filter badges elements found on retry');
+            
+            if (clearBtn && !clearBtn.hasAttribute('data-listener-added')) {
+                clearBtn.addEventListener('click', () => {
+                    this.clearAllFilters();
+                });
+                clearBtn.setAttribute('data-listener-added', 'true');
             }
-
-            // KROK 3.2: Inicjalizuj multi-select dropdowns ✅
-            const multiSelectSuccess = this.setupMultiSelectDropdowns();
-            if (!multiSelectSuccess) {
-                console.warn('[ProductsModule-new] Multi-select dropdowns initialization failed');
-            }
-
-            // KROK 3.3: Inicjalizuj system badges filtrów ✅
-            const filterBadgesSuccess = this.setupFilterBadges();
-            if (!filterBadgesSuccess) {
-                console.warn('[ProductsModule-new] Filter badges initialization failed');
-            }
-
-            // KROK 4.2: Inicjalizuj strukturę wiersza produktu
-            const productRowSuccess = this.setupProductRowStructure();
-            if (!productRowSuccess) {
-                console.warn('[ProductsModule-new] Product row structure initialization failed');
-            }
-
-            // W kolejnych krokach implementujemy:
-            // KROK 5.1: this.initializeDragDrop();
-            // KROK 6.1: this.initializeModals();
-            // KROK 7.1: this.initializeExport();
-            // KROK 7.2: this.initializeAutoRefresh();
-
-            console.log('[ProductsModule-new] Components initialized successfully');
-            return true;
-
-        } catch (error) {
-            console.error('[ProductsModule-new] Failed to initialize components:', error);
-            return false;
+        } else {
+            console.error('[ProductsModule] Filter badges elements still not found after retry');
         }
     }
 
-    /**
-     * Renderuje całą listę produktów (bez virtual scrolling)
-     */
-    renderProductsList() {
-        console.log('[ProductsModule] Rendering products list...');
-
-        const filteredProducts = this.getFilteredProducts();
-        const totalCount = filteredProducts.length;
-
-        console.log(`[ProductsModule] Rendering ${totalCount} products`);
-
-        if (totalCount === 0) {
-            this.showEmptyState();
+    updateFilterBadges() {
+        console.log('[ProductsModule] Updating filter badges...');
+        
+        // Jeśli elementy nie są zainicjalizowane, spróbuj je znaleźć
+        if (!this.badgesConfig.badgesWrapper || !this.badgesConfig.badgesContainer) {
+            console.log('[ProductsModule] Badges config missing, searching for elements...');
+            this.badgesConfig.badgesWrapper = document.getElementById('active-filters-container');
+            this.badgesConfig.badgesContainer = document.getElementById('filter-badges');
+            this.badgesConfig.clearAllBtn = document.getElementById('clear-all-filters');
+        }
+        
+        // DEBUG: Sprawdź czy elementy istnieją
+        console.log('[ProductsModule] DEBUG badges elements:', {
+            badgesWrapper: !!this.badgesConfig.badgesWrapper,
+            badgesContainer: !!this.badgesConfig.badgesContainer,
+            clearAllBtn: !!this.badgesConfig.clearAllBtn,
+            wrapperElement: document.getElementById('active-filters-container'),
+            containerElement: document.getElementById('filter-badges')
+        });
+        
+        if (!this.badgesConfig.badgesContainer) {
+            console.error('[ProductsModule] Badges container still not found!');
             return;
         }
 
-        this.hideEmptyState();
-        this.hideErrorState();
+        // Wyczyść istniejące badges
+        this.badgesConfig.badgesContainer.innerHTML = '';
+        console.log('[ProductsModule] Cleared existing badges');
 
-        // Wyczyść viewport
-        this.listElements.viewport.innerHTML = '';
+        let badgeCount = 0;
 
-        // Utwórz fragment dla lepszej wydajności
-        const fragment = document.createDocumentFragment();
+        // Badge dla text search
+        if (this.state.currentFilters.textSearch) {
+            console.log('[ProductsModule] Adding text search badge:', this.state.currentFilters.textSearch);
+            this.addFilterBadge('textSearch', `Szukaj: "${this.state.currentFilters.textSearch}"`);
+            badgeCount++;
+        }
 
-        // Renderuj wszystkie produkty
-        filteredProducts.forEach((product, index) => {
-            const rowElement = this.createSimpleProductRow(product, index);
-            if (rowElement) {
-                fragment.appendChild(rowElement);
+        // Badges dla multi-select filtrów
+        const multiSelectFilters = {
+            woodSpecies: 'Gatunek',
+            technologies: 'Technologia',
+            woodClasses: 'Klasa',
+            thicknesses: 'Grubość',
+            statuses: 'Status'
+        };
+
+        Object.entries(multiSelectFilters).forEach(([filterKey, label]) => {
+            const values = this.state.currentFilters[filterKey];
+            if (values && values.length > 0) {
+                console.log(`[ProductsModule] Adding ${filterKey} badges:`, values);
+                values.forEach(value => {
+                    const displayValue = filterKey === 'statuses' ? this.getStatusDisplayName(value) : value;
+                    this.addFilterBadge(filterKey, `${label}: ${displayValue}`, value);
+                    badgeCount++;
+                });
             }
         });
 
-        // Dodaj wszystkie wiersze naraz
-        this.listElements.viewport.appendChild(fragment);
-
-        // Aktualizuj licznik
-        this.updateProductsCount();
-
-        // Synchronizuj checkboxy
-        this.syncAllCheckboxes();
-
-        this.listState.isLoaded = true;
-        this.listState.renderedProducts = filteredProducts;
-
-        console.log('[ProductsModule] Products list rendered successfully');
-    }
-
-    /**
-     * Tworzy prosty wiersz produktu (bez virtual scroll positioning)
-     */
-    createSimpleProductRow(product, index) {
-        try {
-            // UŻYWAJ ISTNIEJĄCEJ FUNKCJI - tylko zmień parametry pozycjonowania
-            const rowElement = this.createProductRowElement(index, product);
-
-            if (rowElement) {
-                // USUŃ pozycjonowanie absolute - użyj normalny flow
-                rowElement.style.position = 'relative';
-                rowElement.style.top = 'auto';
-                rowElement.style.width = '100%';
-                rowElement.style.height = 'auto';
-                rowElement.style.minHeight = '65px';
-                rowElement.style.marginBottom = '1px';
-
-                // Usuń atrybuty virtual scroll
-                rowElement.removeAttribute('data-virtual-index');
-                rowElement.classList.remove('virtual-row');
-                rowElement.classList.add('simple-row');
-
-                // Aktualizuj dane wiersza
-                this.updateProductRow(rowElement, index, product);
-
-                return rowElement;
-            }
-
-        } catch (error) {
-            console.error(`[ProductsModule] Error creating row for product ${index}:`, error);
+        // WAŻNE: Pokaż/ukryj container - FORCE FIX
+        const wrapper = document.getElementById('active-filters-container');
+        if (wrapper) {
+            const shouldShow = badgeCount > 0;
+            wrapper.style.display = shouldShow ? 'block' : 'none';
+            console.log(`[ProductsModule] FORCE: Set wrapper display to ${shouldShow ? 'flex' : 'none'}, badges count: ${badgeCount}`);
+            
+            // Aktualizuj też config
+            this.badgesConfig.badgesWrapper = wrapper;
+        } else {
+            console.error('[ProductsModule] Cannot find active-filters-container element!');
         }
 
-        return null;
+        // Stara logika dla porównania
+        if (this.badgesConfig.badgesWrapper) {
+            const shouldShow = badgeCount > 0;
+            this.badgesConfig.badgesWrapper.style.display = shouldShow ? 'flex' : 'none';
+            console.log(`[ProductsModule] CONFIG: Badges container display set to: ${shouldShow ? 'flex' : 'none'}, badges count: ${badgeCount}`);
+        } else {
+            console.error('[ProductsModule] this.badgesConfig.badgesWrapper is null!');
+        }
+
+        this.badgesConfig.activeFiltersCount = badgeCount;
+        
+        console.log(`[ProductsModule] Filter badges updated: ${badgeCount} badges created`);
     }
+
+    addFilterBadge(filterType, text, value = null) {
+        if (!this.badgesConfig.badgesContainer) return;
+
+        const badge = document.createElement('span');
+        badge.className = 'filter-badge';
+        badge.setAttribute('data-filter-type', filterType);
+        badge.setAttribute('data-filter-value', value || text);
+        
+        badge.innerHTML = `
+            <span class="filter-badge-label">${text}</span>
+            <i class="fas fa-times remove-filter"></i>
+        `;
+
+        // Event listener dla usuwania badge
+        const removeBtn = badge.querySelector('.remove-filter');
+        removeBtn.addEventListener('click', () => {
+            this.removeFilterBadge(filterType, value || text);
+        });
+
+        this.badgesConfig.badgesContainer.appendChild(badge);
+    }
+
+    removeFilterBadge(filterType, value) {
+        console.log(`[ProductsModule] Removing filter badge: ${filterType} - ${value}`);
+
+        if (filterType === 'text') {
+            this.state.currentFilters.textSearch = '';
+            if (this.elements.textSearch) {
+                this.elements.textSearch.value = '';
+            }
+        } else {
+            // Remove from multi-select array
+            const currentValues = this.state.currentFilters[filterType] || [];
+            this.state.currentFilters[filterType] = currentValues.filter(v => v !== value);
+            
+            // Update the custom multi-select display
+            this.updateCustomMultiSelectFromState(filterType, value, false);
+        }
+
+        // Zastosuj filtry
+        this.applyAllFilters();
+        this.renderProductsList();
+        this.updateStats();
+    }
+
+    updateCustomMultiSelectFromState(filterType, value, isSelected) {
+        // Find the corresponding dropdown
+        const dropdownMapping = {
+            woodSpecies: 'dropdown-wood-species',
+            technologies: 'dropdown-technology', 
+            woodClasses: 'dropdown-wood-class',
+            thicknesses: 'dropdown-thickness',
+            statuses: 'dropdown-status'
+        };
+
+        const dropdownId = dropdownMapping[filterType];
+        if (!dropdownId) return;
+
+        const dropdown = document.getElementById(dropdownId);
+        if (!dropdown) return;
+
+        // Find and update the checkbox
+        const checkboxes = dropdown.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach(checkbox => {
+            if (checkbox.value === value) {
+                checkbox.checked = isSelected;
+            }
+        });
+
+        // Update display and select all state
+        const displayId = dropdownId.replace('dropdown-', 'filter-');
+        this.updateMultiSelectDisplay(displayId, filterType);
+        this.updateSelectAllState(dropdown);
+    }
+
+    clearAllFilters() {
+        console.log('[ProductsModule] Clearing all filters...');
+
+        // Reset text search
+        this.state.currentFilters.textSearch = '';
+        if (this.elements.textSearch) {
+            this.elements.textSearch.value = '';
+        }
+
+        // Reset multi-select filters
+        this.state.currentFilters.woodSpecies = [];
+        this.state.currentFilters.technologies = [];
+        this.state.currentFilters.woodClasses = [];
+        this.state.currentFilters.thicknesses = [];
+        this.state.currentFilters.statuses = [];
+
+        // Clear all custom multi-select checkboxes
+        const allDropdowns = document.querySelectorAll('.multi-select-dropdown');
+        allDropdowns.forEach(dropdown => {
+            const checkboxes = dropdown.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+        });
+
+        // Update all displays
+        const displays = ['filter-wood-species', 'filter-technology', 'filter-wood-class', 'filter-thickness', 'filter-status'];
+        displays.forEach(displayId => {
+            const placeholder = document.querySelector(`#${displayId} .multi-select-placeholder`);
+            if (placeholder) {
+                placeholder.textContent = 'Wszystkie';
+                placeholder.className = 'multi-select-placeholder';
+            }
+        });
+
+        // WAŻNE: Aktualizuj badges po wyczyszczeniu filtrów
+        this.updateFilterBadges();
+
+        // Zastosuj filtry
+        this.applyAllFilters();
+        this.renderProductsList();
+        this.updateStats();
+    }
+
+    initializeDragDrop() {
+        // Placeholder dla drag & drop - implementacja w kolejnych krokach
+        this.components.dragDrop = {
+            enabled: true,
+            draggedElement: null,
+            dropTarget: null
+        };
+    }
+
+    // ========================================================================
+    // EVENT LISTENERS SETUP
+    // ========================================================================
 
     setupEventListeners() {
         console.log('[ProductsModule] Setting up event listeners...');
 
-        const textSearchInput = document.getElementById('products-text-search');
-
-        if (textSearchInput) {
-            textSearchInput.addEventListener('input', this.onTextSearchInput);
-            textSearchInput.addEventListener('keydown', this.handleTextSearchKeydown.bind(this));
-            console.log('[ProductsModule] Text search listeners attached');
-        }
-
-        // NOWE: Select All checkbox
-        const selectAllCheckbox = document.getElementById('select-all-products');
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', this.handleSelectAllChange.bind(this));
-            console.log('[ProductsModule] Select all checkbox listener attached');
-        }
-
-        // NOWE: Keyboard shortcuts
-        document.addEventListener('keydown', this.handleKeyboardShortcuts.bind(this));
-        console.log('[ProductsModule] Keyboard shortcuts listener attached');
-
-        console.log('[ProductsModule] Event listeners setup complete');
-    }
-
-    /**
-     * NOWA METODA: Obsługuje zmiany w checkbox "Zaznacz wszystko"
-     */
-    handleSelectAllChange(event) {
-        const isChecked = event.target.checked;
-        console.log(`[ProductsModule] Select all changed: ${isChecked}`);
-        
-        if (isChecked) {
-            this.selectAllVisibleProducts();
-        } else {
-            this.deselectAllProducts();
-        }
-    }
-
-    /**
-     * NOWA METODA: Obsługuje skróty klawiszowe
-     */
-    handleKeyboardShortcuts(event) {
-        // Ctrl+A - Zaznacz wszystkie
-        if (event.ctrlKey && event.key === 'a') {
-            event.preventDefault();
-            this.selectAllVisibleProducts();
-            return;
-        }
-        
-        // Ctrl+E - Export
-        if (event.ctrlKey && event.key === 'e') {
-            event.preventDefault();
-            this.handleExport({ type: 'selected' });
-            return;
-        }
-        
-        // ESC - Zamknij modals/wyczyść zaznaczenia
-        if (event.key === 'Escape') {
-            this.handleEscapeKey();
-            return;
-        }
-    }
-
-    removeEventListeners() {
-        console.log('[ProductsModule-new] Removing event listeners...');
-
-        const textSearchInput = document.getElementById('products-text-search');
-
-        if (textSearchInput) {
-            textSearchInput.removeEventListener('input', this.onTextSearchInput);
-            textSearchInput.removeEventListener('keydown', this.handleTextSearchKeydown.bind(this));
-        }
-
-        // NOWE: Cleanup multi-select event listeners
-        document.removeEventListener('click', this.handleMultiSelectOutsideClick.bind(this));
-
-        // Cleanup individual multi-select components
-        if (this.components.multiSelects) {
-            Object.keys(this.components.multiSelects).forEach(key => {
-                this.cleanupMultiSelectEvents(key);
+        // Text search
+        if (this.elements.textSearch) {
+            this.elements.textSearch.addEventListener('input', this.onTextSearchInput);
+            this.elements.textSearch.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    this.elements.textSearch.value = '';
+                    this.handleTextSearchInput();
+                }
             });
         }
 
-        console.log('[ProductsModule-new] All event listeners removed');
-    }
-
-    // ========================================================================
-    // DATA HANDLING METHODS - podstawowe
-    // ========================================================================
-
-    async updateWithInitialData(data) {
-        console.log('[ProductsModule] Updating with initial data...', data);
-
-        if (data && data.products) {
-            this.state.products = data.products;
-            this.state.stats = data.stats || this.state.stats;
-            console.log(`[ProductsModule] Loaded ${this.state.products.length} products`);
-            
-            // NOWE: Zainicjalizuj filteredProducts z wszystkimi produktami
-            if (!this.state.filteredProducts) {
-                this.state.filteredProducts = this.state.products;
-            }
-            
-            // NOWE: Aktualizuj statystyki
-            this.updateSearchStatistics(this.state.products.length, '');
+        // Select all checkbox
+        if (this.elements.selectAllCheckbox) {
+            this.elements.selectAllCheckbox.addEventListener('change', this.onSelectAll);
         }
 
-        // W kolejnych krokach implementujemy:
-        // - this.updateFiltersOptions();
+        // Sortowanie nagłówków
+        const sortableHeaders = document.querySelectorAll('.sortable-header');
+        sortableHeaders.forEach(header => {
+            header.addEventListener('click', this.onSort);
+            header.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.onSort(e);
+                }
+            });
+        });
+
+        // Bulk actions event listeners
+        this.setupBulkActionsEventListeners();
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', this.onKeydown);
+
+        console.log('[ProductsModule] Event listeners setup completed');
+    }
+
+    setupBulkActionsEventListeners() {
+        console.log('[ProductsModule] Setting up bulk actions event listeners...');
+
+        // Bulk change status
+        const bulkChangeStatus = document.getElementById('bulk-change-status');
+        if (bulkChangeStatus) {
+            bulkChangeStatus.addEventListener('click', () => {
+                this.handleBulkAction('change-status');
+            });
+        }
+
+        // Bulk export selected
+        const bulkExportSelected = document.getElementById('bulk-export-selected');
+        if (bulkExportSelected) {
+            bulkExportSelected.addEventListener('click', () => {
+                this.handleBulkAction('export-selected');
+            });
+        }
+
+        // Bulk delete
+        const bulkDelete = document.getElementById('bulk-delete');
+        if (bulkDelete) {
+            bulkDelete.addEventListener('click', () => {
+                this.handleBulkAction('delete');
+            });
+        }
+
+        // NOTE: Przycisk "Ustaw priorytet" (#bulk-set-priority) powinien zostać
+        // usunięty z HTML template products-tab-content.html
+
+        console.log('[ProductsModule] Bulk actions event listeners setup completed');
+    }
+
+    removeEventListeners() {
+        if (this.elements.textSearch) {
+            this.elements.textSearch.removeEventListener('input', this.onTextSearchInput);
+        }
+
+        if (this.elements.selectAllCheckbox) {
+            this.elements.selectAllCheckbox.removeEventListener('change', this.onSelectAll);
+        }
+
+        const sortableHeaders = document.querySelectorAll('.sortable-header');
+        sortableHeaders.forEach(header => {
+            header.removeEventListener('click', this.onSort);
+        });
+
+        // Remove bulk actions event listeners
+        const bulkChangeStatus = document.getElementById('bulk-change-status');
+        const bulkExportSelected = document.getElementById('bulk-export-selected');
+        const bulkDelete = document.getElementById('bulk-delete');
+
+        if (bulkChangeStatus) {
+            bulkChangeStatus.replaceWith(bulkChangeStatus.cloneNode(true));
+        }
+        if (bulkExportSelected) {
+            bulkExportSelected.replaceWith(bulkExportSelected.cloneNode(true));
+        }
+        if (bulkDelete) {
+            bulkDelete.replaceWith(bulkDelete.cloneNode(true));
+        }
+
+        document.removeEventListener('keydown', this.onKeydown);
     }
 
     // ========================================================================
-    // EVENT HANDLERS - podstawowe struktury
+    // DATA LOADING METHODS
     // ========================================================================
 
-    handleTextSearchInput(event) {
-        const searchValue = event.target.value.trim();
-        console.log('[ProductsModule] Text search input:', searchValue);
+    async showLoadingAndLoadProducts() {
+        try {
+            console.log('[ProductsModule] Starting loading sequence...');
 
-        // Wyczyść poprzedni timer
+            // Pokaż loading state
+            this.showLoadingState();
+
+            // Opóźnienie dla UX - tab się otwiera natychmiast, potem loading
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // Załaduj dane produktów
+            await this.loadProductsData();
+
+            // Załaduj opcje filtrów (po załadowaniu produktów)
+            await this.loadFiltersData();
+
+            // Zastosuj filtry i wyrenderuj
+            this.applyAllFilters();
+            this.renderProductsList();
+            this.updateStats();
+
+            // Ukryj loading
+            this.hideAllStates();
+
+            console.log('[ProductsModule] Loading sequence completed');
+
+        } catch (error) {
+            console.error('[ProductsModule] Failed to load products:', error);
+            this.showErrorState('Nie udało się załadować listy produktów');
+        }
+    }
+
+    async loadProductsData() {
+        try {
+            console.log('[ProductsModule] Loading products data...');
+
+            // Użyj shared service jeśli dostępne
+            if (this.shared && this.shared.apiClient) {
+                console.log('[ProductsModule] Using shared API client');
+                
+                const filtersForApi = {
+                    status: this.state.currentFilters.statuses.length > 0 ? this.state.currentFilters.statuses[0] : 'all',
+                    search: this.state.currentFilters.textSearch || '',
+                    load_all: 'true'
+                };
+
+                const data = await this.shared.apiClient.getProductsTabContent(filtersForApi);
+                
+                if (data.success && data.initial_data && data.initial_data.products) {
+                    this.state.products = data.initial_data.products;
+                    this.state.lastUpdate = new Date().toISOString();
+                    
+                    // DEBUG: Sprawdź pierwsze 3 produkty żeby zobaczyć strukturę danych
+                    console.log('[ProductsModule] DEBUG: First 3 products structure:', 
+                        this.state.products.slice(0, 3).map(p => ({
+                            id: p.id,
+                            short_product_id: p.short_product_id,
+                            original_product_name: p.original_product_name,
+                            // Sprawdź parsowane pola
+                            parsed_wood_species: p.parsed_wood_species,
+                            parsed_technology: p.parsed_technology,
+                            parsed_wood_class: p.parsed_wood_class,
+                            parsed_thickness_cm: p.parsed_thickness_cm,
+                            // Sprawdź alternatywne nazwy pól
+                            wood_species: p.wood_species,
+                            technology: p.technology,
+                            wood_class: p.wood_class,
+                            thickness: p.thickness,
+                            thickness_cm: p.thickness_cm,
+                            // Sprawdź wszystkie dostępne klucze
+                            all_keys: Object.keys(p)
+                        }))
+                    );
+                    
+                    console.log(`[ProductsModule] Loaded ${data.initial_data.products.length} products via shared service`);
+                } else {
+                    throw new Error(data.message || 'Failed to load products data from shared service');
+                }
+            } else {
+                // Fallback - bezpośrednie wywołanie GET
+                console.log('[ProductsModule] Using direct GET request');
+                
+                const params = new URLSearchParams({
+                    status: this.state.currentFilters.statuses.length > 0 ? this.state.currentFilters.statuses[0] : 'all',
+                    search: this.state.currentFilters.textSearch || '',
+                    load_all: 'true'
+                });
+
+                const response = await fetch(`/production/api/products-tab-content?${params.toString()}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API request failed: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.success && data.initial_data && data.initial_data.products) {
+                    this.state.products = data.initial_data.products;
+                    this.state.lastUpdate = new Date().toISOString();
+                    
+                    // DEBUG: Sprawdź pierwsze 3 produkty żeby zobaczyć strukturę danych
+                    console.log('[ProductsModule] DEBUG: First 3 products structure (direct GET):', 
+                        this.state.products.slice(0, 3).map(p => ({
+                            id: p.id,
+                            short_product_id: p.short_product_id,
+                            original_product_name: p.original_product_name,
+                            // Sprawdź parsowane pola
+                            parsed_wood_species: p.parsed_wood_species,
+                            parsed_technology: p.parsed_technology,
+                            parsed_wood_class: p.parsed_wood_class,
+                            parsed_thickness_cm: p.parsed_thickness_cm,
+                            // Sprawdź alternatywne nazwy pól
+                            wood_species: p.wood_species,
+                            technology: p.technology,
+                            wood_class: p.wood_class,
+                            thickness: p.thickness,
+                            thickness_cm: p.thickness_cm,
+                            // Sprawdź wszystkie dostępne klucze
+                            all_keys: Object.keys(p)
+                        }))
+                    );
+                    
+                    console.log(`[ProductsModule] Loaded ${data.initial_data.products.length} products via direct GET`);
+                } else {
+                    throw new Error(data.message || 'Failed to load products data');
+                }
+            }
+
+        } catch (error) {
+            console.error('[ProductsModule] Error loading products data:', error);
+            throw error;
+        }
+    }
+
+    async loadFiltersData() {
+        try {
+            console.log('[ProductsModule] Loading filters data...');
+
+            // TODO: Endpoint /products/filters-data będzie dodany w kolejnych krokach
+            // Tymczasowo - ekstraktuj opcje filtrów z załadowanych produktów
+            if (this.state.products.length > 0) {
+                const filtersData = this.extractFiltersFromProducts(this.state.products);
+                this.updateFilterOptions(filtersData);
+                this.setupMultiSelectFilters();
+                console.log('[ProductsModule] Filter options extracted from products');
+            } else {
+                console.log('[ProductsModule] No products loaded yet, skipping filters data');
+            }
+
+        } catch (error) {
+            console.error('[ProductsModule] Error loading filters data:', error);
+            // Nie przerywa ładowania, filtry będą działać z dostępnymi opcjami
+        }
+    }
+
+    extractFiltersFromProducts(products) {
+        const filters = {
+            woodSpecies: new Set(),
+            technologies: new Set(),
+            woodClasses: new Set(),
+            thicknesses: new Set(),
+            statuses: new Set()
+        };
+
+        products.forEach(product => {
+            if (product.parsed_wood_species) filters.woodSpecies.add(product.parsed_wood_species);
+            if (product.parsed_technology) filters.technologies.add(product.parsed_technology);
+            if (product.parsed_wood_class) filters.woodClasses.add(product.parsed_wood_class);
+            if (product.parsed_thickness_cm) filters.thicknesses.add(product.parsed_thickness_cm + 'cm');
+            if (product.current_status) filters.statuses.add(product.current_status);
+        });
+
+        return {
+            woodSpecies: Array.from(filters.woodSpecies).sort(),
+            technologies: Array.from(filters.technologies).sort(),
+            woodClasses: Array.from(filters.woodClasses).sort(),
+            thicknesses: Array.from(filters.thicknesses).sort((a, b) => parseFloat(a) - parseFloat(b)),
+            statuses: Array.from(filters.statuses).sort()
+        };
+    }
+
+    setupMultiSelectFilters() {
+        console.log('[ProductsModule] Setting up custom multi-select filters...');
+
+        // Wood species filter
+        this.setupCustomMultiSelect('filter-wood-species', 'dropdown-wood-species', 'woodSpecies');
+        
+        // Technology filter
+        this.setupCustomMultiSelect('filter-technology', 'dropdown-technology', 'technologies');
+        
+        // Wood class filter
+        this.setupCustomMultiSelect('filter-wood-class', 'dropdown-wood-class', 'woodClasses');
+        
+        // Thickness filter
+        this.setupCustomMultiSelect('filter-thickness', 'dropdown-thickness', 'thicknesses');
+        
+        // Status filter
+        this.setupCustomMultiSelect('filter-status', 'dropdown-status', 'statuses');
+
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.multi-select-wrapper')) {
+                this.closeAllDropdowns();
+            }
+        });
+    }
+
+    setupCustomMultiSelect(displayId, dropdownId, filterType) {
+        const display = document.getElementById(displayId);
+        const dropdown = document.getElementById(dropdownId);
+        
+        if (!display || !dropdown) {
+            console.warn(`[ProductsModule] Multi-select elements not found: ${displayId}, ${dropdownId}`);
+            return;
+        }
+
+        // Toggle dropdown on display click
+        display.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleDropdown(dropdownId);
+        });
+
+        // Search within dropdown
+        const searchInput = dropdown.querySelector('.multi-select-search input');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.filterDropdownOptions(dropdownId, e.target.value);
+            });
+        }
+
+        // "Select all" functionality
+        const selectAllOption = dropdown.querySelector('.multi-select-all input');
+        if (selectAllOption) {
+            selectAllOption.addEventListener('change', (e) => {
+                this.handleSelectAllChange(dropdownId, filterType, e.target.checked);
+            });
+        }
+    }
+
+    toggleDropdown(dropdownId) {
+        // Close all other dropdowns first
+        this.closeAllDropdowns();
+        
+        const dropdown = document.getElementById(dropdownId);
+        if (dropdown) {
+            const isOpen = dropdown.classList.contains('show');
+            dropdown.classList.toggle('show', !isOpen);
+            
+            // Update arrow direction
+            const display = dropdown.parentElement.querySelector('.multi-select-display');
+            const arrow = display?.querySelector('.multi-select-arrow');
+            if (arrow) {
+                arrow.classList.toggle('fa-chevron-up', !isOpen);
+                arrow.classList.toggle('fa-chevron-down', isOpen);
+            }
+        }
+    }
+
+    closeAllDropdowns() {
+        const dropdowns = document.querySelectorAll('.multi-select-dropdown');
+        dropdowns.forEach(dropdown => {
+            dropdown.classList.remove('show');
+        });
+        
+        // Reset all arrows
+        const arrows = document.querySelectorAll('.multi-select-arrow');
+        arrows.forEach(arrow => {
+            arrow.classList.remove('fa-chevron-up');
+            arrow.classList.add('fa-chevron-down');
+        });
+    }
+
+    filterDropdownOptions(dropdownId, searchTerm) {
+        const dropdown = document.getElementById(dropdownId);
+        if (!dropdown) return;
+
+        const options = dropdown.querySelectorAll('.multi-select-option:not(.multi-select-all)');
+        const searchLower = searchTerm.toLowerCase();
+
+        options.forEach(option => {
+            const label = option.querySelector('label');
+            if (label) {
+                const text = label.textContent.toLowerCase();
+                const matches = text.includes(searchLower);
+                option.style.display = matches ? 'flex' : 'none';
+            }
+        });
+    }
+
+    handleSelectAllChange(dropdownId, filterType, isChecked) {
+        const dropdown = document.getElementById(dropdownId);
+        if (!dropdown) return;
+
+        const options = dropdown.querySelectorAll('.multi-select-option:not(.multi-select-all) input[type="checkbox"]');
+        const visibleOptions = Array.from(options).filter(option => 
+            option.closest('.multi-select-option').style.display !== 'none'
+        );
+
+        visibleOptions.forEach(checkbox => {
+            checkbox.checked = isChecked;
+            this.handleOptionChange(filterType, checkbox.value, isChecked);
+        });
+
+        this.updateMultiSelectDisplay(dropdownId.replace('dropdown-', 'filter-'), filterType);
+        
+        // WAŻNE: Aktualizuj badges po "select all"
+        this.updateFilterBadges();
+        
+        this.applyAllFilters();
+        this.renderProductsList();
+        this.updateStats();
+    }
+
+    handleOptionChange(filterType, value, isChecked) {
+        if (!this.state.currentFilters[filterType]) {
+            this.state.currentFilters[filterType] = [];
+        }
+
+        if (isChecked) {
+            if (!this.state.currentFilters[filterType].includes(value)) {
+                this.state.currentFilters[filterType].push(value);
+            }
+        } else {
+            this.state.currentFilters[filterType] = this.state.currentFilters[filterType].filter(v => v !== value);
+        }
+    }
+
+    updateMultiSelectDisplay(displayId, filterType) {
+        const display = document.getElementById(displayId);
+        const placeholder = display?.querySelector('.multi-select-placeholder');
+        
+        if (!placeholder) return;
+
+        const selectedValues = this.state.currentFilters[filterType] || [];
+        
+        if (selectedValues.length === 0) {
+            placeholder.textContent = 'Wszystkie';
+            placeholder.className = 'multi-select-placeholder';
+        } else if (selectedValues.length === 1) {
+            placeholder.textContent = selectedValues[0];
+            placeholder.className = 'multi-select-placeholder selected';
+        } else {
+            placeholder.textContent = `Wybrano ${selectedValues.length}`;
+            placeholder.className = 'multi-select-placeholder selected';
+        }
+    }
+
+    updateFilterOptions(filtersData) {
+        console.log('[ProductsModule] Updating custom multi-select options:', filtersData);
+        
+        // Update wood species options
+        this.populateCustomDropdown('dropdown-wood-species', 'woodSpecies', filtersData.woodSpecies);
+        
+        // Update technology options
+        this.populateCustomDropdown('dropdown-technology', 'technologies', filtersData.technologies);
+        
+        // Update wood class options
+        this.populateCustomDropdown('dropdown-wood-class', 'woodClasses', filtersData.woodClasses);
+        
+        // Update thickness options  
+        this.populateCustomDropdown('dropdown-thickness', 'thicknesses', filtersData.thicknesses);
+        
+        // Update status options with friendly names
+        const statusOptions = filtersData.statuses.map(status => ({
+            value: status,
+            label: this.getStatusDisplayName(status)
+        }));
+        this.populateCustomDropdown('dropdown-status', 'statuses', statusOptions);
+    }
+
+    populateCustomDropdown(dropdownId, filterType, options) {
+        const dropdown = document.getElementById(dropdownId);
+        if (!dropdown) {
+            console.warn(`[ProductsModule] Dropdown not found: ${dropdownId}`);
+            return;
+        }
+
+        const optionsContainer = dropdown.querySelector('.multi-select-options');
+        if (!optionsContainer) {
+            console.warn(`[ProductsModule] Options container not found in: ${dropdownId}`);
+            return;
+        }
+
+        // Preserve the "select all" option
+        const selectAllOption = optionsContainer.querySelector('.multi-select-all');
+        
+        // Clear existing options (except select all)
+        const existingOptions = optionsContainer.querySelectorAll('.multi-select-option:not(.multi-select-all)');
+        existingOptions.forEach(option => option.remove());
+
+        // Add new options
+        options.forEach((option, index) => {
+            const optionElement = this.createCustomOption(option, filterType, index);
+            optionsContainer.appendChild(optionElement);
+        });
+
+        console.log(`[ProductsModule] Populated ${options.length} options for ${dropdownId}`);
+    }
+
+    createCustomOption(option, filterType, index) {
+        const optionDiv = document.createElement('div');
+        optionDiv.className = 'multi-select-option';
+
+        let value, label;
+        if (typeof option === 'string') {
+            value = option;
+            label = option;
+        } else {
+            value = option.value;
+            label = option.label;
+        }
+
+        const optionId = `${filterType}-${index}`;
+        
+        optionDiv.innerHTML = `
+            <input type="checkbox" id="${optionId}" value="${value}">
+            <label for="${optionId}">${label}</label>
+        `;
+
+        // Add event listener for this option
+        const checkbox = optionDiv.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener('change', (e) => {
+            this.handleOptionChange(filterType, value, e.target.checked);
+            
+            // Get the correct display ID from the dropdown
+            const dropdown = optionDiv.closest('.multi-select-dropdown');
+            const dropdownId = dropdown.id;
+            const displayId = dropdownId.replace('dropdown-', 'filter-');
+            
+            this.updateMultiSelectDisplay(displayId, filterType);
+            this.updateSelectAllState(dropdown);
+            
+            // WAŻNE: Aktualizuj badges po zmianie filtra
+            this.updateFilterBadges();
+            
+            // Apply filters after a short delay to allow for multiple selections
+            clearTimeout(this.filterUpdateTimeout);
+            this.filterUpdateTimeout = setTimeout(() => {
+                this.applyAllFilters();
+                this.renderProductsList();
+                this.updateStats();
+            }, 150);
+        });
+
+        return optionDiv;
+    }
+
+    updateSelectAllState(dropdown) {
+        const selectAllCheckbox = dropdown.querySelector('.multi-select-all input[type="checkbox"]');
+        const allOptions = dropdown.querySelectorAll('.multi-select-option:not(.multi-select-all) input[type="checkbox"]');
+        const visibleOptions = Array.from(allOptions).filter(cb => 
+            cb.closest('.multi-select-option').style.display !== 'none'
+        );
+        
+        if (selectAllCheckbox && visibleOptions.length > 0) {
+            const checkedCount = visibleOptions.filter(cb => cb.checked).length;
+            
+            if (checkedCount === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            } else if (checkedCount === visibleOptions.length) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            }
+        }
+    }
+
+    // ========================================================================
+    // SIMPLE LIST RENDERING (NO VIRTUAL SCROLL)
+    // ========================================================================
+
+    renderProductsList() {
+        try {
+            console.log('[ProductsModule] Rendering products list...');
+            
+            if (!this.elements.viewport) {
+                throw new Error('Viewport element not found');
+            }
+
+            // Wyczyść viewport
+            this.elements.viewport.innerHTML = '';
+
+            const products = this.state.filteredProducts;
+
+            if (!products || products.length === 0) {
+                this.showEmptyState();
+                return;
+            }
+
+            // Utwórz fragment dla lepszej wydajności
+            const fragment = document.createDocumentFragment();
+
+            // Renderuj wszystkie produkty naraz
+            products.forEach((product, index) => {
+                const rowElement = this.createProductRow(product, index);
+                if (rowElement) {
+                    fragment.appendChild(rowElement);
+                }
+            });
+
+            // Dodaj wszystkie wiersze do viewport
+            this.elements.viewport.appendChild(fragment);
+
+            // Aktualizuj licznik produktów
+            this.updateProductsCount(products.length);
+
+            // Synchronizuj checkboxy
+            this.syncAllCheckboxes();
+
+            console.log(`[ProductsModule] Rendered ${products.length} products`);
+
+        } catch (error) {
+            console.error('[ProductsModule] Error rendering products list:', error);
+            this.showErrorState('Wystąpił błąd podczas renderowania listy produktów');
+        }
+    }
+
+    createProductRow(product, index) {
+        try {
+            const template = document.getElementById('product-row-template');
+            if (!template) {
+                throw new Error('Product row template not found');
+            }
+
+            const clone = template.content.cloneNode(true);
+            const rowElement = clone.querySelector('.product-row');
+
+            if (!rowElement) {
+                throw new Error('Product row element not found in template');
+            }
+
+            // Ustaw podstawowe właściwości dla prostego renderowania
+            rowElement.style.position = 'relative';
+            rowElement.style.width = '100%';
+            rowElement.style.minHeight = '65px';
+            rowElement.style.marginBottom = '1px';
+            rowElement.classList.add('simple-row');
+            rowElement.setAttribute('data-product-id', product.id);
+            rowElement.setAttribute('data-index', index);
+
+            // Wypełnij dane produktu
+            this.populateProductRow(rowElement, product);
+
+            // Dodaj event listeners
+            this.attachRowEventListeners(rowElement, product);
+
+            return rowElement;
+
+        } catch (error) {
+            console.error(`[ProductsModule] Error creating row for product ${product.id}:`, error);
+            return null;
+        }
+    }
+
+    populateProductRow(rowElement, product) {
+        try {
+            // Checkbox
+            const checkbox = rowElement.querySelector('.product-checkbox');
+            if (checkbox) {
+                checkbox.checked = this.state.selectedProducts.has(product.id);
+                checkbox.setAttribute('data-product-id', product.id);
+            }
+
+            // Priority score i bar
+            const priorityElement = rowElement.querySelector('.priority-score');
+            const priorityFill = rowElement.querySelector('.priority-fill');
+            if (priorityElement) {
+                const priority = parseInt(product.priority_score) || 100;
+                priorityElement.textContent = priority;
+                this.updatePriorityColor(priorityElement, priority);
+                
+                if (priorityFill) {
+                    priorityFill.style.width = `${Math.min(priority, 100)}%`;
+                }
+            }
+
+            // Product ID (short_product_id + baselinker_order_id)
+            const idMain = rowElement.querySelector('.product-id-main');
+            const idSub = rowElement.querySelector('.product-id-sub');
+            if (idMain) {
+                idMain.textContent = product.short_product_id || `#${product.id}`;
+            }
+            if (idSub) {
+                idSub.textContent = product.baselinker_order_id ? `BL: ${product.baselinker_order_id}` : '';
+            }
+
+            // Product name + specs badges
+            const nameElement = rowElement.querySelector('.product-name');
+            const specsElement = rowElement.querySelector('.product-specs');
+            if (nameElement) {
+                nameElement.textContent = product.original_product_name || '';
+                nameElement.title = product.original_product_name || '';
+            }
+            if (specsElement) {
+                specsElement.innerHTML = this.buildProductSpecsBadges(product);
+            }
+
+            // Volume
+            const volumeElement = rowElement.querySelector('.product-volume-cell');
+            if (volumeElement) {
+                const volume = parseFloat(product.volume_m3) || 0;
+                volumeElement.textContent = volume > 0 ? volume.toFixed(3) + ' m³' : '-';
+            }
+
+            // Value
+            const valueElement = rowElement.querySelector('.product-value-cell');
+            if (valueElement) {
+                const value = parseFloat(product.total_value_net) || 0;
+                valueElement.textContent = value > 0 ? value.toLocaleString('pl-PL', {
+                    style: 'currency',
+                    currency: 'PLN'
+                }) : '-';
+            }
+
+            // Status
+            const statusElement = rowElement.querySelector('.status-badge');
+            if (statusElement) {
+                const status = product.current_status || '';
+                statusElement.textContent = this.getStatusDisplayName(status);
+                statusElement.className = `status-badge ${this.getStatusClass(status)}`;
+            }
+
+            // Deadline - POPRAWIONE OBLICZENIE DNI
+            const deadlineBadge = rowElement.querySelector('.deadline-badge');
+            const deadlineDate = rowElement.querySelector('.deadline-date');
+            if (product.deadline_date) {
+                const deadline = new Date(product.deadline_date);
+                const daysUntil = this.calculateDaysUntilDeadline(product.deadline_date);
+                
+                if (deadlineBadge) {
+                    deadlineBadge.textContent = this.getDeadlineLabel(daysUntil);
+                    deadlineBadge.className = `deadline-badge ${this.getDeadlineClass(daysUntil)}`;
+                }
+                if (deadlineDate) {
+                    deadlineDate.textContent = deadline.toLocaleDateString('pl-PL');
+                }
+            } else {
+                if (deadlineBadge) {
+                    deadlineBadge.textContent = '-';
+                    deadlineBadge.className = 'deadline-badge';
+                }
+                if (deadlineDate) deadlineDate.textContent = '-';
+            }
+
+            // Actions - simple buttons (nie dropdown menu)
+            const actionsCell = rowElement.querySelector('.product-actions-cell');
+            if (actionsCell) {
+                actionsCell.innerHTML = `
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-outline-secondary btn-sm product-details-btn" title="Szczegóły">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm product-edit-btn" title="Edytuj">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm product-delete-btn" title="Usuń">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+            }
+
+        } catch (error) {
+            console.error('[ProductsModule] Error populating product row:', error);
+        }
+    }
+
+    buildProductSpecsBadges(product) {
+        const badges = [];
+        
+        // Wood species badge - używaj parsowanych pól
+        if (product.parsed_wood_species) {
+            const species = product.parsed_wood_species.toLowerCase();
+            let speciesClass = 'spec-badge';
+            
+            switch(species) {
+                case 'dąb':
+                case 'dab':
+                    speciesClass += ' spec-species-oak';
+                    break;
+                case 'jesion':
+                    speciesClass += ' spec-species-ash';
+                    break;
+                case 'buk':
+                    speciesClass += ' spec-species-beech';
+                    break;
+                case 'sosna':
+                    speciesClass += ' spec-species-pine';
+                    break;
+                case 'klon':
+                    speciesClass += ' spec-species-maple';
+                    break;
+                default:
+                    speciesClass += ' spec-species-default';
+            }
+            
+            badges.push(`<span class="${speciesClass}">${product.parsed_wood_species}</span>`);
+        }
+        
+        // Technology badge - używaj parsowanych pól
+        if (product.parsed_technology) {
+            const tech = product.parsed_technology.toLowerCase();
+            let techClass = 'spec-badge';
+            
+            switch(tech) {
+                case 'lity':
+                    techClass += ' spec-tech-solid';
+                    break;
+                case 'mikrowczep':
+                    techClass += ' spec-tech-microchip';
+                    break;
+                case 'klejony':
+                    techClass += ' spec-tech-laminated';
+                    break;
+                default:
+                    techClass += ' spec-tech-default';
+            }
+            
+            badges.push(`<span class="${techClass}">${product.parsed_technology}</span>`);
+        }
+        
+        // Wood class badge - używaj parsowanych pól
+        if (product.parsed_wood_class) {
+            const woodClass = product.parsed_wood_class.replace('/', '').toLowerCase();
+            let classClass = 'spec-badge';
+            
+            switch(woodClass) {
+                case 'aa':
+                    classClass += ' spec-class-aa';
+                    break;
+                case 'ab':
+                    classClass += ' spec-class-ab';
+                    break;
+                case 'bb':
+                    classClass += ' spec-class-bb';
+                    break;
+                default:
+                    classClass += ' spec-class-default';
+            }
+            
+            badges.push(`<span class="${classClass}">${product.parsed_wood_class}</span>`);
+        }
+        
+        // Thickness badge - używaj parsowanych pól
+        if (product.parsed_thickness_cm) {
+            badges.push(`<span class="spec-badge spec-thickness">${product.parsed_thickness_cm}cm</span>`);
+        }
+        
+        // DEBUG: Loguj dla pierwszych 3 produktów
+        if (badges.length === 0) {
+            console.log('[ProductsModule] No badges generated for product:', product.short_product_id, {
+                wood_species: product.parsed_wood_species,
+                technology: product.parsed_technology,
+                wood_class: product.parsed_wood_class,
+                thickness: product.parsed_thickness_cm
+            });
+        }
+        
+        return badges.join(' ');
+    }
+
+    getDeadlineLabel(daysUntil) {
+        // NAPRAWIONE - poprawne obliczenie deadline
+        if (daysUntil < 0) return 'Opóźnione';
+        if (daysUntil === 0) return 'Dziś';
+        if (daysUntil === 1) return 'Jutro';
+        if (daysUntil <= 7) return `${daysUntil} dni`;
+        if (daysUntil <= 30) return `${Math.ceil(daysUntil / 7)} tyg.`;
+        return `${Math.ceil(daysUntil / 30)} mies.`;
+    }
+
+    calculateDaysUntilDeadline(deadlineDate) {
+        if (!deadlineDate) return null;
+        
+        const deadline = new Date(deadlineDate);
+        const today = new Date();
+        
+        // Ustaw oba na środek dnia dla poprawnego porównania
+        deadline.setHours(12, 0, 0, 0);
+        today.setHours(12, 0, 0, 0);
+        
+        const diffTime = deadline.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        return diffDays;
+    }
+
+    attachRowEventListeners(rowElement, product) {
+        try {
+            // Checkbox
+            const checkbox = rowElement.querySelector('.product-checkbox');
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    this.handleProductSelect(product.id, e.target.checked);
+                });
+            }
+
+            // Double click for details
+            rowElement.addEventListener('dblclick', () => {
+                this.showProductDetails(product.id);
+            });
+
+            // Action buttons
+            const detailsBtn = rowElement.querySelector('.product-details-btn');
+            if (detailsBtn) {
+                detailsBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.showProductDetails(product.id);
+                });
+            }
+
+            const editBtn = rowElement.querySelector('.product-edit-btn');
+            if (editBtn) {
+                editBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.showProductEditModal(product.id);
+                });
+            }
+
+            const deleteBtn = rowElement.querySelector('.product-delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.showProductDeleteConfirmation(product.id);
+                });
+            }
+
+            // Right click context menu (placeholder)
+            rowElement.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                // TODO: Show context menu
+            });
+
+            // Drag and drop (placeholder)
+            if (this.components.dragDrop && this.components.dragDrop.enabled) {
+                rowElement.draggable = true;
+                rowElement.addEventListener('dragstart', (e) => {
+                    this.handleDragStart(e, product);
+                });
+                rowElement.addEventListener('dragover', (e) => {
+                    this.handleDragOver(e);
+                });
+                rowElement.addEventListener('drop', (e) => {
+                    this.handleDrop(e, product);
+                });
+            }
+
+        } catch (error) {
+            console.error('[ProductsModule] Error attaching row event listeners:', error);
+        }
+    }
+
+    showProductEditModal(productId) {
+        console.log(`[ProductsModule] Showing edit modal for product ${productId}`);
+        // TODO: Implementacja w kroku 6 - Modal edycji produktu
+        alert(`Edycja produktu ${productId}\n(Implementacja w kroku 6 - Modals i akcje grupowe)`);
+    }
+
+    showProductDeleteConfirmation(productId) {
+        console.log(`[ProductsModule] Showing delete confirmation for product ${productId}`);
+        
+        if (confirm('Czy na pewno chcesz usunąć ten produkt?\n\nTa operacja jest nieodwracalna.')) {
+            console.log(`Confirmed delete for product ${productId}`);
+            // TODO: Implementacja API call delete w przyszłych krokach
+            alert(`Produkt ${productId} zostanie usunięty\n(Implementacja API delete endpoint w kolejnych krokach)`);
+        }
+    }
+
+    // ========================================================================
+    // FILTERING METHODS
+    // ========================================================================
+
+    applyAllFilters() {
+        try {
+            console.log('[ProductsModule] Applying all filters...');
+            
+            let filtered = [...this.state.products];
+
+            // Text search z fuzzy matching
+            if (this.state.currentFilters.textSearch) {
+                filtered = this.components.fuzzySearchEngine.search(
+                    this.state.currentFilters.textSearch,
+                    filtered,
+                    {
+                        fields: ['original_product_name', 'short_product_id', 'client_name'],
+                        threshold: 2
+                    }
+                );
+            }
+
+            // Multi-select filtry (gdy będą zaimplementowane)
+            filtered = this.applyMultiSelectFilters(filtered);
+
+            this.state.filteredProducts = filtered;
+            this.updateFilterBadges();
+
+            console.log(`[ProductsModule] Filters applied. ${filtered.length}/${this.state.products.length} products match`);
+
+        } catch (error) {
+            console.error('[ProductsModule] Error applying filters:', error);
+            this.state.filteredProducts = [...this.state.products];
+        }
+    }
+
+    applyMultiSelectFilters(products) {
+        let filtered = products;
+
+        // Wood species filter
+        if (this.state.currentFilters.woodSpecies.length > 0) {
+            filtered = filtered.filter(p => 
+                p.parsed_wood_species && this.state.currentFilters.woodSpecies.includes(p.parsed_wood_species)
+            );
+        }
+
+        // Technology filter
+        if (this.state.currentFilters.technologies.length > 0) {
+            filtered = filtered.filter(p => 
+                p.parsed_technology && this.state.currentFilters.technologies.includes(p.parsed_technology)
+            );
+        }
+
+        // Wood class filter
+        if (this.state.currentFilters.woodClasses.length > 0) {
+            filtered = filtered.filter(p => 
+                p.parsed_wood_class && this.state.currentFilters.woodClasses.includes(p.parsed_wood_class)
+            );
+        }
+
+        // Thickness filter - POPRAWIONE - porównanie z jednostkami
+        if (this.state.currentFilters.thicknesses.length > 0) {
+            filtered = filtered.filter(p => {
+                if (!p.parsed_thickness_cm) return false;
+                const thicknessWithUnit = p.parsed_thickness_cm + 'cm';
+                return this.state.currentFilters.thicknesses.includes(thicknessWithUnit);
+            });
+        }
+
+        // Status filter
+        if (this.state.currentFilters.statuses.length > 0) {
+            filtered = filtered.filter(p => 
+                p.current_status && this.state.currentFilters.statuses.includes(p.current_status)
+            );
+        }
+
+        return filtered;
+    }
+
+    clearAllFilters() {
+        console.log('[ProductsModule] Clearing all filters...');
+
+        // Reset text search
+        this.state.currentFilters.textSearch = '';
+        if (this.elements.textSearch) {
+            this.elements.textSearch.value = '';
+        }
+
+        // Reset multi-select filters
+        this.state.currentFilters.woodSpecies = [];
+        this.state.currentFilters.technologies = [];
+        this.state.currentFilters.woodClasses = [];
+        this.state.currentFilters.thicknesses = [];
+        this.state.currentFilters.statuses = [];
+
+        // Zastosuj filtry
+        this.applyAllFilters();
+        this.renderProductsList();
+        this.updateStats();
+    }
+
+    // ========================================================================
+    // EVENT HANDLERS
+    // ========================================================================
+
+    handleTextSearchInput(e) {
+        const query = e ? e.target.value : this.elements.textSearch?.value || '';
+        
+        // Debounce search
         if (this.debounceTimers.textSearch) {
             clearTimeout(this.debounceTimers.textSearch);
         }
 
-        // Pokaż loading indicator
-        this.showSearchLoadingIndicator(true);
-
-        // Debounced search (300ms)
         this.debounceTimers.textSearch = setTimeout(() => {
-            this.performTextSearch(searchValue);
+            console.log(`[ProductsModule] Text search: "${query}"`);
+            
+            this.state.currentFilters.textSearch = query;
+            
+            // DEBUG: Sprawdź czy updateFilterBadges() jest wywoływane
+            try {
+                console.log('[ProductsModule] About to call updateFilterBadges()...');
+                this.updateFilterBadges();
+                console.log('[ProductsModule] updateFilterBadges() completed');
+            } catch (error) {
+                console.error('[ProductsModule] Error in updateFilterBadges():', error);
+            }
+            
+            this.applyAllFilters();
+            this.renderProductsList();
+            this.updateStats();
         }, 300);
     }
 
-    handleFilterChange(event) {
-        console.log('[ProductsModule] Filter change:', event);
-        // Implementacja w kolejnych krokach
-    }
-
-    handleProductSelect(productId, selected) {
-        console.log('[ProductsModule] Product select:', productId, selected);
-        // Implementacja w kolejnych krokach
-    }
-
-    handleSelectAll(selectAll) {
-        console.log('[ProductsModule] Select all:', selectAll);
-        // Implementacja w kolejnych krokach
-    }
-
-    handleBulkAction(action, productIds) {
-        console.log('[ProductsModule] Bulk action:', action, productIds);
-        // Implementacja w kolejnych krokach
-    }
-
-    handleExport(options) {
-        console.log('[ProductsModule] Export:', options);
-        // Implementacja w kolejnych krokach
-    }
-
-    handleProductDrag(event) {
-        console.log('[ProductsModule] Product drag:', event);
-        // Implementacja w kolejnych krokach
-    }
-
-    handleProductDrop(event) {
-        console.log('[ProductsModule] Product drop:', event);
-        // Implementacja w kolejnych krokach
-    }
-
-    // ========================================================================
-    // TEXT SEARCH Z FUZZY
-    // ========================================================================
-
-    /**
-     * Konfiguruje system wyszukiwania tekstowego z fuzzy matching
-     */
-    setupTextSearch() {
-        console.log('[ProductsModule] Setting up text search with fuzzy matching...');
-
-        try {
-            // Inicjalizuj fuzzy search engine
-            this.initializeFuzzySearchEngine();
-
-            // Ustaw konfigurację search
-            this.searchConfig = {
-                minQueryLength: 2,
-                maxResults: 1000,
-                fuzzyThreshold: 0.6, // 60% podobieństwa
-                searchFields: ['product_id', 'product_name', 'client_name', 'short_product_id'],
-                cacheEnabled: true,
-                cacheExpiry: 5 * 60 * 1000 // 5 minut
-            };
-
-            console.log('[ProductsModule] Text search setup completed');
-            return true;
-
-        } catch (error) {
-            console.error('[ProductsModule] Failed to setup text search:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Inicjalizuje silnik fuzzy search
-     */
-    initializeFuzzySearchEngine() {
-        // Implementacja prostego fuzzy search bez zewnętrznych bibliotek
-        this.components.fuzzySearchEngine = {
-            // Levenshtein distance algorithm
-            levenshteinDistance: (str1, str2) => {
-                const matrix = [];
-                const len1 = str1.length;
-                const len2 = str2.length;
-
-                for (let i = 0; i <= len2; i++) {
-                    matrix[i] = [i];
-                }
-
-                for (let j = 0; j <= len1; j++) {
-                    matrix[0][j] = j;
-                }
-
-                for (let i = 1; i <= len2; i++) {
-                    for (let j = 1; j <= len1; j++) {
-                        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-                            matrix[i][j] = matrix[i - 1][j - 1];
-                        } else {
-                            matrix[i][j] = Math.min(
-                                matrix[i - 1][j - 1] + 1, // substitution
-                                matrix[i][j - 1] + 1,     // insertion
-                                matrix[i - 1][j] + 1      // deletion
-                            );
-                        }
-                    }
-                }
-
-                return matrix[len2][len1];
-            },
-
-            // Oblicza similarity score (0-1)
-            calculateSimilarity: (str1, str2) => {
-                const maxLength = Math.max(str1.length, str2.length);
-                if (maxLength === 0) return 1.0;
-
-                const distance = this.components.fuzzySearchEngine.levenshteinDistance(
-                    str1.toLowerCase(),
-                    str2.toLowerCase()
-                );
-                return 1.0 - (distance / maxLength);
-            },
-
-            // Sprawdza czy string zawiera query (fuzzy)
-            fuzzyMatch: (text, query, threshold = 0.6) => {
-                if (!text || !query) return false;
-
-                text = text.toString().toLowerCase();
-                query = query.toLowerCase();
-
-                // Exact match - najwyższy priorytet
-                if (text.includes(query)) return true;
-
-                // Fuzzy match dla krótkich query
-                if (query.length >= 3) {
-                    const similarity = this.components.fuzzySearchEngine.calculateSimilarity(text, query);
-                    return similarity >= threshold;
-                }
-
-                return false;
-            }
-        };
-
-        console.log('[ProductsModule] Fuzzy search engine initialized');
-    }
-
-    /**
-     * Wykonuje wyszukiwanie tekstowe z fuzzy matching
-     */
-    async performTextSearch(searchQuery) {
-        console.log('[ProductsModule] Performing text search:', searchQuery);
-
-        try {
-            // Aktualizuj stan filtru
-            this.state.currentFilters.textSearch = searchQuery;
-
-            // Jeśli puste query - wyczyść filtr
-            if (!searchQuery || searchQuery.length < this.searchConfig.minQueryLength) {
-                console.log('[ProductsModule] Empty query - clearing text search filter');
-                await this.clearTextSearchResults();
-                return;
-            }
-
-            // Sprawdź cache
-            const cacheKey = `search_${searchQuery}`;
-            if (this.searchConfig.cacheEnabled && this.components.searchCache.has(cacheKey)) {
-                const cached = this.components.searchCache.get(cacheKey);
-                if (Date.now() - cached.timestamp < this.searchConfig.cacheExpiry) {
-                    console.log('[ProductsModule] Using cached search results');
-                    this.displaySearchResults(cached.results, searchQuery);
-                    return;
-                }
-            }
-
-            // Wykonaj fuzzy search na lokalnych danych
-            const results = this.fuzzySearchProducts(searchQuery);
-
-            // Cache results
-            if (this.searchConfig.cacheEnabled) {
-                this.components.searchCache.set(cacheKey, {
-                    results: results,
-                    timestamp: Date.now()
-                });
-            }
-
-            // Wyświetl rezultaty
-            this.displaySearchResults(results, searchQuery);
-
-            console.log(`[ProductsModule] Text search completed - found ${results.length} results`);
-
-        } catch (error) {
-            console.error('[ProductsModule] Text search failed:', error);
-            this.showSearchError('Wystąpił błąd podczas wyszukiwania');
-        } finally {
-            this.showSearchLoadingIndicator(false);
-        }
-    }
-
-    /**
-     * Wykonuje fuzzy search na lokalnych produktach
-     */
-    fuzzySearchProducts(query) {
-        if (!this.state.products || this.state.products.length === 0) {
-            return [];
+    handleFilterChange(filterType, values) {
+        console.log(`[ProductsModule] Filter changed: ${filterType}`, values);
+        
+        this.state.currentFilters[filterType] = Array.isArray(values) ? values : [values];
+        
+        // Debounce filters update
+        if (this.debounceTimers.filtersUpdate) {
+            clearTimeout(this.debounceTimers.filtersUpdate);
         }
 
-        const results = [];
-        const threshold = this.searchConfig.fuzzyThreshold;
-
-        for (const product of this.state.products) {
-            let matchScore = 0;
-            let matchedField = null;
-
-            // Sprawdź każde pole wyszukiwania
-            for (const field of this.searchConfig.searchFields) {
-                const fieldValue = this.getProductFieldValue(product, field);
-                if (fieldValue && this.components.fuzzySearchEngine.fuzzyMatch(fieldValue, query, threshold)) {
-                    const similarity = this.components.fuzzySearchEngine.calculateSimilarity(
-                        fieldValue.toString().toLowerCase(),
-                        query.toLowerCase()
-                    );
-
-                    if (similarity > matchScore) {
-                        matchScore = similarity;
-                        matchedField = field;
-                    }
-                }
-            }
-
-            // Jeśli znaleziono match, dodaj do rezultatów
-            if (matchScore > 0) {
-                results.push({
-                    product: product,
-                    matchScore: matchScore,
-                    matchedField: matchedField
-                });
-            }
-        }
-
-        // Sortuj po score (najlepsze dopasowanie pierwsze)
-        results.sort((a, b) => b.matchScore - a.matchScore);
-
-        // Zwróć tylko produkty (bez metadanych)
-        return results.map(result => result.product);
+        this.debounceTimers.filtersUpdate = setTimeout(() => {
+            this.applyAllFilters();
+            this.renderProductsList();
+            this.updateStats();
+        }, 150);
     }
 
-    /**
-     * Pobiera wartość pola produktu do przeszukania
-     */
-    getProductFieldValue(product, fieldName) {
-        switch (fieldName) {
-            case 'product_id':
-                return product.id || product.product_id;
-            case 'short_product_id':
-                return product.short_product_id;
-            case 'product_name':
-                return product.original_product_name || product.product_name;
-            case 'client_name':
-                return product.client_name || product.customer_name;
-            default:
-                return product[fieldName];
-        }
-    }
-
-    /**
-     * Wyświetla rezultaty wyszukiwania
-     */
-    displaySearchResults(results, query) {
-        console.log(`[ProductsModule] Displaying ${results.length} search results for: "${query}"`);
-
-        // Aktualizuj listę produktów (w kolejnych krokach będzie virtual scrolling)
-        this.state.filteredProducts = results;
-
-        // Aktualizuj statystyki
-        this.updateSearchStatistics(results.length, query);
-
-        // Wyświetl search query w UI
-        this.showActiveSearchQuery(query);
-
-        console.log('[ProductsModule] Search results displayed');
-    }
-
-    /**
-     * Czyści rezultaty wyszukiwania tekstowego
-     */
-    async clearTextSearchResults() {
-        console.log('[ProductsModule] Clearing text search results');
-
-        // Wyczyść filtr
-        this.state.currentFilters.textSearch = '';
-
-        // Przywróć pełną listę produktów
-        this.state.filteredProducts = this.state.products;
-
-        // Wyczyść UI
-        this.clearActiveSearchQuery();
-
-        // Aktualizuj statystyki
-        this.updateSearchStatistics(this.state.products.length, '');
-
-        this.showSearchLoadingIndicator(false);
-    }
-
-    /**
-     * Obsługuje klawisze w polu wyszukiwania
-     */
-    handleTextSearchKeydown(event) {
-        switch (event.key) {
-            case 'Escape':
-                this.clearTextSearch();
-                break;
-            case 'Enter':
-                event.preventDefault();
-                // Wymusi natychmiastowe wyszukiwanie
-                if (this.debounceTimers.textSearch) {
-                    clearTimeout(this.debounceTimers.textSearch);
-                }
-                this.performTextSearch(event.target.value.trim());
-                break;
-        }
-    }
-
-    /**
-     * Czyści pole wyszukiwania (przycisk X)
-     */
-    clearTextSearch() {
-        console.log('[ProductsModule] Clearing text search');
-
-        const textSearchInput = document.getElementById('products-text-search');
-        if (textSearchInput) {
-            textSearchInput.value = '';
-            textSearchInput.focus();
-        }
-
-        this.clearTextSearchResults();
-    }
-
-    /**
-     * Pokazuje/ukrywa loading indicator dla search
-     */
-    showSearchLoadingIndicator(show) {
-        const spinner = document.getElementById('text-search-loading');
-        if (spinner) {
-            spinner.style.display = show ? 'block' : 'none';
-        }
-
-        const textSearchInput = document.getElementById('products-text-search');
-        if (textSearchInput) {
-            textSearchInput.classList.toggle('searching', show);
-        }
-    }
-
-    /**
-     * Aktualizuje statystyki wyszukiwania
-     */
-    updateSearchStatistics(resultsCount, query) {
-        // Aktualizuj licznik produktów w statystykach
-        const totalCountEl = document.getElementById('stats-total-count');
-        if (totalCountEl) {
-            totalCountEl.textContent = resultsCount.toLocaleString();
-        }
-
-        // Pokaż info o aktywnym wyszukiwaniu
-        const searchInfo = document.querySelector('.search-results-info');
-        if (searchInfo) {
-            if (query && resultsCount < this.state.products.length) {
-                searchInfo.textContent = `Wyniki dla: "${query}" (${resultsCount} z ${this.state.products.length})`;
-                searchInfo.style.display = 'block';
-            } else {
-                searchInfo.style.display = 'none';
-            }
-        }
-    }
-
-    /**
-     * Pokazuje aktywne zapytanie wyszukiwania w UI
-     */
-    showActiveSearchQuery(query) {
-        console.log('[ProductsModule] Active search query:', query);
-
-        // NOWE: Aktualizuj badges po zmianie text search
-        this.updateFilterBadges();
-    }
-
-    /**
-     * Czyści wskaźnik aktywnego wyszukiwania
-     */
-    clearActiveSearchQuery() {
-        console.log('[ProductsModule] Cleared active search query');
-
-        // NOWE: Aktualizuj badges po wyczyszczeniu text search
-        this.updateFilterBadges();
-    }
-
-    /**
-     * Pokazuje błąd wyszukiwania
-     */
-    showSearchError(message) {
-        console.error('[ProductsModule] Search error:', message);
-
-        // Użyj toast systemu jeśli dostępny
-        if (this.shared && this.shared.toastSystem) {
-            this.shared.toastSystem.show(message, 'error');
+    handleProductSelect(productId, isChecked) {
+        console.log(`[ProductsModule] Product ${productId} selected: ${isChecked}`);
+        
+        if (isChecked) {
+            this.state.selectedProducts.add(productId);
         } else {
-            // Fallback
-            alert('Błąd wyszukiwania: ' + message);
-        }
-    }
-
-    // ========================================================================
-    // MULTI-SELECT DROPDOWNS
-    // ========================================================================
-
-    /**
-     * Konfiguruje system multi-select dropdownów
-     */
-    setupMultiSelectDropdowns() {
-        console.log('[ProductsModule] Setting up multi-select dropdowns...');
-
-        try {
-            // POPRAWIONA Konfiguracja dropdownów - używamy ID-ków z HTML
-            this.multiSelectConfig = {
-                dropdowns: {
-                    'wood-species': {
-                        id: 'wood-species-multiselect',
-                        displayId: 'filter-wood-species',
-                        filterKey: 'woodSpecies',
-                        placeholder: 'Wszystkie gatunki...',
-                        searchPlaceholder: 'Szukaj gatunku...',
-                        endpoint: '/api/filters/wood-species',
-                        options: []
-                    },
-                    'technologies': {
-                        id: 'technologies-multiselect',
-                        displayId: 'filter-technology',
-                        filterKey: 'technologies',
-                        placeholder: 'Wszystkie technologie...',
-                        searchPlaceholder: 'Szukaj technologii...',
-                        endpoint: '/api/filters/technologies',
-                        options: []
-                    },
-                    'wood-classes': {
-                        id: 'wood-classes-multiselect',
-                        displayId: 'filter-wood-class',
-                        filterKey: 'woodClasses',
-                        placeholder: 'Wszystkie klasy...',
-                        searchPlaceholder: 'Szukaj klasy...',
-                        endpoint: '/api/filters/wood-classes',
-                        options: []
-                    },
-                    'thicknesses': {
-                        id: 'thicknesses-multiselect',
-                        displayId: 'filter-thickness',
-                        filterKey: 'thicknesses',
-                        placeholder: 'Wszystkie grubości...',
-                        searchPlaceholder: 'Szukaj grubości...',
-                        endpoint: '/api/filters/thicknesses',
-                        options: []
-                    },
-                    'statuses': {
-                        id: 'statuses-multiselect',
-                        displayId: 'filter-status',
-                        filterKey: 'statuses',
-                        placeholder: 'Wszystkie statusy...',
-                        searchPlaceholder: 'Szukaj statusu...',
-                        endpoint: '/api/filters/statuses',
-                        options: []
-                    }
-                }
-            };
-
-            // Inicjalizuj każdy dropdown
-            for (const [key, config] of Object.entries(this.multiSelectConfig.dropdowns)) {
-                this.initializeSingleMultiSelect(key, config);
-            }
-
-            // Załaduj opcje dla wszystkich dropdownów
-            this.loadAllFilterOptions();
-
-            console.log('[ProductsModule] Multi-select dropdowns setup completed');
-            return true;
-
-        } catch (error) {
-            console.error('[ProductsModule] Failed to setup multi-select dropdowns:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Inicjalizuje pojedynczy multi-select dropdown
-     */
-    initializeSingleMultiSelect(key, config) {
-        console.log(`[ProductsModule] Initializing multi-select: ${key}`);
-
-        const displayEl = document.getElementById(config.displayId);
-        if (!displayEl) {
-            console.warn(`[ProductsModule] Display element not found: ${config.displayId}`);
-            return;
+            this.state.selectedProducts.delete(productId);
         }
 
-        const wrapperEl = displayEl.closest('.multi-select-wrapper');
-        const dropdownEl = wrapperEl?.querySelector('.multi-select-dropdown');
-        if (!dropdownEl) {
-            console.warn(`[ProductsModule] Dropdown container not found for: ${key}`);
-            return;
-        }
-
-        // Zapisz referencje (ważne: element = wrapperEl)
-        if (!this.components.multiSelects) this.components.multiSelects = {};
-        this.components.multiSelects[key] = {
-            config,
-            element: wrapperEl,           // <-- TOGO brakowało
-            displayElement: displayEl,
-            dropdownElement: dropdownEl,
-            isOpen: false,
-            selectedOptions: new Set(),
-            filteredOptions: []
-        };
-
-        // Podłącz zdarzenia do istniejących elementów
-        this.setupMultiSelectEventsForExisting(key, config, displayEl, dropdownEl);
-
-        console.log(`[ProductsModule] Multi-select initialized successfully: ${key}`);
+        // Aktualizuj select all checkbox
+        this.updateSelectAllCheckbox();
+        
+        // Pokaż/ukryj bulk actions
+        this.toggleBulkActionsVisibility();
     }
 
-    setupMultiSelectEventsForExisting(key, config, displayElement, dropdownElement) {
-        // Toggle dropdown
-        displayElement.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.toggleMultiSelectDropdown(key);
-        });
-
-        // Keyboard navigation
-        displayElement.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                this.toggleMultiSelectDropdown(key);
-            } else if (e.key === 'Escape') {
-                this.closeMultiSelectDropdown(key);
-            }
-        });
-
-        // Search input (jeśli istnieje)
-        const searchInput = dropdownElement.querySelector('.multi-select-search input');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                this.filterMultiSelectOptions(key, e.target.value);
-            });
-        }
-
-        // "Zaznacz wszystkie" - używamy istniejącego checkboxa
-        const selectAllCheckbox = dropdownElement.querySelector('input[id*="-all"]');
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    this.selectAllMultiSelectOptions(key);
-                } else {
-                    this.clearAllMultiSelectOptions(key);
-                }
-            });
-        }
-
-        // Zatrzymaj propagację kliknięć w dropdown
-        dropdownElement.addEventListener('click', (e) => {
-            e.stopPropagation();
-        });
-
-        console.log(`[ProductsModule] Events setup for existing elements: ${key}`);
-    }
-
-    /**
-     * Tworzy DOM struktur multi-select dropdown
-     */
-    createMultiSelectDropdown(key, config) {
-        const container = document.createElement('div');
-        container.className = 'multi-select-container';
-        container.setAttribute('data-key', key);
-
-        container.innerHTML = `
-        <div class="multi-select-trigger" tabindex="0" role="button" aria-haspopup="listbox">
-            <div class="multi-select-display">
-                <span class="placeholder">${config.placeholder}</span>
-                <span class="selected-count" style="display: none;">0 wybranych</span>
-            </div>
-            <div class="multi-select-arrow">
-                <i class="fas fa-chevron-down"></i>
-            </div>
-        </div>
-        <div class="multi-select-dropdown" style="display: none;" role="listbox">
-            <div class="multi-select-header">
-                <div class="multi-select-search">
-                    <input type="text" 
-                           class="form-control form-control-sm" 
-                           placeholder="${config.searchPlaceholder}"
-                           autocomplete="off">
-                    <i class="fas fa-search search-icon"></i>
-                </div>
-                <div class="multi-select-actions">
-                    <button type="button" class="btn btn-sm btn-link select-all-btn">
-                        <i class="fas fa-check-square me-1"></i>Zaznacz wszystkie
-                    </button>
-                    <button type="button" class="btn btn-sm btn-link clear-all-btn">
-                        <i class="fas fa-times me-1"></i>Wyczyść
-                    </button>
-                </div>
-            </div>
-            <div class="multi-select-loading" style="display: none;">
-                <i class="fas fa-spinner fa-spin me-2"></i>Ładowanie opcji...
-            </div>
-            <div class="multi-select-options">
-                <div class="no-options" style="display: none;">
-                    <i class="fas fa-info-circle me-2"></i>Brak dostępnych opcji
-                </div>
-            </div>
-        </div>
-    `;
-
-        return container;
-    }
-
-    /**
-     * Konfiguruje event listeners dla multi-select
-     */
-    setupMultiSelectEvents(key, config, dropdown) {
-        const trigger = dropdown.querySelector('.multi-select-trigger');
-        const dropdownMenu = dropdown.querySelector('.multi-select-dropdown');
-        const searchInput = dropdown.querySelector('.multi-select-search input');
-        const selectAllBtn = dropdown.querySelector('.select-all-btn');
-        const clearAllBtn = dropdown.querySelector('.clear-all-btn');
-
-        // Toggle dropdown
-        trigger.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.toggleMultiSelectDropdown(key);
-        });
-
-        // Keyboard navigation
-        trigger.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                this.toggleMultiSelectDropdown(key);
-            } else if (e.key === 'Escape') {
-                this.closeMultiSelectDropdown(key);
-            }
-        });
-
-        // Search w opcjach
-        searchInput.addEventListener('input', (e) => {
-            this.filterMultiSelectOptions(key, e.target.value);
-        });
-
-        // Zaznacz wszystkie
-        selectAllBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.selectAllMultiSelectOptions(key);
-        });
-
-        // Wyczyść wszystkie
-        clearAllBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.clearAllMultiSelectOptions(key);
-        });
-
-        // Zatrzymaj propagację kliknięć w dropdown
-        dropdownMenu.addEventListener('click', (e) => {
-            e.stopPropagation();
-        });
-    }
-
-    /**
-     * Toggle dropdown otwórz/zamknij
-     */
-    toggleMultiSelectDropdown(key) {
-        const multiSelect = this.components.multiSelects && this.components.multiSelects[key];
-        if (!multiSelect) return;
-
-        if (multiSelect.isOpen) {
-            this.closeMultiSelectDropdown(key);
-        } else {
-            this.openMultiSelectDropdown(key);
-        }
-    }
-
-    /**
-     * Otwiera dropdown
-     */
-    openMultiSelectDropdown(key) {
-        console.log(`[ProductsModule] Opening multi-select dropdown: ${key}`);
-
-        // Zamknij wszystkie inne dropdowny
-        this.closeAllMultiSelectDropdowns();
-
-        const multiSelect = this.components.multiSelects && this.components.multiSelects[key];
-        if (!multiSelect) return;
-
-        const dropdown = multiSelect.dropdownElement;
-        const trigger = multiSelect.displayElement;
-
-        dropdown.style.display = 'block';
-        dropdown.classList.add('open');
-        trigger.classList.add('open');
-        multiSelect.isOpen = true;
-
-        // Focus na search input
-        const searchInput = dropdown.querySelector('.multi-select-search input');
-        if (searchInput) {
-            setTimeout(() => searchInput.focus(), 100);
-        }
-
-        // Dodaj click listener do zamknięcia
-        setTimeout(() => {
-            document.addEventListener('click', this.handleMultiSelectOutsideClick.bind(this));
-        }, 100);
-    }
-
-    /**
-     * Zamyka dropdown
-     */
-    closeMultiSelectDropdown(key) {
-        const multiSelect = this.components.multiSelects && this.components.multiSelects[key];
-        if (!multiSelect || !multiSelect.isOpen) return;
-
-        const dropdown = multiSelect.dropdownElement;
-        const trigger = multiSelect.displayElement;
-
-        dropdown.style.display = 'none';
-        dropdown.classList.remove('open');
-        trigger.classList.remove('open');
-        multiSelect.isOpen = false;
-
-        // Usuń global click listener
-        document.removeEventListener('click', this.handleMultiSelectOutsideClick.bind(this));
-    }
-
-    /**
-     * Zamyka wszystkie otwarte dropdowny
-     */
-    closeAllMultiSelectDropdowns() {
-        if (!this.components.multiSelects) return;
-
-        for (const key of Object.keys(this.components.multiSelects)) {
-            this.closeMultiSelectDropdown(key);
-        }
-    }
-
-    /**
-     * Obsługuje kliknięcia poza dropdownem
-     */
-    handleMultiSelectOutsideClick(event) {
-        // Jeśli klik nie był w żadnym wrapperze multi-selectów, zamknij wszystkie
-        const insideWrapper = event.target.closest('.multi-select-wrapper');
-        if (!insideWrapper) {
-            this.closeAllMultiSelectDropdowns();
-        }
-    }
-
-    /**
-     * Filtruje opcje w dropdown na podstawie wyszukiwania
-     */
-    filterMultiSelectOptions(key, searchQuery) {
-        const ms = this.components.multiSelects[key];
-        if (!ms) return;
-
-        const options = ms.dropdownElement.querySelectorAll('.multi-select-option');
-        const q = (searchQuery || '').toLowerCase().trim();
-
-        let visible = 0;
-        options.forEach(opt => {
-            // pomiń “zaznacz wszystkie”
-            if (opt.classList.contains('multi-select-all')) return;
-
-            // w obecnym HTML tekst opcji jest w labelu, bez .option-text
-            const txt = (opt.textContent || '').toLowerCase();
-            const show = !q || txt.includes(q);
-            opt.style.display = show ? 'flex' : 'none';
-            if (show) visible++;
-        });
-
-        // (opcjonalnie) pokaż brak opcji – jeżeli dodasz placeholder .no-options w HTML
-        const noEl = ms.dropdownElement.querySelector('.no-options');
-        if (noEl) noEl.style.display = visible === 0 ? 'block' : 'none';
-    }
-
-    /**
-     * Zaznacza wszystkie opcje
-     */
-    selectAllMultiSelectOptions(key) {
-        console.log(`[ProductsModule] Selecting all options for: ${key}`);
-        const ms = this.components.multiSelects[key];
-        if (!ms) return;
-
-        const visibleOptions = ms.dropdownElement.querySelectorAll(
-            '.multi-select-option:not(.multi-select-all):not([style*="display: none"])'
-        );
-
-        visibleOptions.forEach(opt => {
-            const cb = opt.querySelector('input[type="checkbox"]');
-            const val = opt.getAttribute('data-value') || (cb && cb.value);
-            if (cb && !cb.checked) {
-                cb.checked = true;
-                if (val) ms.selectedOptions.add(val);
-            }
-        });
-
-        this.updateMultiSelectDisplay(key);
-        this.triggerFilterUpdate(key);
-    }
-
-    /**
-     * Wyczyść wszystkie zaznaczenia
-     */
-    clearAllMultiSelectOptions(key) {
-        console.log(`[ProductsModule] Clearing all options for: ${key}`);
-        const ms = this.components.multiSelects[key];
-        if (!ms) return;
-
-        const cbs = ms.dropdownElement.querySelectorAll('.multi-select-option input[type="checkbox"]');
-        cbs.forEach(cb => { if (!cb.id.endsWith('-all')) cb.checked = false; });
-
-        ms.selectedOptions.clear();
-        this.updateMultiSelectDisplay(key);
-        this.triggerFilterUpdate(key);
-    }
-
-    /**
-     * Aktualizuje wyświetlanie wybranych opcji
-     */
-    updateMultiSelectDisplay(key) {
-        const ms = this.components.multiSelects[key];
-        if (!ms) return;
-
-        const selectedCount = ms.selectedOptions.size;
-        const labelEl = ms.displayElement.querySelector('.multi-select-placeholder');
-        if (!labelEl) return;
-
-        // W tym HTML nie ma osobnego .selected-count – wpisujemy licznik w placeholder
-        labelEl.textContent = (selectedCount === 0) ? 'Wszystkie' : `${selectedCount} wybranych`;
-    }
-
-    /**
-     * Ładuje opcje dla wszystkich filtrów
-     */
-    async loadAllFilterOptions() {
-        console.log('[ProductsModule] Loading filter options for all dropdowns...');
-
-        const promises = [];
-
-        for (const [key, config] of Object.entries(this.multiSelectConfig.dropdowns)) {
-            promises.push(this.loadFilterOptions(key, config));
-        }
-
-        try {
-            await Promise.all(promises);
-            console.log('[ProductsModule] All filter options loaded successfully');
-        } catch (error) {
-            console.error('[ProductsModule] Failed to load some filter options:', error);
-        }
-    }
-
-    /**
-     * Ładuje opcje dla pojedynczego dropdownu
-     */
-    async loadFilterOptions(key, config) {
-        console.log(`[ProductsModule] Loading options for: ${key}`);
-
-        // POPRAWKA: Sprawdź czy komponent istnieje
-        const multiSelect = this.components.multiSelects && this.components.multiSelects[key];
-        if (!multiSelect) {
-            console.warn(`[ProductsModule] Multi-select component not found for: ${key}`);
-            return;
-        }
-
-        // Pokaż loading
-        this.showMultiSelectLoading(key, true);
-
-        try {
-            // Na razie używamy mock danych - w kolejnych krokach będzie API
-            const options = await this.getMockFilterOptions(key);
-
-            // Zapisz opcje
-            config.options = options;
-
-            // Renderuj opcje w dropdown
-            this.renderMultiSelectOptionsInExisting(key, options);
-
-            console.log(`[ProductsModule] Loaded ${options.length} options for: ${key}`);
-
-        } catch (error) {
-            console.error(`[ProductsModule] Failed to load options for ${key}:`, error);
-            this.showMultiSelectError(key, 'Nie udało się załadować opcji');
-        } finally {
-            this.showMultiSelectLoading(key, false);
-        }
-    }
-
-    /**
-     * Renderuje opcje w istniejących elementach HTML
-     */
-    renderMultiSelectOptionsInExisting(key, options) {
-        const multiSelect = this.components.multiSelects[key];
-        if (!multiSelect) return;
-
-        const optionsContainer = multiSelect.dropdownElement.querySelector('.multi-select-options');
-        if (!optionsContainer) {
-            console.warn(`[ProductsModule] Options container not found for: ${key}`);
-            return;
-        }
-
-        // Usuń istniejące opcje (oprócz "Zaznacz wszystkie")
-        const existingOptions = optionsContainer.querySelectorAll('.multi-select-option:not(.multi-select-all)');
-        existingOptions.forEach(option => option.remove());
-
-        // Dodaj nowe opcje
-        options.forEach(option => {
-            const optionElement = this.createMultiSelectOptionForExisting(key, option);
-            optionsContainer.appendChild(optionElement);
-        });
-
-        console.log(`[ProductsModule] Rendered ${options.length} options for: ${key}`);
-    }
-
-    /**
-     * Tworzy opcję dla istniejącej struktury HTML
-     */
-    createMultiSelectOptionForExisting(key, option) {
-        const optionElement = document.createElement('div');
-        optionElement.className = 'multi-select-option';
-        optionElement.setAttribute('data-value', option.value);
-
-        optionElement.innerHTML = `
-        <input type="checkbox" id="${key}-${option.value}" value="${option.value}">
-        <label for="${key}-${option.value}">${option.label} <span class="text-muted">(${option.count})</span></label>
-    `;
-
-        // Event listener dla checkboxu
-        const checkbox = optionElement.querySelector('input[type="checkbox"]');
-        checkbox.addEventListener('change', (e) => {
-            this.handleMultiSelectOptionChange(key, option.value, e.target.checked);
-        });
-
-        return optionElement;
-    }
-
-    /**
-     * Mock danych dla filtrów - będzie zastąpione API w kolejnych krokach
-     */
-    async getMockFilterOptions(key) {
-        // Symulacja API delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        const mockData = {
-            'wood-species': [
-                { value: 'dab', label: 'Dąb', count: 45 },
-                { value: 'jesion', label: 'Jesion', count: 32 },
-                { value: 'buk', label: 'Buk', count: 28 },
-                { value: 'sosna', label: 'Sosna', count: 15 },
-                { value: 'klon', label: 'Klon', count: 12 }
-            ],
-            'technologies': [
-                { value: 'lity', label: 'Lity', count: 78 },
-                { value: 'mikrowczep', label: 'Mikrowczep', count: 56 },
-                { value: 'klejony', label: 'Klejony', count: 34 }
-            ],
-            'wood-classes': [
-                { value: 'aa', label: 'A/A', count: 89 },
-                { value: 'ab', label: 'A/B', count: 67 },
-                { value: 'bb', label: 'B/B', count: 23 }
-            ],
-            'thicknesses': [
-                { value: '4cm', label: '4cm', count: 45 },
-                { value: '6cm', label: '6cm', count: 67 },
-                { value: '8cm', label: '8cm', count: 34 },
-                { value: '10cm', label: '10cm', count: 28 }
-            ],
-            'statuses': [
-                { value: 'czeka_na_wyciecie', label: 'Czeka na wycięcie', count: 45 },
-                { value: 'w_trakcie_ciecia', label: 'W trakcie cięcia', count: 23 },
-                { value: 'czeka_na_skladanie', label: 'Czeka na składanie', count: 34 },
-                { value: 'w_trakcie_skladania', label: 'W trakcie składania', count: 12 },
-                { value: 'czeka_na_pakowanie', label: 'Czeka na pakowanie', count: 18 },
-                { value: 'spakowane', label: 'Spakowane', count: 56 }
-            ]
-        };
-
-        return mockData[key] || [];
-    }
-
-    /**
-     * Renderuje opcje w dropdown
-     */
-    renderMultiSelectOptions(key, options) {
-        const multiSelect = this.components.multiSelects[key];
-        if (!multiSelect) return;
-
-        const optionsContainer = multiSelect.element.querySelector('.multi-select-options');
-
-        // Wyczyść istniejące opcje (oprócz "no-options")
-        const existingOptions = optionsContainer.querySelectorAll('.multi-select-option');
-        existingOptions.forEach(option => option.remove());
-
-        // Dodaj nowe opcje
-        options.forEach(option => {
-            const optionElement = this.createMultiSelectOption(key, option);
-            optionsContainer.insertBefore(optionElement, optionsContainer.querySelector('.no-options'));
-        });
-    }
-
-    /**
-     * Tworzy pojedynczą opcję dropdown
-     */
-    createMultiSelectOption(key, option) {
-        const optionElement = document.createElement('div');
-        optionElement.className = 'multi-select-option';
-        optionElement.setAttribute('data-value', option.value);
-        optionElement.setAttribute('role', 'option');
-
-        optionElement.innerHTML = `
-        <label class="option-label">
-            <input type="checkbox" value="${option.value}">
-            <div class="option-content">
-                <div class="option-text">${option.label}</div>
-                <div class="option-count">(${option.count})</div>
-            </div>
-        </label>
-    `;
-
-        // Event listener dla checkboxu
-        const checkbox = optionElement.querySelector('input[type="checkbox"]');
-        checkbox.addEventListener('change', (e) => {
-            this.handleMultiSelectOptionChange(key, option.value, e.target.checked);
-        });
-
-        return optionElement;
-    }
-
-    /**
-     * Obsługuje zmianę zaznaczenia opcji
-     */
-    handleMultiSelectOptionChange(key, value, isChecked) {
-        const multiSelect = this.components.multiSelects[key];
-        if (!multiSelect) return;
+    handleSelectAll(e) {
+        const isChecked = e.target.checked;
+        console.log(`[ProductsModule] Select all: ${isChecked}`);
 
         if (isChecked) {
-            multiSelect.selectedOptions.add(value);
+            // Zaznacz wszystkie przefiltrowane produkty
+            this.state.filteredProducts.forEach(product => {
+                this.state.selectedProducts.add(product.id);
+            });
         } else {
-            multiSelect.selectedOptions.delete(value);
+            // Odznacz wszystkie
+            this.state.selectedProducts.clear();
         }
 
-        this.updateMultiSelectDisplay(key);
-        this.triggerFilterUpdate(key);
-    }
-
-    /**
-     * Pokazuje/ukrywa loading indicator
-     */
-    showMultiSelectLoading(key, show) {
-        const multiSelect = this.components.multiSelects && this.components.multiSelects[key];
-        if (!multiSelect) return;
-
-        // Dodaj/usuń loading text w opcjach
-        const optionsContainer = multiSelect.dropdownElement.querySelector('.multi-select-options');
-        if (!optionsContainer) return;
-
-        let loadingElement = optionsContainer.querySelector('.loading-options');
-
-        if (show && !loadingElement) {
-            loadingElement = document.createElement('div');
-            loadingElement.className = 'loading-options text-center p-2 text-muted';
-            loadingElement.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Ładowanie opcji...';
-            optionsContainer.appendChild(loadingElement);
-        } else if (!show && loadingElement) {
-            loadingElement.remove();
-        }
-    }
-
-    /**
-     * Pokazuje błąd w dropdown
-     */
-    showMultiSelectError(key, message) {
-        console.error(`[ProductsModule] Multi-select error for ${key}:`, message);
-
-        if (this.shared && this.shared.toastSystem) {
-            this.shared.toastSystem.show(`Błąd filtra ${key}: ${message}`, 'error');
-        }
-    }
-
-    /**
-     * Wywołuje aktualizację filtrów
-     */
-    triggerFilterUpdate(key) {
-        console.log(`[ProductsModule] Filter update triggered for: ${key}`);
-
-        // Aktualizuj stan filtrów
-        const multiSelect = this.components.multiSelects[key];
-        const filterKey = this.multiSelectConfig.dropdowns[key].filterKey;
-
-        this.state.currentFilters[filterKey] = Array.from(multiSelect.selectedOptions);
-
-        // NOWE: Aktualizuj badges po zmianie filtrów
-        this.updateFilterBadges();
-
-        // W kolejnych krokach - przefiltruj produkty
-        // this.applyAllFilters();
-    }
-
-    // ========================================================================
-    // MULTI-SELECT CLEANUP HELPERS
-    // ========================================================================
-
-    /**
-     * Czyści event listeners dla pojedynczego multi-select
-     */
-    cleanupMultiSelectEvents(key) {
-        console.log(`[ProductsModule] Cleaning up multi-select events for: ${key}`);
-
-        const multiSelect = this.components.multiSelects[key];
-        if (!multiSelect || !multiSelect.element) return;
-
-        // Zamknij dropdown jeśli otwarty
-        if (multiSelect.isOpen) {
-            this.closeMultiSelectDropdown(key);
-        }
-
-        // Usuń referencje do event handlerów
-        const checkboxes = multiSelect.element.querySelectorAll('input[type="checkbox"]');
-        checkboxes.forEach(checkbox => {
-            checkbox.removeEventListener('change', this.handleMultiSelectOptionChange);
-        });
-
-        console.log(`[ProductsModule] Multi-select events cleaned up for: ${key}`);
-    }
-
-    /**
-     * Niszczy komponent multi-select
-     */
-    destroyMultiSelectComponent(key) {
-        console.log(`[ProductsModule] Destroying multi-select component: ${key}`);
-
-        const multiSelect = this.components.multiSelects[key];
-        if (!multiSelect) return;
-
-        // Cleanup events
-        this.cleanupMultiSelectEvents(key);
-
-        // Usuń element z DOM
-        if (multiSelect.element && multiSelect.element.parentNode) {
-            multiSelect.element.parentNode.removeChild(multiSelect.element);
-        }
-
-        // Wyczyść dane
-        if (multiSelect.selectedOptions) {
-            multiSelect.selectedOptions.clear();
-        }
-
-        // Usuń referencję
-        delete this.components.multiSelects[key];
-
-        console.log(`[ProductsModule] Multi-select component destroyed: ${key}`);
-    }
-
-    /**
-     * Pobiera aktualnie wybrane wartości dla wszystkich filtrów
-     */
-    getAllSelectedFilters() {
-        const filters = {};
-
-        if (!this.components.multiSelects) return filters;
-
-        Object.entries(this.components.multiSelects).forEach(([key, multiSelect]) => {
-            const config = this.multiSelectConfig.dropdowns[key];
-            if (config) {
-                filters[config.filterKey] = Array.from(multiSelect.selectedOptions);
-            }
-        });
-
-        return filters;
-    }
-
-    /**
-     * Resetuje wszystkie multi-select filtry
-     */
-    resetAllMultiSelectFilters() {
-        console.log('[ProductsModule] Resetting all multi-select filters');
-
-        if (!this.components.multiSelects) return;
-
-        Object.keys(this.components.multiSelects).forEach(key => {
-            this.clearAllMultiSelectOptions(key);
-        });
-    }
-
-    /**
-     * Ustawia wartości filtrów (np. z localStorage)
-     */
-    setMultiSelectFilters(filtersData) {
-        console.log('[ProductsModule] Setting multi-select filters:', filtersData);
-
-        if (!this.components.multiSelects || !filtersData) return;
-
-        Object.entries(this.multiSelectConfig.dropdowns).forEach(([key, config]) => {
-            const filterKey = config.filterKey;
-            const values = filtersData[filterKey];
-
-            if (values && Array.isArray(values) && values.length > 0) {
-                this.setMultiSelectSelection(key, values);
-            }
-        });
-    }
-
-    /**
-     * Ustawia zaznaczenie dla konkretnego multi-select
-     */
-    setMultiSelectSelection(key, values) {
-        const multiSelect = this.components.multiSelects[key];
-        if (!multiSelect || !values) return;
-
-        // Wyczyść obecne zaznaczenia
-        multiSelect.selectedOptions.clear();
-
-        // Odznacz wszystkie checkboxy
-        const checkboxes = multiSelect.element.querySelectorAll('input[type="checkbox"]');
-        checkboxes.forEach(checkbox => checkbox.checked = false);
-
-        // Zaznacz nowe wartości
-        values.forEach(value => {
-            const checkbox = multiSelect.element.querySelector(`input[type="checkbox"][value="${value}"]`);
-            if (checkbox) {
-                checkbox.checked = true;
-                multiSelect.selectedOptions.add(value);
-            }
-        });
-
-        // Aktualizuj wyświetlanie
-        this.updateMultiSelectDisplay(key);
-    }
-
-    // ========================================================================
-    // SYSTEM BADGES FILTRÓW - KROK 3.3
-    // ========================================================================
-
-    getMultiSelectOptionLabel(key, value) {
-        const ms = this.components.multiSelects?.[key];
-        if (!ms) return String(value);
-
-        // 1) Spróbuj z DOM (najbardziej aktualne)
-        const optEl = ms.dropdownElement.querySelector(`.multi-select-option[data-value="${CSS.escape(value)}"] label`);
-        if (optEl) {
-            // label może zawierać liczbę (count) – oczyść z nawiasu
-            const raw = (optEl.textContent || '').trim();
-            const cleaned = raw.replace(/\s*\(\d+\)\s*$/, '').trim();
-            if (cleaned) return cleaned;
-        }
-
-        // 2) Fallback do config.options
-        const cfgOpt = this.multiSelectConfig
-            ?.dropdowns?.[key]?.options?.find(o => String(o.value) === String(value));
-        if (cfgOpt?.label) return cfgOpt.label;
-
-        return String(value);
-    }
-
-    /**
-     * Konfiguruje system badges dla aktywnych filtrów
-     */
-    setupFilterBadges() {
-        console.log('[ProductsModule] Setting up filter badges system...');
-
-        try {
-            // Znajdź kontenery badges
-            this.badgesConfig = {
-                container: document.getElementById('active-filters-container'),
-                badgesWrapper: document.getElementById('filter-badges'),
-                clearAllButton: document.getElementById('clear-all-filters')
-            };
-
-            // Sprawdź czy wszystkie elementy istnieją
-            if (!this.badgesConfig.container) {
-                console.warn('[ProductsModule] Active filters container not found');
-                return false;
-            }
-
-            if (!this.badgesConfig.badgesWrapper) {
-                console.warn('[ProductsModule] Filter badges wrapper not found');
-                return false;
-            }
-
-            // Setup event listeners
-            if (this.badgesConfig.clearAllButton) {
-                this.badgesConfig.clearAllButton.addEventListener('click', this.clearAllFilters.bind(this));
-            }
-
-            // Ukryj kontener na start (nie ma aktywnych filtrów)
-            this.badgesConfig.container.style.display = 'none';
-
-            console.log('[ProductsModule] Filter badges system setup completed');
-            return true;
-
-        } catch (error) {
-            console.error('[ProductsModule] Failed to setup filter badges system:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Aktualizuje badges na podstawie aktywnych filtrów
-     */
-    updateFilterBadges() {
-        if (!this.badgesConfig || !this.badgesConfig.badgesWrapper) return;
-
-        console.log('[ProductsModule] Updating filter badges...');
-
-        // Wyczyść istniejące badge
-        this.badgesConfig.badgesWrapper.innerHTML = '';
-
-        const activeBadges = [];
-
-        // --- A) Badge dla text search (bez zmian) ---
-        if (this.state.currentFilters.textSearch?.trim()) {
-            activeBadges.push({
-                type: 'text-search',
-                label: 'Wyszukiwanie',
-                value: this.state.currentFilters.textSearch.trim(),
-                removable: true
-            });
-        }
-
-        // --- B) Badge dla multi-selectów: 1 badge = 1 zaznaczona opcja ---
-        if (this.components.multiSelects) {
-            Object.entries(this.multiSelectConfig.dropdowns).forEach(([key, config]) => {
-                const ms = this.components.multiSelects[key];
-                if (!ms || ms.selectedOptions.size === 0) return;
-
-                const groupLabel = this.getFilterDisplayName(config.filterKey);
-
-                ms.selectedOptions.forEach(val => {
-                    const optionLabel = this.getMultiSelectOptionLabel(key, val);
-
-                    activeBadges.push({
-                        type: 'multi-select',
-                        filterKey: config.filterKey,  // np. "woodClasses"
-                        label: groupLabel,            // np. "Klasa drewna"
-                        value: optionLabel,           // np. "A/B"
-                        removable: true,
-                        multiSelectKey: key,          // np. "wood-classes"
-                        singleValue: String(val)      // ważne dla remove
-                    });
-                });
-            });
-        }
-
-        // Render
-        activeBadges.forEach(b => {
-            const el = this.createFilterBadge(b);
-            this.badgesConfig.badgesWrapper.appendChild(el);
-        });
-
-        // Pokaż/ukryj kontener + animacja
-        if (activeBadges.length > 0) {
-            this.badgesConfig.container.style.display = 'flex';
-            this.animateFilterBadgesIn();
-        } else {
-            this.badgesConfig.container.style.display = 'none';
-        }
-
-        console.log(`[ProductsModule] Updated filter badges: ${activeBadges.length} active`);
-    }
-
-    /**
-     * Tworzy pojedynczy badge filtra
-     */
-    createFilterBadge(badgeData) {
-        const badge = document.createElement('div');
-        badge.className = 'filter-badge';
-        badge.setAttribute('data-type', badgeData.type);
-        badge.setAttribute('data-filter-key', badgeData.filterKey || '');
-
-        badge.innerHTML = `
-        <div class="badge-content">
-            <span class="badge-label"><strong>${badgeData.label}:</strong></span>
-            <span class="badge-value">${badgeData.value}</span>
-        </div>
-        ${badgeData.removable ? '<button class="badge-remove" type="button" style="background: none; border: none; color: white; margin-left: 6px;"><i class="fas fa-times"></i></button>' : ''}
-    `;
-
-        // Event listener dla usuwania
-        if (badgeData.removable) {
-            const removeButton = badge.querySelector('.badge-remove');
-            removeButton.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.removeFilterBadge(badgeData);
-            });
-        }
-
-        // Event listener dla kliknięcia w badge (opcjonalnie - otwarcie filtra)
-        badge.addEventListener('click', () => {
-            this.handleFilterBadgeClick(badgeData);
-        });
-
-        return badge;
-    }
-
-    /**
-     * Pobiera ikonę dla badge w zależności od typu filtra
-     */
-    getFilterBadgeIcon(type, filterKey) {
-        if (type === 'text-search') {
-            return 'fas fa-search';
-        }
-
-        const iconMap = {
-            'woodSpecies': 'fas fa-tree',
-            'technologies': 'fas fa-cogs',
-            'woodClasses': 'fas fa-layer-group',
-            'thicknesses': 'fas fa-ruler',
-            'statuses': 'fas fa-flag'
-        };
-
-        return iconMap[filterKey] || 'fas fa-filter';
-    }
-
-    /**
-     * Pobiera przyjazną nazwę dla filtra
-     */
-    getFilterDisplayName(filterKey) {
-        const nameMap = {
-            'woodSpecies': 'Gatunek drewna',
-            'technologies': 'Technologia',
-            'woodClasses': 'Klasa drewna',
-            'thicknesses': 'Grubość',
-            'statuses': 'Status'
-        };
-
-        return nameMap[filterKey] || filterKey;
-    }
-
-    /**
-     * Usuwa pojedynczy badge filtra
-     */
-    removeFilterBadge(badgeData) {
-        console.log('[ProductsModule] Removing filter badge:', badgeData);
-
-        if (badgeData.type === 'text-search') {
-            // Wyczyść text search
-            this.clearTextSearch();
-        } else if (badgeData.type === 'multi-select') {
-            // Wyczyść multi-select filter
-            if (badgeData.singleValue) {
-                // Usuń pojedynczą wartość
-                this.removeMultiSelectValue(badgeData.multiSelectKey, badgeData.singleValue);
-            } else if (badgeData.multipleValues) {
-                // Wyczyść wszystkie wartości
-                this.clearAllMultiSelectOptions(badgeData.multiSelectKey);
-            }
-        }
-
-        // Animacja usuwania badge
-        this.animateFilterBadgeOut(badgeData);
-    }
-
-    /**
-     * Usuwa pojedynczą wartość z multi-select
-     */
-    removeMultiSelectValue(multiSelectKey, value) {
-        const multiSelect = this.components.multiSelects && this.components.multiSelects[multiSelectKey];
-        if (!multiSelect) return;
-
-        // Usuń z selected options
-        multiSelect.selectedOptions.delete(value);
-
-        // Odznacz checkbox
-        const checkbox = multiSelect.dropdownElement.querySelector(`input[value="${value}"]`);
-        if (checkbox) {
-            checkbox.checked = false;
-        }
-
-        // Aktualizuj wyświetlanie
-        this.updateMultiSelectDisplay(multiSelectKey);
-
-        // Wywołaj update filtrów
-        this.triggerFilterUpdate(multiSelectKey);
-    }
-
-    /**
-     * Obsługuje kliknięcie w badge (otwiera odpowiedni filtr)
-     */
-    handleFilterBadgeClick(badgeData) {
-        console.log('[ProductsModule] Filter badge clicked:', badgeData);
-
-        if (badgeData.type === 'text-search') {
-            // Focus na text search
-            const textSearchInput = document.getElementById('products-text-search');
-            if (textSearchInput) {
-                textSearchInput.focus();
-                textSearchInput.select();
-            }
-        } else if (badgeData.type === 'multi-select') {
-            // Otwórz odpowiedni multi-select dropdown
-            this.openMultiSelectDropdown(badgeData.multiSelectKey);
-        }
-    }
-
-    /**
-     * Czyści wszystkie filtry
-     */
-    clearAllFilters() {
-        console.log('[ProductsModule] Clearing all filters...');
-
-        // Wyczyść text search
-        this.clearTextSearch();
-
-        // Wyczyść wszystkie multi-select filtry
-        if (this.components.multiSelects) {
-            Object.keys(this.components.multiSelects).forEach(key => {
-                this.clearAllMultiSelectOptions(key);
-            });
-        }
-
-        // Animacja usuwania wszystkich badges
-        this.animateAllFilterBadgesOut();
-
-        // Wywołaj ogólny refresh filtrów
-        this.applyAllFilters();
-    }
-
-    /**
-     * Animuje pojawianie się badges
-     */
-    animateFilterBadgesIn() {
-        if (!this.badgesConfig.badgesWrapper) return;
-
-        const badges = this.badgesConfig.badgesWrapper.querySelectorAll('.filter-badge');
-        badges.forEach((badge, index) => {
-            badge.style.opacity = '0';
-            badge.style.transform = 'translateY(-10px)';
-
-            setTimeout(() => {
-                badge.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                badge.style.opacity = '1';
-                badge.style.transform = 'translateY(0)';
-            }, index * 50); // Staggered animation
-        });
-    }
-
-    /**
-     * Animuje znikanie pojedynczego badge
-     */
-    animateFilterBadgeOut(badgeData) {
-        const badge = document.querySelector(`[data-type="${badgeData.type}"][data-filter-key="${badgeData.filterKey || ''}"]`);
-        if (!badge) return;
-
-        badge.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-        badge.style.opacity = '0';
-        badge.style.transform = 'translateX(10px)';
-
-        setTimeout(() => {
-            this.updateFilterBadges(); // Przebuduj wszystkie badges
-        }, 300);
-    }
-
-    /**
-     * Animuje znikanie wszystkich badges
-     */
-    animateAllFilterBadgesOut() {
-        if (!this.badgesConfig.badgesWrapper) return;
-
-        const badges = this.badgesConfig.badgesWrapper.querySelectorAll('.filter-badge');
-        badges.forEach((badge, index) => {
-            setTimeout(() => {
-                badge.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
-                badge.style.opacity = '0';
-                badge.style.transform = 'scale(0.8)';
-            }, index * 30);
-        });
-
-        setTimeout(() => {
-            this.updateFilterBadges(); // Przebuduj badges po animacji
-        }, badges.length * 30 + 200);
-    }
-
-    /**
-     * Aktualizuje badges po zmianie filtrów
-     */
-    onFiltersChanged() {
-        // Ta metoda będzie wywołana z innych części systemu filtrów
-        this.updateFilterBadges();
-
-        // W kolejnych krokach - zastosuj filtry do produktów
-        // this.applyAllFilters();
-    }
-
-    /**
-     * Metoda placeholder dla stosowania filtrów - implementacja w kolejnych krokach
-     */
-    applyAllFilters() {
-        console.log('[ProductsModule] Applying all filters - placeholder for next steps');
-
-        // TODO: W kolejnych krokach implementujemy:
-        // - Zbieranie wszystkich aktywnych filtrów
-        // - Filtrowanie produktów
-        // - Aktualizacja virtual scroll list
-        // - Aktualizacja statystyk
-    }
-
-    /**
-     * Tworzy nowy element DOM wiersza produktu
-     */
-    createProductRowElement(index, product) {
-        const template = document.getElementById('product-row-template');
-        if (!template) {
-            throw new Error('Product row template not found');
-        }
-
-        const clone = template.content.cloneNode(true);
-        const rowElement = clone.querySelector('.product-row');
+        // Aktualizuj checkboxy w wierszach
+        this.syncAllCheckboxes();
         
-        // Dodaj unikalną klasę dla identyfikacji
-        rowElement.classList.add('virtual-row');
-        rowElement.setAttribute('data-virtual-index', index);
-        
-        return rowElement;
+        // Pokaż/ukryj bulk actions
+        this.toggleBulkActionsVisibility();
     }
 
-    /**
-     * Aktualizuje dane w wierszu produktu
-     */
-    updateProductRow(rowElement, index, product) {
-        const uniqueId = this.getProductUniqueId(product);
-        
-        // Aktualizuj atrybuty wiersza
-        rowElement.setAttribute('data-product-id', uniqueId);
-        rowElement.setAttribute('data-virtual-index', index);
-        rowElement.setAttribute('data-priority', product.priority_score || 0);
-        rowElement.setAttribute('data-status', product.current_status || '');
+    handleSort(e) {
+        const column = e.currentTarget.getAttribute('data-sort');
+        if (!column) return;
 
-        // Checkbox - KLUCZOWE: synchronizacja z centralnym state
-        const checkbox = rowElement.querySelector('.product-checkbox');
-        if (checkbox) {
-            checkbox.checked = this.state.selectedProducts.has(uniqueId);
-            checkbox.value = uniqueId;
-            
-            // Remove old listeners i dodaj nowy
-            checkbox.replaceWith(checkbox.cloneNode(true));
-            const newCheckbox = rowElement.querySelector('.product-checkbox');
-            newCheckbox.checked = this.state.selectedProducts.has(uniqueId);
-            newCheckbox.value = uniqueId;
-            
-            newCheckbox.addEventListener('change', (e) => {
-                this.handleProductSelection(uniqueId, e.target.checked);
-            });
-        }
+        console.log(`[ProductsModule] Sorting by: ${column}`);
 
-        // Wypełnij dane produktu
-        this.populateProductRowData(rowElement, product);
-        
-        // Color coding
-        this.applyProductRowColorCoding(rowElement, product);
-    }
-
-    /**
-     * Wypełnia dane produktu w wierszu
-     */
-    populateProductRowData(rowElement, product) {
-        // ID produktu
-        const idMain = rowElement.querySelector('.product-id-main');
-        const idSub = rowElement.querySelector('.product-id-sub');
-        if (idMain) idMain.textContent = product.short_product_id || product.id || '-';
-        if (idSub) idSub.textContent = product.baselinker_id ? `BL: ${product.baselinker_id}` : '';
-
-        // Nazwa i specyfikacja
-        const nameEl = rowElement.querySelector('.product-name');
-        const specsEl = rowElement.querySelector('.product-specs');
-        if (nameEl) nameEl.textContent = product.original_product_name || product.product_name || '-';
-        if (specsEl) {
-            specsEl.innerHTML = this.buildProductSpecsHTML(product);
-        }
-
-        // Objętość
-        const volumeEl = rowElement.querySelector('.product-volume-cell');
-        if (volumeEl) {
-            volumeEl.textContent = product.volume_m3 ? `${parseFloat(product.volume_m3).toFixed(3)} m³` : '-';
-        }
-
-        // Wartość
-        const valueEl = rowElement.querySelector('.product-value-cell');
-        if (valueEl) {
-            const value = parseFloat(product.total_value_net || 0);
-            valueEl.textContent = value > 0 ? `${value.toLocaleString()} zł` : '-';
-        }
-
-        // Status
-        const statusEl = rowElement.querySelector('.status-badge');
-        if (statusEl) {
-            statusEl.textContent = this.getStatusDisplayName(product.current_status);
-            statusEl.className = `status-badge ${this.getStatusClass(product.current_status)}`;
-        }
-
-        // Deadline
-        const deadlineEl = rowElement.querySelector('.deadline-badge');
-        const deadlineDateEl = rowElement.querySelector('.deadline-date');
-        if (deadlineEl && deadlineDateEl) {
-            this.updateDeadlineDisplay(deadlineEl, deadlineDateEl, product);
-        }
-
-        // Priorytet
-        const priorityEl = rowElement.querySelector('.priority-score');
-        const priorityFillEl = rowElement.querySelector('.priority-fill');
-        if (priorityEl) {
-            const priority = parseInt(product.priority_score || 0);
-            priorityEl.textContent = priority;
-            priorityEl.className = `priority-score ${this.getPriorityClass(priority)}`;
-            
-            if (priorityFillEl) {
-                priorityFillEl.style.width = `${Math.min(priority, 200) / 2}%`;
-            }
-        }
-
-        // Przyciski akcji
-        this.setupProductRowActions(rowElement, product);
-    }
-
-    /**
-     * Buduje HTML specyfikacji produktu
-     */
-    buildProductSpecsHTML(product) {
-        const specs = [];
-        
-        if (product.wood_species) specs.push(`<span class="spec-wood">${product.wood_species}</span>`);
-        if (product.technology) specs.push(`<span class="spec-tech">${product.technology}</span>`);
-        if (product.wood_class) specs.push(`<span class="spec-class">${product.wood_class}</span>`);
-        if (product.thickness) specs.push(`<span class="spec-thickness">${product.thickness}cm</span>`);
-        
-        return specs.join(' • ');
-    }
-
-    /**
-     * Stosuje color coding do wiersza produktu
-     */
-    applyProductRowColorCoding(rowElement, product) {
-        // Usuń poprzednie klasy
-        rowElement.classList.remove('urgent-product', 'warning-product', 'normal-product');
-        
-        // Dodaj klasę na podstawie deadline
-        const urgencyClass = this.calculateProductUrgency(product);
-        if (urgencyClass) {
-            rowElement.classList.add(urgencyClass);
-        }
-        
-        // Dodaj klasę na podstawie priorytetu
-        const priority = parseInt(product.priority_score || 0);
-        if (priority > 150) {
-            rowElement.classList.add('high-priority');
-        } else if (priority < 50) {
-            rowElement.classList.add('low-priority');
-        }
-    }
-
-    /**
-     * Konfiguruje akcje w wierszu produktu
-     */
-    setupProductRowActions(rowElement, product) {
-        const uniqueId = this.getProductUniqueId(product);
-        
-        // Przycisk szczegółów
-        const detailsBtn = rowElement.querySelector('.product-details-btn');
-        if (detailsBtn) {
-            detailsBtn.replaceWith(detailsBtn.cloneNode(true));
-            const newDetailsBtn = rowElement.querySelector('.product-details-btn');
-            newDetailsBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.showProductDetails(uniqueId);
-            });
-        }
-
-        // Link do Baselinker
-        const baselinkerBtn = rowElement.querySelector('.baselinker-btn');
-        if (baselinkerBtn && product.baselinker_id) {
-            baselinkerBtn.href = `https://panel.baselinker.com/orders.php?action=details&id=${product.baselinker_id}`;
-        }
-
-        // Dropdown menu akcji
-        this.setupProductRowDropdownActions(rowElement, uniqueId);
-    }
-
-    /**
-     * Konfiguruje dropdown akcji w wierszu
-     */
-    setupProductRowDropdownActions(rowElement, uniqueId) {
-        const editPriorityBtn = rowElement.querySelector('.edit-priority-item');
-        const changeStatusBtn = rowElement.querySelector('.change-status-item');
-        const deleteBtn = rowElement.querySelector('.delete-product-item');
-
-        if (editPriorityBtn) {
-            editPriorityBtn.replaceWith(editPriorityBtn.cloneNode(true));
-            const newEditBtn = rowElement.querySelector('.edit-priority-item');
-            newEditBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.showEditPriorityModal(uniqueId);
-            });
-        }
-
-        if (changeStatusBtn) {
-            changeStatusBtn.replaceWith(changeStatusBtn.cloneNode(true));
-            const newStatusBtn = rowElement.querySelector('.change-status-item');
-            newStatusBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.showChangeStatusModal(uniqueId);
-            });
-        }
-
-        if (deleteBtn) {
-            deleteBtn.replaceWith(deleteBtn.cloneNode(true));
-            const newDeleteBtn = rowElement.querySelector('.delete-product-item');
-            newDeleteBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.confirmDeleteProduct(uniqueId);
-            });
-        }
-    }
-
-    // ========================================================================
-    // PRODUCT ROW STRUCTURE - KROK 4.2
-    // ========================================================================
-
-    /**
-     * Konfiguruje strukturę wiersza produktu z 12 kolumnami
-     */
-    setupProductRowStructure() {
-        console.log('[ProductsModule] Setting up product row structure...');
-
-        try {
-            // Konfiguracja kolumn wiersza produktu
-            this.productRowConfig = {
-                columns: [
-                    {
-                        key: 'checkbox',
-                        title: '',
-                        width: '40px',
-                        sortable: false,
-                        className: 'product-checkbox-cell'
-                    },
-                    {
-                        key: 'drag_handle',
-                        title: '',
-                        width: '30px',
-                        sortable: false,
-                        className: 'product-drag-cell'
-                    },
-                    {
-                        key: 'priority_score',
-                        title: 'Priorytet',
-                        width: '90px',
-                        sortable: true,
-                        className: 'product-priority-cell'
-                    },
-                    {
-                        key: 'short_product_id',
-                        title: 'ID Produktu',
-                        width: '120px',
-                        sortable: true,
-                        className: 'product-id-cell'
-                    },
-                    {
-                        key: 'original_product_name',
-                        title: 'Produkt',
-                        width: '200px',
-                        sortable: true,
-                        className: 'product-info-cell'
-                    },
-                    {
-                        key: 'volume_m3',
-                        title: 'Objętość',
-                        width: '90px',
-                        sortable: true,
-                        className: 'product-volume-cell'
-                    },
-                    {
-                        key: 'total_value_net',
-                        title: 'Wartość',
-                        width: '100px',
-                        sortable: true,
-                        className: 'product-value-cell'
-                    },
-                    {
-                        key: 'current_status',
-                        title: 'Status',
-                        width: '140px',
-                        sortable: true,
-                        className: 'product-status-cell'
-                    },
-                    {
-                        key: 'deadline_date',
-                        title: 'Deadline',
-                        width: '110px',
-                        sortable: true,
-                        className: 'product-deadline-cell'
-                    },
-                    {
-                        key: 'actions',
-                        title: 'Akcje',
-                        width: '120px',
-                        sortable: false,
-                        className: 'product-actions-cell'
-                    }
-                ]
-            };
-
-            // Mapowanie color coding dla różnych statusów i kategorii
-            this.colorCodingConfig = {
-                // Status badges
-                status: {
-                    'czeka_na_wyciecie': { class: 'status-waiting', color: '#ffc107', bg: '#fff3cd' },
-                    'w_trakcie_ciecia': { class: 'status-cutting', color: '#fd7e14', bg: '#f8d7da' },
-                    'czeka_na_skladanie': { class: 'status-waiting', color: '#6c757d', bg: '#f8f9fa' },
-                    'w_trakcie_skladania': { class: 'status-assembly', color: '#007bff', bg: '#cce5ff' },
-                    'czeka_na_pakowanie': { class: 'status-waiting', color: '#6c757d', bg: '#f8f9fa' },
-                    'w_trakcie_pakowania': { class: 'status-packaging', color: '#28a745', bg: '#d4edda' },
-                    'spakowane': { class: 'status-completed', color: '#28a745', bg: '#d4edda' },
-                    'wstrzymane': { class: 'status-paused', color: '#ffc107', bg: '#fff3cd' },
-                    'anulowane': { class: 'status-cancelled', color: '#dc3545', bg: '#f8d7da' }
-                },
-                
-                // Priority levels
-                priority: {
-                    'critical': { class: 'priority-critical', threshold: 180, color: '#dc3545' },
-                    'high': { class: 'priority-high', threshold: 140, color: '#fd7e14' },
-                    'medium': { class: 'priority-medium', threshold: 80, color: '#ffc107' },
-                    'low': { class: 'priority-low', threshold: 0, color: '#28a745' }
-                },
-
-                // Urgency indicators based on deadline
-                urgency: {
-                    'overdue': { class: 'urgent-product', days: -1, bg: '#ffebee', border: '#f44336' },
-                    'urgent': { class: 'warning-product', days: 2, bg: '#fff3e0', border: '#ff9800' },
-                    'warning': { class: 'caution-product', days: 7, bg: '#e8f5e8', border: '#4caf50' },
-                    'normal': { class: 'normal-product', days: 999, bg: '#ffffff', border: '#e0e0e0' }
-                },
-
-                // Wood species colors
-                woodSpecies: {
-                    'dab': { class: 'wood-oak', color: '#8d6e63', label: 'Dąb' },
-                    'jesion': { class: 'wood-ash', color: '#795548', label: 'Jesion' },
-                    'buk': { class: 'wood-beech', color: '#6d4c41', label: 'Buk' },
-                    'sosna': { class: 'wood-pine', color: '#4caf50', label: 'Sosna' },
-                    'klon': { class: 'wood-maple', color: '#ffeb3b', label: 'Klon' }
-                },
-
-                // Technology types
-                technology: {
-                    'lity': { class: 'tech-solid', color: '#2e7d32', bg: '#e8f5e8', label: 'Lity' },
-                    'mikrowczep': { class: 'tech-microchip', color: '#1565c0', bg: '#e3f2fd', label: 'Mikrowczep' },
-                    'klejony': { class: 'tech-laminated', color: '#ef6c00', bg: '#fff3e0', label: 'Klejony' }
-                }
-            };
-
-            // Setup sortowanie nagłówków kolumn
-            this.setupColumnSorting();
-
-            console.log('[ProductsModule] Product row structure setup completed');
-            return true;
-
-        } catch (error) {
-            console.error('[ProductsModule] Failed to setup product row structure:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Poprawiona metoda renderowania specyfikacji produktu
-     */
-    buildProductSpecsHTML(product) {
-        const specs = [];
-        
-        // Gatunek drewna z color coding
-        if (product.wood_species) {
-            const woodConfig = this.colorCodingConfig.woodSpecies[product.wood_species.toLowerCase()];
-            const woodClass = woodConfig ? woodConfig.class : 'wood-default';
-            const woodLabel = woodConfig ? woodConfig.label : product.wood_species;
-            specs.push(`<span class="spec-badge ${woodClass}">${woodLabel}</span>`);
-        }
-        
-        // Technologia z color coding
-        if (product.technology) {
-            const techConfig = this.colorCodingConfig.technology[product.technology.toLowerCase()];
-            const techClass = techConfig ? techConfig.class : 'tech-default';
-            const techLabel = techConfig ? techConfig.label : product.technology;
-            specs.push(`<span class="spec-badge ${techClass}">${techLabel}</span>`);
-        }
-        
-        // Klasa drewna
-        if (product.wood_class) {
-            specs.push(`<span class="spec-badge wood-class-${product.wood_class.toLowerCase().replace('/', '')}">${product.wood_class}</span>`);
-        }
-        
-        // Grubość
-        if (product.thickness) {
-            specs.push(`<span class="spec-badge thickness">${product.thickness}cm</span>`);
-        }
-        
-        return specs.join(' ');
-    }
-
-    /**
-     * Poprawiona metoda color coding dla całego wiersza
-     */
-    applyProductRowColorCoding(rowElement, product) {
-        // Usuń poprzednie klasy urgency
-        rowElement.classList.remove('urgent-product', 'warning-product', 'caution-product', 'normal-product');
-        
-        // Usuń poprzednie klasy priority  
-        rowElement.classList.remove('high-priority', 'low-priority', 'critical-priority');
-        
-        // Dodaj klasę urgency na podstawie deadline
-        const urgencyClass = this.calculateProductUrgencyClass(product);
-        if (urgencyClass) {
-            rowElement.classList.add(urgencyClass);
-        }
-        
-        // Dodaj klasę priority na podstawie score
-        const priorityClass = this.calculateProductPriorityClass(product);
-        if (priorityClass) {
-            rowElement.classList.add(priorityClass);
-        }
-        
-        // Ustaw custom CSS properties dla zaawansowanego stylowania
-        const urgencyConfig = this.getUrgencyConfig(product);
-        if (urgencyConfig) {
-            rowElement.style.setProperty('--urgency-bg', urgencyConfig.bg);
-            rowElement.style.setProperty('--urgency-border', urgencyConfig.border);
-        }
-    }
-
-    /**
-     * Oblicza klasę urgency produktu
-     */
-    calculateProductUrgencyClass(product) {
-        const daysToDeadline = product.days_to_deadline;
-        
-        if (daysToDeadline === null || daysToDeadline === undefined) {
-            return 'normal-product';
-        }
-        
-        if (daysToDeadline < 0) return 'urgent-product';
-        if (daysToDeadline <= 2) return 'warning-product';
-        if (daysToDeadline <= 7) return 'caution-product';
-        return 'normal-product';
-    }
-
-    /**
-     * Oblicza klasę priority produktu
-     */
-    calculateProductPriorityClass(product) {
-        const priority = parseInt(product.priority_score || 0);
-        
-        if (priority >= 180) return 'critical-priority';
-        if (priority >= 140) return 'high-priority';
-        if (priority <= 30) return 'low-priority';
-        return null; // normal priority - bez dodatkowej klasy
-    }
-
-    /**
-     * Pobiera konfigurację urgency dla produktu
-     */
-    getUrgencyConfig(product) {
-        const daysToDeadline = product.days_to_deadline;
-        
-        if (daysToDeadline === null || daysToDeadline === undefined) {
-            return this.colorCodingConfig.urgency.normal;
-        }
-        
-        if (daysToDeadline < 0) return this.colorCodingConfig.urgency.overdue;
-        if (daysToDeadline <= 2) return this.colorCodingConfig.urgency.urgent;
-        if (daysToDeadline <= 7) return this.colorCodingConfig.urgency.warning;
-        return this.colorCodingConfig.urgency.normal;
-    }
-
-    /**
-     * Poprawiona metoda wyświetlania deadline z ikonami urgency
-     */
-    updateDeadlineDisplay(deadlineEl, deadlineDateEl, product) {
-        if (!product.deadline_date) {
-            deadlineEl.innerHTML = '<span class="no-deadline">-</span>';
-            deadlineEl.className = 'deadline-badge';
-            if (deadlineDateEl) deadlineDateEl.textContent = '';
-            return;
-        }
-
-        const today = new Date();
-        const deadline = new Date(product.deadline_date);
-        const diffDays = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
-        
-        let badgeHTML, badgeClass;
-        
-        if (diffDays < 0) {
-            badgeHTML = `<i class="fas fa-exclamation-triangle me-1"></i>Spóźnienie ${Math.abs(diffDays)}d`;
-            badgeClass = 'deadline-badge deadline-overdue';
-        } else if (diffDays === 0) {
-            badgeHTML = `<i class="fas fa-clock me-1"></i>Dziś`;
-            badgeClass = 'deadline-badge deadline-today';
-        } else if (diffDays <= 2) {
-            badgeHTML = `<i class="fas fa-fire me-1"></i>${diffDays}d`;
-            badgeClass = 'deadline-badge deadline-urgent';
-        } else if (diffDays <= 7) {
-            badgeHTML = `<i class="fas fa-hourglass-half me-1"></i>${diffDays}d`;
-            badgeClass = 'deadline-badge deadline-warning';
-        } else {
-            badgeHTML = `<i class="fas fa-calendar me-1"></i>${diffDays}d`;
-            badgeClass = 'deadline-badge deadline-normal';
-        }
-        
-        deadlineEl.innerHTML = badgeHTML;
-        deadlineEl.className = badgeClass;
-        if (deadlineDateEl) {
-            deadlineDateEl.textContent = deadline.toLocaleDateString('pl-PL');
-        }
-    }
-
-    /**
-     * Poprawiona metoda wyświetlania priorytetu z progress bar
-     */
-    updatePriorityDisplay(priorityEl, priorityFillEl, product) {
-        const priority = parseInt(product.priority_score || 0);
-        const priorityConfig = this.getPriorityConfig(priority);
-        
-        if (priorityEl) {
-            priorityEl.textContent = priority;
-            priorityEl.className = `priority-score ${priorityConfig.class}`;
-            priorityEl.style.color = priorityConfig.color;
-        }
-        
-        if (priorityFillEl) {
-            const fillPercentage = Math.min((priority / 200) * 100, 100);
-            priorityFillEl.style.width = `${fillPercentage}%`;
-            priorityFillEl.style.backgroundColor = priorityConfig.color;
-        }
-    }
-
-    /**
-     * Pobiera konfigurację priority
-     */
-    getPriorityConfig(priority) {
-        if (priority >= 180) return this.colorCodingConfig.priority.critical;
-        if (priority >= 140) return this.colorCodingConfig.priority.high;
-        if (priority >= 80) return this.colorCodingConfig.priority.medium;
-        return this.colorCodingConfig.priority.low;
-    }
-
-    /**
-     * Dodaje tooltips z dodatkowymi informacjami
-     */
-    addProductRowTooltips(rowElement, product) {
-        // Tooltip dla nazwy produktu
-        const nameElement = rowElement.querySelector('.product-name');
-        if (nameElement && product.original_product_name) {
-            nameElement.title = product.original_product_name;
-        }
-        
-        // Tooltip dla ID produktu
-        const idElement = rowElement.querySelector('.product-id-main');
-        if (idElement) {
-            const tooltipText = [
-                `ID: ${product.short_product_id}`,
-                `Zamówienie: ${product.internal_order_number || 'N/A'}`,
-                `Baselinker: ${product.baselinker_order_id || 'N/A'}`
-            ].join('\n');
-            idElement.title = tooltipText;
-        }
-        
-        // Tooltip dla priorytetu
-        const priorityElement = rowElement.querySelector('.priority-score');
-        if (priorityElement) {
-            const priorityConfig = this.getPriorityConfig(product.priority_score || 0);
-            priorityElement.title = `Priorytet: ${product.priority_score || 0}/200 (${priorityConfig.class.replace('priority-', '')})`;
-        }
-        
-        // Tooltip dla deadline
-        const deadlineElement = rowElement.querySelector('.deadline-badge');
-        if (deadlineElement && product.deadline_date) {
-            const deadline = new Date(product.deadline_date);
-            const urgencyConfig = this.getUrgencyConfig(product);
-            deadlineElement.title = `Deadline: ${deadline.toLocaleString('pl-PL')}\nStatus: ${urgencyConfig.class.replace('-product', '')}`;
-        }
-    }
-
-    // ========================================================================
-    // COLUMN SORTING - KROK 4.4 podpunkt
-    // ========================================================================
-
-    /**
-     * Konfiguruje sortowanie kolumn
-     */
-    setupColumnSorting() {
-        console.log('[ProductsModule] Setting up column sorting...');
-        
-        // Znajdź wszystkie nagłówki z sortowaniem
-        const sortableHeaders = document.querySelectorAll('.sortable-header');
-        
-        sortableHeaders.forEach(header => {
-            header.addEventListener('click', (e) => {
-                const sortColumn = header.getAttribute('data-sort');
-                this.handleColumnSort(sortColumn);
-            });
-            
-            // Dodaj keyboard accessibility
-            header.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    const sortColumn = header.getAttribute('data-sort');
-                    this.handleColumnSort(sortColumn);
-                }
-            });
-        });
-        
-        console.log(`[ProductsModule] Column sorting setup for ${sortableHeaders.length} headers`);
-    }
-
-    /**
-     * Obsługuje sortowanie kolumn
-     */
-    handleColumnSort(columnKey) {
-        console.log(`[ProductsModule] Column sort requested: ${columnKey}`);
-        
-        // Sprawdź czy to ta sama kolumna - zmień kierunek
-        if (this.state.sortColumn === columnKey) {
+        // Zmień kierunek sortowania
+        if (this.state.sortColumn === column) {
             this.state.sortDirection = this.state.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
-            this.state.sortColumn = columnKey;
+            this.state.sortColumn = column;
             this.state.sortDirection = 'asc';
         }
-        
-        // Aktualizuj wizualne wskaźniki sortowania
-        this.updateSortIndicators(columnKey, this.state.sortDirection);
-        
-        // Posortuj produkty
-        this.sortProducts(columnKey, this.state.sortDirection);
-        
-        console.log(`[ProductsModule] Products sorted by ${columnKey} ${this.state.sortDirection}`);
+
+        // Sortuj produkty
+        this.sortProducts();
+        this.renderProductsList();
+        this.updateSortIndicators();
     }
 
-    /**
-     * Aktualizuje wskaźniki sortowania w nagłówkach
-     */
-    updateSortIndicators(activeColumn, direction) {
-        // Usuń wszystkie aktywne wskaźniki
-        document.querySelectorAll('.sortable-header').forEach(header => {
-            const icon = header.querySelector('i');
-            header.classList.remove('sort-asc', 'sort-desc');
-            if (icon) {
-                icon.className = 'fas fa-sort';
+    handleKeydown(e) {
+        // Ctrl+A - Select all
+        if (e.ctrlKey && e.key === 'a' && !e.target.matches('input, textarea')) {
+            e.preventDefault();
+            if (this.elements.selectAllCheckbox) {
+                this.elements.selectAllCheckbox.checked = true;
+                this.handleSelectAll({ target: this.elements.selectAllCheckbox });
             }
-        });
-        
-        // Dodaj wskaźnik do aktywnej kolumny
-        const activeHeader = document.querySelector(`[data-sort="${activeColumn}"]`);
-        if (activeHeader) {
-            const icon = activeHeader.querySelector('i');
-            activeHeader.classList.add(`sort-${direction}`);
-            if (icon) {
-                icon.className = direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
-            }
+        }
+
+        // Ctrl+E - Export
+        if (e.ctrlKey && e.key === 'e') {
+            e.preventDefault();
+            this.handleExport();
+        }
+
+        // Escape - Clear selection
+        if (e.key === 'Escape') {
+            this.state.selectedProducts.clear();
+            this.syncAllCheckboxes();
+            this.toggleBulkActionsVisibility();
         }
     }
 
-    /**
-     * Sortuje produkty w state
-     */
-    sortProducts(columnKey, direction) {
-        const products = this.getFilteredProducts();
+    handleBulkAction(actionType) {
+        console.log(`[ProductsModule] Bulk action: ${actionType}`);
         
-        products.sort((a, b) => {
-            let aVal = this.getSortValue(a, columnKey);
-            let bVal = this.getSortValue(b, columnKey);
-            
-            // Handle null/undefined values
-            if (aVal === null || aVal === undefined) aVal = '';
-            if (bVal === null || bVal === undefined) bVal = '';
-            
-            // Numeric comparison
-            if (typeof aVal === 'number' && typeof bVal === 'number') {
-                return direction === 'asc' ? aVal - bVal : bVal - aVal;
-            }
-            
-            // String comparison
-            const aStr = aVal.toString().toLowerCase();
-            const bStr = bVal.toString().toLowerCase();
-            
-            if (direction === 'asc') {
-                return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
-            } else {
-                return aStr > bStr ? -1 : aStr < bStr ? 1 : 0;
-            }
-        });
-        
-        // Aktualizuj przefiltrowane produkty
-        this.state.filteredProducts = products;
-    }
+        const selectedIds = Array.from(this.state.selectedProducts);
+        if (selectedIds.length === 0) {
+            alert('Nie wybrano żadnych produktów');
+            return;
+        }
 
-    /**
-     * Pobiera wartość do sortowania dla kolumny
-     */
-    getSortValue(product, columnKey) {
-        switch (columnKey) {
-            case 'priority_score':
-                return parseInt(product.priority_score || 0);
-            case 'short_product_id':
-                return product.short_product_id || '';
-            case 'original_product_name':
-                return product.original_product_name || '';
-            case 'volume_m3':
-                return parseFloat(product.volume_m3 || 0);
-            case 'total_value_net':
-                return parseFloat(product.total_value_net || 0);
-            case 'current_status':
-                return product.current_status || '';
-            case 'deadline_date':
-                return product.deadline_date ? new Date(product.deadline_date).getTime() : 0;
+        switch (actionType) {
+            case 'change-status':
+                this.showBulkStatusChangeModal(selectedIds);
+                break;
+            case 'export-selected':
+                this.handleExportSelected(selectedIds);
+                break;
+            case 'delete':
+                this.showBulkDeleteConfirmation(selectedIds);
+                break;
             default:
-                return product[columnKey] || '';
+                console.warn(`Unknown bulk action: ${actionType}`);
         }
     }
 
-    // ========================================================================
-    // KONIEC SEKCJI PRODUCT ROW STRUCTURE
-    // ========================================================================
+    showBulkStatusChangeModal(selectedIds) {
+        console.log('[ProductsModule] Showing bulk status change modal', selectedIds);
+        
+        const statuses = [
+            { value: 'czeka_na_wyciecie', label: 'Czeka na wycięcie' },
+            { value: 'w_trakcie_ciecia', label: 'W trakcie cięcia' },
+            { value: 'czeka_na_skladanie', label: 'Czeka na składanie' },
+            { value: 'w_trakcie_skladania', label: 'W trakcie składania' },
+            { value: 'czeka_na_pakowanie', label: 'Czeka na pakowanie' },
+            { value: 'w_trakcie_pakowania', label: 'W trakcie pakowania' },
+            { value: 'spakowane', label: 'Spakowane' },
+            { value: 'wstrzymane', label: 'Wstrzymane' },
+            { value: 'anulowane', label: 'Anulowane' }
+        ];
 
-    // ========================================================================
-    // CHECKBOX MANAGEMENT - KROK 4.3
-    // ========================================================================
+        const statusOptions = statuses.map(status => 
+            `<option value="${status.value}">${status.label}</option>`
+        ).join('');
 
-    /**
-     * Zaznacza wszystkie widoczne produkty
-     */
-    selectAllVisibleProducts() {
-        console.log('[ProductsModule] Selecting all visible products...');
-        
-        const filteredProducts = this.getFilteredProducts();
-        let selectedCount = 0;
-        
-        filteredProducts.forEach(product => {
-            const uniqueId = this.getProductUniqueId(product);
-            if (!this.state.selectedProducts.has(uniqueId)) {
-                this.state.selectedProducts.add(uniqueId);
-                selectedCount++;
-            }
-        });
-        
-        // Synchronizuj checkboxy widocznych wierszy
-        this.syncVisibleCheckboxes();
-        
-        // Aktualizuj UI
-        this.updateBulkActionsBar();
-        this.updateSelectAllCheckbox();
-        
-        console.log(`[ProductsModule] Selected ${selectedCount} products (total: ${this.state.selectedProducts.size})`);
-        
-        // Toast notification
-        if (this.shared.toastSystem && selectedCount > 0) {
-            this.shared.toastSystem.show(`Zaznaczono ${filteredProducts.length} produktów`, 'success');
-        }
-    }
+        const modalHtml = `
+            <div class="modal fade" id="bulk-status-modal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Zmień status dla ${selectedIds.length} produktów</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label for="bulk-status-select" class="form-label">Nowy status:</label>
+                                <select class="form-select" id="bulk-status-select">
+                                    <option value="">Wybierz status...</option>
+                                    ${statusOptions}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                            <button type="button" class="btn btn-primary" id="confirm-bulk-status">Zmień status</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
 
-    /**
-     * Odznacza wszystkie produkty
-     */
-    deselectAllProducts() {
-        console.log('[ProductsModule] Deselecting all products...');
-        
-        const previousCount = this.state.selectedProducts.size;
-        this.state.selectedProducts.clear();
-        
-        // Synchronizuj checkboxy widocznych wierszy
-        this.syncVisibleCheckboxes();
-        
-        // Aktualizuj UI
-        this.updateBulkActionsBar();
-        this.updateSelectAllCheckbox();
-        
-        console.log(`[ProductsModule] Deselected ${previousCount} products`);
-        
-        // Toast notification
-        if (this.shared.toastSystem && previousCount > 0) {
-            this.shared.toastSystem.show(`Odznaczono ${previousCount} produktów`, 'info');
-        }
-    }
+        // Usuń poprzedni modal jeśli istnieje
+        const existingModal = document.getElementById('bulk-status-modal');
+        if (existingModal) existingModal.remove();
 
-    /**
-     * Synchronizuje checkboxy w widocznych wierszach z centralnym state
-     */
-    syncVisibleCheckboxes() {
-        const viewport = document.getElementById('virtual-scroll-viewport');
-        if (!viewport) return;
+        // Dodaj modal do DOM
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Pokaż modal
+        const modal = new bootstrap.Modal(document.getElementById('bulk-status-modal'));
+        modal.show();
 
-        const checkboxes = viewport.querySelectorAll('.product-checkbox');
-        checkboxes.forEach(checkbox => {
-            const uniqueId = checkbox.value;
-            checkbox.checked = this.state.selectedProducts.has(uniqueId);
-        });
-    }
-
-    /**
-     * Obsługuje zaznaczenie zakresu produktów (Shift+Click)
-     */
-    handleRangeSelection(currentUniqueId) {
-        console.log('[ProductsModule] Range selection triggered:', currentUniqueId);
-        
-        if (!this.lastSelectedIndex || !this.lastSelectedProduct) {
-            // Pierwszy element - zapisz jako punkt startowy
-            this.markSelectionStart(currentUniqueId);
-            return;
-        }
-        
-        const filteredProducts = this.getFilteredProducts();
-        const currentIndex = filteredProducts.findIndex(p => this.getProductUniqueId(p) === currentUniqueId);
-        const lastIndex = filteredProducts.findIndex(p => this.getProductUniqueId(p) === this.lastSelectedProduct);
-        
-        if (currentIndex === -1 || lastIndex === -1) return;
-        
-        // Określ zakres do zaznaczenia
-        const startIndex = Math.min(currentIndex, lastIndex);
-        const endIndex = Math.max(currentIndex, lastIndex);
-        
-        // Zaznacz produkty w zakresie
-        let selectedInRange = 0;
-        for (let i = startIndex; i <= endIndex; i++) {
-            const product = filteredProducts[i];
-            const uniqueId = this.getProductUniqueId(product);
-            
-            if (!this.state.selectedProducts.has(uniqueId)) {
-                this.state.selectedProducts.add(uniqueId);
-                selectedInRange++;
-            }
-        }
-        
-        // Aktualizuj UI
-        this.syncVisibleCheckboxes();
-        this.updateBulkActionsBar();
-        this.updateSelectAllCheckbox();
-        
-        console.log(`[ProductsModule] Range selected: ${selectedInRange} products in range ${startIndex}-${endIndex}`);
-        
-        // Toast notification
-        if (this.shared.toastSystem && selectedInRange > 0) {
-            this.shared.toastSystem.show(`Zaznaczono zakres: ${selectedInRange} produktów`, 'success');
-        }
-    }
-
-    /**
-     * Zapisuje punkt startowy dla range selection
-     */
-    markSelectionStart(uniqueId) {
-        this.lastSelectedProduct = uniqueId;
-        
-        const filteredProducts = this.getFilteredProducts();
-        this.lastSelectedIndex = filteredProducts.findIndex(p => this.getProductUniqueId(p) === uniqueId);
-        
-        console.log(`[ProductsModule] Selection start marked: ${uniqueId} at index ${this.lastSelectedIndex}`);
-    }
-
-    /**
-     * Przełącza zaznaczenie pojedynczego produktu
-     */
-    toggleProductSelection(uniqueId, isShiftClick = false) {
-        console.log(`[ProductsModule] Toggle product selection: ${uniqueId} (shift: ${isShiftClick})`);
-        
-        // Obsługa Shift+Click dla zaznaczania zakresu
-        if (isShiftClick) {
-            this.handleRangeSelection(uniqueId);
-            return;
-        }
-        
-        // Zwykłe przełączenie pojedynczego produktu
-        if (this.state.selectedProducts.has(uniqueId)) {
-            this.state.selectedProducts.delete(uniqueId);
-            console.log(`[ProductsModule] Product deselected: ${uniqueId}`);
-        } else {
-            this.state.selectedProducts.add(uniqueId);
-            this.markSelectionStart(uniqueId); // Zapisz jako potencjalny punkt startowy
-            console.log(`[ProductsModule] Product selected: ${uniqueId}`);
-        }
-        
-        // Aktualizuj UI
-        this.updateBulkActionsBar();
-        this.updateSelectAllCheckbox();
-    }
-
-    /**
-     * Pobiera stan zaznaczenia wszystkich produktów
-     */
-    getSelectAllState() {
-        const filteredProducts = this.getFilteredProducts();
-        const totalVisible = filteredProducts.length;
-        
-        if (totalVisible === 0) {
-            return 'none';
-        }
-        
-        // Policz ile z widocznych produktów jest zaznaczonych
-        const selectedVisible = filteredProducts.filter(product => {
-            const uniqueId = this.getProductUniqueId(product);
-            return this.state.selectedProducts.has(uniqueId);
-        }).length;
-        
-        if (selectedVisible === 0) return 'none';
-        if (selectedVisible === totalVisible) return 'all';
-        return 'some';
-    }
-
-    /**
-     * Rozszerzona aktualizacja checkbox "zaznacz wszystko"
-     */
-    updateSelectAllCheckbox() {
-        const selectAllCheckbox = document.getElementById('select-all-products');
-        if (!selectAllCheckbox) return;
-        
-        const state = this.getSelectAllState();
-        
-        switch (state) {
-            case 'none':
-                selectAllCheckbox.checked = false;
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.title = 'Zaznacz wszystkie widoczne produkty';
-                break;
-            case 'all':
-                selectAllCheckbox.checked = true;
-                selectAllCheckbox.indeterminate = false;
-                selectAllCheckbox.title = 'Odznacz wszystkie produkty';
-                break;
-            case 'some':
-                selectAllCheckbox.checked = false;
-                selectAllCheckbox.indeterminate = true;
-                selectAllCheckbox.title = 'Część produktów zaznaczona - kliknij aby zaznacz wszystkie';
-                break;
-        }
-    }
-
-    /**
-     * Rozszerzona aktualizacja bulk actions bar
-     */
-    updateBulkActionsBar() {
-        const bulkBar = document.getElementById('bulk-actions-bar');
-        const countSpan = document.getElementById('bulk-selected-count');
-        
-        const selectedCount = this.state.selectedProducts.size;
-        
-        if (selectedCount > 0) {
-            bulkBar.style.display = 'flex';
-            if (countSpan) {
-                countSpan.textContent = selectedCount.toLocaleString();
-            }
-            
-            // Dodaj animację pojawiania się
-            if (bulkBar.style.display === 'none') {
-                bulkBar.style.opacity = '0';
-                bulkBar.style.transform = 'translateY(10px)';
-                bulkBar.offsetHeight; // Force reflow
-                bulkBar.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                bulkBar.style.opacity = '1';
-                bulkBar.style.transform = 'translateY(0)';
-            }
-        } else {
-            // Animacja znikania
-            bulkBar.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-            bulkBar.style.opacity = '0';
-            bulkBar.style.transform = 'translateY(10px)';
-            
-            setTimeout(() => {
-                bulkBar.style.display = 'none';
-            }, 300);
-        }
-    }
-
-    /**
-     * Utrzymuje zaznaczenia podczas refresh/filtrowania
-     */
-    preserveSelectionsAfterRefresh() {
-        console.log('[ProductsModule] Preserving selections after refresh...');
-        
-        // Po refresh danych, checkboxy zostaną zsynchronizowane automatycznie
-        // poprzez updateProductRow() -> checkbox.checked = this.state.selectedProducts.has(uniqueId)
-        
-        // Aktualizuj UI elements
-        this.updateBulkActionsBar();
-        this.updateSelectAllCheckbox();
-        
-        const selectedCount = this.state.selectedProducts.size;
-        console.log(`[ProductsModule] Preserved ${selectedCount} selections after refresh`);
-    }
-
-    /**
-     * Pobiera listę zaznaczonych produktów z pełnymi danymi
-     */
-    getSelectedProductsData() {
-        const selectedProducts = [];
-        const allProducts = this.state.products; // Zawsze używaj pełnej listy, nie filtredProducts
-        
-        this.state.selectedProducts.forEach(uniqueId => {
-            const product = allProducts.find(p => this.getProductUniqueId(p) === uniqueId);
-            if (product) {
-                selectedProducts.push(product);
-            }
-        });
-        
-        return selectedProducts;
-    }
-
-    /**
-     * Pobiera statystyki zaznaczonych produktów
-     */
-    getSelectedProductsStats() {
-        const selectedProducts = this.getSelectedProductsData();
-        
-        return {
-            count: selectedProducts.length,
-            totalVolume: selectedProducts.reduce((sum, p) => sum + parseFloat(p.volume_m3 || 0), 0),
-            totalValue: selectedProducts.reduce((sum, p) => sum + parseFloat(p.total_value_net || 0), 0),
-            statusBreakdown: this.groupProductsByStatus(selectedProducts)
-        };
-    }
-
-    /**
-     * Grupuje produkty według statusu
-     */
-    groupProductsByStatus(products) {
-        return products.reduce((acc, product) => {
-            const status = product.current_status || 'unknown';
-            acc[status] = (acc[status] || 0) + 1;
-            return acc;
-        }, {});
-    }
-
-    /**
-     * Obsługuje klawisz Escape
-     */
-    handleEscapeKey() {
-        // Najpierw sprawdź czy są otwarte modals
-        const openModals = document.querySelectorAll('.modal.show');
-        if (openModals.length > 0) {
-            // Zamknij modal
-            openModals.forEach(modal => {
-                const modalInstance = bootstrap.Modal.getInstance(modal);
-                if (modalInstance) modalInstance.hide();
-            });
-            return;
-        }
-        
-        // Jeśli nie ma modali, wyczyść zaznaczenia
-        if (this.state.selectedProducts.size > 0) {
-            this.deselectAllProducts();
-        }
-    }
-
-    /**
-     * Sprawdza czy produkt jest zaznaczony
-     */
-    isProductSelected(uniqueId) {
-        return this.state.selectedProducts.has(uniqueId);
-    }
-
-    /**
-     * Pobiera liczbę zaznaczonych produktów
-     */
-    getSelectedCount() {
-        return this.state.selectedProducts.size;
-    }
-
-    /**
-     * Czyści wszystkie zaznaczenia (np. po delete)
-     */
-    clearAllSelections() {
-        console.log('[ProductsModule] Clearing all selections...');
-        this.state.selectedProducts.clear();
-        this.syncVisibleCheckboxes();
-        this.updateBulkActionsBar();
-        this.updateSelectAllCheckbox();
-    }
-
-    // ========================================================================
-    // KONIEC SEKCJI CHECKBOX MANAGEMENT
-    // ========================================================================
-
-    // ========================================================================
-    // VIRTUAL SCROLL HELPER METHODS
-    // ========================================================================
-
-    /**
-     * Pobiera liczbę przefiltrowanych produktów
-     */
-    getFilteredProductsCount() {
-        const products = this.getFilteredProducts();
-        return products ? products.length : 0;
-    }
-
-    /**
-     * Pobiera przefiltrowane produkty
-     */
-    getFilteredProducts() {
-        // Jeśli są zastosowane filtry, używaj filteredProducts
-        if (this.state.filteredProducts && this.state.filteredProducts.length > 0) {
-            return this.state.filteredProducts;
-        }
-        
-        // W przeciwnym razie używaj wszystkich produktów
-        return this.state.products || [];
-    }
-
-    /**
-     * Pobiera unikalny identyfikator produktu
-     */
-    getProductUniqueId(product) {
-        return product.short_product_id || 
-            product.id || 
-            `${product.baselinker_id}_${product.variant_id}` ||
-            product.internal_id ||
-            `temp_${Date.now()}_${Math.random()}`;
-    }
-
-    /**
-     * Obsługuje zaznaczanie/odznaczanie produktu
-     */
-    handleProductSelection(uniqueId, isSelected) {
-        console.log(`[ProductsModule] Product selection: ${uniqueId} = ${isSelected}`);
-        
-        if (isSelected) {
-            this.state.selectedProducts.add(uniqueId);
-        } else {
-            this.state.selectedProducts.delete(uniqueId);
-        }
-        
-        // Aktualizuj bulk actions bar
-        this.updateBulkActionsBar();
-        
-        // Aktualizuj "select all" checkbox
-        this.updateSelectAllCheckbox();
-    }
-
-    /**
-     * Aktualizuje bulk actions bar
-     */
-    updateBulkActionsBar() {
-        const bulkBar = document.getElementById('bulk-actions-bar');
-        const countSpan = document.getElementById('bulk-selected-count');
-        
-        const selectedCount = this.state.selectedProducts.size;
-        
-        if (selectedCount > 0) {
-            bulkBar.style.display = 'flex';
-            if (countSpan) countSpan.textContent = selectedCount;
-        } else {
-            bulkBar.style.display = 'none';
-        }
-    }
-
-    /**
-     * Aktualizuje checkbox "zaznacz wszystko"
-     */
-    updateSelectAllCheckbox() {
-        const selectAllCheckbox = document.getElementById('select-all-products');
-        if (!selectAllCheckbox) return;
-        
-        const totalProducts = this.getFilteredProductsCount();
-        const selectedCount = this.state.selectedProducts.size;
-        
-        if (selectedCount === 0) {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = false;
-        } else if (selectedCount === totalProducts) {
-            selectAllCheckbox.checked = true;
-            selectAllCheckbox.indeterminate = false;
-        } else {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = true;
-        }
-    }
-
-    /**
-     * Aktualizuje licznik produktów
-     */
-    updateProductsCount() {
-        const countElement = document.getElementById('stats-total-count');
-        if (countElement) {
-            const count = this.getFilteredProductsCount();
-            countElement.textContent = count.toLocaleString();
-        }
-    }
-
-    /**
-     * Throttle function dla scroll events
-     */
-    throttle(func, limit) {
-        let lastFunc;
-        let lastRan;
-        return function() {
-            const context = this;
-            const args = arguments;
-            if (!lastRan) {
-                func.apply(context, args);
-                lastRan = Date.now();
+        // Event listener dla konfirmacji
+        document.getElementById('confirm-bulk-status').addEventListener('click', () => {
+            const newStatus = document.getElementById('bulk-status-select').value;
+            if (newStatus) {
+                console.log(`Changing status to ${newStatus} for ${selectedIds.length} products`);
+                // TODO: Implementacja API call w przyszłych krokach
+                alert(`Status zostanie zmieniony na "${this.getStatusDisplayName(newStatus)}" dla ${selectedIds.length} produktów\n(Implementacja API w kolejnych krokach)`);
+                modal.hide();
             } else {
-                clearTimeout(lastFunc);
-                lastFunc = setTimeout(function() {
-                    if ((Date.now() - lastRan) >= limit) {
-                        func.apply(context, args);
-                        lastRan = Date.now();
-                    }
-                }, limit - (Date.now() - lastRan));
+                alert('Proszę wybrać nowy status');
             }
-        };
-    }
-
-    // ========================================================================
-    // EMPTY STATES I ERROR STATES
-    // ========================================================================
-
-    /**
-     * Pokazuje empty state
-     */
-    showEmptyState() {
-        const emptyState = document.getElementById('products-empty-state');
-        const loadingState = document.getElementById('products-loading');
-        const errorState = document.getElementById('products-error-state');
-
-        // Wyczyść viewport zamiast clearRenderedRows()
-        const viewport = document.getElementById('virtual-scroll-viewport');
-        if (viewport) viewport.innerHTML = '';
-
-        if (emptyState) emptyState.style.display = 'block';
-        if (loadingState) loadingState.style.display = 'none';
-        if (errorState) errorState.style.display = 'none';
-    }
-
-
-    /**
-     * Ukrywa empty state
-     */
-    hideEmptyState() {
-        const emptyState = document.getElementById('products-empty-state');
-        const loadingState = document.getElementById('products-loading');
-        const errorState = document.getElementById('products-error-state');
-        
-        if (emptyState) emptyState.style.display = 'none';
-        if (loadingState) loadingState.style.display = 'none';
-        if (errorState) errorState.style.display = 'none';
-    }
-
-    /**
-     * Pokazuje loading state
-     */
-    showLoadingState() {
-        const loadingState = document.getElementById('products-loading');
-        const emptyState = document.getElementById('products-empty-state');
-        const errorState = document.getElementById('products-error-state');
-
-        // Wyczyść viewport zamiast clearRenderedRows()
-        const viewport = document.getElementById('virtual-scroll-viewport');
-        if (viewport) viewport.innerHTML = '';
-
-        if (loadingState) loadingState.style.display = 'block';
-        if (emptyState) emptyState.style.display = 'none';
-        if (errorState) errorState.style.display = 'none';
-    }
-
-    /**
-     * Pokazuje error state
-     */
-    showErrorState(message) {
-        const errorState = document.getElementById('products-error-state');
-        const messageEl = document.getElementById('error-message');
-        const loadingState = document.getElementById('products-loading');
-        const emptyState = document.getElementById('products-empty-state');
-
-        // Wyczyść viewport zamiast clearRenderedRows()
-        const viewport = document.getElementById('virtual-scroll-viewport');
-        if (viewport) viewport.innerHTML = '';
-
-        if (errorState) errorState.style.display = 'block';
-        if (messageEl) messageEl.textContent = message || 'Wystąpił błąd podczas pobierania danych produktów.';
-        if (loadingState) loadingState.style.display = 'none';
-        if (emptyState) emptyState.style.display = 'none';
-    }
-
-    /**
-     * Funkcja do synchronizacji wszystkich checkboxów
-     */
-    syncAllCheckboxes() {
-        console.log('[ProductsModule] Syncing all checkboxes...');
-
-        const viewport = document.getElementById('virtual-scroll-viewport');
-        if (!viewport) return;
-
-        const allCheckboxes = viewport.querySelectorAll('.product-checkbox');
-
-        allCheckboxes.forEach(checkbox => {
-            const productId = checkbox.value;
-            checkbox.checked = this.state.selectedProducts.has(productId);
         });
 
-        // Aktualizuj select-all checkbox
-        this.updateSelectAllCheckbox();
+        // Cleanup po zamknięciu modal
+        document.getElementById('bulk-status-modal').addEventListener('hidden.bs.modal', () => {
+            document.getElementById('bulk-status-modal').remove();
+        });
+    }
 
-        // Aktualizuj bulk actions bar
-        this.updateBulkActionsBar();
+    handleExportSelected(selectedIds) {
+        console.log(`[ProductsModule] Export selected: ${selectedIds.length} products`);
+        
+        if (this.state.isExporting) return;
+        
+        this.state.isExporting = true;
+        
+        // TODO: Implementacja exportu Excel w kroku 7
+        alert(`Export ${selectedIds.length} produktów do Excel\n(Implementacja w kroku 7 - Export Excel)`);
+        
+        setTimeout(() => {
+            this.state.isExporting = false;
+        }, 1000);
+    }
+
+    showBulkDeleteConfirmation(selectedIds) {
+        console.log(`[ProductsModule] Showing delete confirmation for ${selectedIds.length} products`);
+        
+        const confirmMessage = `Czy na pewno chcesz usunąć ${selectedIds.length} produktów?\n\nTa operacja jest nieodwracalna.`;
+        
+        if (confirm(confirmMessage)) {
+            console.log(`Confirmed delete for ${selectedIds.length} products`);
+            // TODO: Implementacja API call delete w przyszłych krokach
+            alert(`${selectedIds.length} produktów zostanie usuniętych\n(Implementacja API delete endpoint w kolejnych krokach)`);
+        }
+    }
+
+    handleExport() {
+        console.log('[ProductsModule] Starting export...');
+        
+        if (this.state.isExporting) return;
+        
+        this.state.isExporting = true;
+        
+        // Placeholder - implementacja w kolejnych krokach
+        setTimeout(() => {
+            alert('Export będzie zaimplementowany w kolejnych krokach');
+            this.state.isExporting = false;
+        }, 1000);
     }
 
     // ========================================================================
-    // STATUS I PRIORITY HELPER METHODS
+    // DRAG & DROP PLACEHOLDERS
     // ========================================================================
 
-    /**
-     * Pobiera nazwę wyświetlaną dla statusu
-     */
-    getStatusDisplayName(status) {
-        const statusMap = {
-            'czeka_na_wyciecie': 'Czeka na wycięcie',
-            'w_trakcie_ciecia': 'W trakcie cięcia',
-            'czeka_na_skladanie': 'Czeka na składanie',
-            'w_trakcie_skladania': 'W trakcie składania',
-            'czeka_na_pakowanie': 'Czeka na pakowanie',
-            'w_trakcie_pakowania': 'W trakcie pakowania',
-            'spakowane': 'Spakowane',
-            'wstrzymane': 'Wstrzymane',
-            'anulowane': 'Anulowane'
+    handleDragStart(e, product) {
+        console.log(`[ProductsModule] Drag start: ${product.id}`);
+        this.components.dragDrop.draggedElement = e.target;
+        e.dataTransfer.setData('text/plain', product.id);
+    }
+
+    handleDragOver(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }
+
+    handleDrop(e, targetProduct) {
+        e.preventDefault();
+        const draggedProductId = e.dataTransfer.getData('text/plain');
+        console.log(`[ProductsModule] Drop: ${draggedProductId} -> ${targetProduct.id}`);
+        
+        // Placeholder - implementacja drag & drop w kolejnych krokach
+    }
+
+    // ========================================================================
+    // UI STATE MANAGEMENT
+    // ========================================================================
+
+    showLoadingState() {
+        this.hideAllStates();
+        if (this.elements.loadingState) {
+            this.elements.loadingState.style.display = 'block';
+        }
+        this.state.isLoading = true;
+    }
+
+    showEmptyState() {
+        this.hideAllStates();
+        if (this.elements.emptyState) {
+            this.elements.emptyState.style.display = 'block';
+        }
+    }
+
+    showErrorState(message) {
+        this.hideAllStates();
+        if (this.elements.errorState) {
+            this.elements.errorState.style.display = 'block';
+            const messageEl = this.elements.errorState.querySelector('#error-message');
+            if (messageEl) {
+                messageEl.textContent = message || 'Wystąpił nieoczekiwany błąd';
+            }
+        }
+    }
+
+    hideAllStates() {
+        const states = [this.elements.loadingState, this.elements.emptyState, this.elements.errorState];
+        states.forEach(state => {
+            if (state) state.style.display = 'none';
+        });
+        this.state.isLoading = false;
+    }
+
+    updateProductsCount(count) {
+        if (this.elements.productsCount) {
+            this.elements.productsCount.textContent = count || this.state.filteredProducts.length;
+        }
+    }
+
+    syncAllCheckboxes() {
+        const checkboxes = this.elements.viewport?.querySelectorAll('.product-checkbox');
+        if (checkboxes) {
+            checkboxes.forEach(checkbox => {
+                const productId = parseInt(checkbox.getAttribute('data-product-id'));
+                checkbox.checked = this.state.selectedProducts.has(productId);
+            });
+        }
+        
+        this.updateSelectAllCheckbox();
+    }
+
+    updateSelectAllCheckbox() {
+        if (!this.elements.selectAllCheckbox) return;
+
+        const filteredCount = this.state.filteredProducts.length;
+        const selectedCount = this.state.filteredProducts.filter(p => 
+            this.state.selectedProducts.has(p.id)
+        ).length;
+
+        if (selectedCount === 0) {
+            this.elements.selectAllCheckbox.checked = false;
+            this.elements.selectAllCheckbox.indeterminate = false;
+        } else if (selectedCount === filteredCount) {
+            this.elements.selectAllCheckbox.checked = true;
+            this.elements.selectAllCheckbox.indeterminate = false;
+        } else {
+            this.elements.selectAllCheckbox.checked = false;
+            this.elements.selectAllCheckbox.indeterminate = true;
+        }
+    }
+
+    toggleBulkActionsVisibility() {
+        const selectedCount = this.state.selectedProducts.size;
+        const bulkActionsBar = document.getElementById('bulk-actions-bar');
+        
+        if (bulkActionsBar) {
+            if (selectedCount > 0) {
+                bulkActionsBar.style.display = 'flex';
+                const countSpan = document.getElementById('bulk-selected-count');
+                if (countSpan) {
+                    countSpan.textContent = selectedCount;
+                }
+            } else {
+                bulkActionsBar.style.display = 'none';
+            }
+        }
+    }
+
+    updateSortIndicators() {
+        const headers = document.querySelectorAll('.sortable-header');
+        headers.forEach(header => {
+            const column = header.getAttribute('data-sort');
+            const icon = header.querySelector('i');
+            
+            if (icon) {
+                icon.className = 'fas';
+                
+                if (column === this.state.sortColumn) {
+                    if (this.state.sortDirection === 'asc') {
+                        icon.classList.add('fa-sort-up');
+                    } else {
+                        icon.classList.add('fa-sort-down');
+                    }
+                } else {
+                    icon.classList.add('fa-sort');
+                }
+            }
+        });
+    }
+
+    // ========================================================================
+    // SORTING & STATISTICS
+    // ========================================================================
+
+    sortProducts() {
+        if (!this.state.sortColumn) return;
+
+        this.state.filteredProducts.sort((a, b) => {
+            let aVal = a[this.state.sortColumn];
+            let bVal = b[this.state.sortColumn];
+
+            // Handle different data types
+            if (typeof aVal === 'string') {
+                aVal = aVal.toLowerCase();
+                bVal = bVal.toLowerCase();
+            } else if (typeof aVal === 'number') {
+                aVal = aVal || 0;
+                bVal = bVal || 0;
+            } else if (aVal instanceof Date) {
+                aVal = aVal.getTime();
+                bVal = bVal.getTime();
+            }
+
+            let result = 0;
+            if (aVal < bVal) result = -1;
+            else if (aVal > bVal) result = 1;
+
+            return this.state.sortDirection === 'desc' ? -result : result;
+        });
+    }
+
+    updateStats() {
+        const products = this.state.filteredProducts;
+        
+        this.state.stats = {
+            totalCount: this.state.products.length,
+            filteredCount: products.length,
+            totalVolume: products.reduce((sum, p) => sum + (parseFloat(p.volume_m3) || 0), 0),
+            totalValue: products.reduce((sum, p) => sum + (parseFloat(p.total_value_net) || 0), 0),
+            statusBreakdown: this.calculateStatusBreakdown(products)
         };
 
-        return statusMap[status] || status || 'Nieznany';
+        // Aktualizuj UI statystyk
+        this.updateStatsDisplay();
     }
 
-    /**
-     * Pobiera klasę CSS dla statusu
-     */
-    getStatusClass(status) {
+    calculateStatusBreakdown(products) {
+        const breakdown = {};
+        products.forEach(product => {
+            const status = product.current_status || 'unknown';
+            breakdown[status] = (breakdown[status] || 0) + 1;
+        });
+        return breakdown;
+    }
+
+    updateStatsDisplay() {
+        // Aktualizuj liczniki w UI - POPRAWIONE SELEKTORY
+        const totalCountEl = document.getElementById('stats-total-count');
+        const volumeEl = document.getElementById('stats-total-volume');
+        const valueEl = document.getElementById('stats-total-value');
+        const urgentEl = document.getElementById('stats-urgent-count');
+
+        if (totalCountEl) totalCountEl.textContent = this.state.stats.filteredCount;
+        if (volumeEl) volumeEl.textContent = this.state.stats.totalVolume.toFixed(3);
+        if (valueEl) {
+            valueEl.textContent = this.state.stats.totalValue.toLocaleString('pl-PL', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            });
+        }
+
+        // Oblicz pilne produkty (deadline <= 3 dni)
+        const urgentCount = this.state.filteredProducts.filter(p => {
+            if (!p.deadline_date) return false;
+            const deadline = new Date(p.deadline_date);
+            const today = new Date();
+            const diffTime = deadline.getTime() - today.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            return diffDays <= 3;
+        }).length;
+
+        if (urgentEl) urgentEl.textContent = urgentCount;
+    }
+
+    // ========================================================================
+    // COLOR CODING & UI HELPERS
+    // ========================================================================
+
+    getWoodSpeciesClass(species) {
+        const speciesMap = {
+            'Dąb': 'wood-species-dab',
+            'Jesion': 'wood-species-jesion',
+            'Buk': 'wood-species-buk',
+            'Sosna': 'wood-species-sosna',
+            'Świerk': 'wood-species-swierk'
+        };
+        return speciesMap[species] || 'wood-species-unknown';
+    }
+
+    getTechnologyClass(technology) {
+        const technologyMap = {
+            'Lity': 'technology-lity',
+            'Mikrowczep': 'technology-mikrowczep',
+            'Klejony': 'technology-klejony'
+        };
+        return technologyMap[technology] || 'technology-unknown';
+    }
+
+    getWoodClassClass(woodClass) {
         const classMap = {
+            'A/A': 'wood-class-aa',
+            'A/B': 'wood-class-ab',
+            'B/B': 'wood-class-bb',
+            'C/C': 'wood-class-cc'
+        };
+        return classMap[woodClass] || 'wood-class-unknown';
+    }
+
+    getStatusClass(status) {
+        const statusMap = {
             'czeka_na_wyciecie': 'status-waiting',
             'w_trakcie_ciecia': 'status-cutting',
             'czeka_na_skladanie': 'status-waiting',
@@ -3582,192 +2215,67 @@ class ProductsModule {
             'czeka_na_pakowanie': 'status-waiting',
             'w_trakcie_pakowania': 'status-packaging',
             'spakowane': 'status-completed',
-            'wstrzymane': 'status-paused',
-            'anulowane': 'status-cancelled'
+            'anulowane': 'status-cancelled',
+            'wstrzymane': 'status-paused'
         };
-
-        return classMap[status] || 'status-unknown';
+        return statusMap[status] || 'status-unknown';
     }
 
-    /**
-     * Pobiera klasę CSS dla priorytetu
-     */
-    getPriorityClass(priority) {
-        if (priority >= 150) return 'priority-critical';
-        if (priority >= 100) return 'priority-high';
-        if (priority >= 50) return 'priority-medium';
-        return 'priority-low';
-    }
-
-    /**
-     * Oblicza urgency produktu na podstawie deadline
-     */
-    calculateProductUrgency(product) {
-        if (!product.deadline_date) return 'normal-product';
-        
-        const today = new Date();
-        const deadline = new Date(product.deadline_date);
-        const diffDays = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
-        
-        if (diffDays < 0) return 'urgent-product'; // Przeterminowane
-        if (diffDays <= 3) return 'warning-product'; // Pilne
-        return 'normal-product';
-    }
-
-    /**
-     * Aktualizuje wyświetlanie deadline
-     */
-    updateDeadlineDisplay(deadlineEl, deadlineDateEl, product) {
-        if (!product.deadline_date) {
-            deadlineEl.textContent = '-';
-            deadlineEl.className = 'deadline-badge';
-            deadlineDateEl.textContent = '';
-            return;
-        }
-
-        const today = new Date();
-        const deadline = new Date(product.deadline_date);
-        const diffDays = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
-        
-        let badgeText, badgeClass;
-        
-        if (diffDays < 0) {
-            badgeText = `Spóźnienie ${Math.abs(diffDays)}d`;
-            badgeClass = 'deadline-badge deadline-overdue';
-        } else if (diffDays === 0) {
-            badgeText = 'Dziś';
-            badgeClass = 'deadline-badge deadline-today';
-        } else if (diffDays <= 3) {
-            badgeText = `${diffDays}d`;
-            badgeClass = 'deadline-badge deadline-urgent';
-        } else if (diffDays <= 7) {
-            badgeText = `${diffDays}d`;
-            badgeClass = 'deadline-badge deadline-warning';
-        } else {
-            badgeText = `${diffDays}d`;
-            badgeClass = 'deadline-badge deadline-normal';
-        }
-        
-        deadlineEl.textContent = badgeText;
-        deadlineEl.className = badgeClass;
-        deadlineDateEl.textContent = deadline.toLocaleDateString();
-    }
-
-    // ========================================================================
-    // PLACEHOLDER METHODS - implementacja w kolejnych krokach
-    // ========================================================================
-
-    /**
-     * Pokazuje szczegóły produktu - implementacja w kroku 6.1
-     */
-    showProductDetails(uniqueId) {
-        console.log('[ProductsModule] Show product details:', uniqueId);
-        // TODO: Implementacja w kroku 6.1 - Modal szczegółów
-        this.shared.toastSystem.show('Szczegóły produktu - funkcja w przygotowaniu', 'info');
-    }
-
-    /**
-     * Pokazuje modal edycji priorytetu - implementacja w kroku 6.2
-     */
-    showEditPriorityModal(uniqueId) {
-        console.log('[ProductsModule] Edit priority modal:', uniqueId);
-        // TODO: Implementacja w kroku 6.2 - Modal akcji grupowych
-        this.shared.toastSystem.show('Edycja priorytetu - funkcja w przygotowaniu', 'info');
-    }
-
-    /**
-     * Pokazuje modal zmiany statusu - implementacja w kroku 6.3
-     */
-    showChangeStatusModal(uniqueId) {
-        console.log('[ProductsModule] Change status modal:', uniqueId);
-        // TODO: Implementacja w kroku 6.3 - Modal zmiany statusu
-        this.shared.toastSystem.show('Zmiana statusu - funkcja w przygotowaniu', 'info');
-    }
-
-    /**
-     * Potwierdza usunięcie produktu - implementacja w kroku 6.4
-     */
-    confirmDeleteProduct(uniqueId) {
-        console.log('[ProductsModule] Delete product confirm:', uniqueId);
-        // TODO: Implementacja w kroku 6.4 - Confirmations
-        this.shared.toastSystem.show('Usuwanie produktu - funkcja w przygotowaniu', 'info');
-    }
-
-    // ========================================================================
-    // UTILITY METHODS
-    // ========================================================================
-
-    clearAllTimers() {
-        console.log('[ProductsModule] Clearing all timers...');
-
-        if (this.state.refreshInterval) {
-            clearInterval(this.state.refreshInterval);
-            this.state.refreshInterval = null;
-        }
-
-        // NOWE: Wyczyść debounce timers
-        if (this.debounceTimers.textSearch) {
-            clearTimeout(this.debounceTimers.textSearch);
-            this.debounceTimers.textSearch = null;
-        }
-
-        if (this.debounceTimers.filtersUpdate) {
-            clearTimeout(this.debounceTimers.filtersUpdate);
-            this.debounceTimers.filtersUpdate = null;
-        }
-    }
-
-    destroyComponents() {
-        console.log('[ProductsModule-new] Destroying components...');
-
-        // NOWE: Cleanup multi-select components
-        if (this.components.multiSelects) {
-            Object.keys(this.components.multiSelects).forEach(key => {
-                this.destroyMultiSelectComponent(key);
-            });
-            this.components.multiSelects = null;
-        }
-
-        // Reszta cleanup
-        Object.keys(this.components).forEach(key => {
-            if (this.components[key] && typeof this.components[key].destroy === 'function') {
-                this.components[key].destroy();
-            }
-            this.components[key] = null;
-        });
-    }
-
-    resetState() {
-        console.log('[ProductsModule] Resetting state...');
-
-        this.state.selectedProducts.clear();
-        this.state.products = [];
-        this.state.currentFilters = {
-            textSearch: '',
-            woodSpecies: [],
-            technologies: [],
-            woodClasses: [],
-            thicknesses: [],
-            statuses: []
+    getStatusDisplayName(status) {
+        const statusNames = {
+            'czeka_na_wyciecie': 'Czeka na wycięcie',
+            'w_trakcie_ciecia': 'W trakcie cięcia',
+            'czeka_na_skladanie': 'Czeka na składanie',
+            'w_trakcie_skladania': 'W trakcie składania',
+            'czeka_na_pakowanie': 'Czeka na pakowanie',
+            'w_trakcie_pakowania': 'W trakcie pakowania',
+            'spakowane': 'Spakowane',
+            'anulowane': 'Anulowane',
+            'wstrzymane': 'Wstrzymane'
         };
-        this.state.isRefreshing = false;
-        this.state.isExporting = false;
+        return statusNames[status] || status;
+    }
+
+    getDeadlineClass(daysUntilDeadline) {
+        if (daysUntilDeadline < 0) return 'deadline-overdue';
+        if (daysUntilDeadline <= 1) return 'deadline-urgent';
+        if (daysUntilDeadline <= 7) return 'deadline-warning';
+        return 'deadline-normal';
+    }
+
+    updatePriorityColor(element, priority) {
+        const score = parseInt(priority) || 100;
+        element.className = 'priority-score';
+        
+        if (score >= 180) element.classList.add('priority-critical');
+        else if (score >= 140) element.classList.add('priority-high');
+        else if (score >= 80) element.classList.add('priority-medium');
+        else element.classList.add('priority-low');
     }
 
     // ========================================================================
-    // PUBLIC API - dla debugowania
+    // MODAL PLACEHOLDERS (implementacja w kolejnych krokach)
     // ========================================================================
 
-    getCurrentState() {
-        return {
-            isLoaded: this.isLoaded,
-            templateLoaded: this.templateLoaded,
-            productsCount: this.state.products.length,
-            selectedCount: this.state.selectedProducts.size,
-            filters: this.state.currentFilters,
-            stats: this.state.stats
-        };
+    showProductDetails(productId) {
+        console.log(`[ProductsModule] Showing details for product ${productId}`);
+        // TODO: Implementacja w kroku 6 - Modal szczegółów produktu
+        alert(`Szczegóły produktu ${productId}\n(Implementacja w kroku 6 - Modals i akcje grupowe)`);
     }
 }
 
-console.log('[ProductsModule] Class definition loaded successfully');
+// ========================================================================
+// EXPORT MODULE
+// ========================================================================
+
+// NOTES FOR HTML TEMPLATE UPDATES:
+// 1. Remove button #bulk-set-priority from bulk-actions-bar in products-tab-content.html
+// 2. Make sure all product row template selectors match this implementation
+
+// Export for use in other modules
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = ProductsModule;
+}
+
+// Make available globally
+window.ProductsModule = ProductsModule;

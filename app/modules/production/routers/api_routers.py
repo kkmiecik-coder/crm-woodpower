@@ -1878,13 +1878,13 @@ def dashboard_tab_content():
 def products_tab_content():
     """
     Endpoint zwracający zawartość taba produktów - NAPRAWIONY
-    BUGFIX: Usuwa limit 100 produktów, zwraca wszystkie produkty
+    BUGFIX: Usuwa limit 100 produktów, zwraca wszystkie produkty z parsowanymi polami
     """
     try:
         # Pobierz podstawowe parametry
         status_filter = request.args.get('status', 'all')
         search_query = request.args.get('search', '')
-        load_all = request.args.get('load_all', 'true').lower() == 'true'  # NOWE: parametr force load all
+        load_all = request.args.get('load_all', 'true').lower() == 'true'
         
         logger.info(f"[BUGFIX] products-tab-content: status={status_filter}, search='{search_query}', load_all={load_all}")
         
@@ -1904,6 +1904,8 @@ def products_tab_content():
                 search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
             if hasattr(ProductionItem, 'short_product_id'):
                 search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
+            if hasattr(ProductionItem, 'client_name'):
+                search_conditions.append(ProductionItem.client_name.ilike(search_pattern))
                 
             if search_conditions:
                 products_query = products_query.filter(or_(*search_conditions))
@@ -1949,7 +1951,7 @@ def products_tab_content():
             except (ValueError, TypeError):
                 volume_m3 = 0.0
             
-            # Bezpieczne pobieranie wartości
+            # Bezpieczne pobieranie wartości netto
             total_value_net = 0.0
             try:
                 val = get_attr(product, 'total_value_net', 0)
@@ -1957,42 +1959,100 @@ def products_tab_content():
             except (ValueError, TypeError):
                 total_value_net = 0.0
             
-            # Bezpieczne pobieranie priority_score
-            priority_score = 0
+            # Bezpieczne pobieranie ceny jednostkowej
+            unit_price_net = 0.0
             try:
-                priority = get_attr(product, 'priority_score', 0)
-                priority_score = int(priority) if priority is not None else 0
+                price = get_attr(product, 'unit_price_net', 0)
+                unit_price_net = float(price) if price is not None else 0.0
             except (ValueError, TypeError):
-                priority_score = 0
+                unit_price_net = 0.0
+            
+            # Bezpieczne pobieranie priority_score
+            priority_score = 100
+            try:
+                priority = get_attr(product, 'priority_score', 100)
+                priority_score = int(priority) if priority is not None else 100
+            except (ValueError, TypeError):
+                priority_score = 100
+            
+            # Bezpieczne pobieranie parsowanych wymiarów
+            parsed_length_cm = 0.0
+            parsed_width_cm = 0.0
+            parsed_thickness_cm = 0.0
+            try:
+                if get_attr(product, 'parsed_length_cm') is not None:
+                    parsed_length_cm = float(get_attr(product, 'parsed_length_cm', 0))
+                if get_attr(product, 'parsed_width_cm') is not None:
+                    parsed_width_cm = float(get_attr(product, 'parsed_width_cm', 0))
+                if get_attr(product, 'parsed_thickness_cm') is not None:
+                    parsed_thickness_cm = float(get_attr(product, 'parsed_thickness_cm', 0))
+            except (ValueError, TypeError):
+                pass
             
             product_dict = {
                 # Podstawowe dane
                 'id': product.id,
                 'short_product_id': get_attr(product, 'short_product_id', ''),
                 'original_product_name': get_attr(product, 'original_product_name', ''),
-                'current_status': get_attr(product, 'current_status', 'nieznany'),
+                'current_status': get_attr(product, 'current_status', 'czeka_na_wyciecie'),
                 'priority_score': priority_score,
                 
                 # Wymiary i wartości
                 'volume_m3': volume_m3,
                 'total_value_net': total_value_net,
+                'unit_price_net': unit_price_net,
                 
                 # Deadline
-                'deadline_date': get_attr(product, 'deadline_date', None),
-                'days_to_deadline': days_to_deadline,
+                'deadline_date': get_attr(product, 'deadline_date').isoformat() if get_attr(product, 'deadline_date') else None,
+                'days_until_deadline': days_to_deadline,
                 
                 # Dane klienta
                 'client_name': get_attr(product, 'client_name', ''),
+                'client_email': get_attr(product, 'client_email', ''),
+                'client_phone': get_attr(product, 'client_phone', ''),
+                'delivery_address': get_attr(product, 'delivery_address', ''),
+                
+                # Dane zamówienia
                 'internal_order_number': get_attr(product, 'internal_order_number', ''),
+                'baselinker_order_id': get_attr(product, 'baselinker_order_id', None),
+                'baselinker_product_id': get_attr(product, 'baselinker_product_id', ''),
+                'product_sequence_in_order': get_attr(product, 'product_sequence_in_order', 1),
                 
-                # Specyfikacja produktu
-                'wood_species': get_attr(product, 'wood_species', None),
-                'technology': get_attr(product, 'technology', None),
-                'wood_class': get_attr(product, 'wood_class', None),
-                'thickness': get_attr(product, 'thickness', None),
+                # POPRAWIONE: Specyfikacja produktu - PARSOWANE POLA z bazy danych
+                'parsed_wood_species': get_attr(product, 'parsed_wood_species', None),
+                'parsed_technology': get_attr(product, 'parsed_technology', None),
+                'parsed_wood_class': get_attr(product, 'parsed_wood_class', None),
+                'parsed_length_cm': parsed_length_cm,
+                'parsed_width_cm': parsed_width_cm,
+                'parsed_thickness_cm': parsed_thickness_cm,
+                'parsed_finish_state': get_attr(product, 'parsed_finish_state', None),
+                
+                # Produkcja - statusy i czasami
+                'cutting_started_at': get_attr(product, 'cutting_started_at').isoformat() if get_attr(product, 'cutting_started_at') else None,
+                'cutting_completed_at': get_attr(product, 'cutting_completed_at').isoformat() if get_attr(product, 'cutting_completed_at') else None,
+                'cutting_duration_minutes': get_attr(product, 'cutting_duration_minutes', None),
+                'assembly_started_at': get_attr(product, 'assembly_started_at').isoformat() if get_attr(product, 'assembly_started_at') else None,
+                'assembly_completed_at': get_attr(product, 'assembly_completed_at').isoformat() if get_attr(product, 'assembly_completed_at') else None,
+                'assembly_duration_minutes': get_attr(product, 'assembly_duration_minutes', None),
+                'packaging_started_at': get_attr(product, 'packaging_started_at').isoformat() if get_attr(product, 'packaging_started_at') else None,
+                'packaging_completed_at': get_attr(product, 'packaging_completed_at').isoformat() if get_attr(product, 'packaging_completed_at') else None,
+                'packaging_duration_minutes': get_attr(product, 'packaging_duration_minutes', None),
+                
+                # Przypisani pracownicy
+                'cutting_assigned_worker_id': get_attr(product, 'cutting_assigned_worker_id', None),
+                'assembly_assigned_worker_id': get_attr(product, 'assembly_assigned_worker_id', None),
+                'packaging_assigned_worker_id': get_attr(product, 'packaging_assigned_worker_id', None),
+                
+                # Notatki i problemy
+                'production_notes': get_attr(product, 'production_notes', ''),
+                'quality_issues': get_attr(product, 'quality_issues', ''),
+                
+                # Timestampy
                 'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None,
+                'updated_at': product.updated_at.isoformat() if hasattr(product, 'updated_at') and product.updated_at else None,
+                'sync_source': get_attr(product, 'sync_source', None),
                 
-                # NOWE: Unique identifier dla virtual scroll
+                # Unique identifier dla frontend
                 'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
             }
             products_data.append(product_dict)
@@ -2000,16 +2060,45 @@ def products_tab_content():
         # Przygotuj statystyki
         total_volume = sum(p['volume_m3'] for p in products_data)
         total_value = sum(p['total_value_net'] for p in products_data)
-        urgent_count = len([p for p in products_data if p['days_to_deadline'] is not None and p['days_to_deadline'] < 0])
+        
+        # Oblicz pilne produkty (deadline <= 3 dni)
+        urgent_count = 0
+        for p in products_data:
+            if p['days_until_deadline'] is not None and p['days_until_deadline'] <= 3:
+                urgent_count += 1
+        
+        # Breakdown statusów
+        status_breakdown = {}
+        for p in products_data:
+            status = p['current_status']
+            status_breakdown[status] = status_breakdown.get(status, 0) + 1
         
         stats_data = {
             'total_count': len(products_data),
             'total_volume': round(total_volume, 3),
             'total_value': round(total_value, 2),
-            'urgent_count': urgent_count
+            'urgent_count': urgent_count,
+            'status_breakdown': status_breakdown
         }
         
+        # Przygotuj opcje filtrów z produktów
+        filters_data = {
+            'wood_species': list(set(p['parsed_wood_species'] for p in products_data if p['parsed_wood_species'])),
+            'technologies': list(set(p['parsed_technology'] for p in products_data if p['parsed_technology'])),
+            'wood_classes': list(set(p['parsed_wood_class'] for p in products_data if p['parsed_wood_class'])),
+            'thicknesses': list(set(f"{p['parsed_thickness_cm']}cm" for p in products_data if p['parsed_thickness_cm'] and p['parsed_thickness_cm'] > 0)),
+            'statuses': list(set(p['current_status'] for p in products_data if p['current_status']))
+        }
+        
+        # Sortuj opcje filtrów
+        filters_data['wood_species'].sort()
+        filters_data['technologies'].sort()
+        filters_data['wood_classes'].sort()
+        filters_data['thicknesses'].sort(key=lambda x: float(x.replace('cm', '')))
+        filters_data['statuses'].sort()
+        
         logger.info(f"[BUGFIX] Statystyki: {stats_data}")
+        logger.info(f"[BUGFIX] Opcje filtrów: gatunki={len(filters_data['wood_species'])}, technologie={len(filters_data['technologies'])}")
         
         return jsonify({
             'success': True,
@@ -2017,7 +2106,8 @@ def products_tab_content():
             'initial_data': {
                 'products': products_data,
                 'stats': stats_data,
-                'total_count': len(products_data),  # Dla virtual scroll
+                'filters': filters_data,
+                'total_count': len(products_data),
                 'load_all': load_all
             },
             'products_count': len(products),
@@ -2026,7 +2116,9 @@ def products_tab_content():
                 'search_query': search_query,
                 'products_returned': len(products_data),
                 'load_all': load_all,
-                'query_without_limit': True  # Informacja że usunięto limit
+                'query_without_limit': True,
+                'parsed_fields_included': True,
+                'filters_data_included': True
             }
         })
         

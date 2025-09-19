@@ -180,12 +180,8 @@
                 </div>
             </div>
 
-        </div>
-
-        <div class="row g-3 mt-1">
-
             <!-- AUTO-REFRESH TOGGLE -->
-            <div class="col-md-2">
+            <div class="filtr-conteiner">
                 <label class="form-label">Auto-odświeżanie</label>
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="auto-refresh-toggle">
@@ -195,30 +191,8 @@
                 </div>
             </div>
 
-            <!-- EXPORT BUTTON -->
-            <div class="col-md-2">
-                <label class="form-label">&nbsp;</label>
-                <div class="export-dropdown">
-                    <button class="btn btn-success w-100" id="export-products-btn">
-                        <i class="fas fa-download me-1"></i>Export
-                        <i class="fas fa-chevron-down ms-1"></i>
-                    </button>
-                    <div class="export-options" id="export-options">
-                        <button class="export-option" data-export-type="filtered">
-                            <i class="fas fa-filter me-2"></i>Przefiltrowane produkty
-                        </button>
-                        <button class="export-option" data-export-type="selected">
-                            <i class="fas fa-check-square me-2"></i>Zaznaczone produkty
-                        </button>
-                        <button class="export-option" data-export-type="all">
-                            <i class="fas fa-list me-2"></i>Wszystkie produkty
-                        </button>
-                    </div>
-                </div>
-            </div>
-
             <!-- KEYBOARD SHORTCUTS INFO -->
-            <div class="col-md-6">
+            <div class="filtr-conteiner">
                 <label class="form-label">&nbsp;</label>
                 <div class="text-muted small">
                     <i class="fas fa-keyboard me-1"></i>
@@ -227,6 +201,7 @@
                     <kbd>ESC</kbd> zamknij modal
                 </div>
             </div>
+
         </div>
     </div>
 
@@ -342,9 +317,6 @@
     <div class="bulk-actions">
         <button class="btn btn-sm btn-outline-light me-2" id="bulk-change-status">
             <i class="fas fa-exchange-alt me-1"></i>Zmień status
-        </button>
-        <button class="btn btn-sm btn-outline-light me-2" id="bulk-set-priority">
-            <i class="fas fa-star me-1"></i>Ustaw priorytet
         </button>
         <button class="btn btn-sm btn-outline-light me-2" id="bulk-export-selected">
             <i class="fas fa-download me-1"></i>Eksportuj
