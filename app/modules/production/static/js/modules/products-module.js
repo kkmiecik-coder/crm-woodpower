@@ -35,7 +35,6 @@ class ProductsModule {
 
         // Main components
         this.components = {
-            virtualScroll: null,
             dragDrop: null,
             filters: null,
             modals: null,
@@ -112,6 +111,8 @@ class ProductsModule {
                 console.log('[ProductsModule] Template already loaded - refreshing data only...');
                 await this.refreshDataOnly();
             }
+
+            this.initializeProductsList();
 
             this.isLoaded = true;
             this.state.lastUpdate = new Date();
@@ -242,6 +243,154 @@ class ProductsModule {
     // INITIALIZATION METHODS - będą implementowane w kolejnych krokach
     // ========================================================================
 
+    /**
+     * Inicjalizuje prostą listę produktów (bez virtual scrolling)
+     */
+    initializeProductsList() {
+        try {
+            console.log('[ProductsModule] Initializing simple products list...');
+
+            // Pobierz elementy DOM
+            this.listElements = {
+                container: document.getElementById('virtual-scroll-container'),
+                viewport: document.getElementById('virtual-scroll-viewport'),
+                loadingState: document.getElementById('products-loading'),
+                emptyState: document.getElementById('products-empty-state'),
+                errorState: document.getElementById('products-error-state')
+            };
+
+            // Walidacja elementów
+            if (!this.listElements.container || !this.listElements.viewport) {
+                throw new Error('Required DOM elements not found');
+            }
+
+            // Usuń spacery - nie potrzebujemy ich
+            const spacerTop = document.getElementById('virtual-scroll-spacer-top');
+            const spacerBottom = document.getElementById('virtual-scroll-spacer-bottom');
+            if (spacerTop) spacerTop.style.display = 'none';
+            if (spacerBottom) spacerBottom.style.display = 'none';
+
+            // Ustaw CSS dla prostego renderowania
+            this.listElements.container.style.overflow = 'auto';
+            this.listElements.container.style.maxHeight = '70vh';
+            this.listElements.viewport.style.position = 'relative';
+            this.listElements.viewport.style.display = 'block';
+
+            // Stan prostej listy
+            this.listState = {
+                isLoading: false,
+                isLoaded: false,
+                renderedProducts: [],
+                currentSort: null,
+                currentSortDirection: 'asc'
+            };
+
+            // Inicjalizuj komponenty (filtry, etc)
+            this.initializeComponents();
+
+            // Setup event listeners
+            this.setupEventListeners();
+
+            // POKAŻ LOADING I ZAŁADUJ PRODUKTY z opóźnieniem
+            this.showLoadingAndLoadProducts();
+
+            console.log('[ProductsModule] Simple products list initialized');
+            return true;
+
+        } catch (error) {
+            console.error('[ProductsModule] Failed to initialize simple list:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Pokazuje loading i ładuje produkty z opóźnieniem
+     */
+    async showLoadingAndLoadProducts() {
+        console.log('[ProductsModule] Starting product loading sequence...');
+
+        // Pokaż loading state
+        this.showLoadingState();
+
+        // Simuluj opóźnienie ładowania (można usunąć w production)
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        try {
+            // Załaduj dane produktów
+            await this.loadProductsData();
+
+            // Renderuj listę
+            this.renderProductsList();
+
+            // Ukryj loading
+            this.hideLoadingState();
+
+            console.log('[ProductsModule] Product loading sequence completed');
+
+        } catch (error) {
+            console.error('[ProductsModule] Error loading products:', error);
+            this.showErrorState(error.message);
+        }
+    }
+
+    /**
+ * Pokazuje stan ładowania
+ */
+    showLoadingState() {
+        console.log('[ProductsModule] Showing loading state...');
+
+        // Ukryj inne stany
+        this.hideEmptyState();
+        this.hideErrorState();
+
+        // Wyczyść viewport
+        this.listElements.viewport.innerHTML = '';
+
+        // Pokaż loading
+        if (this.listElements.loadingState) {
+            this.listElements.loadingState.style.display = 'flex';
+        }
+
+        this.listState.isLoading = true;
+    }
+
+    /**
+     * Ukrywa stan ładowania
+     */
+    hideLoadingState() {
+        if (this.listElements.loadingState) {
+            this.listElements.loadingState.style.display = 'none';
+        }
+        this.listState.isLoading = false;
+    }
+
+    /**
+     * Pokazuje stan błędu
+     */
+    showErrorState(message = 'Wystąpił błąd podczas ładowania produktów') {
+        console.log('[ProductsModule] Showing error state:', message);
+
+        this.hideLoadingState();
+        this.hideEmptyState();
+
+        if (this.listElements.errorState) {
+            const errorMessage = this.listElements.errorState.querySelector('#error-message');
+            if (errorMessage) {
+                errorMessage.textContent = message;
+            }
+            this.listElements.errorState.style.display = 'flex';
+        }
+    }
+
+    /**
+     * Ukrywa stan błędu
+     */
+    hideErrorState() {
+        if (this.listElements.errorState) {
+            this.listElements.errorState.style.display = 'none';
+        }
+    }
+
     initializeComponents() {
         console.log('[ProductsModule-new] Initializing components...');
         
@@ -264,12 +413,6 @@ class ProductsModule {
                 console.warn('[ProductsModule-new] Filter badges initialization failed');
             }
 
-            // KROK 4.1: Inicjalizuj virtual scrolling ✅
-            const virtualScrollSuccess = this.initializeVirtualScrolling();
-            if (!virtualScrollSuccess) {
-                console.warn('[ProductsModule-new] Virtual scrolling initialization failed');
-            }
-
             // KROK 4.2: Inicjalizuj strukturę wiersza produktu
             const productRowSuccess = this.setupProductRowStructure();
             if (!productRowSuccess) {
@@ -289,6 +432,89 @@ class ProductsModule {
             console.error('[ProductsModule-new] Failed to initialize components:', error);
             return false;
         }
+    }
+
+    /**
+     * Renderuje całą listę produktów (bez virtual scrolling)
+     */
+    renderProductsList() {
+        console.log('[ProductsModule] Rendering products list...');
+
+        const filteredProducts = this.getFilteredProducts();
+        const totalCount = filteredProducts.length;
+
+        console.log(`[ProductsModule] Rendering ${totalCount} products`);
+
+        if (totalCount === 0) {
+            this.showEmptyState();
+            return;
+        }
+
+        this.hideEmptyState();
+        this.hideErrorState();
+
+        // Wyczyść viewport
+        this.listElements.viewport.innerHTML = '';
+
+        // Utwórz fragment dla lepszej wydajności
+        const fragment = document.createDocumentFragment();
+
+        // Renderuj wszystkie produkty
+        filteredProducts.forEach((product, index) => {
+            const rowElement = this.createSimpleProductRow(product, index);
+            if (rowElement) {
+                fragment.appendChild(rowElement);
+            }
+        });
+
+        // Dodaj wszystkie wiersze naraz
+        this.listElements.viewport.appendChild(fragment);
+
+        // Aktualizuj licznik
+        this.updateProductsCount();
+
+        // Synchronizuj checkboxy
+        this.syncAllCheckboxes();
+
+        this.listState.isLoaded = true;
+        this.listState.renderedProducts = filteredProducts;
+
+        console.log('[ProductsModule] Products list rendered successfully');
+    }
+
+    /**
+     * Tworzy prosty wiersz produktu (bez virtual scroll positioning)
+     */
+    createSimpleProductRow(product, index) {
+        try {
+            // UŻYWAJ ISTNIEJĄCEJ FUNKCJI - tylko zmień parametry pozycjonowania
+            const rowElement = this.createProductRowElement(index, product);
+
+            if (rowElement) {
+                // USUŃ pozycjonowanie absolute - użyj normalny flow
+                rowElement.style.position = 'relative';
+                rowElement.style.top = 'auto';
+                rowElement.style.width = '100%';
+                rowElement.style.height = 'auto';
+                rowElement.style.minHeight = '65px';
+                rowElement.style.marginBottom = '1px';
+
+                // Usuń atrybuty virtual scroll
+                rowElement.removeAttribute('data-virtual-index');
+                rowElement.classList.remove('virtual-row');
+                rowElement.classList.add('simple-row');
+
+                // Aktualizuj dane wiersza
+                this.updateProductRow(rowElement, index, product);
+
+                return rowElement;
+            }
+
+        } catch (error) {
+            console.error(`[ProductsModule] Error creating row for product ${index}:`, error);
+        }
+
+        return null;
     }
 
     setupEventListeners() {
@@ -393,11 +619,6 @@ class ProductsModule {
             // NOWE: Zainicjalizuj filteredProducts z wszystkimi produktami
             if (!this.state.filteredProducts) {
                 this.state.filteredProducts = this.state.products;
-            }
-            
-            // NOWE: Odśwież virtual scroll po załadowaniu danych
-            if (this.components.virtualScroll) {
-                this.refreshVirtualScrollData();
             }
             
             // NOWE: Aktualizuj statystyki
@@ -703,9 +924,6 @@ class ProductsModule {
         // Wyświetl search query w UI
         this.showActiveSearchQuery(query);
 
-        // TODO: W kolejnych krokach - aktualizuj virtual scroll list
-        // this.updateVirtualScrollList(results);
-
         console.log('[ProductsModule] Search results displayed');
     }
 
@@ -726,9 +944,6 @@ class ProductsModule {
 
         // Aktualizuj statystyki
         this.updateSearchStatistics(this.state.products.length, '');
-
-        // TODO: W kolejnych krokach - aktualizuj virtual scroll
-        // this.updateVirtualScrollList(this.state.products);
 
         this.showSearchLoadingIndicator(false);
     }
@@ -2033,288 +2248,6 @@ class ProductsModule {
         // - Aktualizacja statystyk
     }
 
-    // ========================================================================
-    // VIRTUAL SCROLLING
-    // ========================================================================
-
-    /**
-     * Inicjalizuje system virtual scrolling
-     */
-    initializeVirtualScrolling() {
-        console.log('[ProductsModule] Initializing virtual scrolling...');
-
-        try {
-            // Znajdź elementy DOM
-            this.virtualScrollElements = {
-                container: document.getElementById('virtual-scroll-container'),
-                spacerTop: document.getElementById('virtual-scroll-spacer-top'),
-                viewport: document.getElementById('virtual-scroll-viewport'),
-                spacerBottom: document.getElementById('virtual-scroll-spacer-bottom'),
-                header: document.querySelector('.products-list-header')
-            };
-
-            // Sprawdź czy wszystkie elementy istnieją
-            if (!this.validateVirtualScrollElements()) {
-                return false;
-            }
-
-            // Konfiguracja virtual scroll
-            this.virtualScrollConfig = {
-                rowHeight: 65,           // Wysokość pojedynczego wiersza w px
-                visibleBuffer: 5,        // Dodatkowe wiersze renderowane poza viewport
-                scrollThrottle: 16,      // Throttling scroll events (60fps)
-                recycleRows: true,       // Czy recyklować elementy DOM
-                estimatedTotalRows: 0,   // Liczba wszystkich produktów
-                maxRenderedRows: 50      // Maksymalna liczba renderowanych wierszy jednocześnie
-            };
-
-            // Stan virtual scroll
-            this.virtualScrollState = {
-                scrollTop: 0,
-                startIndex: 0,
-                endIndex: 0,
-                renderedRows: new Map(),     // Map<index, DOMElement>
-                recycledRows: [],            // Pool elementów do recyklingu
-                isScrolling: false,
-                scrollTimeout: null,
-                lastScrollTime: 0
-            };
-
-            // Inicjalizuj virtual scroll component
-            this.components.virtualScroll = new VirtualScrollList(this);
-
-            // Setup event listeners
-            this.setupVirtualScrollEvents();
-
-            // Początkowe renderowanie
-            this.refreshVirtualScrollData();
-
-            console.log('[ProductsModule] Virtual scrolling initialized successfully');
-            return true;
-
-        } catch (error) {
-            console.error('[ProductsModule] Failed to initialize virtual scrolling:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Waliduje czy wszystkie elementy DOM do virtual scroll istnieją
-     */
-    validateVirtualScrollElements() {
-        const missing = [];
-        
-        Object.entries(this.virtualScrollElements).forEach(([key, element]) => {
-            if (!element) {
-                missing.push(key);
-            }
-        });
-
-        if (missing.length > 0) {
-            console.error('[ProductsModule] Missing virtual scroll elements:', missing);
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Konfiguruje event listeners dla virtual scrolling
-     */
-    setupVirtualScrollEvents() {
-        const container = this.virtualScrollElements.container;
-        
-        // Throttled scroll handler
-        const throttledScrollHandler = this.throttle(
-            this.handleVirtualScrollEvent.bind(this), 
-            this.virtualScrollConfig.scrollThrottle
-        );
-
-        container.addEventListener('scroll', throttledScrollHandler, { passive: true });
-
-        // Resize observer dla responsywności
-        this.virtualScrollResizeObserver = new ResizeObserver(() => {
-            this.recalculateVirtualScrollDimensions();
-        });
-        this.virtualScrollResizeObserver.observe(container);
-
-        console.log('[ProductsModule] Virtual scroll events setup complete');
-    }
-
-    /**
-     * Obsługuje zdarzenia scroll
-     */
-    handleVirtualScrollEvent(event) {
-        const container = this.virtualScrollElements.container;
-        const scrollTop = container.scrollTop;
-        
-        // Aktualizuj stan
-        this.virtualScrollState.scrollTop = scrollTop;
-        this.virtualScrollState.isScrolling = true;
-        this.virtualScrollState.lastScrollTime = Date.now();
-
-        // Oblicz nowe indeksy
-        this.calculateVisibleRange();
-
-        // Renderuj widoczne wiersze
-        this.renderVisibleRows();
-
-        // Reset scrolling state po pewnym czasie
-        clearTimeout(this.virtualScrollState.scrollTimeout);
-        this.virtualScrollState.scrollTimeout = setTimeout(() => {
-            this.virtualScrollState.isScrolling = false;
-        }, 150);
-    }
-
-    /**
-     * Oblicza zakres widocznych wierszy
-     */
-    calculateVisibleRange() {
-        const { scrollTop } = this.virtualScrollState;
-        const { rowHeight, visibleBuffer } = this.virtualScrollConfig;
-        const containerHeight = this.virtualScrollElements.container.clientHeight;
-        const totalRows = this.getFilteredProductsCount();
-        
-        console.debug(`[VirtualScroll] Calculate range - scrollTop: ${scrollTop}, containerHeight: ${containerHeight}, totalRows: ${totalRows}`);
-        
-        // Jeśli brak produktów
-        if (totalRows === 0) {
-            this.virtualScrollState.startIndex = 0;
-            this.virtualScrollState.endIndex = -1;
-            return;
-        }
-        
-        // Oblicz podstawowe indeksy
-        const startIndex = Math.floor(scrollTop / rowHeight);
-        const visibleRowCount = Math.ceil(containerHeight / rowHeight);
-        const endIndex = startIndex + visibleRowCount - 1; // -1 bo endIndex jest inclusive
-        
-        // Dodaj buffer i zapewnij prawidłowe granice
-        const bufferedStartIndex = Math.max(0, startIndex - visibleBuffer);
-        const bufferedEndIndex = Math.min(totalRows - 1, endIndex + visibleBuffer);
-        
-        // WALIDACJA: Upewnij się że startIndex <= endIndex
-        const finalStartIndex = Math.min(bufferedStartIndex, totalRows - 1);
-        const finalEndIndex = Math.max(finalStartIndex, bufferedEndIndex);
-        
-        // Aktualizuj stan tylko jeśli wartości się zmieniły
-        const changed = (
-            this.virtualScrollState.startIndex !== finalStartIndex ||
-            this.virtualScrollState.endIndex !== finalEndIndex
-        );
-        
-        if (changed) {
-            this.virtualScrollState.startIndex = finalStartIndex;
-            this.virtualScrollState.endIndex = finalEndIndex;
-            
-            console.debug(`[VirtualScroll] Range updated: ${finalStartIndex}-${finalEndIndex} (${finalEndIndex - finalStartIndex + 1} rows)`);
-        }
-    }
-
-    /**
-     * Renderuje widoczne wiersze produktów
-     */
-    renderVisibleRows() {
-        const { startIndex, endIndex } = this.virtualScrollState;
-        const filteredProducts = this.getFilteredProducts();
-        const totalRows = filteredProducts.length;
-
-        console.debug(`[VirtualScroll] Rendering rows ${startIndex}-${endIndex} of ${totalRows} products`);
-
-        if (!filteredProducts || totalRows === 0) {
-            this.showEmptyState();
-            return;
-        }
-
-        // Ukryj empty state
-        this.hideEmptyState();
-
-        // WALIDACJA: Sprawdź czy indeksy są poprawne
-        if (startIndex < 0 || endIndex >= totalRows || startIndex > endIndex) {
-            console.error(`[VirtualScroll] Invalid range: ${startIndex}-${endIndex}, totalRows: ${totalRows}`);
-            return;
-        }
-
-        // Usuń wiersze które nie są już widoczne
-        this.removeInvisibleRows(startIndex, endIndex);
-
-        // Renderuj nowe widoczne wiersze
-        for (let index = startIndex; index <= endIndex && index < totalRows; index++) {
-            const product = filteredProducts[index];
-            if (!product) {
-                console.warn(`[VirtualScroll] Missing product at index ${index}`);
-                continue;
-            }
-
-            let rowElement = this.virtualScrollState.renderedRows.get(index);
-            
-            if (!rowElement) {
-                // Stwórz nowy wiersz (lub użyj z recyklingu)
-                rowElement = this.createOrRecycleProductRow(index, product);
-                if (rowElement) {
-                    this.virtualScrollState.renderedRows.set(index, rowElement);
-                }
-            } else {
-                // Aktualizuj istniejący wiersz
-                this.updateProductRow(rowElement, index, product);
-            }
-        }
-
-        // Aktualizuj spacers
-        this.updateVirtualScrollSpacers();
-        
-        console.debug(`[VirtualScroll] Rendered ${this.virtualScrollState.renderedRows.size} rows`);
-    }
-
-    /**
-     * Usuwa wiersze które nie są już widoczne
-     */
-    removeInvisibleRows(startIndex, endIndex) {
-        const toRemove = [];
-        
-        this.virtualScrollState.renderedRows.forEach((rowElement, index) => {
-            if (index < startIndex || index > endIndex) {
-                toRemove.push(index);
-            }
-        });
-
-        toRemove.forEach(index => {
-            const rowElement = this.virtualScrollState.renderedRows.get(index);
-            if (rowElement) {
-                this.recycleProductRow(rowElement);
-                this.virtualScrollState.renderedRows.delete(index);
-            }
-        });
-    }
-
-    /**
-     * Tworzy nowy wiersz produktu lub używa z recyklingu
-     */
-    createOrRecycleProductRow(index, product) {
-        let rowElement;
-
-        // Spróbuj użyć z recyklingu
-        if (this.virtualScrollConfig.recycleRows && this.virtualScrollState.recycledRows.length > 0) {
-            rowElement = this.virtualScrollState.recycledRows.pop();
-            console.debug('[VirtualScroll] Recycled row for index:', index);
-        } else {
-            // Stwórz nowy element
-            rowElement = this.createProductRowElement(index, product);
-            console.debug('[VirtualScroll] Created new row for index:', index);
-        }
-
-        // Aktualizuj dane wiersza
-        this.updateProductRow(rowElement, index, product);
-        
-        // Ustaw pozycję
-        this.positionProductRow(rowElement, index);
-        
-        // Dodaj do viewport
-        this.virtualScrollElements.viewport.appendChild(rowElement);
-        
-        return rowElement;
-    }
-
     /**
      * Tworzy nowy element DOM wiersza produktu
      */
@@ -2530,198 +2463,6 @@ class ProductsModule {
             });
         }
     }
-
-    /**
-     * Ustawia pozycję wiersza produktu
-     */
-    positionProductRow(rowElement, index) {
-        if (!rowElement) {
-            console.error(`[VirtualScroll] Cannot position null row element at index ${index}`);
-            return;
-        }
-        
-        const { rowHeight } = this.virtualScrollConfig;
-        const topPosition = index * rowHeight;
-        
-        // Ustaw pozycję absolute z offset od góry spacera
-        rowElement.style.position = 'absolute';
-        rowElement.style.top = `${topPosition}px`;
-        rowElement.style.width = '100%';
-        rowElement.style.height = `${rowHeight}px`;
-        
-        // Dodaj atrybut dla debugowania
-        rowElement.setAttribute('data-virtual-index', index);
-        
-        console.debug(`[VirtualScroll] Positioned row ${index} at ${topPosition}px`);
-    }
-
-    debugVirtualScrollState() {
-        const state = this.virtualScrollState;
-        const config = this.virtualScrollConfig;
-        const totalRows = this.getFilteredProductsCount();
-        
-        console.log('=== VIRTUAL SCROLL DEBUG STATE ===');
-        console.log(`Total products: ${totalRows}`);
-        console.log(`Start index: ${state.startIndex}`);
-        console.log(`End index: ${state.endIndex}`);
-        console.log(`Rendered rows: ${state.renderedRows.size}`);
-        console.log(`Recycled rows: ${state.recycledRows.length}`);
-        console.log(`Scroll top: ${state.scrollTop}`);
-        console.log(`Row height: ${config.rowHeight}`);
-        console.log(`Container height: ${this.virtualScrollElements.container?.clientHeight || 'unknown'}`);
-        
-        // Sprawdź spacer heights
-        const topHeight = this.virtualScrollElements.spacerTop?.style.height || '0px';
-        const bottomHeight = this.virtualScrollElements.spacerBottom?.style.height || '0px';
-        console.log(`Spacer top: ${topHeight}`);
-        console.log(`Spacer bottom: ${bottomHeight}`);
-    }
-
-    /**
-     * Resetuje virtual scroll do stanu początkowego
-     */
-    resetVirtualScrollState() {
-        console.log('[VirtualScroll] Resetting to initial state...');
-        
-        // Wyczyść wszystkie renderowane wiersze
-        this.clearRenderedRows();
-        
-        // Reset state
-        this.virtualScrollState = {
-            scrollTop: 0,
-            startIndex: 0,
-            endIndex: -1,
-            renderedRows: new Map(),
-            recycledRows: [],
-            isScrolling: false,
-            scrollTimeout: null,
-            lastScrollTime: 0
-        };
-        
-        // Reset scroll position
-        if (this.virtualScrollElements.container) {
-            this.virtualScrollElements.container.scrollTop = 0;
-        }
-        
-        // Przelicz wszystko od nowa
-        this.calculateVisibleRange();
-        this.renderVisibleRows();
-    }
-
-    /**
-     * Ustala całkowitą wysokość kontenera virtual scroll
-     * BUGFIX: Poprawne obliczenia i walidacja
-     */
-    updateVirtualScrollContainerHeight() {
-        const totalRows = this.getFilteredProductsCount();
-        const { rowHeight } = this.virtualScrollConfig;
-        
-        // Oblicz minimalną wysokość kontenera
-        const totalHeight = totalRows * rowHeight;
-        
-        // Ustaw wysokość na viewport (suma spacers + rendered rows)
-        // Nie zmieniamy wysokości głównego kontenera, tylko spacers
-        console.debug(`[VirtualScroll] Total virtual height: ${totalHeight}px for ${totalRows} rows`);
-    }
-
-    /**
-     * Dodaje wiersz do recyklingu
-     */
-    recycleProductRow(rowElement) {
-        if (this.virtualScrollConfig.recycleRows) {
-            // Wyczyść event listenery poprzez klonowanie
-            const cleanElement = rowElement.cloneNode(true);
-            rowElement.parentNode.replaceChild(cleanElement, rowElement);
-            
-            // Dodaj do pool recyklingu
-            this.virtualScrollState.recycledRows.push(cleanElement);
-            cleanElement.remove(); // Usuń z DOM ale zachowaj w pool
-            
-            console.debug('[VirtualScroll] Recycled row element');
-        } else {
-            rowElement.remove();
-        }
-    }
-
-    /**
-     * Aktualizuje spacers (górny i dolny)
-     */
-    updateVirtualScrollSpacers() {
-        const { startIndex, endIndex } = this.virtualScrollState;
-        const { rowHeight } = this.virtualScrollConfig;
-        const totalRows = this.getFilteredProductsCount();
-        
-        if (totalRows === 0) {
-            this.virtualScrollElements.spacerTop.style.height = '0px';
-            this.virtualScrollElements.spacerBottom.style.height = '0px';
-            return;
-        }
-        
-        // Spacer górny - wszystkie wiersze przed startIndex
-        const topHeight = Math.max(0, startIndex * rowHeight);
-        this.virtualScrollElements.spacerTop.style.height = `${topHeight}px`;
-        
-        // Spacer dolny - wszystkie wiersze po endIndex
-        const remainingRows = Math.max(0, totalRows - endIndex - 1);
-        const bottomHeight = remainingRows * rowHeight;
-        this.virtualScrollElements.spacerBottom.style.height = `${bottomHeight}px`;
-        
-        console.debug(`[VirtualScroll] Spacers updated: top=${topHeight}px (${startIndex} rows), bottom=${bottomHeight}px (${remainingRows} rows)`);
-    }
-
-    /**
-     * Przeliczywa wymiary virtual scroll
-     */
-    recalculateVirtualScrollDimensions() {
-        console.log('[VirtualScroll] Recalculating dimensions...');
-        
-        // Przelicz visible range
-        this.calculateVisibleRange();
-        
-        // Re-render widoczne wiersze
-        this.renderVisibleRows();
-    }
-
-    /**
-     * Odświeża dane virtual scroll
-     */
-    refreshVirtualScrollData() {
-        console.log('[VirtualScroll] Refreshing virtual scroll data...');
-        
-        // Reset state
-        this.virtualScrollState.startIndex = 0;
-        this.virtualScrollState.endIndex = 0;
-        this.virtualScrollState.scrollTop = 0;
-        
-        // Wyczyść renderowane wiersze
-        this.clearRenderedRows();
-        
-        // Reset scroll position
-        this.virtualScrollElements.container.scrollTop = 0;
-        
-        // Inicjalny render
-        this.calculateVisibleRange();
-        this.renderVisibleRows();
-        
-        // Aktualizuj licznik w nagłówku
-        this.updateProductsCount();
-    }
-
-    /**
-     * Czyści wszystkie renderowane wiersze
-     */
-    clearRenderedRows() {
-        // Usuń z DOM
-        this.virtualScrollElements.viewport.innerHTML = '';
-        
-        // Wyczyść state
-        this.virtualScrollState.renderedRows.clear();
-        this.virtualScrollState.recycledRows = [];
-        
-        console.log('[VirtualScroll] Cleared all rendered rows');
-    }
-
-    // NOWE FUNKCJE - WKLEJ PO SEKCJI "KONIEC SEKCJI VIRTUAL SCROLLING"
 
     // ========================================================================
     // PRODUCT ROW STRUCTURE - KROK 4.2
@@ -3139,9 +2880,6 @@ class ProductsModule {
         // Posortuj produkty
         this.sortProducts(columnKey, this.state.sortDirection);
         
-        // Odśwież virtual scroll z posortowanymi danymi
-        this.refreshVirtualScrollData();
-        
         console.log(`[ProductsModule] Products sorted by ${columnKey} ${this.state.sortDirection}`);
     }
 
@@ -3295,14 +3033,13 @@ class ProductsModule {
      * Synchronizuje checkboxy w widocznych wierszach z centralnym state
      */
     syncVisibleCheckboxes() {
-        if (!this.virtualScrollState.renderedRows) return;
-        
-        this.virtualScrollState.renderedRows.forEach((rowElement, index) => {
-            const checkbox = rowElement.querySelector('.product-checkbox');
-            if (checkbox) {
-                const uniqueId = checkbox.value;
-                checkbox.checked = this.state.selectedProducts.has(uniqueId);
-            }
+        const viewport = document.getElementById('virtual-scroll-viewport');
+        if (!viewport) return;
+
+        const checkboxes = viewport.querySelectorAll('.product-checkbox');
+        checkboxes.forEach(checkbox => {
+            const uniqueId = checkbox.value;
+            checkbox.checked = this.state.selectedProducts.has(uniqueId);
         });
     }
 
@@ -3727,13 +3464,16 @@ class ProductsModule {
         const emptyState = document.getElementById('products-empty-state');
         const loadingState = document.getElementById('products-loading');
         const errorState = document.getElementById('products-error-state');
-        
-        this.clearRenderedRows();
-        
+
+        // Wyczyść viewport zamiast clearRenderedRows()
+        const viewport = document.getElementById('virtual-scroll-viewport');
+        if (viewport) viewport.innerHTML = '';
+
         if (emptyState) emptyState.style.display = 'block';
         if (loadingState) loadingState.style.display = 'none';
         if (errorState) errorState.style.display = 'none';
     }
+
 
     /**
      * Ukrywa empty state
@@ -3755,9 +3495,11 @@ class ProductsModule {
         const loadingState = document.getElementById('products-loading');
         const emptyState = document.getElementById('products-empty-state');
         const errorState = document.getElementById('products-error-state');
-        
-        this.clearRenderedRows();
-        
+
+        // Wyczyść viewport zamiast clearRenderedRows()
+        const viewport = document.getElementById('virtual-scroll-viewport');
+        if (viewport) viewport.innerHTML = '';
+
         if (loadingState) loadingState.style.display = 'block';
         if (emptyState) emptyState.style.display = 'none';
         if (errorState) errorState.style.display = 'none';
@@ -3771,13 +3513,38 @@ class ProductsModule {
         const messageEl = document.getElementById('error-message');
         const loadingState = document.getElementById('products-loading');
         const emptyState = document.getElementById('products-empty-state');
-        
-        this.clearRenderedRows();
-        
+
+        // Wyczyść viewport zamiast clearRenderedRows()
+        const viewport = document.getElementById('virtual-scroll-viewport');
+        if (viewport) viewport.innerHTML = '';
+
         if (errorState) errorState.style.display = 'block';
         if (messageEl) messageEl.textContent = message || 'Wystąpił błąd podczas pobierania danych produktów.';
         if (loadingState) loadingState.style.display = 'none';
         if (emptyState) emptyState.style.display = 'none';
+    }
+
+    /**
+     * Funkcja do synchronizacji wszystkich checkboxów
+     */
+    syncAllCheckboxes() {
+        console.log('[ProductsModule] Syncing all checkboxes...');
+
+        const viewport = document.getElementById('virtual-scroll-viewport');
+        if (!viewport) return;
+
+        const allCheckboxes = viewport.querySelectorAll('.product-checkbox');
+
+        allCheckboxes.forEach(checkbox => {
+            const productId = checkbox.value;
+            checkbox.checked = this.state.selectedProducts.has(productId);
+        });
+
+        // Aktualizuj select-all checkbox
+        this.updateSelectAllCheckbox();
+
+        // Aktualizuj bulk actions bar
+        this.updateBulkActionsBar();
     }
 
     // ========================================================================
@@ -4000,80 +3767,6 @@ class ProductsModule {
             filters: this.state.currentFilters,
             stats: this.state.stats
         };
-    }
-}
-
-/**
- * Helper klasa dla Virtual Scrolling
- * (Opcjonalnie - można pozostawić logikę w głównej klasie ProductsModule)
- */
-class VirtualScrollList {
-    constructor(parentModule) {
-        this.parent = parentModule;
-        this.isInitialized = false;
-        
-        console.log('[VirtualScrollList] Helper class initialized');
-    }
-    
-    /**
-     * Publiczne API dla refreshu
-     */
-    refresh() {
-        if (this.parent && this.parent.refreshVirtualScrollData) {
-            this.parent.refreshVirtualScrollData();
-        }
-    }
-    
-    /**
-     * Publiczne API dla scrollu do konkretnego produktu
-     */
-    scrollToProduct(uniqueId) {
-        const products = this.parent.getFilteredProducts();
-        const index = products.findIndex(p => this.parent.getProductUniqueId(p) === uniqueId);
-        
-        if (index >= 0) {
-            this.scrollToIndex(index);
-        }
-    }
-    
-    /**
-     * Scrolluje do konkretnego indeksu
-     */
-    scrollToIndex(index) {
-        const container = this.parent.virtualScrollElements.container;
-        const rowHeight = this.parent.virtualScrollConfig.rowHeight;
-        const scrollTop = index * rowHeight;
-        
-        container.scrollTop = scrollTop;
-        console.log(`[VirtualScrollList] Scrolled to index: ${index}`);
-    }
-    
-    /**
-     * Pobiera aktualny zakres widocznych elementów
-     */
-    getVisibleRange() {
-        return {
-            startIndex: this.parent.virtualScrollState.startIndex,
-            endIndex: this.parent.virtualScrollState.endIndex
-        };
-    }
-    
-    /**
-     * Czyści wszystkie dane virtual scroll
-     */
-    clear() {
-        if (this.parent && this.parent.clearRenderedRows) {
-            this.parent.clearRenderedRows();
-        }
-    }
-    
-    /**
-     * Cleanup method
-     */
-    destroy() {
-        this.parent = null;
-        this.isInitialized = false;
-        console.log('[VirtualScrollList] Helper class destroyed');
     }
 }
 
