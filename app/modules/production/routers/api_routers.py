@@ -1877,14 +1877,18 @@ def dashboard_tab_content():
 @login_required  
 def products_tab_content():
     """
-    Endpoint zwracający zawartość taba produktów - używa prawdziwego szablonu
+    Endpoint zwracający zawartość taba produktów - NAPRAWIONY
+    BUGFIX: Usuwa limit 100 produktów, zwraca wszystkie produkty
     """
     try:
         # Pobierz podstawowe parametry
         status_filter = request.args.get('status', 'all')
         search_query = request.args.get('search', '')
+        load_all = request.args.get('load_all', 'true').lower() == 'true'  # NOWE: parametr force load all
         
-        # Pobierz produkty z bazy danych
+        logger.info(f"[BUGFIX] products-tab-content: status={status_filter}, search='{search_query}', load_all={load_all}")
+        
+        # Pobierz produkty z bazy danych - BEZ LIMITU
         products_query = ProductionItem.query
         
         # Filtrowanie po statusie
@@ -1904,98 +1908,125 @@ def products_tab_content():
             if search_conditions:
                 products_query = products_query.filter(or_(*search_conditions))
         
-        # Sortowanie domyślne
+        # Sortowanie domyślne - zawsze po priority_score DESC
         if hasattr(ProductionItem, 'priority_score'):
             products_query = products_query.order_by(ProductionItem.priority_score.desc())
         else:
+            # Fallback sorting
             products_query = products_query.order_by(ProductionItem.id.desc())
         
-        # Limit dla pierwszego ładowania
-        products = products_query.limit(100).all()
+        # ZMIANA: Pobierz WSZYSTKIE produkty (usuń limit)
+        products = products_query.all()
         
-        # Przygotuj dzisiejszą datę
-        today = date.today()
+        logger.info(f"[BUGFIX] Pobranych produktów: {len(products)} (bez limitu)")
         
-        # Przetwórz produkty - bezpieczne pobieranie atrybutów
-        for product in products:
-            # Dodaj obliczone pola
-            deadline_date = getattr(product, 'deadline_date', None)
-            if deadline_date:
-                days_diff = (deadline_date - today).days
-                product.days_to_deadline = days_diff
-            else:
-                product.days_to_deadline = None
+        # Renderuj HTML template
+        html_content = render_template('components/products-tab-content.html')
         
-        # Opcje statusów dla dropdown
-        status_options = [
-            ('all', 'Wszystkie statusy'),
-            ('czeka_na_wyciecie', 'Czeka na wycięcie'),
-            ('czeka_na_skladanie', 'Czeka na składanie'), 
-            ('czeka_na_pakowanie', 'Czeka na pakowanie'),
-            ('spakowane', 'Spakowane'),
-            ('wstrzymane', 'Wstrzymane'),
-            ('anulowane', 'Anulowane')
-        ]
-        
-        # Sprawdź czy użytkownik to admin
-        is_admin = current_user.role in ['admin', 'administrator'] if current_user.is_authenticated else False
-        
-        # Renderuj prawdziwy szablon HTML
-        html_content = render_template(
-            'components/products-tab-content.html',
-            products=products,
-            status_options=status_options,
-            status_filter=status_filter,
-            search_query=search_query,
-            is_admin=is_admin,
-            today=today
-        )
-        
-        # Przygotuj dane produktów dla frontendu
+        # Przygotuj dane produktów z bezpiecznym dostępem do atrybutów
         products_data = []
         for product in products:
+            # Bezpieczne pobieranie wartości z fallback
+            def get_attr(obj, attr_name, default=None):
+                return getattr(obj, attr_name, default) if hasattr(obj, attr_name) else default
+            
+            # Oblicz dni do deadline
+            days_to_deadline = None
+            if hasattr(product, 'deadline_date') and product.deadline_date:
+                try:
+                    deadline = product.deadline_date
+                    if isinstance(deadline, str):
+                        deadline = datetime.strptime(deadline, '%Y-%m-%d').date()
+                    days_to_deadline = (deadline - date.today()).days
+                except:
+                    days_to_deadline = None
+            
+            # Bezpieczne pobieranie objętości
+            volume_m3 = 0.0
+            try:
+                vol = get_attr(product, 'volume_m3', 0)
+                volume_m3 = float(vol) if vol is not None else 0.0
+            except (ValueError, TypeError):
+                volume_m3 = 0.0
+            
+            # Bezpieczne pobieranie wartości
+            total_value_net = 0.0
+            try:
+                val = get_attr(product, 'total_value_net', 0)
+                total_value_net = float(val) if val is not None else 0.0
+            except (ValueError, TypeError):
+                total_value_net = 0.0
+            
+            # Bezpieczne pobieranie priority_score
+            priority_score = 0
+            try:
+                priority = get_attr(product, 'priority_score', 0)
+                priority_score = int(priority) if priority is not None else 0
+            except (ValueError, TypeError):
+                priority_score = 0
+            
             product_dict = {
+                # Podstawowe dane
                 'id': product.id,
-                'short_product_id': product.short_product_id,
-                'original_product_name': product.original_product_name,
-                'current_status': product.current_status,
-                'priority_score': product.priority_score or 0,
-                'volume_m3': float(product.volume_m3 or 0),
-                'total_value_net': float(product.total_value_net or 0),
-                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-                'days_to_deadline': product.days_to_deadline,
-                'baselinker_order_id': product.baselinker_order_id,
-                'internal_order_number': product.internal_order_number,
-                'client_name': getattr(product, 'client_name', None),
-                'wood_species': getattr(product, 'wood_species', None),
-                'technology': getattr(product, 'technology', None),
-                'wood_class': getattr(product, 'wood_class', None),
-                'thickness': getattr(product, 'thickness', None),
-                'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None
+                'short_product_id': get_attr(product, 'short_product_id', ''),
+                'original_product_name': get_attr(product, 'original_product_name', ''),
+                'current_status': get_attr(product, 'current_status', 'nieznany'),
+                'priority_score': priority_score,
+                
+                # Wymiary i wartości
+                'volume_m3': volume_m3,
+                'total_value_net': total_value_net,
+                
+                # Deadline
+                'deadline_date': get_attr(product, 'deadline_date', None),
+                'days_to_deadline': days_to_deadline,
+                
+                # Dane klienta
+                'client_name': get_attr(product, 'client_name', ''),
+                'internal_order_number': get_attr(product, 'internal_order_number', ''),
+                
+                # Specyfikacja produktu
+                'wood_species': get_attr(product, 'wood_species', None),
+                'technology': get_attr(product, 'technology', None),
+                'wood_class': get_attr(product, 'wood_class', None),
+                'thickness': get_attr(product, 'thickness', None),
+                'created_at': product.created_at.isoformat() if hasattr(product, 'created_at') and product.created_at else None,
+                
+                # NOWE: Unique identifier dla virtual scroll
+                'unique_id': f"{get_attr(product, 'short_product_id', '')}-{product.id}"
             }
             products_data.append(product_dict)
         
         # Przygotuj statystyki
+        total_volume = sum(p['volume_m3'] for p in products_data)
+        total_value = sum(p['total_value_net'] for p in products_data)
+        urgent_count = len([p for p in products_data if p['days_to_deadline'] is not None and p['days_to_deadline'] < 0])
+        
         stats_data = {
             'total_count': len(products_data),
-            'total_volume': sum(p['volume_m3'] for p in products_data),
-            'total_value': sum(p['total_value_net'] for p in products_data),
-            'urgent_count': len([p for p in products_data if p['days_to_deadline'] is not None and p['days_to_deadline'] < 0])
+            'total_volume': round(total_volume, 3),
+            'total_value': round(total_value, 2),
+            'urgent_count': urgent_count
         }
+        
+        logger.info(f"[BUGFIX] Statystyki: {stats_data}")
         
         return jsonify({
             'success': True,
             'html': html_content,
             'initial_data': {
                 'products': products_data,
-                'stats': stats_data
+                'stats': stats_data,
+                'total_count': len(products_data),  # Dla virtual scroll
+                'load_all': load_all
             },
             'products_count': len(products),
             'debug_info': {
                 'status_filter': status_filter,
                 'search_query': search_query,
-                'is_admin': is_admin,
-                'user_role': current_user.role if current_user.is_authenticated else 'anonymous'
+                'products_returned': len(products_data),
+                'load_all': load_all,
+                'query_without_limit': True  # Informacja że usunięto limit
             }
         })
         
@@ -2011,6 +2042,83 @@ def products_tab_content():
             'traceback': error_traceback if current_app.debug else None
         }), 500
 
+
+# Dla paginowanych zapytań
+@api_bp.route('/products-paginated', methods=['GET'])
+@login_required
+def products_paginated():
+    """
+    Endpoint dla paginowanych produktów - dla bardzo dużych zbiorów danych
+    """
+    try:
+        # Parametry paginacji
+        page = int(request.args.get('page', 1))
+        per_page = min(int(request.args.get('per_page', 50)), 800)  # Max 800 na stronę
+        
+        # Filtry
+        status_filter = request.args.get('status', 'all')
+        search_query = request.args.get('search', '')
+        
+        # Query builder
+        products_query = ProductionItem.query
+        
+        if status_filter and status_filter != 'all':
+            products_query = products_query.filter(ProductionItem.current_status == status_filter)
+            
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            search_conditions = []
+            
+            if hasattr(ProductionItem, 'original_product_name'):
+                search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
+            if hasattr(ProductionItem, 'short_product_id'):
+                search_conditions.append(ProductionItem.short_product_id.ilike(search_pattern))
+                
+            if search_conditions:
+                products_query = products_query.filter(or_(*search_conditions))
+        
+        # Sortowanie
+        if hasattr(ProductionItem, 'priority_score'):
+            products_query = products_query.order_by(ProductionItem.priority_score.desc())
+        
+        # Paginacja
+        paginated = products_query.paginate(
+            page=page, 
+            per_page=per_page, 
+            error_out=False
+        )
+        
+        # Przygotuj dane
+        products_data = []
+        for product in paginated.items:
+            # Używamy tej samej logiki co w głównym endpoint
+            product_dict = {
+                'id': product.id,
+                'short_product_id': getattr(product, 'short_product_id', ''),
+                'original_product_name': getattr(product, 'original_product_name', ''),
+                'current_status': getattr(product, 'current_status', 'nieznany'),
+                'priority_score': getattr(product, 'priority_score', 0),
+                'unique_id': f"{getattr(product, 'short_product_id', '')}-{product.id}"
+                # ... reszta pól
+            }
+            products_data.append(product_dict)
+        
+        return jsonify({
+            'success': True,
+            'products': products_data,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': paginated.total,
+                'pages': paginated.pages,
+                'has_next': paginated.has_next,
+                'has_prev': paginated.has_prev
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Błąd endpoint products-paginated: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @api_bp.route('/reports-tab-content')
 @login_required

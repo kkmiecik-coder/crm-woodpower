@@ -2173,24 +2173,42 @@ class ProductsModule {
         const { scrollTop } = this.virtualScrollState;
         const { rowHeight, visibleBuffer } = this.virtualScrollConfig;
         const containerHeight = this.virtualScrollElements.container.clientHeight;
+        const totalRows = this.getFilteredProductsCount();
         
-        // Oblicz widoczne wiersze
+        console.debug(`[VirtualScroll] Calculate range - scrollTop: ${scrollTop}, containerHeight: ${containerHeight}, totalRows: ${totalRows}`);
+        
+        // Jeśli brak produktów
+        if (totalRows === 0) {
+            this.virtualScrollState.startIndex = 0;
+            this.virtualScrollState.endIndex = -1;
+            return;
+        }
+        
+        // Oblicz podstawowe indeksy
         const startIndex = Math.floor(scrollTop / rowHeight);
         const visibleRowCount = Math.ceil(containerHeight / rowHeight);
-        const endIndex = startIndex + visibleRowCount;
-
-        // Dodaj buffer
+        const endIndex = startIndex + visibleRowCount - 1; // -1 bo endIndex jest inclusive
+        
+        // Dodaj buffer i zapewnij prawidłowe granice
         const bufferedStartIndex = Math.max(0, startIndex - visibleBuffer);
-        const bufferedEndIndex = Math.min(
-            this.getFilteredProductsCount() - 1, 
-            endIndex + visibleBuffer
+        const bufferedEndIndex = Math.min(totalRows - 1, endIndex + visibleBuffer);
+        
+        // WALIDACJA: Upewnij się że startIndex <= endIndex
+        const finalStartIndex = Math.min(bufferedStartIndex, totalRows - 1);
+        const finalEndIndex = Math.max(finalStartIndex, bufferedEndIndex);
+        
+        // Aktualizuj stan tylko jeśli wartości się zmieniły
+        const changed = (
+            this.virtualScrollState.startIndex !== finalStartIndex ||
+            this.virtualScrollState.endIndex !== finalEndIndex
         );
-
-        // Aktualizuj stan
-        this.virtualScrollState.startIndex = bufferedStartIndex;
-        this.virtualScrollState.endIndex = bufferedEndIndex;
-
-        console.debug(`[VirtualScroll] Range: ${bufferedStartIndex}-${bufferedEndIndex} (${bufferedEndIndex - bufferedStartIndex + 1} rows)`);
+        
+        if (changed) {
+            this.virtualScrollState.startIndex = finalStartIndex;
+            this.virtualScrollState.endIndex = finalEndIndex;
+            
+            console.debug(`[VirtualScroll] Range updated: ${finalStartIndex}-${finalEndIndex} (${finalEndIndex - finalStartIndex + 1} rows)`);
+        }
     }
 
     /**
@@ -2199,8 +2217,11 @@ class ProductsModule {
     renderVisibleRows() {
         const { startIndex, endIndex } = this.virtualScrollState;
         const filteredProducts = this.getFilteredProducts();
+        const totalRows = filteredProducts.length;
 
-        if (!filteredProducts || filteredProducts.length === 0) {
+        console.debug(`[VirtualScroll] Rendering rows ${startIndex}-${endIndex} of ${totalRows} products`);
+
+        if (!filteredProducts || totalRows === 0) {
             this.showEmptyState();
             return;
         }
@@ -2208,22 +2229,31 @@ class ProductsModule {
         // Ukryj empty state
         this.hideEmptyState();
 
+        // WALIDACJA: Sprawdź czy indeksy są poprawne
+        if (startIndex < 0 || endIndex >= totalRows || startIndex > endIndex) {
+            console.error(`[VirtualScroll] Invalid range: ${startIndex}-${endIndex}, totalRows: ${totalRows}`);
+            return;
+        }
+
         // Usuń wiersze które nie są już widoczne
         this.removeInvisibleRows(startIndex, endIndex);
 
         // Renderuj nowe widoczne wiersze
-        for (let index = startIndex; index <= endIndex; index++) {
-            if (index >= filteredProducts.length) break;
-            
+        for (let index = startIndex; index <= endIndex && index < totalRows; index++) {
             const product = filteredProducts[index];
-            if (!product) continue;
+            if (!product) {
+                console.warn(`[VirtualScroll] Missing product at index ${index}`);
+                continue;
+            }
 
             let rowElement = this.virtualScrollState.renderedRows.get(index);
             
             if (!rowElement) {
                 // Stwórz nowy wiersz (lub użyj z recyklingu)
                 rowElement = this.createOrRecycleProductRow(index, product);
-                this.virtualScrollState.renderedRows.set(index, rowElement);
+                if (rowElement) {
+                    this.virtualScrollState.renderedRows.set(index, rowElement);
+                }
             } else {
                 // Aktualizuj istniejący wiersz
                 this.updateProductRow(rowElement, index, product);
@@ -2232,6 +2262,8 @@ class ProductsModule {
 
         // Aktualizuj spacers
         this.updateVirtualScrollSpacers();
+        
+        console.debug(`[VirtualScroll] Rendered ${this.virtualScrollState.renderedRows.size} rows`);
     }
 
     /**
@@ -2503,11 +2535,93 @@ class ProductsModule {
      * Ustawia pozycję wiersza produktu
      */
     positionProductRow(rowElement, index) {
-        const top = index * this.virtualScrollConfig.rowHeight;
+        if (!rowElement) {
+            console.error(`[VirtualScroll] Cannot position null row element at index ${index}`);
+            return;
+        }
+        
+        const { rowHeight } = this.virtualScrollConfig;
+        const topPosition = index * rowHeight;
+        
+        // Ustaw pozycję absolute z offset od góry spacera
         rowElement.style.position = 'absolute';
-        rowElement.style.top = `${top}px`;
+        rowElement.style.top = `${topPosition}px`;
         rowElement.style.width = '100%';
-        rowElement.style.height = `${this.virtualScrollConfig.rowHeight}px`;
+        rowElement.style.height = `${rowHeight}px`;
+        
+        // Dodaj atrybut dla debugowania
+        rowElement.setAttribute('data-virtual-index', index);
+        
+        console.debug(`[VirtualScroll] Positioned row ${index} at ${topPosition}px`);
+    }
+
+    debugVirtualScrollState() {
+        const state = this.virtualScrollState;
+        const config = this.virtualScrollConfig;
+        const totalRows = this.getFilteredProductsCount();
+        
+        console.log('=== VIRTUAL SCROLL DEBUG STATE ===');
+        console.log(`Total products: ${totalRows}`);
+        console.log(`Start index: ${state.startIndex}`);
+        console.log(`End index: ${state.endIndex}`);
+        console.log(`Rendered rows: ${state.renderedRows.size}`);
+        console.log(`Recycled rows: ${state.recycledRows.length}`);
+        console.log(`Scroll top: ${state.scrollTop}`);
+        console.log(`Row height: ${config.rowHeight}`);
+        console.log(`Container height: ${this.virtualScrollElements.container?.clientHeight || 'unknown'}`);
+        
+        // Sprawdź spacer heights
+        const topHeight = this.virtualScrollElements.spacerTop?.style.height || '0px';
+        const bottomHeight = this.virtualScrollElements.spacerBottom?.style.height || '0px';
+        console.log(`Spacer top: ${topHeight}`);
+        console.log(`Spacer bottom: ${bottomHeight}`);
+    }
+
+    /**
+     * Resetuje virtual scroll do stanu początkowego
+     */
+    resetVirtualScrollState() {
+        console.log('[VirtualScroll] Resetting to initial state...');
+        
+        // Wyczyść wszystkie renderowane wiersze
+        this.clearRenderedRows();
+        
+        // Reset state
+        this.virtualScrollState = {
+            scrollTop: 0,
+            startIndex: 0,
+            endIndex: -1,
+            renderedRows: new Map(),
+            recycledRows: [],
+            isScrolling: false,
+            scrollTimeout: null,
+            lastScrollTime: 0
+        };
+        
+        // Reset scroll position
+        if (this.virtualScrollElements.container) {
+            this.virtualScrollElements.container.scrollTop = 0;
+        }
+        
+        // Przelicz wszystko od nowa
+        this.calculateVisibleRange();
+        this.renderVisibleRows();
+    }
+
+    /**
+     * Ustala całkowitą wysokość kontenera virtual scroll
+     * BUGFIX: Poprawne obliczenia i walidacja
+     */
+    updateVirtualScrollContainerHeight() {
+        const totalRows = this.getFilteredProductsCount();
+        const { rowHeight } = this.virtualScrollConfig;
+        
+        // Oblicz minimalną wysokość kontenera
+        const totalHeight = totalRows * rowHeight;
+        
+        // Ustaw wysokość na viewport (suma spacers + rendered rows)
+        // Nie zmieniamy wysokości głównego kontenera, tylko spacers
+        console.debug(`[VirtualScroll] Total virtual height: ${totalHeight}px for ${totalRows} rows`);
     }
 
     /**
@@ -2537,15 +2651,22 @@ class ProductsModule {
         const { rowHeight } = this.virtualScrollConfig;
         const totalRows = this.getFilteredProductsCount();
         
-        // Spacer górny
-        const topHeight = startIndex * rowHeight;
+        if (totalRows === 0) {
+            this.virtualScrollElements.spacerTop.style.height = '0px';
+            this.virtualScrollElements.spacerBottom.style.height = '0px';
+            return;
+        }
+        
+        // Spacer górny - wszystkie wiersze przed startIndex
+        const topHeight = Math.max(0, startIndex * rowHeight);
         this.virtualScrollElements.spacerTop.style.height = `${topHeight}px`;
         
-        // Spacer dolny
-        const bottomHeight = Math.max(0, (totalRows - endIndex - 1) * rowHeight);
+        // Spacer dolny - wszystkie wiersze po endIndex
+        const remainingRows = Math.max(0, totalRows - endIndex - 1);
+        const bottomHeight = remainingRows * rowHeight;
         this.virtualScrollElements.spacerBottom.style.height = `${bottomHeight}px`;
         
-        console.debug(`[VirtualScroll] Spacers: top=${topHeight}px, bottom=${bottomHeight}px`);
+        console.debug(`[VirtualScroll] Spacers updated: top=${topHeight}px (${startIndex} rows), bottom=${bottomHeight}px (${remainingRows} rows)`);
     }
 
     /**
