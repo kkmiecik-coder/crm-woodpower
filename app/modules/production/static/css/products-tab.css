@@ -1779,3 +1779,54 @@
         transform: scale(1);
     }
 }
+
+.bulk-status-dropdown {
+    font-family: inherit;
+}
+
+.bulk-status-dropdown.show {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+}
+
+.bulk-status-dropdown .dropdown-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #dee2e6;
+    background: #f8f9fa;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.bulk-status-dropdown .dropdown-body {
+    padding: 0.5rem 0;
+}
+
+.bulk-status-dropdown .status-item {
+    width: 100%;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    display: flex;
+    align-items: center;
+}
+
+.bulk-status-dropdown .status-item:hover {
+    background-color: #f8f9fa;
+}
+
+.bulk-status-dropdown .btn-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    opacity: 0.5;
+}
+
+.bulk-status-dropdown .btn-close:hover {
+    opacity: 1;
+}

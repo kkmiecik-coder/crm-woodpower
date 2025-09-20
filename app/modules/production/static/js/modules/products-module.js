@@ -12,6 +12,8 @@
  * - Export Excel z opcjami
  * - Auto-refresh hybrydowy zachowujący stan UI
  * - System color coding i urgency indicators
+ * // Import drag & drop functionality
+ * // ProductsDragDrop will be loaded dynamically
  * 
  * Autor: Konrad Kmiecik
  * Wersja: 2.0 - Przepisany bez virtual scrolling
@@ -164,6 +166,11 @@ class ProductsModule {
             }
 
             this.isLoaded = false;
+            // Cleanup drag & drop
+            if (this.components.dragDrop) {
+                this.components.dragDrop.destroy();
+                this.components.dragDrop = null;
+            }
             console.log('[ProductsModule] Module unloaded');
 
         } catch (error) {
@@ -194,6 +201,11 @@ class ProductsModule {
 
     destroy() {
         this.unload();
+        // Destroy drag & drop
+        if (this.components.dragDrop) {
+            this.components.dragDrop.destroy();
+            this.components.dragDrop = null;
+        }
         this.components = null;
         this.state = null;
         this.elements = null;
@@ -581,12 +593,29 @@ class ProductsModule {
     }
 
     initializeDragDrop() {
-        // Placeholder dla drag & drop - implementacja w kolejnych krokach
-        this.components.dragDrop = {
-            enabled: true,
-            draggedElement: null,
-            dropTarget: null
-        };
+        try {
+            if (typeof ProductsDragDrop === 'undefined') {
+                console.warn('[ProductsModule] ProductsDragDrop class not available');
+                this.components.dragDrop = null;
+                return false;
+            }
+            
+            this.components.dragDrop = new ProductsDragDrop(this);
+            const initialized = this.components.dragDrop.initialize();
+            
+            if (initialized) {
+                console.log('[ProductsModule] Drag & Drop initialized successfully');
+            } else {
+                console.error('[ProductsModule] Failed to initialize Drag & Drop');
+                this.components.dragDrop = null;
+            }
+            
+            return initialized;
+        } catch (error) {
+            console.error('[ProductsModule] Error initializing Drag & Drop:', error);
+            this.components.dragDrop = null;
+            return false;
+        }
     }
 
     // ========================================================================
@@ -639,7 +668,8 @@ class ProductsModule {
         // Bulk change status
         const bulkChangeStatus = document.getElementById('bulk-change-status');
         if (bulkChangeStatus) {
-            bulkChangeStatus.addEventListener('click', () => {
+            bulkChangeStatus.addEventListener('click', (e) => {
+                e.stopPropagation(); // ← DODAJ TĘ LINIĘ
                 this.handleBulkAction('change-status');
             });
         }
@@ -1357,14 +1387,19 @@ class ProductsModule {
             // Actions - simple buttons (nie dropdown menu)
             const actionsCell = rowElement.querySelector('.product-actions-cell');
             if (actionsCell) {
+                // Build Baselinker link
+                const baselinkerLink = product.baselinker_order_id ? 
+                    `href="https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}"` : 
+                    'href="#" disabled="disabled"';
+                
                 actionsCell.innerHTML = `
                     <div class="btn-group btn-group-sm" role="group">
-                        <button class="btn btn-outline-secondary btn-sm product-details-btn" title="Szczegóły">
+                        <button class="btn btn-outline-primary btn-sm product-details-btn" title="Szczegóły">
                             <i class="fas fa-eye"></i>
                         </button>
-                        <button class="btn btn-outline-secondary btn-sm product-edit-btn" title="Edytuj">
-                            <i class="fas fa-edit"></i>
-                        </button>
+                        <a class="btn btn-outline-info btn-sm baselinker-btn" ${baselinkerLink} target="_blank" title="Otwórz w Baselinker">
+                            <img src="/static/icons/baselinker.svg" alt="Baselinker" style="width: 16px; height: 16px; filter: brightness(0) saturate(100%) invert(27%) sepia(78%) saturate(2476%) hue-rotate(197deg) brightness(97%) contrast(97%);">
+                        </a>
                         <button class="btn btn-outline-danger btn-sm product-delete-btn" title="Usuń">
                             <i class="fas fa-trash"></i>
                         </button>
@@ -1543,20 +1578,6 @@ class ProductsModule {
                 e.preventDefault();
                 // TODO: Show context menu
             });
-
-            // Drag and drop (placeholder)
-            if (this.components.dragDrop && this.components.dragDrop.enabled) {
-                rowElement.draggable = true;
-                rowElement.addEventListener('dragstart', (e) => {
-                    this.handleDragStart(e, product);
-                });
-                rowElement.addEventListener('dragover', (e) => {
-                    this.handleDragOver(e);
-                });
-                rowElement.addEventListener('drop', (e) => {
-                    this.handleDrop(e, product);
-                });
-            }
 
         } catch (error) {
             console.error('[ProductsModule] Error attaching row event listeners:', error);
@@ -1821,7 +1842,7 @@ class ProductsModule {
 
         switch (actionType) {
             case 'change-status':
-                this.showBulkStatusChangeModal(selectedIds);
+                this.showBulkStatusChangeDropdown(selectedIds);
                 break;
             case 'export-selected':
                 this.handleExportSelected(selectedIds);
@@ -1834,8 +1855,14 @@ class ProductsModule {
         }
     }
 
-    showBulkStatusChangeModal(selectedIds) {
-        console.log('[ProductsModule] Showing bulk status change modal', selectedIds);
+    showBulkStatusChangeDropdown(selectedIds) {
+        console.log('[ProductsModule] Showing bulk status change dropdown', selectedIds);
+        
+        // Remove existing dropdown if present
+        const existingDropdown = document.getElementById('bulk-status-dropdown');
+        if (existingDropdown) {
+            existingDropdown.remove();
+        }
         
         const statuses = [
             { value: 'czeka_na_wyciecie', label: 'Czeka na wycięcie' },
@@ -1849,64 +1876,113 @@ class ProductsModule {
             { value: 'anulowane', label: 'Anulowane' }
         ];
 
-        const statusOptions = statuses.map(status => 
-            `<option value="${status.value}">${status.label}</option>`
-        ).join('');
-
-        const modalHtml = `
-            <div class="modal fade" id="bulk-status-modal" tabindex="-1">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Zmień status dla ${selectedIds.length} produktów</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="mb-3">
-                                <label for="bulk-status-select" class="form-label">Nowy status:</label>
-                                <select class="form-select" id="bulk-status-select">
-                                    <option value="">Wybierz status...</option>
-                                    ${statusOptions}
-                                </select>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
-                            <button type="button" class="btn btn-primary" id="confirm-bulk-status">Zmień status</button>
-                        </div>
-                    </div>
+        const dropdownHtml = `
+            <div class="bulk-status-dropdown" id="bulk-status-dropdown">
+                <div class="dropdown-header">
+                    <strong>Zmień status dla ${selectedIds.length} produktów:</strong>
+                    <button class="btn-close" id="close-status-dropdown" aria-label="Zamknij"></button>
+                </div>
+                <div class="dropdown-body">
+                    ${statuses.map(status => `
+                        <button class="dropdown-item status-item" data-status="${status.value}">
+                            <span class="status-badge ${this.getStatusClass(status.value)}">${status.label}</span>
+                        </button>
+                    `).join('')}
                 </div>
             </div>
         `;
 
-        // Usuń poprzedni modal jeśli istnieje
-        const existingModal = document.getElementById('bulk-status-modal');
-        if (existingModal) existingModal.remove();
+        // Get bulk actions bar position
+        const bulkActionsBar = document.getElementById('bulk-actions-bar');
+        if (!bulkActionsBar) return;
 
-        // Dodaj modal do DOM
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        // Insert dropdown above bulk actions bar
+        bulkActionsBar.insertAdjacentHTML('beforebegin', dropdownHtml);
         
-        // Pokaż modal
-        const modal = new bootstrap.Modal(document.getElementById('bulk-status-modal'));
-        modal.show();
+        const dropdown = document.getElementById('bulk-status-dropdown');
+        
+        // Position dropdown
+        this.positionBulkStatusDropdown(dropdown, bulkActionsBar);
+        
+        // Add event listeners
+        this.setupBulkStatusDropdownEvents(dropdown, selectedIds);
+        
+        // Show dropdown with animation
+        setTimeout(() => {
+            dropdown.classList.add('show');
+        }, 10);
+        
+        // Close on outside click
+        document.addEventListener('click', this.closeBulkStatusDropdownOnOutsideClick.bind(this), { once: true });
+    }
 
-        // Event listener dla konfirmacji
-        document.getElementById('confirm-bulk-status').addEventListener('click', () => {
-            const newStatus = document.getElementById('bulk-status-select').value;
-            if (newStatus) {
-                console.log(`Changing status to ${newStatus} for ${selectedIds.length} products`);
-                // TODO: Implementacja API call w przyszłych krokach
-                alert(`Status zostanie zmieniony na "${this.getStatusDisplayName(newStatus)}" dla ${selectedIds.length} produktów\n(Implementacja API w kolejnych krokach)`);
-                modal.hide();
-            } else {
-                alert('Proszę wybrać nowy status');
-            }
-        });
+    positionBulkStatusDropdown(dropdown, bulkActionsBar) {
+        const barRect = bulkActionsBar.getBoundingClientRect();
+        
+        dropdown.style.cssText = `
+            position: fixed;
+            bottom: ${window.innerHeight - barRect.top + 10}px;
+            left: ${barRect.left}px;
+            right: ${window.innerWidth - barRect.right}px;
+            z-index: 1050;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.2s ease;
+            max-height: 300px;
+            overflow-y: auto;
+        `;
+    }
 
-        // Cleanup po zamknięciu modal
-        document.getElementById('bulk-status-modal').addEventListener('hidden.bs.modal', () => {
-            document.getElementById('bulk-status-modal').remove();
+    setupBulkStatusDropdownEvents(dropdown, selectedIds) {
+        // Close button
+        const closeBtn = dropdown.querySelector('#close-status-dropdown');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.closeBulkStatusDropdown();
+            });
+        }
+        
+        // Status items
+        const statusItems = dropdown.querySelectorAll('.status-item');
+        statusItems.forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const newStatus = item.dataset.status;
+                this.executeBulkStatusChange(selectedIds, newStatus);
+            });
         });
+    }
+
+    closeBulkStatusDropdownOnOutsideClick(e) {
+        const dropdown = document.getElementById('bulk-status-dropdown');
+        if (dropdown && !dropdown.contains(e.target)) {
+            this.closeBulkStatusDropdown();
+        }
+    }
+
+    closeBulkStatusDropdown() {
+        const dropdown = document.getElementById('bulk-status-dropdown');
+        if (dropdown) {
+            dropdown.classList.remove('show');
+            setTimeout(() => {
+                dropdown.remove();
+            }, 200);
+        }
+    }
+
+    executeBulkStatusChange(selectedIds, newStatus) {
+        console.log(`[ProductsModule] Changing status to ${newStatus} for ${selectedIds.length} products`);
+        
+        // Close dropdown
+        this.closeBulkStatusDropdown();
+        
+        // TODO: Implementacja API call w przyszłych krokach
+        const statusName = this.getStatusDisplayName(newStatus);
+        alert(`Status zostanie zmieniony na "${statusName}" dla ${selectedIds.length} produktów\n(Implementacja API w kolejnych krokach)`);
     }
 
     handleExportSelected(selectedIds) {
@@ -1951,36 +2027,13 @@ class ProductsModule {
     }
 
     // ========================================================================
-    // DRAG & DROP PLACEHOLDERS
-    // ========================================================================
-
-    handleDragStart(e, product) {
-        console.log(`[ProductsModule] Drag start: ${product.id}`);
-        this.components.dragDrop.draggedElement = e.target;
-        e.dataTransfer.setData('text/plain', product.id);
-    }
-
-    handleDragOver(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-    }
-
-    handleDrop(e, targetProduct) {
-        e.preventDefault();
-        const draggedProductId = e.dataTransfer.getData('text/plain');
-        console.log(`[ProductsModule] Drop: ${draggedProductId} -> ${targetProduct.id}`);
-        
-        // Placeholder - implementacja drag & drop w kolejnych krokach
-    }
-
-    // ========================================================================
     // UI STATE MANAGEMENT
     // ========================================================================
 
     showLoadingState() {
         this.hideAllStates();
         if (this.elements.loadingState) {
-            this.elements.loadingState.style.display = 'block';
+            this.elements.loadingState.style.display = 'flex';
         }
         this.state.isLoading = true;
     }
@@ -2259,8 +2312,134 @@ class ProductsModule {
 
     showProductDetails(productId) {
         console.log(`[ProductsModule] Showing details for product ${productId}`);
-        // TODO: Implementacja w kroku 6 - Modal szczegółów produktu
-        alert(`Szczegóły produktu ${productId}\n(Implementacja w kroku 6 - Modals i akcje grupowe)`);
+        
+        // Znajdź produkt
+        const product = this.state.filteredProducts.find(p => p.id == productId) || 
+                    this.state.products.find(p => p.id == productId);
+        
+        if (!product) {
+            alert('Nie znaleziono produktu');
+            return;
+        }
+        
+        // Usuń poprzedni modal
+        const existingModal = document.getElementById('product-details-modal');
+        if (existingModal) existingModal.remove();
+        
+        // Sklonuj template
+        const template = document.getElementById('product-details-modal-template');
+        const clone = template.content.cloneNode(true);
+        
+        // Wypełnij dane
+        this.populateProductDetailsModal(clone, product);
+        
+        // Dodaj do DOM i pokaż
+        document.body.appendChild(clone);
+        const modal = new bootstrap.Modal(document.getElementById('product-details-modal'));
+        modal.show();
+        
+        // Cleanup
+        document.getElementById('product-details-modal').addEventListener('hidden.bs.modal', () => {
+            document.getElementById('product-details-modal').remove();
+        });
+    }
+
+    populateProductDetailsModal(modalElement, product) {
+        // Ustaw tytuł
+        const titleSpan = modalElement.querySelector('.product-id-display');
+        if (titleSpan) titleSpan.textContent = product.short_product_id || `#${product.id}`;
+        
+        // Ustaw link Baselinker w footer
+        const baselinkerBtn = modalElement.querySelector('[data-baselinker-url]');
+        if (baselinkerBtn && product.baselinker_order_id) {
+            baselinkerBtn.dataset.baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}`;
+        } else if (baselinkerBtn) {
+            baselinkerBtn.style.display = 'none';
+        }
+        
+        // Wypełnij wszystkie pola
+        const fields = modalElement.querySelectorAll('[data-field]');
+        fields.forEach(field => {
+            const fieldName = field.dataset.field;
+            const fieldType = field.dataset.type;
+            const unit = field.dataset.unit;
+            
+            let value = product[fieldName];
+            
+            // Specjalne przypadki
+            if (fieldName === 'baselinker_link' && product.baselinker_order_id) {
+                field.innerHTML = `<a href="https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}" target="_blank" class="btn btn-sm btn-outline-info">
+                    <img src="/static/icons/baselinker.svg" style="width: 16px; height: 16px;" class="me-1">Otwórz
+                </a>`;
+                return;
+            }
+            
+            // Format value
+            const formattedValue = this.formatModalValue(value, fieldType, unit);
+            
+            if (fieldType === 'status') {
+                field.className = `badge ${this.getStatusClass(value)}`;
+                field.textContent = this.getStatusDisplayName(value);
+            } else if (fieldName === 'priority_score') {
+                field.textContent = value || 'Brak danych';
+                this.updatePriorityColor(field, value);
+            } else {
+                field.innerHTML = formattedValue;
+            }
+        });
+    }
+
+    formatModalValue(value, type, unit) {
+        if (value === null || value === undefined || value === '') {
+            return '<span class="text-muted">Brak danych</span>';
+        }
+        
+        switch (type) {
+            case 'currency':
+                return parseFloat(value).toLocaleString('pl-PL', {
+                    style: 'currency', currency: 'PLN'
+                });
+            case 'decimal':
+                return parseFloat(value).toFixed(3) + (unit ? ` ${unit}` : '');
+            case 'date':
+                return new Date(value).toLocaleDateString('pl-PL');
+            case 'datetime':
+                return new Date(value).toLocaleString('pl-PL');
+            case 'duration':
+                const hours = Math.floor(value / 60);
+                const minutes = value % 60;
+                return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
+            case 'email':
+                return `<a href="mailto:${value}">${value}</a>`;
+            default:
+                return value.toString() + (unit ? ` ${unit}` : '');
+        }
+    }
+
+    // ========================================================================
+    // DRAG & DROP PUBLIC API
+    // ========================================================================
+
+    enableDragDrop() {
+        if (this.components.dragDrop) {
+            this.components.dragDrop.enable();
+            console.log('[ProductsModule] Drag & Drop enabled');
+        }
+    }
+
+    disableDragDrop() {
+        if (this.components.dragDrop) {
+            this.components.dragDrop.disable();
+            console.log('[ProductsModule] Drag & Drop disabled');
+        }
+    }
+
+    isDragDropEnabled() {
+        return this.components.dragDrop ? this.components.dragDrop.isEnabled() : false;
+    }
+
+    isDragging() {
+        return this.components.dragDrop ? this.components.dragDrop.isDragging() : false;
     }
 }
 
