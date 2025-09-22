@@ -502,324 +502,268 @@
 </template>
 
 <!-- TEMPLATE: MODAL SZCZEGÓŁÓW PRODUKTU -->
+<!-- TEMPLATE: MODAL SZCZEGÓŁÓW PRODUKTU - REDESIGN -->
 <template id="product-details-modal-template">
-    <div class="modal fade products-modal" id="product-details-modal" tabindex="-1">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal fade products-modal product-modal" id="product-details-modal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
             <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title">
-                        <i class="fas fa-info-circle me-2"></i>
-                        Szczegóły produktu: <span class="product-id-display"></span>
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                
+                <!-- HEADER REDESIGN -->
+                <div class="modal-header-redesign">
+                    <div class="header-content">
+                        <div class="header-left">
+                            <div class="product-icon">
+                                <i class="fas fa-cube"></i>
+                            </div>
+                            <div class="header-info">
+                                <h3 class="product-id-display">#25_05248_1</h3>
+                                <div class="header-subtitle product-name-display">Deska podłogowa dąb A/A 120x15x1200</div>
+                            </div>
+                        </div>
+                        <div class="header-right">
+                            <div class="status-badge-large" data-field="current_status">
+                                <i class="fas fa-cut me-2"></i>
+                                <span class="status-text">Wycinanie</span>
+                                <span class="priority-indicator priority-high" data-field="priority_indicator"></span>
+                            </div>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                    </div>
                 </div>
-                <div class="modal-body">
+
+                <!-- PASEK PRODUKTÓW (pokazuj tylko gdy >1 produkt w zamówieniu) -->
+                <div class="products-navigation" id="productsNavigation" style="display: none;">
+                    <div class="products-nav-title">
+                        <i class="fas fa-layer-group me-2"></i>
+                        <span id="productsNavTitle">Produkty w zamówieniu (1)</span>
+                    </div>
+                    <div class="products-buttons" id="productsButtons">
+                        <!-- Buttons will be populated by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- BODY REDESIGN -->
+                <div class="modal-body-redesign">
                     
-                    <!-- SEKCJA: IDENTYFIKACJA -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-tag text-primary me-2"></i>Identyfikacja produktu
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>ID systemu:</label>
-                                    <span data-field="id"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>ID produktu:</label>
-                                    <span data-field="short_product_id"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Numer zamówienia:</label>
-                                    <span data-field="internal_order_number"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Kolejność w zamówieniu:</label>
-                                    <span data-field="product_sequence_in_order"></span>
-                                </div>
+                    <!-- LEWA SEKCJA - SZCZEGÓŁY -->
+                    <div class="details-section">
+                        
+                        <!-- Statystyki na górze -->
+                        <div class="stats-row">
+                            <div class="stat-card">
+                                <div class="stat-value" data-field="volume_m3" data-type="decimal" data-unit="m³">0.000 m³</div>
+                                <div class="stat-label">Objętość</div>
                             </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>ID zamówienia Baselinker:</label>
-                                    <span data-field="baselinker_order_id"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>ID produktu Baselinker:</label>
-                                    <span data-field="baselinker_product_id"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Status ID Baselinker:</label>
-                                    <span data-field="baselinker_status_id"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Link Baselinker:</label>
-                                    <div data-field="baselinker_link"></div>
-                                </div>
+                            <div class="stat-card">
+                                <div class="stat-value" data-field="total_value_net" data-type="currency">0.00 zł</div>
+                                <div class="stat-label">Wartość netto</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" data-field="days_until_deadline" data-type="deadline">-- dni</div>
+                                <div class="stat-label">Do deadline</div>
                             </div>
                         </div>
-                        <div class="detail-field">
-                            <label>Nazwa produktu:</label>
-                            <span data-field="original_product_name" class="fw-bold"></span>
-                        </div>
-                    </div>
 
-                    <!-- SEKCJA: SPECYFIKACJA -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-cogs text-success me-2"></i>Specyfikacja techniczna
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Gatunek drewna:</label>
-                                    <span data-field="parsed_wood_species"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Technologia:</label>
-                                    <span data-field="parsed_technology"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Klasa drewna:</label>
-                                    <span data-field="parsed_wood_class"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Stan wykończenia:</label>
-                                    <span data-field="parsed_finish_state"></span>
-                                </div>
+                        <!-- Identyfikacja -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-tag text-primary"></i>
+                                <h6 class="card-title">Identyfikacja</h6>
                             </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Długość:</label>
-                                    <span data-field="parsed_length_cm" data-unit="cm"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Szerokość:</label>
-                                    <span data-field="parsed_width_cm" data-unit="cm"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Grubość:</label>
-                                    <span data-field="parsed_thickness_cm" data-unit="cm"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Objętość:</label>
-                                    <span data-field="volume_m3" data-type="decimal" data-unit="m³" class="text-primary fw-bold"></span>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">ID Produktu</div>
+                                        <div class="field-value highlight" data-field="short_product_id">#25_05248_1</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Numer zamówienia</div>
+                                        <div class="field-value" data-field="internal_order_number">WP-25-05248</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Baselinker ID</div>
+                                        <div class="field-value" data-field="baselinker_order_id">8765432</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Pozycja w zamówieniu</div>
+                                        <div class="field-value" data-field="sequence_display">1/3</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- SEKCJA: FINANSOWE -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-euro-sign text-warning me-2"></i>Dane finansowe
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Cena jednostkowa netto:</label>
-                                    <span data-field="unit_price_net" data-type="currency" class="text-success fw-bold"></span>
-                                </div>
+                        <!-- Specyfikacja techniczna -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-cogs text-success"></i>
+                                <h6 class="card-title">Specyfikacja techniczna</h6>
                             </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Wartość całkowita netto:</label>
-                                    <span data-field="total_value_net" data-type="currency" class="text-success fw-bold fs-5"></span>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">Gatunek drewna</div>
+                                        <div class="field-value" data-field="parsed_wood_species">Dąb</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Technologia</div>
+                                        <div class="field-value" data-field="parsed_technology">Lita</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Klasa drewna</div>
+                                        <div class="field-value" data-field="parsed_wood_class">A/A</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Wykończenie</div>
+                                        <div class="field-value" data-field="parsed_finish_state">Surowa</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Wymiary</div>
+                                        <div class="field-value" data-field="dimensions_display">120 × 15 × 1200 mm</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Objętość</div>
+                                        <div class="field-value highlight" data-field="volume_m3" data-type="decimal" data-unit="m³">2.400 m³</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- SEKCJA: KLIENT -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-user text-info me-2"></i>Informacje o kliencie
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Nazwa klienta:</label>
-                                    <span data-field="client_name"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Email:</label>
-                                    <span data-field="client_email" data-type="email"></span>
+                        <!-- Informacje o kliencie -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-user text-info"></i>
+                                <h6 class="card-title">Klient</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">Nazwa</div>
+                                        <div class="field-value" data-field="client_name">Kowalski Sp. z o.o.</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Email</div>
+                                        <div class="field-value" data-field="client_email" data-type="email">kowalski@firma.pl</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Telefon</div>
+                                        <div class="field-value" data-field="client_phone">+48 123 456 789</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Deadline</div>
+                                        <div class="field-value deadline-field" data-field="deadline_date" data-type="deadline-full">
+                                            <i class="fas fa-clock me-1"></i>
+                                            <span class="deadline-text">25.09.2025 (5 dni)</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Telefon:</label>
-                                    <span data-field="client_phone"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Adres dostawy:</label>
-                                    <span data-field="delivery_address"></span>
+                        </div>
+
+                        <!-- Finanse -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-euro-sign text-warning"></i>
+                                <h6 class="card-title">Wartości finansowe</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="fields-grid">
+                                    <div class="field-group">
+                                        <div class="field-label">Cena jednostkowa netto</div>
+                                        <div class="field-value currency" data-field="unit_price_net" data-type="currency">1,437.50 zł</div>
+                                    </div>
+                                    <div class="field-group">
+                                        <div class="field-label">Wartość całkowita netto</div>
+                                        <div class="field-value currency highlight" data-field="total_value_net" data-type="currency">3,450.00 zł</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- SEKCJA: STATUS I PRIORYTET -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-tasks text-secondary me-2"></i>Status i priorytet
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Aktualny status:</label>
-                                    <span data-field="current_status" data-type="status" class="badge"></span>
+                    <!-- PRAWA SEKCJA - TIMELINE I AKCJE -->
+                    <div class="sidebar-section">
+                        
+                        <!-- Timeline produkcji -->
+                        <div class="mb-4">
+                            <h6 class="mb-3">
+                                <i class="fas fa-route me-2"></i>
+                                Przepływ produkcji
+                            </h6>
+                            
+                            <div class="production-timeline" id="productionTimeline">
+                                <!-- Timeline will be populated by JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- Akcje -->
+                        <div class="mb-4">
+                            <h6 class="mb-3">
+                                <i class="fas fa-tools me-2"></i>
+                                Akcje
+                            </h6>
+                            <div class="action-buttons">
+                                <a href="#" class="btn-action btn-secondary-custom" id="openBaselinkerBtn">
+                                    <img src="/static/icons/baselinker.svg" style="width: 16px; height: 16px;" class="me-2">
+                                    Otwórz w Baselinker
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Notatki produkcyjne -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-sticky-note text-muted"></i>
+                                <h6 class="card-title">Notatki produkcyjne</h6>
+                                <button class="btn btn-sm btn-outline-secondary ms-auto" id="editNotesBtn">
+                                    <i class="fas fa-pen"></i>
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="notesDisplay" class="notes-display">
+                                    <div class="field-value" data-field="production_notes">Brak notatek</div>
                                 </div>
-                                <div class="detail-field">
-                                    <label>Priorytet:</label>
-                                    <span data-field="priority_score" class="priority-score"></span>
+                                <div id="notesEdit" class="notes-edit" style="display: none;">
+                                    <textarea class="form-control mb-3" id="notesTextarea" rows="3" placeholder="Wprowadź notatki produkcyjne..."></textarea>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-sm btn-success" id="saveNotesBtn" disabled>
+                                            <i class="fas fa-save me-1"></i>Zapisz
+                                        </button>
+                                        <button class="btn btn-sm btn-secondary" id="cancelNotesBtn">
+                                            <i class="fas fa-times me-1"></i>Anuluj
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Deadline:</label>
-                                    <span data-field="deadline_date" data-type="date" class="fw-bold"></span>
+                        </div>
+
+                        <!-- Dodatkowe informacje -->
+                        <div class="detail-card">
+                            <div class="card-header">
+                                <i class="fas fa-info-circle text-muted"></i>
+                                <h6 class="card-title">Informacje systemowe</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="field-group mb-3">
+                                    <div class="field-label">Utworzono</div>
+                                    <div class="field-value" data-field="created_at" data-type="datetime">19.09.2025 14:22</div>
                                 </div>
-                                <div class="detail-field">
-                                    <label>Dni do deadline:</label>
-                                    <span data-field="days_until_deadline" class="deadline-indicator"></span>
+                                <div class="field-group mb-3">
+                                    <div class="field-label">Ostatnia aktualizacja</div>
+                                    <div class="field-value" data-field="updated_at" data-type="datetime">20.09.2025 10:45</div>
+                                </div>
+                                <div class="field-group">
+                                    <div class="field-label">Źródło synchronizacji</div>
+                                    <div class="field-value" data-field="sync_source">Baselinker API</div>
                                 </div>
                             </div>
                         </div>
                     </div>
-
-                    <!-- SEKCJA: PRODUKCJA - WYCINANIE -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-cut text-danger me-2"></i>Wycinanie
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Rozpoczęcie:</label>
-                                    <span data-field="cutting_started_at" data-type="datetime"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Zakończenie:</label>
-                                    <span data-field="cutting_completed_at" data-type="datetime"></span>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Czas trwania:</label>
-                                    <span data-field="cutting_duration_minutes" data-type="duration"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Przypisany pracownik:</label>
-                                    <span data-field="cutting_assigned_worker_id"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- SEKCJA: PRODUKCJA - SKŁADANIE -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-hammer text-primary me-2"></i>Składanie
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Rozpoczęcie:</label>
-                                    <span data-field="assembly_started_at" data-type="datetime"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Zakończenie:</label>
-                                    <span data-field="assembly_completed_at" data-type="datetime"></span>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Czas trwania:</label>
-                                    <span data-field="assembly_duration_minutes" data-type="duration"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Przypisany pracownik:</label>
-                                    <span data-field="assembly_assigned_worker_id"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- SEKCJA: PRODUKCJA - PAKOWANIE -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-box text-success me-2"></i>Pakowanie
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Rozpoczęcie:</label>
-                                    <span data-field="packaging_started_at" data-type="datetime"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Zakończenie:</label>
-                                    <span data-field="packaging_completed_at" data-type="datetime"></span>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Czas trwania:</label>
-                                    <span data-field="packaging_duration_minutes" data-type="duration"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Przypisany pracownik:</label>
-                                    <span data-field="packaging_assigned_worker_id"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- SEKCJA: DODATKOWE INFORMACJE -->
-                    <div class="detail-section mb-4">
-                        <h6 class="section-title">
-                            <i class="fas fa-info text-muted me-2"></i>Dodatkowe informacje
-                        </h6>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Notatki produkcyjne:</label>
-                                    <div data-field="production_notes" class="production-notes"></div>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Problemy jakościowe:</label>
-                                    <div data-field="quality_issues" class="quality-issues"></div>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="detail-field">
-                                    <label>Utworzono:</label>
-                                    <span data-field="created_at" data-type="datetime"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Zaktualizowano:</label>
-                                    <span data-field="updated_at" data-type="datetime"></span>
-                                </div>
-                                <div class="detail-field">
-                                    <label>Źródło synchronizacji:</label>
-                                    <span data-field="sync_source"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
-                    <button type="button" class="btn btn-primary" onclick="window.open(this.dataset.baselinkerUrl, '_blank')" data-baselinker-url="">
-                        <img src="/static/icons/baselinker.svg" style="width: 16px; height: 16px;" class="me-1">
-                        Otwórz w Baselinker
-                    </button>
                 </div>
             </div>
         </div>
     </div>
 </template>
+
 
 <!-- ============================================================================
      INICJALIZACJA JAVASCRIPT - PLACEHOLDER

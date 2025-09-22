@@ -673,6 +673,9 @@ class ProductionApp {
 
             console.log('[ProductionApp] ProductsModule initialized successfully');
 
+            // Ustaw globalną referencję dla template onclick handlers
+            window.productsModule = productsModule;
+
         } catch (error) {
             console.error('[ProductionApp] Failed to initialize ProductsModule:', error);
             this.shared.toastSystem.show('Błąd inicjalizacji modułu produktów: ' + error.message, 'error');

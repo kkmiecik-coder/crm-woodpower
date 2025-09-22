@@ -2410,7 +2410,7 @@
 
     .reports-table th,
     .reports-table td {
-        white-space: nowrap;
+        white-space: wrap;
         min-width: fit-content;
     }
 

@@ -21,6 +21,57 @@
  */
 
 class ProductsModule {
+
+    // Mapowanie statusów na przyjazne nazwy
+    static STATUS_TRANSLATIONS = {
+        'czeka_na_wyciecie': 'Czeka na wycięcie',
+        'czeka_na_skladanie': 'Czeka na składanie', 
+        'czeka_na_pakowanie': 'Czeka na pakowanie',
+        'spakowane': 'Spakowane',
+        'wstrzymane': 'Wstrzymane',
+        'anulowane': 'Anulowane'
+    };
+
+    // Mapowanie statusów na ikony i kolory
+    static STATUS_CONFIG = {
+        'czeka_na_wyciecie': {
+            icon: 'fa-cut',
+            displayName: 'Czeka na wycięcie',
+            color: 'cutting-theme',
+            badgeClass: 'badge-warning'
+        },
+        'czeka_na_skladanie': {
+            icon: 'fa-hammer',
+            displayName: 'Czeka na składanie',
+            color: 'assembly-theme', 
+            badgeClass: 'badge-info'
+        },
+        'czeka_na_pakowanie': {
+            icon: 'fa-box',
+            displayName: 'Czeka na pakowanie',
+            color: 'packaging-theme',
+            badgeClass: 'badge-primary'
+        },
+        'spakowane': {
+            icon: 'fa-check',
+            displayName: 'Spakowane',
+            color: 'text-success',
+            badgeClass: 'badge-success'
+        },
+        'wstrzymane': {
+            icon: 'fa-pause',
+            displayName: 'Wstrzymane',
+            color: 'text-warning',
+            badgeClass: 'badge-warning'
+        },
+        'anulowane': {
+            icon: 'fa-times',
+            displayName: 'Anulowane',
+            color: 'text-danger',
+            badgeClass: 'badge-danger'
+        }
+    };
+
     constructor(shared, config) {
         this.shared = shared;
         this.config = config;
@@ -2307,9 +2358,13 @@ class ProductsModule {
     }
 
     // ========================================================================
-    // MODAL PLACEHOLDERS (implementacja w kolejnych krokach)
+    // MODAL SZCZEGÓŁÓW PRODUKTU
     // ========================================================================
 
+    /**
+     * Pokazuje modal szczegółów produktu - REDESIGNED VERSION
+     * @param {number} productId ID produktu
+     */
     showProductDetails(productId) {
         console.log(`[ProductsModule] Showing details for product ${productId}`);
         
@@ -2338,27 +2393,125 @@ class ProductsModule {
         const modal = new bootstrap.Modal(document.getElementById('product-details-modal'));
         modal.show();
         
+        // Załaduj produkty z zamówienia (asynchronicznie)
+        this.loadOrderProducts(productId);
+        
         // Cleanup
         document.getElementById('product-details-modal').addEventListener('hidden.bs.modal', () => {
             document.getElementById('product-details-modal').remove();
         });
     }
 
+    /**
+     * Wypełnia modal szczegółów produktu - REDESIGNED VERSION
+     * @param {DocumentFragment} modalElement Klonowany template modala
+     * @param {Object} product Dane produktu
+     */
     populateProductDetailsModal(modalElement, product) {
-        // Ustaw tytuł
-        const titleSpan = modalElement.querySelector('.product-id-display');
-        if (titleSpan) titleSpan.textContent = product.short_product_id || `#${product.id}`;
+        try {
+            console.log('[ProductsModule] Populating redesigned modal with product data:', product);
+
+            // === HEADER ===
+            const titleElement = modalElement.querySelector('.product-id-display');
+            if (titleElement) {
+                titleElement.textContent = product.short_product_id || `#${product.id}`;
+            }
+
+            const subtitleElement = modalElement.querySelector('.product-name-display');
+            if (subtitleElement) {
+                subtitleElement.textContent = product.original_product_name || 'Brak nazwy produktu';
+            }
+
+            const headerStatusBadge = modalElement.querySelector('.status-badge-large');
+            if (headerStatusBadge) {
+                this.updateHeaderStatus(headerStatusBadge, product);
+            }
+
+            // === STATYSTYKI ===
+            this.populateStatsCards(modalElement, product);
+
+            // === WSZYSTKIE POLA ===
+            this.populateAllFields(modalElement, product);
+
+            // === TIMELINE ===
+            this.generateProductionTimeline(modalElement, product);
+
+            // === AKCJE ===
+            this.setupModalActions(modalElement, product);
+
+            // === NOTATKI ===
+            this.setupNotesHandling(modalElement, product);
+
+            console.log('[ProductsModule] Modal populated successfully');
+
+        } catch (error) {
+            console.error('[ProductsModule] Error populating modal:', error);
+        }
+    }
+
+
+    /**
+     * Aktualizuje status w header modala
+     */
+    updateHeaderStatus(headerStatusBadge, product) {
+        const statusIcon = headerStatusBadge.querySelector('i');
+        const statusText = headerStatusBadge.querySelector('.status-text');
+        const priorityIndicator = headerStatusBadge.querySelector('.priority-indicator');
+
+        const statusConfig = this.getStatusConfig(product.current_status);
         
-        // Ustaw link Baselinker w footer
-        const baselinkerBtn = modalElement.querySelector('[data-baselinker-url]');
-        if (baselinkerBtn && product.baselinker_order_id) {
-            baselinkerBtn.dataset.baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}`;
-        } else if (baselinkerBtn) {
-            baselinkerBtn.style.display = 'none';
+        if (statusIcon) {
+            statusIcon.className = `fas ${statusConfig.icon} me-2`;
         }
         
-        // Wypełnij wszystkie pola
+        if (statusText) {
+            statusText.textContent = statusConfig.displayName;
+        }
+
+        if (priorityIndicator) {
+            const priority = parseInt(product.priority_score) || 100;
+            priorityIndicator.className = `priority-indicator ${this.getPriorityClass(priority)}`;
+        }
+    }
+
+    /**
+     * Wypełnia karty statystyk na górze
+     */
+    populateStatsCards(modalElement, product) {
+        const volumeElement = modalElement.querySelector('.stats-row .stat-value[data-field="volume_m3"]');
+        if (volumeElement) {
+            const volume = parseFloat(product.volume_m3) || 0;
+            volumeElement.textContent = `${volume.toFixed(3)} m³`;
+        }
+
+        const valueElement = modalElement.querySelector('.stats-row .stat-value[data-field="total_value_net"]');
+        if (valueElement) {
+            const value = parseFloat(product.total_value_net) || 0;
+            valueElement.textContent = value.toLocaleString('pl-PL', {
+                style: 'currency', 
+                currency: 'PLN'
+            });
+        }
+
+        const deadlineElement = modalElement.querySelector('.stats-row .stat-value[data-field="days_until_deadline"]');
+        if (deadlineElement) {
+            const days = parseInt(product.days_until_deadline);
+            if (!isNaN(days)) {
+                deadlineElement.textContent = `${days} ${this.getDaysText(days)}`;
+                deadlineElement.className = `stat-value ${this.getDeadlineClass(days)}`;
+            } else {
+                deadlineElement.textContent = 'Brak deadline';
+                deadlineElement.className = 'stat-value text-muted';
+            }
+        }
+    }
+
+    /**
+     * Wypełnia wszystkie pola danych w sekcjach
+     */
+    populateAllFields(modalElement, product) {
         const fields = modalElement.querySelectorAll('[data-field]');
+        
         fields.forEach(field => {
             const fieldName = field.dataset.field;
             const fieldType = field.dataset.type;
@@ -2366,29 +2519,618 @@ class ProductsModule {
             
             let value = product[fieldName];
             
-            // Specjalne przypadki
-            if (fieldName === 'baselinker_link' && product.baselinker_order_id) {
-                field.innerHTML = `<a href="https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}" target="_blank" class="btn btn-sm btn-outline-info">
-                    <img src="/static/icons/baselinker.svg" style="width: 16px; height: 16px;" class="me-1">Otwórz
-                </a>`;
+            if (fieldName === 'current_status') {
+                const statusConfig = this.getStatusConfig(value);
+                field.innerHTML = `
+                    <i class="fas ${statusConfig.icon} me-2"></i>
+                    <span class="status-text">${statusConfig.displayName}</span>
+                `;
+                field.className = `status-badge ${statusConfig.badgeClass}`;
+                return;
+            } else if (fieldName === 'sequence_display') {
+                value = `${product.product_sequence_in_order || 1}/--`;
+            } else if (fieldName === 'dimensions_display') {
+                value = this.formatDimensions(product);
+            } else if (fieldName === 'baselinker_link') {
                 return;
             }
             
-            // Format value
             const formattedValue = this.formatModalValue(value, fieldType, unit);
             
-            if (fieldType === 'status') {
-                field.className = `badge ${this.getStatusClass(value)}`;
-                field.textContent = this.getStatusDisplayName(value);
-            } else if (fieldName === 'priority_score') {
-                field.textContent = value || 'Brak danych';
-                this.updatePriorityColor(field, value);
+            if (fieldType === 'email' && value) {
+                field.innerHTML = `<a href="mailto:${value}">${value}</a>`;
             } else {
                 field.innerHTML = formattedValue;
             }
         });
     }
 
+    /**
+     * Generuje timeline produkcji
+     */
+    generateProductionTimeline(modalElement, product) {
+        const timelineContainer = modalElement.querySelector('#productionTimeline');
+        if (!timelineContainer) return;
+
+        const stations = [
+            {
+                code: 'cutting',
+                name: 'Wycięcie',
+                status: 'czeka_na_wyciecie',
+                icon: 'fas fa-cut',
+                color: 'cutting-theme',
+                startField: 'cutting_started_at',
+                endField: 'cutting_completed_at',
+                durationField: 'cutting_duration_minutes'
+            },
+            {
+                code: 'assembly',
+                name: 'Składanie',
+                status: 'czeka_na_skladanie',
+                icon: 'fas fa-hammer',
+                color: 'assembly-theme',
+                startField: 'assembly_started_at',
+                endField: 'assembly_completed_at',
+                durationField: 'assembly_duration_minutes'
+            },
+            {
+                code: 'packaging',
+                name: 'Pakowanie',
+                status: 'czeka_na_pakowanie',
+                icon: 'fas fa-box',
+                color: 'packaging-theme',
+                startField: 'packaging_started_at',
+                endField: 'packaging_completed_at',
+                durationField: 'packaging_duration_minutes'
+            }
+        ];
+
+        let html = '';
+        
+        stations.forEach(station => {
+            const timelineState = this.getTimelineState(station, product);
+            const details = this.getTimelineDetails(station, product);
+            
+            html += `
+                <div class="timeline-item ${timelineState.cssClass}">
+                    <div class="timeline-icon ${station.color}">
+                        <i class="${station.icon}"></i>
+                    </div>
+                    <div class="timeline-content">
+                        <h6 class="timeline-title ${station.color}">${station.name}</h6>
+                        <p class="timeline-details">${details.text}</p>
+                        <span class="timeline-status">${timelineState.statusText}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        timelineContainer.innerHTML = html;
+    }
+
+    /**
+     * Określa stan timeline dla stacji
+     */
+    getTimelineState(station, product) {
+        const statusMap = {
+            'cutting': 'czeka_na_wyciecie',
+            'assembly': 'czeka_na_skladanie', 
+            'packaging': 'czeka_na_pakowanie'
+        };
+
+        const expectedStatus = statusMap[station.code];
+        const currentStatus = product.current_status;
+
+        if (product[station.endField]) {
+            return {
+                cssClass: 'timeline-completed',
+                statusText: 'Zakończone'
+            };
+        } else if (currentStatus === expectedStatus) {
+            return {
+                cssClass: 'timeline-active',
+                statusText: 'W trakcie'
+            };
+        } else {
+            return {
+                cssClass: 'timeline-pending',
+                statusText: 'Oczekuje'
+            };
+        }
+    }
+
+    /**
+     * Generuje szczegóły dla timeline
+     */
+    getTimelineDetails(station, product) {
+        const startDate = product[station.startField];
+        const endDate = product[station.endField];
+        const duration = product[station.durationField];
+
+        if (endDate) {
+            const endFormatted = new Date(endDate).toLocaleString('pl-PL');
+            const durationText = duration ? this.formatDuration(duration) : '';
+            return {
+                text: `Zakończono: ${endFormatted}${durationText ? ', czas: ' + durationText : ''}`
+            };
+        } else if (startDate) {
+            const startFormatted = new Date(startDate).toLocaleString('pl-PL');
+            const now = new Date();
+            const start = new Date(startDate);
+            const elapsed = Math.floor((now - start) / (1000 * 60));
+            const elapsedText = this.formatDuration(elapsed);
+            return {
+                text: `Rozpoczęto: ${startFormatted}, czas: ${elapsedText}`
+            };
+        } else {
+            const prevStations = {
+                'assembly': 'wycięcie',
+                'packaging': 'składanie'
+            };
+            const prevStation = prevStations[station.code];
+            return {
+                text: prevStation ? `Oczekuje na ${prevStation}` : 'Oczekuje na rozpoczęcie'
+            };
+        }
+    }
+
+    // ========================================================================
+    // FUNKCJE TŁUMACZEŃ STATUSÓW
+    // ========================================================================
+
+    /**
+     * Tłumaczy status na przyjazną nazwę
+     */
+    translateStatus(status) {
+        return ProductsModule.STATUS_TRANSLATIONS[status] || status || 'Nieznany status';
+    }
+
+    /**
+     * Zwraca kompletną konfigurację statusu
+     */
+    getStatusConfig(status) {
+        return ProductsModule.STATUS_CONFIG[status] || {
+            icon: 'fa-question',
+            displayName: this.translateStatus(status),
+            color: 'text-muted',
+            badgeClass: 'badge-secondary'
+        };
+    }
+
+    /**
+     * Zwraca tylko klasę CSS dla badge statusu
+     */
+    getStatusBadgeClass(status) {
+        return this.getStatusConfig(status).badgeClass;
+    }
+
+    /**
+     * Zwraca przyjazną nazwę statusu dla wyświetlenia
+     */
+    getStatusDisplayName(status) {
+        return this.getStatusConfig(status).displayName;
+    }
+
+    /**
+     * Konfiguruje obsługę notatek produkcyjnych
+     */
+    setupNotesHandling(modalElement, product) {
+        const editBtn = modalElement.querySelector('#editNotesBtn');
+        const cancelBtn = modalElement.querySelector('#cancelNotesBtn');
+        const saveBtn = modalElement.querySelector('#saveNotesBtn');
+        const textarea = modalElement.querySelector('#notesTextarea');
+        const notesDisplay = modalElement.querySelector('#notesDisplay');
+        const notesEdit = modalElement.querySelector('#notesEdit');
+
+        const currentNotes = product.production_notes || '';
+        const notesField = notesDisplay.querySelector('[data-field="production_notes"]');
+        
+        if (notesField) {
+            notesField.textContent = currentNotes || 'Brak notatek';
+        }
+        if (textarea) {
+            textarea.value = currentNotes;
+        }
+
+        let originalNotesValue = currentNotes;
+
+        if (editBtn) {
+            editBtn.addEventListener('click', () => {
+                this.startNotesEdit(notesDisplay, notesEdit, editBtn, textarea, originalNotesValue);
+            });
+        }
+
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                this.cancelNotesEdit(notesDisplay, notesEdit, editBtn, textarea, originalNotesValue);
+            });
+        }
+
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.saveProductNotes(product.id, textarea.value, notesDisplay, notesEdit, editBtn, notesField);
+            });
+        }
+
+        if (textarea) {
+            textarea.addEventListener('input', () => {
+                this.checkNotesChanges(textarea, saveBtn, originalNotesValue);
+            });
+        }
+    }
+
+    startNotesEdit(notesDisplay, notesEdit, editBtn, textarea, originalValue) {
+        notesDisplay.style.display = 'none';
+        notesEdit.style.display = 'block';
+        editBtn.style.display = 'none';
+        
+        if (textarea) {
+            textarea.focus();
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        }
+    }
+
+    cancelNotesEdit(notesDisplay, notesEdit, editBtn, textarea, originalValue) {
+        notesDisplay.style.display = 'block';
+        notesEdit.style.display = 'none';
+        editBtn.style.display = 'block';
+        
+        if (textarea) {
+            textarea.value = originalValue;
+        }
+    }
+
+    checkNotesChanges(textarea, saveBtn, originalValue) {
+        if (!textarea || !saveBtn) return;
+        
+        const hasChanges = textarea.value.trim() !== originalValue.trim();
+        saveBtn.disabled = !hasChanges;
+    }
+
+    async saveProductNotes(productId, notes, notesDisplay, notesEdit, editBtn, notesField) {
+        try {
+            const saveBtn = document.getElementById('saveNotesBtn');
+            if (saveBtn) {
+                const originalText = saveBtn.innerHTML;
+                saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Zapisuję...';
+                saveBtn.disabled = true;
+            }
+
+            const response = await fetch(`/production/api/products/${productId}/notes`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ notes: notes })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || `HTTP ${response.status}`);
+            }
+
+            notesDisplay.style.display = 'block';
+            notesEdit.style.display = 'none';
+            editBtn.style.display = 'block';
+
+            if (notesField) {
+                notesField.textContent = notes || 'Brak notatek';
+            }
+
+            if (this.shared?.toastSystem) {
+                this.shared.toastSystem.showToast('Notatki zostały zapisane', 'success');
+            }
+
+        } catch (error) {
+            console.error('[ProductsModule] Error saving notes:', error);
+            
+            if (this.shared?.toastSystem) {
+                this.shared.toastSystem.showToast(`Błąd zapisu notatek: ${error.message}`, 'error');
+            } else {
+                alert(`Błąd zapisu notatek: ${error.message}`);
+            }
+        } finally {
+            const saveBtn = document.getElementById('saveNotesBtn');
+            if (saveBtn) {
+                saveBtn.innerHTML = '<i class="fas fa-save me-1"></i>Zapisz';
+                saveBtn.disabled = false;
+            }
+        }
+    }
+
+    /**
+     * Ładuje produkty z tego samego zamówienia dla paska produktów
+     */
+    async loadOrderProducts(productId) {
+        try {
+            const response = await fetch(`/production/api/products/${productId}/order-products`, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                console.warn('[ProductsModule] Failed to load order products:', result.error);
+                return;
+            }
+
+            this.renderProductsNavigation(result, productId);
+
+        } catch (error) {
+            console.error('[ProductsModule] Error loading order products:', error);
+        }
+    }
+
+    /**
+     * Renderuje pasek nawigacji produktów
+     */
+    renderProductsNavigation(orderData, currentProductId) {
+        const navigation = document.getElementById('productsNavigation');
+        const titleElement = document.getElementById('productsNavTitle');
+        const buttonsContainer = document.getElementById('productsButtons');
+
+        if (!navigation || !orderData.products) return;
+
+        if (orderData.total_count <= 1) {
+            navigation.style.display = 'none';
+            return;
+        }
+
+        navigation.style.display = 'block';
+        navigation.classList.add('show');
+
+        if (titleElement) {
+            titleElement.innerHTML = `
+                <i class="fas fa-layer-group me-2"></i>
+                Produkty w zamówieniu (${orderData.total_count})
+            `;
+        }
+
+        if (buttonsContainer) {
+            let buttonsHtml = '';
+
+            orderData.products.forEach(product => {
+                const isActive = product.id == currentProductId;
+                
+                buttonsHtml += `
+                    <button class="product-nav-btn ${isActive ? 'active' : ''}" 
+                            data-product-id="${product.id}"
+                            onclick="window.productsModule?.switchToProduct(${product.id})"
+                            title="Przełącz na produkt ${product.short_product_id}">
+                        <div class="product-nav-spec">${product.specification}</div>
+                        <div class="product-nav-id">${product.short_product_id}</div>
+                    </button>
+                `;
+            });
+
+            buttonsContainer.innerHTML = buttonsHtml;
+        }
+
+        const sequenceField = document.querySelector('[data-field="sequence_display"]');
+        if (sequenceField && orderData.products) {
+            const currentProduct = orderData.products.find(p => p.id == currentProductId);
+            if (currentProduct) {
+                sequenceField.textContent = `${currentProduct.sequence}/${orderData.total_count}`;
+            }
+        }
+    }
+
+    updateActiveProductButton(newProductId) {
+        const productButtons = document.querySelectorAll('.product-nav-btn');
+        
+        productButtons.forEach(btn => {
+            const btnProductId = btn.dataset.productId;
+            
+            if (btnProductId == newProductId) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    async fadeOutModalContent() {
+        return new Promise(resolve => {
+            const contentAreas = ['.details-section', '.sidebar-section'];
+            
+            contentAreas.forEach(selector => {
+                const element = document.querySelector(selector);
+                if (element) {
+                    element.style.transition = 'opacity 0.2s ease';
+                    element.style.opacity = '0.3';
+                }
+            });
+            
+            setTimeout(resolve, 200);
+        });
+    }
+
+    async fadeInModalContent() {
+        return new Promise(resolve => {
+            const contentAreas = ['.details-section', '.sidebar-section'];
+            
+            contentAreas.forEach(selector => {
+                const element = document.querySelector(selector);
+                if (element) {
+                    element.style.opacity = '1';
+                }
+            });
+            
+            setTimeout(() => {
+                contentAreas.forEach(selector => {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        element.style.transition = '';
+                        element.style.opacity = '';
+                    }
+                });
+                resolve();
+            }, 200);
+        });
+    }
+
+    /**
+     * Przełącza widok na inny produkt
+     */
+    async switchToProduct(productId) {
+        console.log('[ProductsModule] Switching to product:', productId);
+
+        try {
+            // Pokaż loading
+            this.showModalLoading(true);
+            
+            // Aktualizuj aktywny przycisk
+            this.updateActiveProductButton(productId);
+            
+            // Pobierz dane produktu
+            const product = this.state.filteredProducts.find(p => p.id == productId) || 
+                           this.state.products.find(p => p.id == productId);
+            
+            if (!product) {
+                throw new Error(`Produkt ${productId} nie został znaleziony`);
+            }
+
+            // Fade out → aktualizuj → fade in
+            await this.fadeOutModalContent();
+            this.updateModalWithNewProduct(product);
+            await this.fadeInModalContent();
+            
+            // Ukryj loading
+            this.showModalLoading(false);
+            
+            console.log('[ProductsModule] Product switched successfully');
+
+        } catch (error) {
+            console.error('[ProductsModule] Error switching product:', error);
+            this.showModalLoading(false);
+            
+            if (this.shared?.toastSystem) {
+                this.shared.toastSystem.showToast(`Błąd: ${error.message}`, 'error');
+            }
+        }
+    }
+
+    updateModalWithNewProduct(product) {
+        const titleElement = document.querySelector('.product-id-display');
+        if (titleElement) {
+            titleElement.textContent = product.short_product_id || `#${product.id}`;
+        }
+
+        const subtitleElement = document.querySelector('.product-name-display');
+        if (subtitleElement) {
+            subtitleElement.textContent = product.original_product_name || 'Brak nazwy produktu';
+        }
+
+        const headerStatusBadge = document.querySelector('.status-badge-large');
+        if (headerStatusBadge) {
+            this.updateHeaderStatus(headerStatusBadge, product);
+        }
+
+        // Aktualizuj statystyki używając sztucznego modalElement (document)
+        this.populateStatsCards(document, product);
+        this.populateAllFields(document, product);
+        this.generateProductionTimeline(document, product);
+        this.setupModalActions(document, product);
+
+        // Aktualizuj notatki
+        const notesField = document.querySelector('#notesDisplay [data-field="production_notes"]');
+        const notesTextarea = document.querySelector('#notesTextarea');
+        
+        const currentNotes = product.production_notes || '';
+        
+        if (notesField) {
+            notesField.textContent = currentNotes || 'Brak notatek';
+        }
+        
+        if (notesTextarea) {
+            notesTextarea.value = currentNotes;
+        }
+
+        // Resetuj stan edycji notatek
+        const notesDisplay = document.querySelector('#notesDisplay');
+        const notesEdit = document.querySelector('#notesEdit');
+        const editBtn = document.querySelector('#editNotesBtn');
+        
+        if (notesDisplay && notesEdit && editBtn) {
+            notesDisplay.style.display = 'block';
+            notesEdit.style.display = 'none';
+            editBtn.style.display = 'block';
+        }
+    }
+
+    showModalLoading(show) {
+        const modal = document.getElementById('product-details-modal');
+        if (!modal) return;
+
+        let loadingOverlay = document.getElementById('modal-loading-overlay-fixed');
+        
+        if (show) {
+            // Usuń poprzedni overlay jeśli istnieje
+            if (loadingOverlay) {
+                loadingOverlay.remove();
+            }
+            
+            // Stwórz nowy overlay
+            loadingOverlay = document.createElement('div');
+            loadingOverlay.id = 'modal-loading-overlay-fixed';
+            loadingOverlay.className = 'modal-loading-overlay';
+            loadingOverlay.innerHTML = `
+                <div class="modal-loading-content">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Ładowanie...</span>
+                    </div>
+                    <div class="loading-text">Ładowanie danych produktu...</div>
+                </div>
+            `;
+            
+            // Dodaj do body (nie do modala) - będzie pokrywał cały ekran
+            document.body.appendChild(loadingOverlay);
+            
+            // Pokaż loading z animacją
+            loadingOverlay.style.display = 'flex';
+            setTimeout(() => {
+                loadingOverlay.classList.add('show');
+            }, 10);
+            
+        } else {
+            // Ukryj loading
+            if (loadingOverlay) {
+                loadingOverlay.classList.remove('show');
+                setTimeout(() => {
+                    if (loadingOverlay && loadingOverlay.parentNode) {
+                        loadingOverlay.remove();
+                    }
+                }, 300);
+            }
+        }
+    }
+
+    /**
+     * Konfiguruje akcje w modal
+     */
+    setupModalActions(modalElement, product) {
+        const baselinkerBtn = modalElement.querySelector('#openBaselinkerBtn');
+        if (baselinkerBtn && product.baselinker_order_id) {
+            const baselinkerUrl = `https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}`;
+            baselinkerBtn.href = baselinkerUrl;
+            baselinkerBtn.target = '_blank';
+        } else if (baselinkerBtn) {
+            baselinkerBtn.style.display = 'none';
+        }
+    }
+
+    // ========================================================================
+    // POMOCNICZE FUNKCJE FORMATOWANIA
+    // ========================================================================
+
+    /**
+     * Formatuje wartość dla wyświetlenia w modal
+     */
     formatModalValue(value, type, unit) {
         if (value === null || value === undefined || value === '') {
             return '<span class="text-muted">Brak danych</span>';
@@ -2406,14 +3148,140 @@ class ProductsModule {
             case 'datetime':
                 return new Date(value).toLocaleString('pl-PL');
             case 'duration':
-                const hours = Math.floor(value / 60);
-                const minutes = value % 60;
-                return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
+                return this.formatDuration(value);
+            case 'deadline-full':
+                return this.formatDeadlineFull(value);
             case 'email':
                 return `<a href="mailto:${value}">${value}</a>`;
             default:
                 return value.toString() + (unit ? ` ${unit}` : '');
         }
+    }
+
+    /**
+     * Formatuje wymiary produktu
+     */
+    formatDimensions(product) {
+        const dimensions = [];
+        
+        if (product.parsed_width_cm) {
+            dimensions.push(Math.round(product.parsed_width_cm));
+        }
+        if (product.parsed_thickness_cm) {
+            dimensions.push(Math.round(product.parsed_thickness_cm));
+        }
+        if (product.parsed_length_cm) {
+            dimensions.push(Math.round(product.parsed_length_cm));
+        }
+
+        return dimensions.length > 0 ? dimensions.join(' × ') + ' mm' : 'Brak danych';
+    }
+
+    /**
+     * Formatuje czas trwania w minutach
+     */
+    formatDuration(minutes) {
+        if (!minutes || minutes < 0) return '0min';
+        
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        
+        if (hours > 0) {
+            return `${hours}h ${mins}min`;
+        } else {
+            return `${mins}min`;
+        }
+    }
+
+    formatDeadlineFull(deadlineDate) {
+        if (!deadlineDate) return 'Brak deadline';
+        
+        const date = new Date(deadlineDate);
+        const now = new Date();
+        const diffTime = date - now;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        const dateStr = date.toLocaleDateString('pl-PL');
+        const daysText = this.getDaysText(Math.abs(diffDays));
+        
+        if (diffDays < 0) {
+            return `${dateStr} (przeterminowane o ${Math.abs(diffDays)} ${daysText})`;
+        } else {
+            return `${dateStr} (${diffDays} ${daysText})`;
+        }
+    }
+
+    /**
+     * Zwraca tekstową formę dla dni
+     */
+    getDaysText(days) {
+        if (days === 1) return 'dzień';
+        if (days <= 2) return 'dni';
+        return 'dni';
+    }
+
+    /**
+     * Zwraca klasę CSS dla deadline
+     */
+    getDeadlineClass(days) {
+        if (days < 0) return 'text-danger';
+        if (days <= 2) return 'text-warning';
+        if (days <= 7) return 'text-info';
+        return 'text-success';
+    }
+
+    /**
+     * Zwraca klasę CSS dla priorytetu
+     */
+    getPriorityClass(priority) {
+        if (priority >= 180) return 'priority-critical';
+        if (priority >= 140) return 'priority-high';
+        if (priority >= 80) return 'priority-medium';
+        return 'priority-low';
+    }
+
+    /**
+     * Zwraca konfigurację statusu
+     */
+    getStatusConfig(status) {
+        const configs = {
+            'czeka_na_wyciecie': {
+                icon: 'fa-cut',
+                displayName: 'Wycinanie',
+                color: 'cutting-theme'
+            },
+            'czeka_na_skladanie': {
+                icon: 'fa-hammer',
+                displayName: 'Składanie',
+                color: 'assembly-theme'
+            },
+            'czeka_na_pakowanie': {
+                icon: 'fa-box',
+                displayName: 'Pakowanie',
+                color: 'packaging-theme'
+            },
+            'spakowane': {
+                icon: 'fa-check',
+                displayName: 'Spakowane',
+                color: 'text-success'
+            },
+            'wstrzymane': {
+                icon: 'fa-pause',
+                displayName: 'Wstrzymane',
+                color: 'text-warning'
+            },
+            'anulowane': {
+                icon: 'fa-times',
+                displayName: 'Anulowane',
+                color: 'text-danger'
+            }
+        };
+
+        return configs[status] || {
+            icon: 'fa-question',
+            displayName: status || 'Nieznany',
+            color: 'text-muted'
+        };
     }
 
     // ========================================================================
@@ -2441,15 +3309,31 @@ class ProductsModule {
     isDragging() {
         return this.components.dragDrop ? this.components.dragDrop.isDragging() : false;
     }
+
 }
 
 // ========================================================================
 // EXPORT MODULE
 // ========================================================================
 
-// NOTES FOR HTML TEMPLATE UPDATES:
-// 1. Remove button #bulk-set-priority from bulk-actions-bar in products-tab-content.html
-// 2. Make sure all product row template selectors match this implementation
+// Export dla używania w template (onclick)
+if (typeof window !== 'undefined') {
+    // Funkcje notatek (dla backward compatibility jeśli gdzieś używane)
+    window.toggleNotesEdit = function() {
+        console.log('[Global] toggleNotesEdit called - deprecated, use modal functions');
+    };
+    
+    // Funkcja przełączania produktów (używana w onclick)
+    window.switchToProduct = function(productId) {
+        if (window.productsModule) {
+            window.productsModule.switchToProduct(productId);
+        } else {
+            console.error('[Global] productsModule not initialized');
+        }
+    };
+    
+    console.log('[ProductsModule] Global functions exported to window');
+}
 
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {

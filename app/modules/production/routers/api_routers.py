@@ -4168,6 +4168,194 @@ def dashboard_stats_data():
         }), 500
 
 
+@api_bp.route('/products/<int:product_id>/notes', methods=['PUT'])
+@login_required
+def update_product_notes(product_id):
+    """
+    PUT /production/api/products/<id>/notes
+    
+    Aktualizuje notatki produkcyjne dla produktu
+    
+    Body JSON:
+    {
+        "notes": "Nowa treść notatki"
+    }
+    
+    Returns: JSON z rezultatem operacji
+    """
+    try:
+        from ..models import ProductionItem
+        
+        # Pobierz dane z request
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False, 
+                'error': 'Brak danych JSON'
+            }), 400
+        
+        new_notes = data.get('notes', '').strip()
+        
+        # Znajdź produkt
+        product = ProductionItem.query.get_or_404(product_id)
+        
+        # Zapisz stare notatki dla logowania
+        old_notes = product.production_notes or ''
+        
+        # Aktualizuj notatki
+        product.production_notes = new_notes
+        product.updated_at = get_local_now()
+        
+        db.session.commit()
+        
+        logger.info("API: Zaktualizowano notatki produktu", extra={
+            'product_id': product_id,
+            'short_product_id': product.short_product_id,
+            'user_id': current_user.id,
+            'old_notes_length': len(old_notes),
+            'new_notes_length': len(new_notes),
+            'client_ip': request.remote_addr
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Notatki zostały zaktualizowane',
+            'data': {
+                'product_id': product_id,
+                'short_product_id': product.short_product_id,
+                'notes': new_notes,
+                'updated_at': product.updated_at.isoformat()
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error("API: Błąd aktualizacji notatek", extra={
+            'product_id': product_id,
+            'user_id': current_user.id,
+            'error': str(e),
+            'client_ip': request.remote_addr
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/products/<int:product_id>/order-products', methods=['GET'])
+@login_required  
+def get_order_products(product_id):
+    """
+    GET /production/api/products/<id>/order-products
+    
+    Zwraca wszystkie produkty z tego samego zamówienia Baselinker
+    dla paska produktów w modal
+    
+    Returns: JSON z listą produktów z zamówienia
+    """
+    try:
+        from ..models import ProductionItem
+        
+        # Znajdź produkt
+        product = ProductionItem.query.get_or_404(product_id)
+        
+        if not product.baselinker_order_id:
+            return jsonify({
+                'success': True,
+                'products': [_format_product_for_navigation(product)],
+                'total_count': 1,
+                'current_product_id': product_id
+            }), 200
+        
+        # Znajdź wszystkie produkty z tego zamówienia
+        order_products = ProductionItem.query.filter_by(
+            baselinker_order_id=product.baselinker_order_id
+        ).order_by(ProductionItem.product_sequence_in_order.asc()).all()
+        
+        # Formatuj produkty dla nawigacji
+        formatted_products = []
+        for p in order_products:
+            formatted_products.append(_format_product_for_navigation(p))
+        
+        logger.info("API: Pobrano produkty zamówienia", extra={
+            'product_id': product_id,
+            'baselinker_order_id': product.baselinker_order_id,
+            'products_count': len(formatted_products),
+            'user_id': current_user.id
+        })
+        
+        return jsonify({
+            'success': True,
+            'products': formatted_products,
+            'total_count': len(formatted_products),
+            'current_product_id': product_id,
+            'baselinker_order_id': product.baselinker_order_id
+        }), 200
+        
+    except Exception as e:
+        logger.error("API: Błąd pobierania produktów zamówienia", extra={
+            'product_id': product_id,
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+def _format_product_for_navigation(product):
+    """
+    Formatuje produkt dla nawigacji w modal (pasek produktów)
+    
+    Format: [Gatunek] [Technologia] [Klasa] [Wymiary] [Wykończenie]
+    """
+    # Buduj specyfikację produktu
+    spec_parts = []
+    
+    # Gatunek drewna
+    if product.parsed_wood_species:
+        spec_parts.append(product.parsed_wood_species)
+    
+    # Technologia
+    if product.parsed_technology:
+        spec_parts.append(product.parsed_technology)
+    
+    # Klasa drewna
+    if product.parsed_wood_class:
+        spec_parts.append(product.parsed_wood_class)
+    
+    # Wymiary
+    dimensions = []
+    if product.parsed_width_cm:
+        dimensions.append(f"{int(product.parsed_width_cm)}")
+    if product.parsed_thickness_cm:
+        dimensions.append(f"{int(product.parsed_thickness_cm)}")
+    if product.parsed_length_cm:
+        dimensions.append(f"{int(product.parsed_length_cm)}")
+    
+    if dimensions:
+        spec_parts.append("×".join(dimensions))
+    
+    # Wykończenie
+    if product.parsed_finish_state:
+        spec_parts.append(product.parsed_finish_state)
+    
+    # Połącz specyfikację
+    specification = " ".join(spec_parts) if spec_parts else product.original_product_name
+    
+    return {
+        'id': product.id,
+        'short_product_id': product.short_product_id,
+        'specification': specification,
+        'sequence': product.product_sequence_in_order,
+        'status': product.current_status,
+        'priority': product.priority_score or 100
+    }
+
+
 logger.info("Zainicjalizowano API routers modułu production", extra={
     'blueprint_name': api_bp.name,
     'total_endpoints': 7,  # dashboard-stats, complete-task, cron-sync, manual-sync, update-config, health, complete-packaging
