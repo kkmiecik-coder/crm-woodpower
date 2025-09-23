@@ -463,19 +463,19 @@ class BaselinkerSyncService:
             for order_id in orders_for_status_change:
                 try:
                     success = self.change_order_status_in_baselinker(
-                        order_id, self.target_status_production
+                        order_id, self.target_production_status
                     )
                     if success:
                         processing_stats['status_changes_count'] += 1
                         logger.info("Zmieniono status zamówienia w Baselinker", extra={
                             'order_id': order_id,
-                            'new_status': self.target_status_production
+                            'new_status': self.target_production_status
                         })
                     else:
                         processing_stats['status_change_errors'] += 1
                         logger.error("ENHANCED: Błąd zmiany statusu", extra={
                             'order_id': order_id,
-                            'target_status': self.target_status_production
+                            'target_status': self.target_production_status
                         })
                 except Exception as status_error:
                     processing_stats['status_change_errors'] += 1
@@ -1157,23 +1157,41 @@ class BaselinkerSyncService:
             payment_date: NOWE - data opłacenia z extraction
         """
         # Podstawowe dane
+        order_status = order.get('order_status_id')
+        if order_status is None:
+            order_status = order.get('status_id')
+
+        if isinstance(order_status, str) and order_status.strip():
+            try:
+                order_status = int(float(order_status))
+            except (TypeError, ValueError):
+                pass
+
+        order_product_identifier = (
+            order_product_id
+            or product.get('order_product_id')
+            or product.get('product_id')
+            or product.get('id')
+            or product.get('storage_product_id')
+        )
+
         product_data = {
             'short_product_id': product_id,
             'internal_order_number': id_result['internal_order_number'],
             'product_sequence_in_order': sequence_number,
             'baselinker_order_id': order['order_id'],
-            'baselinker_product_id': str(order_product_id) if order_product_id else None,
+            'baselinker_product_id': str(order_product_identifier) if order_product_identifier else None,
             'original_product_name': product.get('name', ''),
-            'baselinker_status_id': order.get('order_status_id'),
+            'baselinker_status_id': order_status,
             
             # NOWE: Payment date dla nowego algorytmu priorytetów
             'payment_date': payment_date,
             
             # Dane klienta
-            'client_name': client_data['client_name'],
-            'client_email': client_data['client_email'],  
-            'client_phone': client_data['client_phone'],
-            'delivery_address': client_data['delivery_address'],
+            'client_name': client_data.get('client_name', ''),
+            'client_email': client_data.get('client_email', ''),
+            'client_phone': client_data.get('client_phone', ''),
+            'delivery_address': client_data.get('delivery_address', ''),
             
             # Deadline
             'deadline_date': deadline_date,
@@ -1185,6 +1203,17 @@ class BaselinkerSyncService:
         
         # Dane sparsowane z nazwy produktu
         if parsed_data:
+            volume_m3 = parsed_data.get('volume_m3')
+            if volume_m3 is None:
+                length = parsed_data.get('length_cm')
+                width = parsed_data.get('width_cm')
+                thickness = parsed_data.get('thickness_cm')
+                try:
+                    if all(value is not None for value in (length, width, thickness)):
+                        volume_m3 = round((float(length) * float(width) * float(thickness)) / 1_000_000, 6)
+                except (TypeError, ValueError):
+                    volume_m3 = None
+
             product_data.update({
                 'parsed_wood_species': parsed_data.get('wood_species'),
                 'parsed_technology': parsed_data.get('technology'),
@@ -1193,7 +1222,7 @@ class BaselinkerSyncService:
                 'parsed_width_cm': parsed_data.get('width_cm'),
                 'parsed_thickness_cm': parsed_data.get('thickness_cm'),
                 'parsed_finish_state': parsed_data.get('finish_state'),
-                'volume_m3': parsed_data.get('volume_m3')
+                'volume_m3': volume_m3
             })
         
         # Dane finansowe
@@ -2105,20 +2134,446 @@ class BaselinkerSyncService:
             })
             raise
 
-    def _process_single_order(self, order: Dict[str, Any], products: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, Any]:
-        """ZACHOWANE: Original implementation"""
-        # ... (original code preserved for compatibility)
-        pass
+    def _process_single_order_with_full_debug(self, order: Dict[str, Any], products: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Wersja _process_single_order z pełnym debugowaniem
+        """
+        results = {
+            'created': 0,
+            'updated': 0,
+            'errors': 0,
+            'error_details': []
+        }
+
+        baselinker_order_id = order['order_id']
+        
+        logger.info("🔍 DEBUG: Rozpoczęcie przetwarzania zamówienia", extra={
+            'baselinker_order_id': baselinker_order_id,
+            'products_count': len(products),
+            'dry_run': dry_run
+        })
+
+        try:
+            from ..services.id_generator import ProductIDGenerator
+            from ..services.parser_service import get_parser_service
+            from ..services.priority_service import get_priority_calculator
+            from ..models import ProductionItem
+
+            # DEBUG: Sprawdź stan bazy przed rozpoczęciem
+            existing_count = ProductionItem.query.count()
+            logger.info("🔍 DEBUG: Stan bazy przed przetwarzaniem", extra={
+                'total_records_in_db': existing_count,
+                'baselinker_order_id': baselinker_order_id
+            })
+            
+            # DEBUG: Sprawdź czy to zamówienie już istnieje
+            existing_for_order = ProductionItem.query.filter_by(
+                baselinker_order_id=baselinker_order_id
+            ).all()
+            
+            if existing_for_order:
+                logger.warning("🚨 DEBUG: Zamówienie już istnieje w bazie!", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'existing_records': len(existing_for_order),
+                    'existing_ids': [item.short_product_id for item in existing_for_order]
+                })
+                # Wyjdź z funkcji, nie przetwarzaj ponownie
+                return results
+
+            # KROK 1: Przygotowanie wspólnych danych dla zamówienia
+            client_data = self._extract_client_data(order)
+            deadline_date = self._calculate_deadline_date(order)
+
+            # KROK 2: DEBUG - Szczegółowa analiza produktów
+            logger.info("🔍 DEBUG: Analiza produktów w zamówieniu", extra={
+                'baselinker_order_id': baselinker_order_id
+            })
+            
+            total_products_count = 0
+            products_breakdown = []
+            
+            for i, product in enumerate(products):
+                quantity = self._coerce_quantity(product.get('quantity', 1))
+                total_products_count += quantity
+                
+                product_breakdown = {
+                    'index': i,
+                    'name': product.get('name', '')[:50],
+                    'quantity': quantity,
+                    'baselinker_product_id': product.get('order_product_id')
+                }
+                products_breakdown.append(product_breakdown)
+                
+                logger.info("🔍 DEBUG: Produkt w zamówieniu", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'product_index': i,
+                    'product_name': product.get('name', '')[:50],
+                    'quantity': quantity,
+                    'baselinker_product_id': product.get('order_product_id')
+                })
+
+            logger.info("🔍 DEBUG: Podsumowanie produktów", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'product_items_count': len(products),
+                'total_products_count': total_products_count,
+                'products_breakdown': products_breakdown
+            })
+
+            # KROK 3: Generowanie ID
+            logger.info("🔍 DEBUG: Przed generowaniem ID", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'total_products_count': total_products_count
+            })
+            
+            id_result = ProductIDGenerator.generate_product_id_for_order(
+                baselinker_order_id, total_products_count
+            )
+            
+            logger.info("🔍 DEBUG: Po wygenerowaniu ID", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'internal_order_number': id_result['internal_order_number'],
+                'generated_ids_count': len(id_result['product_ids']),
+                'first_id': id_result['product_ids'][0] if id_result['product_ids'] else None,
+                'last_id': id_result['product_ids'][-1] if id_result['product_ids'] else None,
+                'all_generated_ids': id_result['product_ids']
+            })
+
+            # KROK 4: Sprawdzenie unikalności przed wstawieniem
+            logger.info("🔍 DEBUG: Sprawdzanie unikalności wygenerowanych ID", extra={
+                'baselinker_order_id': baselinker_order_id
+            })
+            
+            for product_id in id_result['product_ids']:
+                existing = ProductionItem.query.filter_by(short_product_id=product_id).first()
+                if existing:
+                    logger.error("🚨 DEBUG: KONFLIKT! Wygenerowany ID już istnieje!", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'conflicting_id': product_id,
+                        'existing_record_id': existing.id,
+                        'existing_order_id': existing.baselinker_order_id
+                    })
+                    results['errors'] += 1
+                    results['error_details'].append({
+                        'error': f'ID {product_id} już istnieje',
+                        'conflicting_id': product_id
+                    })
+                    return results
+
+            logger.info("✅ DEBUG: Wszystkie wygenerowane ID są unikalne", extra={
+                'baselinker_order_id': baselinker_order_id
+            })
+
+            # KROK 5: Przetwarzanie produktów
+            current_id_index = 0
+            parser = get_parser_service()
+            priority_calc = get_priority_calculator()
+            
+            prepared_items = []  # Lista do zbiorczego commit
+
+            for product_index, product in enumerate(products):
+                try:
+                    product_name = product.get('name', '')
+                    quantity = self._coerce_quantity(product.get('quantity', 1))
+                    order_product_id = product.get('order_product_id')
+
+                    logger.info("🔍 DEBUG: Przetwarzanie produktu", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'product_index': product_index,
+                        'product_name': product_name[:50],
+                        'quantity': quantity,
+                        'current_id_index': current_id_index
+                    })
+
+                    # Parsowanie nazwy produktu (raz na produkt)
+                    parsed_data = parser.parse_product_name(product_name)
+
+                    # Dla każdej sztuki w quantity
+                    for qty_index in range(quantity):
+                        try:
+                            if current_id_index >= len(id_result['product_ids']):
+                                raise Exception(f"Brak ID dla pozycji {current_id_index}")
+                            
+                            product_id = id_result['product_ids'][current_id_index]
+                            current_id_index += 1
+
+                            logger.info("🔍 DEBUG: Tworzenie rekordu produktu", extra={
+                                'baselinker_order_id': baselinker_order_id,
+                                'product_id': product_id,
+                                'qty_index': qty_index + 1,
+                                'sequence_number': current_id_index
+                            })
+
+                            # Przygotowanie danych produktu
+                            product_data = self._prepare_product_data_new(
+                                order=order,
+                                product=product,
+                                product_id=product_id,
+                                id_result=id_result,
+                                parsed_data=parsed_data,
+                                client_data=client_data,
+                                deadline_date=deadline_date,
+                                order_product_id=order_product_id,
+                                sequence_number=current_id_index
+                            )
+
+                            # Obliczenie priorytetu
+                            priority_score = priority_calc.calculate_priority(product_data)
+                            product_data['priority_score'] = priority_score
+
+                            if not dry_run:
+                                # Przygotuj obiekt ale nie commituj jeszcze
+                                production_item = ProductionItem(**product_data)
+                                prepared_items.append(production_item)
+                                
+                                logger.info("🔍 DEBUG: Przygotowano rekord do wstawienia", extra={
+                                    'baselinker_order_id': baselinker_order_id,
+                                    'product_id': product_id,
+                                    'prepared_items_count': len(prepared_items)
+                                })
+
+                            results['created'] += 1
+
+                        except Exception as e:
+                            results['errors'] += 1
+                            results['error_details'].append({
+                                'product_name': product_name,
+                                'qty_index': qty_index + 1,
+                                'sequence': current_id_index,
+                                'error': str(e)
+                            })
+                            logger.error("🚨 DEBUG: Błąd tworzenia produktu", extra={
+                                'baselinker_order_id': baselinker_order_id,
+                                'product_name': product_name[:50],
+                                'qty_index': qty_index + 1,
+                                'error': str(e)
+                            })
+
+                except Exception as e:
+                    results['errors'] += 1
+                    results['error_details'].append({
+                        'product_name': product.get('name'),
+                        'product_index': product_index,
+                        'error': str(e)
+                    })
+
+            # KROK 6: Zbiorczy commit wszystkich rekordów
+            if not dry_run and prepared_items:
+                logger.info("🔍 DEBUG: Rozpoczęcie zbiorczego commit", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'items_to_commit': len(prepared_items)
+                })
+                
+                try:
+                    # Dodaj wszystkie rekordy do sesji
+                    for item in prepared_items:
+                        db.session.add(item)
+                    
+                    # Commit wszystkich naraz
+                    db.session.commit()
+                    
+                    logger.info("✅ DEBUG: Zbiorczy commit zakończony pomyślnie", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'committed_items': len(prepared_items)
+                    })
+                    
+                    # Sprawdź stan po commit
+                    final_count = ProductionItem.query.count()
+                    logger.info("🔍 DEBUG: Stan bazy po commit", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'total_records_now': final_count
+                    })
+                    
+                except Exception as e:
+                    db.session.rollback()
+                    logger.error("🚨 DEBUG: Błąd zbiorczego commit", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'error': str(e),
+                        'items_attempted': len(prepared_items)
+                    })
+                    
+                    # Sprawdź który rekord powoduje problem
+                    for i, item in enumerate(prepared_items):
+                        existing = ProductionItem.query.filter_by(
+                            short_product_id=item.short_product_id
+                        ).first()
+                        if existing:
+                            logger.error("🚨 DEBUG: Konflikt przy wstawianiu", extra={
+                                'item_index': i,
+                                'conflicting_id': item.short_product_id,
+                                'existing_record': existing.id
+                            })
+                    
+                    results['errors'] = len(prepared_items)
+                    results['created'] = 0
+
+            logger.info("🔍 DEBUG: Zakończenie przetwarzania zamówienia", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'created': results['created'],
+                'errors': results['errors']
+            })
+
+        except Exception as e:
+            if not dry_run:
+                db.session.rollback()
+            results['errors'] += 1
+            results['error_details'].append({
+                'error': str(e),
+                'order_id': baselinker_order_id
+            })
+            logger.error("🚨 DEBUG: Błąd główny przetwarzania zamówienia", extra={
+                'order_id': baselinker_order_id,
+                'error': str(e)
+            })
+
+        return results
 
     def _prepare_product_data(self, order: Dict[str, Any], product: Dict[str, Any], id_result: Dict[str, Any], parsed_data: Dict[str, Any]) -> Dict[str, Any]:
-        """ZACHOWANE: Original implementation"""
-        # ... (original code preserved)
-        pass
+        """
+        Przygotowuje dane produktu do zapisania w bazie
+        
+        Args:
+            order (Dict[str, Any]): Dane zamówienia
+            product (Dict[str, Any]): Dane produktu
+            id_result (Dict[str, Any]): Wygenerowane ID
+            parsed_data (Dict[str, Any]): Sparsowane dane nazwy
+            
+        Returns:
+            Dict[str, Any]: Przygotowane dane produktu
+        """
+        # Podstawowe dane z ID generator
+        product_data = {
+            'short_product_id': id_result['product_id'],
+            'internal_order_number': id_result['internal_order_number'],
+            'product_sequence_in_order': id_result['sequence'],
+            'baselinker_order_id': order['order_id'],
+            'original_product_name': product.get('name', ''),
+            'baselinker_status_id': order.get('order_status_id')
+        }
+        
+        # Dane sparsowane z nazwy produktu
+        if parsed_data:
+            product_data.update({
+                'parsed_wood_species': parsed_data.get('wood_species'),
+                'parsed_technology': parsed_data.get('technology'),
+                'parsed_wood_class': parsed_data.get('wood_class'),
+                'parsed_length_cm': parsed_data.get('length_cm'),
+                'parsed_width_cm': parsed_data.get('width_cm'),
+                'parsed_thickness_cm': parsed_data.get('thickness_cm'),
+                'parsed_finish_state': parsed_data.get('finish_state'),
+                'volume_m3': parsed_data.get('volume_m3')
+            })
+        
+        # Dane finansowe
+        try:
+            unit_price = float(product.get('price_brutto', 0)) * 0.81  # Szacunkowa konwersja na netto
+            product_data.update({
+                'unit_price_net': unit_price,
+                'total_value_net': unit_price  # Jedna sztuka
+            })
+        except (ValueError, TypeError):
+            pass
+        
+        # Deadline (domyślnie 14 dni od dzisiaj)
+        try:
+            from .config_service import get_config
+            default_days = get_config('DEADLINE_DEFAULT_DAYS', 14)
+            product_data['deadline_date'] = date.today() + timedelta(days=default_days)
+        except:
+            product_data['deadline_date'] = date.today() + timedelta(days=14)
+        
+        # Metadata
+        product_data.update({
+            'sync_source': 'baselinker_auto',
+            'current_status': 'czeka_na_wyciecie'  # Domyślny status początkowy
+        })
+        
+        return product_data
 
-    def _prepare_product_data_new(self, order: Dict[str, Any], product: Dict[str, Any], product_id: str, id_result: Dict[str, Any], parsed_data: Dict[str, Any], client_data: Dict[str, str], deadline_date: date, order_product_id: Any, sequence_number: int) -> Dict[str, Any]:
-        """ZACHOWANE: Original implementation"""
-        # ... (original code preserved)
-        pass
+    def _prepare_product_data_new(
+        self, 
+        order: Dict[str, Any], 
+        product: Dict[str, Any], 
+        product_id: str,  # np. '25_00048_3'
+        id_result: Dict[str, Any], 
+        parsed_data: Dict[str, Any],
+        client_data: Dict[str, str],
+        deadline_date: date,
+        order_product_id: Any,
+        sequence_number: int) -> Dict[str, Any]:
+        """
+        POPRAWIONA WERSJA: Przygotowuje dane produktu z poprawną logiką sequence
+        
+        Args:
+            product_id: Wygenerowany short_product_id (np. '25_00048_3')
+            sequence_number: Pozycja w zamówieniu (1, 2, 3, ...)
+        """
+
+        # Podstawowe dane
+        product_data = {
+            'short_product_id': product_id,  # '25_00048_3'
+            'internal_order_number': id_result['internal_order_number'],  # '25_00048'
+            'product_sequence_in_order': sequence_number,  # 3 (pozycja w zamówieniu)
+            'baselinker_order_id': order['order_id'],
+            'baselinker_product_id': str(order_product_id) if order_product_id else None,
+            'original_product_name': product.get('name', ''),
+            'baselinker_status_id': order.get('order_status_id'),
+
+            # Dane klienta
+            'client_name': client_data['client_name'],
+            'client_email': client_data['client_email'],  
+            'client_phone': client_data['client_phone'],
+            'delivery_address': client_data['delivery_address'],
+
+            # Deadline
+            'deadline_date': deadline_date,
+
+            # Status początkowy
+            'current_status': 'czeka_na_wyciecie',
+            'sync_source': 'baselinker_auto'
+        }
+
+        # Dane sparsowane z nazwy produktu
+        if parsed_data:
+            product_data.update({
+                'parsed_wood_species': parsed_data.get('wood_species'),
+                'parsed_technology': parsed_data.get('technology'),
+                'parsed_wood_class': parsed_data.get('wood_class'),
+                'parsed_length_cm': parsed_data.get('length_cm'),
+                'parsed_width_cm': parsed_data.get('width_cm'),
+                'parsed_thickness_cm': parsed_data.get('thickness_cm'),
+                'parsed_finish_state': parsed_data.get('finish_state'),
+                'volume_m3': parsed_data.get('volume_m3')
+            })
+
+        # Dane finansowe z produktu Baselinker
+        try:
+            price_brutto = float(product.get('price_brutto', 0))
+            tax_rate = float(product.get('tax_rate', 23))
+
+            # Oblicz cenę netto na JEDNĄ SZTUKĘ
+            price_netto = price_brutto / (1 + tax_rate/100) if tax_rate > 0 else price_brutto
+            
+            # WAŻNE: Cena per sztuka, nie per quantity całkowite
+            # Jeśli quantity=3, to każdy z 3 rekordów ma cenę za 1 sztukę
+            product_quantity = self._coerce_quantity(product.get('quantity', 1))
+            unit_price = price_netto / product_quantity if product_quantity > 0 else price_netto
+
+            product_data.update({
+                'unit_price_net': round(unit_price, 2),
+                'total_value_net': round(unit_price, 2)  # Jeden rekord = jedna sztuka
+            })
+        except (ValueError, TypeError) as e:
+            logger.warning("Błąd obliczania cen produktu", extra={
+                'product_name': product.get('name', '')[:50],
+                'price_brutto': product.get('price_brutto'),
+                'error': str(e)
+            })
+            product_data.update({
+                'unit_price_net': 0,
+                'total_value_net': 0
+            })
+
+        return product_data
 
     def _update_product_priorities(self):
         """
@@ -2286,29 +2741,466 @@ class BaselinkerSyncService:
         return self.update_order_status_in_baselinker(internal_order_number)
 
     def _extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
-        """ZACHOWANE: Wyciąga dane klienta"""
-        # ... (original implementation)
-        pass
+        """Wyciąga podstawowe dane klienta z zamówienia Baselinker."""
+
+        def _first_non_empty(source: Dict[str, Any], *keys: str) -> str:
+            for key in keys:
+                if not key:
+                    continue
+                value = source.get(key)
+                if value is None:
+                    continue
+                if isinstance(value, str):
+                    cleaned = value.strip()
+                else:
+                    cleaned = str(value).strip()
+                if cleaned:
+                    return cleaned
+            return ''
+
+        custom_fields = order.get('custom_extra_fields') or {}
+        if not isinstance(custom_fields, dict):
+            custom_fields = {}
+
+        client_name = _first_non_empty(
+            order,
+            'delivery_fullname',
+            'invoice_fullname',
+            'client_name',
+            'customer_name',
+            'user_login',
+            'client_login'
+        )
+
+        if not client_name:
+            client_name = _first_non_empty(custom_fields, 'client_name', 'delivery_name', 'invoice_name')
+
+        client_email = _first_non_empty(order, 'email', 'client_email', 'invoice_email')
+        if not client_email:
+            client_email = _first_non_empty(custom_fields, 'client_email', 'invoice_email')
+
+        client_phone = _first_non_empty(order, 'phone', 'delivery_phone', 'client_phone', 'phone_mobile')
+        if not client_phone:
+            client_phone = _first_non_empty(custom_fields, 'client_phone', 'delivery_phone')
+
+        street = _first_non_empty(order, 'delivery_address', 'address', 'client_address')
+        if not street:
+            street = _first_non_empty(custom_fields, 'delivery_address', 'invoice_address')
+
+        postcode = _first_non_empty(order, 'delivery_postcode', 'postcode')
+        if not postcode:
+            postcode = _first_non_empty(custom_fields, 'delivery_postcode', 'invoice_postcode')
+
+        city = _first_non_empty(order, 'delivery_city', 'city')
+        if not city:
+            city = _first_non_empty(custom_fields, 'delivery_city', 'invoice_city')
+
+        state = _first_non_empty(order, 'delivery_state', 'state')
+        if not state:
+            state = _first_non_empty(custom_fields, 'delivery_state', 'invoice_state', 'delivery_region')
+
+        country = _first_non_empty(order, 'delivery_country_code', 'country_code')
+        if not country:
+            country = _first_non_empty(custom_fields, 'delivery_country_code', 'invoice_country_code')
+
+        address_parts = [street]
+        if postcode and city:
+            address_parts.append(f"{postcode} {city}")
+        else:
+            if postcode:
+                address_parts.append(postcode)
+            if city:
+                address_parts.append(city)
+
+        if state:
+            address_parts.append(state)
+
+        if country and country.upper() not in {'PL', 'POLSKA'}:
+            address_parts.append(country)
+
+        delivery_address = ', '.join(part for part in address_parts if part)
+
+        return {
+            'client_name': client_name or '',
+            'client_email': client_email or '',
+            'client_phone': client_phone or '',
+            'delivery_address': delivery_address or ''
+        }
 
     def _calculate_deadline_date(self, order: Dict[str, Any]) -> datetime.date:
-        """ZACHOWANE: Oblicza deadline"""
-        # ... (original implementation)  
-        pass
+        """Oblicza datę deadline'u dla produktu."""
+
+        from ..services.config_service import get_config
+
+        payment_date = self.extract_payment_date_from_order(order)
+        if payment_date:
+            base_date = payment_date.date()
+        else:
+            timestamp = order.get('date_add')
+            base_date = get_local_now().date()
+            if timestamp is not None:
+                try:
+                    base_date = datetime.fromtimestamp(int(timestamp)).date()
+                except (TypeError, ValueError, OSError):
+                    pass
+
+        custom_fields = order.get('custom_extra_fields') or {}
+        if not isinstance(custom_fields, dict):
+            custom_fields = {}
+
+        deadline_days_raw = None
+        for key in (
+            'production_deadline_days',
+            'deadline_days',
+            'deadline',
+            'production_time_days'
+        ):
+            if key in custom_fields and custom_fields[key] not in (None, ''):
+                deadline_days_raw = custom_fields[key]
+                break
+
+        if deadline_days_raw is None:
+            deadline_days_raw = order.get('production_deadline_days')
+
+        try:
+            deadline_days = int(float(deadline_days_raw)) if deadline_days_raw is not None else None
+        except (TypeError, ValueError):
+            deadline_days = None
+
+        if deadline_days is None:
+            deadline_days = int(get_config('DEADLINE_DEFAULT_DAYS', 14) or 14)
+
+        deadline_days = max(0, min(deadline_days, 180))
+
+        return self._add_business_days(base_date, deadline_days)
 
     def _add_business_days(self, start_date: date, business_days: int) -> date:
-        """ZACHOWANE: Dodaje dni robocze"""
-        # ... (original implementation)
-        pass
+        """Dodaje określoną liczbę dni roboczych do daty startowej."""
+
+        if not isinstance(start_date, date):
+            start_date = get_local_now().date()
+
+        if business_days <= 0:
+            return start_date
+
+        current_date = start_date
+        added_days = 0
+
+        while added_days < business_days:
+            current_date += timedelta(days=1)
+            if current_date.weekday() < 5:  # Poniedziałek=0 ... Niedziela=6
+                added_days += 1
+
+        return current_date
 
     def debug_id_generator_state(self, baselinker_order_id: int):
-        """ZACHOWANE: Debug stanu ID generatora"""
-        # ... (original implementation)
-        pass
+        """Debug stanu ID generatora"""
+        from ..services.id_generator import ProductIDGenerator
+        
+        logger.info("🔍 DEBUG: Stan ID generatora", extra={
+            'baselinker_order_id': baselinker_order_id,
+            'cache_size': len(ProductIDGenerator._order_mapping_cache),
+            'cache_contents': dict(ProductIDGenerator._order_mapping_cache)
+        })
+        
+        # Sprawdź aktualny licznik w bazie
+        current_counter = ProductIDGenerator.get_current_counter_for_year()
+        logger.info("🔍 DEBUG: Licznik w bazie danych", extra={
+            'current_counter': current_counter
+        })
 
     def _process_single_order_with_full_debug(self, order: Dict[str, Any], products: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, Any]:
-        """ZACHOWANE: Debug version processing"""
-        # ... (original implementation)
-        pass
+        """
+        Wersja _process_single_order z pełnym debugowaniem
+        """
+        results = {
+            'created': 0,
+            'updated': 0,
+            'errors': 0,
+            'error_details': []
+        }
+
+        baselinker_order_id = order['order_id']
+        
+        logger.info("🔍 DEBUG: Rozpoczęcie przetwarzania zamówienia", extra={
+            'baselinker_order_id': baselinker_order_id,
+            'products_count': len(products),
+            'dry_run': dry_run
+        })
+
+        try:
+            from ..services.id_generator import ProductIDGenerator
+            from ..services.parser_service import get_parser_service
+            from ..services.priority_service import get_priority_calculator
+            from ..models import ProductionItem
+
+            # DEBUG: Sprawdź stan bazy przed rozpoczęciem
+            existing_count = ProductionItem.query.count()
+            logger.info("🔍 DEBUG: Stan bazy przed przetwarzaniem", extra={
+                'total_records_in_db': existing_count,
+                'baselinker_order_id': baselinker_order_id
+            })
+            
+            # DEBUG: Sprawdź czy to zamówienie już istnieje
+            existing_for_order = ProductionItem.query.filter_by(
+                baselinker_order_id=baselinker_order_id
+            ).all()
+            
+            if existing_for_order:
+                logger.warning("🚨 DEBUG: Zamówienie już istnieje w bazie!", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'existing_records': len(existing_for_order),
+                    'existing_ids': [item.short_product_id for item in existing_for_order]
+                })
+                # Wyjdź z funkcji, nie przetwarzaj ponownie
+                return results
+
+            # KROK 1: Przygotowanie wspólnych danych dla zamówienia
+            client_data = self._extract_client_data(order)
+            deadline_date = self._calculate_deadline_date(order)
+
+            # KROK 2: DEBUG - Szczegółowa analiza produktów
+            logger.info("🔍 DEBUG: Analiza produktów w zamówieniu", extra={
+                'baselinker_order_id': baselinker_order_id
+            })
+            
+            total_products_count = 0
+            products_breakdown = []
+            
+            for i, product in enumerate(products):
+                quantity = self._coerce_quantity(product.get('quantity', 1))
+                total_products_count += quantity
+                
+                product_breakdown = {
+                    'index': i,
+                    'name': product.get('name', '')[:50],
+                    'quantity': quantity,
+                    'baselinker_product_id': product.get('order_product_id')
+                }
+                products_breakdown.append(product_breakdown)
+                
+                logger.info("🔍 DEBUG: Produkt w zamówieniu", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'product_index': i,
+                    'product_name': product.get('name', '')[:50],
+                    'quantity': quantity,
+                    'baselinker_product_id': product.get('order_product_id')
+                })
+
+            logger.info("🔍 DEBUG: Podsumowanie produktów", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'product_items_count': len(products),
+                'total_products_count': total_products_count,
+                'products_breakdown': products_breakdown
+            })
+
+            # KROK 3: Generowanie ID
+            logger.info("🔍 DEBUG: Przed generowaniem ID", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'total_products_count': total_products_count
+            })
+            
+            id_result = ProductIDGenerator.generate_product_id_for_order(
+                baselinker_order_id, total_products_count
+            )
+            
+            logger.info("🔍 DEBUG: Po wygenerowaniu ID", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'internal_order_number': id_result['internal_order_number'],
+                'generated_ids_count': len(id_result['product_ids']),
+                'first_id': id_result['product_ids'][0] if id_result['product_ids'] else None,
+                'last_id': id_result['product_ids'][-1] if id_result['product_ids'] else None,
+                'all_generated_ids': id_result['product_ids']
+            })
+
+            # KROK 4: Sprawdzenie unikalności przed wstawieniem
+            logger.info("🔍 DEBUG: Sprawdzanie unikalności wygenerowanych ID", extra={
+                'baselinker_order_id': baselinker_order_id
+            })
+            
+            for product_id in id_result['product_ids']:
+                existing = ProductionItem.query.filter_by(short_product_id=product_id).first()
+                if existing:
+                    logger.error("🚨 DEBUG: KONFLIKT! Wygenerowany ID już istnieje!", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'conflicting_id': product_id,
+                        'existing_record_id': existing.id,
+                        'existing_order_id': existing.baselinker_order_id
+                    })
+                    results['errors'] += 1
+                    results['error_details'].append({
+                        'error': f'ID {product_id} już istnieje',
+                        'conflicting_id': product_id
+                    })
+                    return results
+
+            logger.info("✅ DEBUG: Wszystkie wygenerowane ID są unikalne", extra={
+                'baselinker_order_id': baselinker_order_id
+            })
+
+            # KROK 5: Przetwarzanie produktów
+            current_id_index = 0
+            parser = get_parser_service()
+            priority_calc = get_priority_calculator()
+            
+            prepared_items = []  # Lista do zbiorczego commit
+
+            for product_index, product in enumerate(products):
+                try:
+                    product_name = product.get('name', '')
+                    quantity = self._coerce_quantity(product.get('quantity', 1))
+                    order_product_id = product.get('order_product_id')
+
+                    logger.info("🔍 DEBUG: Przetwarzanie produktu", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'product_index': product_index,
+                        'product_name': product_name[:50],
+                        'quantity': quantity,
+                        'current_id_index': current_id_index
+                    })
+
+                    # Parsowanie nazwy produktu (raz na produkt)
+                    parsed_data = parser.parse_product_name(product_name)
+
+                    # Dla każdej sztuki w quantity
+                    for qty_index in range(quantity):
+                        try:
+                            if current_id_index >= len(id_result['product_ids']):
+                                raise Exception(f"Brak ID dla pozycji {current_id_index}")
+                            
+                            product_id = id_result['product_ids'][current_id_index]
+                            current_id_index += 1
+
+                            logger.info("🔍 DEBUG: Tworzenie rekordu produktu", extra={
+                                'baselinker_order_id': baselinker_order_id,
+                                'product_id': product_id,
+                                'qty_index': qty_index + 1,
+                                'sequence_number': current_id_index
+                            })
+
+                            # Przygotowanie danych produktu
+                            product_data = self._prepare_product_data_new(
+                                order=order,
+                                product=product,
+                                product_id=product_id,
+                                id_result=id_result,
+                                parsed_data=parsed_data,
+                                client_data=client_data,
+                                deadline_date=deadline_date,
+                                order_product_id=order_product_id,
+                                sequence_number=current_id_index
+                            )
+
+                            # Obliczenie priorytetu
+                            priority_score = priority_calc.calculate_priority(product_data)
+                            product_data['priority_score'] = priority_score
+
+                            if not dry_run:
+                                # Przygotuj obiekt ale nie commituj jeszcze
+                                production_item = ProductionItem(**product_data)
+                                prepared_items.append(production_item)
+                                
+                                logger.info("🔍 DEBUG: Przygotowano rekord do wstawienia", extra={
+                                    'baselinker_order_id': baselinker_order_id,
+                                    'product_id': product_id,
+                                    'prepared_items_count': len(prepared_items)
+                                })
+
+                            results['created'] += 1
+
+                        except Exception as e:
+                            results['errors'] += 1
+                            results['error_details'].append({
+                                'product_name': product_name,
+                                'qty_index': qty_index + 1,
+                                'sequence': current_id_index,
+                                'error': str(e)
+                            })
+                            logger.error("🚨 DEBUG: Błąd tworzenia produktu", extra={
+                                'baselinker_order_id': baselinker_order_id,
+                                'product_name': product_name[:50],
+                                'qty_index': qty_index + 1,
+                                'error': str(e)
+                            })
+
+                except Exception as e:
+                    results['errors'] += 1
+                    results['error_details'].append({
+                        'product_name': product.get('name'),
+                        'product_index': product_index,
+                        'error': str(e)
+                    })
+
+            # KROK 6: Zbiorczy commit wszystkich rekordów
+            if not dry_run and prepared_items:
+                logger.info("🔍 DEBUG: Rozpoczęcie zbiorczego commit", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'items_to_commit': len(prepared_items)
+                })
+                
+                try:
+                    # Dodaj wszystkie rekordy do sesji
+                    for item in prepared_items:
+                        db.session.add(item)
+                    
+                    # Commit wszystkich naraz
+                    db.session.commit()
+                    
+                    logger.info("✅ DEBUG: Zbiorczy commit zakończony pomyślnie", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'committed_items': len(prepared_items)
+                    })
+                    
+                    # Sprawdź stan po commit
+                    final_count = ProductionItem.query.count()
+                    logger.info("🔍 DEBUG: Stan bazy po commit", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'total_records_now': final_count
+                    })
+                    
+                except Exception as e:
+                    db.session.rollback()
+                    logger.error("🚨 DEBUG: Błąd zbiorczego commit", extra={
+                        'baselinker_order_id': baselinker_order_id,
+                        'error': str(e),
+                        'items_attempted': len(prepared_items)
+                    })
+                    
+                    # Sprawdź który rekord powoduje problem
+                    for i, item in enumerate(prepared_items):
+                        existing = ProductionItem.query.filter_by(
+                            short_product_id=item.short_product_id
+                        ).first()
+                        if existing:
+                            logger.error("🚨 DEBUG: Konflikt przy wstawianiu", extra={
+                                'item_index': i,
+                                'conflicting_id': item.short_product_id,
+                                'existing_record': existing.id
+                            })
+                    
+                    results['errors'] = len(prepared_items)
+                    results['created'] = 0
+
+            logger.info("🔍 DEBUG: Zakończenie przetwarzania zamówienia", extra={
+                'baselinker_order_id': baselinker_order_id,
+                'created': results['created'],
+                'errors': results['errors']
+            })
+
+        except Exception as e:
+            if not dry_run:
+                db.session.rollback()
+            results['errors'] += 1
+            results['error_details'].append({
+                'error': str(e),
+                'order_id': baselinker_order_id
+            })
+            logger.error("🚨 DEBUG: Błąd główny przetwarzania zamówienia", extra={
+                'order_id': baselinker_order_id,
+                'error': str(e)
+            })
+
+        return results
 
     def _safe_float_conversion(self, value) -> float:
         """
@@ -2494,9 +3386,52 @@ def manual_sync_with_filtering(params: Dict[str, Any]) -> Dict[str, Any]:
     """ZACHOWANE: Helper function dla ręcznej synchronizacji z filtrami."""
     return get_sync_service().manual_sync_with_filtering(params)
 
-def update_order_status_in_baselinker(internal_order_number: str) -> bool:
-    """ZACHOWANE: Helper function dla aktualizacji statusu"""
-    return get_sync_service().update_order_status_in_baselinker(internal_order_number)
+def update_order_status_in_baselinker(self, internal_order_number: str) -> bool:
+        """
+        Aktualizuje status zamówienia w Baselinker po zakończeniu produkcji
+        
+        Args:
+            internal_order_number (str): Numer zamówienia wewnętrznego (np. 25_05248)
+            
+        Returns:
+            bool: True jeśli aktualizacja się powiodła
+        """
+        try:
+            from ..models import ProductionItem
+            
+            # Znajdź wszystkie produkty z tego zamówienia
+            products = ProductionItem.query.filter_by(
+                internal_order_number=internal_order_number
+            ).all()
+            
+            if not products:
+                logger.warning("Nie znaleziono produktów dla zamówienia", extra={
+                    'internal_order_number': internal_order_number
+                })
+                return False
+            
+            # Sprawdź czy wszystkie produkty są spakowane
+            all_packed = all(p.current_status == 'spakowane' for p in products)
+            if not all_packed:
+                logger.info("Nie wszystkie produkty są spakowane", extra={
+                    'internal_order_number': internal_order_number,
+                    'packed_count': sum(1 for p in products if p.current_status == 'spakowane'),
+                    'total_count': len(products)
+                })
+                return False
+            
+            # Pobierz baselinker_order_id
+            baselinker_order_id = products[0].baselinker_order_id
+            
+            # Aktualizuj status w Baselinker
+            return self._update_baselinker_order_status(baselinker_order_id, self.target_completed_status)
+            
+        except Exception as e:
+            logger.error("Błąd aktualizacji statusu w Baselinker", extra={
+                'internal_order_number': internal_order_number,
+                'error': str(e)
+            })
+            return False
 
 def get_sync_status() -> Dict[str, Any]:
     """ZACHOWANE: Helper function dla sprawdzania statusu sync"""
