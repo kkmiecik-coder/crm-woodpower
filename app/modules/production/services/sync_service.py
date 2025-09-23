@@ -738,6 +738,18 @@ class BaselinkerSyncService:
         Returns:
             Optional[datetime]: Data opłacenia lub None
         """
+
+        # 🐛 DEBUG: Sprawdzenie struktury zamówienia dla payment_date
+        logger.info("🐛 DEBUG: Szukanie payment_date w zamówieniu", extra={
+            'order_id': order_data.get('order_id'),
+            'order_status_id': order_data.get('order_status_id'),
+            'date_add': order_data.get('date_add'),
+            'date_confirmed': order_data.get('date_confirmed'),
+            'date_status_change': order_data.get('date_status_change'),
+            'status_history_keys': list(order_data.get('status_history', {}).keys()) if order_data.get('status_history') else None,
+            'all_order_keys': list(order_data.keys())
+        })
+
         try:
             order_id = order_data.get('order_id')
             
@@ -1234,6 +1246,16 @@ class BaselinkerSyncService:
                 except (TypeError, ValueError):
                     volume_m3 = None
 
+            logger.info("🐛 DEBUG: Obliczanie objętości produktu", extra={
+                'order_id': order['order_id'],
+                'product_name': product.get('name', ''),
+                'parsed_length_cm': parsed_data.get('length_cm') if parsed_data else None,
+                'parsed_width_cm': parsed_data.get('width_cm') if parsed_data else None,
+                'parsed_thickness_cm': parsed_data.get('thickness_cm') if parsed_data else None,
+                'calculated_volume_m3': volume_m3,
+                'parsed_volume_m3': parsed_data.get('volume_m3') if parsed_data else None
+            })
+
             product_data.update({
                 'parsed_wood_species': parsed_data.get('wood_species'),
                 'parsed_technology': parsed_data.get('technology'),
@@ -1245,6 +1267,20 @@ class BaselinkerSyncService:
                 'volume_m3': volume_m3
             })
         
+        extra_fields = order.get('custom_extra_fields', {})
+        price_type_field = extra_fields.get('106169') or extra_fields.get(106169)
+        
+        logger.info("🐛 DEBUG: Analiza cen i konwersji", extra={
+            'order_id': order['order_id'],
+            'extra_field_106169': price_type_field,
+            'product_price_brutto': product.get('price_brutto'),
+            'product_price_single': product.get('price_single'),
+            'product_price': product.get('price'),
+            'product_tax_rate': product.get('tax_rate'),
+            'product_quantity': product.get('quantity'),
+            'all_extra_fields': list(extra_fields.keys()) if extra_fields else None
+        })
+
         # Dane finansowe
         try:
             price_brutto = float(product.get('price_brutto', 0))
@@ -2000,14 +2036,48 @@ class BaselinkerSyncService:
                 # Wykonanie requestu z retry
                 response_data = self._make_api_request(request_data)
                 
+                # 🐛 DEBUG: Logowanie RAW odpowiedzi z Baselinker API
+                logger.info("🐛 DEBUG: RAW Baselinker API Response", extra={
+                    'status_id': status_id,
+                    'response_status': response_data.get('status'),
+                    'response_keys': list(response_data.keys()) if isinstance(response_data, dict) else 'NOT_DICT',
+                    'response_size': len(str(response_data)),
+                    'raw_response_preview': str(response_data)[:500]  # Pierwsze 500 znaków
+                })
+                
                 if response_data.get('status') == 'SUCCESS':
                     orders = response_data.get('orders', [])
-                    all_orders.extend(orders)
                     
-                    logger.debug("Pobrano zamówienia dla statusu", extra={
-                        'status_id': status_id,
-                        'orders_count': len(orders)
-                    })
+                    # 🐛 DEBUG: Logowanie szczegółów każdego zamówienia
+                    for i, order in enumerate(orders[:2]):  # Tylko pierwsze 2 zamówienia żeby nie zaśmiecić logów
+                        logger.info(f"🐛 DEBUG: Zamówienie {i+1} struktura", extra={
+                            'order_id': order.get('order_id'),
+                            'order_keys': list(order.keys()) if isinstance(order, dict) else 'NOT_DICT',
+                            'order_status_id': order.get('order_status_id'),
+                            'client_name_field': order.get('delivery_fullname') or order.get('invoice_fullname') or order.get('client_name'),
+                            'email_field': order.get('email') or order.get('client_email'),
+                            'phone_field': order.get('phone') or order.get('client_phone'),
+                            'delivery_address': order.get('delivery_address'),
+                            'custom_extra_fields_keys': list(order.get('custom_extra_fields', {}).keys()) if order.get('custom_extra_fields') else None,
+                            'extra_field_106169': order.get('custom_extra_fields', {}).get('106169') if order.get('custom_extra_fields') else None,
+                            'products_count': len(order.get('products', [])),
+                        })
+                        
+                        # 🐛 DEBUG: Struktura produktów w zamówieniu
+                        for j, product in enumerate(order.get('products', [])[:1]):  # Tylko pierwszy produkt
+                            logger.info(f"🐛 DEBUG: Produkt {j+1} w zamówieniu {order.get('order_id')}", extra={
+                                'product_name': product.get('name'),
+                                'product_keys': list(product.keys()) if isinstance(product, dict) else 'NOT_DICT',
+                                'price_brutto': product.get('price_brutto'),
+                                'price_single': product.get('price_single'),
+                                'price': product.get('price'),
+                                'tax_rate': product.get('tax_rate'),
+                                'quantity': product.get('quantity'),
+                                'product_id': product.get('product_id'),
+                                'storage_product_id': product.get('storage_product_id')
+                            })
+                    
+                    all_orders.extend(orders)
                 else:
                     error_msg = response_data.get('error_message', 'Unknown error')
                     logger.warning("Błąd API dla statusu", extra={
@@ -2545,6 +2615,14 @@ class BaselinkerSyncService:
             product_data['deadline_date'] = date.today() + timedelta(days=default_days)
         except:
             product_data['deadline_date'] = date.today() + timedelta(days=14)
+
+        calculated_deadline = product_data.get('deadline_date')
+        logger.info("🐛 DEBUG: Obliczanie deadline", extra={
+            'order_id': order['order_id'],
+            'payment_date': product_data.get('payment_date'),
+            'calculated_deadline_date': calculated_deadline.isoformat() if calculated_deadline else None,
+            'days_until_deadline': (calculated_deadline - date.today()).days if calculated_deadline else None
+        })
         
         # Metadata
         product_data.update({
@@ -2637,6 +2715,22 @@ class BaselinkerSyncService:
                 'unit_price_net': 0,
                 'total_value_net': 0
             })
+
+        logger.info("🐛 DEBUG: Finalne mapowanie produktu", extra={
+            'product_id': product_id,
+            'original_product_name': product.get('name', ''),
+            'baselinker_order_id': order['order_id'],
+            'baselinker_status_id': product_data.get('baselinker_status_id'),
+            'client_name': product_data.get('client_name'),
+            'client_email': product_data.get('client_email'),
+            'client_phone': product_data.get('client_phone'),
+            'delivery_address': product_data.get('delivery_address'),
+            'unit_price_net': product_data.get('unit_price_net'),
+            'total_value_net': product_data.get('total_value_net'),
+            'volume_m3': product_data.get('volume_m3'),
+            'deadline_date': product_data.get('deadline_date'),
+            'payment_date': product_data.get('payment_date')
+        })
 
         return product_data
 
@@ -2836,6 +2930,24 @@ class BaselinkerSyncService:
             'user_login',
             'client_login'
         )
+
+        logger.info("🐛 DEBUG: Mapowanie danych klienta", extra={
+            'order_id': order.get('order_id'),
+            'delivery_fullname': order.get('delivery_fullname'),
+            'invoice_fullname': order.get('invoice_fullname'),
+            'client_name': order.get('client_name'),
+            'customer_name': order.get('customer_name'),
+            'user_login': order.get('user_login'),
+            'client_login': order.get('client_login'),
+            'email': order.get('email'),
+            'client_email': order.get('client_email'),
+            'phone': order.get('phone'),
+            'client_phone': order.get('client_phone'),
+            'delivery_address': order.get('delivery_address'),
+            'mapped_client_name': client_name,
+            'mapped_client_email': client_email,
+            'mapped_client_phone': client_phone
+        })
 
         if not client_name:
             client_name = _first_non_empty(custom_fields, 'client_name', 'delivery_name', 'invoice_name')
