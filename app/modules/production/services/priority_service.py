@@ -36,6 +36,7 @@ from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional, Tuple, Set
 from collections import defaultdict
 from modules.logging import get_structured_logger
+from sqlalchemy import func
 
 logger = get_structured_logger('production.priority.v2')
 
@@ -191,7 +192,8 @@ class NewPriorityCalculator:
             query = ProductionItem.query.filter(
                 ProductionItem.current_status.in_(self.active_statuses)
             ).order_by(
-                ProductionItem.payment_date.asc().nullslast(),
+                func.isnull(ProductionItem.payment_date),
+                ProductionItem.payment_date.asc(),
                 ProductionItem.created_at.asc()
             )
             

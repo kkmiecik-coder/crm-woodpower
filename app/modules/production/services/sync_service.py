@@ -402,12 +402,32 @@ class BaselinkerSyncService:
                             processing_stats['products_skipped'] += 1
                         
                     except Exception as product_error:
-                        logger.error("ENHANCED: Błąd tworzenia produktu", extra={
-                            'order_id': order_id,
-                            'error': str(product_error)
-                        })
+                        error_msg = str(product_error)
+                        
+                        # Sprawdź czy to błąd ID generatora
+                        if "już istnieje w bazie danych" in error_msg or "ID generation" in error_msg:
+                            logger.warning("ENHANCED: Problem z generatorem ID - produkt pominięty", extra={
+                                'order_id': order_id,
+                                'error': error_msg,
+                                'product_name': product_data.get('name', 'unknown')
+                            })
+                        else:
+                            logger.error("ENHANCED: Błąd tworzenia produktu", extra={
+                                'order_id': order_id,
+                                'error': error_msg,
+                                'product_name': product_data.get('name', 'unknown')
+                            })
+                        
                         order_errors += 1
                         processing_stats['products_skipped'] += 1
+                        
+                        # Dodaj do error_details
+                        error_details.append({
+                            'order_id': order_id,
+                            'product_name': product_data.get('name', 'unknown'),
+                            'error_type': 'product_creation_failed',
+                            'error_message': error_msg
+                        })
             
                 # KROK 4: Commit produktów dla tego zamówienia
                 if order_products_created > 0:
@@ -1664,7 +1684,10 @@ class BaselinkerSyncService:
                 
                 if error_details:
                     sync_log.error_details = json.dumps({'errors': error_details})
-                sync_log.mark_completed()
+                
+                # POPRAWIONE: complete_sync zamiast mark_completed
+                success = stats['errors_count'] == 0
+                sync_log.complete_sync(success=success)
                 db.session.commit()
 
             sync_completed_at = get_local_now()
@@ -1723,11 +1746,53 @@ class BaselinkerSyncService:
 
         except SyncError as sync_error:
             logger.warning('Enhanced Manual Baselinker sync validation error', extra={'error': str(sync_error)})
-            # ... (error handling unchanged)
+            
+            # Update sync log
+            if sync_log:
+                sync_log.sync_status = 'failed'
+                sync_log.error_details = json.dumps({'error': str(sync_error)})
+                sync_log.complete_sync(success=False, error_message=str(sync_error))
+                db.session.commit()
+            
+            return {
+                'success': False,
+                'error': str(sync_error),
+                'message': f'Błąd walidacji synchronizacji: {str(sync_error)}',
+                'data': {
+                    'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
+                    'status': 'failed',
+                    'started_at': sync_started_at.isoformat(),
+                    'completed_at': get_local_now().isoformat(),
+                    'duration_seconds': int((get_local_now() - sync_started_at).total_seconds()),
+                    'stats': stats,
+                    'log_entries': log_entries
+                }
+            }
 
         except Exception as exc:
             logger.exception('Enhanced Manual Baselinker sync unexpected error')
-            # ... (error handling unchanged)
+            
+            # Update sync log
+            if sync_log:
+                sync_log.sync_status = 'failed'
+                sync_log.error_details = json.dumps({'error': str(exc)})
+                sync_log.complete_sync(success=False, error_message=str(exc))
+                db.session.commit()
+            
+            return {
+                'success': False,
+                'error': str(exc),
+                'message': f'Nieoczekiwany błąd synchronizacji: {str(exc)}',
+                'data': {
+                    'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
+                    'status': 'failed',
+                    'started_at': sync_started_at.isoformat(),
+                    'completed_at': get_local_now().isoformat(),
+                    'duration_seconds': int((get_local_now() - sync_started_at).total_seconds()),
+                    'stats': stats,
+                    'log_entries': log_entries
+                }
+            }
 
     def enhanced_manual_sync_orders(self, status_ids: List[int] = None, date_from: str = None, 
                                    recalculate_priorities: bool = True, auto_status_change: bool = True, 
