@@ -285,175 +285,385 @@ class BaselinkerSyncService:
                 'products_created': 0
             }
 
-    def process_orders_with_priority_logic(self, orders_data: List[Dict[str, Any]], 
-                                         sync_type: str = 'manual',
-                                         auto_status_change: bool = True) -> Dict[str, Any]:
+    def process_orders_with_priority_logic(self, orders_data: List[Dict], sync_type: str = 'manual', auto_status_change: bool = True) -> Dict[str, Any]:
         """
-        NOWA WSPÓLNA LOGIKA: Universal method dla obu typów sync
-        
-        1. Extraction payment_date z date_status_change dla statusu 155824
-        2. Walidacja kompletności produktów w zamówieniu
-        3. Jeśli validation failed - komentarz do BL, skip order
-        4. Zapis produktów z payment_date, thickness_group
-        5. Zmiana statusu z "Nowe - opłacone" (155824) na "W produkcji - surowe" (138619)
-        6. Przeliczenie priorytetów z manual override handling
-        
-        Args:
-            orders_data: Lista zamówień z Baselinker
-            sync_type: 'manual' lub 'cron' (dla logowania)
-            auto_status_change: Czy zmieniać status (domyślnie TRUE)
-        
-        Returns:
-            Dict[str, Any]: Szczegółowe wyniki przetwarzania
+        POPRAWIONA wersja: Uniwersalna metoda przetwarzania zamówień z ENHANCED priority logic
         """
-        processing_start = get_local_now()
-        
-        results = {
-            'success': True,
+        logger.info("ENHANCED: Rozpoczęcie przetwarzania zamówień z priority logic", extra={
+            'orders_count': len(orders_data),
+            'sync_type': sync_type,
+            'auto_status_change': auto_status_change
+        })
+    
+        processing_stats = {
             'orders_processed': 0,
             'products_created': 0,
             'products_updated': 0,
             'products_skipped': 0,
             'errors_count': 0,
-            'error_details': [],
             'status_changes_count': 0,
-            'status_change_errors': 0,
-            'validation_errors': 0,
-            'priority_recalc_triggered': False,
-            'priority_recalc_duration': 0,
-            'priority_products_updated': 0,
-            'manual_overrides_preserved': 0
+            'status_change_errors': 0
         }
-        
-        logger.info("Rozpoczęcie wspólnej logiki przetwarzania", extra={
-            'sync_type': sync_type,
-            'orders_count': len(orders_data),
-            'auto_status_change': auto_status_change
-        })
-        
-        for order in orders_data:
+    
+        error_details = []
+    
+        for order_data in orders_data:
             try:
-                order_id = order.get('order_id')
-                if not order_id:
-                    results['errors_count'] += 1
-                    results['error_details'].append({'error': 'Brak order_id', 'order': str(order)[:100]})
-                    continue
-                
-                logger.debug(f"Przetwarzanie zamówienia {order_id}")
-                
-                # KROK 1: Extraction payment_date
-                payment_date = self.extract_payment_date_from_order(order)
-                if not payment_date:
-                    logger.warning(f"Brak payment_date dla zamówienia {order_id}")
-                    # Nie blokuje - możemy kontynuować bez payment_date
-                
-                # KROK 2: Walidacja produktów
-                products = order.get('products', [])
-                if not products:
-                    logger.debug(f"Zamówienie {order_id} nie ma produktów - pomijam")
-                    results['products_skipped'] += 1
-                    continue
-                
-                is_valid, validation_errors = self.validate_order_products_completeness(order)
-                if not is_valid:
-                    logger.warning(f"Walidacja nie przeszła dla zamówienia {order_id}: {validation_errors}")
-                    
-                    # Dodaj komentarz do Baselinker
-                    comment_success = self.add_validation_comment_to_baselinker(order_id, validation_errors)
-                    if not comment_success:
-                        logger.error(f"Nie udało się dodać komentarza walidacji do zamówienia {order_id}")
-                    
-                    results['validation_errors'] += 1
-                    results['error_details'].append({
-                        'order_id': order_id,
-                        'error': 'Validation failed',
-                        'details': validation_errors
-                    })
-                    continue  # Skip całe zamówienie
-                
-                # KROK 3: Przetwarzanie produktów z payment_date
-                order_result = self._process_single_order_enhanced(
-                    order, products, payment_date, sync_type
-                )
-                
-                results['orders_processed'] += 1
-                results['products_created'] += order_result.get('created', 0)
-                results['products_updated'] += order_result.get('updated', 0)
-                results['errors_count'] += order_result.get('errors', 0)
-                
-                if order_result.get('error_details'):
-                    results['error_details'].extend(order_result['error_details'])
-                
-                # KROK 4: Zmiana statusu w Baselinker (jeśli enabled)
-                if auto_status_change and order_result.get('created', 0) > 0:
-                    status_change_success = self.change_order_status_in_baselinker(
-                        order_id, self.target_production_status
-                    )
-                    
-                    if status_change_success:
-                        results['status_changes_count'] += 1
-                        logger.debug(f"Zmieniono status zamówienia {order_id} na {self.target_production_status}")
-                    else:
-                        results['status_change_errors'] += 1
-                        logger.error(f"Nie udało się zmienić statusu zamówienia {order_id}")
-                
-            except Exception as e:
-                results['errors_count'] += 1
-                results['error_details'].append({
-                    'order_id': order.get('order_id', 'unknown'),
-                    'error': str(e)
-                })
-                logger.error("Błąd przetwarzania zamówienia", extra={
-                    'order_id': order.get('order_id'),
-                    'error': str(e)
-                })
-        
-        # KROK 5: Przeliczenie priorytetów (jeśli były utworzone produkty)
-        if results['products_created'] > 0:
-            priority_start = get_local_now()
-            results['priority_recalc_triggered'] = True
+                # BEZPIECZNE pobieranie order_id
+                order_id = None
+                if isinstance(order_data, dict):
+                    order_id = order_data.get('order_id') or order_data.get('id')
             
-            try:
-                from ..services.priority_service import recalculate_all_priorities
-                priority_result = recalculate_all_priorities()
+                if not order_id:
+                    logger.warning("ENHANCED: Pominięto zamówienie bez order_id", extra={
+                        'order_data_keys': list(order_data.keys()) if isinstance(order_data, dict) else 'not_dict'
+                    })
+                    processing_stats['errors_count'] += 1
+                    continue
+            
+                logger.debug("ENHANCED: Przetwarzanie zamówienia", extra={'order_id': order_id})
+            
+                # KROK 1: Extract payment_date z BEZPIECZNYM dostępem
+                payment_date = None
+                try:
+                    payment_date = self.extract_payment_date_from_order(order_data)
+                    if payment_date:
+                        logger.debug("ENHANCED: Wyciągnięto payment_date", extra={
+                            'order_id': order_id, 
+                            'payment_date': payment_date.isoformat()
+                        })
+                except Exception as e:
+                    logger.warning("ENHANCED: Nie udało się wyciągnąć payment_date", extra={
+                        'order_id': order_id,
+                        'error': str(e)
+                    })
+            
+                # KROK 2: Walidacja produktów w zamówieniu
+                is_valid, validation_errors = self.validate_order_products_completeness(order_data)
+            
+                if not is_valid:
+                    logger.warning("ENHANCED: Zamówienie nie przeszło walidacji", extra={
+                        'order_id': order_id,
+                        'errors': validation_errors
+                    })
                 
-                if priority_result.get('success'):
-                    results['priority_products_updated'] = priority_result.get('products_prioritized', 0)
-                    results['manual_overrides_preserved'] = priority_result.get('manual_overrides_preserved', 0)
+                    # Dodaj komentarz do Baselinker
+                    try:
+                        self.add_validation_comment_to_baselinker(order_id, validation_errors)
+                    except Exception as e:
+                        logger.error("ENHANCED: Nie udało się dodać komentarza walidacji", extra={
+                            'order_id': order_id,
+                            'error': str(e)
+                        })
+                
+                    processing_stats['products_skipped'] += 1
+                    continue
+            
+                # KROK 3: Przetwarzanie produktów w zamówieniu - BEZPIECZNIE
+                products_in_order = []
+                if isinstance(order_data, dict) and 'products' in order_data:
+                    products_data = order_data['products']
+                    if isinstance(products_data, list):
+                        products_in_order = products_data
+                    elif isinstance(products_data, dict):
+                        # Jeśli products jest dict, spróbuj wyciągnąć listę
+                        products_in_order = list(products_data.values()) if products_data else []
+            
+                if not products_in_order:
+                    logger.warning("ENHANCED: Brak produktów w zamówieniu", extra={'order_id': order_id})
+                    processing_stats['errors_count'] += 1
+                    continue
+            
+                # KROK 4: Przetwarzaj każdy produkt BEZPIECZNIE
+                for product_data in products_in_order:
+                    try:
+                        # BEZPIECZNE pobieranie nazwy produktu
+                        product_name = "Unknown Product"
+                        if isinstance(product_data, dict):
+                            product_name = (product_data.get('name') or 
+                                          product_data.get('product_name') or 
+                                          product_data.get('title') or 
+                                          "Unknown Product")
                     
-                    logger.info("Przeliczono priorytety po synchronizacji", extra={
-                        'products_updated': results['priority_products_updated'],
-                        'manual_overrides_preserved': results['manual_overrides_preserved']
+                        logger.debug("ENHANCED: Przetwarzanie produktu", extra={
+                            'order_id': order_id,
+                            'product_name': product_name[:50] + '...' if len(str(product_name)) > 50 else str(product_name)
+                        })
+                    
+                        # BEZPIECZNE tworzenie produktu z ENHANCED polami
+                        created_product = self._create_product_from_order_data(
+                            order_data=order_data,
+                            product_data=product_data,
+                            payment_date=payment_date  # NOWE: przekaż payment_date
+                        )
+                    
+                        if created_product:
+                            processing_stats['products_created'] += 1
+                            logger.debug("ENHANCED: Produkt utworzony pomyślnie", extra={
+                                'order_id': order_id,
+                                'product_id': created_product.id,
+                                'short_product_id': getattr(created_product, 'short_product_id', 'N/A')
+                            })
+                        else:
+                            processing_stats['products_skipped'] += 1
+                        
+                    except Exception as product_error:
+                        logger.error("ENHANCED: Błąd przetwarzania produktu", extra={
+                            'order_id': order_id,
+                            'product_name': product_name,
+                            'error': str(product_error)
+                        })
+                        processing_stats['errors_count'] += 1
+                        error_details.append({
+                            'order_id': order_id,
+                            'product_name': product_name,
+                            'error': str(product_error),
+                            'error_type': 'product_creation'
+                        })
+                        continue
+            
+                # KROK 5: Status change (jeśli auto_status_change = True)
+                if auto_status_change:
+                    try:
+                        status_changed = self.change_order_status_in_baselinker(order_id, target_status=138619)
+                        if status_changed:
+                            processing_stats['status_changes_count'] += 1
+                            logger.debug("ENHANCED: Status zamówienia zmieniony", extra={'order_id': order_id})
+                        else:
+                            processing_stats['status_change_errors'] += 1
+                            logger.warning("ENHANCED: Nie udało się zmienić statusu", extra={'order_id': order_id})
+                    except Exception as status_error:
+                        processing_stats['status_change_errors'] += 1
+                        logger.error("ENHANCED: Błąd zmiany statusu zamówienia", extra={
+                            'order_id': order_id,
+                            'error': str(status_error)
+                        })
+            
+                processing_stats['orders_processed'] += 1
+            
+            except Exception as order_error:
+                logger.error("ENHANCED: Błąd przetwarzania całego zamówienia", extra={
+                    'order_id': order_id if 'order_id' in locals() else 'unknown',
+                    'error': str(order_error)
+                })
+                processing_stats['errors_count'] += 1
+                error_details.append({
+                    'order_id': order_id if 'order_id' in locals() else 'unknown',
+                    'error': str(order_error),
+                    'error_type': 'order_processing'
+                })
+                continue
+    
+        # KROK 6: Priority recalculation (jeśli utworzono nowe produkty)
+        priority_recalc_result = {}
+        if processing_stats['products_created'] > 0:
+            try:
+                from ..services.priority_service import get_priority_calculator
+                priority_calculator = get_priority_calculator()
+                priority_recalc_result = priority_calculator.recalculate_all_priorities()
+            
+                logger.info("ENHANCED: Przeliczono priorytety po synchronizacji", extra={
+                    'products_updated': priority_recalc_result.get('products_updated', 0),
+                    'manual_overrides_preserved': priority_recalc_result.get('manual_overrides_preserved', 0)
+                })
+            except Exception as priority_error:
+                logger.error("ENHANCED: Błąd przeliczania priorytetów", extra={
+                    'error': str(priority_error)
+                })
+                priority_recalc_result = {'error': str(priority_error)}
+    
+        # KROK 7: Prepare final result
+        final_result = {
+            'success': processing_stats['errors_count'] == 0 or processing_stats['products_created'] > 0,
+            'orders_processed': processing_stats['orders_processed'],
+            'products_created': processing_stats['products_created'],
+            'products_updated': processing_stats['products_updated'],
+            'products_skipped': processing_stats['products_skipped'],
+            'errors_count': processing_stats['errors_count'],
+            'status_changes_count': processing_stats['status_changes_count'],
+            'status_change_errors': processing_stats['status_change_errors'],
+            'priority_recalc_triggered': bool(priority_recalc_result),
+            'priority_recalc_duration': priority_recalc_result.get('calculation_duration', '00:00:00'),
+            'manual_overrides_preserved': priority_recalc_result.get('manual_overrides_preserved', 0),
+            'error_details': error_details
+        }
+    
+        logger.info("ENHANCED: Zakończono przetwarzanie zamówień", extra=final_result)
+        return final_result
+
+    def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None) -> Optional['ProductionItem']:
+        """
+        POPRAWIONA wersja: Tworzy ProductionItem z ENHANCED polami i bezpiecznym parsingiem
+        """
+        try:
+            from ..models import ProductionItem
+            from ..services.product_name_parser import ProductNameParser
+            from ..services.id_generator import ProductIDGenerator
+        
+            # BEZPIECZNE pobieranie podstawowych pól
+            if not isinstance(product_data, dict):
+                logger.error("ENHANCED: product_data nie jest dict", extra={'product_data_type': type(product_data)})
+                return None
+            
+            if not isinstance(order_data, dict):
+                logger.error("ENHANCED: order_data nie jest dict", extra={'order_data_type': type(order_data)})
+                return None
+        
+            # Pobierz nazwę produktu bezpiecznie
+            original_product_name = None
+            possible_name_fields = ['name', 'product_name', 'title', 'description']
+            for field in possible_name_fields:
+                if field in product_data and product_data[field]:
+                    original_product_name = str(product_data[field]).strip()
+                    break
+        
+            if not original_product_name:
+                logger.error("ENHANCED: Brak nazwy produktu", extra={'product_data_keys': list(product_data.keys())})
+                return None
+        
+            # BEZPIECZNE parsowanie nazwy produktu
+            parsed_data = {}
+            try:
+                parser = ProductNameParser()
+                parse_result = parser.parse_product_name(original_product_name)
+            
+                # BEZPIECZNY dostęp do wyników parsowania
+                if isinstance(parse_result, dict):
+                    parsed_data = {
+                        'species': parse_result.get('wood_species'),
+                        'technology': parse_result.get('technology'),  
+                        'wood_class': parse_result.get('wood_class'),
+                        'length_cm': self._safe_float_conversion(parse_result.get('length_cm')),
+                        'width_cm': self._safe_float_conversion(parse_result.get('width_cm')),
+                        'thickness_cm': self._safe_float_conversion(parse_result.get('thickness_cm')),
+                        'finish_state': parse_result.get('finish_state')
+                    }
+                
+                    logger.debug("ENHANCED: Produkt sparsowany pomyślnie", extra={
+                        'original_name': original_product_name[:50],
+                        'parsed_species': parsed_data.get('species'),
+                        'parsed_dimensions': f"{parsed_data.get('width_cm')}x{parsed_data.get('thickness_cm')}x{parsed_data.get('length_cm')}"
                     })
                 else:
-                    logger.error("Błąd przeliczania priorytetów", extra={
-                        'error': priority_result.get('error')
+                    logger.warning("ENHANCED: Parser zwrócił nieprawidłowy format", extra={
+                        'parse_result_type': type(parse_result),
+                        'original_name': original_product_name[:50]
                     })
-                    
-            except Exception as e:
-                logger.error("Wyjątek podczas przeliczania priorytetów", extra={'error': str(e)})
+                    parsed_data = {}
+                
+            except Exception as parse_error:
+                logger.error("ENHANCED: Błąd parsowania nazwy produktu", extra={
+                    'original_name': original_product_name[:50],
+                    'error': str(parse_error)
+                })
+                parsed_data = {}
+        
+            # BEZPIECZNE pobieranie ID zamówienia
+            baselinker_order_id = None
+            possible_order_id_fields = ['order_id', 'id', 'baselinker_order_id']
+            for field in possible_order_id_fields:
+                if field in order_data and order_data[field]:
+                    try:
+                        baselinker_order_id = int(order_data[field])
+                        break
+                    except (ValueError, TypeError):
+                        continue
+        
+            if not baselinker_order_id:
+                logger.error("ENHANCED: Brak poprawnego order_id", extra={'order_data_keys': list(order_data.keys())})
+                return None
+        
+            # Generuj ID produktu
+            try:
+                id_generator = ProductIDGenerator()
+                short_product_id, internal_order_number = id_generator.generate_product_ids(baselinker_order_id)
+            except Exception as id_error:
+                logger.error("ENHANCED: Błąd generowania ID produktu", extra={
+                    'baselinker_order_id': baselinker_order_id,
+                    'error': str(id_error)
+                })
+                return None
+        
+            # BEZPIECZNE obliczenie thickness_group
+            thickness_group = None
+            if parsed_data.get('thickness_cm'):
+                try:
+                    thickness = float(parsed_data['thickness_cm'])
+                    if thickness <= 2.5:
+                        thickness_group = "0-2.5"
+                    elif thickness <= 3.5:
+                        thickness_group = "2.6-3.5" 
+                    elif thickness <= 4.5:
+                        thickness_group = "3.6-4.5"
+                    else:
+                        thickness_group = "4.6+"
+                except (ValueError, TypeError):
+                    thickness_group = None
+        
+            # Utwórz ProductionItem z ENHANCED polami
+            production_item = ProductionItem(
+                # Podstawowe pola
+                short_product_id=short_product_id,
+                internal_order_number=internal_order_number,
+                baselinker_order_id=baselinker_order_id,
+                original_product_name=original_product_name,
             
-            priority_duration = (get_local_now() - priority_start).total_seconds()
-            results['priority_recalc_duration'] = round(priority_duration, 2)
+                # NOWE POLA - Enhanced Priority System
+                payment_date=payment_date,  # NOWE!
+                thickness_group=thickness_group,  # NOWE!
+                priority_manual_override=False,  # NOWE!
+                priority_rank=None,  # NOWE! - będzie obliczone przez priority service
+            
+                # Parsowane pola produktu
+                parsed_wood_species=parsed_data.get('species'),
+                parsed_technology=parsed_data.get('technology'),
+                parsed_wood_class=parsed_data.get('wood_class'), 
+                parsed_length_cm=parsed_data.get('length_cm'),
+                parsed_width_cm=parsed_data.get('width_cm'),
+                parsed_thickness_cm=parsed_data.get('thickness_cm'),
+                parsed_finish_state=parsed_data.get('finish_state'),
+            
+                # Dane zamówienia - BEZPIECZNE pobieranie
+                client_name=self._safe_string_extraction(order_data, ['delivery_fullname', 'buyer_name', 'customer_name']),
+                client_email=self._safe_string_extraction(order_data, ['email', 'buyer_email']),
+                client_phone=self._safe_string_extraction(order_data, ['phone', 'buyer_phone']),
+                delivery_address=self._safe_string_extraction(order_data, ['delivery_address', 'address']),
+            
+                # Dane finansowe - BEZPIECZNE pobieranie
+                unit_price_net=self._safe_float_conversion(product_data.get('price_brutto', product_data.get('price', 0))),
+                total_value_net=self._safe_float_conversion(product_data.get('total_price', 0)),
+            
+                # Volume calculation - BEZPIECZNE
+                volume_m3=self._calculate_volume_safe(parsed_data),
+            
+                # Status i timestampy
+                current_status='czeka_na_wyciecie',
+                created_at=get_local_now(),
+                updated_at=get_local_now(),
+                sync_source='enhanced_baselinker_v2'
+            )
         
-        # KROK 6: Final success evaluation
-        total_duration = (get_local_now() - processing_start).total_seconds()
+            # Zapisz do bazy
+            db.session.add(production_item)
+            db.session.commit()
         
-        if results['errors_count'] > results['orders_processed'] / 2:  # Więcej niż 50% błędów
-            results['success'] = False
+            logger.info("ENHANCED: Produkt utworzony pomyślnie", extra={
+                'product_id': production_item.id,
+                'short_product_id': short_product_id,
+                'baselinker_order_id': baselinker_order_id,
+                'has_payment_date': payment_date is not None,
+                'thickness_group': thickness_group
+            })
         
-        logger.info("Zakończono wspólną logikę przetwarzania", extra={
-            'sync_type': sync_type,
-            'success': results['success'],
-            'orders_processed': results['orders_processed'],
-            'products_created': results['products_created'],
-            'errors_count': results['errors_count'],
-            'status_changes': results['status_changes_count'],
-            'priority_recalc_triggered': results['priority_recalc_triggered'],
-            'total_duration': round(total_duration, 2)
-        })
+            return production_item
         
-        return results
+        except Exception as e:
+            logger.error("ENHANCED: Błąd tworzenia produktu", extra={
+                'error': str(e),
+                'original_name': original_product_name if 'original_product_name' in locals() else 'unknown'
+            })
+            db.session.rollback()
+            return None
 
     def extract_payment_date_from_order(self, order_data: Dict[str, Any]) -> Optional[datetime]:
         """
@@ -2196,3 +2406,39 @@ def change_order_status_in_baselinker(order_id: int, target_status: int = 138619
         bool: True jeśli zmiana się powiodła
     """
     return get_sync_service().change_order_status_in_baselinker(order_id, target_status)
+
+def _safe_float_conversion(self, value: Any) -> Optional[float]:
+    """Bezpieczna konwersja na float"""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+def _safe_string_extraction(self, data: Dict[str, Any], possible_fields: List[str]) -> Optional[str]:
+    """Bezpieczne wyciąganie string z możliwych pól"""
+    if not isinstance(data, dict):
+        return None
+    
+    for field in possible_fields:
+        if field in data and data[field]:
+            value = data[field]
+            if isinstance(value, (str, int, float)):
+                return str(value).strip()
+    return None
+
+def _calculate_volume_safe(self, parsed_data: Dict[str, Any]) -> Optional[float]:
+    """Bezpieczne obliczenie objętości"""
+    try:
+        length = parsed_data.get('length_cm')
+        width = parsed_data.get('width_cm') 
+        thickness = parsed_data.get('thickness_cm')
+        
+        if all(v is not None for v in [length, width, thickness]):
+            # Convert cm to m and calculate m3
+            volume_m3 = (float(length) * float(width) * float(thickness)) / 1000000  # cm3 to m3
+            return round(volume_m3, 6)
+    except (ValueError, TypeError):
+        pass
+    return None

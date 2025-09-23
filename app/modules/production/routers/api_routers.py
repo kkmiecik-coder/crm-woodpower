@@ -56,7 +56,7 @@ def get_local_now():
 def admin_required(f):
     """
     Dekorator dla endpointów wymagających roli admin
-    Używany dla: manual-sync, update-config
+    Używany dla: manual-sync, update-config, priority management (NOWE)
     """
     @wraps(f)
     @login_required
@@ -650,10 +650,10 @@ def complete_task():
 @cron_secret_required
 def cron_sync():
     """
-    POST /api/cron-sync - Endpoint synchronizacji CRON (PRD Section 6.3)
+    POST /api/cron-sync - Enhanced synchronizacja CRON (ROZSZERZONY)
     
     Endpoint wywoływany przez zadanie CRON co godzinę.
-    Pobiera zamówienia z Baselinker i synchronizuje produkty produkcyjne.
+    NOWE: Używa sync_paid_orders_only() z automatyczną zmianą statusu i priorytetami.
     
     Headers wymagane:
         X-Cron-Secret: {config_secret}
@@ -666,37 +666,42 @@ def cron_sync():
     }
     
     Autoryzacja: CRON secret
-    Returns: JSON status synchronizacji i statystyki
+    Returns: JSON status synchronizacji (ROZSZERZONY RESPONSE)
     """
     try:
         data = request.get_json() or {}
         trigger_type = data.get('trigger', 'cron')
         
-        logger.info("CRON: Rozpoczęcie synchronizacji", extra={
+        logger.info("CRON: Rozpoczęcie enhanced synchronizacji", extra={
             'trigger_type': trigger_type,
             'client_ip': request.remote_addr,
             'cron_timestamp': data.get('timestamp')
         })
         
-        from ..services.sync_service import sync_orders_from_baselinker
+        from ..services.sync_service import get_sync_service
         
-        # Wykonanie synchronizacji z Baselinker
-        sync_result = sync_orders_from_baselinker(sync_type='cron_auto')
+        # NOWA LOGIKA: Użyj dedykowanej metody dla CRON z enhanced features
+        sync_service = get_sync_service()
+        sync_result = sync_service.sync_paid_orders_only()
         
-        # Logowanie wyników synchronizacji
-        logger.info("CRON: Synchronizacja zakończona", extra={
+        # Enhanced logging wyników synchronizacji
+        logger.info("CRON: Enhanced synchronizacja zakończona", extra={
             'sync_duration': sync_result.get('sync_duration_seconds', 0),
             'products_created': sync_result.get('products_created', 0),
             'products_updated': sync_result.get('products_updated', 0),
+            'orders_moved_to_production': sync_result.get('orders_moved_to_production', 0),
+            'priority_recalculation_enabled': sync_result.get('priority_recalculation', {}).get('enabled', True),
             'errors_count': sync_result.get('error_count', 0),
             'success': sync_result.get('success', False)
         })
         
-        # Response zgodny z oczekiwaniami CRON
+        # ROZSZERZONY RESPONSE 
         if sync_result.get('success'):
             return jsonify({
                 'success': True,
                 'message': 'Synchronizacja CRON zakończona pomyślnie',
+                
+                # ZACHOWANE stats (backward compatibility)
                 'stats': {
                     'orders_processed': sync_result.get('orders_fetched', 0),
                     'products_created': sync_result.get('products_created', 0),
@@ -704,6 +709,20 @@ def cron_sync():
                     'products_skipped': sync_result.get('products_skipped', 0),
                     'duration_seconds': sync_result.get('sync_duration_seconds', 0)
                 },
+                
+                # NOWE sekcje - enhanced response
+                'status_changes': {
+                    'orders_moved_to_production': sync_result.get('orders_moved_to_production', 0),
+                    'status_change_errors': sync_result.get('status_change_errors', 0)
+                },
+                
+                'priority_recalculation': {
+                    'enabled': True,  # CRON zawsze przelicza priorytety
+                    'products_updated': sync_result.get('priority_recalculation', {}).get('products_updated', 0),
+                    'manual_overrides_preserved': sync_result.get('priority_recalculation', {}).get('manual_overrides_preserved', 0),
+                    'calculation_duration': sync_result.get('priority_recalculation', {}).get('calculation_duration', '00:00:00')
+                },
+                
                 'status': 'completed' if sync_result.get('error_count', 0) == 0 else 'partial',
                 'timestamp': get_local_now().isoformat()
             }), 200
@@ -720,7 +739,7 @@ def cron_sync():
             }), 500
             
     except Exception as e:
-        logger.error("CRON: Błąd synchronizacji", extra={
+        logger.error("CRON: Błąd enhanced synchronizacji", extra={
             'client_ip': request.remote_addr,
             'trigger_type': data.get('trigger') if 'data' in locals() else 'unknown',
             'error': str(e)
@@ -792,35 +811,49 @@ def baselinker_manual_sync_modal():
 @admin_required
 def manual_sync():
     """
-    POST /api/manual-sync - Trigger ręcznej synchronizacji (PRD Section 6.3)
+    POST /api/manual-sync - Enhanced ręczna synchronizacja (ROZSZERZONY)
     
     Endpoint dla adminów do uruchamiania ręcznej synchronizacji z Baselinker.
-    Może być wywołany z panelu administracyjnego.
     
-    Body (opcjonalny):
+    Body (ROZSZERZONY - zachowana kompatybilność):
     {
-        "sync_type": "full",  // full, incremental (obecnie nie obsługiwane - zawsze incremental)
-        "target_status_ids": [138618, 138619, 138623], // obecnie nie obsługiwane
-        "limit": 1000  // obecnie nie obsługiwane
+        "sync_type": "full|incremental",  // ZACHOWANE
+        "target_status_ids": [138618, 138619, 138623], // ZACHOWANE
+        "limit": 1000,  // ZACHOWANE
+        
+        // NOWE parametry (optional dla kompatybilności):
+        "recalculate_priorities": true,   // NOWE - domyślnie true
+        "auto_status_change": true,       // NOWE - domyślnie true (zmiana na "W produkcji")
+        "respect_manual_overrides": true  // NOWE - domyślnie true
     }
     
     Autoryzacja: admin
-    Returns: JSON status synchronizacji (wykonuje się synchronicznie)
+    Returns: JSON status synchronizacji (ROZSZERZONY RESPONSE)
     """
     try:
         data = request.get_json() or {}
+        
+        # ZACHOWANE parametry
         sync_type = data.get('sync_type', 'incremental')
         target_statuses = data.get('target_status_ids', [])
         limit = data.get('limit', 1000)
         
-        logger.info("API: Ręczna synchronizacja", extra={
+        # NOWE parametry z domyślnymi wartościami
+        recalculate_priorities = data.get('recalculate_priorities', True)
+        auto_status_change = data.get('auto_status_change', True) 
+        respect_manual_overrides = data.get('respect_manual_overrides', True)
+        
+        logger.info("API: Enhanced ręczna synchronizacja", extra={
             'user_id': current_user.id,
             'sync_type': sync_type,
             'target_statuses': target_statuses,
-            'limit': limit
+            'limit': limit,
+            'recalculate_priorities': recalculate_priorities,
+            'auto_status_change': auto_status_change,
+            'respect_manual_overrides': respect_manual_overrides
         })
         
-        # Walidacja parametrów
+        # ZACHOWANA walidacja parametrów
         valid_sync_types = ['full', 'incremental']
         if sync_type not in valid_sync_types:
             return jsonify({
@@ -834,10 +867,11 @@ def manual_sync():
                 'error': 'Limit musi być liczbą między 1 a 5000'
             }), 400
         
-        from ..services.sync_service import sync_orders_from_baselinker, get_sync_status
+        from ..services.sync_service import get_sync_service
         
         # Sprawdź czy synchronizacja już nie jest w toku
-        current_status = get_sync_status()
+        sync_service = get_sync_service()
+        current_status = sync_service.get_sync_status()
         if current_status.get('is_running'):
             return jsonify({
                 'success': False,
@@ -845,21 +879,26 @@ def manual_sync():
                 'current_sync_status': current_status
             }), 409
         
-        # Wykonaj synchronizację (obecnie bez dodatkowych parametrów)
-        # BaselinkerSyncService używa własnej konfiguracji statusów i limitów
-        sync_result = sync_orders_from_baselinker(sync_type='manual_trigger')
+        # NOWA LOGIKA: Użyj enhanced manual sync z nowymi parametrami
+        sync_result = sync_service.enhanced_manual_sync_orders(
+            status_ids=target_statuses if target_statuses else [155824],  # Domyślnie "Nowe - opłacone"
+            date_from=None,  # Ostatnie 7 dni (domyślnie w serwisie)
+            recalculate_priorities=recalculate_priorities,
+            auto_status_change=auto_status_change,
+            respect_manual_overrides=respect_manual_overrides
+        )
         
-        logger.info("API: Ręczna synchronizacja zakończona", extra={
+        logger.info("API: Enhanced synchronizacja zakończona", extra={
             'user_id': current_user.id,
             'sync_success': sync_result.get('success', False),
             'products_created': sync_result.get('products_created', 0),
             'products_updated': sync_result.get('products_updated', 0),
-            'error_count': sync_result.get('error_count', 0)
+            'priority_recalculated': sync_result.get('priority_recalculation', {}).get('enabled', False)
         })
         
-        # Response z wynikami synchronizacji
+        # ROZSZERZONY RESPONSE (zachowana kompatybilność)
         if sync_result.get('success'):
-            return jsonify({
+            response_data = {
                 'success': True,
                 'message': 'Ręczna synchronizacja zakończona pomyślnie',
                 'data': {
@@ -868,6 +907,8 @@ def manual_sync():
                     'initiated_at': get_local_now().isoformat(),
                     'initiated_by': current_user.id,
                     'duration_seconds': sync_result.get('sync_duration_seconds', 0),
+                    
+                    # ZACHOWANE stats (backward compatibility)
                     'stats': {
                         'orders_fetched': sync_result.get('orders_fetched', 0),
                         'products_created': sync_result.get('products_created', 0),
@@ -875,9 +916,23 @@ def manual_sync():
                         'products_skipped': sync_result.get('products_skipped', 0),
                         'error_count': sync_result.get('error_count', 0)
                     },
-                    'parameters_note': 'Dodatkowe parametry (target_status_ids, limit) będą obsługiwane w przyszłej wersji'
+                    
+                    # NOWE sekcje - additive
+                    'status_changes': {
+                        'orders_moved_to_production': sync_result.get('orders_moved_to_production', 0),
+                        'status_change_errors': sync_result.get('status_change_errors', 0)
+                    },
+                    
+                    'priority_recalculation': {
+                        'enabled': recalculate_priorities,
+                        'products_updated': sync_result.get('priority_recalculation', {}).get('products_updated', 0),
+                        'manual_overrides_preserved': sync_result.get('priority_recalculation', {}).get('manual_overrides_preserved', 0),
+                        'calculation_duration': sync_result.get('priority_recalculation', {}).get('calculation_duration', '00:00:00')
+                    }
                 }
-            }), 200
+            }
+            
+            return jsonify(response_data), 200
         else:
             return jsonify({
                 'success': False,
@@ -892,7 +947,7 @@ def manual_sync():
             }), 500
         
     except Exception as e:
-        logger.error("API: Błąd ręcznej synchronizacji", extra={
+        logger.error("API: Błąd enhanced ręcznej synchronizacji", extra={
             'user_id': current_user.id,
             'sync_type': data.get('sync_type') if 'data' in locals() else 'unknown',
             'error': str(e)
@@ -4361,3 +4416,423 @@ logger.info("Zainicjalizowano API routers modułu production", extra={
     'total_endpoints': 7,  # dashboard-stats, complete-task, cron-sync, manual-sync, update-config, health, complete-packaging
     'prd_compliance': True
 })
+
+# ============================================================================
+# API ROUTERS - NOWE ENDPOINTY - ENHANCED PRIORITY SYSTEM
+# ============================================================================
+
+@api_bp.route('/recalculate-all-priorities', methods=['POST'])
+@admin_required
+def reset_all_priorities():
+    """
+    POST /api/recalculate-all-priorities - Reset wszystkich priorytetów
+    
+    Endpoint dla admina do resetowania wszystkich priorytetów (przycisk w UI).
+    Ustawia priority_manual_override = FALSE dla wszystkich produktów
+    i wywołuje pełne przeliczenie priorytetów.
+    
+    Body (opcjonalny):
+    {
+        "confirm_reset": true  // Potwierdzenie operacji (wymagane)
+    }
+    
+    Autoryzacja: admin
+    Returns: JSON z szczegółowym raportem przeliczenia
+    """
+    try:
+        data = request.get_json() or {}
+        confirm_reset = data.get('confirm_reset', False)
+        
+        # Wymagaj potwierdzenia dla bezpieczeństwa
+        if not confirm_reset:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane potwierdzenie reset operacji (confirm_reset: true)'
+            }), 400
+        
+        logger.info("API: Rozpoczęcie reset wszystkich priorytetów", extra={
+            'user_id': current_user.id,
+            'endpoint': 'recalculate-all-priorities',
+            'client_ip': request.remote_addr
+        })
+        
+        from ..services.priority_service import get_priority_calculator
+        from ..models import ProductionItem
+        
+        # Sprawdź ile produktów ma manual override przed resetem
+        manual_overrides_before = ProductionItem.query.filter_by(priority_manual_override=True).count()
+        
+        # Resetuj wszystkie manual overrides
+        updated_count = db.session.query(ProductionItem)\
+                                .filter_by(priority_manual_override=True)\
+                                .update({'priority_manual_override': False})
+        db.session.commit()
+        
+        logger.info("API: Zresetowano manual overrides", extra={
+            'manual_overrides_reset': updated_count,
+            'user_id': current_user.id
+        })
+        
+        # Wywołaj pełne przeliczenie priorytetów
+        priority_calculator = get_priority_calculator()
+        calculation_result = priority_calculator.recalculate_all_priorities()
+        
+        if calculation_result.get('success'):
+            logger.info("API: Reset priorytetów zakończony pomyślnie", extra={
+                'user_id': current_user.id,
+                'products_updated': calculation_result.get('products_updated', 0),
+                'calculation_duration': calculation_result.get('calculation_duration', '00:00:00'),
+                'manual_overrides_reset': updated_count
+            })
+            
+            return jsonify({
+                'success': True,
+                'message': f'Zresetowano priorytety {calculation_result.get("products_updated", 0)} produktów',
+                'data': {
+                    'reset_performed_at': get_local_now().isoformat(),
+                    'reset_by': current_user.id,
+                    'manual_overrides_reset': updated_count,
+                    'manual_overrides_before': manual_overrides_before,
+                    
+                    'priority_recalculation': {
+                        'products_updated': calculation_result.get('products_updated', 0),
+                        'calculation_duration': calculation_result.get('calculation_duration', '00:00:00'),
+                        'weeks_processed': calculation_result.get('weeks_processed', 0),
+                        'algorithm': 'payment_date_weekly_grouping'
+                    },
+                    
+                    'statistics': calculation_result.get('statistics', {}),
+                    'performance_metrics': calculation_result.get('performance_metrics', {})
+                }
+            }), 200
+        else:
+            # Rollback manual overrides jeśli przeliczenie nie powiodło się
+            db.session.rollback()
+            
+            logger.error("API: Błąd przeliczenia po reset", extra={
+                'user_id': current_user.id,
+                'error': calculation_result.get('error', 'Unknown error')
+            })
+            
+            return jsonify({
+                'success': False,
+                'error': f'Błąd przeliczenia priorytetów: {calculation_result.get("error", "Unknown error")}',
+                'data': {
+                    'reset_rolled_back': True,
+                    'manual_overrides_preserved': manual_overrides_before
+                }
+            }), 500
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error("API: Błąd reset priorytetów", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'client_ip': request.remote_addr
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'data': {
+                'reset_rolled_back': True
+            }
+        }), 500
+
+
+@api_bp.route('/products/<int:product_id>/set-manual-priority', methods=['POST'])
+@admin_required
+def set_manual_product_priority(product_id):
+    """
+    POST /api/products/<id>/set-manual-priority - Ręczne ustawienie priorytetu
+    
+    Endpoint dla admina do ustawienia ręcznego priorytetu dla konkretnego produktu.
+    Sprawdza czy numer nie jest zajęty i ustawia manual_override = TRUE.
+    
+    Body (JSON):
+    {
+        "priority_rank": 5,       // Wymagane: numer priorytetu (1-1000)
+        "reason": "Pilne zlecenie" // Opcjonalne: powód zmiany
+    }
+    
+    Autoryzacja: admin
+    Returns: JSON z rezultatem operacji
+    """
+    try:
+        data = request.get_json()
+        if not data or 'priority_rank' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagany parametr: priority_rank (liczba 1-1000)'
+            }), 400
+        
+        priority_rank = data.get('priority_rank')
+        reason = data.get('reason', '').strip()
+        
+        # Walidacja priority_rank
+        if not isinstance(priority_rank, int) or priority_rank < 1 or priority_rank > 1000:
+            return jsonify({
+                'success': False,
+                'error': 'priority_rank musi być liczbą między 1 a 1000'
+            }), 400
+        
+        from ..models import ProductionItem
+        
+        # Znajdź produkt
+        product = ProductionItem.query.get_or_404(product_id)
+        
+        # Sprawdź czy rank nie jest już zajęty przez inny produkt
+        existing_product = ProductionItem.query.filter(
+            ProductionItem.priority_rank == priority_rank,
+            ProductionItem.priority_manual_override == True,
+            ProductionItem.id != product_id
+        ).first()
+        
+        if existing_product:
+            return jsonify({
+                'success': False,
+                'error': f'Priorytet {priority_rank} jest już zajęty przez produkt {existing_product.short_product_id}',
+                'conflict_product': {
+                    'id': existing_product.id,
+                    'short_product_id': existing_product.short_product_id,
+                    'product_name': existing_product.original_product_name
+                }
+            }), 409
+        
+        # Zapisz stare wartości dla logowania
+        old_priority_rank = product.priority_rank
+        old_priority_score = product.priority_score
+        old_manual_override = product.priority_manual_override
+        
+        # Ustaw nowy priorytet używając metody z modelu
+        product.lock_priority(priority_rank)
+        
+        # Dodaj informację o powodzie zmiany (jeśli model to obsługuje)
+        if hasattr(product, 'priority_change_reason') and reason:
+            product.priority_change_reason = reason
+        
+        product.updated_at = get_local_now()
+        db.session.commit()
+        
+        logger.info("API: Ustawiono ręczny priorytet produktu", extra={
+            'user_id': current_user.id,
+            'product_id': product_id,
+            'product_short_id': product.short_product_id,
+            'old_priority_rank': old_priority_rank,
+            'new_priority_rank': priority_rank,
+            'old_priority_score': old_priority_score,
+            'new_priority_score': product.priority_score,
+            'reason': reason,
+            'client_ip': request.remote_addr
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Ustawiono priorytet {priority_rank} dla produktu {product.short_product_id}',
+            'data': {
+                'product_id': product_id,
+                'short_product_id': product.short_product_id,
+                'old_priority': {
+                    'rank': old_priority_rank,
+                    'score': old_priority_score,
+                    'manual_override': old_manual_override
+                },
+                'new_priority': {
+                    'rank': product.priority_rank,
+                    'score': product.priority_score,
+                    'manual_override': product.priority_manual_override
+                },
+                'reason': reason,
+                'set_by': current_user.id,
+                'set_at': product.updated_at.isoformat()
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error("API: Błąd ustawienia ręcznego priorytetu", extra={
+            'user_id': current_user.id,
+            'product_id': product_id,
+            'error': str(e),
+            'client_ip': request.remote_addr
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@api_bp.route('/priority-statistics', methods=['GET'])
+@login_required  # Nie musi być admin - może wszyscy użytkownicy
+def get_priority_statistics():
+    """
+    GET /api/priority-statistics - Statystyki systemu priorytetów
+    
+    Zwraca statystyki nowego systemu priorytetów dla UI i monitoringu.
+    
+    Query params:
+        include_details: true|false - czy dołączyć szczegóły (default: false)
+        
+    Autoryzacja: login_required
+    Returns: JSON ze statystykami priorytetów
+    """
+    try:
+        include_details = request.args.get('include_details', 'false').lower() == 'true'
+        
+        logger.info("API: Pobieranie statystyk priorytetów", extra={
+            'user_id': current_user.id,
+            'include_details': include_details,
+            'endpoint': 'priority-statistics'
+        })
+        
+        from ..models import ProductionItem
+        from sqlalchemy import func, desc
+        from datetime import datetime, timedelta
+        
+        # Podstawowe statystyki
+        total_products = ProductionItem.query.count()
+        products_in_queue = ProductionItem.query.filter(
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie', 'w_realizacji'
+            ])
+        ).count()
+        
+        # Manual overrides
+        manual_overrides_count = ProductionItem.query.filter_by(priority_manual_override=True).count()
+        
+        # Statystyki payment_date
+        payment_date_stats = db.session.query(
+            func.count(ProductionItem.id).label('total'),
+            func.count(ProductionItem.payment_date).label('with_payment_date'),
+            func.min(ProductionItem.payment_date).label('oldest_payment'),
+            func.max(ProductionItem.payment_date).label('newest_payment')
+        ).first()
+        
+        # Rozkład po tygodniach
+        weekly_distribution = []
+        if include_details and payment_date_stats.with_payment_date > 0:
+            # Grupuj po tygodniach
+            weekly_query = db.session.query(
+                func.year(ProductionItem.payment_date).label('year'),
+                func.week(ProductionItem.payment_date).label('week'),
+                func.count(ProductionItem.id).label('count')
+            ).filter(
+                ProductionItem.payment_date.isnot(None),
+                ProductionItem.current_status.in_([
+                    'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie', 'w_realizacji'
+                ])
+            ).group_by(
+                func.year(ProductionItem.payment_date),
+                func.week(ProductionItem.payment_date)
+            ).order_by(
+                func.year(ProductionItem.payment_date).asc(),
+                func.week(ProductionItem.payment_date).asc()
+            ).limit(10).all()
+            
+            for year, week, count in weekly_query:
+                weekly_distribution.append({
+                    'year': year,
+                    'week': week,
+                    'week_label': f'{year}-W{week:02d}',
+                    'products_count': count
+                })
+        
+        # Rozkład priority_rank
+        priority_rank_stats = db.session.query(
+            func.min(ProductionItem.priority_rank).label('min_rank'),
+            func.max(ProductionItem.priority_rank).label('max_rank'),
+            func.avg(ProductionItem.priority_rank).label('avg_rank'),
+            func.count(ProductionItem.priority_rank).label('products_with_rank')
+        ).filter(ProductionItem.priority_rank.isnot(None)).first()
+        
+        # Ostatnia aktualizacja priorytetów (przybliżone)
+        last_priority_update = None
+        try:
+            # Szukaj ostatniego produktu z aktualną datą updated_at
+            last_updated_product = ProductionItem.query.filter(
+                ProductionItem.updated_at.isnot(None)
+            ).order_by(ProductionItem.updated_at.desc()).first()
+            
+            if last_updated_product:
+                last_priority_update = last_updated_product.updated_at.isoformat()
+        except:
+            pass
+        
+        # Przygotuj response
+        statistics_data = {
+            'system_overview': {
+                'total_products': total_products,
+                'products_in_queue': products_in_queue,
+                'manual_overrides_count': manual_overrides_count,
+                'manual_override_percentage': round((manual_overrides_count / max(total_products, 1)) * 100, 1),
+                'algorithm': 'payment_date_weekly_grouping_v2'
+            },
+            
+            'payment_date_coverage': {
+                'total_products': payment_date_stats.total,
+                'with_payment_date': payment_date_stats.with_payment_date,
+                'coverage_percentage': round((payment_date_stats.with_payment_date / max(payment_date_stats.total, 1)) * 100, 1),
+                'date_range': {
+                    'oldest': payment_date_stats.oldest_payment.isoformat() if payment_date_stats.oldest_payment else None,
+                    'newest': payment_date_stats.newest_payment.isoformat() if payment_date_stats.newest_payment else None
+                }
+            },
+            
+            'priority_ranking': {
+                'min_rank': priority_rank_stats.min_rank,
+                'max_rank': priority_rank_stats.max_rank,
+                'avg_rank': round(priority_rank_stats.avg_rank, 1) if priority_rank_stats.avg_rank else None,
+                'products_with_rank': priority_rank_stats.products_with_rank,
+                'ranking_coverage': round((priority_rank_stats.products_with_rank / max(products_in_queue, 1)) * 100, 1)
+            },
+            
+            'last_updated': last_priority_update,
+            'statistics_generated_at': get_local_now().isoformat()
+        }
+        
+        # Dodaj szczegóły jeśli requested
+        if include_details:
+            statistics_data['weekly_distribution'] = weekly_distribution
+            
+            # Top manual overrides
+            manual_override_products = ProductionItem.query.filter_by(
+                priority_manual_override=True
+            ).order_by(ProductionItem.priority_rank.asc()).limit(10).all()
+            
+            statistics_data['manual_overrides_details'] = [
+                {
+                    'id': p.id,
+                    'short_product_id': p.short_product_id,
+                    'priority_rank': p.priority_rank,
+                    'priority_score': p.priority_score,
+                    'current_status': p.current_status,
+                    'updated_at': p.updated_at.isoformat() if p.updated_at else None
+                }
+                for p in manual_override_products
+            ]
+        
+        logger.info("API: Statystyki priorytetów pobrane", extra={
+            'user_id': current_user.id,
+            'total_products': total_products,
+            'products_in_queue': products_in_queue,
+            'manual_overrides': manual_overrides_count,
+            'include_details': include_details
+        })
+        
+        return jsonify({
+            'success': True,
+            'statistics': statistics_data
+        }), 200
+        
+    except Exception as e:
+        logger.error("API: Błąd pobierania statystyk priorytetów", extra={
+            'user_id': current_user.id,
+            'error': str(e),
+            'client_ip': request.remote_addr
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

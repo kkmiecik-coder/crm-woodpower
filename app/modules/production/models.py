@@ -487,6 +487,14 @@ class ProductionSyncLog(db.Model):
     products_updated = Column(Integer, default=0)
     products_with_errors = Column(Integer, default=0)
     
+    # DODAĆ TE BRAKUJĄCE POLA (zgodnie z database_structure.md):
+    orders_fetched = Column(Integer, default=0)
+    products_skipped = Column(Integer, default=0)
+    processed_status_ids = Column(Text)
+    baselinker_api_response_time_ms = Column(Integer)
+    error_count = Column(Integer, default=0)
+    error_details = Column(Text)
+    
     # NOWE POLA DLA ENHANCED PRIORITY SYSTEM
     priority_recalc_triggered = Column(Boolean, default=False)
     priority_recalc_duration_seconds = Column(Integer)
@@ -500,7 +508,7 @@ class ProductionSyncLog(db.Model):
     
     # METADANE
     triggered_by_user_id = Column(Integer, ForeignKey('users.id'))
-    baselinker_status_filter = Column(String(50))  # np. "155824" dla "Nowe - opłacone"
+    baselinker_status_filter = Column(String(50))
     
     # RELACJE
     triggered_by = relationship("User")
