@@ -1,672 +1,767 @@
 # modules/production/services/priority_service.py
 """
-Serwis priorytetów dla modułu Production
-========================================
+Serwis priorytetów dla modułu Production - ENHANCED VERSION 2.0
+================================================================
 
-Implementuje elastyczny system obliczania priorytetów produktów produkcyjnych:
-- Konfigurowalny system wag priorytetyzacji
-- Różne kryteria: termin, wartość, objętość, FIFO, klasa drewna
-- Cache wyników dla wydajności
-- Hot-reload konfiguracji priorytetów
-- Szczegółowe logowanie decyzji priorytetowych
+NOWY SYSTEM PRIORYTETÓW oparty na dacie opłacenia i grupowaniu tygodniowym
+Zastępuje poprzedni system wagowy (deadline/value/volume/fifo).
 
-Kryteria priorytetyzacji:
-- deadline: priorytet na podstawie terminu realizacji (dni do deadline)
-- value: priorytet na podstawie wartości zamówienia (PLN)  
-- volume: priorytet na podstawie objętości produktu (m³)
-- fifo: priorytet kolejności (pierwszy wchodzi, pierwszy wychodzi)
-- wood_class: priorytet na podstawie klasy drewna (A > B > C > Rustic)
-- customer_type: priorytet na podstawie typu klienta
+ALGORYTM ENHANCED PRIORITY SYSTEM 2.0:
+1. Pobieranie WSZYSTKICH produktów z kolejki produkcyjnej (niespakowanych)
+2. Grupowanie po tygodniach (pon-niedz) względem payment_date
+3. Obliczanie statystyk częstotliwości dla każdego tygodnia:
+   - species (gatunek drewna)
+   - finish_state (stan wykończenia) 
+   - thickness_group (grupa grubości)
+   - wood_class (klasa drewna)
+4. Ustalanie priorytetów grup: "więcej = wyżej" w każdym tygodniu
+5. Sortowanie wielopoziomowe:
+   payment_date ASC → species → thickness_group → finish_state → wood_class
+6. Przypisywanie numeracji sekwencyjnej 1,2,3,4... z pomijaniem manual overrides
+7. Aktualizacja priority_score dla kompatybilności ze starym systemem
+
+ZACHOWANA KOMPATYBILNOŚĆ:
+- Singleton pattern i helper functions
+- Threading i logging infrastructure  
+- Podstawowe metody API (calculate_priority, calculate_priorities_batch)
+- Format response i error handling
 
 Autor: Konrad Kmiecik
-Wersja: 1.2 (Finalna - z zabezpieczeniami)
-Data: 2025-01-08
+Wersja: 2.0 (Enhanced Priority System - Payment Date + Weekly Grouping)
+Data: 2025-01-22
 """
 
 import threading
 from datetime import datetime, date, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
+from collections import defaultdict
 from modules.logging import get_structured_logger
 
-logger = get_structured_logger('production.priority')
+logger = get_structured_logger('production.priority.v2')
 
 class PriorityError(Exception):
     """Wyjątek dla błędów kalkulacji priorytetów"""
     pass
 
-class PriorityCalculator:
+class NewPriorityCalculator:
     """
-    Kalkulator priorytetów produktów z konfigurowalnymi regułami
+    Nowy kalkulator priorytetów oparty na dacie opłacenia i grupowaniu tygodniowym
     
-    System oblicza priorytet jako ważoną sumę różnych kryteriów,
-    gdzie każde kryterium może mieć własną wagę i konfigurację.
+    ENHANCED VERSION 2.0 - kompletnie przepisany algorytm:
+    - Zastąpienie systemu wagowego logiką opartą na payment_date
+    - Grupowanie tygodniowe z priorytetem dla częściej występujących kombinacji
+    - Numeracja sekwencyjna 1,2,3,4... zamiast punktowej 100,110,120...
+    - Respect manual overrides (priority_manual_override = TRUE)
+    - Scope: wszystkie produkty w kolejce bez ograniczenia czasowego
     """
     
-    def __init__(self, cache_duration_minutes=30):
+    def __init__(self):
         """
-        Inicjalizacja kalkulatora priorytetów
-        
-        Args:
-            cache_duration_minutes (int): Czas życia cache konfiguracji
+        Inicjalizacja nowego kalkulatora priorytetów
         """
-        self.cache_duration = timedelta(minutes=cache_duration_minutes)
-        self._config_cache = None
-        self._cache_timestamp = None
         self._lock = threading.RLock()
         
-        # Domyślne wagi kryteriów (używane gdy brak konfiguracji w bazie)
-        self._default_criteria = {
-            'deadline': {
-                'weight': 40,
-                'config': {
-                    'urgent_days': 3,      # Dni do deadline = krytyczne
-                    'normal_days': 7,      # Dni do deadline = normalne
-                    'base_score': 100,     # Bazowy wynik dla normalnych terminów
-                    'urgent_multiplier': 2.0,  # Mnożnik dla pilnych
-                    'overdue_penalty': 50  # Kara za przekroczenie terminu
+        # Konfiguracja algorytmu
+        self.active_statuses = [
+            'czeka_na_wyciecie',
+            'czeka_na_skladanie', 
+            'czeka_na_pakowanie',
+            'w_realizacji'
+        ]
+        
+        logger.info("Inicjalizacja NewPriorityCalculator v2.0", extra={
+            'algorithm': 'payment_date_weekly_grouping',
+            'active_statuses': self.active_statuses,
+            'scope': 'all_active_products_unlimited'
+        })
+    
+    def recalculate_all_priorities(self) -> Dict[str, Any]:
+        """
+        Główna metoda przeliczająca wszystkie priorytety
+        
+        ALGORYTM:
+        1. Pobiera WSZYSTKIE aktywne produkty z kolejki (niespakowane)
+        2. Grupuje po tygodniach względem payment_date  
+        3. Oblicza statystyki częstotliwości w każdym tygodniu
+        4. Ustala priorytety grup: "więcej = wyżej"
+        5. Sortuje produkty wielopoziomowo
+        6. Przypisuje numery 1,2,3,4... z pomijaniem manual overrides
+        7. Aktualizuje bazę danych
+        
+        Returns:
+            Dict[str, Any]: Szczegółowy raport z przeliczenia
+        """
+        start_time = datetime.now()
+        
+        try:
+            with self._lock:
+                logger.info("Rozpoczęcie przeliczania wszystkich priorytetów v2.0")
+                
+                # KROK 1: Pobieranie wszystkich aktywnych produktów
+                products = self.get_active_products_for_prioritization()
+                logger.info(f"Pobrano {len(products)} aktywnych produktów z kolejki")
+                
+                if not products:
+                    return {
+                        'success': True,
+                        'products_processed': 0,
+                        'message': 'Brak produktów w kolejce do priorytetyzacji',
+                        'duration_seconds': 0
+                    }
+                
+                # KROK 2: Aktualizacja thickness_group dla wszystkich produktów
+                thickness_updated = self.update_thickness_groups_batch(products)
+                logger.debug(f"Zaktualizowano thickness_group dla {thickness_updated} produktów")
+                
+                # KROK 3: Grupowanie po tygodniach
+                weekly_groups = self.group_products_by_weeks(products)
+                logger.info(f"Pogrupowano produkty w {len(weekly_groups)} tygodni")
+                
+                # KROK 4-6: Przetwarzanie każdego tygodnia i sortowanie globalne
+                all_sorted_products = []
+                week_stats = {}
+                
+                for week_key, week_products in weekly_groups.items():
+                    # Statystyki częstotliwości dla tygodnia
+                    stats = self.calculate_week_statistics(week_products)
+                    week_stats[week_key] = stats
+                    
+                    # Priorytety grup dla tygodnia
+                    group_priorities = self.determine_group_priorities(stats)
+                    
+                    # Sortowanie produktów w tygodniu
+                    sorted_week_products = self.sort_products_by_rules(week_products, group_priorities)
+                    all_sorted_products.extend(sorted_week_products)
+                
+                logger.info(f"Posortowano wszystkie produkty globalnie: {len(all_sorted_products)}")
+                
+                # KROK 7: Przypisanie numeracji sekwencyjnej
+                ranking_result = self.assign_sequential_ranks(all_sorted_products)
+                
+                # KROK 8: Commit zmian w bazie danych
+                from extensions import db
+                db.session.commit()
+                
+                duration = (datetime.now() - start_time).total_seconds()
+                
+                result = {
+                    'success': True,
+                    'products_processed': len(products),
+                    'products_prioritized': ranking_result['products_updated'],
+                    'manual_overrides_preserved': ranking_result['manual_overrides_preserved'],
+                    'weekly_groups_processed': len(weekly_groups),
+                    'duration_seconds': round(duration, 2),
+                    'algorithm_version': '2.0',
+                    'week_statistics': week_stats,
+                    'ranking_details': ranking_result
                 }
-            },
-            'value': {
-                'weight': 30,
-                'config': {
-                    'high_threshold': 5000,    # Wysoka wartość (PLN)
-                    'medium_threshold': 2000,  # Średnia wartość (PLN)
-                    'base_score': 50,          # Bazowy wynik dla wartości
-                    'high_multiplier': 2.0,    # Mnożnik dla wysokiej wartości
-                    'medium_multiplier': 1.5   # Mnożnik dla średniej wartości
-                }
-            },
-            'volume': {
-                'weight': 20,
-                'config': {
-                    'large_threshold': 1.0,    # Duża objętość (m³)
-                    'medium_threshold': 0.5,   # Średnia objętość (m³)
-                    'base_score': 30,          # Bazowy wynik dla objętości
-                    'large_multiplier': 1.8,   # Mnożnik dla dużej objętości
-                    'medium_multiplier': 1.3   # Mnożnik dla średniej objętości
-                }
-            },
-            'fifo': {
-                'weight': 10,
-                'config': {
-                    'base_score': 10,          # Bazowy wynik FIFO
-                    'hours_penalty': 0.1       # Kara za każdą godzinę opóźnienia
-                }
+                
+                logger.info("Zakończono przeliczanie priorytetów", extra=result)
+                return result
+                
+        except Exception as e:
+            logger.error("Błąd przeliczania priorytetów", extra={
+                'error': str(e),
+                'duration_seconds': (datetime.now() - start_time).total_seconds()
+            })
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'products_processed': 0,
+                'duration_seconds': (datetime.now() - start_time).total_seconds()
             }
+    
+    def get_active_products_for_prioritization(self) -> List:
+        """
+        Pobiera WSZYSTKIE produkty aktywne w kolejce produkcyjnej
+        
+        KRYTERIA WŁĄCZENIA:
+        - Status w kolejce produkcyjnej (przed pakowaniem)
+        - BEZ ograniczenia czasowego - wszystkie aktywne niezależnie od daty
+        - Wykluczone: produkty już spakowane przez ostatnie stanowisko
+        
+        Returns:
+            List[ProductionItem]: Lista aktywnych produktów
+        """
+        try:
+            from ..models import ProductionItem
+            
+            # Query wszystkich produktów w statusach aktywnych
+            query = ProductionItem.query.filter(
+                ProductionItem.current_status.in_(self.active_statuses)
+            ).order_by(
+                ProductionItem.payment_date.asc().nullslast(),
+                ProductionItem.created_at.asc()
+            )
+            
+            products = query.all()
+            
+            logger.debug("Pobrano produkty dla priorytetyzacji", extra={
+                'total_count': len(products),
+                'active_statuses': self.active_statuses,
+                'scope': 'unlimited_time_range'
+            })
+            
+            return products
+            
+        except Exception as e:
+            logger.error("Błąd pobierania produktów dla priorytetyzacji", extra={
+                'error': str(e)
+            })
+            return []
+    
+    def group_products_by_weeks(self, products: List) -> Dict[str, List]:
+        """
+        Grupuje produkty według tygodni (poniedziałek 00:00 - niedziela 23:59)
+        na podstawie payment_date
+        
+        Args:
+            products: Lista produktów do pogrupowania
+            
+        Returns:
+            Dict[str, List]: Słownik "2025-W03" -> [produkty]
+        """
+        weekly_groups = defaultdict(list)
+        
+        for product in products:
+            if product.payment_date:
+                # Oblicz granice tygodnia dla payment_date
+                week_start, week_end = self.get_week_boundaries(product.payment_date)
+                
+                # Format klucza: YYYY-WNN  
+                year = week_start.year
+                week_number = week_start.isocalendar()[1]
+                week_key = f"{year}-W{week_number:02d}"
+                
+            else:
+                # Produkty bez payment_date w osobnej grupie
+                week_key = "no-payment-date"
+            
+            weekly_groups[week_key].append(product)
+        
+        # Sortowanie kluczy tygodni chronologicznie
+        sorted_groups = {}
+        for week_key in sorted(weekly_groups.keys()):
+            sorted_groups[week_key] = weekly_groups[week_key]
+        
+        logger.debug("Pogrupowano produkty po tygodniach", extra={
+            'weekly_groups': {k: len(v) for k, v in sorted_groups.items()}
+        })
+        
+        return sorted_groups
+    
+    def get_week_boundaries(self, date_input: datetime) -> Tuple[datetime, datetime]:
+        """
+        Oblicza początek i koniec tygodnia (poniedziałek 00:00 - niedziela 23:59)
+        
+        Args:
+            date_input: Data wejściowa
+            
+        Returns:
+            Tuple[datetime, datetime]: (week_start, week_end)
+        """
+        if isinstance(date_input, str):
+            date_input = datetime.fromisoformat(date_input)
+        elif isinstance(date_input, date):
+            date_input = datetime.combine(date_input, datetime.min.time())
+        
+        # Znajdź poniedziałek tego tygodnia (weekday: 0=Mon, 6=Sun)
+        days_since_monday = date_input.weekday()
+        week_start = date_input - timedelta(days=days_since_monday)
+        week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Niedziela 23:59:59
+        week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        
+        return week_start, week_end
+    
+    def calculate_week_statistics(self, products: List) -> Dict[str, Dict[str, int]]:
+        """
+        Oblicza statystyki częstotliwości występowania dla produktów w danym tygodniu
+        
+        Args:
+            products: Lista produktów z danego tygodnia
+            
+        Returns:
+            Dict[str, Dict[str, int]]: Statystyki {kategoria: {wartość: count}}
+        """
+        stats = {
+            'species': defaultdict(int),
+            'finish_state': defaultdict(int),
+            'thickness_group': defaultdict(int),
+            'wood_class': defaultdict(int)
         }
         
-        logger.info("Inicjalizacja PriorityCalculator", extra={
-            'cache_duration_minutes': cache_duration_minutes,
-            'default_criteria_count': len(self._default_criteria)
+        for product in products:
+            # Zliczanie gatunków
+            if product.species:
+                stats['species'][product.species] += 1
+                
+            # Zliczanie stanów wykończenia  
+            if product.finish_state:
+                stats['finish_state'][product.finish_state] += 1
+                
+            # Zliczanie grup grubości
+            if product.thickness_group:
+                stats['thickness_group'][product.thickness_group] += 1
+                
+            # Zliczanie klas drewna
+            if product.wood_class:
+                stats['wood_class'][product.wood_class] += 1
+        
+        # Konwersja defaultdict na dict dla loggingu
+        final_stats = {
+            category: dict(counts) 
+            for category, counts in stats.items()
+        }
+        
+        return final_stats
+    
+    def determine_group_priorities(self, stats: Dict[str, Dict[str, int]]) -> Dict[str, Dict[str, int]]:
+        """
+        Ustala priorytety grup na zasadzie "więcej = wyżej"
+        
+        Args:
+            stats: Statystyki częstotliwości z calculate_week_statistics
+            
+        Returns:
+            Dict[str, Dict[str, int]]: {kategoria: {wartość: priorytet}}
+                gdzie priorytet: 1=najwyższy, 2=drugi, etc.
+        """
+        group_priorities = {}
+        
+        for category, value_counts in stats.items():
+            if not value_counts:
+                group_priorities[category] = {}
+                continue
+            
+            # Sortowanie według częstotliwości malejąco (więcej = wyżej)
+            sorted_values = sorted(value_counts.items(), key=lambda x: x[1], reverse=True)
+            
+            # Przypisanie priorytetów: 1=najczęściej występujący, 2=drugi, etc.
+            priorities = {}
+            for rank, (value, count) in enumerate(sorted_values, 1):
+                priorities[value] = rank
+            
+            group_priorities[category] = priorities
+        
+        logger.debug("Ustalono priorytety grup", extra={
+            'group_priorities': group_priorities
         })
+        
+        return group_priorities
+    
+    def sort_products_by_rules(self, products: List, group_priorities: Dict[str, Dict[str, int]]) -> List:
+        """
+        Sortuje produkty według nowych reguł priorytetów
+        
+        SORTOWANIE WIELOPOZIOMOWE:
+        1. payment_date ASC (starsze = wyższy priorytet)
+        2. species (według group_priorities)
+        3. thickness_group (według group_priorities) 
+        4. finish_state (według group_priorities)
+        5. wood_class (według group_priorities)
+        
+        Args:
+            products: Lista produktów do posortowania
+            group_priorities: Priorytety grup z determine_group_priorities
+            
+        Returns:
+            List: Posortowana lista produktów
+        """
+        
+        def get_sort_key(product):
+            """Tworzy klucz sortowania dla produktu"""
+            
+            # 1. payment_date ASC (None na koniec)
+            payment_date_key = product.payment_date or datetime.max
+            
+            # 2. species priority (niższy numer = wyższy priorytet)
+            species_priority = group_priorities.get('species', {}).get(product.species, 999)
+            
+            # 3. thickness_group priority
+            thickness_priority = group_priorities.get('thickness_group', {}).get(product.thickness_group, 999)
+            
+            # 4. finish_state priority
+            finish_priority = group_priorities.get('finish_state', {}).get(product.finish_state, 999)
+            
+            # 5. wood_class priority
+            wood_class_priority = group_priorities.get('wood_class', {}).get(product.wood_class, 999)
+            
+            return (
+                payment_date_key,
+                species_priority,
+                thickness_priority,
+                finish_priority,
+                wood_class_priority,
+                product.created_at or datetime.max  # Tiebreaker
+            )
+        
+        try:
+            sorted_products = sorted(products, key=get_sort_key)
+            
+            logger.debug("Posortowano produkty według nowych reguł", extra={
+                'products_count': len(products),
+                'sorted_count': len(sorted_products)
+            })
+            
+            return sorted_products
+            
+        except Exception as e:
+            logger.error("Błąd sortowania produktów", extra={
+                'error': str(e),
+                'products_count': len(products)
+            })
+            # Fallback - return unsorted
+            return products
+    
+    def assign_sequential_ranks(self, sorted_products: List) -> Dict[str, Any]:
+        """
+        Przypisuje numery priorytetów 1,2,3,4... z pomijaniem manual overrides
+        
+        Args:
+            sorted_products: Lista produktów posortowanych według reguł
+            
+        Returns:
+            Dict[str, Any]: Statystyki przypisania rang
+        """
+        # Pobierz zarezerwowane rangi (manual overrides)
+        reserved_ranks = self.get_reserved_ranks()
+        
+        current_rank = 1
+        products_updated = 0
+        manual_overrides_preserved = len(reserved_ranks)
+        
+        for product in sorted_products:
+            # Pomijaj produkty z manual override
+            if product.is_priority_locked:
+                logger.debug(f"Pominięto produkt z manual override: {product.short_product_id} (rank: {product.priority_rank})")
+                continue
+            
+            # Znajdź następny dostępny rank (pomijając zarezerwowane)
+            while current_rank in reserved_ranks:
+                current_rank += 1
+            
+            # Przypisz rank i zaktualizuj priority_score dla kompatybilności
+            old_rank = product.priority_rank
+            product.priority_rank = current_rank
+            product.priority_score = max(1, 1000 - current_rank)
+            
+            logger.debug(f"Zaktualizowano priorytet: {product.short_product_id} {old_rank} → {current_rank}")
+            
+            current_rank += 1
+            products_updated += 1
+        
+        result = {
+            'products_updated': products_updated,
+            'manual_overrides_preserved': manual_overrides_preserved,
+            'highest_rank_assigned': current_rank - 1,
+            'reserved_ranks_count': len(reserved_ranks),
+            'reserved_ranks': sorted(list(reserved_ranks)) if reserved_ranks else []
+        }
+        
+        logger.info("Przypisano numery priorytetów", extra=result)
+        return result
+    
+    def get_reserved_ranks(self) -> Set[int]:
+        """
+        Pobiera numery priorytetów zarezerwowane przez manual overrides
+        
+        Returns:
+            Set[int]: Zestaw zajętych numerów priorytetów
+        """
+        try:
+            from ..models import ProductionItem
+            
+            # Query produktów z manual override i przypisanym priority_rank
+            reserved_products = ProductionItem.query.filter(
+                ProductionItem.priority_manual_override == True,
+                ProductionItem.priority_rank.isnot(None),
+                ProductionItem.current_status.in_(self.active_statuses)
+            ).all()
+            
+            reserved_ranks = {p.priority_rank for p in reserved_products if p.priority_rank}
+            
+            logger.debug(f"Znaleziono {len(reserved_ranks)} zarezerwowanych rangów: {sorted(reserved_ranks)}")
+            return reserved_ranks
+            
+        except Exception as e:
+            logger.error("Błąd pobierania zarezerwowanych rangów", extra={'error': str(e)})
+            return set()
+    
+    def update_thickness_groups_batch(self, products: List) -> int:
+        """
+        Masowa aktualizacja thickness_group dla produktów
+        
+        Args:
+            products: Lista produktów do zaktualizowania
+            
+        Returns:
+            int: Liczba zaktualizowanych produktów
+        """
+        updated_count = 0
+        
+        for product in products:
+            old_group = product.thickness_group
+            new_group = product.update_thickness_group()
+            
+            if old_group != new_group:
+                updated_count += 1
+        
+        logger.debug(f"Masowa aktualizacja thickness_group: {updated_count} produktów")
+        return updated_count
+    
+    def validate_product_for_prioritization(self, product) -> Tuple[bool, List[str]]:
+        """
+        Sprawdza czy produkt może uczestniczyć w priorytetyzacji
+        
+        Args:
+            product: Instancja ProductionItem
+            
+        Returns:
+            Tuple[bool, List[str]]: (is_valid, missing_fields)
+        """
+        return product.validate_for_prioritization()
+    
+    # ============================================================================
+    # KOMPATYBILNOŚĆ Z POPRZEDNIM API - ZACHOWANE METODY
+    # ============================================================================
     
     def calculate_priority(self, product_data: Dict[str, Any]) -> int:
         """
-        Oblicza priorytet produktu na podstawie konfigurowanych kryteriów
+        KOMPATYBILNOŚĆ: Oblicza priorytet pojedynczego produktu
+        
+        W nowym systemie priority jest obliczany globalnie dla wszystkich produktów,
+        więc ta metoda zwraca obecną wartość priority_score lub domyślną.
         
         Args:
-            product_data (Dict[str, Any]): Dane produktu zawierające:
-                - deadline_date: data deadline (date lub str)
-                - total_value_net: wartość netto (float)
-                - volume_m3: objętość w m³ (float)
-                - created_at: data utworzenia (datetime lub str)
-                - wood_class: klasa drewna (str)
-                - customer_type: typ klienta (str)
-                
+            product_data: Dane produktu (dla kompatybilności)
+            
         Returns:
-            int: Wynik priorytetu (wyższy = wyższy priorytet)
+            int: Priority score (dla kompatybilności ze starym systemem)
         """
         try:
-            # Pobranie aktualnej konfiguracji
-            criteria_config = self._get_criteria_config()
+            product_id = product_data.get('short_product_id')
+            if not product_id:
+                return 100
             
-            total_score = 0.0
-            total_weight = 0.0
-            calculation_details = {}
+            # Spróbuj znaleźć produkt w bazie
+            from ..models import ProductionItem
+            product = ProductionItem.query.filter_by(short_product_id=product_id).first()
             
-            for criterion_name, criterion_config in criteria_config.items():
-                try:
-                    # Obliczenie wyniku dla kryterium
-                    criterion_score = self._calculate_criterion_score(
-                        criterion_name, 
-                        criterion_config, 
-                        product_data
-                    )
-                    
-                    # Zastosowanie wagi
-                    weight = criterion_config.get('weight', 0) / 100.0
-                    weighted_score = criterion_score * weight
-                    
-                    total_score += weighted_score
-                    total_weight += weight
-                    
-                    calculation_details[criterion_name] = {
-                        'raw_score': criterion_score,
-                        'weight': criterion_config.get('weight', 0),
-                        'weighted_score': weighted_score
-                    }
-                    
-                except Exception as e:
-                    logger.warning("Błąd obliczania kryterium", extra={
-                        'criterion': criterion_name,
-                        'error': str(e)
-                    })
-                    continue
+            if product and product.priority_score:
+                return product.priority_score
             
-            # Normalizacja wyniku końcowego
-            if total_weight > 0:
-                final_score = total_score / total_weight
-            else:
-                final_score = 100  # Domyślny priorytet
-            
-            # Zaokrąglenie do liczby całkowitej
-            priority_score = max(1, int(round(final_score)))
-            
-            logger.debug("Obliczono priorytet produktu", extra={
-                'product_id': product_data.get('short_product_id', 'unknown'),
-                'final_priority': priority_score,
-                'total_score': total_score,
-                'total_weight': total_weight,
-                'criteria_details': calculation_details
-            })
-            
-            return priority_score
+            # Domyślny priorytet
+            return 100
             
         except Exception as e:
-            logger.error("Błąd obliczania priorytetu", extra={
-                'product_data': {k: str(v)[:50] for k, v in product_data.items()},
+            logger.warning("Błąd obliczania priorytetu single product", extra={
+                'product_id': product_data.get('short_product_id'),
                 'error': str(e)
             })
-            return 100  # Domyślny priorytet przy błędzie
-    
-    def _get_criteria_config(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Pobiera konfigurację kryteriów z cache lub bazy danych
-        
-        Returns:
-            Dict[str, Dict[str, Any]]: Konfiguracja kryteriów
-        """
-        with self._lock:
-            # Sprawdzenie czy cache jest ważny
-            if self._is_config_cache_valid():
-                return self._config_cache
-            
-            # Pobranie konfiguracji z bazy danych
-            config = self._load_criteria_config_from_db()
-            
-            # Zapisanie w cache
-            self._config_cache = config
-            self._cache_timestamp = datetime.now()
-            
-            return config
-    
-    def _is_config_cache_valid(self) -> bool:
-        """
-        Sprawdza czy cache konfiguracji jest ważny
-        
-        Returns:
-            bool: True jeśli cache jest ważny
-        """
-        if self._config_cache is None or self._cache_timestamp is None:
-            return False
-            
-        cache_age = datetime.now() - self._cache_timestamp
-        return cache_age < self.cache_duration
-    
-    def _load_criteria_config_from_db(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Ładuje konfigurację kryteriów z bazy danych
-        
-        Returns:
-            Dict[str, Dict[str, Any]]: Konfiguracja kryteriów
-        """
-        try:
-            from ..models import ProductionPriorityConfig
-            
-            config = {}
-            db_configs = ProductionPriorityConfig.query.filter_by(is_active=True).order_by(
-                ProductionPriorityConfig.display_order
-            ).all()
-            
-            if not db_configs:
-                logger.info("Brak konfiguracji priorytetów w bazie, używam domyślnych")
-                return self._default_criteria
-            
-            for db_config in db_configs:
-                try:
-                    config_name = db_config.config_name.lower().replace(' ', '_')
-                    config[config_name] = {
-                        'weight': db_config.weight_percentage,
-                        'config': db_config.criteria_json
-                    }
-                    
-                except Exception as e:
-                    logger.warning("Błąd parsowania konfiguracji priorytetu", extra={
-                        'config_name': db_config.config_name,
-                        'error': str(e)
-                    })
-                    continue
-            
-            if not config:
-                logger.warning("Nie można załadować konfiguracji z bazy, używam domyślnych")
-                return self._default_criteria
-            
-            logger.info("Załadowano konfigurację priorytetów z bazy", extra={
-                'criteria_count': len(config)
-            })
-            
-            return config
-            
-        except Exception as e:
-            logger.error("Błąd ładowania konfiguracji priorytetów", extra={
-                'error': str(e)
-            })
-            return self._default_criteria
-    
-    def _calculate_criterion_score(self, criterion_name: str, criterion_config: Dict[str, Any], 
-                                 product_data: Dict[str, Any]) -> float:
-        """
-        Oblicza wynik dla konkretnego kryterium
-        
-        Args:
-            criterion_name (str): Nazwa kryterium
-            criterion_config (Dict[str, Any]): Konfiguracja kryterium
-            product_data (Dict[str, Any]): Dane produktu
-            
-        Returns:
-            float: Wynik dla kryterium
-        """
-        config = criterion_config.get('config', {})
-        
-        if criterion_name == 'deadline' or 'termin' in criterion_name.lower():
-            return self._calculate_deadline_score(config, product_data)
-            
-        elif criterion_name == 'value' or 'wartość' in criterion_name.lower():
-            return self._calculate_value_score(config, product_data)
-            
-        elif criterion_name == 'volume' or 'objętość' in criterion_name.lower():
-            return self._calculate_volume_score(config, product_data)
-            
-        elif criterion_name == 'fifo' or 'kolejność' in criterion_name.lower():
-            return self._calculate_fifo_score(config, product_data)
-            
-        elif criterion_name == 'wood_class' or 'klasa' in criterion_name.lower():
-            return self._calculate_wood_class_score(config, product_data)
-            
-        elif criterion_name == 'customer_type' or 'klient' in criterion_name.lower():
-            return self._calculate_customer_type_score(config, product_data)
-            
-        else:
-            logger.warning("Nieznane kryterium priorytetu", extra={
-                'criterion_name': criterion_name
-            })
-            return 0.0
-    
-    def _calculate_deadline_score(self, config: Dict[str, Any], product_data: Dict[str, Any]) -> float:
-        """
-        Oblicza wynik priorytetu na podstawie terminu realizacji
-        
-        Args:
-            config (Dict[str, Any]): Konfiguracja kryterium deadline
-            product_data (Dict[str, Any]): Dane produktu
-            
-        Returns:
-            float: Wynik priorytetu deadline
-        """
-        deadline_date = product_data.get('deadline_date')
-        if not deadline_date:
-            return config.get('base_score', 100)
-        
-        # Konwersja na date object jeśli potrzeba
-        if isinstance(deadline_date, str):
-            try:
-                deadline_date = datetime.strptime(deadline_date, '%Y-%m-%d').date()
-            except ValueError:
-                return config.get('base_score', 100)
-        elif isinstance(deadline_date, datetime):
-            deadline_date = deadline_date.date()
-        
-        # Obliczenie dni do deadline
-        days_until_deadline = (deadline_date - date.today()).days
-        
-        urgent_days = config.get('urgent_days', 3)
-        normal_days = config.get('normal_days', 7)
-        base_score = config.get('base_score', 100)
-        urgent_multiplier = config.get('urgent_multiplier', 2.0)
-        overdue_penalty = config.get('overdue_penalty', 50)
-        
-        if days_until_deadline < 0:
-            # Przekroczony termin - wysoki priorytet ale z karą
-            score = base_score * urgent_multiplier - (abs(days_until_deadline) * overdue_penalty)
-        elif days_until_deadline <= urgent_days:
-            # Pilny termin
-            score = base_score * urgent_multiplier
-        elif days_until_deadline <= normal_days:
-            # Normalny termin
-            score = base_score
-        else:
-            # Daleki termin - niski priorytet
-            score = base_score * (normal_days / days_until_deadline)
-        
-        return max(10, score)  # Minimalny wynik 10
-    
-    def _calculate_value_score(self, config: Dict[str, Any], product_data: Dict[str, Any]) -> float:
-        """
-        Oblicza wynik priorytetu na podstawie wartości zamówienia
-        
-        Args:
-            config (Dict[str, Any]): Konfiguracja kryterium wartości
-            product_data (Dict[str, Any]): Dane produktu
-            
-        Returns:
-            float: Wynik priorytetu wartości
-        """
-        value = product_data.get('total_value_net', 0)
-        if not value or value <= 0:
-            return config.get('base_score', 50)
-        
-        try:
-            value = float(value)
-        except (ValueError, TypeError):
-            return config.get('base_score', 50)
-        
-        high_threshold = config.get('high_threshold', 5000)
-        medium_threshold = config.get('medium_threshold', 2000)
-        base_score = config.get('base_score', 50)
-        high_multiplier = config.get('high_multiplier', 2.0)
-        medium_multiplier = config.get('medium_multiplier', 1.5)
-        
-        if value >= high_threshold:
-            score = base_score * high_multiplier
-        elif value >= medium_threshold:
-            score = base_score * medium_multiplier
-        else:
-            # Proporcjonalny wynik dla niskich wartości
-            score = base_score * (value / medium_threshold)
-        
-        return max(10, score)
-    
-    def _calculate_volume_score(self, config: Dict[str, Any], product_data: Dict[str, Any]) -> float:
-        """
-        Oblicza wynik priorytetu na podstawie objętości produktu
-        
-        Args:
-            config (Dict[str, Any]): Konfiguracja kryterium objętości
-            product_data (Dict[str, Any]): Dane produktu
-            
-        Returns:
-            float: Wynik priorytetu objętości
-        """
-        volume = product_data.get('volume_m3', 0)
-        if not volume or volume <= 0:
-            return config.get('base_score', 30)
-        
-        try:
-            volume = float(volume)
-        except (ValueError, TypeError):
-            return config.get('base_score', 30)
-        
-        large_threshold = config.get('large_threshold', 1.0)
-        medium_threshold = config.get('medium_threshold', 0.5)
-        base_score = config.get('base_score', 30)
-        large_multiplier = config.get('large_multiplier', 1.8)
-        medium_multiplier = config.get('medium_multiplier', 1.3)
-        
-        if volume >= large_threshold:
-            score = base_score * large_multiplier
-        elif volume >= medium_threshold:
-            score = base_score * medium_multiplier
-        else:
-            # Proporcjonalny wynik dla małych objętości
-            score = base_score * (volume / medium_threshold)
-        
-        return max(5, score)
-    
-    def _calculate_fifo_score(self, config: Dict[str, Any], product_data: Dict[str, Any]) -> float:
-        """
-        Oblicza wynik priorytetu FIFO (pierwszy wchodzi, pierwszy wychodzi)
-        
-        Args:
-            config (Dict[str, Any]): Konfiguracja kryterium FIFO
-            product_data (Dict[str, Any]): Dane produktu
-            
-        Returns:
-            float: Wynik priorytetu FIFO
-        """
-        created_at = product_data.get('created_at')
-        if not created_at:
-            return config.get('base_score', 10)
-        
-        # Konwersja na datetime jeśli potrzeba
-        if isinstance(created_at, str):
-            try:
-                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-            except ValueError:
-                return config.get('base_score', 10)
-        
-        # Obliczenie czasu od utworzenia
-        now = datetime.now()
-        if created_at.tzinfo:
-            # Dodanie timezone info do now jeśli created_at ma timezone
-            from datetime import timezone
-            now = now.replace(tzinfo=timezone.utc)
-        
-        hours_since_created = (now - created_at).total_seconds() / 3600
-        
-        base_score = config.get('base_score', 10)
-        hours_penalty = config.get('hours_penalty', 0.1)
-        
-        # Im starszy produkt, tym wyższy priorytet (ale z ograniczeniem wzrostu)
-        fifo_bonus = min(50, hours_since_created * hours_penalty)
-        score = base_score + fifo_bonus
-        
-        return max(1, score)
-    
-    def _calculate_wood_class_score(self, config: Dict[str, Any], product_data: Dict[str, Any]) -> float:
-        """
-        Oblicza wynik priorytetu na podstawie klasy drewna
-        
-        Args:
-            config (Dict[str, Any]): Konfiguracja kryterium klasy drewna
-            product_data (Dict[str, Any]): Dane produktu
-            
-        Returns:
-            float: Wynik priorytetu klasy drewna
-        """
-        wood_class = product_data.get('wood_class', '').upper()
-        
-        # Mapowanie klas na wyniki
-        class_scores = config.get('class_scores', {
-            'A': 100,
-            'SELECT': 90,
-            'PREMIUM': 85,
-            'B': 70,
-            'NATURE': 60,
-            'C': 50,
-            'RUSTIC': 40
-        })
-        
-        base_score = config.get('base_score', 50)
-        
-        if wood_class in class_scores:
-            return class_scores[wood_class]
-        
-        return base_score
-    
-    def _calculate_customer_type_score(self, config: Dict[str, Any], product_data: Dict[str, Any]) -> float:
-        """
-        Oblicza wynik priorytetu na podstawie typu klienta
-        
-        Args:
-            config (Dict[str, Any]): Konfiguracja kryterium typu klienta
-            product_data (Dict[str, Any]): Dane produktu
-            
-        Returns:
-            float: Wynik priorytetu typu klienta
-        """
-        customer_type = product_data.get('customer_type', '').lower()
-        
-        # Mapowanie typów klientów na wyniki
-        type_scores = config.get('type_scores', {
-            'vip': 100,
-            'premium': 80,
-            'partner': 70,
-            'hurtowy': 60,
-            'detaliczny': 50,
-            'standard': 40
-        })
-        
-        base_score = config.get('base_score', 50)
-        
-        for type_key, score in type_scores.items():
-            if type_key in customer_type:
-                return score
-        
-        return base_score
+            return 100
     
     def calculate_priorities_batch(self, products_data: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
         """
-        Oblicza priorytety dla wielu produktów jednocześnie
+        KOMPATYBILNOŚĆ: Oblicza priorytety dla wielu produktów
+        
+        W nowym systemie wywołuje pełne przeliczenie dla wszystkich produktów
+        i zwraca wyniki dla requested products.
         
         Args:
-            products_data (List[Dict[str, Any]]): Lista danych produktów
+            products_data: Lista danych produktów
             
         Returns:
             List[Tuple[str, int]]: Lista (product_id, priority_score)
         """
-        results = []
-        
-        for product_data in products_data:
-            try:
-                product_id = product_data.get('short_product_id', 'unknown')
-                priority = self.calculate_priority(product_data)
-                results.append((product_id, priority))
+        try:
+            # Wywołaj pełne przeliczenie priorytetów
+            result = self.recalculate_all_priorities()
+            
+            if not result['success']:
+                logger.error("Batch priority calculation failed")
+                return [(p.get('short_product_id', 'unknown'), 100) for p in products_data]
+            
+            # Pobierz zaktualizowane priority scores
+            from ..models import ProductionItem
+            results = []
+            
+            for product_data in products_data:
+                product_id = product_data.get('short_product_id')
+                if not product_id:
+                    results.append(('unknown', 100))
+                    continue
                 
-            except Exception as e:
-                product_id = product_data.get('short_product_id', 'unknown')
-                logger.error("Błąd obliczania priorytetu w batch", extra={
-                    'product_id': product_id,
-                    'error': str(e)
-                })
-                results.append((product_id, 100))  # Domyślny priorytet
-        
-        logger.info("Obliczono priorytety batch", extra={
-            'products_count': len(products_data),
-            'success_count': len(results)
-        })
-        
-        return results
+                product = ProductionItem.query.filter_by(short_product_id=product_id).first()
+                priority_score = product.priority_score if product else 100
+                results.append((product_id, priority_score))
+            
+            return results
+            
+        except Exception as e:
+            logger.error("Błąd batch priority calculation", extra={'error': str(e)})
+            return [(p.get('short_product_id', 'unknown'), 100) for p in products_data]
     
     def invalidate_cache(self):
-        """Invaliduje cache konfiguracji priorytetów"""
-        with self._lock:
-            self._config_cache = None
-            self._cache_timestamp = None
-            
-        logger.info("Invalidated priority config cache")
+        """KOMPATYBILNOŚĆ: W nowym systemie nie ma cache do invalidacji"""
+        logger.debug("Cache invalidation - no-op w nowym systemie")
+        pass
     
     def get_criteria_weights(self) -> Dict[str, int]:
         """
-        Pobiera aktualne wagi kryteriów
+        KOMPATYBILNOŚĆ: Zwraca nowe "wagi" algorytmu
         
         Returns:
-            Dict[str, int]: Słownik nazwa_kryterium -> waga_procentowa
+            Dict[str, int]: Pseudowagi dla kompatybilności
         """
-        config = self._get_criteria_config()
-        return {name: criteria.get('weight', 0) for name, criteria in config.items()}
+        return {
+            'payment_date': 100,  # Główne kryterium
+            'weekly_grouping': 100,
+            'frequency_analysis': 100,
+            'manual_overrides': 100
+        }
     
     def simulate_priority_calculation(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Symuluje obliczenie priorytetu z szczegółami dla debugowania
+        KOMPATYBILNOŚĆ: Symulacja obliczenia priorytetu
         
-        Args:
-            product_data (Dict[str, Any]): Dane produktu
-            
         Returns:
-            Dict[str, Any]: Szczegółowe informacje o obliczeniu priorytetu
+            Dict[str, Any]: Informacje o nowym algorytmie
         """
-        criteria_config = self._get_criteria_config()
+        product_id = product_data.get('short_product_id', 'unknown')
         
-        simulation = {
-            'product_id': product_data.get('short_product_id', 'unknown'),
-            'final_priority': 0,
-            'criteria_breakdown': {},
-            'total_weight': 0,
-            'warnings': []
+        return {
+            'product_id': product_id,
+            'algorithm_version': '2.0',
+            'algorithm_type': 'payment_date_weekly_grouping',
+            'final_priority': self.calculate_priority(product_data),
+            'criteria_breakdown': {
+                'payment_date': 'Primary sorting key',
+                'weekly_grouping': 'Products grouped by week',
+                'frequency_analysis': 'Species/finish/thickness/class frequency',
+                'sequential_ranking': 'Numbers 1,2,3,4... assigned'
+            },
+            'notes': [
+                'Nowy algorytm nie używa wag procentowych',
+                'Priorytety obliczane globalnie dla wszystkich produktów',
+                'Sortowanie: payment_date → species → thickness → finish → wood_class',
+                'Manual overrides są respektowane'
+            ]
         }
-        
-        total_score = 0.0
-        total_weight = 0.0
-        
-        for criterion_name, criterion_config in criteria_config.items():
-            try:
-                criterion_score = self._calculate_criterion_score(
-                    criterion_name, criterion_config, product_data
-                )
-                
-                weight = criterion_config.get('weight', 0) / 100.0
-                weighted_score = criterion_score * weight
-                
-                total_score += weighted_score
-                total_weight += weight
-                
-                simulation['criteria_breakdown'][criterion_name] = {
-                    'raw_score': round(criterion_score, 2),
-                    'weight_percent': criterion_config.get('weight', 0),
-                    'weight_decimal': round(weight, 3),
-                    'weighted_score': round(weighted_score, 2),
-                    'config_used': criterion_config.get('config', {})
-                }
-                
-            except Exception as e:
-                simulation['warnings'].append(f"Błąd kryterium {criterion_name}: {str(e)}")
-        
-        if total_weight > 0:
-            final_score = total_score / total_weight
-        else:
-            final_score = 100
-            simulation['warnings'].append("Suma wag wynosi 0, użyto domyślnego priorytetu")
-        
-        simulation['final_priority'] = max(1, int(round(final_score)))
-        simulation['total_weight'] = round(total_weight * 100, 1)  # Procent
-        simulation['raw_total_score'] = round(total_score, 2)
-        
-        return simulation
 
-# Singleton instance dla globalnego dostępu
+# ============================================================================
+# BACKWARD COMPATIBILITY ALIAS - KRYTYCZNE DLA IMPORTÓW
+# ============================================================================
+
+# ALIAS dla zachowania kompatybilności z istniejącym kodem
+PriorityCalculator = NewPriorityCalculator
+
+logger.info("Utworzono alias PriorityCalculator -> NewPriorityCalculator dla backward compatibility")
+
+# ============================================================================
+# SINGLETON PATTERN - ZACHOWANY DLA KOMPATYBILNOŚCI
+# ============================================================================
+
 _priority_calculator_instance = None
 _calculator_lock = threading.Lock()
 
-def get_priority_calculator() -> PriorityCalculator:
+def get_priority_calculator() -> NewPriorityCalculator:
     """
-    Pobiera singleton instance PriorityCalculator
+    Pobiera singleton instance NewPriorityCalculator
     
     Returns:
-        PriorityCalculator: Instancja kalkulatora
+        NewPriorityCalculator: Instancja nowego kalkulatora
     """
     global _priority_calculator_instance
     
     if _priority_calculator_instance is None:
         with _calculator_lock:
             if _priority_calculator_instance is None:
-                _priority_calculator_instance = PriorityCalculator()
-                logger.info("Utworzono singleton PriorityCalculator")
+                _priority_calculator_instance = NewPriorityCalculator()
+                logger.info("Utworzono singleton NewPriorityCalculator v2.0")
     
     return _priority_calculator_instance
 
-# Funkcje pomocnicze
+# ============================================================================
+# HELPER FUNCTIONS - ZACHOWANE DLA KOMPATYBILNOŚCI
+# ============================================================================
+
 def calculate_priority(product_data: Dict[str, Any]) -> int:
-    """Helper function dla obliczania priorytetu"""
+    """Helper function dla obliczania priorytetu - KOMPATYBILNOŚĆ"""
     return get_priority_calculator().calculate_priority(product_data)
 
 def calculate_priorities_batch(products_data: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
-    """Helper function dla obliczania priorytetów batch"""
+    """Helper function dla obliczania priorytetów batch - KOMPATYBILNOŚĆ"""
     return get_priority_calculator().calculate_priorities_batch(products_data)
 
 def invalidate_priority_cache():
-    """Helper function dla invalidacji cache priorytetów"""
+    """Helper function dla invalidacji cache priorytetów - KOMPATYBILNOŚĆ"""
     get_priority_calculator().invalidate_cache()
 
 def simulate_priority_calculation(product_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Helper function dla symulacji obliczenia priorytetu"""
+    """Helper function dla symulacji obliczenia priorytetu - KOMPATYBILNOŚĆ"""
     return get_priority_calculator().simulate_priority_calculation(product_data)
+
+# ============================================================================
+# NOWE HELPER FUNCTIONS DLA ENHANCED PRIORITY SYSTEM 2.0
+# ============================================================================
+
+def recalculate_all_priorities() -> Dict[str, Any]:
+    """
+    Helper function dla pełnego przeliczenia wszystkich priorytetów
+    
+    Returns:
+        Dict[str, Any]: Raport z przeliczenia
+    """
+    return get_priority_calculator().recalculate_all_priorities()
+
+def get_priority_statistics() -> Dict[str, Any]:
+    """
+    Pobiera statystyki systemu priorytetów
+    
+    Returns:
+        Dict[str, Any]: Statystyki priorytetów
+    """
+    try:
+        from ..models import ProductionItem
+        
+        # Policz produkty w kolejce
+        active_count = ProductionItem.query.filter(
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie', 'czeka_na_skladanie', 
+                'czeka_na_pakowanie', 'w_realizacji'
+            ])
+        ).count()
+        
+        # Policz manual overrides
+        manual_overrides = ProductionItem.query.filter(
+            ProductionItem.priority_manual_override == True,
+            ProductionItem.current_status.in_([
+                'czeka_na_wyciecie', 'czeka_na_skladanie', 
+                'czeka_na_pakowanie', 'w_realizacji'
+            ])
+        ).count()
+        
+        # Ostatnia aktualizacja (najnowszy updated_at)
+        latest_update = ProductionItem.query.filter(
+            ProductionItem.priority_rank.isnot(None)
+        ).order_by(ProductionItem.updated_at.desc()).first()
+        
+        return {
+            'active_products_count': active_count,
+            'manual_overrides_count': manual_overrides,
+            'last_calculation': latest_update.updated_at if latest_update else None,
+            'algorithm_version': '2.0',
+            'algorithm_type': 'payment_date_weekly_grouping'
+        }
+        
+    except Exception as e:
+        logger.error("Błąd pobierania statystyk priorytetów", extra={'error': str(e)})
+        return {
+            'error': str(e),
+            'active_products_count': 0,
+            'manual_overrides_count': 0,
+            'last_calculation': None
+        }
