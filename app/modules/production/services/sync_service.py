@@ -663,7 +663,6 @@ class BaselinkerSyncService:
                 'internal_order_number': internal_order_number,
                 'original_product_name': original_product_name,
                 'product_sequence_in_order': sequence_number,
-                'quantity': quantity,
                 'unit_price_net': unit_price,
                 'total_value_net': unit_price * quantity,
             
