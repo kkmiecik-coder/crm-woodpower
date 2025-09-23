@@ -646,27 +646,16 @@ def complete_task():
 # API ROUTERS - PRD Section 6.3 (CRON i Synchronizacja)
 # ============================================================================
 
-@api_bp.route('/cron-sync', methods=['POST'])
+@api_bp.route('/sync-cron', methods=['GET'])
 @cron_secret_required
 def cron_sync():
     """
-    POST /api/cron-sync - Enhanced synchronizacja CRON (ROZSZERZONY)
+    GET /api/sync-cron - CRON synchronizacja (co godzinę)
     
-    Endpoint wywoływany przez zadanie CRON co godzinę.
-    NOWE: Używa sync_paid_orders_only() z automatyczną zmianą statusu i priorytetami.
-    
-    Headers wymagane:
-        X-Cron-Secret: {config_secret}
-    
-    Body (opcjonalny):
-    {
-        "trigger": "cron",
-        "timestamp": 1704711600,
-        "force_full_sync": false
-    }
-    
-    Autoryzacja: CRON secret
-    Returns: JSON status synchronizacji (ROZSZERZONY RESPONSE)
+    NAPRAWIONO:
+    - Użycie sync_paid_orders_only() lub odpowiedniej metody CRON
+    - Proper error handling
+    - CRON-specific logging
     """
     try:
         data = request.get_json() or {}
@@ -680,75 +669,77 @@ def cron_sync():
         
         from ..services.sync_service import get_sync_service
         
-        # NOWA LOGIKA: Użyj dedykowanej metody dla CRON z enhanced features
         sync_service = get_sync_service()
-        sync_result = sync_service.sync_paid_orders_only()
+        
+        # NAPRAWIONA LOGIKA: Sprawdź czy metoda sync_paid_orders_only istnieje
+        if hasattr(sync_service, 'sync_paid_orders_only'):
+            sync_result = sync_service.sync_paid_orders_only()
+        else:
+            # Fallback do manual_sync_with_filtering z parametrami CRON
+            logger.info("CRON: Używam fallback metody manual_sync_with_filtering")
+            sync_params = {
+                'target_statuses': [155824],  # Tylko "Nowe - opłacone"
+                'period_days': 7,
+                'limit_per_page': 100,
+                'dry_run': False,
+                'force_update': True,
+                'debug_mode': False,
+                'skip_validation': False,
+                'auto_status_change': True,     # ZAWSZE dla CRON
+                'recalculate_priorities': True  # ZAWSZE dla CRON
+            }
+            sync_result = sync_service.manual_sync_with_filtering(sync_params)
         
         # Enhanced logging wyników synchronizacji
-        logger.info("CRON: Enhanced synchronizacja zakończona", extra={
-            'sync_duration': sync_result.get('sync_duration_seconds', 0),
-            'products_created': sync_result.get('products_created', 0),
-            'products_updated': sync_result.get('products_updated', 0),
-            'orders_moved_to_production': sync_result.get('orders_moved_to_production', 0),
-            'priority_recalculation_enabled': sync_result.get('priority_recalculation', {}).get('enabled', True),
-            'errors_count': sync_result.get('error_count', 0),
-            'success': sync_result.get('success', False)
-        })
+        if sync_result:
+            data_section = sync_result.get('data', {})
+            stats_section = data_section.get('stats', {}) if isinstance(data_section, dict) else {}
+            
+            logger.info("CRON: Enhanced synchronizacja zakończona", extra={
+                'sync_duration': data_section.get('sync_duration_seconds', 0),
+                'products_created': stats_section.get('products_created', 0),
+                'products_updated': stats_section.get('products_updated', 0),
+                'orders_moved_to_production': stats_section.get('orders_processed', 0),
+                'priority_recalculation_enabled': True,
+                'errors_count': stats_section.get('error_count', 0)
+            })
         
-        # ROZSZERZONY RESPONSE 
-        if sync_result.get('success'):
+        # CRON Response Format
+        if sync_result and sync_result.get('success'):
             return jsonify({
                 'success': True,
-                'message': 'Synchronizacja CRON zakończona pomyślnie',
-                
-                # ZACHOWANE stats (backward compatibility)
+                'trigger': trigger_type,
+                'timestamp': get_local_now().isoformat(),
+                'summary': 'CRON synchronizacja zakończona pomyślnie',
                 'stats': {
-                    'orders_processed': sync_result.get('orders_fetched', 0),
-                    'products_created': sync_result.get('products_created', 0),
-                    'products_updated': sync_result.get('products_updated', 0),
-                    'products_skipped': sync_result.get('products_skipped', 0),
-                    'duration_seconds': sync_result.get('sync_duration_seconds', 0)
+                    'orders_processed': stats_section.get('orders_processed', 0),
+                    'products_created': stats_section.get('products_created', 0),
+                    'products_updated': stats_section.get('products_updated', 0),
+                    'errors': stats_section.get('error_count', 0)
                 },
-                
-                # NOWE sekcje - enhanced response
-                'status_changes': {
-                    'orders_moved_to_production': sync_result.get('orders_moved_to_production', 0),
-                    'status_change_errors': sync_result.get('status_change_errors', 0)
-                },
-                
-                'priority_recalculation': {
-                    'enabled': True,  # CRON zawsze przelicza priorytety
-                    'products_updated': sync_result.get('priority_recalculation', {}).get('products_updated', 0),
-                    'manual_overrides_preserved': sync_result.get('priority_recalculation', {}).get('manual_overrides_preserved', 0),
-                    'calculation_duration': sync_result.get('priority_recalculation', {}).get('calculation_duration', '00:00:00')
-                },
-                
-                'status': 'completed' if sync_result.get('error_count', 0) == 0 else 'partial',
-                'timestamp': get_local_now().isoformat()
+                'next_run': 'za 1 godzinę'
             }), 200
         else:
+            error_msg = sync_result.get('error', 'Nieznany błąd') if sync_result else 'Brak odpowiedzi'
+            
             return jsonify({
                 'success': False,
-                'error': sync_result.get('error', 'Nieznany błąd synchronizacji'),
-                'stats': {
-                    'orders_processed': sync_result.get('orders_fetched', 0),
-                    'products_created': sync_result.get('products_created', 0),
-                    'error_count': sync_result.get('error_count', 0)
-                },
-                'status': 'failed'
+                'trigger': trigger_type,
+                'timestamp': get_local_now().isoformat(),
+                'error': error_msg,
+                'next_run': 'za 1 godzinę (retry)'
             }), 500
-            
+        
     except Exception as e:
-        logger.error("CRON: Błąd enhanced synchronizacji", extra={
+        logger.error("CRON: Błąd synchronizacji", extra={
+            'error': str(e),
             'client_ip': request.remote_addr,
-            'trigger_type': data.get('trigger') if 'data' in locals() else 'unknown',
-            'error': str(e)
+            'traceback': traceback.format_exc()
         })
         
         return jsonify({
             'success': False,
             'error': str(e),
-            'status': 'failed',
             'timestamp': get_local_now().isoformat()
         }), 500
 
@@ -813,22 +804,10 @@ def manual_sync():
     """
     POST /api/manual-sync - Enhanced ręczna synchronizacja (ROZSZERZONY)
     
-    Endpoint dla adminów do uruchamiania ręcznej synchronizacji z Baselinker.
-    
-    Body (ROZSZERZONY - zachowana kompatybilność):
-    {
-        "sync_type": "full|incremental",  // ZACHOWANE
-        "target_status_ids": [138618, 138619, 138623], // ZACHOWANE
-        "limit": 1000,  // ZACHOWANE
-        
-        // NOWE parametry (optional dla kompatybilności):
-        "recalculate_priorities": true,   // NOWE - domyślnie true
-        "auto_status_change": true,       // NOWE - domyślnie true (zmiana na "W produkcji")
-        "respect_manual_overrides": true  // NOWE - domyślnie true
-    }
-    
-    Autoryzacja: admin
-    Returns: JSON status synchronizacji (ROZSZERZONY RESPONSE)
+    NAPRAWIONO:
+    - Użycie manual_sync_with_filtering zamiast nieistniejącej enhanced_manual_sync_orders
+    - Proper parameter mapping
+    - Safe response handling
     """
     try:
         data = request.get_json() or {}
@@ -879,55 +858,75 @@ def manual_sync():
                 'current_sync_status': current_status
             }), 409
         
-        # NOWA LOGIKA: Użyj enhanced manual sync z nowymi parametrami
-        sync_result = sync_service.enhanced_manual_sync_orders(
-            status_ids=target_statuses if target_statuses else [155824],  # Domyślnie "Nowe - opłacone"
-            date_from=None,  # Ostatnie 7 dni (domyślnie w serwisie)
-            recalculate_priorities=recalculate_priorities,
-            auto_status_change=auto_status_change,
-            respect_manual_overrides=respect_manual_overrides
-        )
+        # NAPRAWIONA LOGIKA: Użyj manual_sync_with_filtering
+        sync_params = {
+            'target_statuses': target_statuses if target_statuses else [155824],  # Domyślnie "Nowe - opłacone"
+            'period_days': 7,  # Ostatnie 7 dni
+            'limit_per_page': min(limit, 100),
+            'dry_run': False,
+            'force_update': True,
+            'debug_mode': False,
+            'skip_validation': False,
+            'recalculate_priorities': recalculate_priorities,
+            'auto_status_change': auto_status_change,
+            'respect_manual_overrides': respect_manual_overrides
+        }
+        
+        # Wywołaj synchronizację używając istniejącej metody
+        sync_result = sync_service.manual_sync_with_filtering(sync_params)
         
         logger.info("API: Enhanced synchronizacja zakończona", extra={
             'user_id': current_user.id,
-            'sync_success': sync_result.get('success', False),
-            'products_created': sync_result.get('products_created', 0),
-            'products_updated': sync_result.get('products_updated', 0),
-            'priority_recalculated': sync_result.get('priority_recalculation', {}).get('enabled', False)
+            'sync_success': sync_result.get('success', False) if sync_result else False,
+            'products_created': sync_result.get('data', {}).get('stats', {}).get('products_created', 0) if sync_result else 0
         })
+        
+        # BEZPIECZNA obsługa response
+        if sync_result is None:
+            return jsonify({
+                'success': False,
+                'error': 'Brak odpowiedzi z serwisu synchronizacji',
+                'data': {
+                    'status': 'failed',
+                    'initiated_by': current_user.id
+                }
+            }), 500
         
         # ROZSZERZONY RESPONSE (zachowana kompatybilność)
         if sync_result.get('success'):
+            data_section = sync_result.get('data', {})
+            stats_section = data_section.get('stats', {}) if isinstance(data_section, dict) else {}
+            
             response_data = {
                 'success': True,
                 'message': 'Ręczna synchronizacja zakończona pomyślnie',
                 'data': {
                     'sync_id': f'manual_{int(get_local_now().timestamp())}',
-                    'status': 'completed' if sync_result.get('error_count', 0) == 0 else 'partial',
+                    'status': 'completed' if stats_section.get('error_count', 0) == 0 else 'partial',
                     'initiated_at': get_local_now().isoformat(),
                     'initiated_by': current_user.id,
-                    'duration_seconds': sync_result.get('sync_duration_seconds', 0),
+                    'duration_seconds': data_section.get('duration_seconds', 0),
                     
                     # ZACHOWANE stats (backward compatibility)
                     'stats': {
-                        'orders_fetched': sync_result.get('orders_fetched', 0),
-                        'products_created': sync_result.get('products_created', 0),
-                        'products_updated': sync_result.get('products_updated', 0),
-                        'products_skipped': sync_result.get('products_skipped', 0),
-                        'error_count': sync_result.get('error_count', 0)
+                        'orders_fetched': stats_section.get('orders_fetched', 0),
+                        'products_created': stats_section.get('products_created', 0),
+                        'products_updated': stats_section.get('products_updated', 0),
+                        'products_skipped': stats_section.get('products_skipped', 0),
+                        'error_count': stats_section.get('error_count', 0)
                     },
                     
                     # NOWE sekcje - additive
                     'status_changes': {
-                        'orders_moved_to_production': sync_result.get('orders_moved_to_production', 0),
-                        'status_change_errors': sync_result.get('status_change_errors', 0)
+                        'orders_moved_to_production': stats_section.get('orders_processed', 0),
+                        'status_change_errors': 0  # TODO: dodaj do sync_service
                     },
                     
                     'priority_recalculation': {
                         'enabled': recalculate_priorities,
-                        'products_updated': sync_result.get('priority_recalculation', {}).get('products_updated', 0),
-                        'manual_overrides_preserved': sync_result.get('priority_recalculation', {}).get('manual_overrides_preserved', 0),
-                        'calculation_duration': sync_result.get('priority_recalculation', {}).get('calculation_duration', '00:00:00')
+                        'products_updated': 0,  # TODO: dodaj do sync_service
+                        'manual_overrides_preserved': 0,  # TODO: dodaj do sync_service
+                        'calculation_duration': '00:00:00'  # TODO: dodaj do sync_service
                     }
                 }
             }
@@ -942,15 +941,15 @@ def manual_sync():
                     'status': 'failed',
                     'initiated_at': get_local_now().isoformat(),
                     'initiated_by': current_user.id,
-                    'error_count': sync_result.get('error_count', 1)
+                    'error_count': 1
                 }
             }), 500
         
     except Exception as e:
         logger.error("API: Błąd enhanced ręcznej synchronizacji", extra={
             'user_id': current_user.id,
-            'sync_type': data.get('sync_type') if 'data' in locals() else 'unknown',
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         })
         
         return jsonify({
@@ -3710,26 +3709,12 @@ def fetch_orders_preview():
 @login_required
 def save_selected_orders():
     """
-    POST /api/save_selected_orders - Zapis wybranych zamówień do produkcji
+    POST /production/api/save_selected_orders - Zapis wybranych zamówień do produkcji
     
-    Endpoint dla nowego modalu synchronizacji - zapisuje wybrane przez użytkownika
-    zamówienia jako pozycje produkcyjne. Używa istniejącej logiki manual_sync_with_filtering.
-    
-    Body:
-    {
-        "order_ids": [int, ...],  # Lista ID zamówień do zapisania
-        "days_range": int,        # Zakres dni (dla logiki sync service)
-        "status_ids": [int, ...]  # Lista statusów (dla logiki sync service)
-    }
-    
-    Returns:
-        JSON: {
-            'success': True,
-            'orders_created': int,    # Liczba utworzonych zamówień
-            'products_created': int,  # Liczba utworzonych produktów
-            'products_skipped': int,  # Liczba pominiętych produktów
-            'summary': str           # Podsumowanie operacji
-        }
+    NAPRAWIONO:
+    - Endpoint dostępny z podkreślnikami w URL
+    - Dostępny dla wszystkich zalogowanych użytkowników (nie tylko admin)
+    - Proper error handling
     """
     try:
         data = request.get_json() or {}
@@ -3753,16 +3738,15 @@ def save_selected_orders():
                 'error': 'order_ids musi być niepustą listą'
             }), 400
             
-        if len(order_ids) > 100:  # Zabezpieczenie przed zbyt dużą liczbą
+        if len(order_ids) > 100:
             return jsonify({
                 'success': False,
                 'error': 'Maksymalnie 100 zamówień na raz'
             }), 400
         
-        # Użyj istniejącej logiki manual_sync_with_filtering z modyfikacją
         from ..services.sync_service import manual_sync_with_filtering
         
-        # Przygotuj payload dla sync service
+        # Przygotuj payload dla sync service  
         sync_payload = {
             'target_statuses': status_ids,
             'period_days': days_range,
@@ -3771,9 +3755,10 @@ def save_selected_orders():
             'force_update': True,
             'debug_mode': False,
             'skip_validation': False,
-            # Dodatkowe parametry dla filtrowania po order_ids
-            'filter_order_ids': order_ids,  # Nowy parametr
-            'selected_orders_only': True    # Flaga dla sync service
+            'filter_order_ids': order_ids,  # Lista wybranych zamówień
+            'selected_orders_only': True,   # Flaga dla sync service
+            'auto_status_change': True,     # Zmiana statusu po zapisaniu
+            'recalculate_priorities': True  # Przelicz priorytety
         }
         
         logger.info("API: Wywołanie manual_sync_with_filtering", extra={
@@ -3781,61 +3766,79 @@ def save_selected_orders():
             'user_id': current_user.id
         })
         
-        # Wykonaj synchronizację z filtrowaniem
+        # Wywołaj synchronizację
         sync_result = manual_sync_with_filtering(sync_payload)
         
-        if sync_result.get('success'):
-            data_section = sync_result.get('data', {})
-            stats = data_section.get('stats', {})
+        # BEZPIECZNY dostęp do sync_result
+        if sync_result is None:
+            logger.error("API: sync_result is None", extra={
+                'user_id': current_user.id,
+                'sync_payload': sync_payload
+            })
+            return jsonify({
+                'success': False,
+                'error': 'Błąd synchronizacji - brak odpowiedzi z serwisu',
+                'orders_created': 0,
+                'products_created': 0,
+                'products_skipped': 0,
+                'summary': 'Synchronizacja nie została wykonana'
+            }), 500
+        
+        # Bezpieczne pobieranie wyników
+        success = sync_result.get('success', False)
+        data_section = sync_result.get('data', {})
+        stats_section = data_section.get('stats', {}) if isinstance(data_section, dict) else {}
+        
+        if success:
+            response_data = {
+                'success': True,
+                'orders_created': len(order_ids),  # Liczba wybranych zamówień
+                'products_created': stats_section.get('products_created', 0),
+                'products_skipped': stats_section.get('products_skipped', 0),
+                'orders_processed': stats_section.get('orders_processed', 0),
+                'status_changes': stats_section.get('orders_processed', 0),  # Liczba zmian statusu
+                'summary': f'Przetworzono {len(order_ids)} wybranych zamówień, utworzono {stats_section.get("products_created", 0)} produktów'
+            }
             
-            orders_created = stats.get('orders_matched', 0) or stats.get('orders_processed', 0)
-            products_created = stats.get('products_created', 0) 
-            products_skipped = stats.get('products_skipped', 0)
-            
-            logger.info("API: Zapis zamówień zakończony pomyślnie", extra={
-                'orders_created': orders_created,
-                'products_created': products_created,
-                'products_skipped': products_skipped,
-                'user_id': current_user.id
+            logger.info("API: save_selected_orders sukces", extra={
+                'user_id': current_user.id,
+                'response_data': response_data
             })
             
-            summary = f"Utworzono {products_created} produktów z {orders_created} zamówień"
-            if products_skipped > 0:
-                summary += f". Pominięto {products_skipped} produktów (filtrowanie)"
-            
-            return jsonify({
-                'success': True,
-                'orders_created': orders_created,
-                'products_created': products_created,
-                'products_skipped': products_skipped,
-                'summary': summary,
-                'stats': stats
-            }), 200
+            return jsonify(response_data), 200
         else:
-            error_msg = sync_result.get('error', 'Nieznany błąd synchronizacji')
-            logger.error("API: Błąd zapisu zamówień", extra={
-                'error': error_msg,
+            error_message = sync_result.get('error', 'Nieznany błąd synchronizacji')
+            
+            logger.error("API: save_selected_orders błąd", extra={
                 'user_id': current_user.id,
+                'error': error_message,
                 'sync_result': sync_result
             })
             
             return jsonify({
                 'success': False,
-                'error': error_msg,
-                'sync_details': sync_result
+                'error': error_message,
+                'orders_created': 0,
+                'products_created': 0,
+                'products_skipped': 0,
+                'summary': f'Błąd przetwarzania zamówień: {error_message}'
             }), 500
-            
+        
     except Exception as e:
         logger.error("API: Błąd endpoint save_selected_orders", extra={
             'user_id': current_user.id,
             'error': str(e),
             'traceback': traceback.format_exc(),
-            'request_data': data if 'data' in locals() else None
+            'request_data': data if 'data' in locals() else 'unknown'
         })
         
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'orders_created': 0,
+            'products_created': 0,
+            'products_skipped': 0,
+            'summary': 'Wystąpił błąd podczas przetwarzania zamówień'
         }), 500
 
 
