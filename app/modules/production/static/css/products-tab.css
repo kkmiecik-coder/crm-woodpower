@@ -2364,12 +2364,3 @@
 .modal-content-transition {
     transition: opacity 0.2s ease;
 }
-
-/* Debug - tymczasowo dodaj border żeby zobaczyć gdzie jest overlay */
-.modal-loading-overlay {
-    border: 2px solid red; /* USUŃ to po sprawdzeniu */
-}
-
-.modal-loading-content {
-    border: 2px solid blue; /* USUŃ to po sprawdzeniu */
-}
