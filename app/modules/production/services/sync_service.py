@@ -546,18 +546,15 @@ class BaselinkerSyncService:
 
     def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None) -> Optional['ProductionItem']:
         """
-        POPRAWIONA wersja: Tworzy ProductionItem z PRAWIDŁOWYM generowaniem Product ID
+        PRZEPISANA: Używa poprawionych metod extract_client_data() i _prepare_product_data_enhanced()
     
-        NAPRAWIONO:
-        - Import parsera z parser_service zamiast product_name_parser  
-        - Bezpieczny dostęp do wszystkich pól
-        - GENEROWANIE PRODUCT ID przez ProductIDGenerator zamiast pobierania z Baselinker
+        GŁÓWNA ZMIANA: Zamiast własnej logiki, używa już istniejących poprawionych metod
         """
         try:
             from ..models import ProductionItem
             from ..services.parser_service import ProductNameParser
             from ..services.id_generator import ProductIDGenerator
-    
+        
             # BEZPIECZNE pobieranie podstawowych pól
             if not isinstance(product_data, dict):
                 logger.error("ENHANCED: product_data nie jest dict", extra={'product_data_type': type(product_data)})
@@ -566,74 +563,49 @@ class BaselinkerSyncService:
             if not isinstance(order_data, dict):
                 logger.error("ENHANCED: order_data nie jest dict", extra={'order_data_type': type(order_data)})
                 return None
-    
-            # Pobierz nazwę produktu bezpiecznie
-            original_product_name = None
-            possible_name_fields = ['name', 'product_name', 'title', 'description']
-            for field in possible_name_fields:
-                if field in product_data and product_data[field]:
-                    original_product_name = str(product_data[field]).strip()
-                    break
-    
+        
+            # Pobierz nazwę produktu
+            original_product_name = product_data.get('name', '').strip()
             if not original_product_name:
                 logger.error("ENHANCED: Brak nazwy produktu", extra={'product_data_keys': list(product_data.keys())})
                 return None
-    
-            # BEZPIECZNE parsowanie nazwy produktu
-            parsed_data = {}
+        
+            # Pobierz order_id
+            order_id = order_data.get('order_id') or order_data.get('id')
+            if not order_id:
+                logger.error("ENHANCED: Brak order_id", extra={'order_data_keys': list(order_data.keys())})
+                return None
+        
+            # ✅ NOWE: Parsowanie nazwy produktu
             try:
                 parser = ProductNameParser()
-                parse_result = parser.parse_product_name(original_product_name)
-        
-                # BEZPIECZNY dostęp do wyników parsowania
-                if isinstance(parse_result, dict):
-                    parsed_data = {
-                        'species': parse_result.get('wood_species'),
-                        'technology': parse_result.get('technology'),  
-                        'wood_class': parse_result.get('wood_class'),
-                        'length_cm': self._safe_float_conversion(parse_result.get('length_cm')),
-                        'width_cm': self._safe_float_conversion(parse_result.get('width_cm')),
-                        'thickness_cm': self._safe_float_conversion(parse_result.get('thickness_cm')),
-                        'finish_state': parse_result.get('finish_state')
-                    }
-            
-                    logger.debug("ENHANCED: Produkt sparsowany pomyślnie", extra={
-                        'original_name': original_product_name[:50],
-                        'parsed_species': parsed_data.get('species'),
-                        'parsed_dimensions': f"{parsed_data.get('width_cm')}x{parsed_data.get('thickness_cm')}x{parsed_data.get('length_cm')}"
-                    })
-                else:
-                    logger.warning("ENHANCED: Parser zwrócił nieprawidłowy format", extra={
-                        'parse_result_type': type(parse_result),
-                        'original_name': original_product_name[:50]
-                    })
-                    parsed_data = {}
-            
+                parsed_data = parser.parse_product_name(original_product_name)
             except Exception as parse_error:
-                logger.error("ENHANCED: Błąd parsowania nazwy produktu", extra={
-                    'original_name': original_product_name[:50],
+                logger.warning("ENHANCED: Błąd parsowania nazwy", extra={
+                    'product_name': original_product_name[:50],
                     'error': str(parse_error)
                 })
                 parsed_data = {}
         
-            # Pobierz podstawowe dane zamówienia
-            order_id = order_data.get('order_id') or order_data.get('id')
-            internal_order_number = order_data.get('internal_order_number', f"BL_{order_id}")
+            # ✅ NOWE: Używaj poprawionej metody extract_client_data()
+            client_data = self.extract_client_data(order_data)
         
+            # ✅ NOWE: Używaj poprawionej metody _calculate_deadline_date()
+            deadline_date = self._calculate_deadline_date(order_data)
+        
+            # ✅ NOWE: Generuj Product ID przez ProductIDGenerator
             try:
-                # Wygeneruj nowe Product ID w formacie YY_NNNNN_S
                 id_generation_result = ProductIDGenerator.generate_product_id_for_order(
                     baselinker_order_id=order_id,
-                    total_products_count=1  # Tworzymy pojedynczy produkt
+                    total_products_count=1  # Jeden produkt na wywołanie
                 )
             
-                product_id_value = id_generation_result['product_ids'][0]  # Pierwszy (i jedyny) ID
-                internal_order_number = id_generation_result['internal_order_number']
+                product_id = id_generation_result['product_ids'][0]
             
                 logger.debug("ENHANCED: Wygenerowano Product ID", extra={
                     'order_id': order_id,
-                    'generated_product_id': product_id_value,
-                    'internal_order_number': internal_order_number
+                    'product_id': product_id,
+                    'internal_order_number': id_generation_result['internal_order_number']
                 })
             
             except Exception as id_error:
@@ -643,78 +615,30 @@ class BaselinkerSyncService:
                 })
                 return None
         
-            # Sprawdź format wygenerowanego ID
-            if not ProductIDGenerator.validate_product_id_format(product_id_value):
-                logger.error("ENHANCED: Wygenerowane ID ma nieprawidłowy format", extra={
-                    'product_id': product_id_value,
-                    'order_id': order_id
-                })
-                return None
+            # ✅ GŁÓWNA ZMIANA: Używaj poprawionej metody _prepare_product_data_enhanced()
+            product_data_dict = self._prepare_product_data_enhanced(
+                order=order_data,
+                product=product_data,
+                product_id=product_id,
+                id_result=id_generation_result,
+                parsed_data=parsed_data,
+                client_data=client_data,
+                deadline_date=deadline_date,
+                order_product_id=product_data.get('order_product_id'),
+                sequence_number=1,  # Jeden produkt = sequence 1
+                payment_date=payment_date
+            )
         
-            # Wylicz thickness_group na podstawie parsed thickness
-            thickness_group = None
-            if parsed_data.get('thickness_cm'):
-                thickness = parsed_data['thickness_cm']
-                if thickness <= 2.5:
-                    thickness_group = "0-2.5"
-                elif thickness <= 3.5:
-                    thickness_group = "2.6-3.5"
-                elif thickness <= 4.5:
-                    thickness_group = "3.6-4.5"
-                else:
-                    thickness_group = "4.6+"
-        
-            # Przygotuj dane finansowe
-            unit_price = self._safe_float_conversion(product_data.get('unit_price', 0))
-            quantity = max(1, int(product_data.get('quantity', 1)))
-        
-            # Bezpiecznie pobierz sequence number
-            sequence_number = product_data.get('sequence', 1)
-            if not isinstance(sequence_number, int):
-                try:
-                    sequence_number = int(sequence_number)
-                except (ValueError, TypeError):
-                    sequence_number = 1
-        
-            # Utworz ProductionItem z wszystkimi polami
-            product_item_data = {
-                'short_product_id': product_id_value,
-                'baselinker_order_id': order_id,
-                'internal_order_number': internal_order_number,
-                'original_product_name': original_product_name,
-                'product_sequence_in_order': sequence_number,
-                'unit_price_net': unit_price,
-                'total_value_net': unit_price * quantity,
-            
-                # Parsed data
-                'parsed_wood_species': parsed_data.get('species'),
-                'parsed_technology': parsed_data.get('technology'),
-                'parsed_wood_class': parsed_data.get('wood_class'),
-                'parsed_length_cm': parsed_data.get('length_cm'),
-                'parsed_width_cm': parsed_data.get('width_cm'),
-                'parsed_thickness_cm': parsed_data.get('thickness_cm'),
-                'parsed_finish_state': parsed_data.get('finish_state'),
-            
-                # ENHANCED fields
-                'payment_date': payment_date,
-                'thickness_group': thickness_group,
-                'priority_manual_override': False,
-            
-                # Default values
-                'current_status': 'czeka_na_wyciecie',
-                'priority_score': 100,
-                'created_at': get_local_now(),
-                'updated_at': get_local_now()
-            }
-        
-            production_item = ProductionItem(**product_item_data)
+            # Stwórz obiekt ProductionItem z przygotowanych danych
+            production_item = ProductionItem(**product_data_dict)
         
             logger.debug("ENHANCED: Utworzono ProductionItem", extra={
-                'product_id': product_id_value,
+                'product_id': product_id,
                 'order_id': order_id,
-                'species': parsed_data.get('species'),
-                'payment_date': payment_date.isoformat() if payment_date else None,
-                'thickness_group': thickness_group
+                'client_name': product_data_dict.get('client_name'),
+                'unit_price_net': product_data_dict.get('unit_price_net'),
+                'volume_m3': product_data_dict.get('volume_m3'),
+                'deadline_date': product_data_dict.get('deadline_date').isoformat() if product_data_dict.get('deadline_date') else None
             })
         
             return production_item
@@ -722,7 +646,8 @@ class BaselinkerSyncService:
         except Exception as e:
             logger.error("ENHANCED: Błąd tworzenia produktu", extra={
                 'error': str(e),
-                'original_name': original_product_name if 'original_product_name' in locals() else 'unknown'
+                'order_id': order_data.get('order_id') if isinstance(order_data, dict) else 'unknown',
+                'product_name': product_data.get('name') if isinstance(product_data, dict) else 'unknown'
             })
             return None
 
@@ -1178,84 +1103,61 @@ class BaselinkerSyncService:
         return results
 
     def _prepare_product_data_enhanced(self, order: Dict[str, Any], product: Dict[str, Any], 
-                                     product_id: str, id_result: Dict[str, Any], 
-                                     parsed_data: Dict[str, Any], client_data: Dict[str, str],
-                                     deadline_date: date, order_product_id: Any,
-                                     sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
-        """
-        ENHANCED WERSJA: Przygotowuje dane produktu z payment_date
-        
-        Args:
-            payment_date: NOWE - data opłacenia z extraction
-        """
-        # Podstawowe dane
-        order_status = order.get('order_status_id')
-        if order_status is None:
-            order_status = order.get('status_id')
-
-        if isinstance(order_status, str) and order_status.strip():
-            try:
-                order_status = int(float(order_status))
-            except (TypeError, ValueError):
-                pass
-
-        order_product_identifier = (
-            order_product_id
-            or product.get('order_product_id')
-            or product.get('product_id')
-            or product.get('id')
-            or product.get('storage_product_id')
-        )
-
+                             product_id: str, id_result: Dict[str, Any], 
+                             parsed_data: Dict[str, Any], client_data: Dict[str, str],
+                             deadline_date: date, order_product_id: Any,
+                             sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
+        """POPRAWIONA: Przygotowuje dane produktu ze wszystkimi brakującymi polami"""
+    
+        # Podstawowe dane  
         product_data = {
             'short_product_id': product_id,
             'internal_order_number': id_result['internal_order_number'],
             'product_sequence_in_order': sequence_number,
             'baselinker_order_id': order['order_id'],
-            'baselinker_product_id': str(order_product_identifier) if order_product_identifier else None,
+            'baselinker_product_id': str(order_product_id) if order_product_id else None,
             'original_product_name': product.get('name', ''),
-            'baselinker_status_id': order_status,
-            
-            # NOWE: Payment date dla nowego algorytmu priorytetów
+            'baselinker_status_id': order.get('order_status_id'),
+        
             'payment_date': payment_date,
-            
-            # Dane klienta
+        
+            # ✅ NAPRAWIONE: Mapowanie danych klienta z client_data
             'client_name': client_data.get('client_name', ''),
             'client_email': client_data.get('client_email', ''),
             'client_phone': client_data.get('client_phone', ''),
             'delivery_address': client_data.get('delivery_address', ''),
-            
-            # Deadline
+        
             'deadline_date': deadline_date,
-            
+        
             # Status początkowy
             'current_status': 'czeka_na_wyciecie',
             'sync_source': 'baselinker_auto'
         }
-        
+    
+        # ✅ NAPRAWIONE: Obliczenie days_until_deadline
+        if deadline_date:
+            today = date.today()
+            days_until = (deadline_date - today).days
+            product_data['days_until_deadline'] = days_until
+    
         # Dane sparsowane z nazwy produktu
         if parsed_data:
+            # ✅ NAPRAWIONE: Prawidłowe obliczenie volume_m3
             volume_m3 = parsed_data.get('volume_m3')
-            if volume_m3 is None:
-                length = parsed_data.get('length_cm')
-                width = parsed_data.get('width_cm')
-                thickness = parsed_data.get('thickness_cm')
+            if volume_m3 is None and all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_cm']):
                 try:
-                    if all(value is not None for value in (length, width, thickness)):
-                        volume_m3 = round((float(length) * float(width) * float(thickness)) / 1_000_000, 6)
-                except (TypeError, ValueError):
+                    length = float(parsed_data['length_cm'])
+                    width = float(parsed_data['width_cm'])
+                    thickness = float(parsed_data['thickness_cm'])
+                    volume_m3 = (length * width * thickness) / 1_000_000
+                    logger.debug("Obliczono volume_m3 z wymiarów", extra={
+                        'length': length, 'width': width, 'thickness': thickness,
+                        'volume_m3': volume_m3
+                    })
+                except (TypeError, ValueError) as e:
+                    logger.warning("Błąd obliczania volume_m3", extra={'error': str(e)})
                     volume_m3 = None
-
-            logger.info("🐛 DEBUG: Obliczanie objętości produktu", extra={
-                'order_id': order['order_id'],
-                'product_name': product.get('name', ''),
-                'parsed_length_cm': parsed_data.get('length_cm') if parsed_data else None,
-                'parsed_width_cm': parsed_data.get('width_cm') if parsed_data else None,
-                'parsed_thickness_cm': parsed_data.get('thickness_cm') if parsed_data else None,
-                'calculated_volume_m3': volume_m3,
-                'parsed_volume_m3': parsed_data.get('volume_m3') if parsed_data else None
-            })
-
+        
             product_data.update({
                 'parsed_wood_species': parsed_data.get('wood_species'),
                 'parsed_technology': parsed_data.get('technology'),
@@ -1266,40 +1168,54 @@ class BaselinkerSyncService:
                 'parsed_finish_state': parsed_data.get('finish_state'),
                 'volume_m3': volume_m3
             })
-        
-        extra_fields = order.get('custom_extra_fields', {})
-        price_type_field = extra_fields.get('106169') or extra_fields.get(106169)
-        
-        logger.info("🐛 DEBUG: Analiza cen i konwersji", extra={
-            'order_id': order['order_id'],
-            'extra_field_106169': price_type_field,
-            'product_price_brutto': product.get('price_brutto'),
-            'product_price_single': product.get('price_single'),
-            'product_price': product.get('price'),
-            'product_tax_rate': product.get('tax_rate'),
-            'product_quantity': product.get('quantity'),
-            'all_extra_fields': list(extra_fields.keys()) if extra_fields else None
-        })
-
-        # Dane finansowe
+    
+        # ✅ NAPRAWIONE: Logika konwersji cen identyczna jak w reports/service.py
         try:
             price_brutto = float(product.get('price_brutto', 0))
             tax_rate = float(product.get('tax_rate', 23))
-            
-            price_netto = price_brutto / (1 + tax_rate/100) if tax_rate > 0 else price_brutto
-            product_quantity = self._coerce_quantity(product.get('quantity', 1))
-            unit_price = price_netto / product_quantity if product_quantity > 0 else price_netto
-            
-            product_data.update({
-                'unit_price_net': round(unit_price, 2),
-                'total_value_net': round(unit_price, 2)
-            })
-        except (ValueError, TypeError):
-            product_data.update({
-                'unit_price_net': 0,
-                'total_value_net': 0
+            quantity = int(product.get('quantity', 1))
+        
+            # Sprawdź typ ceny z extra_field_106169
+            custom_fields = order.get('custom_extra_fields', {}) or {}
+            price_type = custom_fields.get('106169', '').strip().lower() if custom_fields else ''
+        
+            logger.debug("Konwersja cen produktu", extra={
+                'order_id': order['order_id'],
+                'price_brutto': price_brutto,
+                'tax_rate': tax_rate,
+                'quantity': quantity,
+                'price_type_from_api': price_type,
+                'custom_fields_exists': bool(custom_fields)
             })
         
+            # Konwersja na netto według logiki z reports/service.py
+            if price_type == 'netto':
+                # Cena już jest netto
+                price_netto = price_brutto
+            else:
+                # Domyślnie traktuj jako brutto (jeśli brak info lub brutto)
+                price_netto = price_brutto / (1 + tax_rate/100)
+        
+            # Cena jednostkowa (za 1 sztukę) - ważne: jeden rekord = jedna sztuka
+            unit_price_net = price_netto / quantity if quantity > 0 else price_netto
+            total_value_net = unit_price_net  # Jeden rekord = jedna sztuka
+        
+            product_data.update({
+                'unit_price_net': round(unit_price_net, 2),
+                'total_value_net': round(total_value_net, 2)
+            })
+        
+        except (ValueError, TypeError) as e:
+            logger.error("Błąd konwersji cen", extra={
+                'order_id': order['order_id'],
+                'product_name': product.get('name', ''),
+                'error': str(e)
+            })
+            product_data.update({
+                'unit_price_net': 0.0,
+                'total_value_net': 0.0
+            })
+    
         return product_data
 
     # ============================================================================
@@ -2269,471 +2185,6 @@ class BaselinkerSyncService:
             })
             raise
 
-    def _process_single_order_with_full_debug(self, order: Dict[str, Any], products: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, Any]:
-        """
-        Wersja _process_single_order z pełnym debugowaniem
-        """
-        results = {
-            'created': 0,
-            'updated': 0,
-            'errors': 0,
-            'error_details': []
-        }
-
-        baselinker_order_id = order['order_id']
-        
-        logger.info("🔍 DEBUG: Rozpoczęcie przetwarzania zamówienia", extra={
-            'baselinker_order_id': baselinker_order_id,
-            'products_count': len(products),
-            'dry_run': dry_run
-        })
-
-        try:
-            from ..services.id_generator import ProductIDGenerator
-            from ..services.parser_service import get_parser_service
-            from ..services.priority_service import get_priority_calculator
-            from ..models import ProductionItem
-
-            # DEBUG: Sprawdź stan bazy przed rozpoczęciem
-            existing_count = ProductionItem.query.count()
-            logger.info("🔍 DEBUG: Stan bazy przed przetwarzaniem", extra={
-                'total_records_in_db': existing_count,
-                'baselinker_order_id': baselinker_order_id
-            })
-            
-            # DEBUG: Sprawdź czy to zamówienie już istnieje
-            existing_for_order = ProductionItem.query.filter_by(
-                baselinker_order_id=baselinker_order_id
-            ).all()
-            
-            if existing_for_order:
-                logger.warning("🚨 DEBUG: Zamówienie już istnieje w bazie!", extra={
-                    'baselinker_order_id': baselinker_order_id,
-                    'existing_records': len(existing_for_order),
-                    'existing_ids': [item.short_product_id for item in existing_for_order]
-                })
-                # Wyjdź z funkcji, nie przetwarzaj ponownie
-                return results
-
-            # KROK 1: Przygotowanie wspólnych danych dla zamówienia
-            client_data = self._extract_client_data(order)
-            deadline_date = self._calculate_deadline_date(order)
-
-            # KROK 2: DEBUG - Szczegółowa analiza produktów
-            logger.info("🔍 DEBUG: Analiza produktów w zamówieniu", extra={
-                'baselinker_order_id': baselinker_order_id
-            })
-            
-            total_products_count = 0
-            products_breakdown = []
-            
-            for i, product in enumerate(products):
-                quantity = self._coerce_quantity(product.get('quantity', 1))
-                total_products_count += quantity
-                
-                product_breakdown = {
-                    'index': i,
-                    'name': product.get('name', '')[:50],
-                    'quantity': quantity,
-                    'baselinker_product_id': product.get('order_product_id')
-                }
-                products_breakdown.append(product_breakdown)
-                
-                logger.info("🔍 DEBUG: Produkt w zamówieniu", extra={
-                    'baselinker_order_id': baselinker_order_id,
-                    'product_index': i,
-                    'product_name': product.get('name', '')[:50],
-                    'quantity': quantity,
-                    'baselinker_product_id': product.get('order_product_id')
-                })
-
-            logger.info("🔍 DEBUG: Podsumowanie produktów", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'product_items_count': len(products),
-                'total_products_count': total_products_count,
-                'products_breakdown': products_breakdown
-            })
-
-            # KROK 3: Generowanie ID
-            logger.info("🔍 DEBUG: Przed generowaniem ID", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'total_products_count': total_products_count
-            })
-            
-            id_result = ProductIDGenerator.generate_product_id_for_order(
-                baselinker_order_id, total_products_count
-            )
-            
-            logger.info("🔍 DEBUG: Po wygenerowaniu ID", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'internal_order_number': id_result['internal_order_number'],
-                'generated_ids_count': len(id_result['product_ids']),
-                'first_id': id_result['product_ids'][0] if id_result['product_ids'] else None,
-                'last_id': id_result['product_ids'][-1] if id_result['product_ids'] else None,
-                'all_generated_ids': id_result['product_ids']
-            })
-
-            # KROK 4: Sprawdzenie unikalności przed wstawieniem
-            logger.info("🔍 DEBUG: Sprawdzanie unikalności wygenerowanych ID", extra={
-                'baselinker_order_id': baselinker_order_id
-            })
-            
-            for product_id in id_result['product_ids']:
-                existing = ProductionItem.query.filter_by(short_product_id=product_id).first()
-                if existing:
-                    logger.error("🚨 DEBUG: KONFLIKT! Wygenerowany ID już istnieje!", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'conflicting_id': product_id,
-                        'existing_record_id': existing.id,
-                        'existing_order_id': existing.baselinker_order_id
-                    })
-                    results['errors'] += 1
-                    results['error_details'].append({
-                        'error': f'ID {product_id} już istnieje',
-                        'conflicting_id': product_id
-                    })
-                    return results
-
-            logger.info("✅ DEBUG: Wszystkie wygenerowane ID są unikalne", extra={
-                'baselinker_order_id': baselinker_order_id
-            })
-
-            # KROK 5: Przetwarzanie produktów
-            current_id_index = 0
-            parser = get_parser_service()
-            priority_calc = get_priority_calculator()
-            
-            prepared_items = []  # Lista do zbiorczego commit
-
-            for product_index, product in enumerate(products):
-                try:
-                    product_name = product.get('name', '')
-                    quantity = self._coerce_quantity(product.get('quantity', 1))
-                    order_product_id = product.get('order_product_id')
-
-                    logger.info("🔍 DEBUG: Przetwarzanie produktu", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'product_index': product_index,
-                        'product_name': product_name[:50],
-                        'quantity': quantity,
-                        'current_id_index': current_id_index
-                    })
-
-                    # Parsowanie nazwy produktu (raz na produkt)
-                    parsed_data = parser.parse_product_name(product_name)
-
-                    # Dla każdej sztuki w quantity
-                    for qty_index in range(quantity):
-                        try:
-                            if current_id_index >= len(id_result['product_ids']):
-                                raise Exception(f"Brak ID dla pozycji {current_id_index}")
-                            
-                            product_id = id_result['product_ids'][current_id_index]
-                            current_id_index += 1
-
-                            logger.info("🔍 DEBUG: Tworzenie rekordu produktu", extra={
-                                'baselinker_order_id': baselinker_order_id,
-                                'product_id': product_id,
-                                'qty_index': qty_index + 1,
-                                'sequence_number': current_id_index
-                            })
-
-                            # Przygotowanie danych produktu
-                            product_data = self._prepare_product_data_new(
-                                order=order,
-                                product=product,
-                                product_id=product_id,
-                                id_result=id_result,
-                                parsed_data=parsed_data,
-                                client_data=client_data,
-                                deadline_date=deadline_date,
-                                order_product_id=order_product_id,
-                                sequence_number=current_id_index
-                            )
-
-                            # Obliczenie priorytetu
-                            priority_score = priority_calc.calculate_priority(product_data)
-                            product_data['priority_score'] = priority_score
-
-                            if not dry_run:
-                                # Przygotuj obiekt ale nie commituj jeszcze
-                                production_item = ProductionItem(**product_data)
-                                prepared_items.append(production_item)
-                                
-                                logger.info("🔍 DEBUG: Przygotowano rekord do wstawienia", extra={
-                                    'baselinker_order_id': baselinker_order_id,
-                                    'product_id': product_id,
-                                    'prepared_items_count': len(prepared_items)
-                                })
-
-                            results['created'] += 1
-
-                        except Exception as e:
-                            results['errors'] += 1
-                            results['error_details'].append({
-                                'product_name': product_name,
-                                'qty_index': qty_index + 1,
-                                'sequence': current_id_index,
-                                'error': str(e)
-                            })
-                            logger.error("🚨 DEBUG: Błąd tworzenia produktu", extra={
-                                'baselinker_order_id': baselinker_order_id,
-                                'product_name': product_name[:50],
-                                'qty_index': qty_index + 1,
-                                'error': str(e)
-                            })
-
-                except Exception as e:
-                    results['errors'] += 1
-                    results['error_details'].append({
-                        'product_name': product.get('name'),
-                        'product_index': product_index,
-                        'error': str(e)
-                    })
-
-            # KROK 6: Zbiorczy commit wszystkich rekordów
-            if not dry_run and prepared_items:
-                logger.info("🔍 DEBUG: Rozpoczęcie zbiorczego commit", extra={
-                    'baselinker_order_id': baselinker_order_id,
-                    'items_to_commit': len(prepared_items)
-                })
-                
-                try:
-                    # Dodaj wszystkie rekordy do sesji
-                    for item in prepared_items:
-                        db.session.add(item)
-                    
-                    # Commit wszystkich naraz
-                    db.session.commit()
-                    
-                    logger.info("✅ DEBUG: Zbiorczy commit zakończony pomyślnie", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'committed_items': len(prepared_items)
-                    })
-                    
-                    # Sprawdź stan po commit
-                    final_count = ProductionItem.query.count()
-                    logger.info("🔍 DEBUG: Stan bazy po commit", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'total_records_now': final_count
-                    })
-                    
-                except Exception as e:
-                    db.session.rollback()
-                    logger.error("🚨 DEBUG: Błąd zbiorczego commit", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'error': str(e),
-                        'items_attempted': len(prepared_items)
-                    })
-                    
-                    # Sprawdź który rekord powoduje problem
-                    for i, item in enumerate(prepared_items):
-                        existing = ProductionItem.query.filter_by(
-                            short_product_id=item.short_product_id
-                        ).first()
-                        if existing:
-                            logger.error("🚨 DEBUG: Konflikt przy wstawianiu", extra={
-                                'item_index': i,
-                                'conflicting_id': item.short_product_id,
-                                'existing_record': existing.id
-                            })
-                    
-                    results['errors'] = len(prepared_items)
-                    results['created'] = 0
-
-            logger.info("🔍 DEBUG: Zakończenie przetwarzania zamówienia", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'created': results['created'],
-                'errors': results['errors']
-            })
-
-        except Exception as e:
-            if not dry_run:
-                db.session.rollback()
-            results['errors'] += 1
-            results['error_details'].append({
-                'error': str(e),
-                'order_id': baselinker_order_id
-            })
-            logger.error("🚨 DEBUG: Błąd główny przetwarzania zamówienia", extra={
-                'order_id': baselinker_order_id,
-                'error': str(e)
-            })
-
-        return results
-
-    def _prepare_product_data(self, order: Dict[str, Any], product: Dict[str, Any], id_result: Dict[str, Any], parsed_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Przygotowuje dane produktu do zapisania w bazie
-        
-        Args:
-            order (Dict[str, Any]): Dane zamówienia
-            product (Dict[str, Any]): Dane produktu
-            id_result (Dict[str, Any]): Wygenerowane ID
-            parsed_data (Dict[str, Any]): Sparsowane dane nazwy
-            
-        Returns:
-            Dict[str, Any]: Przygotowane dane produktu
-        """
-        # Podstawowe dane z ID generator
-        product_data = {
-            'short_product_id': id_result['product_id'],
-            'internal_order_number': id_result['internal_order_number'],
-            'product_sequence_in_order': id_result['sequence'],
-            'baselinker_order_id': order['order_id'],
-            'original_product_name': product.get('name', ''),
-            'baselinker_status_id': order.get('order_status_id')
-        }
-        
-        # Dane sparsowane z nazwy produktu
-        if parsed_data:
-            product_data.update({
-                'parsed_wood_species': parsed_data.get('wood_species'),
-                'parsed_technology': parsed_data.get('technology'),
-                'parsed_wood_class': parsed_data.get('wood_class'),
-                'parsed_length_cm': parsed_data.get('length_cm'),
-                'parsed_width_cm': parsed_data.get('width_cm'),
-                'parsed_thickness_cm': parsed_data.get('thickness_cm'),
-                'parsed_finish_state': parsed_data.get('finish_state'),
-                'volume_m3': parsed_data.get('volume_m3')
-            })
-        
-        # Dane finansowe
-        try:
-            unit_price = float(product.get('price_brutto', 0)) * 0.81  # Szacunkowa konwersja na netto
-            product_data.update({
-                'unit_price_net': unit_price,
-                'total_value_net': unit_price  # Jedna sztuka
-            })
-        except (ValueError, TypeError):
-            pass
-        
-        # Deadline (domyślnie 14 dni od dzisiaj)
-        try:
-            from .config_service import get_config
-            default_days = get_config('DEADLINE_DEFAULT_DAYS', 14)
-            product_data['deadline_date'] = date.today() + timedelta(days=default_days)
-        except:
-            product_data['deadline_date'] = date.today() + timedelta(days=14)
-
-        calculated_deadline = product_data.get('deadline_date')
-        logger.info("🐛 DEBUG: Obliczanie deadline", extra={
-            'order_id': order['order_id'],
-            'payment_date': product_data.get('payment_date'),
-            'calculated_deadline_date': calculated_deadline.isoformat() if calculated_deadline else None,
-            'days_until_deadline': (calculated_deadline - date.today()).days if calculated_deadline else None
-        })
-        
-        # Metadata
-        product_data.update({
-            'sync_source': 'baselinker_auto',
-            'current_status': 'czeka_na_wyciecie'  # Domyślny status początkowy
-        })
-        
-        return product_data
-
-    def _prepare_product_data_new(
-        self, 
-        order: Dict[str, Any], 
-        product: Dict[str, Any], 
-        product_id: str,  # np. '25_00048_3'
-        id_result: Dict[str, Any], 
-        parsed_data: Dict[str, Any],
-        client_data: Dict[str, str],
-        deadline_date: date,
-        order_product_id: Any,
-        sequence_number: int) -> Dict[str, Any]:
-        """
-        POPRAWIONA WERSJA: Przygotowuje dane produktu z poprawną logiką sequence
-        
-        Args:
-            product_id: Wygenerowany short_product_id (np. '25_00048_3')
-            sequence_number: Pozycja w zamówieniu (1, 2, 3, ...)
-        """
-
-        # Podstawowe dane
-        product_data = {
-            'short_product_id': product_id,  # '25_00048_3'
-            'internal_order_number': id_result['internal_order_number'],  # '25_00048'
-            'product_sequence_in_order': sequence_number,  # 3 (pozycja w zamówieniu)
-            'baselinker_order_id': order['order_id'],
-            'baselinker_product_id': str(order_product_id) if order_product_id else None,
-            'original_product_name': product.get('name', ''),
-            'baselinker_status_id': order.get('order_status_id'),
-
-            # Dane klienta
-            'client_name': client_data['client_name'],
-            'client_email': client_data['client_email'],  
-            'client_phone': client_data['client_phone'],
-            'delivery_address': client_data['delivery_address'],
-
-            # Deadline
-            'deadline_date': deadline_date,
-
-            # Status początkowy
-            'current_status': 'czeka_na_wyciecie',
-            'sync_source': 'baselinker_auto'
-        }
-
-        # Dane sparsowane z nazwy produktu
-        if parsed_data:
-            product_data.update({
-                'parsed_wood_species': parsed_data.get('wood_species'),
-                'parsed_technology': parsed_data.get('technology'),
-                'parsed_wood_class': parsed_data.get('wood_class'),
-                'parsed_length_cm': parsed_data.get('length_cm'),
-                'parsed_width_cm': parsed_data.get('width_cm'),
-                'parsed_thickness_cm': parsed_data.get('thickness_cm'),
-                'parsed_finish_state': parsed_data.get('finish_state'),
-                'volume_m3': parsed_data.get('volume_m3')
-            })
-
-        # Dane finansowe z produktu Baselinker
-        try:
-            price_brutto = float(product.get('price_brutto', 0))
-            tax_rate = float(product.get('tax_rate', 23))
-
-            # Oblicz cenę netto na JEDNĄ SZTUKĘ
-            price_netto = price_brutto / (1 + tax_rate/100) if tax_rate > 0 else price_brutto
-            
-            # WAŻNE: Cena per sztuka, nie per quantity całkowite
-            # Jeśli quantity=3, to każdy z 3 rekordów ma cenę za 1 sztukę
-            product_quantity = self._coerce_quantity(product.get('quantity', 1))
-            unit_price = price_netto / product_quantity if product_quantity > 0 else price_netto
-
-            product_data.update({
-                'unit_price_net': round(unit_price, 2),
-                'total_value_net': round(unit_price, 2)  # Jeden rekord = jedna sztuka
-            })
-        except (ValueError, TypeError) as e:
-            logger.warning("Błąd obliczania cen produktu", extra={
-                'product_name': product.get('name', '')[:50],
-                'price_brutto': product.get('price_brutto'),
-                'error': str(e)
-            })
-            product_data.update({
-                'unit_price_net': 0,
-                'total_value_net': 0
-            })
-
-        logger.info("🐛 DEBUG: Finalne mapowanie produktu", extra={
-            'product_id': product_id,
-            'original_product_name': product.get('name', ''),
-            'baselinker_order_id': order['order_id'],
-            'baselinker_status_id': product_data.get('baselinker_status_id'),
-            'client_name': product_data.get('client_name'),
-            'client_email': product_data.get('client_email'),
-            'client_phone': product_data.get('client_phone'),
-            'delivery_address': product_data.get('delivery_address'),
-            'unit_price_net': product_data.get('unit_price_net'),
-            'total_value_net': product_data.get('total_value_net'),
-            'volume_m3': product_data.get('volume_m3'),
-            'deadline_date': product_data.get('deadline_date'),
-            'payment_date': product_data.get('payment_date')
-        })
-
-        return product_data
-
     def _update_product_priorities(self):
         """
         ZMODYFIKOWANE: Używa nowego priority service
@@ -2899,175 +2350,179 @@ class BaselinkerSyncService:
         """ZACHOWANE: Alias dla kompatybilności"""
         return self.update_order_status_in_baselinker(internal_order_number)
 
-    def _extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
-        """Wyciąga podstawowe dane klienta z zamówienia Baselinker."""
+    def extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
+        """POPRAWIONA: Implementuje logikę fallback dla client_name zgodnie z wymaganiami"""
 
-        def _first_non_empty(source: Dict[str, Any], *keys: str) -> str:
-            for key in keys:
-                if not key:
-                    continue
-                value = source.get(key)
-                if value is None:
-                    continue
-                if isinstance(value, str):
-                    cleaned = value.strip()
-                else:
-                    cleaned = str(value).strip()
-                if cleaned:
-                    return cleaned
-            return ''
+        # ✅ LOGIKA FALLBACK dla client_name: delivery_fullname > invoice_fullname > user_login > email
+        client_name = ""
+        if order.get('delivery_fullname') and order['delivery_fullname'].strip():
+            client_name = order['delivery_fullname'].strip()
+        elif order.get('invoice_fullname') and order['invoice_fullname'].strip():
+            client_name = order['invoice_fullname'].strip()
+        elif order.get('user_login') and order['user_login'].strip():
+            client_name = order['user_login'].strip()
+        elif order.get('email') and order['email'].strip():
+            client_name = order['email'].strip()
 
-        custom_fields = order.get('custom_extra_fields') or {}
-        if not isinstance(custom_fields, dict):
-            custom_fields = {}
+        # Bezpośrednie mapowanie dla email i phone
+        client_email = order.get('email', '').strip()
+        client_phone = order.get('phone', '').strip()
 
-        client_name = _first_non_empty(
-            order,
-            'delivery_fullname',
-            'invoice_fullname',
-            'client_name',
-            'customer_name',
-            'user_login',
-            'client_login'
-        )
+        # ✅ SKŁADANIE delivery_address: delivery_address + delivery_postcode + delivery_city
+        address_parts = []
 
-        logger.info("🐛 DEBUG: Mapowanie danych klienta", extra={
+        if order.get('delivery_address') and order['delivery_address'].strip():
+            address_parts.append(order['delivery_address'].strip())
+
+        if order.get('delivery_postcode') and order['delivery_postcode'].strip():
+            if order.get('delivery_city') and order['delivery_city'].strip():
+                address_parts.append(f"{order['delivery_postcode'].strip()} {order['delivery_city'].strip()}")
+            else:
+                address_parts.append(order['delivery_postcode'].strip())
+        elif order.get('delivery_city') and order['delivery_city'].strip():
+            address_parts.append(order['delivery_city'].strip())
+
+        delivery_address = ', '.join(address_parts)
+
+        logger.debug("Mapowanie danych klienta z fallback", extra={
             'order_id': order.get('order_id'),
-            'delivery_fullname': order.get('delivery_fullname'),
-            'invoice_fullname': order.get('invoice_fullname'),
-            'client_name': order.get('client_name'),
-            'customer_name': order.get('customer_name'),
-            'user_login': order.get('user_login'),
-            'client_login': order.get('client_login'),
-            'email': order.get('email'),
-            'client_email': order.get('client_email'),
-            'phone': order.get('phone'),
-            'client_phone': order.get('client_phone'),
-            'delivery_address': order.get('delivery_address'),
-            'mapped_client_name': client_name,
-            'mapped_client_email': client_email,
-            'mapped_client_phone': client_phone
+            'client_name': client_name,
+            'client_name_source': (
+                'delivery_fullname' if order.get('delivery_fullname') else
+                'invoice_fullname' if order.get('invoice_fullname') else
+                'user_login' if order.get('user_login') else
+                'email' if order.get('email') else 'none'
+            ),
+            'client_email': client_email,
+            'client_phone': client_phone,
+            'delivery_address': delivery_address
         })
 
-        if not client_name:
-            client_name = _first_non_empty(custom_fields, 'client_name', 'delivery_name', 'invoice_name')
-
-        client_email = _first_non_empty(order, 'email', 'client_email', 'invoice_email')
-        if not client_email:
-            client_email = _first_non_empty(custom_fields, 'client_email', 'invoice_email')
-
-        client_phone = _first_non_empty(order, 'phone', 'delivery_phone', 'client_phone', 'phone_mobile')
-        if not client_phone:
-            client_phone = _first_non_empty(custom_fields, 'client_phone', 'delivery_phone')
-
-        street = _first_non_empty(order, 'delivery_address', 'address', 'client_address')
-        if not street:
-            street = _first_non_empty(custom_fields, 'delivery_address', 'invoice_address')
-
-        postcode = _first_non_empty(order, 'delivery_postcode', 'postcode')
-        if not postcode:
-            postcode = _first_non_empty(custom_fields, 'delivery_postcode', 'invoice_postcode')
-
-        city = _first_non_empty(order, 'delivery_city', 'city')
-        if not city:
-            city = _first_non_empty(custom_fields, 'delivery_city', 'invoice_city')
-
-        state = _first_non_empty(order, 'delivery_state', 'state')
-        if not state:
-            state = _first_non_empty(custom_fields, 'delivery_state', 'invoice_state', 'delivery_region')
-
-        country = _first_non_empty(order, 'delivery_country_code', 'country_code')
-        if not country:
-            country = _first_non_empty(custom_fields, 'delivery_country_code', 'invoice_country_code')
-
-        address_parts = [street]
-        if postcode and city:
-            address_parts.append(f"{postcode} {city}")
-        else:
-            if postcode:
-                address_parts.append(postcode)
-            if city:
-                address_parts.append(city)
-
-        if state:
-            address_parts.append(state)
-
-        if country and country.upper() not in {'PL', 'POLSKA'}:
-            address_parts.append(country)
-
-        delivery_address = ', '.join(part for part in address_parts if part)
-
         return {
-            'client_name': client_name or '',
-            'client_email': client_email or '',
-            'client_phone': client_phone or '',
-            'delivery_address': delivery_address or ''
+            'client_name': client_name,
+            'client_email': client_email,
+            'client_phone': client_phone,
+            'delivery_address': delivery_address
         }
 
-    def _calculate_deadline_date(self, order: Dict[str, Any]) -> datetime.date:
-        """Oblicza datę deadline'u dla produktu."""
+    def _calculate_deadline_date(self, order: Dict[str, Any]) -> date:
+        """
+        ✅ POPRAWIONA: Oblicza deadline_date na podstawie date_in_status + dni z prod_config
 
-        from ..services.config_service import get_config
+        Logika:
+        1. Pobierz timestamp z date_in_status (data zmiany statusu)
+        2. Pobierz liczbę dni z tabeli prod_config (klucz: DEADLINE_DEFAULT_DAYS)
+        3. Dodaj dni do timestamp i zwróć jako datę
+        """
 
-        payment_date = self.extract_payment_date_from_order(order)
-        if payment_date:
-            base_date = payment_date.date()
+        # ✅ KROK 1: Pobierz timestamp z date_in_status (zamiast payment_date)
+        base_timestamp = None
+
+        # Sprawdź date_in_status (preferowany)
+        if order.get('date_in_status'):
+            try:
+                base_timestamp = int(order['date_in_status'])
+                logger.debug("Użyto date_in_status jako base", extra={
+                    'order_id': order.get('order_id'),
+                    'date_in_status_timestamp': base_timestamp
+                })
+            except (TypeError, ValueError):
+                logger.warning("Błędny format date_in_status", extra={
+                    'order_id': order.get('order_id'),
+                    'date_in_status': order.get('date_in_status')
+                })
+
+        # Fallback na date_status_change
+        if not base_timestamp and order.get('date_status_change'):
+            try:
+                base_timestamp = int(order['date_status_change'])
+                logger.debug("Użyto date_status_change jako fallback", extra={
+                    'order_id': order.get('order_id'),
+                    'date_status_change_timestamp': base_timestamp
+                })
+            except (TypeError, ValueError):
+                pass
+
+        # Ostatni fallback na date_add
+        if not base_timestamp and order.get('date_add'):
+            try:
+                base_timestamp = int(order['date_add'])
+                logger.debug("Użyto date_add jako ostatni fallback", extra={
+                    'order_id': order.get('order_id'),
+                    'date_add_timestamp': base_timestamp
+                })
+            except (TypeError, ValueError):
+                pass
+
+        # Konwersja timestamp na datę
+        if base_timestamp:
+            try:
+                base_date = datetime.fromtimestamp(base_timestamp).date()
+            except (OSError, ValueError):
+                base_date = date.today()
+                logger.warning("Błędny timestamp, użyto dzisiaj", extra={
+                    'order_id': order.get('order_id'),
+                    'invalid_timestamp': base_timestamp
+                })
         else:
-            timestamp = order.get('date_add')
-            base_date = get_local_now().date()
-            if timestamp is not None:
-                try:
-                    base_date = datetime.fromtimestamp(int(timestamp)).date()
-                except (TypeError, ValueError, OSError):
-                    pass
+            base_date = date.today()
+            logger.warning("Brak timestamp, użyto dzisiaj", extra={
+                'order_id': order.get('order_id')
+            })
 
-        custom_fields = order.get('custom_extra_fields') or {}
-        if not isinstance(custom_fields, dict):
-            custom_fields = {}
-
-        deadline_days_raw = None
-        for key in (
-            'production_deadline_days',
-            'deadline_days',
-            'deadline',
-            'production_time_days'
-        ):
-            if key in custom_fields and custom_fields[key] not in (None, ''):
-                deadline_days_raw = custom_fields[key]
-                break
-
-        if deadline_days_raw is None:
-            deadline_days_raw = order.get('production_deadline_days')
-
+        # ✅ KROK 2: Pobierz liczbę dni z tabeli prod_config
         try:
-            deadline_days = int(float(deadline_days_raw)) if deadline_days_raw is not None else None
-        except (TypeError, ValueError):
-            deadline_days = None
+            from ..models import ProductionConfig
+            config_record = ProductionConfig.query.filter_by(config_key='DEADLINE_DEFAULT_DAYS').first()
+            if config_record and config_record.parsed_value:
+                deadline_days = int(config_record.parsed_value)
+                logger.debug("Pobrano dni z prod_config", extra={
+                    'deadline_days': deadline_days
+                })
+            else:
+                deadline_days = 14  # Default fallback
+                logger.warning("Brak konfiguracji DEADLINE_DEFAULT_DAYS, użyto domyślnej", extra={
+                    'default_days': deadline_days
+                })
+        except Exception as e:
+            deadline_days = 14  # Safe fallback
+            logger.error("Błąd pobierania konfiguracji deadline", extra={
+                'error': str(e),
+                'fallback_days': deadline_days
+            })
 
-        if deadline_days is None:
-            deadline_days = int(get_config('DEADLINE_DEFAULT_DAYS', 14) or 14)
+        # ✅ KROK 3: Oblicz deadline_date używając dni roboczych (base_date + deadline_days)
+        try:
+            deadline_date = self._add_business_days(base_date, deadline_days)
+        except Exception as e:
+            deadline_date = self._add_business_days(date.today(), 14)
+            logger.error("Błąd obliczania deadline_date", extra={
+                'error': str(e),
+                'fallback_date': deadline_date.isoformat()
+            })
 
-        deadline_days = max(0, min(deadline_days, 180))
+        logger.debug("Obliczono deadline_date", extra={
+            'order_id': order.get('order_id'),
+            'base_date': base_date.isoformat(),
+            'deadline_days': deadline_days,
+            'deadline_date': deadline_date.isoformat()
+        })
 
-        return self._add_business_days(base_date, deadline_days)
+        return deadline_date
 
+    
     def _add_business_days(self, start_date: date, business_days: int) -> date:
         """Dodaje określoną liczbę dni roboczych do daty startowej."""
-
         if not isinstance(start_date, date):
             start_date = get_local_now().date()
-
         if business_days <= 0:
             return start_date
-
         current_date = start_date
         added_days = 0
-
         while added_days < business_days:
             current_date += timedelta(days=1)
             if current_date.weekday() < 5:  # Poniedziałek=0 ... Niedziela=6
                 added_days += 1
-
         return current_date
 
     def debug_id_generator_state(self, baselinker_order_id: int):
@@ -3086,317 +2541,15 @@ class BaselinkerSyncService:
             'current_counter': current_counter
         })
 
-    def _process_single_order_with_full_debug(self, order: Dict[str, Any], products: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, Any]:
-        """
-        Wersja _process_single_order z pełnym debugowaniem
-        """
-        results = {
-            'created': 0,
-            'updated': 0,
-            'errors': 0,
-            'error_details': []
-        }
-
-        baselinker_order_id = order['order_id']
-        
-        logger.info("🔍 DEBUG: Rozpoczęcie przetwarzania zamówienia", extra={
-            'baselinker_order_id': baselinker_order_id,
-            'products_count': len(products),
-            'dry_run': dry_run
-        })
-
-        try:
-            from ..services.id_generator import ProductIDGenerator
-            from ..services.parser_service import get_parser_service
-            from ..services.priority_service import get_priority_calculator
-            from ..models import ProductionItem
-
-            # DEBUG: Sprawdź stan bazy przed rozpoczęciem
-            existing_count = ProductionItem.query.count()
-            logger.info("🔍 DEBUG: Stan bazy przed przetwarzaniem", extra={
-                'total_records_in_db': existing_count,
-                'baselinker_order_id': baselinker_order_id
-            })
-            
-            # DEBUG: Sprawdź czy to zamówienie już istnieje
-            existing_for_order = ProductionItem.query.filter_by(
-                baselinker_order_id=baselinker_order_id
-            ).all()
-            
-            if existing_for_order:
-                logger.warning("🚨 DEBUG: Zamówienie już istnieje w bazie!", extra={
-                    'baselinker_order_id': baselinker_order_id,
-                    'existing_records': len(existing_for_order),
-                    'existing_ids': [item.short_product_id for item in existing_for_order]
-                })
-                # Wyjdź z funkcji, nie przetwarzaj ponownie
-                return results
-
-            # KROK 1: Przygotowanie wspólnych danych dla zamówienia
-            client_data = self._extract_client_data(order)
-            deadline_date = self._calculate_deadline_date(order)
-
-            # KROK 2: DEBUG - Szczegółowa analiza produktów
-            logger.info("🔍 DEBUG: Analiza produktów w zamówieniu", extra={
-                'baselinker_order_id': baselinker_order_id
-            })
-            
-            total_products_count = 0
-            products_breakdown = []
-            
-            for i, product in enumerate(products):
-                quantity = self._coerce_quantity(product.get('quantity', 1))
-                total_products_count += quantity
-                
-                product_breakdown = {
-                    'index': i,
-                    'name': product.get('name', '')[:50],
-                    'quantity': quantity,
-                    'baselinker_product_id': product.get('order_product_id')
-                }
-                products_breakdown.append(product_breakdown)
-                
-                logger.info("🔍 DEBUG: Produkt w zamówieniu", extra={
-                    'baselinker_order_id': baselinker_order_id,
-                    'product_index': i,
-                    'product_name': product.get('name', '')[:50],
-                    'quantity': quantity,
-                    'baselinker_product_id': product.get('order_product_id')
-                })
-
-            logger.info("🔍 DEBUG: Podsumowanie produktów", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'product_items_count': len(products),
-                'total_products_count': total_products_count,
-                'products_breakdown': products_breakdown
-            })
-
-            # KROK 3: Generowanie ID
-            logger.info("🔍 DEBUG: Przed generowaniem ID", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'total_products_count': total_products_count
-            })
-            
-            id_result = ProductIDGenerator.generate_product_id_for_order(
-                baselinker_order_id, total_products_count
-            )
-            
-            logger.info("🔍 DEBUG: Po wygenerowaniu ID", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'internal_order_number': id_result['internal_order_number'],
-                'generated_ids_count': len(id_result['product_ids']),
-                'first_id': id_result['product_ids'][0] if id_result['product_ids'] else None,
-                'last_id': id_result['product_ids'][-1] if id_result['product_ids'] else None,
-                'all_generated_ids': id_result['product_ids']
-            })
-
-            # KROK 4: Sprawdzenie unikalności przed wstawieniem
-            logger.info("🔍 DEBUG: Sprawdzanie unikalności wygenerowanych ID", extra={
-                'baselinker_order_id': baselinker_order_id
-            })
-            
-            for product_id in id_result['product_ids']:
-                existing = ProductionItem.query.filter_by(short_product_id=product_id).first()
-                if existing:
-                    logger.error("🚨 DEBUG: KONFLIKT! Wygenerowany ID już istnieje!", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'conflicting_id': product_id,
-                        'existing_record_id': existing.id,
-                        'existing_order_id': existing.baselinker_order_id
-                    })
-                    results['errors'] += 1
-                    results['error_details'].append({
-                        'error': f'ID {product_id} już istnieje',
-                        'conflicting_id': product_id
-                    })
-                    return results
-
-            logger.info("✅ DEBUG: Wszystkie wygenerowane ID są unikalne", extra={
-                'baselinker_order_id': baselinker_order_id
-            })
-
-            # KROK 5: Przetwarzanie produktów
-            current_id_index = 0
-            parser = get_parser_service()
-            priority_calc = get_priority_calculator()
-            
-            prepared_items = []  # Lista do zbiorczego commit
-
-            for product_index, product in enumerate(products):
-                try:
-                    product_name = product.get('name', '')
-                    quantity = self._coerce_quantity(product.get('quantity', 1))
-                    order_product_id = product.get('order_product_id')
-
-                    logger.info("🔍 DEBUG: Przetwarzanie produktu", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'product_index': product_index,
-                        'product_name': product_name[:50],
-                        'quantity': quantity,
-                        'current_id_index': current_id_index
-                    })
-
-                    # Parsowanie nazwy produktu (raz na produkt)
-                    parsed_data = parser.parse_product_name(product_name)
-
-                    # Dla każdej sztuki w quantity
-                    for qty_index in range(quantity):
-                        try:
-                            if current_id_index >= len(id_result['product_ids']):
-                                raise Exception(f"Brak ID dla pozycji {current_id_index}")
-                            
-                            product_id = id_result['product_ids'][current_id_index]
-                            current_id_index += 1
-
-                            logger.info("🔍 DEBUG: Tworzenie rekordu produktu", extra={
-                                'baselinker_order_id': baselinker_order_id,
-                                'product_id': product_id,
-                                'qty_index': qty_index + 1,
-                                'sequence_number': current_id_index
-                            })
-
-                            # Przygotowanie danych produktu
-                            product_data = self._prepare_product_data_new(
-                                order=order,
-                                product=product,
-                                product_id=product_id,
-                                id_result=id_result,
-                                parsed_data=parsed_data,
-                                client_data=client_data,
-                                deadline_date=deadline_date,
-                                order_product_id=order_product_id,
-                                sequence_number=current_id_index
-                            )
-
-                            # Obliczenie priorytetu
-                            priority_score = priority_calc.calculate_priority(product_data)
-                            product_data['priority_score'] = priority_score
-
-                            if not dry_run:
-                                # Przygotuj obiekt ale nie commituj jeszcze
-                                production_item = ProductionItem(**product_data)
-                                prepared_items.append(production_item)
-                                
-                                logger.info("🔍 DEBUG: Przygotowano rekord do wstawienia", extra={
-                                    'baselinker_order_id': baselinker_order_id,
-                                    'product_id': product_id,
-                                    'prepared_items_count': len(prepared_items)
-                                })
-
-                            results['created'] += 1
-
-                        except Exception as e:
-                            results['errors'] += 1
-                            results['error_details'].append({
-                                'product_name': product_name,
-                                'qty_index': qty_index + 1,
-                                'sequence': current_id_index,
-                                'error': str(e)
-                            })
-                            logger.error("🚨 DEBUG: Błąd tworzenia produktu", extra={
-                                'baselinker_order_id': baselinker_order_id,
-                                'product_name': product_name[:50],
-                                'qty_index': qty_index + 1,
-                                'error': str(e)
-                            })
-
-                except Exception as e:
-                    results['errors'] += 1
-                    results['error_details'].append({
-                        'product_name': product.get('name'),
-                        'product_index': product_index,
-                        'error': str(e)
-                    })
-
-            # KROK 6: Zbiorczy commit wszystkich rekordów
-            if not dry_run and prepared_items:
-                logger.info("🔍 DEBUG: Rozpoczęcie zbiorczego commit", extra={
-                    'baselinker_order_id': baselinker_order_id,
-                    'items_to_commit': len(prepared_items)
-                })
-                
-                try:
-                    # Dodaj wszystkie rekordy do sesji
-                    for item in prepared_items:
-                        db.session.add(item)
-                    
-                    # Commit wszystkich naraz
-                    db.session.commit()
-                    
-                    logger.info("✅ DEBUG: Zbiorczy commit zakończony pomyślnie", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'committed_items': len(prepared_items)
-                    })
-                    
-                    # Sprawdź stan po commit
-                    final_count = ProductionItem.query.count()
-                    logger.info("🔍 DEBUG: Stan bazy po commit", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'total_records_now': final_count
-                    })
-                    
-                except Exception as e:
-                    db.session.rollback()
-                    logger.error("🚨 DEBUG: Błąd zbiorczego commit", extra={
-                        'baselinker_order_id': baselinker_order_id,
-                        'error': str(e),
-                        'items_attempted': len(prepared_items)
-                    })
-                    
-                    # Sprawdź który rekord powoduje problem
-                    for i, item in enumerate(prepared_items):
-                        existing = ProductionItem.query.filter_by(
-                            short_product_id=item.short_product_id
-                        ).first()
-                        if existing:
-                            logger.error("🚨 DEBUG: Konflikt przy wstawianiu", extra={
-                                'item_index': i,
-                                'conflicting_id': item.short_product_id,
-                                'existing_record': existing.id
-                            })
-                    
-                    results['errors'] = len(prepared_items)
-                    results['created'] = 0
-
-            logger.info("🔍 DEBUG: Zakończenie przetwarzania zamówienia", extra={
-                'baselinker_order_id': baselinker_order_id,
-                'created': results['created'],
-                'errors': results['errors']
-            })
-
-        except Exception as e:
-            if not dry_run:
-                db.session.rollback()
-            results['errors'] += 1
-            results['error_details'].append({
-                'error': str(e),
-                'order_id': baselinker_order_id
-            })
-            logger.error("🚨 DEBUG: Błąd główny przetwarzania zamówienia", extra={
-                'order_id': baselinker_order_id,
-                'error': str(e)
-            })
-
-        return results
-
-    def _safe_float_conversion(self, value) -> float:
-        """
-        BRAKUJĄCA METODA: Bezpieczna konwersja wartości na float
-    
-        Args:
-            value: Wartość do konwersji (może być None, string, int, float)
-        
-        Returns:
-            float: Skonwertowana wartość lub 0.0 jeśli konwersja nie powiodła się
-        """
+    def _safe_float_conversion(self, value: Any) -> float:
+        """Bezpieczna konwersja na float"""
         try:
             if value is None:
                 return 0.0
             if isinstance(value, (int, float)):
                 return float(value)
             if isinstance(value, str):
-                # Usuń spacje i zamień przecinek na kropkę
-                cleaned = str(value).strip().replace(',', '.')
+                cleaned = value.strip().replace(',', '.')
                 if not cleaned:
                     return 0.0
                 return float(cleaned)
@@ -3642,14 +2795,48 @@ def process_orders_with_priority_logic(orders_data: List[Dict[str, Any]],
     """
     return get_sync_service().process_orders_with_priority_logic(orders_data, sync_type, auto_status_change)
 
-def extract_payment_date_from_order(order_data: Dict[str, Any]) -> Optional[datetime]:
+def extract_payment_date_from_order(self, order_data: Dict[str, Any]) -> Optional[datetime]:
     """
-    NOWA: Helper function dla extraction payment_date
-    
-    Returns:
-        Optional[datetime]: Data opłacenia lub None
+    POPRAWIONA: Używa date_in_status zamiast nieistniejącego date_status_change
     """
-    return get_sync_service().extract_payment_date_from_order(order_data)
+    try:
+        order_id = order_data.get('order_id')
+        
+        # GŁÓWNA POPRAWKA: użyj date_in_status zamiast date_status_change
+        if order_data.get('date_in_status'):
+            timestamp = int(order_data['date_in_status'])
+            payment_date = datetime.fromtimestamp(timestamp)
+            
+            logger.info("Extracted payment_date z date_in_status", extra={
+                'order_id': order_id,
+                'payment_date': payment_date.isoformat(),
+                'timestamp': timestamp
+            })
+            return payment_date
+        
+        # FALLBACK: date_add jako ostateczność
+        elif order_data.get('date_add'):
+            timestamp = int(order_data['date_add'])
+            payment_date = datetime.fromtimestamp(timestamp)
+            
+            logger.info("Fallback payment_date z date_add", extra={
+                'order_id': order_id,
+                'payment_date': payment_date.isoformat()
+            })
+            return payment_date
+        
+        logger.warning("Nie znaleziono daty dla payment_date", extra={
+            'order_id': order_id,
+            'available_date_fields': [k for k in order_data.keys() if 'date' in k.lower()]
+        })
+        return None
+        
+    except Exception as e:
+        logger.error("Błąd extraction payment_date", extra={
+            'order_id': order_data.get('order_id'),
+            'error': str(e)
+        })
+        return None
 
 def validate_order_products_completeness(order_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
