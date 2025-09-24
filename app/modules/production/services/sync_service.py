@@ -372,62 +372,115 @@ class BaselinkerSyncService:
                     })
                     continue  # Skip całe zamówienie
         
-                # KROK 3: Tworzenie produktów
+                # KROK 3: Tworzenie produktów - NAPRAWIONE dla quantity
                 products = order_data.get('products', [])
                 if not products:
                     logger.warning("ENHANCED: Zamówienie bez produktów", extra={'order_id': order_id})
                     continue
-            
+
+                # ✅ OBLICZ CAŁKOWITĄ LICZBĘ SZTUK (suma wszystkich quantity)
+                total_pieces = sum(int(product.get('quantity', 1)) for product in products)
+
+                # ✅ WYGENERUJ WSZYSTKIE ID NA RAZ
+                try:
+                    from ..services.id_generator import ProductIDGenerator
+                    id_generation_result = ProductIDGenerator.generate_product_id_for_order(
+                        baselinker_order_id=order_id,
+                        total_products_count=total_pieces
+                    )
+    
+                    logger.debug("ENHANCED: Wygenerowano ID dla zamówienia", extra={
+                        'order_id': order_id,
+                        'total_pieces': total_pieces,
+                        'generated_ids_count': len(id_generation_result['product_ids'])
+                    })
+    
+                except Exception as id_error:
+                    logger.error("ENHANCED: Błąd generowania ID dla zamówienia", extra={
+                        'order_id': order_id,
+                        'total_pieces': total_pieces,
+                        'error': str(id_error)
+                    })
+                    processing_stats['errors_count'] += 1
+                    continue
+
                 order_products_created = 0
                 order_errors = 0
-            
+                current_sequence = 1  # Globalny licznik dla całego zamówienia
+
+                # Iteruj przez każdy produkt w zamówieniu
                 for product_data in products:
                     try:
-                        production_item = self._create_product_from_order_data(
-                            order_data, product_data, payment_date
-                        )
+                        quantity = int(product_data.get('quantity', 1))
+        
+                        logger.debug("ENHANCED: Przetwarzanie produktu", extra={
+                            'order_id': order_id,
+                            'product_name': product_data.get('name', 'unknown')[:50],
+                            'quantity': quantity,
+                            'starting_sequence': current_sequence
+                        })
+        
+                        # Stwórz osobny rekord dla każdej sztuki
+                        for qty_index in range(quantity):
+                            try:
+                                production_item = self._create_product_from_order_data(
+                                    order_data=order_data, 
+                                    product_data=product_data, 
+                                    payment_date=payment_date,
+                                    sequence_number=current_sequence,
+                                    id_generation_result=id_generation_result
+                                )
+                
+                                if production_item:
+                                    db.session.add(production_item)
+                                    order_products_created += 1
+                                    processing_stats['products_created'] += 1
                     
-                        if production_item:
-                            db.session.add(production_item)
-                            order_products_created += 1
-                            processing_stats['products_created'] += 1
-                        
-                            logger.debug("ENHANCED: Produkt utworzony", extra={
-                                'order_id': order_id,
-                                'product_id': production_item.short_product_id,
-                                'species': production_item.parsed_wood_species
-                            })
-                        else:
-                            order_errors += 1
-                            processing_stats['products_skipped'] += 1
+                                    logger.debug("ENHANCED: Sztuka utworzona", extra={
+                                        'order_id': order_id,
+                                        'product_id': production_item.short_product_id,
+                                        'sequence': current_sequence,
+                                        'qty_index': qty_index + 1,
+                                        'of_quantity': quantity
+                                    })
+                                else:
+                                    order_errors += 1
+                                    processing_stats['products_skipped'] += 1
+                
+                                current_sequence += 1  # Zwiększ globalny licznik
+                
+                            except Exception as piece_error:
+                                logger.error("ENHANCED: Błąd tworzenia sztuki", extra={
+                                    'order_id': order_id,
+                                    'sequence': current_sequence,
+                                    'qty_index': qty_index + 1,
+                                    'error': str(piece_error)
+                                })
+                
+                                order_errors += 1
+                                processing_stats['products_skipped'] += 1
+                                current_sequence += 1
+                
+                                error_details.append({
+                                    'order_id': order_id,
+                                    'product_name': product_data.get('name', 'unknown'),
+                                    'sequence': current_sequence - 1,
+                                    'error_type': 'piece_creation_failed',
+                                    'error_message': str(piece_error)
+                                })
                         
                     except Exception as product_error:
-                        error_msg = str(product_error)
-                        
-                        # Sprawdź czy to błąd ID generatora
-                        if "już istnieje w bazie danych" in error_msg or "ID generation" in error_msg:
-                            logger.warning("ENHANCED: Problem z generatorem ID - produkt pominięty", extra={
-                                'order_id': order_id,
-                                'error': error_msg,
-                                'product_name': product_data.get('name', 'unknown')
-                            })
-                        else:
-                            logger.error("ENHANCED: Błąd tworzenia produktu", extra={
-                                'order_id': order_id,
-                                'error': error_msg,
-                                'product_name': product_data.get('name', 'unknown')
-                            })
-                        
-                        order_errors += 1
-                        processing_stats['products_skipped'] += 1
-                        
-                        # Dodaj do error_details
-                        error_details.append({
+                        logger.error("ENHANCED: Błąd przetwarzania produktu", extra={
                             'order_id': order_id,
-                            'product_name': product_data.get('name', 'unknown'),
-                            'error_type': 'product_creation_failed',
-                            'error_message': error_msg
+                            'error': str(product_error),
+                            'product_name': product_data.get('name', 'unknown')
                         })
+        
+                        # Skip całą quantity tego produktu
+                        quantity = int(product_data.get('quantity', 1))
+                        order_errors += quantity
+                        processing_stats['products_skipped'] += quantity
+                        current_sequence += quantity
             
                 # KROK 4: Commit produktów dla tego zamówienia
                 if order_products_created > 0:
@@ -542,18 +595,15 @@ class BaselinkerSyncService:
         }
 
         logger.info("ENHANCED: Zakończono przetwarzanie zamówień", extra=final_result)
-        return final_result  # NAPRAWIONO: zawsze zwraca Dict
+        return final_result
 
-    def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None) -> Optional['ProductionItem']:
+    def _create_product_from_order_data(self, order_data: Dict[str, Any], product_data: Dict[str, Any], payment_date: Optional[datetime] = None,sequence_number: int = 1, id_generation_result: Dict[str, Any] = None) -> Optional['ProductionItem']:
         """
-        PRZEPISANA: Używa poprawionych metod extract_client_data() i _prepare_product_data_enhanced()
-    
-        GŁÓWNA ZMIANA: Zamiast własnej logiki, używa już istniejących poprawionych metod
+        PRZEPISANA: Używa poprawionych metod z obsługą sequence_number i pre-generated IDs
         """
         try:
             from ..models import ProductionItem
             from ..services.parser_service import ProductNameParser
-            from ..services.id_generator import ProductIDGenerator
         
             # BEZPIECZNE pobieranie podstawowych pól
             if not isinstance(product_data, dict):
@@ -576,7 +626,7 @@ class BaselinkerSyncService:
                 logger.error("ENHANCED: Brak order_id", extra={'order_data_keys': list(order_data.keys())})
                 return None
         
-            # ✅ NOWE: Parsowanie nazwy produktu
+            # ✅ Parsowanie nazwy produktu
             try:
                 parser = ProductNameParser()
                 parsed_data = parser.parse_product_name(original_product_name)
@@ -587,31 +637,25 @@ class BaselinkerSyncService:
                 })
                 parsed_data = {}
         
-            # ✅ NOWE: Używaj poprawionej metody extract_client_data()
+            # ✅ Używaj poprawionej metody extract_client_data()
             client_data = self.extract_client_data(order_data)
         
-            # ✅ NOWE: Używaj poprawionej metody _calculate_deadline_date()
+            # ✅ Używaj poprawionej metody _calculate_deadline_date()
             deadline_date = self._calculate_deadline_date(order_data)
         
-            # ✅ NOWE: Generuj Product ID przez ProductIDGenerator
-            try:
-                id_generation_result = ProductIDGenerator.generate_product_id_for_order(
-                    baselinker_order_id=order_id,
-                    total_products_count=1  # Jeden produkt na wywołanie
-                )
+            # ✅ UŻYJ PRE-GENERATED ID zamiast generowania nowego
+            if id_generation_result and sequence_number <= len(id_generation_result['product_ids']):
+                product_id = id_generation_result['product_ids'][sequence_number - 1]  # sequence_number jest 1-indexed
             
-                product_id = id_generation_result['product_ids'][0]
-            
-                logger.debug("ENHANCED: Wygenerowano Product ID", extra={
+                logger.debug("ENHANCED: Użyto pre-generated ID", extra={
                     'order_id': order_id,
-                    'product_id': product_id,
-                    'internal_order_number': id_generation_result['internal_order_number']
+                    'sequence_number': sequence_number,
+                    'product_id': product_id
                 })
-            
-            except Exception as id_error:
-                logger.error("ENHANCED: Błąd generowania Product ID", extra={
-                    'order_id': order_id,
-                    'error': str(id_error)
+            else:
+                logger.error("ENHANCED: Brak pre-generated ID", extra={
+                    'sequence_number': sequence_number,
+                    'available_ids': len(id_generation_result['product_ids']) if id_generation_result else 0
                 })
                 return None
         
@@ -625,7 +669,7 @@ class BaselinkerSyncService:
                 client_data=client_data,
                 deadline_date=deadline_date,
                 order_product_id=product_data.get('order_product_id'),
-                sequence_number=1,  # Jeden produkt = sequence 1
+                sequence_number=sequence_number,
                 payment_date=payment_date
             )
         
@@ -634,6 +678,7 @@ class BaselinkerSyncService:
         
             logger.debug("ENHANCED: Utworzono ProductionItem", extra={
                 'product_id': product_id,
+                'sequence_number': sequence_number,
                 'order_id': order_id,
                 'client_name': product_data_dict.get('client_name'),
                 'unit_price_net': product_data_dict.get('unit_price_net'),
@@ -646,6 +691,7 @@ class BaselinkerSyncService:
         except Exception as e:
             logger.error("ENHANCED: Błąd tworzenia produktu", extra={
                 'error': str(e),
+                'sequence_number': sequence_number,
                 'order_id': order_data.get('order_id') if isinstance(order_data, dict) else 'unknown',
                 'product_name': product_data.get('name') if isinstance(product_data, dict) else 'unknown'
             })
@@ -653,63 +699,96 @@ class BaselinkerSyncService:
 
     def extract_payment_date_from_order(self, order_data: Dict[str, Any]) -> Optional[datetime]:
         """
-        NOWA METODA: Wyciąga datę opłacenia z historii zmian statusów
-        
-        Szuka date_status_change dla status_id = 155824 ("Nowe - opłacone")
-        
-        Args:
-            order_data: Dane zamówienia z Baselinker
-            
-        Returns:
-            Optional[datetime]: Data opłacenia lub None
+        POPRAWIONA: Używa date_in_status jako GŁÓWNE źródło payment_date
+    
+        HIERARCHIA (w kolejności ważności):
+        1. date_in_status - preferowane (data zmiany na aktualny status)
+        2. date_confirmed - druga opcja (data potwierdzenia)
+        3. date_add - ostatni fallback (data dodania zamówienia)
         """
-
-        # 🐛 DEBUG: Sprawdzenie struktury zamówienia dla payment_date
-        logger.info("🐛 DEBUG: Szukanie payment_date w zamówieniu", extra={
-            'order_id': order_data.get('order_id'),
-            'order_status_id': order_data.get('order_status_id'),
-            'date_add': order_data.get('date_add'),
-            'date_confirmed': order_data.get('date_confirmed'),
-            'date_status_change': order_data.get('date_status_change'),
-            'status_history_keys': list(order_data.get('status_history', {}).keys()) if order_data.get('status_history') else None,
-            'all_order_keys': list(order_data.keys())
-        })
-
         try:
             order_id = order_data.get('order_id')
-            
-            # OPCJA 1: Prosta - jeśli w obecnym response jest date_status_change
-            if order_data.get('order_status_id') == 155824 and order_data.get('date_status_change'):
-                timestamp = int(order_data['date_status_change'])
-                payment_date = datetime.fromtimestamp(timestamp)
+        
+            logger.info("🐛 DEBUG: Szukanie payment_date w zamówieniu", extra={
+                'order_id': order_id,
+                'order_status_id': order_data.get('order_status_id'),
+                'date_in_status': order_data.get('date_in_status'),
+                'date_confirmed': order_data.get('date_confirmed'),
+                'date_add': order_data.get('date_add'),
+                'date_status_change': order_data.get('date_status_change')
+            })
+        
+            # ✅ OPCJA 1: date_in_status (PREFEROWANA)
+            if order_data.get('date_in_status'):
+                try:
+                    timestamp = int(order_data['date_in_status'])
+                    payment_date = datetime.fromtimestamp(timestamp)
                 
-                logger.debug("Extracted payment_date z order data", extra={
-                    'order_id': order_id,
-                    'payment_date': payment_date.isoformat(),
-                    'timestamp': timestamp
-                })
+                    logger.info("✅ Extracted payment_date z date_in_status", extra={
+                        'order_id': order_id,
+                        'payment_date': payment_date.isoformat(),
+                        'timestamp': timestamp,
+                        'source': 'date_in_status'
+                    })
                 
-                return payment_date
+                    return payment_date
+                except (TypeError, ValueError, OSError) as e:
+                    logger.warning("Błędny format date_in_status", extra={
+                        'order_id': order_id,
+                        'date_in_status': order_data.get('date_in_status'),
+                        'error': str(e)
+                    })
+        
+            # ✅ OPCJA 2: date_confirmed (DRUGA OPCJA)
+            if order_data.get('date_confirmed'):
+                try:
+                    timestamp = int(order_data['date_confirmed'])
+                    payment_date = datetime.fromtimestamp(timestamp)
                 
-            # OPCJA 2: Można dodać API call do getOrderStatusHistory jeśli potrzeba
-            # Ale na razie skupmy się na prostym przypadku
-            
-            # FALLBACK: Użyj date_add (data dodania zamówienia)
+                    logger.info("⚠️ Fallback payment_date z date_confirmed", extra={
+                        'order_id': order_id,
+                        'payment_date': payment_date.isoformat(),
+                        'timestamp': timestamp,
+                        'source': 'date_confirmed'
+                    })
+                
+                    return payment_date
+                except (TypeError, ValueError, OSError) as e:
+                    logger.warning("Błędny format date_confirmed", extra={
+                        'order_id': order_id,
+                        'date_confirmed': order_data.get('date_confirmed'),
+                        'error': str(e)
+                    })
+        
+            # ✅ OPCJA 3: date_add (OSTATNI FALLBACK)
             if order_data.get('date_add'):
-                timestamp = int(order_data['date_add'])
-                fallback_date = datetime.fromtimestamp(timestamp)
+                try:
+                    timestamp = int(order_data['date_add'])
+                    payment_date = datetime.fromtimestamp(timestamp)
                 
-                logger.debug("Fallback payment_date z date_add", extra={
-                    'order_id': order_id,
-                    'fallback_date': fallback_date.isoformat()
-                })
+                    logger.warning("🔄 Ostatni fallback payment_date z date_add", extra={
+                        'order_id': order_id,
+                        'payment_date': payment_date.isoformat(),
+                        'timestamp': timestamp,
+                        'source': 'date_add'
+                    })
                 
-                return fallback_date
-            
+                    return payment_date
+                except (TypeError, ValueError, OSError) as e:
+                    logger.error("Błędny format date_add", extra={
+                        'order_id': order_id,
+                        'date_add': order_data.get('date_add'),
+                        'error': str(e)
+                    })
+        
+            # Brak dostępnych dat
+            logger.error("❌ Brak prawidłowych dat dla payment_date", extra={
+                'order_id': order_id
+            })
             return None
-            
+        
         except Exception as e:
-            logger.warning("Błąd extraction payment_date", extra={
+            logger.error("Błąd extraction payment_date", extra={
                 'order_id': order_data.get('order_id'),
                 'error': str(e)
             })
@@ -1173,12 +1252,12 @@ class BaselinkerSyncService:
         try:
             price_brutto = float(product.get('price_brutto', 0))
             tax_rate = float(product.get('tax_rate', 23))
-            quantity = int(product.get('quantity', 1))
-        
+            quantity = int(product.get('quantity', 1))  # Do informacji, nie do obliczeń
+    
             # Sprawdź typ ceny z extra_field_106169
             custom_fields = order.get('custom_extra_fields', {}) or {}
             price_type = custom_fields.get('106169', '').strip().lower() if custom_fields else ''
-        
+    
             logger.debug("Konwersja cen produktu", extra={
                 'order_id': order['order_id'],
                 'price_brutto': price_brutto,
@@ -1187,24 +1266,23 @@ class BaselinkerSyncService:
                 'price_type_from_api': price_type,
                 'custom_fields_exists': bool(custom_fields)
             })
-        
-            # Konwersja na netto według logiki z reports/service.py
+    
+            # ✅ GŁÓWNA POPRAWKA: price_brutto z API to już cena za JEDNĄ SZTUKĘ
             if price_type == 'netto':
-                # Cena już jest netto
-                price_netto = price_brutto
+                # Cena już jest netto za jedną sztukę
+                unit_price_net = price_brutto
             else:
-                # Domyślnie traktuj jako brutto (jeśli brak info lub brutto)
-                price_netto = price_brutto / (1 + tax_rate/100)
-        
-            # Cena jednostkowa (za 1 sztukę) - ważne: jeden rekord = jedna sztuka
-            unit_price_net = price_netto / quantity if quantity > 0 else price_netto
-            total_value_net = unit_price_net  # Jeden rekord = jedna sztuka
-        
+                # Domyślnie traktuj jako brutto za jedną sztukę - przelicz na netto
+                unit_price_net = price_brutto / (1 + tax_rate/100)
+    
+            # ✅ NAPRAWIONE: total_value_net = unit_price_net (każdy rekord to jedna sztuka)
+            total_value_net = unit_price_net
+    
             product_data.update({
                 'unit_price_net': round(unit_price_net, 2),
                 'total_value_net': round(total_value_net, 2)
             })
-        
+    
         except (ValueError, TypeError) as e:
             logger.error("Błąd konwersji cen", extra={
                 'order_id': order['order_id'],
