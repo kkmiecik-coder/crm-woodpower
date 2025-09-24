@@ -1178,32 +1178,54 @@ class BaselinkerSyncService:
         return results
 
     def _prepare_product_data_enhanced(self, order: Dict[str, Any], product: Dict[str, Any], 
-                                 product_id: str, id_result: Dict[str, Any], 
-                                 parsed_data: Dict[str, Any], client_data: Dict[str, str],
-                                 deadline_date: date, order_product_id: Any,
-                                 sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
-        """POPRAWIONA: Dodaje wszystkie brakujące pola"""
+                                     product_id: str, id_result: Dict[str, Any], 
+                                     parsed_data: Dict[str, Any], client_data: Dict[str, str],
+                                     deadline_date: date, order_product_id: Any,
+                                     sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
+        """
+        ENHANCED WERSJA: Przygotowuje dane produktu z payment_date
         
-        # Podstawowe dane  
+        Args:
+            payment_date: NOWE - data opłacenia z extraction
+        """
+        # Podstawowe dane
+        order_status = order.get('order_status_id')
+        if order_status is None:
+            order_status = order.get('status_id')
+
+        if isinstance(order_status, str) and order_status.strip():
+            try:
+                order_status = int(float(order_status))
+            except (TypeError, ValueError):
+                pass
+
+        order_product_identifier = (
+            order_product_id
+            or product.get('order_product_id')
+            or product.get('product_id')
+            or product.get('id')
+            or product.get('storage_product_id')
+        )
+
         product_data = {
             'short_product_id': product_id,
             'internal_order_number': id_result['internal_order_number'],
             'product_sequence_in_order': sequence_number,
             'baselinker_order_id': order['order_id'],
-            'baselinker_product_id': str(order_product_id) if order_product_id else None,
+            'baselinker_product_id': str(order_product_identifier) if order_product_identifier else None,
             'original_product_name': product.get('name', ''),
-            'baselinker_status_id': order.get('order_status_id'),  # ✅ NAPRAWIONE
+            'baselinker_status_id': order_status,
             
-            # ✅ DODANE: Payment date
+            # NOWE: Payment date dla nowego algorytmu priorytetów
             'payment_date': payment_date,
             
-            # ✅ DODANE: Dane klienta
+            # Dane klienta
             'client_name': client_data.get('client_name', ''),
             'client_email': client_data.get('client_email', ''),
             'client_phone': client_data.get('client_phone', ''),
             'delivery_address': client_data.get('delivery_address', ''),
             
-            # ✅ DODANE: Deadline
+            # Deadline
             'deadline_date': deadline_date,
             
             # Status początkowy
@@ -1211,31 +1233,29 @@ class BaselinkerSyncService:
             'sync_source': 'baselinker_auto'
         }
         
-        # ✅ DODANE: Obliczanie days_until_deadline
-        if deadline_date:
-            today = date.today()
-            days_until = (deadline_date - today).days
-            product_data['days_until_deadline'] = days_until
-        
         # Dane sparsowane z nazwy produktu
         if parsed_data:
-            # ✅ POPRAWIONE: Obliczanie volume_m3 z parsowanych wymiarów
             volume_m3 = parsed_data.get('volume_m3')
-            if volume_m3 is None and all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_cm']):
+            if volume_m3 is None:
+                length = parsed_data.get('length_cm')
+                width = parsed_data.get('width_cm')
+                thickness = parsed_data.get('thickness_cm')
                 try:
-                    length = float(parsed_data['length_cm'])
-                    width = float(parsed_data['width_cm'])
-                    thickness = float(parsed_data['thickness_cm'])
-                    # Konwersja cm³ → m³
-                    volume_m3 = (length * width * thickness) / 1_000_000
-                    logger.debug("Obliczono volume_m3 z wymiarów", extra={
-                        'length': length, 'width': width, 'thickness': thickness,
-                        'volume_m3': volume_m3
-                    })
-                except (TypeError, ValueError) as e:
-                    logger.warning("Błąd obliczania volume_m3", extra={'error': str(e)})
+                    if all(value is not None for value in (length, width, thickness)):
+                        volume_m3 = round((float(length) * float(width) * float(thickness)) / 1_000_000, 6)
+                except (TypeError, ValueError):
                     volume_m3 = None
-            
+
+            logger.info("🐛 DEBUG: Obliczanie objętości produktu", extra={
+                'order_id': order['order_id'],
+                'product_name': product.get('name', ''),
+                'parsed_length_cm': parsed_data.get('length_cm') if parsed_data else None,
+                'parsed_width_cm': parsed_data.get('width_cm') if parsed_data else None,
+                'parsed_thickness_cm': parsed_data.get('thickness_cm') if parsed_data else None,
+                'calculated_volume_m3': volume_m3,
+                'parsed_volume_m3': parsed_data.get('volume_m3') if parsed_data else None
+            })
+
             product_data.update({
                 'parsed_wood_species': parsed_data.get('wood_species'),
                 'parsed_technology': parsed_data.get('technology'),
@@ -1244,54 +1264,40 @@ class BaselinkerSyncService:
                 'parsed_width_cm': parsed_data.get('width_cm'),
                 'parsed_thickness_cm': parsed_data.get('thickness_cm'),
                 'parsed_finish_state': parsed_data.get('finish_state'),
-                'volume_m3': volume_m3  # ✅ NAPRAWIONE
+                'volume_m3': volume_m3
             })
         
-        # ✅ POPRAWIONE: Konwersja cen (z logiki reports module)
+        extra_fields = order.get('custom_extra_fields', {})
+        price_type_field = extra_fields.get('106169') or extra_fields.get(106169)
+        
+        logger.info("🐛 DEBUG: Analiza cen i konwersji", extra={
+            'order_id': order['order_id'],
+            'extra_field_106169': price_type_field,
+            'product_price_brutto': product.get('price_brutto'),
+            'product_price_single': product.get('price_single'),
+            'product_price': product.get('price'),
+            'product_tax_rate': product.get('tax_rate'),
+            'product_quantity': product.get('quantity'),
+            'all_extra_fields': list(extra_fields.keys()) if extra_fields else None
+        })
+
+        # Dane finansowe
         try:
             price_brutto = float(product.get('price_brutto', 0))
             tax_rate = float(product.get('tax_rate', 23))
-            quantity = int(product.get('quantity', 1))
             
-            # Sprawdź typ ceny - MOŻE NIE ISTNIEĆ custom_extra_fields!
-            custom_fields = order.get('custom_extra_fields', {}) or {}
-            price_type = custom_fields.get('106169', '').strip().lower() if custom_fields else ''
-            
-            logger.debug("Konwersja cen produktu", extra={
-                'order_id': order['order_id'],
-                'price_brutto': price_brutto,
-                'tax_rate': tax_rate,
-                'quantity': quantity,
-                'price_type_from_api': price_type,
-                'custom_fields_exists': bool(custom_fields)
-            })
-            
-            # Konwersja na netto
-            if price_type == 'netto':
-                # Cena już jest netto
-                price_netto = price_brutto
-            else:
-                # Domyślnie traktuj jako brutto (jeśli brak info lub brutto)
-                price_netto = price_brutto / (1 + tax_rate/100)
-            
-            # Cena jednostkowa (za 1 sztukę)
-            unit_price_net = price_netto / quantity if quantity > 0 else price_netto
-            total_value_net = unit_price_net  # Jeden rekord = jedna sztuka
+            price_netto = price_brutto / (1 + tax_rate/100) if tax_rate > 0 else price_brutto
+            product_quantity = self._coerce_quantity(product.get('quantity', 1))
+            unit_price = price_netto / product_quantity if product_quantity > 0 else price_netto
             
             product_data.update({
-                'unit_price_net': round(unit_price_net, 2),  # ✅ NAPRAWIONE
-                'total_value_net': round(total_value_net, 2)  # ✅ NAPRAWIONE
+                'unit_price_net': round(unit_price, 2),
+                'total_value_net': round(unit_price, 2)
             })
-            
-        except (ValueError, TypeError) as e:
-            logger.error("Błąd konwersji cen", extra={
-                'order_id': order['order_id'],
-                'product_name': product.get('name', ''),
-                'error': str(e)
-            })
+        except (ValueError, TypeError):
             product_data.update({
-                'unit_price_net': 0.0,
-                'total_value_net': 0.0
+                'unit_price_net': 0,
+                'total_value_net': 0
             })
         
         return product_data
@@ -2893,165 +2899,157 @@ class BaselinkerSyncService:
         """ZACHOWANE: Alias dla kompatybilności"""
         return self.update_order_status_in_baselinker(internal_order_number)
 
-    def extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
-        """POPRAWIONA: Implementuje logikę fallback dla client_name zgodnie z wymaganiami"""
+    def _extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
+        """Wyciąga podstawowe dane klienta z zamówienia Baselinker."""
 
-        # ✅ LOGIKA FALLBACK dla client_name: delivery_fullname > invoice_fullname > user_login > email
-        client_name = ""
-        if order.get('delivery_fullname') and order['delivery_fullname'].strip():
-            client_name = order['delivery_fullname'].strip()
-        elif order.get('invoice_fullname') and order['invoice_fullname'].strip():
-            client_name = order['invoice_fullname'].strip()
-        elif order.get('user_login') and order['user_login'].strip():
-            client_name = order['user_login'].strip()
-        elif order.get('email') and order['email'].strip():
-            client_name = order['email'].strip()
+        def _first_non_empty(source: Dict[str, Any], *keys: str) -> str:
+            for key in keys:
+                if not key:
+                    continue
+                value = source.get(key)
+                if value is None:
+                    continue
+                if isinstance(value, str):
+                    cleaned = value.strip()
+                else:
+                    cleaned = str(value).strip()
+                if cleaned:
+                    return cleaned
+            return ''
 
-        # Bezpośrednie mapowanie dla email i phone
-        client_email = order.get('email', '').strip()
-        client_phone = order.get('phone', '').strip()
+        custom_fields = order.get('custom_extra_fields') or {}
+        if not isinstance(custom_fields, dict):
+            custom_fields = {}
 
-        # ✅ SKŁADANIE delivery_address: delivery_address + delivery_postcode + delivery_city
-        address_parts = []
+        client_name = _first_non_empty(
+            order,
+            'delivery_fullname',
+            'invoice_fullname',
+            'client_name',
+            'customer_name',
+            'user_login',
+            'client_login'
+        )
 
-        if order.get('delivery_address') and order['delivery_address'].strip():
-            address_parts.append(order['delivery_address'].strip())
-
-        if order.get('delivery_postcode') and order['delivery_postcode'].strip():
-            if order.get('delivery_city') and order['delivery_city'].strip():
-                address_parts.append(f"{order['delivery_postcode'].strip()} {order['delivery_city'].strip()}")
-            else:
-                address_parts.append(order['delivery_postcode'].strip())
-        elif order.get('delivery_city') and order['delivery_city'].strip():
-            address_parts.append(order['delivery_city'].strip())
-
-        delivery_address = ', '.join(address_parts)
-
-        logger.debug("Mapowanie danych klienta z fallback", extra={
+        logger.info("🐛 DEBUG: Mapowanie danych klienta", extra={
             'order_id': order.get('order_id'),
-            'client_name': client_name,
-            'client_name_source': (
-                'delivery_fullname' if order.get('delivery_fullname') else
-                'invoice_fullname' if order.get('invoice_fullname') else
-                'user_login' if order.get('user_login') else
-                'email' if order.get('email') else 'none'
-            ),
-            'client_email': client_email,
-            'client_phone': client_phone,
-            'delivery_address': delivery_address
+            'delivery_fullname': order.get('delivery_fullname'),
+            'invoice_fullname': order.get('invoice_fullname'),
+            'client_name': order.get('client_name'),
+            'customer_name': order.get('customer_name'),
+            'user_login': order.get('user_login'),
+            'client_login': order.get('client_login'),
+            'email': order.get('email'),
+            'client_email': order.get('client_email'),
+            'phone': order.get('phone'),
+            'client_phone': order.get('client_phone'),
+            'delivery_address': order.get('delivery_address'),
+            'mapped_client_name': client_name,
+            'mapped_client_email': client_email,
+            'mapped_client_phone': client_phone
         })
+
+        if not client_name:
+            client_name = _first_non_empty(custom_fields, 'client_name', 'delivery_name', 'invoice_name')
+
+        client_email = _first_non_empty(order, 'email', 'client_email', 'invoice_email')
+        if not client_email:
+            client_email = _first_non_empty(custom_fields, 'client_email', 'invoice_email')
+
+        client_phone = _first_non_empty(order, 'phone', 'delivery_phone', 'client_phone', 'phone_mobile')
+        if not client_phone:
+            client_phone = _first_non_empty(custom_fields, 'client_phone', 'delivery_phone')
+
+        street = _first_non_empty(order, 'delivery_address', 'address', 'client_address')
+        if not street:
+            street = _first_non_empty(custom_fields, 'delivery_address', 'invoice_address')
+
+        postcode = _first_non_empty(order, 'delivery_postcode', 'postcode')
+        if not postcode:
+            postcode = _first_non_empty(custom_fields, 'delivery_postcode', 'invoice_postcode')
+
+        city = _first_non_empty(order, 'delivery_city', 'city')
+        if not city:
+            city = _first_non_empty(custom_fields, 'delivery_city', 'invoice_city')
+
+        state = _first_non_empty(order, 'delivery_state', 'state')
+        if not state:
+            state = _first_non_empty(custom_fields, 'delivery_state', 'invoice_state', 'delivery_region')
+
+        country = _first_non_empty(order, 'delivery_country_code', 'country_code')
+        if not country:
+            country = _first_non_empty(custom_fields, 'delivery_country_code', 'invoice_country_code')
+
+        address_parts = [street]
+        if postcode and city:
+            address_parts.append(f"{postcode} {city}")
+        else:
+            if postcode:
+                address_parts.append(postcode)
+            if city:
+                address_parts.append(city)
+
+        if state:
+            address_parts.append(state)
+
+        if country and country.upper() not in {'PL', 'POLSKA'}:
+            address_parts.append(country)
+
+        delivery_address = ', '.join(part for part in address_parts if part)
 
         return {
-            'client_name': client_name,
-            'client_email': client_email,
-            'client_phone': client_phone,
-            'delivery_address': delivery_address
+            'client_name': client_name or '',
+            'client_email': client_email or '',
+            'client_phone': client_phone or '',
+            'delivery_address': delivery_address or ''
         }
 
-    def _calculate_deadline_date(self, order: Dict[str, Any]) -> date:
-        """
-        ✅ POPRAWIONA: Oblicza deadline_date na podstawie date_in_status + dni z prod_config
+    def _calculate_deadline_date(self, order: Dict[str, Any]) -> datetime.date:
+        """Oblicza datę deadline'u dla produktu."""
 
-        Logika:
-        1. Pobierz timestamp z date_in_status (data zmiany statusu)
-        2. Pobierz liczbę dni z tabeli prod_config (klucz: DEADLINE_DEFAULT_DAYS)
-        3. Dodaj dni do timestamp i zwróć jako datę
-        """
+        from ..services.config_service import get_config
 
-        # ✅ KROK 1: Pobierz timestamp z date_in_status (zamiast payment_date)
-        base_timestamp = None
-
-        # Sprawdź date_in_status (preferowany)
-        if order.get('date_in_status'):
-            try:
-                base_timestamp = int(order['date_in_status'])
-                logger.debug("Użyto date_in_status jako base", extra={
-                    'order_id': order.get('order_id'),
-                    'date_in_status_timestamp': base_timestamp
-                })
-            except (TypeError, ValueError):
-                logger.warning("Błędny format date_in_status", extra={
-                    'order_id': order.get('order_id'),
-                    'date_in_status': order.get('date_in_status')
-                })
-
-        # Fallback na date_status_change
-        if not base_timestamp and order.get('date_status_change'):
-            try:
-                base_timestamp = int(order['date_status_change'])
-                logger.debug("Użyto date_status_change jako fallback", extra={
-                    'order_id': order.get('order_id'),
-                    'date_status_change_timestamp': base_timestamp
-                })
-            except (TypeError, ValueError):
-                pass
-
-        # Ostatni fallback na date_add
-        if not base_timestamp and order.get('date_add'):
-            try:
-                base_timestamp = int(order['date_add'])
-                logger.debug("Użyto date_add jako ostatni fallback", extra={
-                    'order_id': order.get('order_id'),
-                    'date_add_timestamp': base_timestamp
-                })
-            except (TypeError, ValueError):
-                pass
-
-        # Konwersja timestamp na datę
-        if base_timestamp:
-            try:
-                base_date = datetime.fromtimestamp(base_timestamp).date()
-            except (OSError, ValueError):
-                base_date = date.today()
-                logger.warning("Błędny timestamp, użyto dzisiaj", extra={
-                    'order_id': order.get('order_id'),
-                    'invalid_timestamp': base_timestamp
-                })
+        payment_date = self.extract_payment_date_from_order(order)
+        if payment_date:
+            base_date = payment_date.date()
         else:
-            base_date = date.today()
-            logger.warning("Brak timestamp, użyto dzisiaj", extra={
-                'order_id': order.get('order_id')
-            })
+            timestamp = order.get('date_add')
+            base_date = get_local_now().date()
+            if timestamp is not None:
+                try:
+                    base_date = datetime.fromtimestamp(int(timestamp)).date()
+                except (TypeError, ValueError, OSError):
+                    pass
 
-        # ✅ KROK 2: Pobierz liczbę dni z tabeli prod_config
+        custom_fields = order.get('custom_extra_fields') or {}
+        if not isinstance(custom_fields, dict):
+            custom_fields = {}
+
+        deadline_days_raw = None
+        for key in (
+            'production_deadline_days',
+            'deadline_days',
+            'deadline',
+            'production_time_days'
+        ):
+            if key in custom_fields and custom_fields[key] not in (None, ''):
+                deadline_days_raw = custom_fields[key]
+                break
+
+        if deadline_days_raw is None:
+            deadline_days_raw = order.get('production_deadline_days')
+
         try:
-            from ..models import ProductionConfig
-            config_record = ProductionConfig.query.filter_by(config_key='DEADLINE_DEFAULT_DAYS').first()
-            if config_record and config_record.parsed_value:
-                deadline_days = int(config_record.parsed_value)
-                logger.debug("Pobrano dni z prod_config", extra={
-                    'deadline_days': deadline_days
-                })
-            else:
-                deadline_days = 14  # Default fallback
-                logger.warning("Brak konfiguracji DEADLINE_DEFAULT_DAYS, użyto domyślnej", extra={
-                    'default_days': deadline_days
-                })
-        except Exception as e:
-            deadline_days = 14  # Safe fallback
-            logger.error("Błąd pobierania konfiguracji deadline", extra={
-                'error': str(e),
-                'fallback_days': deadline_days
-            })
+            deadline_days = int(float(deadline_days_raw)) if deadline_days_raw is not None else None
+        except (TypeError, ValueError):
+            deadline_days = None
 
-        # ✅ KROK 3: Oblicz deadline_date (base_date + deadline_days)
-        try:
-            deadline_date = base_date + timedelta(days=deadline_days)
-        except Exception as e:
-            deadline_date = date.today() + timedelta(days=14)
-            logger.error("Błąd obliczania deadline_date", extra={
-                'error': str(e),
-                'fallback_date': deadline_date.isoformat()
-            })
+        if deadline_days is None:
+            deadline_days = int(get_config('DEADLINE_DEFAULT_DAYS', 14) or 14)
 
-        logger.debug("Obliczono deadline_date", extra={
-            'order_id': order.get('order_id'),
-            'base_date': base_date.isoformat(),
-            'deadline_days': deadline_days,
-            'deadline_date': deadline_date.isoformat()
-        })
+        deadline_days = max(0, min(deadline_days, 180))
 
-        return deadline_date
+        return self._add_business_days(base_date, deadline_days)
 
     def _add_business_days(self, start_date: date, business_days: int) -> date:
         """Dodaje określoną liczbę dni roboczych do daty startowej."""
@@ -3381,15 +3379,24 @@ class BaselinkerSyncService:
 
         return results
 
-    def _safe_float_conversion(self, value: Any) -> float:
-        """Bezpieczna konwersja na float"""
+    def _safe_float_conversion(self, value) -> float:
+        """
+        BRAKUJĄCA METODA: Bezpieczna konwersja wartości na float
+    
+        Args:
+            value: Wartość do konwersji (może być None, string, int, float)
+        
+        Returns:
+            float: Skonwertowana wartość lub 0.0 jeśli konwersja nie powiodła się
+        """
         try:
             if value is None:
                 return 0.0
             if isinstance(value, (int, float)):
                 return float(value)
             if isinstance(value, str):
-                cleaned = value.strip().replace(',', '.')
+                # Usuń spacje i zamień przecinek na kropkę
+                cleaned = str(value).strip().replace(',', '.')
                 if not cleaned:
                     return 0.0
                 return float(cleaned)
@@ -3635,48 +3642,14 @@ def process_orders_with_priority_logic(orders_data: List[Dict[str, Any]],
     """
     return get_sync_service().process_orders_with_priority_logic(orders_data, sync_type, auto_status_change)
 
-def extract_payment_date_from_order(self, order_data: Dict[str, Any]) -> Optional[datetime]:
+def extract_payment_date_from_order(order_data: Dict[str, Any]) -> Optional[datetime]:
     """
-    POPRAWIONA: Używa date_in_status zamiast nieistniejącego date_status_change
+    NOWA: Helper function dla extraction payment_date
+    
+    Returns:
+        Optional[datetime]: Data opłacenia lub None
     """
-    try:
-        order_id = order_data.get('order_id')
-        
-        # GŁÓWNA POPRAWKA: użyj date_in_status zamiast date_status_change
-        if order_data.get('date_in_status'):
-            timestamp = int(order_data['date_in_status'])
-            payment_date = datetime.fromtimestamp(timestamp)
-            
-            logger.info("Extracted payment_date z date_in_status", extra={
-                'order_id': order_id,
-                'payment_date': payment_date.isoformat(),
-                'timestamp': timestamp
-            })
-            return payment_date
-        
-        # FALLBACK: date_add jako ostateczność
-        elif order_data.get('date_add'):
-            timestamp = int(order_data['date_add'])
-            payment_date = datetime.fromtimestamp(timestamp)
-            
-            logger.info("Fallback payment_date z date_add", extra={
-                'order_id': order_id,
-                'payment_date': payment_date.isoformat()
-            })
-            return payment_date
-        
-        logger.warning("Nie znaleziono daty dla payment_date", extra={
-            'order_id': order_id,
-            'available_date_fields': [k for k in order_data.keys() if 'date' in k.lower()]
-        })
-        return None
-        
-    except Exception as e:
-        logger.error("Błąd extraction payment_date", extra={
-            'order_id': order_data.get('order_id'),
-            'error': str(e)
-        })
-        return None
+    return get_sync_service().extract_payment_date_from_order(order_data)
 
 def validate_order_products_completeness(order_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
