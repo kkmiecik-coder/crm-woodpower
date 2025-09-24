@@ -402,12 +402,32 @@ class BaselinkerSyncService:
                             processing_stats['products_skipped'] += 1
                         
                     except Exception as product_error:
-                        logger.error("ENHANCED: Błąd tworzenia produktu", extra={
-                            'order_id': order_id,
-                            'error': str(product_error)
-                        })
+                        error_msg = str(product_error)
+                        
+                        # Sprawdź czy to błąd ID generatora
+                        if "już istnieje w bazie danych" in error_msg or "ID generation" in error_msg:
+                            logger.warning("ENHANCED: Problem z generatorem ID - produkt pominięty", extra={
+                                'order_id': order_id,
+                                'error': error_msg,
+                                'product_name': product_data.get('name', 'unknown')
+                            })
+                        else:
+                            logger.error("ENHANCED: Błąd tworzenia produktu", extra={
+                                'order_id': order_id,
+                                'error': error_msg,
+                                'product_name': product_data.get('name', 'unknown')
+                            })
+                        
                         order_errors += 1
                         processing_stats['products_skipped'] += 1
+                        
+                        # Dodaj do error_details
+                        error_details.append({
+                            'order_id': order_id,
+                            'product_name': product_data.get('name', 'unknown'),
+                            'error_type': 'product_creation_failed',
+                            'error_message': error_msg
+                        })
             
                 # KROK 4: Commit produktów dla tego zamówienia
                 if order_products_created > 0:
@@ -718,6 +738,18 @@ class BaselinkerSyncService:
         Returns:
             Optional[datetime]: Data opłacenia lub None
         """
+
+        # 🐛 DEBUG: Sprawdzenie struktury zamówienia dla payment_date
+        logger.info("🐛 DEBUG: Szukanie payment_date w zamówieniu", extra={
+            'order_id': order_data.get('order_id'),
+            'order_status_id': order_data.get('order_status_id'),
+            'date_add': order_data.get('date_add'),
+            'date_confirmed': order_data.get('date_confirmed'),
+            'date_status_change': order_data.get('date_status_change'),
+            'status_history_keys': list(order_data.get('status_history', {}).keys()) if order_data.get('status_history') else None,
+            'all_order_keys': list(order_data.keys())
+        })
+
         try:
             order_id = order_data.get('order_id')
             
@@ -1146,54 +1178,32 @@ class BaselinkerSyncService:
         return results
 
     def _prepare_product_data_enhanced(self, order: Dict[str, Any], product: Dict[str, Any], 
-                                     product_id: str, id_result: Dict[str, Any], 
-                                     parsed_data: Dict[str, Any], client_data: Dict[str, str],
-                                     deadline_date: date, order_product_id: Any,
-                                     sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
-        """
-        ENHANCED WERSJA: Przygotowuje dane produktu z payment_date
+                                 product_id: str, id_result: Dict[str, Any], 
+                                 parsed_data: Dict[str, Any], client_data: Dict[str, str],
+                                 deadline_date: date, order_product_id: Any,
+                                 sequence_number: int, payment_date: Optional[datetime]) -> Dict[str, Any]:
+        """POPRAWIONA: Dodaje wszystkie brakujące pola"""
         
-        Args:
-            payment_date: NOWE - data opłacenia z extraction
-        """
-        # Podstawowe dane
-        order_status = order.get('order_status_id')
-        if order_status is None:
-            order_status = order.get('status_id')
-
-        if isinstance(order_status, str) and order_status.strip():
-            try:
-                order_status = int(float(order_status))
-            except (TypeError, ValueError):
-                pass
-
-        order_product_identifier = (
-            order_product_id
-            or product.get('order_product_id')
-            or product.get('product_id')
-            or product.get('id')
-            or product.get('storage_product_id')
-        )
-
+        # Podstawowe dane  
         product_data = {
             'short_product_id': product_id,
             'internal_order_number': id_result['internal_order_number'],
             'product_sequence_in_order': sequence_number,
             'baselinker_order_id': order['order_id'],
-            'baselinker_product_id': str(order_product_identifier) if order_product_identifier else None,
+            'baselinker_product_id': str(order_product_id) if order_product_id else None,
             'original_product_name': product.get('name', ''),
-            'baselinker_status_id': order_status,
+            'baselinker_status_id': order.get('order_status_id'),  # ✅ NAPRAWIONE
             
-            # NOWE: Payment date dla nowego algorytmu priorytetów
+            # ✅ DODANE: Payment date
             'payment_date': payment_date,
             
-            # Dane klienta
+            # ✅ DODANE: Dane klienta
             'client_name': client_data.get('client_name', ''),
             'client_email': client_data.get('client_email', ''),
             'client_phone': client_data.get('client_phone', ''),
             'delivery_address': client_data.get('delivery_address', ''),
             
-            # Deadline
+            # ✅ DODANE: Deadline
             'deadline_date': deadline_date,
             
             # Status początkowy
@@ -1201,19 +1211,31 @@ class BaselinkerSyncService:
             'sync_source': 'baselinker_auto'
         }
         
+        # ✅ DODANE: Obliczanie days_until_deadline
+        if deadline_date:
+            today = date.today()
+            days_until = (deadline_date - today).days
+            product_data['days_until_deadline'] = days_until
+        
         # Dane sparsowane z nazwy produktu
         if parsed_data:
+            # ✅ POPRAWIONE: Obliczanie volume_m3 z parsowanych wymiarów
             volume_m3 = parsed_data.get('volume_m3')
-            if volume_m3 is None:
-                length = parsed_data.get('length_cm')
-                width = parsed_data.get('width_cm')
-                thickness = parsed_data.get('thickness_cm')
+            if volume_m3 is None and all(parsed_data.get(key) for key in ['length_cm', 'width_cm', 'thickness_cm']):
                 try:
-                    if all(value is not None for value in (length, width, thickness)):
-                        volume_m3 = round((float(length) * float(width) * float(thickness)) / 1_000_000, 6)
-                except (TypeError, ValueError):
+                    length = float(parsed_data['length_cm'])
+                    width = float(parsed_data['width_cm'])
+                    thickness = float(parsed_data['thickness_cm'])
+                    # Konwersja cm³ → m³
+                    volume_m3 = (length * width * thickness) / 1_000_000
+                    logger.debug("Obliczono volume_m3 z wymiarów", extra={
+                        'length': length, 'width': width, 'thickness': thickness,
+                        'volume_m3': volume_m3
+                    })
+                except (TypeError, ValueError) as e:
+                    logger.warning("Błąd obliczania volume_m3", extra={'error': str(e)})
                     volume_m3 = None
-
+            
             product_data.update({
                 'parsed_wood_species': parsed_data.get('wood_species'),
                 'parsed_technology': parsed_data.get('technology'),
@@ -1222,26 +1244,54 @@ class BaselinkerSyncService:
                 'parsed_width_cm': parsed_data.get('width_cm'),
                 'parsed_thickness_cm': parsed_data.get('thickness_cm'),
                 'parsed_finish_state': parsed_data.get('finish_state'),
-                'volume_m3': volume_m3
+                'volume_m3': volume_m3  # ✅ NAPRAWIONE
             })
         
-        # Dane finansowe
+        # ✅ POPRAWIONE: Konwersja cen (z logiki reports module)
         try:
             price_brutto = float(product.get('price_brutto', 0))
             tax_rate = float(product.get('tax_rate', 23))
+            quantity = int(product.get('quantity', 1))
             
-            price_netto = price_brutto / (1 + tax_rate/100) if tax_rate > 0 else price_brutto
-            product_quantity = self._coerce_quantity(product.get('quantity', 1))
-            unit_price = price_netto / product_quantity if product_quantity > 0 else price_netto
+            # Sprawdź typ ceny - MOŻE NIE ISTNIEĆ custom_extra_fields!
+            custom_fields = order.get('custom_extra_fields', {}) or {}
+            price_type = custom_fields.get('106169', '').strip().lower() if custom_fields else ''
             
-            product_data.update({
-                'unit_price_net': round(unit_price, 2),
-                'total_value_net': round(unit_price, 2)
+            logger.debug("Konwersja cen produktu", extra={
+                'order_id': order['order_id'],
+                'price_brutto': price_brutto,
+                'tax_rate': tax_rate,
+                'quantity': quantity,
+                'price_type_from_api': price_type,
+                'custom_fields_exists': bool(custom_fields)
             })
-        except (ValueError, TypeError):
+            
+            # Konwersja na netto
+            if price_type == 'netto':
+                # Cena już jest netto
+                price_netto = price_brutto
+            else:
+                # Domyślnie traktuj jako brutto (jeśli brak info lub brutto)
+                price_netto = price_brutto / (1 + tax_rate/100)
+            
+            # Cena jednostkowa (za 1 sztukę)
+            unit_price_net = price_netto / quantity if quantity > 0 else price_netto
+            total_value_net = unit_price_net  # Jeden rekord = jedna sztuka
+            
             product_data.update({
-                'unit_price_net': 0,
-                'total_value_net': 0
+                'unit_price_net': round(unit_price_net, 2),  # ✅ NAPRAWIONE
+                'total_value_net': round(total_value_net, 2)  # ✅ NAPRAWIONE
+            })
+            
+        except (ValueError, TypeError) as e:
+            logger.error("Błąd konwersji cen", extra={
+                'order_id': order['order_id'],
+                'product_name': product.get('name', ''),
+                'error': str(e)
+            })
+            product_data.update({
+                'unit_price_net': 0.0,
+                'total_value_net': 0.0
             })
         
         return product_data
@@ -1664,7 +1714,10 @@ class BaselinkerSyncService:
                 
                 if error_details:
                     sync_log.error_details = json.dumps({'errors': error_details})
-                sync_log.mark_completed()
+                
+                # POPRAWIONE: complete_sync zamiast mark_completed
+                success = stats['errors_count'] == 0
+                sync_log.complete_sync(success=success)
                 db.session.commit()
 
             sync_completed_at = get_local_now()
@@ -1723,11 +1776,53 @@ class BaselinkerSyncService:
 
         except SyncError as sync_error:
             logger.warning('Enhanced Manual Baselinker sync validation error', extra={'error': str(sync_error)})
-            # ... (error handling unchanged)
+            
+            # Update sync log
+            if sync_log:
+                sync_log.sync_status = 'failed'
+                sync_log.error_details = json.dumps({'error': str(sync_error)})
+                sync_log.complete_sync(success=False, error_message=str(sync_error))
+                db.session.commit()
+            
+            return {
+                'success': False,
+                'error': str(sync_error),
+                'message': f'Błąd walidacji synchronizacji: {str(sync_error)}',
+                'data': {
+                    'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
+                    'status': 'failed',
+                    'started_at': sync_started_at.isoformat(),
+                    'completed_at': get_local_now().isoformat(),
+                    'duration_seconds': int((get_local_now() - sync_started_at).total_seconds()),
+                    'stats': stats,
+                    'log_entries': log_entries
+                }
+            }
 
         except Exception as exc:
             logger.exception('Enhanced Manual Baselinker sync unexpected error')
-            # ... (error handling unchanged)
+            
+            # Update sync log
+            if sync_log:
+                sync_log.sync_status = 'failed'
+                sync_log.error_details = json.dumps({'error': str(exc)})
+                sync_log.complete_sync(success=False, error_message=str(exc))
+                db.session.commit()
+            
+            return {
+                'success': False,
+                'error': str(exc),
+                'message': f'Nieoczekiwany błąd synchronizacji: {str(exc)}',
+                'data': {
+                    'sync_id': f"manual_{sync_log.id}" if sync_log else f"manual_{int(sync_started_at.timestamp())}",
+                    'status': 'failed',
+                    'started_at': sync_started_at.isoformat(),
+                    'completed_at': get_local_now().isoformat(),
+                    'duration_seconds': int((get_local_now() - sync_started_at).total_seconds()),
+                    'stats': stats,
+                    'log_entries': log_entries
+                }
+            }
 
     def enhanced_manual_sync_orders(self, status_ids: List[int] = None, date_from: str = None, 
                                    recalculate_priorities: bool = True, auto_status_change: bool = True, 
@@ -1935,14 +2030,48 @@ class BaselinkerSyncService:
                 # Wykonanie requestu z retry
                 response_data = self._make_api_request(request_data)
                 
+                # 🐛 DEBUG: Logowanie RAW odpowiedzi z Baselinker API
+                logger.info("🐛 DEBUG: RAW Baselinker API Response", extra={
+                    'status_id': status_id,
+                    'response_status': response_data.get('status'),
+                    'response_keys': list(response_data.keys()) if isinstance(response_data, dict) else 'NOT_DICT',
+                    'response_size': len(str(response_data)),
+                    'raw_response_preview': str(response_data)[:500]  # Pierwsze 500 znaków
+                })
+                
                 if response_data.get('status') == 'SUCCESS':
                     orders = response_data.get('orders', [])
-                    all_orders.extend(orders)
                     
-                    logger.debug("Pobrano zamówienia dla statusu", extra={
-                        'status_id': status_id,
-                        'orders_count': len(orders)
-                    })
+                    # 🐛 DEBUG: Logowanie szczegółów każdego zamówienia
+                    for i, order in enumerate(orders[:2]):  # Tylko pierwsze 2 zamówienia żeby nie zaśmiecić logów
+                        logger.info(f"🐛 DEBUG: Zamówienie {i+1} struktura", extra={
+                            'order_id': order.get('order_id'),
+                            'order_keys': list(order.keys()) if isinstance(order, dict) else 'NOT_DICT',
+                            'order_status_id': order.get('order_status_id'),
+                            'client_name_field': order.get('delivery_fullname') or order.get('invoice_fullname') or order.get('client_name'),
+                            'email_field': order.get('email') or order.get('client_email'),
+                            'phone_field': order.get('phone') or order.get('client_phone'),
+                            'delivery_address': order.get('delivery_address'),
+                            'custom_extra_fields_keys': list(order.get('custom_extra_fields', {}).keys()) if order.get('custom_extra_fields') else None,
+                            'extra_field_106169': order.get('custom_extra_fields', {}).get('106169') if order.get('custom_extra_fields') else None,
+                            'products_count': len(order.get('products', [])),
+                        })
+                        
+                        # 🐛 DEBUG: Struktura produktów w zamówieniu
+                        for j, product in enumerate(order.get('products', [])[:1]):  # Tylko pierwszy produkt
+                            logger.info(f"🐛 DEBUG: Produkt {j+1} w zamówieniu {order.get('order_id')}", extra={
+                                'product_name': product.get('name'),
+                                'product_keys': list(product.keys()) if isinstance(product, dict) else 'NOT_DICT',
+                                'price_brutto': product.get('price_brutto'),
+                                'price_single': product.get('price_single'),
+                                'price': product.get('price'),
+                                'tax_rate': product.get('tax_rate'),
+                                'quantity': product.get('quantity'),
+                                'product_id': product.get('product_id'),
+                                'storage_product_id': product.get('storage_product_id')
+                            })
+                    
+                    all_orders.extend(orders)
                 else:
                     error_msg = response_data.get('error_message', 'Unknown error')
                     logger.warning("Błąd API dla statusu", extra={
@@ -2480,6 +2609,14 @@ class BaselinkerSyncService:
             product_data['deadline_date'] = date.today() + timedelta(days=default_days)
         except:
             product_data['deadline_date'] = date.today() + timedelta(days=14)
+
+        calculated_deadline = product_data.get('deadline_date')
+        logger.info("🐛 DEBUG: Obliczanie deadline", extra={
+            'order_id': order['order_id'],
+            'payment_date': product_data.get('payment_date'),
+            'calculated_deadline_date': calculated_deadline.isoformat() if calculated_deadline else None,
+            'days_until_deadline': (calculated_deadline - date.today()).days if calculated_deadline else None
+        })
         
         # Metadata
         product_data.update({
@@ -2572,6 +2709,22 @@ class BaselinkerSyncService:
                 'unit_price_net': 0,
                 'total_value_net': 0
             })
+
+        logger.info("🐛 DEBUG: Finalne mapowanie produktu", extra={
+            'product_id': product_id,
+            'original_product_name': product.get('name', ''),
+            'baselinker_order_id': order['order_id'],
+            'baselinker_status_id': product_data.get('baselinker_status_id'),
+            'client_name': product_data.get('client_name'),
+            'client_email': product_data.get('client_email'),
+            'client_phone': product_data.get('client_phone'),
+            'delivery_address': product_data.get('delivery_address'),
+            'unit_price_net': product_data.get('unit_price_net'),
+            'total_value_net': product_data.get('total_value_net'),
+            'volume_m3': product_data.get('volume_m3'),
+            'deadline_date': product_data.get('deadline_date'),
+            'payment_date': product_data.get('payment_date')
+        })
 
         return product_data
 
@@ -2740,139 +2893,165 @@ class BaselinkerSyncService:
         """ZACHOWANE: Alias dla kompatybilności"""
         return self.update_order_status_in_baselinker(internal_order_number)
 
-    def _extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
-        """Wyciąga podstawowe dane klienta z zamówienia Baselinker."""
+    def extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
+        """POPRAWIONA: Implementuje logikę fallback dla client_name zgodnie z wymaganiami"""
 
-        def _first_non_empty(source: Dict[str, Any], *keys: str) -> str:
-            for key in keys:
-                if not key:
-                    continue
-                value = source.get(key)
-                if value is None:
-                    continue
-                if isinstance(value, str):
-                    cleaned = value.strip()
-                else:
-                    cleaned = str(value).strip()
-                if cleaned:
-                    return cleaned
-            return ''
+        # ✅ LOGIKA FALLBACK dla client_name: delivery_fullname > invoice_fullname > user_login > email
+        client_name = ""
+        if order.get('delivery_fullname') and order['delivery_fullname'].strip():
+            client_name = order['delivery_fullname'].strip()
+        elif order.get('invoice_fullname') and order['invoice_fullname'].strip():
+            client_name = order['invoice_fullname'].strip()
+        elif order.get('user_login') and order['user_login'].strip():
+            client_name = order['user_login'].strip()
+        elif order.get('email') and order['email'].strip():
+            client_name = order['email'].strip()
 
-        custom_fields = order.get('custom_extra_fields') or {}
-        if not isinstance(custom_fields, dict):
-            custom_fields = {}
+        # Bezpośrednie mapowanie dla email i phone
+        client_email = order.get('email', '').strip()
+        client_phone = order.get('phone', '').strip()
 
-        client_name = _first_non_empty(
-            order,
-            'delivery_fullname',
-            'invoice_fullname',
-            'client_name',
-            'customer_name',
-            'user_login',
-            'client_login'
-        )
+        # ✅ SKŁADANIE delivery_address: delivery_address + delivery_postcode + delivery_city
+        address_parts = []
 
-        if not client_name:
-            client_name = _first_non_empty(custom_fields, 'client_name', 'delivery_name', 'invoice_name')
+        if order.get('delivery_address') and order['delivery_address'].strip():
+            address_parts.append(order['delivery_address'].strip())
 
-        client_email = _first_non_empty(order, 'email', 'client_email', 'invoice_email')
-        if not client_email:
-            client_email = _first_non_empty(custom_fields, 'client_email', 'invoice_email')
+        if order.get('delivery_postcode') and order['delivery_postcode'].strip():
+            if order.get('delivery_city') and order['delivery_city'].strip():
+                address_parts.append(f"{order['delivery_postcode'].strip()} {order['delivery_city'].strip()}")
+            else:
+                address_parts.append(order['delivery_postcode'].strip())
+        elif order.get('delivery_city') and order['delivery_city'].strip():
+            address_parts.append(order['delivery_city'].strip())
 
-        client_phone = _first_non_empty(order, 'phone', 'delivery_phone', 'client_phone', 'phone_mobile')
-        if not client_phone:
-            client_phone = _first_non_empty(custom_fields, 'client_phone', 'delivery_phone')
+        delivery_address = ', '.join(address_parts)
 
-        street = _first_non_empty(order, 'delivery_address', 'address', 'client_address')
-        if not street:
-            street = _first_non_empty(custom_fields, 'delivery_address', 'invoice_address')
-
-        postcode = _first_non_empty(order, 'delivery_postcode', 'postcode')
-        if not postcode:
-            postcode = _first_non_empty(custom_fields, 'delivery_postcode', 'invoice_postcode')
-
-        city = _first_non_empty(order, 'delivery_city', 'city')
-        if not city:
-            city = _first_non_empty(custom_fields, 'delivery_city', 'invoice_city')
-
-        state = _first_non_empty(order, 'delivery_state', 'state')
-        if not state:
-            state = _first_non_empty(custom_fields, 'delivery_state', 'invoice_state', 'delivery_region')
-
-        country = _first_non_empty(order, 'delivery_country_code', 'country_code')
-        if not country:
-            country = _first_non_empty(custom_fields, 'delivery_country_code', 'invoice_country_code')
-
-        address_parts = [street]
-        if postcode and city:
-            address_parts.append(f"{postcode} {city}")
-        else:
-            if postcode:
-                address_parts.append(postcode)
-            if city:
-                address_parts.append(city)
-
-        if state:
-            address_parts.append(state)
-
-        if country and country.upper() not in {'PL', 'POLSKA'}:
-            address_parts.append(country)
-
-        delivery_address = ', '.join(part for part in address_parts if part)
+        logger.debug("Mapowanie danych klienta z fallback", extra={
+            'order_id': order.get('order_id'),
+            'client_name': client_name,
+            'client_name_source': (
+                'delivery_fullname' if order.get('delivery_fullname') else
+                'invoice_fullname' if order.get('invoice_fullname') else
+                'user_login' if order.get('user_login') else
+                'email' if order.get('email') else 'none'
+            ),
+            'client_email': client_email,
+            'client_phone': client_phone,
+            'delivery_address': delivery_address
+        })
 
         return {
-            'client_name': client_name or '',
-            'client_email': client_email or '',
-            'client_phone': client_phone or '',
-            'delivery_address': delivery_address or ''
+            'client_name': client_name,
+            'client_email': client_email,
+            'client_phone': client_phone,
+            'delivery_address': delivery_address
         }
 
-    def _calculate_deadline_date(self, order: Dict[str, Any]) -> datetime.date:
-        """Oblicza datę deadline'u dla produktu."""
+    def _calculate_deadline_date(self, order: Dict[str, Any]) -> date:
+        """
+        ✅ POPRAWIONA: Oblicza deadline_date na podstawie date_in_status + dni z prod_config
 
-        from ..services.config_service import get_config
+        Logika:
+        1. Pobierz timestamp z date_in_status (data zmiany statusu)
+        2. Pobierz liczbę dni z tabeli prod_config (klucz: DEADLINE_DEFAULT_DAYS)
+        3. Dodaj dni do timestamp i zwróć jako datę
+        """
 
-        payment_date = self.extract_payment_date_from_order(order)
-        if payment_date:
-            base_date = payment_date.date()
+        # ✅ KROK 1: Pobierz timestamp z date_in_status (zamiast payment_date)
+        base_timestamp = None
+
+        # Sprawdź date_in_status (preferowany)
+        if order.get('date_in_status'):
+            try:
+                base_timestamp = int(order['date_in_status'])
+                logger.debug("Użyto date_in_status jako base", extra={
+                    'order_id': order.get('order_id'),
+                    'date_in_status_timestamp': base_timestamp
+                })
+            except (TypeError, ValueError):
+                logger.warning("Błędny format date_in_status", extra={
+                    'order_id': order.get('order_id'),
+                    'date_in_status': order.get('date_in_status')
+                })
+
+        # Fallback na date_status_change
+        if not base_timestamp and order.get('date_status_change'):
+            try:
+                base_timestamp = int(order['date_status_change'])
+                logger.debug("Użyto date_status_change jako fallback", extra={
+                    'order_id': order.get('order_id'),
+                    'date_status_change_timestamp': base_timestamp
+                })
+            except (TypeError, ValueError):
+                pass
+
+        # Ostatni fallback na date_add
+        if not base_timestamp and order.get('date_add'):
+            try:
+                base_timestamp = int(order['date_add'])
+                logger.debug("Użyto date_add jako ostatni fallback", extra={
+                    'order_id': order.get('order_id'),
+                    'date_add_timestamp': base_timestamp
+                })
+            except (TypeError, ValueError):
+                pass
+
+        # Konwersja timestamp na datę
+        if base_timestamp:
+            try:
+                base_date = datetime.fromtimestamp(base_timestamp).date()
+            except (OSError, ValueError):
+                base_date = date.today()
+                logger.warning("Błędny timestamp, użyto dzisiaj", extra={
+                    'order_id': order.get('order_id'),
+                    'invalid_timestamp': base_timestamp
+                })
         else:
-            timestamp = order.get('date_add')
-            base_date = get_local_now().date()
-            if timestamp is not None:
-                try:
-                    base_date = datetime.fromtimestamp(int(timestamp)).date()
-                except (TypeError, ValueError, OSError):
-                    pass
+            base_date = date.today()
+            logger.warning("Brak timestamp, użyto dzisiaj", extra={
+                'order_id': order.get('order_id')
+            })
 
-        custom_fields = order.get('custom_extra_fields') or {}
-        if not isinstance(custom_fields, dict):
-            custom_fields = {}
-
-        deadline_days_raw = None
-        for key in (
-            'production_deadline_days',
-            'deadline_days',
-            'deadline',
-            'production_time_days'
-        ):
-            if key in custom_fields and custom_fields[key] not in (None, ''):
-                deadline_days_raw = custom_fields[key]
-                break
-
-        if deadline_days_raw is None:
-            deadline_days_raw = order.get('production_deadline_days')
-
+        # ✅ KROK 2: Pobierz liczbę dni z tabeli prod_config
         try:
-            deadline_days = int(float(deadline_days_raw)) if deadline_days_raw is not None else None
-        except (TypeError, ValueError):
-            deadline_days = None
+            from ..models import ProductionConfig
+            config_record = ProductionConfig.query.filter_by(config_key='DEADLINE_DEFAULT_DAYS').first()
+            if config_record and config_record.parsed_value:
+                deadline_days = int(config_record.parsed_value)
+                logger.debug("Pobrano dni z prod_config", extra={
+                    'deadline_days': deadline_days
+                })
+            else:
+                deadline_days = 14  # Default fallback
+                logger.warning("Brak konfiguracji DEADLINE_DEFAULT_DAYS, użyto domyślnej", extra={
+                    'default_days': deadline_days
+                })
+        except Exception as e:
+            deadline_days = 14  # Safe fallback
+            logger.error("Błąd pobierania konfiguracji deadline", extra={
+                'error': str(e),
+                'fallback_days': deadline_days
+            })
 
-        if deadline_days is None:
-            deadline_days = int(get_config('DEADLINE_DEFAULT_DAYS', 14) or 14)
+        # ✅ KROK 3: Oblicz deadline_date (base_date + deadline_days)
+        try:
+            deadline_date = base_date + timedelta(days=deadline_days)
+        except Exception as e:
+            deadline_date = date.today() + timedelta(days=14)
+            logger.error("Błąd obliczania deadline_date", extra={
+                'error': str(e),
+                'fallback_date': deadline_date.isoformat()
+            })
 
-        deadline_days = max(0, min(deadline_days, 180))
+        logger.debug("Obliczono deadline_date", extra={
+            'order_id': order.get('order_id'),
+            'base_date': base_date.isoformat(),
+            'deadline_days': deadline_days,
+            'deadline_date': deadline_date.isoformat()
+        })
 
-        return self._add_business_days(base_date, deadline_days)
+        return deadline_date
 
     def _add_business_days(self, start_date: date, business_days: int) -> date:
         """Dodaje określoną liczbę dni roboczych do daty startowej."""
@@ -3202,24 +3381,15 @@ class BaselinkerSyncService:
 
         return results
 
-    def _safe_float_conversion(self, value) -> float:
-        """
-        BRAKUJĄCA METODA: Bezpieczna konwersja wartości na float
-    
-        Args:
-            value: Wartość do konwersji (może być None, string, int, float)
-        
-        Returns:
-            float: Skonwertowana wartość lub 0.0 jeśli konwersja nie powiodła się
-        """
+    def _safe_float_conversion(self, value: Any) -> float:
+        """Bezpieczna konwersja na float"""
         try:
             if value is None:
                 return 0.0
             if isinstance(value, (int, float)):
                 return float(value)
             if isinstance(value, str):
-                # Usuń spacje i zamień przecinek na kropkę
-                cleaned = str(value).strip().replace(',', '.')
+                cleaned = value.strip().replace(',', '.')
                 if not cleaned:
                     return 0.0
                 return float(cleaned)
@@ -3465,14 +3635,48 @@ def process_orders_with_priority_logic(orders_data: List[Dict[str, Any]],
     """
     return get_sync_service().process_orders_with_priority_logic(orders_data, sync_type, auto_status_change)
 
-def extract_payment_date_from_order(order_data: Dict[str, Any]) -> Optional[datetime]:
+def extract_payment_date_from_order(self, order_data: Dict[str, Any]) -> Optional[datetime]:
     """
-    NOWA: Helper function dla extraction payment_date
-    
-    Returns:
-        Optional[datetime]: Data opłacenia lub None
+    POPRAWIONA: Używa date_in_status zamiast nieistniejącego date_status_change
     """
-    return get_sync_service().extract_payment_date_from_order(order_data)
+    try:
+        order_id = order_data.get('order_id')
+        
+        # GŁÓWNA POPRAWKA: użyj date_in_status zamiast date_status_change
+        if order_data.get('date_in_status'):
+            timestamp = int(order_data['date_in_status'])
+            payment_date = datetime.fromtimestamp(timestamp)
+            
+            logger.info("Extracted payment_date z date_in_status", extra={
+                'order_id': order_id,
+                'payment_date': payment_date.isoformat(),
+                'timestamp': timestamp
+            })
+            return payment_date
+        
+        # FALLBACK: date_add jako ostateczność
+        elif order_data.get('date_add'):
+            timestamp = int(order_data['date_add'])
+            payment_date = datetime.fromtimestamp(timestamp)
+            
+            logger.info("Fallback payment_date z date_add", extra={
+                'order_id': order_id,
+                'payment_date': payment_date.isoformat()
+            })
+            return payment_date
+        
+        logger.warning("Nie znaleziono daty dla payment_date", extra={
+            'order_id': order_id,
+            'available_date_fields': [k for k in order_data.keys() if 'date' in k.lower()]
+        })
+        return None
+        
+    except Exception as e:
+        logger.error("Błąd extraction payment_date", extra={
+            'order_id': order_data.get('order_id'),
+            'error': str(e)
+        })
+        return None
 
 def validate_order_products_completeness(order_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """

@@ -3744,8 +3744,40 @@ def save_selected_orders():
                 'error': 'Maksymalnie 100 zamówień na raz'
             }), 400
         
-        from ..services.sync_service import manual_sync_with_filtering
-        
+        # Sprawdź czy sync service jest dostępny
+        try:
+            from ..services.sync_service import manual_sync_with_filtering, get_sync_service
+            
+            # Test czy serwis się inicjalizuje
+            sync_service_test = get_sync_service()
+            if not sync_service_test:
+                logger.error("API: Sync service niedostępny", extra={
+                    'user_id': current_user.id,
+                    'order_ids': order_ids
+                })
+                return jsonify({
+                    'success': False,
+                    'error': 'Serwis synchronizacji jest obecnie niedostępny',
+                    'orders_created': 0,
+                    'products_created': 0,
+                    'products_skipped': 0,
+                    'summary': 'Synchronizacja niemożliwa - serwis niedostępny'
+                }), 503
+            
+        except ImportError as import_error:
+            logger.error("API: Import error sync service", extra={
+                'user_id': current_user.id,
+                'error': str(import_error)
+            })
+            return jsonify({
+                'success': False,
+                'error': 'Błąd wewnętrzny - nie można załadować serwisu synchronizacji',
+                'orders_created': 0,
+                'products_created': 0,
+                'products_skipped': 0,
+                'summary': 'Synchronizacja niemożliwa - błąd systemu'
+            }), 500
+
         # Przygotuj payload dla sync service  
         sync_payload = {
             'target_statuses': status_ids,
@@ -3760,16 +3792,32 @@ def save_selected_orders():
             'auto_status_change': True,     # Zmiana statusu po zapisaniu
             'recalculate_priorities': True  # Przelicz priorytety
         }
-        
+
         logger.info("API: Wywołanie manual_sync_with_filtering", extra={
             'sync_payload': sync_payload,
-            'user_id': current_user.id
+            'user_id': current_user.id,
+            'sync_service_available': True
         })
         
         # Wywołaj synchronizację
-        sync_result = manual_sync_with_filtering(sync_payload)
-        
-        # BEZPIECZNY dostęp do sync_result
+        try:
+            sync_result = manual_sync_with_filtering(sync_payload)
+        except Exception as sync_exception:
+            logger.error("API: Exception podczas manual_sync_with_filtering", extra={
+                'user_id': current_user.id,
+                'sync_payload': sync_payload,
+                'exception': str(sync_exception)
+            })
+            return jsonify({
+                'success': False,
+                'error': f'Błąd wywołania synchronizacji: {str(sync_exception)}',
+                'orders_created': 0,
+                'products_created': 0,
+                'products_skipped': 0,
+                'summary': 'Synchronizacja nie została wykonana z powodu błędu'
+            }), 500
+
+        # ROZSZERZONE sprawdzanie sync_result
         if sync_result is None:
             logger.error("API: sync_result is None", extra={
                 'user_id': current_user.id,
@@ -3777,27 +3825,77 @@ def save_selected_orders():
             })
             return jsonify({
                 'success': False,
-                'error': 'Błąd synchronizacji - brak odpowiedzi z serwisu',
+                'error': 'Błąd synchronizacji - serwis zwrócił None',
                 'orders_created': 0,
                 'products_created': 0,
                 'products_skipped': 0,
                 'summary': 'Synchronizacja nie została wykonana'
             }), 500
+
+        # Sprawdź czy sync_result jest dictem
+        if not isinstance(sync_result, dict):
+            logger.error("API: sync_result nie jest dict", extra={
+                'user_id': current_user.id,
+                'sync_result_type': type(sync_result).__name__,
+                'sync_result_str': str(sync_result)[:200]
+            })
+            return jsonify({
+                'success': False,
+                'error': f'Błąd synchronizacji - nieprawidłowy typ wyniku: {type(sync_result).__name__}',
+                'orders_created': 0,
+                'products_created': 0,
+                'products_skipped': 0,
+                'summary': 'Synchronizacja zwróciła nieprawidłowy wynik'
+            }), 500
+
+        # Sprawdź czy ma wymagane pola
+        if 'success' not in sync_result:
+            logger.error("API: sync_result brak pola 'success'", extra={
+                'user_id': current_user.id,
+                'sync_result_keys': list(sync_result.keys()),
+                'sync_result': str(sync_result)[:300]
+            })
+            return jsonify({
+                'success': False,
+                'error': 'Błąd synchronizacji - wynik nie zawiera pola success',
+                'orders_created': 0,
+                'products_created': 0,
+                'products_skipped': 0,
+                'summary': 'Synchronizacja zwróciła niepełny wynik'
+            }), 500
         
-        # Bezpieczne pobieranie wyników
+        # Bezpieczne pobieranie wyników z poprawionej struktury
         success = sync_result.get('success', False)
         data_section = sync_result.get('data', {})
         stats_section = data_section.get('stats', {}) if isinstance(data_section, dict) else {}
-        
+
+        # Dodatkowe sprawdzenie - jeśli stats_section jest puste, spróbuj bezpośrednio z sync_result
+        if not stats_section and isinstance(sync_result, dict):
+            # Fallback - niektóre funkcje mogą zwracać stats bezpośrednio
+            for key in ['products_created', 'products_skipped', 'orders_processed']:
+                if key in sync_result:
+                    stats_section[key] = sync_result[key]
+
+        logger.info("API: Parsowanie sync_result", extra={
+            'user_id': current_user.id,
+            'success': success,
+            'stats_section': stats_section,
+            'data_section_keys': list(data_section.keys()) if data_section else []
+        })
+
         if success:
+            products_created = stats_section.get('products_created', 0)
+            products_skipped = stats_section.get('products_skipped', 0) 
+            orders_processed = stats_section.get('orders_processed', 0)
+            
             response_data = {
                 'success': True,
                 'orders_created': len(order_ids),  # Liczba wybranych zamówień
-                'products_created': stats_section.get('products_created', 0),
-                'products_skipped': stats_section.get('products_skipped', 0),
-                'orders_processed': stats_section.get('orders_processed', 0),
-                'status_changes': stats_section.get('orders_processed', 0),  # Liczba zmian statusu
-                'summary': f'Przetworzono {len(order_ids)} wybranych zamówień, utworzono {stats_section.get("products_created", 0)} produktów'
+                'products_created': products_created,
+                'products_skipped': products_skipped,
+                'orders_processed': orders_processed,
+                'status_changes': orders_processed,  # Status zmieniany dla przetworzonych zamówień
+                'summary': f'Przetworzono {orders_processed} z {len(order_ids)} wybranych zamówień, utworzono {products_created} produktów'
             }
             
             logger.info("API: save_selected_orders sukces", extra={
