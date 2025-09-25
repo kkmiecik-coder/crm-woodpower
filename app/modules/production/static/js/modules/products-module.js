@@ -835,29 +835,6 @@ class ProductsModule {
                     this.state.products = data.initial_data.products;
                     this.state.lastUpdate = new Date().toISOString();
                     
-                    // DEBUG: Sprawdź pierwsze 3 produkty żeby zobaczyć strukturę danych
-                    console.log('[ProductsModule] DEBUG: First 3 products structure:', 
-                        this.state.products.slice(0, 3).map(p => ({
-                            id: p.id,
-                            short_product_id: p.short_product_id,
-                            original_product_name: p.original_product_name,
-                            // Sprawdź parsowane pola
-                            parsed_wood_species: p.parsed_wood_species,
-                            parsed_technology: p.parsed_technology,
-                            parsed_wood_class: p.parsed_wood_class,
-                            parsed_thickness_cm: p.parsed_thickness_cm,
-                            // Sprawdź alternatywne nazwy pól
-                            wood_species: p.wood_species,
-                            technology: p.technology,
-                            wood_class: p.wood_class,
-                            thickness: p.thickness,
-                            thickness_cm: p.thickness_cm,
-                            // Sprawdź wszystkie dostępne klucze
-                            all_keys: Object.keys(p)
-                        }))
-                    );
-                    
-                    console.log(`[ProductsModule] Loaded ${data.initial_data.products.length} products via shared service`);
                 } else {
                     throw new Error(data.message || 'Failed to load products data from shared service');
                 }
@@ -887,28 +864,6 @@ class ProductsModule {
                 if (data.success && data.initial_data && data.initial_data.products) {
                     this.state.products = data.initial_data.products;
                     this.state.lastUpdate = new Date().toISOString();
-                    
-                    // DEBUG: Sprawdź pierwsze 3 produkty żeby zobaczyć strukturę danych
-                    console.log('[ProductsModule] DEBUG: First 3 products structure (direct GET):', 
-                        this.state.products.slice(0, 3).map(p => ({
-                            id: p.id,
-                            short_product_id: p.short_product_id,
-                            original_product_name: p.original_product_name,
-                            // Sprawdź parsowane pola
-                            parsed_wood_species: p.parsed_wood_species,
-                            parsed_technology: p.parsed_technology,
-                            parsed_wood_class: p.parsed_wood_class,
-                            parsed_thickness_cm: p.parsed_thickness_cm,
-                            // Sprawdź alternatywne nazwy pól
-                            wood_species: p.wood_species,
-                            technology: p.technology,
-                            wood_class: p.wood_class,
-                            thickness: p.thickness,
-                            thickness_cm: p.thickness_cm,
-                            // Sprawdź wszystkie dostępne klucze
-                            all_keys: Object.keys(p)
-                        }))
-                    );
                     
                     console.log(`[ProductsModule] Loaded ${data.initial_data.products.length} products via direct GET`);
                 } else {
@@ -1316,7 +1271,8 @@ class ProductsModule {
             }
 
             const clone = template.content.cloneNode(true);
-            const rowElement = clone.querySelector('.product-row');
+            // ZMIANA: używamy nowej klasy z prefiksem prod_list-
+            const rowElement = clone.querySelector('.prod_list-product-row');
 
             if (!rowElement) {
                 throw new Error('Product row element not found in template');
@@ -1326,9 +1282,11 @@ class ProductsModule {
             rowElement.style.position = 'relative';
             rowElement.style.width = '100%';
             rowElement.style.minHeight = '65px';
-            rowElement.style.marginBottom = '1px';
+            rowElement.style.marginBottom = '6px';
             rowElement.classList.add('simple-row');
             rowElement.setAttribute('data-product-id', product.id);
+            rowElement.setAttribute('data-priority', product.priority_rank || product.priority_score || 0);
+            rowElement.setAttribute('data-status', product.current_status || '');
             rowElement.setAttribute('data-index', index);
 
             // Wypełnij dane produktu
@@ -1347,115 +1305,95 @@ class ProductsModule {
 
     populateProductRow(rowElement, product) {
         try {
-            // Checkbox
-            const checkbox = rowElement.querySelector('.product-checkbox');
+            // Checkbox - NOWA KLASA
+            const checkbox = rowElement.querySelector('.prod_list-product-checkbox');
             if (checkbox) {
                 checkbox.checked = this.state.selectedProducts.has(product.id);
                 checkbox.setAttribute('data-product-id', product.id);
             }
 
-            // Priority score i bar
-            const priorityElement = rowElement.querySelector('.priority-score');
-            const priorityFill = rowElement.querySelector('.priority-fill');
+            // Priority rank (nie priority_score!) - NOWA KLASA
+            const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
             if (priorityElement) {
-                const priority = parseInt(product.priority_score) || 100;
+                // ZMIANA: używamy priority_rank zamiast priority_score
+                const priority = parseInt(product.priority_rank) || parseInt(product.priority_score) || 100;
                 priorityElement.textContent = priority;
-                this.updatePriorityColor(priorityElement, priority);
-                
-                if (priorityFill) {
-                    priorityFill.style.width = `${Math.min(priority, 100)}%`;
-                }
             }
 
-            // Product ID (short_product_id + baselinker_order_id)
-            const idMain = rowElement.querySelector('.product-id-main');
-            const idSub = rowElement.querySelector('.product-id-sub');
-            if (idMain) {
-                idMain.textContent = product.short_product_id || `#${product.id}`;
-            }
-            if (idSub) {
-                idSub.textContent = product.baselinker_order_id ? `BL: ${product.baselinker_order_id}` : '';
-            }
-
-            // Product name + specs badges
-            const nameElement = rowElement.querySelector('.product-name');
-            const specsElement = rowElement.querySelector('.product-specs');
+            // Product Name - NOWA KLASA
+            const nameElement = rowElement.querySelector('.prod_list-product-name');
             if (nameElement) {
-                nameElement.textContent = product.original_product_name || '';
-                nameElement.title = product.original_product_name || '';
-            }
-            if (specsElement) {
-                specsElement.innerHTML = this.buildProductSpecsBadges(product);
+                nameElement.textContent = product.original_product_name || 'Brak nazwy';
             }
 
-            // Volume
-            const volumeElement = rowElement.querySelector('.product-volume-cell');
+            // Product ID - NOWA KLASA
+            const idElement = rowElement.querySelector('.prod_list-product-id');
+            if (idElement) {
+                idElement.textContent = `ID: ${product.short_product_id || product.id}`;
+            }
+
+            // Baselinker Order - NOWA KLASA
+            const baselinkerElement = rowElement.querySelector('.prod_list-baselinker-order');
+            if (baselinkerElement) {
+                baselinkerElement.textContent = product.baselinker_order_id ?
+                    `Baselinker: ${product.baselinker_order_id}` : '';
+            }
+
+            // Tags/Specs - NOWA KLASA
+            const tagsElement = rowElement.querySelector('.prod_list-tags-cell');
+            if (tagsElement) {
+                tagsElement.innerHTML = this.generateProductTags(product);
+            }
+
+            // Volume - NOWA KLASA
+            const volumeElement = rowElement.querySelector('.prod_list-volume-value');
             if (volumeElement) {
                 const volume = parseFloat(product.volume_m3) || 0;
-                volumeElement.textContent = volume > 0 ? volume.toFixed(3) + ' m³' : '-';
+                volumeElement.textContent = `${volume.toFixed(3)} m³`;
             }
 
-            // Value
-            const valueElement = rowElement.querySelector('.product-value-cell');
+            // Value - NOWA KLASA
+            const valueElement = rowElement.querySelector('.prod_list-currency-value');
             if (valueElement) {
                 const value = parseFloat(product.total_value_net) || 0;
-                valueElement.textContent = value > 0 ? value.toLocaleString('pl-PL', {
+                valueElement.textContent = value.toLocaleString('pl-PL', {
                     style: 'currency',
-                    currency: 'PLN'
-                }) : '-';
+                    currency: 'PLN',
+                    minimumFractionDigits: 2
+                });
             }
 
-            // Status
-            const statusElement = rowElement.querySelector('.status-badge');
+            // Status - NOWA KLASA
+            const statusElement = rowElement.querySelector('.prod_list-status-badge');
             if (statusElement) {
-                const status = product.current_status || '';
-                statusElement.textContent = this.getStatusDisplayName(status);
-                statusElement.className = `status-badge ${this.getStatusClass(status)}`;
+                const statusConfig = this.getStatusConfig(product.current_status);
+                statusElement.textContent = statusConfig.displayName;
+
+                // ZMIANA: Używaj mapowania statusów na klasy CSS
+                const statusClass = this.getStatusCSSClass(product.current_status);
+                statusElement.className = `prod_list-status-badge ${statusClass}`;
             }
 
-            // Deadline - POPRAWIONE OBLICZENIE DNI
-            const deadlineBadge = rowElement.querySelector('.deadline-badge');
-            const deadlineDate = rowElement.querySelector('.deadline-date');
-            if (product.deadline_date) {
-                const deadline = new Date(product.deadline_date);
+            // Deadline - NOWE KLASY
+            const deadlineBadge = rowElement.querySelector('.prod_list-deadline-badge');
+            const deadlineDate = rowElement.querySelector('.prod_list-deadline-date');
+
+            if (deadlineBadge && deadlineDate) {
                 const daysUntil = this.calculateDaysUntilDeadline(product.deadline_date);
-                
-                if (deadlineBadge) {
+                if (daysUntil !== null) {
                     deadlineBadge.textContent = this.getDeadlineLabel(daysUntil);
-                    deadlineBadge.className = `deadline-badge ${this.getDeadlineClass(daysUntil)}`;
-                }
-                if (deadlineDate) {
-                    deadlineDate.textContent = deadline.toLocaleDateString('pl-PL');
-                }
-            } else {
-                if (deadlineBadge) {
-                    deadlineBadge.textContent = '-';
-                    deadlineBadge.className = 'deadline-badge';
-                }
-                if (deadlineDate) deadlineDate.textContent = '-';
-            }
+                    
+                    // POPRAWKA: Używaj tylko klasy z prod_list- prefiksem
+                    const deadlineClass = this.getDeadlineClass(daysUntil);
+                    deadlineBadge.className = `prod_list-deadline-badge ${deadlineClass}`;
 
-            // Actions - simple buttons (nie dropdown menu)
-            const actionsCell = rowElement.querySelector('.product-actions-cell');
-            if (actionsCell) {
-                // Build Baselinker link
-                const baselinkerLink = product.baselinker_order_id ? 
-                    `href="https://panel-f.baselinker.com/orders.php#order:${product.baselinker_order_id}"` : 
-                    'href="#" disabled="disabled"';
-                
-                actionsCell.innerHTML = `
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button class="btn btn-outline-primary btn-sm product-details-btn" title="Szczegóły">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                        <a class="btn btn-outline-info btn-sm baselinker-btn" ${baselinkerLink} target="_blank" title="Otwórz w Baselinker">
-                            <img src="/static/icons/baselinker.svg" alt="Baselinker" style="width: 16px; height: 16px; filter: brightness(0) saturate(100%) invert(27%) sepia(78%) saturate(2476%) hue-rotate(197deg) brightness(97%) contrast(97%);">
-                        </a>
-                        <button class="btn btn-outline-danger btn-sm product-delete-btn" title="Usuń">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                `;
+                    const deadlineFormatted = new Date(product.deadline_date).toLocaleDateString('pl-PL');
+                    deadlineDate.textContent = deadlineFormatted;
+                } else {
+                    deadlineBadge.textContent = 'Brak';
+                    deadlineBadge.className = 'prod_list-deadline-badge normal';
+                    deadlineDate.textContent = '';
+                }
             }
 
         } catch (error) {
@@ -1463,98 +1401,150 @@ class ProductsModule {
         }
     }
 
-    buildProductSpecsBadges(product) {
-        const badges = [];
+    confirmDeleteProduct(product) {
+        console.log(`[ProductsModule] Confirming delete for product ${product.id}`);
         
-        // Wood species badge - używaj parsowanych pól
+        const confirmMessage = `Czy na pewno chcesz usunąć produkt?\n\n${product.original_product_name}\nID: ${product.short_product_id}\n\nTa operacja jest nieodwracalna.`;
+        
+        if (confirm(confirmMessage)) {
+            console.log(`Confirmed delete for product ${product.id}`);
+            // TODO: Implementacja API call delete w przyszłych krokach
+            this.deleteProduct(product.id);
+        }
+    }
+
+    async deleteProduct(productId) {
+        try {
+            console.log(`[ProductsModule] Deleting product ${productId}...`);
+            
+            // TODO: Implementacja API call w przyszłych krokach
+            alert(`Produkt ${productId} zostanie usunięty\n(Implementacja API delete endpoint w kolejnych krokach)`);
+            
+            // Tymczasowo usuń z lokalnego state
+            this.state.products = this.state.products.filter(p => p.id != productId);
+            this.state.filteredProducts = this.state.filteredProducts.filter(p => p.id != productId);
+            this.state.selectedProducts.delete(productId);
+            
+            // Przerenderuj listę
+            this.renderProductsList();
+            this.updateStats();
+            this.toggleBulkActionsVisibility();
+            
+            if (this.shared?.toastSystem) {
+                this.shared.toastSystem.show(`Produkt został usunięty`, 'success', 3000);
+            }
+            
+        } catch (error) {
+            console.error('[ProductsModule] Error deleting product:', error);
+            
+            if (this.shared?.toastSystem) {
+                this.shared.toastSystem.show(`Błąd usuwania produktu: ${error.message}`, 'error', 5000);
+            } else {
+                alert(`Błąd usuwania produktu: ${error.message}`);
+            }
+        }
+    }
+
+    getStatusCSSClass(status) {
+        const statusClassMap = {
+            'czeka_na_wyciecie': 'cutting',
+            'w_trakcie_ciecia': 'cutting',
+            'czeka_na_skladanie': 'assembly',
+            'w_trakcie_skladania': 'assembly',
+            'czeka_na_pakowanie': 'packaging',
+            'w_trakcie_pakowania': 'packaging',
+            'spakowane': 'completed',
+            'wstrzymane': 'paused',
+            'anulowane': 'cancelled'
+        };
+
+        return statusClassMap[status] || 'paused'; // default
+    }
+
+    generateProductTags(product) {
+        const tags = [];
+
+        // Species badge - używaj parsowanych pól
         if (product.parsed_wood_species) {
             const species = product.parsed_wood_species.toLowerCase();
-            let speciesClass = 'spec-badge';
-            
-            switch(species) {
+            let speciesClass = 'prod_list-tag';
+
+            switch (species) {
                 case 'dąb':
-                case 'dab':
-                    speciesClass += ' spec-species-oak';
+                case 'oak':
+                    speciesClass += ' species-oak';
                     break;
                 case 'jesion':
-                    speciesClass += ' spec-species-ash';
-                    break;
-                case 'buk':
-                    speciesClass += ' spec-species-beech';
+                case 'ash':
+                    speciesClass += ' species-ash';
                     break;
                 case 'sosna':
-                    speciesClass += ' spec-species-pine';
+                case 'pine':
+                    speciesClass += ' species-pine';
                     break;
-                case 'klon':
-                    speciesClass += ' spec-species-maple';
+                case 'buk':
+                case 'beech':
+                    speciesClass += ' species-beech';
                     break;
                 default:
-                    speciesClass += ' spec-species-default';
+                    speciesClass += ' species-oak'; // default
             }
-            
-            badges.push(`<span class="${speciesClass}">${product.parsed_wood_species}</span>`);
+
+            tags.push(`<span class="${speciesClass}">${product.parsed_wood_species.toUpperCase()}</span>`);
         }
-        
-        // Technology badge - używaj parsowanych pól
+
+        // Technology badge
         if (product.parsed_technology) {
             const tech = product.parsed_technology.toLowerCase();
-            let techClass = 'spec-badge';
-            
-            switch(tech) {
+            let techClass = 'prod_list-tag';
+
+            switch (tech) {
                 case 'lity':
-                    techClass += ' spec-tech-solid';
+                case 'lita':
+                    techClass += ' tech-solid';
                     break;
                 case 'mikrowczep':
-                    techClass += ' spec-tech-microchip';
+                    techClass += ' tech-microchip';
                     break;
                 case 'klejony':
-                    techClass += ' spec-tech-laminated';
+                case 'klejona':
+                    techClass += ' tech-laminated';
                     break;
                 default:
-                    techClass += ' spec-tech-default';
+                    techClass += ' tech-solid';
             }
-            
-            badges.push(`<span class="${techClass}">${product.parsed_technology}</span>`);
+
+            tags.push(`<span class="${techClass}">${product.parsed_technology.toUpperCase()}</span>`);
         }
-        
-        // Wood class badge - używaj parsowanych pól
+
+        // Wood class badge
         if (product.parsed_wood_class) {
             const woodClass = product.parsed_wood_class.replace('/', '').toLowerCase();
-            let classClass = 'spec-badge';
-            
-            switch(woodClass) {
+            let classClass = 'prod_list-tag';
+
+            switch (woodClass) {
                 case 'aa':
-                    classClass += ' spec-class-aa';
+                    classClass += ' class-aa';
                     break;
                 case 'ab':
-                    classClass += ' spec-class-ab';
+                    classClass += ' class-ab';
                     break;
                 case 'bb':
-                    classClass += ' spec-class-bb';
+                    classClass += ' class-bb';
                     break;
                 default:
-                    classClass += ' spec-class-default';
+                    classClass += ' class-aa';
             }
-            
-            badges.push(`<span class="${classClass}">${product.parsed_wood_class}</span>`);
+
+            tags.push(`<span class="${classClass}">${product.parsed_wood_class}</span>`);
         }
-        
-        // Thickness badge - używaj parsowanych pól
+
+        // Thickness badge
         if (product.parsed_thickness_cm) {
-            badges.push(`<span class="spec-badge spec-thickness">${product.parsed_thickness_cm}cm</span>`);
+            tags.push(`<span class="prod_list-tag thickness">${product.parsed_thickness_cm}cm</span>`);
         }
-        
-        // DEBUG: Loguj dla pierwszych 3 produktów
-        if (badges.length === 0) {
-            console.log('[ProductsModule] No badges generated for product:', product.short_product_id, {
-                wood_species: product.parsed_wood_species,
-                technology: product.parsed_technology,
-                wood_class: product.parsed_wood_class,
-                thickness: product.parsed_thickness_cm
-            });
-        }
-        
-        return badges.join(' ');
+
+        return tags.join(' ');
     }
 
     getDeadlineLabel(daysUntil) {
@@ -1585,8 +1575,8 @@ class ProductsModule {
 
     attachRowEventListeners(rowElement, product) {
         try {
-            // Checkbox
-            const checkbox = rowElement.querySelector('.product-checkbox');
+            // Checkbox - NOWA KLASA
+            const checkbox = rowElement.querySelector('.prod_list-product-checkbox');
             if (checkbox) {
                 checkbox.addEventListener('change', (e) => {
                     e.stopPropagation();
@@ -1594,13 +1584,8 @@ class ProductsModule {
                 });
             }
 
-            // Double click for details
-            rowElement.addEventListener('dblclick', () => {
-                this.showProductDetails(product.id);
-            });
-
-            // Action buttons
-            const detailsBtn = rowElement.querySelector('.product-details-btn');
+            // Details button - NOWA KLASA
+            const detailsBtn = rowElement.querySelector('.prod_list-details-btn');
             if (detailsBtn) {
                 detailsBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -1608,30 +1593,48 @@ class ProductsModule {
                 });
             }
 
-            const editBtn = rowElement.querySelector('.product-edit-btn');
-            if (editBtn) {
-                editBtn.addEventListener('click', (e) => {
+            // Baselinker button - NOWA KLASA
+            const baselinkerBtn = rowElement.querySelector('.prod_list-baselinker-btn');
+            if (baselinkerBtn) {
+                baselinkerBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.showProductEditModal(product.id);
+                    if (product.baselinker_order_id) {
+                        const baselinkerUrl = `https://panel.baselinker.com/orders.php?order_id=${product.baselinker_order_id}`;
+                        window.open(baselinkerUrl, '_blank');
+                    }
                 });
             }
 
-            const deleteBtn = rowElement.querySelector('.product-delete-btn');
+            // Delete button - NOWA KLASA
+            const deleteBtn = rowElement.querySelector('.prod_list-delete-btn');
             if (deleteBtn) {
                 deleteBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.showProductDeleteConfirmation(product.id);
+                    this.confirmDeleteProduct(product);
                 });
             }
 
-            // Right click context menu (placeholder)
-            rowElement.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                // TODO: Show context menu
+            // Priority element - klikalne
+            const priorityElement = rowElement.querySelector('.prod_list-priority-rank');
+            if (priorityElement) {
+                priorityElement.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.showEditPriorityModal(product);
+                });
+            }
+
+            // Row click - cały wiersz
+            rowElement.addEventListener('click', (e) => {
+                // Nie reaguj jeśli kliknięto w input, button lub link
+                if (e.target.matches('input, button, a, svg, path')) {
+                    return;
+                }
+                
+                this.showProductDetails(product.id);
             });
 
         } catch (error) {
-            console.error('[ProductsModule] Error attaching row event listeners:', error);
+            console.error('[ProductsModule] Error attaching row listeners:', error);
         }
     }
 
@@ -1831,9 +1834,20 @@ class ProductsModule {
             this.state.selectedProducts.clear();
         }
 
-        // Aktualizuj checkboxy w wierszach
-        this.syncAllCheckboxes();
-        
+        // POPRAWKA: Aktualizuj checkboxy w wierszach z NOWĄ KLASĄ
+        const productCheckboxes = document.querySelectorAll('.prod_list-product-checkbox');
+        productCheckboxes.forEach(checkbox => {
+            checkbox.checked = isChecked;
+            const productId = parseInt(checkbox.getAttribute('data-product-id'));
+            if (productId) {
+                if (isChecked) {
+                    this.state.selectedProducts.add(productId);
+                } else {
+                    this.state.selectedProducts.delete(productId);
+                }
+            }
+        });
+
         // Pokaż/ukryj bulk actions
         this.toggleBulkActionsVisibility();
     }
@@ -2116,13 +2130,19 @@ class ProductsModule {
     }
 
     updateProductsCount(count) {
-        if (this.elements.productsCount) {
-            this.elements.productsCount.textContent = count || this.state.filteredProducts.length;
+        const countElement = document.querySelector('.products-count, .prod_list-products-count');
+        if (countElement) {
+            countElement.textContent = count;
+        }
+
+        const titleElement = document.querySelector('.products-section-title, .prod_list-section-title');
+        if (titleElement) {
+            titleElement.textContent = `Produkty (${count})`;
         }
     }
 
     syncAllCheckboxes() {
-        const checkboxes = this.elements.viewport?.querySelectorAll('.product-checkbox');
+        const checkboxes = this.elements.viewport?.querySelectorAll('.prod_list-product-checkbox');
         if (checkboxes) {
             checkboxes.forEach(checkbox => {
                 const productId = parseInt(checkbox.getAttribute('data-product-id'));
@@ -2131,6 +2151,36 @@ class ProductsModule {
         }
         
         this.updateSelectAllCheckbox();
+    }
+
+    initializeSelectAllCheckbox() {
+        const selectAllCheckbox = document.getElementById('select-all-products'); // Zachowaj ID
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', (e) => {
+                const isChecked = e.target.checked;
+
+                // Znajdź wszystkie checkboxy produktów z NOWĄ KLASĄ
+                const productCheckboxes = document.querySelectorAll('.prod_list-product-checkbox');
+
+                productCheckboxes.forEach(checkbox => {
+                    checkbox.checked = isChecked;
+                    const productId = parseInt(checkbox.getAttribute('data-product-id'));
+                    if (productId) {
+                        if (isChecked) {
+                            this.state.selectedProducts.add(productId);
+                        } else {
+                            this.state.selectedProducts.delete(productId);
+                        }
+                    }
+                });
+
+                // Emit event o zmianie selekcji
+                this.shared.eventBus.emit('products:selection-changed', {
+                    selectedProducts: Array.from(this.state.selectedProducts),
+                    selectAll: isChecked
+                });
+            });
+        }
     }
 
     updateSelectAllCheckbox() {
@@ -2341,10 +2391,10 @@ class ProductsModule {
     }
 
     getDeadlineClass(daysUntilDeadline) {
-        if (daysUntilDeadline < 0) return 'deadline-overdue';
-        if (daysUntilDeadline <= 1) return 'deadline-urgent';
-        if (daysUntilDeadline <= 7) return 'deadline-warning';
-        return 'deadline-normal';
+        if (daysUntilDeadline < 0) return 'urgent';
+        if (daysUntilDeadline <= 1) return 'urgent';
+        if (daysUntilDeadline <= 7) return 'warning';
+        return 'normal';
     }
 
     updatePriorityColor(element, priority) {
@@ -2689,11 +2739,68 @@ class ProductsModule {
      * Zwraca kompletną konfigurację statusu
      */
     getStatusConfig(status) {
-        return ProductsModule.STATUS_CONFIG[status] || {
+        const configs = {
+            'czeka_na_wyciecie': {
+                icon: 'fa-cut',
+                displayName: 'Czeka na wycięcie',
+                color: 'cutting-theme',
+                cssClass: 'cutting'  // ← DODAJ TO
+            },
+            'w_trakcie_ciecia': {
+                icon: 'fa-cut',
+                displayName: 'W trakcie cięcia',
+                color: 'cutting-theme',
+                cssClass: 'cutting'  // ← DODAJ TO
+            },
+            'czeka_na_skladanie': {
+                icon: 'fa-hammer',
+                displayName: 'Czeka na składanie',
+                color: 'assembly-theme',
+                cssClass: 'assembly'  // ← DODAJ TO
+            },
+            'w_trakcie_skladania': {
+                icon: 'fa-hammer',
+                displayName: 'W trakcie składania',
+                color: 'assembly-theme',
+                cssClass: 'assembly'  // ← DODAJ TO
+            },
+            'czeka_na_pakowanie': {
+                icon: 'fa-box',
+                displayName: 'Czeka na pakowanie',
+                color: 'packaging-theme',
+                cssClass: 'packaging'  // ← DODAJ TO
+            },
+            'w_trakcie_pakowania': {
+                icon: 'fa-box',
+                displayName: 'W trakcie pakowania',
+                color: 'packaging-theme',
+                cssClass: 'packaging'  // ← DODAJ TO
+            },
+            'spakowane': {
+                icon: 'fa-check',
+                displayName: 'Spakowane',
+                color: 'text-success',
+                cssClass: 'completed'  // ← DODAJ TO
+            },
+            'wstrzymane': {
+                icon: 'fa-pause',
+                displayName: 'Wstrzymane',
+                color: 'text-warning',
+                cssClass: 'paused'  // ← DODAJ TO
+            },
+            'anulowane': {
+                icon: 'fa-times',
+                displayName: 'Anulowane',
+                color: 'text-danger',
+                cssClass: 'cancelled'  // ← DODAJ TO
+            }
+        };
+
+        return configs[status] || {
             icon: 'fa-question',
-            displayName: this.translateStatus(status),
+            displayName: status || 'Nieznany',
             color: 'text-muted',
-            badgeClass: 'badge-secondary'
+            cssClass: 'paused'  // ← DODAJ TO
         };
     }
 
@@ -2886,7 +2993,6 @@ class ProductsModule {
 
         if (titleElement) {
             titleElement.innerHTML = `
-                <i class="fas fa-layer-group me-2"></i>
                 Produkty w zamówieniu (${orderData.total_count})
             `;
         }
@@ -3163,15 +3269,15 @@ class ProductsModule {
      */
     formatDimensions(product) {
         const dimensions = [];
-        
+
+        if (product.parsed_length_cm) {
+            dimensions.push(Math.round(product.parsed_length_cm));
+        }
         if (product.parsed_width_cm) {
             dimensions.push(Math.round(product.parsed_width_cm));
         }
         if (product.parsed_thickness_cm) {
             dimensions.push(Math.round(product.parsed_thickness_cm));
-        }
-        if (product.parsed_length_cm) {
-            dimensions.push(Math.round(product.parsed_length_cm));
         }
 
         return dimensions.length > 0 ? dimensions.join(' × ') + ' mm' : 'Brak danych';
@@ -3218,16 +3324,6 @@ class ProductsModule {
         if (days === 1) return 'dzień';
         if (days <= 2) return 'dni';
         return 'dni';
-    }
-
-    /**
-     * Zwraca klasę CSS dla deadline
-     */
-    getDeadlineClass(days) {
-        if (days < 0) return 'text-danger';
-        if (days <= 2) return 'text-warning';
-        if (days <= 7) return 'text-info';
-        return 'text-success';
     }
 
     /**

@@ -805,7 +805,7 @@ def manual_sync():
     POST /api/manual-sync - Enhanced ręczna synchronizacja (ROZSZERZONY)
     
     NAPRAWIONO:
-    - Użycie manual_sync_with_filtering zamiast nieistniejącej enhanced_manual_sync_orders
+    - Użycie manual_sync_with_filtering
     - Proper parameter mapping
     - Safe response handling
     """
@@ -1939,9 +1939,7 @@ def products_tab_content():
         status_filter = request.args.get('status', 'all')
         search_query = request.args.get('search', '')
         load_all = request.args.get('load_all', 'true').lower() == 'true'
-        
-        logger.info(f"[BUGFIX] products-tab-content: status={status_filter}, search='{search_query}', load_all={load_all}")
-        
+                
         # Pobierz produkty z bazy danych - BEZ LIMITU
         products_query = ProductionItem.query
         
@@ -2049,8 +2047,10 @@ def products_tab_content():
                 'short_product_id': get_attr(product, 'short_product_id', ''),
                 'original_product_name': get_attr(product, 'original_product_name', ''),
                 'current_status': get_attr(product, 'current_status', 'czeka_na_wyciecie'),
+                'priority_rank': get_attr(product, 'priority_rank', None),
                 'priority_score': priority_score,
-                
+                'priority_manual_override': get_attr(product, 'priority_manual_override', False),
+
                 # Wymiary i wartości
                 'volume_m3': volume_m3,
                 'total_value_net': total_value_net,
@@ -2786,7 +2786,7 @@ def product_details(product_id):
             # Status flags
             'is_overdue': days_to_deadline is not None and days_to_deadline < 0,
             'is_urgent': days_to_deadline is not None and days_to_deadline <= 2,
-            'is_high_priority': (product.priority_score or 0) >= 150
+            'is_high_priority': priority_rank is not None and priority_rank <= 10  # ← Top 10 = wysoki priorytet
         }
         
         logger.info("Pobrano szczegóły produktu", extra={

@@ -103,13 +103,13 @@ class ProductsDragDrop {
         document.addEventListener('dragend', this.onDragEnd.bind(this));
         document.addEventListener('dragover', this.onDragOver.bind(this));
         document.addEventListener('drop', this.onDrop.bind(this));
-        
+
         // Prevent default drag behavior on container
         this.elements.container.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
         });
-        
+
         console.log('[ProductsDragDrop] Event listeners setup complete');
     }
 
@@ -136,19 +136,28 @@ class ProductsDragDrop {
     
     addCustomAnimationStyles() {
         if (document.getElementById('products-dragdrop-styles')) return;
-        
+
         const styles = document.createElement('style');
         styles.id = 'products-dragdrop-styles';
         styles.textContent = `
-            /* Override default animations to flash 2 times */
+            /* Override default animations to flash 2 times - NOWE KLASY */
+            .prod_list-product-row.update-success {
+                animation: successFlash2x 1.2s ease !important;
+            }
+        
+            .prod_list-product-row.update-error {
+                animation: errorFlash2x 1.2s ease !important;
+            }
+        
+            /* Zachowaj kompatybilność ze starymi klasami */
             .product-row.update-success {
                 animation: successFlash2x 1.2s ease !important;
             }
-            
+        
             .product-row.update-error {
                 animation: errorFlash2x 1.2s ease !important;
             }
-            
+        
             @keyframes successFlash2x {
                 0%, 100% { background: white; }
                 15% { background: rgba(40, 167, 69, 0.4); }
@@ -156,13 +165,40 @@ class ProductsDragDrop {
                 45% { background: rgba(40, 167, 69, 0.4); }
                 60% { background: white; }
             }
-            
+        
             @keyframes errorFlash2x {
                 0%, 100% { background: white; }
                 15% { background: rgba(220, 53, 69, 0.4); }
                 30% { background: white; }
                 45% { background: rgba(220, 53, 69, 0.4); }
                 60% { background: white; }
+            }
+        
+            /* Style dla nowych klas podczas przeciągania */
+            .prod_list-product-row.dragging {
+                opacity: 0.5;
+                z-index: 100;
+            }
+        
+            .prod_list-product-row.updating {
+                position: relative;
+            }
+        
+            .prod_list-product-row.updating::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(59, 130, 246, 0.1);
+                border-radius: 8px;
+                animation: pulse 1.5s infinite;
+            }
+        
+            @keyframes pulse {
+                0%, 100% { opacity: 0.1; }
+                50% { opacity: 0.3; }
             }
         `;
         document.head.appendChild(styles);
@@ -185,51 +221,52 @@ class ProductsDragDrop {
     // ========================================================================
 
     onDragStart(e) {
-        // Check if this is a product drag handle
-        const dragHandle = e.target.closest('.product-drag-cell');
+        // ZMIANA: użyj nowej klasy drag cell
+        const dragHandle = e.target.closest('.prod_list-drag-cell');
         if (!dragHandle) return;
-        
-        const productRow = dragHandle.closest('.product-row');
+
+        // ZMIANA: użyj nowej klasy product row
+        const productRow = dragHandle.closest('.prod_list-product-row');
         if (!productRow) return;
-        
+
         e.stopPropagation();
-        
+
         const productId = productRow.dataset.productId;
         if (!productId) return;
-        
+
         console.log(`[ProductsDragDrop] Drag start: ${productId}`);
-        
+
         // Store drag state
         this.dragState.isDragging = true;
         this.dragState.draggedElement = productRow;
         this.dragState.draggedProductId = productId;
-        
+
         // Find product data
         const productData = this.productsModule.state.filteredProducts.find(p => p.id == productId);
         if (!productData) {
             console.error('[ProductsDragDrop] Product data not found for ID:', productId);
-            console.log('[ProductsDragDrop] Available products:', this.productsModule.state.filteredProducts.map(p => ({id: p.id, type: typeof p.id})));
+            console.log('[ProductsDragDrop] Available products:', this.productsModule.state.filteredProducts.map(p => ({ id: p.id, type: typeof p.id })));
             this.cancelDrag();
             return;
         }
-        
+
         this.dragState.draggedProductData = productData;
         this.dragState.originalPosition = this.getProductPosition(productId);
-        
+
         // Store original products order for rollback
         this.dragState.originalProducts = [...this.productsModule.state.filteredProducts];
-        
+
         // Set drag data
         e.dataTransfer.setData('text/plain', productId);
         e.dataTransfer.effectAllowed = 'move';
-        
+
         // Make original element semi-transparent
         productRow.style.opacity = '0.5';
         productRow.classList.add('dragging');
-        
+
         // Create ghost element
         this.createGhostElement(productRow, e);
-        
+
         // Hide default drag image
         const emptyImg = new Image();
         emptyImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=';
@@ -239,7 +276,8 @@ class ProductsDragDrop {
     createGhostElement(originalElement, e) {
         // Clone the element
         const ghost = originalElement.cloneNode(true);
-        ghost.className = 'product-row drag-ghost';
+        // ZMIANA: użyj nowej klasy dla ghost
+        ghost.className = 'prod_list-product-row drag-ghost';
         ghost.style.cssText = `
             position: fixed;
             top: -1000px;
@@ -256,11 +294,11 @@ class ProductsDragDrop {
             will-change: transform;
             transform: none !important;
         `;
-        
-        // Remove checkbox and make non-interactive
-        const checkbox = ghost.querySelector('.product-checkbox');
+
+        // ZMIANA: usuń checkbox z nową klasą
+        const checkbox = ghost.querySelector('.prod_list-product-checkbox');
         if (checkbox) checkbox.remove();
-        
+
         // Remove all event listeners from ghost
         const allElements = ghost.querySelectorAll('*');
         allElements.forEach(el => {
@@ -268,10 +306,10 @@ class ProductsDragDrop {
             el.removeAttribute('onmouseover');
             el.removeAttribute('onmouseout');
         });
-        
+
         document.body.appendChild(ghost);
         this.dragState.ghostElement = ghost;
-        
+
         // Position ghost element initially
         this.updateGhostPosition(e);
     }
@@ -340,16 +378,16 @@ class ProductsDragDrop {
     }
 
     findProductRowUnderCursor(e) {
-        // Get all product rows
-        const productRows = this.elements.viewport.querySelectorAll('.product-row:not(.dragging)');
-        
+        // ZMIANA: użyj nowej klasy product row
+        const productRows = this.elements.viewport.querySelectorAll('.prod_list-product-row:not(.dragging)');
+
         for (const row of productRows) {
             const rect = row.getBoundingClientRect();
             if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
                 return row;
             }
         }
-        
+
         return null;
     }
 
@@ -480,22 +518,28 @@ class ProductsDragDrop {
         try {
             // Calculate new priorities for all affected products
             const updatedProducts = this.calculateNewPriorities(newPosition);
-            
+
             console.log('[ProductsDragDrop] Sending priority update to backend:', updatedProducts);
-            
+
+            // ZMIANA: Dostosuj format danych do nowego API
+            const requestData = {
+                products: updatedProducts.map(product => ({
+                    id: product.id,
+                    priority_rank: product.priority_rank
+                }))
+            };
+
             const response = await fetch('/production/api/update-priority', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                body: JSON.stringify({
-                    products: updatedProducts
-                })
+                body: JSON.stringify(requestData)
             });
-            
+
             const result = await response.json();
-            
+
             if (result.success) {
                 console.log('[ProductsDragDrop] Priority update successful');
                 this.handleDropSuccess();
@@ -503,7 +547,7 @@ class ProductsDragDrop {
                 console.error('[ProductsDragDrop] Priority update failed:', result.error);
                 this.handleDropError(result.error || 'Błąd aktualizacji priorytetu');
             }
-            
+
         } catch (error) {
             console.error('[ProductsDragDrop] Backend request failed:', error);
             this.handleDropError('Błąd połączenia z serwerem');
@@ -513,25 +557,29 @@ class ProductsDragDrop {
     calculateNewPriorities(newPosition) {
         const products = this.productsModule.state.filteredProducts;
         const updatedProducts = [];
-        
-        // Calculate priorities based on position (higher position = higher priority)
-        const totalProducts = products.length;
-        
+
+        // ZMIANA: Używamy priority_rank (rosnąco 1,2,3...) zamiast priority_score (malejąco)
         products.forEach((product, index) => {
-            // Priority score: start from 200 and go down
-            const newPriority = 200 - Math.floor((index / totalProducts) * 200);
-            
-            if (product.priority_score !== newPriority) {
+            // Priority rank: pozycja w liście + 1 (1-based indexing)
+            const newPriorityRank = index + 1;
+
+            // Sprawdź czy produkt ma priority_rank czy priority_score
+            const currentPriority = product.priority_rank || product.priority_score;
+
+            if (currentPriority !== newPriorityRank) {
                 updatedProducts.push({
                     id: product.id,
-                    priority: newPriority
+                    // ZMIANA: Wysyłamy jako 'priority_rank' zamiast 'priority'
+                    priority_rank: newPriorityRank
                 });
-                
-                // Update local data immediately
-                product.priority_score = newPriority;
+
+                // Update local data immediately - oba pola dla kompatybilności
+                product.priority_rank = newPriorityRank;
+                // Zachowaj priority_score dla kompatybilności (odwrotnie proporcjonalne)
+                product.priority_score = Math.max(1, 200 - newPriorityRank);
             }
         });
-        
+
         return updatedProducts;
     }
 
@@ -674,7 +722,8 @@ class ProductsDragDrop {
     // ========================================================================
 
     findProductRowById(productId) {
-        return this.elements.viewport.querySelector(`.product-row[data-product-id="${productId}"]`);
+        // ZMIANA: użyj nowej klasy product row
+        return this.elements.viewport.querySelector(`.prod_list-product-row[data-product-id="${productId}"]`);
     }
 
     enable() {

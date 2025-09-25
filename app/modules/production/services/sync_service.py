@@ -1516,22 +1516,10 @@ class BaselinkerSyncService:
                     continue
 
                 if force_update and not dry_run:
-                    try:
-                        removed_count = self._delete_existing_items(order_id_val)
-                        if removed_count:
-                            stats['products_skipped'] += removed_count
-                            add_log(
-                                f'Usunięto {removed_count} istniejących pozycji zamówienia {order_id_val}.',
-                                'info'
-                            )
-                    except Exception as delete_error:
-                        stats['errors_count'] += 1
-                        error_details.append({'error': str(delete_error), 'order_id': order_id_val})
-                        add_log(
-                            f'Nie udało się usunąć istniejących pozycji zamówienia {order_id_val}.',
-                            'error'
-                        )
-                        continue
+                    add_log(
+                        f'Force update: zamówienie {order_id_val} będzie przetworzone ponownie.',
+                        'info'
+                    )
 
                 products = order.get('products') or []
                 if not products:
@@ -1624,11 +1612,6 @@ class BaselinkerSyncService:
                 order['products'] = filtered_products  # Replace z filtered products
                 qualified_orders.append(order)
 
-            add_log(
-                f'Zakwalifikowano {len(qualified_orders)} zamówień do enhanced processing.',
-                'info'
-            )
-
             # NOWE: Filtrowanie po wybranych order_ids z modalboxa
             filter_order_ids = params.get('filter_order_ids', [])
             selected_orders_only = params.get('selected_orders_only', False)
@@ -1647,11 +1630,6 @@ class BaselinkerSyncService:
                         filtered_qualified_orders.append(order)
         
                 qualified_orders = filtered_qualified_orders
-        
-                add_log(
-                    f'Po filtracji order_ids zostało {len(qualified_orders)} zamówień do przetworzenia.',
-                    'info'
-                )
         
                 logger.info("ENHANCED: Zakończono filtrację po order_ids", extra={
                     'qualified_orders_after': len(qualified_orders),
@@ -1687,12 +1665,6 @@ class BaselinkerSyncService:
                     quantity_total = sum(prod.get('quantity', 0) or 0 for prod in order.get('products', []))
                     stats['products_created'] += quantity_total
                     stats['orders_processed'] += 1
-            
-                add_log(
-                    f"[DRY RUN] Enhanced: {stats['orders_processed']} zamówień, "
-                    f"{stats['products_created']} produktów kwalifikuje się do utworzenia.",
-                    'info'
-                )
 
             add_log(
                 f"ENHANCED: Synchronizacja zakończona. Zamówienia przetworzone: {stats['orders_processed']}, "
@@ -1821,70 +1793,6 @@ class BaselinkerSyncService:
                     'duration_seconds': int((get_local_now() - sync_started_at).total_seconds()),
                     'stats': stats,
                     'log_entries': log_entries
-                }
-            }
-
-    def enhanced_manual_sync_orders(self, status_ids: List[int] = None, date_from: str = None, 
-                                   recalculate_priorities: bool = True, auto_status_change: bool = True, 
-                                   respect_manual_overrides: bool = True) -> Dict[str, Any]:
-        """
-        NOWA METODA: Enhanced ręczna synchronizacja z nowymi parametrami
-    
-        Args:
-            status_ids: Lista statusów (domyślnie [155824])
-            date_from: Data od której synchronizować
-            recalculate_priorities: Czy przeliczać priorytety
-            auto_status_change: Czy zmieniać status
-            respect_manual_overrides: Czy respektować manual overrides
-        
-        Returns:
-            Dict[str, Any]: Wyniki synchronizacji
-        """
-        try:
-            # Przygotuj parametry dla manual_sync_with_filtering
-            params = {
-                'target_statuses': status_ids or [self.source_status_paid],
-                'period_days': 7,  # Domyślnie ostatnie 7 dni
-                'limit_per_page': 100,
-                'dry_run': False,
-                'force_update': True,
-                'debug_mode': False,
-                'skip_validation': False,
-                'recalculate_priorities': recalculate_priorities,
-                'auto_status_change': auto_status_change,
-                'respect_manual_overrides': respect_manual_overrides
-            }
-        
-            logger.info("ENHANCED: Rozpoczęcie enhanced manual sync", extra={
-                'status_ids': status_ids,
-                'auto_status_change': auto_status_change,
-                'recalculate_priorities': recalculate_priorities
-            })
-        
-            # Użyj istniejącej metody manual_sync_with_filtering
-            result = self.manual_sync_with_filtering(params)
-        
-            logger.info("ENHANCED: Zakończono enhanced manual sync", extra={
-                'success': result.get('success', False),
-                'orders_processed': result.get('data', {}).get('stats', {}).get('orders_processed', 0),
-                'products_created': result.get('data', {}).get('stats', {}).get('products_created', 0)
-            })
-        
-            return result
-        
-        except Exception as e:
-            logger.error("ENHANCED: Błąd enhanced manual sync", extra={'error': str(e)})
-        
-            return {
-                'success': False,
-                'error': str(e),
-                'data': {
-                    'stats': {
-                        'orders_processed': 0,
-                        'products_created': 0,
-                        'products_updated': 0,
-                        'error_count': 1
-                    }
                 }
             }
 
@@ -2245,24 +2153,6 @@ class BaselinkerSyncService:
         except (TypeError, ValueError):
             return None
 
-    def _delete_existing_items(self, baselinker_order_id: int) -> int:
-        """ZACHOWANE: Usuwa istniejące produkty powiązane z zamówieniem Baselinker."""
-        from ..models import ProductionItem
-
-        try:
-            deleted_count = ProductionItem.query.filter_by(
-                baselinker_order_id=baselinker_order_id
-            ).delete()
-            db.session.commit()
-            return deleted_count or 0
-        except Exception as exc:
-            db.session.rollback()
-            logger.error("Błąd usuwania istniejących produktów", extra={
-                'order_id': baselinker_order_id,
-                'error': str(exc)
-            })
-            raise
-
     def _update_product_priorities(self):
         """
         ZMODYFIKOWANE: Używa nowego priority service
@@ -2418,15 +2308,6 @@ class BaselinkerSyncService:
                     'total_errors': 0
                 }
             }
-
-    def cleanup_old_sync_logs(self, days_to_keep: int = 30):
-        """ZACHOWANE: Czyści stare logi synchronizacji"""
-        # ... (original implementation)
-        pass
-
-    def update_order_status(self, internal_order_number: str) -> bool:
-        """ZACHOWANE: Alias dla kompatybilności"""
-        return self.update_order_status_in_baselinker(internal_order_number)
 
     def extract_client_data(self, order: Dict[str, Any]) -> Dict[str, str]:
         """POPRAWIONA: Implementuje logikę fallback dla client_name zgodnie z wymaganiami"""
@@ -2845,10 +2726,6 @@ def get_sync_status() -> Dict[str, Any]:
     """ZACHOWANE: Helper function dla sprawdzania statusu sync"""
     return get_sync_service().get_sync_status()
 
-def cleanup_old_sync_logs(days_to_keep: int = 30):
-    """ZACHOWANE: Helper function dla czyszczenia logów"""
-    get_sync_service().cleanup_old_sync_logs(days_to_keep)
-
 # ============================================================================
 # NOWE HELPER FUNCTIONS DLA ENHANCED PRIORITY SYSTEM 2.0
 # ============================================================================
@@ -2942,39 +2819,3 @@ def change_order_status_in_baselinker(order_id: int, target_status: int = 138619
         bool: True jeśli zmiana się powiodła
     """
     return get_sync_service().change_order_status_in_baselinker(order_id, target_status)
-
-def _safe_float_conversion(self, value: Any) -> Optional[float]:
-    """Bezpieczna konwersja na float"""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
-
-def _safe_string_extraction(self, data: Dict[str, Any], possible_fields: List[str]) -> Optional[str]:
-    """Bezpieczne wyciąganie string z możliwych pól"""
-    if not isinstance(data, dict):
-        return None
-    
-    for field in possible_fields:
-        if field in data and data[field]:
-            value = data[field]
-            if isinstance(value, (str, int, float)):
-                return str(value).strip()
-    return None
-
-def _calculate_volume_safe(self, parsed_data: Dict[str, Any]) -> Optional[float]:
-    """Bezpieczne obliczenie objętości"""
-    try:
-        length = parsed_data.get('length_cm')
-        width = parsed_data.get('width_cm') 
-        thickness = parsed_data.get('thickness_cm')
-        
-        if all(v is not None for v in [length, width, thickness]):
-            # Convert cm to m and calculate m3
-            volume_m3 = (float(length) * float(width) * float(thickness)) / 1000000  # cm3 to m3
-            return round(volume_m3, 6)
-    except (ValueError, TypeError):
-        pass
-    return None

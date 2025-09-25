@@ -372,32 +372,73 @@ class NewPriorityCalculator:
         Returns:
             List: Posortowana lista produktów
         """
+        logger.info("DEBUG: Group priorities calculated", extra={
+            'group_priorities': group_priorities,
+            'products_count': len(products)
+        })
         
         def get_sort_key(product):
-            """Tworzy klucz sortowania dla produktu"""
+            """
+            POPRAWIONA LOGIKA - deadline_date jako primary key
             
-            # 1. payment_date ASC (None na koniec)
+            Kolejność sortowania priorytetów:
+            1. DEADLINE_DATE (tylko dzień, bez godzin) - najważniejszy
+            2. SPECIES (gatunek drewna) - według częstotliwości w tygodniu
+            3. TECHNOLOGY (technologia wykonania) - według częstotliwości
+            4. THICKNESS_GROUP (grupa grubości) - według częstotliwości
+            5. WOOD_CLASS (klasa drewna) - według częstotliwości
+            6. PAYMENT_DATE (data opłacenia) - tie-breaker, starsze = wyższy priorytet
+            7. ID produktu - final tie-breaker dla stabilności sortowania
+            """
+
+            logger.info(f"DEBUG: Product {product.id} sort data", extra={
+                'product_id': product.id,
+                'deadline_date': product.deadline_date,
+                'parsed_wood_species': getattr(product, 'parsed_wood_species', 'NONE'),
+                'parsed_technology': getattr(product, 'parsed_technology', 'NONE'),
+                'thickness_group': getattr(product, 'thickness_group', 'NONE'),
+                'parsed_wood_class': getattr(product, 'parsed_wood_class', 'NONE'),
+                'payment_date': product.payment_date
+            })
+            
+            # 1. DEADLINE_DATE - najważniejszy (termin dostawy) - tylko DZIEŃ!
+            deadline_key = product.deadline_date if product.deadline_date else date.max
+            
+            # 2. W ramach tego samego deadline - parametry wykonawcze:
+            # SPECIES (gatunek drewna) - według group_priorities
+            species_priority = group_priorities.get('species', {}).get(
+                getattr(product, 'parsed_wood_species', None), 999
+            )
+            
+            # TECHNOLOGY (technologia) - według group_priorities
+            tech_priority = group_priorities.get('technology', {}).get(
+                getattr(product, 'parsed_technology', None), 999
+            )
+            
+            # THICKNESS_GROUP (grubość) - według group_priorities
+            thickness_priority = group_priorities.get('thickness_group', {}).get(
+                product.thickness_group, 999
+            )
+            
+            # WOOD_CLASS (klasa drewna) - według group_priorities
+            wood_class_priority = group_priorities.get('wood_class', {}).get(
+                getattr(product, 'parsed_wood_class', None), 999
+            )
+            
+            # 3. Payment_date jako tie-breaker (starsze opłacenie = wyższy priorytet)
             payment_date_key = product.payment_date or datetime.max
             
-            # 2. species priority (niższy numer = wyższy priorytet)
-            species_priority = group_priorities.get('species', {}).get(product.species, 999)
-            
-            # 3. thickness_group priority
-            thickness_priority = group_priorities.get('thickness_group', {}).get(product.thickness_group, 999)
-            
-            # 4. finish_state priority
-            finish_priority = group_priorities.get('finish_state', {}).get(product.finish_state, 999)
-            
-            # 5. wood_class priority
-            wood_class_priority = group_priorities.get('wood_class', {}).get(product.wood_class, 999)
+            # 4. ID jako final tie-breaker
+            id_key = product.id
             
             return (
-                payment_date_key,
-                species_priority,
-                thickness_priority,
-                finish_priority,
-                wood_class_priority,
-                product.created_at or datetime.max  # Tiebreaker
+                deadline_key,          # 1. Deadline (najważniejszy)
+                species_priority,      # 2. Gatunek 
+                tech_priority,         # 3. Technologia
+                thickness_priority,    # 4. Grubość
+                wood_class_priority,   # 5. Klasa
+                payment_date_key,      # 6. Data opłacenia (tie-breaker)
+                id_key                 # 7. ID (stabilność)
             )
         
         try:

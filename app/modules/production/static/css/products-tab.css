@@ -156,10 +156,6 @@
     transition: var(--transition-fast);
 }
 
-.multi-select-display.open .multi-select-arrow {
-    transform: rotate(180deg);
-}
-
 .multi-select-selected-items {
     display: flex;
     flex-wrap: wrap;
@@ -449,7 +445,6 @@
 
     .product-row.dragging {
         opacity: 0.7;
-        transform: rotate(2deg);
         box-shadow: var(--shadow-lg);
         z-index: 1000;
     }
@@ -2038,7 +2033,7 @@
 }
 
 .card-body {
-    padding: var(--spacing-lg) !important;
+    padding: 0 var(--spacing-lg) var(--spacing-lg) !important;
 }
 
 /* Grid dla pól */
@@ -2103,10 +2098,10 @@
 
 .timeline-icon {
     position: absolute;
-    left: -11px;
-    top: 0;
-    width: 20px;
-    height: 20px;
+    left: -17px;
+    top: -7px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -2116,25 +2111,25 @@
 }
 
 .timeline-content {
-    margin-left: var(--spacing-md);
+    margin-left: var(--spacing-lg);
 }
 
 .timeline-title {
     font-weight: 600;
     margin: 0 0 4px 0;
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-lg);
 }
 
 .timeline-details {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-lg);
     color: #6c757d;
     margin: 0;
 }
 
 .timeline-status {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 10px;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 16px;
     background: #e9ecef;
     color: #6c757d;
     margin-top: 4px;
@@ -2363,4 +2358,599 @@
 /* Animacje przejścia dla contentu modala */
 .modal-content-transition {
     transition: opacity 0.2s ease;
+}
+
+/* ============================================================================
+   LISTA PRODUKTÓW - CRM WOODPOWER
+   ============================================================================ */
+
+/* Base variables */
+:root {
+    --prod_list-orange: rgb(237, 107, 36);
+    --prod_list-transition-fast: all 0.2s ease;
+    --prod_list-transition-normal: all 0.3s ease;
+    
+    /* Kolory statusów */
+    --prod_list-status-cutting: #f59e0b;
+    --prod_list-status-assembly: #3b82f6;
+    --prod_list-status-packaging: #8b5cf6;
+    --prod_list-status-completed: #10b981;
+    --prod_list-status-paused: #6b7280;
+    
+    /* Kolory gatunków drewna */
+    --prod_list-wood-oak: #fef3c7;
+    --prod_list-wood-ash: #f3f4f6;
+    --prod_list-wood-pine: #ecfdf5;
+    --prod_list-wood-beech: #fff7ed;
+    
+    /* Kolory technologii */
+    --prod_list-tech-solid: #ede9fe;
+    --prod_list-tech-laminated: #fef2f2;
+    --prod_list-tech-microchip: #eff6ff;
+    
+    /* Kolory klas drewna */
+    --prod_list-class-aa: #dcfce7;
+    --prod_list-class-ab: #fef3c7;
+    --prod_list-class-bb: #fee2e2;
+}
+
+/* ============================================================================
+   NAGŁÓWEK LISTY PRODUKTÓW
+   ============================================================================ */
+
+.prod_list-header {
+    display: grid;
+    grid-template-columns: 50px 40px 80px 1fr 140px 100px 100px 120px 100px 120px;
+    gap: 16px;
+    padding: 12px 16px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    font-weight: 600;
+    color: #475569;
+    font-size: 0.875rem;
+    margin-bottom: 16px;
+    align-items: center;
+}
+
+.prod_list-header-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease;
+}
+
+.prod_list-header-cell:hover {
+    color: #0f172a;
+}
+
+.prod_list-sortable-header {
+    cursor: pointer;
+    transition: var(--prod_list-transition-fast);
+}
+
+.prod_list-sortable-header:hover {
+    color: var(--prod_list-orange);
+}
+
+.prod_list-sortable-header:focus {
+    outline: 2px solid var(--prod_list-orange);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* ============================================================================
+   WIERSZ PRODUKTU
+   ============================================================================ */
+
+.prod_list-product-row {
+    display: grid;
+    grid-template-columns: 50px 40px 80px 1fr 350px 100px 100px 120px 100px 120px;
+    gap: 16px;
+    padding: 16px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #3b82f6;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    align-items: center;
+    transition: var(--prod_list-transition-fast);
+    position: relative;
+}
+
+.prod_list-product-row:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+    transform: translateY(-1px);
+}
+
+/* ============================================================================
+   KOMÓRKI PRODUKTU
+   ============================================================================ */
+
+/* Checkbox cell */
+.prod_list-checkbox-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-product-checkbox {
+    transform: scale(1.1);
+}
+
+/* Drag handle cell */
+.prod_list-drag-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    color: #94a3b8;
+    font-size: 1.1rem;
+    transition: var(--prod_list-transition-fast);
+}
+
+.prod_list-drag-cell:hover {
+    color: #64748b;
+}
+
+.prod_list-drag-cell:active {
+    cursor: grabbing;
+}
+
+/* Priority cell */
+.prod_list-priority-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-priority-rank {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: white;
+    background: var(--prod_list-orange);
+    box-shadow: 0 2px 4px rgba(237, 107, 36, 0.3);
+    transition: var(--prod_list-transition-fast);
+}
+
+.prod_list-priority-rank:hover {
+    transform: scale(1.05);
+    box-shadow: 0 3px 6px rgba(237, 107, 36, 0.4);
+}
+
+/* Product info cell - rozciąga się na pełną dostępną przestrzeń */
+.prod_list-product-info {
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.prod_list-product-name {
+    font-weight: 600;
+    color: #0f172a;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+    line-height: 1.4;
+}
+
+.prod_list-product-details {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.prod_list-product-id {
+    font-size: 0.8rem;
+    color: #64748b;
+    font-weight: 500;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+.prod_list-baselinker-order {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 400;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+/* Tags cell */
+.prod_list-tags-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-content: flex-start;
+}
+
+.prod_list-tag {
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    transition: var(--prod_list-transition-fast);
+}
+
+.prod_list-tag:hover {
+    transform: scale(1.05);
+}
+
+/* Species tags */
+.prod_list-tag.species-oak {
+    background: var(--prod_list-wood-oak);
+    color: #92400e;
+    border: 1px solid #f59e0b;
+}
+
+.prod_list-tag.species-ash {
+    background: var(--prod_list-wood-ash);
+    color: #374151;
+    border: 1px solid #6b7280;
+}
+
+.prod_list-tag.species-pine {
+    background: var(--prod_list-wood-pine);
+    color: #065f46;
+    border: 1px solid #10b981;
+}
+
+.prod_list-tag.species-beech {
+    background: var(--prod_list-wood-beech);
+    color: #9a3412;
+    border: 1px solid #ea580c;
+}
+
+/* Technology tags */
+.prod_list-tag.tech-solid {
+    background: var(--prod_list-tech-solid);
+    color: #5b21b6;
+    border: 1px solid #8b5cf6;
+}
+
+.prod_list-tag.tech-laminated {
+    background: var(--prod_list-tech-laminated);
+    color: #b91c1c;
+    border: 1px solid #ef4444;
+}
+
+.prod_list-tag.tech-microchip {
+    background: var(--prod_list-tech-microchip);
+    color: #1d4ed8;
+    border: 1px solid #3b82f6;
+}
+
+/* Wood class tags */
+.prod_list-tag.class-aa {
+    background: var(--prod_list-class-aa);
+    color: #166534;
+    border: 1px solid #22c55e;
+}
+
+.prod_list-tag.class-ab {
+    background: var(--prod_list-class-ab);
+    color: #92400e;
+    border: 1px solid #f59e0b;
+}
+
+.prod_list-tag.class-bb {
+    background: var(--prod_list-class-bb);
+    color: #991b1b;
+    border: 1px solid #ef4444;
+}
+
+/* Thickness tag */
+.prod_list-tag.thickness {
+    background: #f0f9ff;
+    color: #0369a1;
+    border: 1px solid #0ea5e9;
+}
+
+/* Volume cell */
+.prod_list-volume-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-volume-value {
+    font-weight: 600;
+    color: #0f172a;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+/* Value cell */
+.prod_list-value-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-currency-value {
+    font-weight: 700;
+    color: #059669;
+    font-size: 0.95rem;
+    text-align: center;
+}
+
+/* Status cell */
+.prod_list-status-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-status-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+    transition: var(--prod_list-transition-fast);
+}
+
+.prod_list-status-badge:hover {
+    transform: scale(1.05);
+}
+
+.prod_list-status-badge.cutting {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.prod_list-status-badge.assembly {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.prod_list-status-badge.packaging {
+    background: #f3e8ff;
+    color: #7c3aed;
+}
+
+.prod_list-status-badge.completed {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.prod_list-status-badge.paused {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.prod_list-status-badge.cancelled {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* Deadline cell */
+.prod_list-deadline-cell {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+}
+
+.prod_list-deadline-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+    transition: var(--prod_list-transition-fast);
+}
+
+.prod_list-deadline-badge:hover {
+    transform: scale(1.05);
+}
+
+.prod_list-deadline-badge.urgent {
+    background: #fee2e2;
+    color: #991b1b;
+    animation: prod_list-urgent-blink 2s infinite;
+}
+
+.prod_list-deadline-badge.warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.prod_list-deadline-badge.normal {
+    background: #f0f9ff;
+    color: #0369a1;
+}
+
+.prod_list-deadline-date {
+    font-size: 0.75rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+/* Actions cell */
+.prod_list-actions-cell {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+}
+
+.prod_list-action-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--prod_list-transition-fast);
+    padding: 0;
+    color: #64748b;
+}
+
+.prod_list-action-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.prod_list-details-btn:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+    background: #eff6ff;
+}
+
+.prod_list-baselinker-btn:hover {
+    border-color: #06b6d4;
+    color: #06b6d4;
+    background: #ecfeff;
+}
+
+.prod_list-delete-btn:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+    background: #fef2f2;
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes prod_list-urgent-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* ============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================ */
+
+@media (max-width: 1200px) {
+    .prod_list-header,
+    .prod_list-product-row {
+        grid-template-columns: 40px 30px 70px 1fr 120px 80px 80px 100px 80px 100px;
+        gap: 12px;
+        font-size: 0.85rem;
+    }
+    
+    .prod_list-priority-rank {
+        width: 32px;
+        height: 32px;
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .prod_list-header,
+    .prod_list-product-row {
+        grid-template-columns: 30px 25px 60px 1fr 100px 70px 70px 80px 70px 80px;
+        gap: 8px;
+        font-size: 0.8rem;
+    }
+    
+    .prod_list-priority-rank {
+        width: 28px;
+        height: 28px;
+        font-size: 0.75rem;
+    }
+    
+    .prod_list-tag {
+        font-size: 0.65rem;
+        padding: 2px 6px;
+    }
+    
+    .prod_list-product-details {
+        flex-direction: column;
+        gap: 2px;
+    }
+}
+
+@media (max-width: 768px) {
+    .prod_list-header,
+    .prod_list-product-row {
+        grid-template-columns: 25px 20px 50px 1fr 80px 60px 60px 70px 60px 70px;
+        gap: 6px;
+        font-size: 0.75rem;
+        padding: 12px;
+    }
+    
+    .prod_list-product-name {
+        font-size: 0.85rem;
+    }
+    
+    .prod_list-product-id,
+    .prod_list-baselinker-order {
+        font-size: 0.7rem;
+    }
+}
+
+/* ============================================================================
+   DRAGGING STATES
+   ============================================================================ */
+
+.prod_list-product-row.dragging {
+    opacity: 0.7;
+    transform: rotate(3deg);
+    z-index: 1000;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.prod_list-product-row.drag-over {
+    border-top: 3px solid var(--prod_list-orange);
+    transform: translateY(2px);
+}
+
+/* ============================================================================
+   SELECTION STATES
+   ============================================================================ */
+
+.prod_list-product-row.selected {
+    background: #eff6ff;
+    border-left-color: var(--prod_list-orange);
+    box-shadow: 0 2px 8px rgba(237, 107, 36, 0.1);
+}
+
+.prod_list-product-row.selected .prod_list-product-checkbox {
+    accent-color: var(--prod_list-orange);
+}
+
+/* ============================================================================
+   LOADING STATES
+   ============================================================================ */
+
+.prod_list-product-row.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.prod_list-product-row.loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
 }

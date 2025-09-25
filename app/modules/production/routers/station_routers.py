@@ -812,7 +812,7 @@ def station_access_denied(error):
     })
     
     return render_template(
-        'production/access_denied.html',
+        'panel/errors.html',
         error_message="Dostęp zabroniony",
         error_details="Twój adres IP nie jest autoryzowany do dostępu do stanowisk produkcyjnych.",
         client_ip=request.remote_addr
@@ -828,7 +828,7 @@ def station_server_error(error):
     })
     
     return render_template(
-        'production/error.html',
+        'panel/errors.html',
         error_message="Błąd systemu",
         error_details="Wystąpił nieoczekiwany błąd. Spróbuj odświeżyć stronę.",
         back_url=url_for('production_stations.station_select')
