@@ -462,40 +462,39 @@ class NewPriorityCalculator:
     def assign_sequential_ranks(self, sorted_products: List) -> Dict[str, Any]:
         """
         Przypisuje numery priorytetów 1,2,3,4... z pomijaniem manual overrides
-        
+    
         Args:
             sorted_products: Lista produktów posortowanych według reguł
-            
+        
         Returns:
             Dict[str, Any]: Statystyki przypisania rang
         """
         # Pobierz zarezerwowane rangi (manual overrides)
         reserved_ranks = self.get_reserved_ranks()
-        
+    
         current_rank = 1
         products_updated = 0
         manual_overrides_preserved = len(reserved_ranks)
-        
+    
         for product in sorted_products:
             # Pomijaj produkty z manual override
             if product.is_priority_locked:
                 logger.debug(f"Pominięto produkt z manual override: {product.short_product_id} (rank: {product.priority_rank})")
                 continue
-            
+        
             # Znajdź następny dostępny rank (pomijając zarezerwowane)
             while current_rank in reserved_ranks:
                 current_rank += 1
-            
-            # Przypisz rank i zaktualizuj priority_score dla kompatybilności
+        
+            # ZMIANA: Przypisz tylko priority_rank (usuń priority_score)
             old_rank = product.priority_rank
             product.priority_rank = current_rank
-            product.priority_score = max(1, 1000 - current_rank)
-            
+        
             logger.debug(f"Zaktualizowano priorytet: {product.short_product_id} {old_rank} → {current_rank}")
-            
+        
             current_rank += 1
             products_updated += 1
-        
+    
         result = {
             'products_updated': products_updated,
             'manual_overrides_preserved': manual_overrides_preserved,
@@ -503,7 +502,7 @@ class NewPriorityCalculator:
             'reserved_ranks_count': len(reserved_ranks),
             'reserved_ranks': sorted(list(reserved_ranks)) if reserved_ranks else []
         }
-        
+    
         logger.info("Przypisano numery priorytetów", extra=result)
         return result
     
@@ -573,79 +572,67 @@ class NewPriorityCalculator:
     
     def calculate_priority(self, product_data: Dict[str, Any]) -> int:
         """
-        KOMPATYBILNOŚĆ: Oblicza priorytet pojedynczego produktu
-        
-        W nowym systemie priority jest obliczany globalnie dla wszystkich produktów,
-        więc ta metoda zwraca obecną wartość priority_score lub domyślną.
-        
-        Args:
-            product_data: Dane produktu (dla kompatybilności)
-            
-        Returns:
-            int: Priority score (dla kompatybilności ze starym systemem)
+        KOMPATYBILNOŚĆ: Oblicza priorytet pojedynczego produktu - ZMODYFIKOWANY
+    
+        ZMIANA: Zwraca priority_rank zamiast priority_score
         """
         try:
             product_id = product_data.get('short_product_id')
             if not product_id:
-                return 100
-            
+                return 999  # ZMIANA: wysoki rank = niski priorytet
+        
             # Spróbuj znaleźć produkt w bazie
             from ..models import ProductionItem
             product = ProductionItem.query.filter_by(short_product_id=product_id).first()
-            
-            if product and product.priority_score:
-                return product.priority_score
-            
-            # Domyślny priorytet
-            return 100
-            
+        
+            if product and product.priority_rank:
+                return product.priority_rank  # ZMIANA: zwróć priority_rank
+        
+            # ZMIANA: Domyślny rank (niski priorytet)
+            return 999
+        
         except Exception as e:
             logger.warning("Błąd obliczania priorytetu single product", extra={
                 'product_id': product_data.get('short_product_id'),
                 'error': str(e)
             })
-            return 100
+            return 999
     
     def calculate_priorities_batch(self, products_data: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
         """
-        KOMPATYBILNOŚĆ: Oblicza priorytety dla wielu produktów
-        
-        W nowym systemie wywołuje pełne przeliczenie dla wszystkich produktów
-        i zwraca wyniki dla requested products.
-        
-        Args:
-            products_data: Lista danych produktów
-            
-        Returns:
-            List[Tuple[str, int]]: Lista (product_id, priority_score)
+        KOMPATYBILNOŚĆ: Oblicza priorytety dla wielu produktów - ZMODYFIKOWANY
+    
+        ZMIANA: Zwraca priority_rank zamiast priority_score
         """
         try:
             # Wywołaj pełne przeliczenie priorytetów
             result = self.recalculate_all_priorities()
-            
+        
             if not result['success']:
                 logger.error("Batch priority calculation failed")
-                return [(p.get('short_product_id', 'unknown'), 100) for p in products_data]
-            
-            # Pobierz zaktualizowane priority scores
+                # ZMIANA: fallback do rank 999
+                return [(p.get('short_product_id', 'unknown'), 999) for p in products_data]
+        
+            # ZMIANA: Pobierz zaktualizowane priority_rank
             from ..models import ProductionItem
             results = []
-            
+        
             for product_data in products_data:
                 product_id = product_data.get('short_product_id')
                 if not product_id:
-                    results.append(('unknown', 100))
+                    results.append(('unknown', 999))
                     continue
-                
+            
                 product = ProductionItem.query.filter_by(short_product_id=product_id).first()
-                priority_score = product.priority_score if product else 100
-                results.append((product_id, priority_score))
-            
+                priority_rank = product.priority_rank if product else 999  # ZMIANA
+                results.append((product_id, priority_rank))  # ZMIANA
+        
             return results
-            
+        
         except Exception as e:
             logger.error("Błąd batch priority calculation", extra={'error': str(e)})
-            return [(p.get('short_product_id', 'unknown'), 100) for p in products_data]
+            # ZMIANA: fallback do rank 999
+            return [(p.get('short_product_id', 'unknown'), 999) for p in products_data]
     
     def invalidate_cache(self):
         """KOMPATYBILNOŚĆ: W nowym systemie nie ma cache do invalidacji"""
@@ -654,43 +641,50 @@ class NewPriorityCalculator:
     
     def get_criteria_weights(self) -> Dict[str, int]:
         """
-        KOMPATYBILNOŚĆ: Zwraca nowe "wagi" algorytmu
-        
+        KOMPATYBILNOŚĆ: Zwraca pseudowagi dla nowego algorytmu
+    
+        UWAGA: W nowym systemie priority_rank nie używa wag procentowych
+    
         Returns:
             Dict[str, int]: Pseudowagi dla kompatybilności
         """
         return {
-            'payment_date': 100,  # Główne kryterium
-            'weekly_grouping': 100,
-            'frequency_analysis': 100,
-            'manual_overrides': 100
+            'payment_date': 100,  # Główne kryterium sortowania
+            'weekly_grouping': 100,  # Grupowanie tygodniowe
+            'frequency_analysis': 100,  # Analiza częstotliwości 
+            'sequential_ranking': 100,  # Numeracja sekwencyjna
+            'manual_overrides': 100  # Manual overrides respektowane
         }
     
     def simulate_priority_calculation(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        KOMPATYBILNOŚĆ: Symulacja obliczenia priorytetu
-        
-        Returns:
-            Dict[str, Any]: Informacje o nowym algorytmie
+        KOMPATYBILNOŚĆ: Symulacja obliczenia priorytetu - ZAKTUALIZOWANY
         """
         product_id = product_data.get('short_product_id', 'unknown')
-        
+    
         return {
             'product_id': product_id,
             'algorithm_version': '2.0',
-            'algorithm_type': 'payment_date_weekly_grouping',
-            'final_priority': self.calculate_priority(product_data),
+            'algorithm_type': 'payment_date_weekly_grouping_rank_only',  # ZMIANA
+            'final_priority_rank': self.calculate_priority(product_data),  # ZMIANA: nazwa pola
+            'system_info': {
+                'uses_priority_score': False,  # ZMIANA
+                'uses_priority_rank': True,    # ZMIANA
+                'ranking_direction': 'ascending',  # ZMIANA: 1,2,3,4...
+                'manual_overrides_supported': True
+            },
             'criteria_breakdown': {
-                'payment_date': 'Primary sorting key',
-                'weekly_grouping': 'Products grouped by week',
-                'frequency_analysis': 'Species/finish/thickness/class frequency',
-                'sequential_ranking': 'Numbers 1,2,3,4... assigned'
+                'payment_date': 'Primary sorting key (earliest first)',
+                'weekly_grouping': 'Products grouped by payment week',
+                'frequency_analysis': 'Species/finish/thickness/class frequency within week',
+                'sequential_ranking': 'Sequential numbers 1,2,3,4... assigned globally'
             },
             'notes': [
-                'Nowy algorytm nie używa wag procentowych',
-                'Priorytety obliczane globalnie dla wszystkich produktów',
-                'Sortowanie: payment_date → species → thickness → finish → wood_class',
-                'Manual overrides są respektowane'
+                'System v2.0 używa TYLKO priority_rank (1,2,3,4...)',
+                'Niższa liczba = wyższy priorytet (1 = najwyższy)',
+                'Brak limitów - system obsługuje nieskończoną liczbę produktów',
+                'Manual overrides są w pełni respektowane',
+                'priority_score nie jest już używany'
             ]
         }
 
@@ -700,8 +694,6 @@ class NewPriorityCalculator:
 
 # ALIAS dla zachowania kompatybilności z istniejącym kodem
 PriorityCalculator = NewPriorityCalculator
-
-logger.info("Utworzono alias PriorityCalculator -> NewPriorityCalculator dla backward compatibility")
 
 # ============================================================================
 # SINGLETON PATTERN - ZACHOWANY DLA KOMPATYBILNOŚCI

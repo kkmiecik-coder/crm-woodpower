@@ -822,33 +822,42 @@ class ProductsModule {
             // Użyj shared service jeśli dostępne
             if (this.shared && this.shared.apiClient) {
                 console.log('[ProductsModule] Using shared API client');
-                
+
                 const filtersForApi = {
-                    status: this.state.currentFilters.statuses.length > 0 ? this.state.currentFilters.statuses[0] : 'all',
+                    status: this.state.currentFilters.statuses.length > 0 ?
+                        this.state.currentFilters.statuses[0] : 'all',
                     search: this.state.currentFilters.textSearch || '',
+                    // DODAJ SORTOWANIE:
+                    sort_by: 'priority_rank',    // NOWE: domyślnie sortuj po priority_rank
+                    sort_order: 'asc',           // NOWE: rosnąco (1,2,3,4...)
                     load_all: 'true'
                 };
 
                 const data = await this.shared.apiClient.getProductsTabContent(filtersForApi);
-                
+
                 if (data.success && data.initial_data && data.initial_data.products) {
                     this.state.products = data.initial_data.products;
                     this.state.lastUpdate = new Date().toISOString();
-                    
+
                 } else {
                     throw new Error(data.message || 'Failed to load products data from shared service');
                 }
             } else {
                 // Fallback - bezpośrednie wywołanie GET
                 console.log('[ProductsModule] Using direct GET request');
-                
+
                 const params = new URLSearchParams({
-                    status: this.state.currentFilters.statuses.length > 0 ? this.state.currentFilters.statuses[0] : 'all',
+                    status: this.state.currentFilters.statuses.length > 0 ?
+                        this.state.currentFilters.statuses[0] : 'all',
                     search: this.state.currentFilters.textSearch || '',
+                    // DODAJ SORTOWANIE:
+                    sort_by: 'priority_rank',    // NOWE: domyślnie sortuj po priority_rank  
+                    sort_order: 'asc',           // NOWE: rosnąco (1,2,3,4...)
                     load_all: 'true'
                 });
 
-                const response = await fetch(`/production/api/products-tab-content?${params.toString()}`, {
+                // ZMIANA: Użyj /products-filtered zamiast /products-tab-content
+                const response = await fetch(`/production/api/products-filtered?${params.toString()}`, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
@@ -860,12 +869,12 @@ class ProductsModule {
                 }
 
                 const data = await response.json();
-                
-                if (data.success && data.initial_data && data.initial_data.products) {
-                    this.state.products = data.initial_data.products;
+
+                if (data.success && data.products) {
+                    this.state.products = data.products;  // ZMIANA: data.products zamiast data.initial_data.products
                     this.state.lastUpdate = new Date().toISOString();
-                    
-                    console.log(`[ProductsModule] Loaded ${data.initial_data.products.length} products via direct GET`);
+
+                    console.log(`[ProductsModule] Loaded ${data.products.length} products via direct GET`);
                 } else {
                     throw new Error(data.message || 'Failed to load products data');
                 }

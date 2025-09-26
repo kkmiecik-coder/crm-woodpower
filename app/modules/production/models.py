@@ -135,7 +135,6 @@ class ProductionItem(db.Model):
     ), default='czeka_na_wyciecie', nullable=False, index=True)
     
     # PRIORYTETY I PLANOWANIE - STARY SYSTEM (zachowujemy kompatybilność)
-    priority_score = Column(Integer, default=100, index=True)
     deadline_date = Column(Date, index=True)
     days_until_deadline = Column(Integer)
     
@@ -298,22 +297,18 @@ class ProductionItem(db.Model):
     def lock_priority(self, rank: int):
         """
         Blokuje priorytet na określonej pozycji (manual override)
-        
-        Args:
-            rank (int): Numer priorytetu (1 = najwyższy)
         """
         if rank < 1:
             raise ValueError("Numer priorytetu musi być >= 1")
-            
-        self.priority_rank = rank
-        # Zachowujemy kompatybilność ze starym systemem
-        self.priority_score = max(1, 1000 - rank)
-        self.priority_manual_override = True
         
+        self.priority_rank = rank
+        # USUŃ TO: self.priority_score = max(1, 1000 - rank)
+        self.priority_manual_override = True
+    
         logger.info("Zablokowano priorytet produktu", extra={
             'product_id': self.short_product_id,
             'priority_rank': rank,
-            'priority_score': self.priority_score,
+            # USUŃ TO: 'priority_score': self.priority_score,
             'manual_override': True
         })
     

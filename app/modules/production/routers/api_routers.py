@@ -1962,12 +1962,32 @@ def products_tab_content():
             if search_conditions:
                 products_query = products_query.filter(or_(*search_conditions))
         
-        # Sortowanie domyślne - zawsze po priority_score DESC
-        if hasattr(ProductionItem, 'priority_score'):
-            products_query = products_query.order_by(ProductionItem.priority_score.desc())
+        # Obsługa parametrów sortowania
+        sort_by = request.args.get('sort_by', 'priority_rank')  # ZMIANA: domyślnie priority_rank
+        sort_order = request.args.get('sort_order', 'asc' if sort_by == 'priority_rank' else 'desc')
+        
+        # Sortowanie z obsługą parametrów
+        sort_column = None
+        if sort_by == 'priority_rank' and hasattr(ProductionItem, 'priority_rank'):
+            sort_column = ProductionItem.priority_rank
+        elif sort_by == 'priority_score' and hasattr(ProductionItem, 'priority_score'):
+            sort_column = ProductionItem.priority_score
+        elif sort_by == 'created_at' and hasattr(ProductionItem, 'created_at'):
+            sort_column = ProductionItem.created_at
+        elif sort_by == 'deadline_date' and hasattr(ProductionItem, 'deadline_date'):
+            sort_column = ProductionItem.deadline_date
+            
+        if sort_column is not None:
+            if sort_order == 'desc':
+                products_query = products_query.order_by(sort_column.desc())
+            else:
+                products_query = products_query.order_by(sort_column.asc())
         else:
-            # Fallback sorting
-            products_query = products_query.order_by(ProductionItem.id.desc())
+            # Fallback - domyślnie priority_rank ASC
+            if hasattr(ProductionItem, 'priority_rank'):
+                products_query = products_query.order_by(ProductionItem.priority_rank.asc())
+            else:
+                products_query = products_query.order_by(ProductionItem.id.desc())
         
         # ZMIANA: Pobierz WSZYSTKIE produkty (usuń limit)
         products = products_query.all()
@@ -2019,14 +2039,6 @@ def products_tab_content():
             except (ValueError, TypeError):
                 unit_price_net = 0.0
             
-            # Bezpieczne pobieranie priority_score
-            priority_score = 100
-            try:
-                priority = get_attr(product, 'priority_score', 100)
-                priority_score = int(priority) if priority is not None else 100
-            except (ValueError, TypeError):
-                priority_score = 100
-            
             # Bezpieczne pobieranie parsowanych wymiarów
             parsed_length_cm = 0.0
             parsed_width_cm = 0.0
@@ -2048,7 +2060,6 @@ def products_tab_content():
                 'original_product_name': get_attr(product, 'original_product_name', ''),
                 'current_status': get_attr(product, 'current_status', 'czeka_na_wyciecie'),
                 'priority_rank': get_attr(product, 'priority_rank', None),
-                'priority_score': priority_score,
                 'priority_manual_override': get_attr(product, 'priority_manual_override', False),
 
                 # Wymiary i wartości
@@ -3065,16 +3076,16 @@ def get_filters_data():
 
 # 5. UPDATE PRIORYTETU POJEDYNCZEGO PRODUKTU
 @api_bp.route('/products/<int:product_id>/priority', methods=['PUT'])
-@admin_required
+@login_required
 def update_single_product_priority(product_id):
     """
     PUT /production/api/products/<id>/priority
     
-    Aktualizuje priorytet pojedynczego produktu
+    Aktualizuje priorytet pojedynczego produktu - ZMODYFIKOWANY DLA priority_rank
     
     Body (JSON):
     {
-        "priority": 150
+        "priority": 5  // priority_rank (1,2,3,4... gdzie 1 = najwyższy)
     }
     
     Returns: JSON z rezultatem
@@ -3086,32 +3097,33 @@ def update_single_product_priority(product_id):
         
         new_priority = data['priority']
         
-        # Walidacja priorytetu
-        if not isinstance(new_priority, int) or new_priority < 0 or new_priority > 200:
-            return jsonify({'success': False, 'error': 'Priorytet musi być liczbą 0-200'}), 400
+        # Walidacja priority_rank (1,2,3,4...)
+        if not isinstance(new_priority, int) or new_priority < 1:
+            return jsonify({'success': False, 'error': 'Priority rank musi być liczbą >= 1'}), 400
         
         from ..models import ProductionItem
         
         product = ProductionItem.query.get_or_404(product_id)
-        old_priority = product.priority_score
+        old_priority = product.priority_rank
         
-        product.priority_score = new_priority
+        # Używaj metody lock_priority() z modelu zamiast bezpośredniego ustawienia
+        product.lock_priority(new_priority)
         db.session.commit()
         
         logger.info("Zaktualizowano priorytet produktu", extra={
             'user_id': current_user.id,
             'product_id': product_id,
             'product_short_id': product.short_product_id,
-            'old_priority': old_priority,
-            'new_priority': new_priority
+            'old_priority_rank': old_priority,
+            'new_priority_rank': new_priority
         })
         
         return jsonify({
             'success': True,
             'message': 'Priorytet zaktualizowany',
             'product_id': product_id,
-            'old_priority': old_priority,
-            'new_priority': new_priority
+            'old_priority_rank': old_priority,
+            'new_priority_rank': new_priority
         })
         
     except Exception as e:
@@ -3131,18 +3143,7 @@ def update_single_product_priority(product_id):
 @login_required
 def products_filtered():
     """
-    API endpoint dla filtrowania produktów - FINALNY
-    
-    Query params:
-        status: filtr statusu ('all', 'czeka_na_wyciecie', etc.)
-        search: wyszukiwanie w nazwie/ID
-        page: numer strony (default: 1)
-        per_page: produktów na stronę (default: 50)
-        sort_by: kolumna sortowania
-        sort_order: kierunek (asc/desc)
-    
-    Returns:
-        JSON z produktami, paginacją i statystykami
+    API endpoint dla filtrowania produktów - ZMODYFIKOWANY DLA priority_rank
     """
     try:
         # Pobierz parametry filtrów
@@ -3150,8 +3151,11 @@ def products_filtered():
         search_query = request.args.get('search', '').strip()
         page = int(request.args.get('page', 1))
         per_page = min(int(request.args.get('per_page', 50)), 200)
-        sort_by = request.args.get('sort_by', 'priority_score')
-        sort_order = request.args.get('sort_order', 'desc')
+        # ZMIANA: domyślnie sortuj po priority_rank zamiast priority_score
+        sort_by = request.args.get('sort_by', 'priority_rank')
+        # ZMIANA: dla priority_rank używamy ASC (1,2,3...)
+        default_order = 'asc' if sort_by == 'priority_rank' else 'desc'
+        sort_order = request.args.get('sort_order', default_order)
         
         # Rozpocznij query od wszystkich produktów
         query = ProductionItem.query
@@ -3160,12 +3164,11 @@ def products_filtered():
         if status_filter and status_filter != 'all':
             query = query.filter(ProductionItem.current_status == status_filter)
         
-        # Wyszukiwanie - bezpieczne sprawdzenie atrybutów
+        # Wyszukiwanie - bez zmian
         if search_query:
             search_pattern = f"%{search_query}%"
             search_conditions = []
             
-            # Sprawdź które atrybuty istnieją i dodaj je do wyszukiwania
             if hasattr(ProductionItem, 'original_product_name'):
                 search_conditions.append(ProductionItem.original_product_name.ilike(search_pattern))
             if hasattr(ProductionItem, 'short_product_id'):
@@ -3178,9 +3181,12 @@ def products_filtered():
             if search_conditions:
                 query = query.filter(or_(*search_conditions))
         
-        # Sortowanie - bezpieczne sprawdzenie atrybutów
+        # ZMIANA: Sortowanie - priority_rank jako główne sortowanie
         sort_column = None
-        if sort_by == 'priority_score' and hasattr(ProductionItem, 'priority_score'):
+        if sort_by == 'priority_rank' and hasattr(ProductionItem, 'priority_rank'):
+            sort_column = ProductionItem.priority_rank
+        elif sort_by == 'priority_score' and hasattr(ProductionItem, 'priority_score'):
+            # KOMPATYBILNOŚĆ: nadal obsługuj priority_score requests
             sort_column = ProductionItem.priority_score
         elif sort_by == 'deadline_date' and hasattr(ProductionItem, 'deadline_date'):
             sort_column = ProductionItem.deadline_date
@@ -3195,17 +3201,20 @@ def products_filtered():
             else:
                 query = query.order_by(sort_column.asc())
         else:
-            # Domyślne sortowanie po ID jeśli nie ma priority_score
-            query = query.order_by(ProductionItem.id.desc())
+            # ZMIANA: domyślne sortowanie po priority_rank ASC zamiast ID
+            if hasattr(ProductionItem, 'priority_rank'):
+                query = query.order_by(ProductionItem.priority_rank.asc())
+            else:
+                query = query.order_by(ProductionItem.id.desc())
         
-        # Paginacja
+        # Paginacja - bez zmian
         paginated = query.paginate(
             page=page,
             per_page=per_page,
             error_out=False
         )
         
-        # Przygotuj dane produktów - bezpieczne pobieranie atrybutów
+        # ZMIANA: Przygotuj dane produktów - dodaj priority_rank do response
         products_data = []
         today = date.today()
         
@@ -3216,7 +3225,7 @@ def products_filtered():
             if deadline_date:
                 days_to_deadline = (deadline_date - today).days
             
-            # Bezpieczne pobieranie atrybutów z fallback wartościami
+            # ZMIANA: dodaj priority_rank do danych
             product_data = {
                 'id': item.id,
                 'short_product_id': getattr(item, 'short_product_id', f'ID-{item.id}'),
@@ -3224,6 +3233,9 @@ def products_filtered():
                 'product_name': getattr(item, 'original_product_name', getattr(item, 'product_name', 'Brak nazwy')),
                 'client_name': getattr(item, 'client_name', ''),
                 'current_status': getattr(item, 'current_status', 'unknown'),
+                # ZMIANA: priority_rank jako główne pole priorytetów
+                'priority_rank': getattr(item, 'priority_rank', None),
+                # KOMPATYBILNOŚĆ: zachowaj priority_score dla starych klientów
                 'priority_score': float(getattr(item, 'priority_score', 0) or 0),
                 'volume_m3': float(getattr(item, 'volume_m3', 0) or 0),
                 'total_value': float(getattr(item, 'total_value_net', getattr(item, 'total_value', 0)) or 0),
@@ -3242,16 +3254,19 @@ def products_filtered():
             
             products_data.append(product_data)
         
-        # Statystyki dla filtrowanych wyników
+        # ZMIANA: Statystyki oparte na priority_rank
         stats = {
             'total_filtered': paginated.total,
             'total_volume': sum(float(p['volume_m3']) for p in products_data),
             'total_value': sum(float(p['total_value']) for p in products_data),
+            # ZMIANA: avg_priority_rank zamiast avg_priority_score
+            'avg_priority_rank': sum(float(p['priority_rank'] or 0) for p in products_data) / len(products_data) if products_data else 0,
+            # KOMPATYBILNOŚĆ: zachowaj dla starych dashboardów
             'avg_priority': sum(float(p['priority_score']) for p in products_data) / len(products_data) if products_data else 0,
             'overdue_count': len([p for p in products_data if p['days_to_deadline'] is not None and p['days_to_deadline'] < 0])
         }
         
-        # Informacje o paginacji
+        # Informacje o paginacji - bez zmian
         pagination_info = {
             'page': paginated.page,
             'per_page': paginated.per_page,
@@ -3291,22 +3306,11 @@ def products_filtered():
 @login_required
 def update_priority():
     """
-    API endpoint dla aktualizacji priorytetów produktów
+    API endpoint dla aktualizacji priorytetów produktów - ZMODYFIKOWANY
     
-    Body JSON:
-    {
-        "product_id": 123,
-        "new_priority": 150
-    }
-    LUB
-    {
-        "products": [
-            {"id": 123, "priority": 150},
-            {"id": 124, "priority": 160}
-        ]
-    }
-    
-    Returns: JSON z rezultatem operacji
+    Obsługuje oba formaty:
+    - Stary: priority_score
+    - Nowy: priority_rank (z drag & drop)
     """
     try:
         data = request.get_json()
@@ -3315,9 +3319,39 @@ def update_priority():
         
         updated_products = []
         
-        # Sprawdź czy to pojedynczy produkt czy batch
-        if 'product_id' in data:
-            # Pojedynczy produkt
+        if 'products' in data:
+            # ZMIANA: Batch update dla drag & drop (używa priority_rank)
+            products_data = data.get('products', [])
+            
+            for product_data in products_data:
+                product_id = product_data.get('id')
+                # ZMIANA: obsłuż zarówno priority_rank jak i priority (kompatybilność)
+                new_priority_rank = product_data.get('priority_rank')
+                new_priority_score = product_data.get('priority')  # fallback
+                
+                if product_id is None:
+                    continue
+                
+                product = ProductionItem.query.get(product_id)
+                if product:
+                    # ZMIANA: priorytet dla priority_rank
+                    if new_priority_rank is not None:
+                        product.priority_rank = new_priority_rank
+                        product.priority_manual_override = True  # Drag&drop = manual
+                        updated_products.append({
+                            'id': product_id, 
+                            'new_priority_rank': new_priority_rank
+                        })
+                    # KOMPATYBILNOŚĆ: stary system priority_score
+                    elif new_priority_score is not None and hasattr(product, 'priority_score'):
+                        product.priority_score = new_priority_score
+                        updated_products.append({
+                            'id': product_id, 
+                            'new_priority': new_priority_score
+                        })
+        
+        elif 'product_id' in data:
+            # Pojedynczy produkt - zachowaj istniejącą logikę
             product_id = data.get('product_id')
             new_priority = data.get('new_priority')
             
@@ -3331,22 +3365,6 @@ def update_priority():
             if hasattr(product, 'priority_score'):
                 product.priority_score = new_priority
                 updated_products.append({'id': product_id, 'new_priority': new_priority})
-        
-        elif 'products' in data:
-            # Batch update
-            products_data = data.get('products', [])
-            
-            for product_data in products_data:
-                product_id = product_data.get('id')
-                new_priority = product_data.get('priority')
-                
-                if product_id is None or new_priority is None:
-                    continue
-                
-                product = ProductionItem.query.get(product_id)
-                if product and hasattr(product, 'priority_score'):
-                    product.priority_score = new_priority
-                    updated_products.append({'id': product_id, 'new_priority': new_priority})
         
         else:
             return jsonify({'success': False, 'error': 'Wymagane: product_id+new_priority LUB products'}), 400
@@ -4887,6 +4905,13 @@ def get_priority_statistics():
                 'products_with_rank': priority_rank_stats.products_with_rank,
                 'ranking_coverage': round((priority_rank_stats.products_with_rank / max(products_in_queue, 1)) * 100, 1)
             },
+
+            'system_info': {
+                'priority_system_version': '2.0_rank_only',
+                'uses_priority_score': False,
+                'uses_priority_rank': True,
+                'supports_unlimited_products': True
+            },
             
             'last_updated': last_priority_update,
             'statistics_generated_at': get_local_now().isoformat()
@@ -4906,8 +4931,8 @@ def get_priority_statistics():
                     'id': p.id,
                     'short_product_id': p.short_product_id,
                     'priority_rank': p.priority_rank,
-                    'priority_score': p.priority_score,
                     'current_status': p.current_status,
+                    'manual_override': p.priority_manual_override,
                     'updated_at': p.updated_at.isoformat() if p.updated_at else None
                 }
                 for p in manual_override_products

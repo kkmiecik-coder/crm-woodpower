@@ -455,9 +455,9 @@ def priority_management():
         
         priority_stats = db.session.query(
             func.count(ProductionItem.id).label('total'),
-            func.avg(ProductionItem.priority_score).label('avg_priority'),
-            func.min(ProductionItem.priority_score).label('min_priority'),
-            func.max(ProductionItem.priority_score).label('max_priority')
+            func.avg(ProductionItem.priority_rank).label('avg_priority'),
+            func.min(ProductionItem.priority_rank).label('min_priority'),
+            func.max(ProductionItem.priority_rank).label('max_priority')
         ).filter(
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_pakowanie'
@@ -468,9 +468,9 @@ def priority_management():
         priority_distribution = db.session.query(
             func.count(ProductionItem.id).label('count'),
             func.case([
-                (ProductionItem.priority_score >= 200, 'critical'),
-                (ProductionItem.priority_score >= 150, 'high'),
-                (ProductionItem.priority_score >= 100, 'normal')
+                (ProductionItem.priority_rank <= 10, 'critical'),    # ZMIANA: rank 1-10 = critical
+                (ProductionItem.priority_rank <= 50, 'high'),       # ZMIANA: rank 11-50 = high  
+                (ProductionItem.priority_rank <= 100, 'normal')     # ZMIANA: rank 51-100 = normal
             ], else_='low').label('priority_level')
         ).filter(
             ProductionItem.current_status.in_([

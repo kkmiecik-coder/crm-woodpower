@@ -102,13 +102,13 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
         
         # Sortowanie
         if sort_by == 'priority':
-            query = query.order_by(desc(ProductionItem.priority_score))
+            query = query.order_by(asc(ProductionItem.priority_rank))
         elif sort_by == 'deadline':
             query = query.order_by(asc(ProductionItem.deadline_date))
         elif sort_by == 'created_at':
             query = query.order_by(asc(ProductionItem.created_at))
         else:
-            query = query.order_by(desc(ProductionItem.priority_score))
+            query = query.order_by(asc(ProductionItem.priority_rank))
         
         # Wykonanie query
         products = query.limit(limit).all()

@@ -558,25 +558,16 @@ class ProductsDragDrop {
         const products = this.productsModule.state.filteredProducts;
         const updatedProducts = [];
 
-        // ZMIANA: Używamy priority_rank (rosnąco 1,2,3...) zamiast priority_score (malejąco)
         products.forEach((product, index) => {
-            // Priority rank: pozycja w liście + 1 (1-based indexing)
             const newPriorityRank = index + 1;
 
-            // Sprawdź czy produkt ma priority_rank czy priority_score
-            const currentPriority = product.priority_rank || product.priority_score;
-
-            if (currentPriority !== newPriorityRank) {
+            if (product.priority_rank !== newPriorityRank) {
                 updatedProducts.push({
                     id: product.id,
-                    // ZMIANA: Wysyłamy jako 'priority_rank' zamiast 'priority'
                     priority_rank: newPriorityRank
                 });
 
-                // Update local data immediately - oba pola dla kompatybilności
                 product.priority_rank = newPriorityRank;
-                // Zachowaj priority_score dla kompatybilności (odwrotnie proporcjonalne)
-                product.priority_score = Math.max(1, 200 - newPriorityRank);
             }
         });
 
