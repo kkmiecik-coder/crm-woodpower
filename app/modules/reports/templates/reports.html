@@ -56,6 +56,11 @@
                         Dodaj wiersz
                     </button>
 
+                    <button class="btn btn-primary" onclick="openVoivodeshipsModal()" title="Analiza produkcji według województw">
+                        <span class="voivodeships-btn-icon">🗺️</span>
+                        <span class="voivodeships-btn-text">Analiza województw</span>
+                    </button>
+
                     <!-- Przycisk eksportu -->
                     <div class="dropdown export-dropdown">
                         <button id="exportBtn" class="btn btn-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
@@ -80,12 +85,126 @@
                 </div>
             </div>
 
-            <div class="compact-stats" id="mainStatsContainer">
-                <!-- Statystyki będą generowane dynamicznie przez JavaScript -->
-                <div class="compact-stat-button">
-                    <button class="details-btn" onclick="window.reportsManager.openStatsModal()">
-                        📊 Szczegóły
-                    </button>
+            <div id="mainStatsContainer" class="stats-sections-container">
+                <!-- Sekcja: Podstawowe -->
+                <div class="stats-section-card basic">
+                    <div class="section-title-card">
+                        <span class="section-icon">📊</span>
+                        <span class="section-name">Podstawowe</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Zamówienia</span>
+                            <span class="stat-value-card" id="statUniqueOrders">0</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż netto</span>
+                            <span class="stat-value-card" id="statValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Średnia cena m³ netto</span>
+                            <span class="stat-value-card" id="statPricePerM3">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Zapłacono TTL netto</span>
+                            <span class="stat-value-card" id="statPaidAmountNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Do zapłaty netto</span>
+                            <span class="stat-value-card" id="statBalanceDue">0 PLN</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sekcja: Produkty -->
+                <div class="stats-section-card products">
+                    <div class="section-title-card">
+                        <span class="section-icon">🏭</span>
+                        <span class="section-name">Produkty</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż klejonki netto</span>
+                            <span class="stat-value-card" id="statKlejonkaValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">TTL m³ klejonki</span>
+                            <span class="stat-value-card" id="statTotalM3">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż deski netto</span>
+                            <span class="stat-value-card" id="statDeskaValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">TTL m³ deski</span>
+                            <span class="stat-value-card" id="statDeskaTotalM3">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">TTL m³ suszenia</span>
+                            <span class="stat-value-card" id="statDryingTotalM3">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Sprzedaż usług netto</span>
+                            <span class="stat-value-card" id="statServicesValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card indented">
+                            <span class="stat-label-card">↳ Suszenie</span>
+                            <span class="stat-value-card" id="statSuszenieValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card indented">
+                            <span class="stat-label-card">↳ Klejenie</span>
+                            <span class="stat-value-card" id="statKlejenieValueNet">0 PLN</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sekcja: Produkcja -->
+                <div class="stats-section-card production">
+                    <div class="section-title-card">
+                        <span class="section-icon">⚙️</span>
+                        <span class="section-name">Produkcja</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Ilość m³ w produkcji</span>
+                            <span class="stat-value-card" id="statProductionVolume">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Wartość netto w produkcji</span>
+                            <span class="stat-value-card" id="statProductionValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Wyprodukowane m³</span>
+                            <span class="stat-value-card" id="statReadyPickupVolume">0 m³</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Wyprodukowana wartość netto</span>
+                            <span class="stat-value-card" id="statReadyPickupValueNet">0 PLN</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Gotowe do odbioru m³</span>
+                            <span class="stat-value-card" id="statPickupReady">0 m³</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sekcja: Wykończenie -->
+                <div class="stats-section-card finishing">
+                    <div class="section-title-card">
+                        <span class="section-icon">🎨</span>
+                        <span class="section-name">Wykończenie</span>
+                    </div>
+                    <div class="stats-list-card">
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Olejowanie m²</span>
+                            <span class="stat-value-card" id="statOlejowanieSurface">0 m²</span>
+                        </div>
+                        <div class="stat-item-card">
+                            <span class="stat-label-card">Lakierowanie m²</span>
+                            <span class="stat-value-card" id="statLakierowanieSurface">0 m²</span>
+                        </div>
+                        <!-- Inne statystyki wykończenia można dodać tutaj jeśli będą potrzebne -->
+                    </div>
                 </div>
             </div>
 
@@ -1175,6 +1294,9 @@
         </div>
     </template>
 
+    <!-- modal wojewódźtw -->
+    {% include 'voivodeships_modal.html' %}
+
     <!-- Overlay do ładowania -->
     <div id="syncLoadingOverlay" class="sync-loading-overlay hidden">
         <div class="sync-loading-content">
@@ -1270,37 +1392,5 @@
             }
         });
     </script>
-
-   <div class="split-modal-overlay" id="splitModalOverlay" onclick="window.reportsManager.closeStatsModal()">
-        <div class="split-modal-content" onclick="event.stopPropagation()">
-            <button class="split-modal-close" onclick="window.reportsManager.closeStatsModal()">×</button>
-            
-            <div class="split-modal-body">
-                <!-- Lewa strona - Podsumowanie -->
-                <div class="split-left-panel">
-                    <h2 class="split-summary-title">Podsumowanie</h2>
-                    
-                    <div class="split-summary-stats" id="splitSummaryStats">
-                        <!-- Dynamicznie generowane z MAIN_STATS_CONFIG -->
-                    </div>
-                    
-                    <div class="split-summary-footer">
-                        <p>Kliknij na zakładki po prawej stronie, aby zobaczyć szczegółowe statystyki dla każdej kategorii.</p>
-                    </div>
-                </div>
-                
-                <!-- Prawa strona - Szczegóły -->
-                <div class="split-right-panel">
-                    <div class="split-section-tabs" id="splitSectionTabs">
-                        <!-- Dynamicznie generowane z MODAL_STATS_CONFIG -->
-                    </div>
-                    
-                    <div class="split-tab-content-container" id="splitTabContentContainer">
-                        <!-- Dynamicznie generowana zawartość zakładek -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 </body>
 </html>

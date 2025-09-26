@@ -105,6 +105,12 @@ class ReportsManager {
 
         window.reportsManager = this;
 
+        // Inicjalizacja VoivodeshipsManager
+        if (typeof VoivodeshipsManager !== 'undefined') {
+            window.voivodeshipsManager = new VoivodeshipsManager();
+            window.voivodeshipsManager.init();
+        }
+
         console.log('[ReportsManager] Initialization complete');
     }
 
@@ -184,16 +190,7 @@ class ReportsManager {
             activeFiltersList: document.getElementById('activeFiltersList'),
 
             // DODAJ w this.elements obiekt:
-            mainStatsContainer: document.getElementById('mainStatsContainer'),
-            statsModalOverlay: document.getElementById('statsModalOverlay'),
-            modalBasicStats: document.getElementById('modalBasicStats'),
-            modalProductStats: document.getElementById('modalProductStats'),
-            modalProductionStats: document.getElementById('modalProductionStats'),
-            modalFinishingStats: document.getElementById('modalFinishingStats'),
-            splitModalOverlay: document.getElementById('splitModalOverlay'),
-            splitSummaryStats: document.getElementById('splitSummaryStats'),
-            splitSectionTabs: document.getElementById('splitSectionTabs'),
-            splitTabContentContainer: document.getElementById('splitTabContentContainer')
+            mainStatsContainer: document.getElementById('mainStatsContainer')
         };
 
         console.log('[ReportsManager] Elements cached');
@@ -1445,9 +1442,6 @@ class ReportsManager {
     updateStatistics(stats) {
         if (!stats) return;
 
-        // Renderuj główne statystyki
-        this.renderMainStats(stats);
-
         // Zapisz dane do modala
         this.currentModalStats = stats;
 
@@ -1499,22 +1493,6 @@ class ReportsManager {
         console.log('[ReportsManager] Statystyki zaktualizowane', stats);
     }
 
-    renderMainStats(stats) {
-        const container = this.elements.mainStatsContainer;
-        if (!container) return;
-
-        // Usuń istniejące statystyki (ale zostaw przycisk)
-        const existingStats = container.querySelectorAll('.compact-stat:not(.compact-stat-button)');
-        existingStats.forEach(stat => stat.remove());
-
-        // Renderuj statystyki z konfiguracji
-        MAIN_STATS_CONFIG.forEach(config => {
-            const value = this.formatStatValue(stats[config.key] || 0, config.format);
-            const statElement = this.createCompactStat(config.label, value);
-            container.insertBefore(statElement, container.querySelector('.compact-stat-button'));
-        });
-    }
-
     createCompactStat(label, value) {
         const statDiv = document.createElement('div');
         statDiv.className = 'compact-stat';
@@ -1550,214 +1528,6 @@ class ReportsManager {
                 return Math.round(numValue).toString();
             default:
                 return numValue.toString();
-        }
-    }
-
-    openStatsModal() {
-        const modal = this.elements.splitModalOverlay;
-        if (!modal) return;
-        
-        // Renderuj zawartość modala
-        this.renderSplitModalContent();
-        
-        // Animacja otwarcia
-        modal.style.display = 'flex';
-        modal.classList.add('open');
-        document.body.style.overflow = 'hidden';
-    }
-
-    closeStatsModal() {
-        const modal = this.elements.splitModalOverlay;
-        if (!modal) return;
-        
-        modal.classList.remove('open');
-        document.body.style.overflow = '';
-        
-        // Ukryj modal po animacji
-        setTimeout(() => {
-            modal.style.display = 'none';
-        }, 300);
-    }
-
-    renderSplitModalContent() {
-        if (!this.currentModalStats) return;
-        
-        const stats = this.currentModalStats;
-        const comparison = this.currentComparison || {};
-        
-        // Renderuj podsumowanie (lewa strona)
-        this.renderSplitSummary(stats, comparison);
-        
-        // Renderuj zakładki (prawa strona)
-        this.renderSplitTabs(stats, comparison);
-    }
-
-    renderSplitSummary(stats, comparison) {
-        const container = this.elements.splitSummaryStats;
-        if (!container) return;
-        
-        container.innerHTML = '';
-        
-        MAIN_STATS_CONFIG.forEach(config => {
-            const value = this.formatStatValue(stats[config.key] || 0, config.format);
-            const compData = comparison[config.key];
-            
-            let changeHtml = '';
-            if (compData && Math.abs(compData.change_percent) > 0.1) {
-                const sign = compData.is_positive ? '+' : '';
-                changeHtml = `<div class="split-summary-change">${sign}${compData.change_percent}%</div>`;
-            }
-            
-            const cardDiv = document.createElement('div');
-            cardDiv.className = 'split-summary-card';
-            cardDiv.innerHTML = `
-                <div class="split-summary-label">${config.label}</div>
-                <div class="split-summary-value">${value}</div>
-                ${changeHtml}
-            `;
-            
-            container.appendChild(cardDiv);
-        });
-    }
-
-    renderSplitTabs(stats, comparison) {
-        const tabsContainer = this.elements.splitSectionTabs;
-        const contentContainer = this.elements.splitTabContentContainer;
-        
-        if (!tabsContainer || !contentContainer) return;
-        
-        // Wyczyść kontenery
-        tabsContainer.innerHTML = '';
-        contentContainer.innerHTML = '';
-        
-        // Renderuj przyciski zakładek
-        Object.keys(MODAL_STATS_CONFIG).forEach((key, index) => {
-            const config = MODAL_STATS_CONFIG[key];
-            const tabBtn = document.createElement('button');
-            tabBtn.className = `split-tab-btn ${index === 0 ? 'active' : ''}`;
-            tabBtn.textContent = config.label;
-            tabBtn.onclick = () => this.switchSplitTab(key);
-            tabsContainer.appendChild(tabBtn);
-        });
-        
-        // Dodaj przycisk "Wszystkie"
-        const allBtn = document.createElement('button');
-        allBtn.className = 'split-tab-btn';
-        allBtn.textContent = 'Wszystkie';
-        allBtn.onclick = () => this.switchSplitTab('all');
-        tabsContainer.appendChild(allBtn);
-        
-        // Renderuj zawartość zakładek
-        Object.keys(MODAL_STATS_CONFIG).forEach((key, index) => {
-            const config = MODAL_STATS_CONFIG[key];
-            const contentDiv = this.createSplitTabContent(key, config.stats, stats, comparison);
-            contentDiv.className = `split-tab-content ${index === 0 ? 'active' : ''}`;
-            contentContainer.appendChild(contentDiv);
-        });
-        
-        // Renderuj zawartość "Wszystkie"
-        const allContentDiv = this.createAllSectionsContent(stats, comparison);
-        allContentDiv.className = 'split-all-sections';
-        contentContainer.appendChild(allContentDiv);
-    }
-
-    createSplitTabContent(tabKey, statsConfig, stats, comparison) {
-        const contentDiv = document.createElement('div');
-        contentDiv.id = `split-tab-${tabKey}`;
-        
-        statsConfig.forEach(item => {
-            const value = this.formatStatValue(stats[item.key] || 0, item.format);
-            const compData = comparison[item.key];
-            
-            let compHtml = '';
-            if (compData && Math.abs(compData.change_percent) > 0.1) {
-                const sign = compData.is_positive ? '+' : '';
-                const className = compData.is_positive ? 'positive' : 'negative';
-                compHtml = `<span class="split-detail-change ${className}">${sign}${compData.change_percent}%</span>`;
-            }
-            
-            const rowDiv = document.createElement('div');
-            rowDiv.className = `split-detail-row ${item.indented ? 'indented' : ''}`;
-            rowDiv.innerHTML = `
-                <span class="split-detail-label">${item.label}</span>
-                <div class="split-detail-value">
-                    ${value}
-                    ${compHtml}
-                </div>
-            `;
-            
-            contentDiv.appendChild(rowDiv);
-        });
-        
-        return contentDiv;
-    }
-
-    createAllSectionsContent(stats, comparison) {
-        const allDiv = document.createElement('div');
-        allDiv.id = 'split-all-sections';
-        
-        Object.keys(MODAL_STATS_CONFIG).forEach(key => {
-            const config = MODAL_STATS_CONFIG[key];
-            
-            const sectionDiv = document.createElement('div');
-            sectionDiv.className = 'split-all-section';
-            
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'split-all-section-header';
-            headerDiv.textContent = `${config.icon} ${config.label.toUpperCase()}`;
-            sectionDiv.appendChild(headerDiv);
-            
-            config.stats.forEach(item => {
-                const value = this.formatStatValue(stats[item.key] || 0, item.format);
-                const compData = comparison[item.key];
-                
-                let compHtml = '';
-                if (compData && Math.abs(compData.change_percent) > 0.1) {
-                    const sign = compData.is_positive ? '+' : '';
-                    const className = compData.is_positive ? 'positive' : 'negative';
-                    compHtml = `<span class="split-detail-change ${className}">${sign}${compData.change_percent}%</span>`;
-                }
-                
-                const rowDiv = document.createElement('div');
-                rowDiv.className = `split-detail-row ${item.indented ? 'indented' : ''}`;
-                rowDiv.innerHTML = `
-                    <span class="split-detail-label">${item.label}</span>
-                    <div class="split-detail-value">
-                        ${value}
-                        ${compHtml}
-                    </div>
-                `;
-                
-                sectionDiv.appendChild(rowDiv);
-            });
-            
-            allDiv.appendChild(sectionDiv);
-        });
-        
-        return allDiv;
-    }
-
-    switchSplitTab(tabKey) {
-        const tabsContainer = this.elements.splitSectionTabs;
-        const contentContainer = this.elements.splitTabContentContainer;
-        
-        if (!tabsContainer || !contentContainer) return;
-        
-        // Aktualizuj aktywny przycisk
-        tabsContainer.querySelectorAll('.split-tab-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        event.target.classList.add('active');
-        
-        // Aktualizuj aktywną zawartość
-        contentContainer.querySelectorAll('.split-tab-content, .split-all-sections').forEach(content => {
-            content.classList.remove('active');
-        });
-        
-        if (tabKey === 'all') {
-            contentContainer.querySelector('.split-all-sections').classList.add('active');
-        } else {
-            contentContainer.querySelector(`#split-tab-${tabKey}`).classList.add('active');
         }
     }
 
@@ -2818,6 +2588,636 @@ class ReportsManager {
         }
     }
 
+}
+
+/**
+ * Manager dla modala "Analiza województw"
+ */
+class VoivodeshipsManager {
+    constructor() {
+        this.modal = null;
+        this.tooltip = null;
+        this.currentData = {};
+        this.colorRanges = [];
+
+        // Lista wszystkich województw
+        this.voivodeships = [
+            'dolnoslaskie', 'kujawsko-pomorskie', 'lubelskie', 'lubuskie',
+            'lodzkie', 'malopolskie', 'mazowieckie', 'opolskie',
+            'podkarpackie', 'podlaskie', 'pomorskie', 'slaskie',
+            'swietokrzyskie', 'warminsko-mazurskie', 'wielkopolskie',
+            'zachodniopomorskie'
+        ];
+
+        // Mapowanie nazw województw
+        this.voivodeshipNames = {
+            'dolnoslaskie': 'Dolnośląskie',
+            'kujawsko-pomorskie': 'Kujawsko-Pomorskie',
+            'lubelskie': 'Lubelskie',
+            'lubuskie': 'Lubuskie',
+            'lodzkie': 'Łódzkie',
+            'malopolskie': 'Małopolskie',
+            'mazowieckie': 'Mazowieckie',
+            'opolskie': 'Opolskie',
+            'podkarpackie': 'Podkarpackie',
+            'podlaskie': 'Podlaskie',
+            'pomorskie': 'Pomorskie',
+            'slaskie': 'Śląskie',
+            'swietokrzyskie': 'Świętokrzyskie',
+            'warminsko-mazurskie': 'Warmińsko-Mazurskie',
+            'wielkopolskie': 'Wielkopolskie',
+            'zachodniopomorskie': 'Zachodniopomorskie'
+        };
+    }
+
+    /**
+     * Inicjalizacja managera
+     */
+    init() {
+        this.cacheElements();
+        this.bindEvents();
+        this.createTooltip();
+        console.log('[VoivodeshipsManager] Zainicjalizowany');
+    }
+
+    /**
+     * Cache elementów DOM
+     */
+    cacheElements() {
+        this.modal = document.getElementById('voivodeshipsModal');
+        this.closeButton = document.getElementById('closeVoivodeshipsModal');
+        this.tableBody = document.getElementById('voivodeshipsTableBody');
+
+        // Elementy legendy
+        this.legendRanges = {
+            1: document.getElementById('legendRange1'),
+            2: document.getElementById('legendRange2'),
+            3: document.getElementById('legendRange3'),
+            4: document.getElementById('legendRange4'),
+            5: document.getElementById('legendRange5')
+        };
+    }
+
+    /**
+     * Podpinanie event listenerów
+     */
+    bindEvents() {
+        // Zamknięcie modala
+        if (this.closeButton) {
+            this.closeButton.addEventListener('click', () => this.closeModal());
+        }
+
+        // Zamknięcie przez kliknięcie w overlay
+        if (this.modal) {
+            this.modal.addEventListener('click', (e) => {
+                if (e.target === this.modal) {
+                    this.closeModal();
+                }
+            });
+        }
+
+        // Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.modal && this.modal.style.display !== 'none') {
+                this.closeModal();
+            }
+        });
+
+        // Event listenery dla województw
+        this.voivodeships.forEach(voivodeship => {
+            const element = document.getElementById(voivodeship);
+            if (element) {
+                element.addEventListener('mouseenter', (e) => this.onVoivodeshipHover(e, voivodeship));
+                element.addEventListener('mousemove', (e) => this.onVoivodeshipMouseMove(e, voivodeship));
+                element.addEventListener('mouseleave', () => this.onVoivodeshipLeave());
+                element.addEventListener('click', () => this.onVoivodeshipClick(voivodeship));
+            }
+        });
+    }
+
+    /**
+     * Tworzenie tooltipa
+     */
+    createTooltip() {
+        this.tooltip = document.createElement('div');
+        this.tooltip.className = 'voivodeship-tooltip';
+        document.body.appendChild(this.tooltip);
+    }
+
+    /**
+     * Otwieranie modala
+     */
+    async openModal() {
+        if (!this.modal) return;
+
+        console.log('[VoivodeshipsManager] Otwieranie modala...');
+
+        // Pokaż modal
+        this.modal.style.display = 'flex';
+
+        // Dodaj klasę po krótkim opóźnieniu dla animacji
+        setTimeout(() => {
+            this.modal.classList.add('open');
+        }, 10);
+
+        // Zablokuj scroll na body
+        document.body.style.overflow = 'hidden';
+
+        // Załaduj dane
+        await this.loadData();
+    }
+
+    /**
+     * Zamykanie modala
+     */
+    closeModal() {
+        if (!this.modal) return;
+
+        console.log('[VoivodeshipsManager] Zamykanie modala...');
+
+        // Usuń klasę open dla animacji
+        this.modal.classList.remove('open');
+
+        // Ukryj modal po animacji
+        setTimeout(() => {
+            this.modal.style.display = 'none';
+        }, 300);
+
+        // Odblokuj scroll na body
+        document.body.style.overflow = '';
+    }
+
+    /**
+     * Ładowanie danych z serwera
+     */
+    async loadData() {
+        try {
+            console.log('[VoivodeshipsManager] Ładowanie danych...');
+
+            // Pokaż loading indicator (opcjonalnie)
+            this.showLoading();
+
+            // Pobierz aktualne filtry dat z głównego modułu (jeśli istnieją)
+            const dateFrom = window.reportsManager?.getCurrentDateFrom?.();
+            const dateTo = window.reportsManager?.getCurrentDateTo?.();
+
+            // Zbuduj URL z parametrami
+            const params = new URLSearchParams();
+            if (dateFrom) {
+                params.append('date_from', dateFrom);
+            }
+            if (dateTo) {
+                params.append('date_to', dateTo);
+            }
+
+            const url = `/reports/api/map-statistics${params.toString() ? '?' + params.toString() : ''}`;
+
+            console.log('[VoivodeshipsManager] Pobieranie z URL:', url);
+
+            // Wywołaj API
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            if (result.status !== 'success') {
+                throw new Error(result.message || 'Błąd API');
+            }
+
+            // Zapisz dane
+            this.currentData = result.data;
+            this.summaryData = result.summary;
+
+            // Aktualizuj interface
+            this.updateMap();
+            this.updateTable();
+            this.updateLegend();
+
+            // Ukryj loading
+            this.hideLoading();
+
+            console.log('[VoivodeshipsManager] Dane załadowane:', {
+                data: result.data,
+                summary: result.summary
+            });
+
+        } catch (error) {
+            console.error('[VoivodeshipsManager] Błąd ładowania danych:', error);
+            this.hideLoading();
+            this.showError(`Błąd podczas ładowania danych mapy: ${error.message}`);
+
+            // Fallback do danych testowych w przypadku błędu
+            console.warn('[VoivodeshipsManager] Używam danych testowych jako fallback');
+            this.currentData = this.generateMockData();
+            this.updateMap();
+            this.updateTable();
+            this.updateLegend();
+        }
+    }
+
+    showLoading() {
+        // Znajdź sekcję z mapą i tabelą
+        const mapContainer = document.querySelector('.voivodeships-map-container');
+        const tableContainer = document.querySelector('.voivodeships-table-container');
+
+        if (mapContainer) {
+            mapContainer.style.opacity = '0.5';
+            mapContainer.style.pointerEvents = 'none';
+        }
+        if (tableContainer) {
+            tableContainer.style.opacity = '0.5';
+            tableContainer.style.pointerEvents = 'none';
+        }
+
+        // Dodaj spinner (opcjonalnie)
+        if (!document.getElementById('voivodeshipsSpinner')) {
+            const spinner = document.createElement('div');
+            spinner.id = 'voivodeshipsSpinner';
+            spinner.innerHTML = `
+                <div style="
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(255,255,255,0.9);
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    z-index: 1000;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                ">
+                    <div style="
+                        width: 20px;
+                        height: 20px;
+                        border: 2px solid #ff9800;
+                        border-top: 2px solid transparent;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    "></div>
+                    <span style="color: #333; font-weight: 600;">Ładowanie danych...</span>
+                </div>
+            `;
+
+            // Dodaj animację CSS jeśli nie istnieje
+            if (!document.getElementById('spinnerStyles')) {
+                const style = document.createElement('style');
+                style.id = 'spinnerStyles';
+                style.textContent = `
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            this.modal.appendChild(spinner);
+        }
+    }
+
+    hideLoading() {
+        const mapContainer = document.querySelector('.voivodeships-map-container');
+        const tableContainer = document.querySelector('.voivodeships-table-container');
+        const spinner = document.getElementById('voivodeshipsSpinner');
+
+        if (mapContainer) {
+            mapContainer.style.opacity = '1';
+            mapContainer.style.pointerEvents = 'auto';
+        }
+        if (tableContainer) {
+            tableContainer.style.opacity = '1';
+            tableContainer.style.pointerEvents = 'auto';
+        }
+        if (spinner) {
+            spinner.remove();
+        }
+    }
+
+    /**
+     * Generowanie danych testowych
+     */
+    generateMockData() {
+        const mockData = {};
+
+        this.voivodeships.forEach(voivodeship => {
+            const productionVolume = Math.random() * 200;
+            const readyVolume = Math.random() * 150;
+            const productionValue = productionVolume * (800 + Math.random() * 400);
+            const readyValue = readyVolume * (800 + Math.random() * 400);
+
+            mockData[voivodeship] = {
+                production_volume: productionVolume,
+                ready_volume: readyVolume,
+                total_volume: productionVolume + readyVolume,
+                production_value_net: productionValue,
+                ready_value_net: readyValue,
+                total_value_net: productionValue + readyValue
+            };
+        });
+
+        return mockData;
+    }
+
+    /**
+     * Aktualizacja mapy
+     */
+    updateMap() {
+        // Oblicz przedziały kolorów
+        this.calculateColorRanges();
+
+        // Aktualizuj każde województwo
+        this.voivodeships.forEach(voivodeship => {
+            const data = this.currentData[voivodeship] || {
+                total_volume: 0,
+                production_volume: 0,
+                ready_volume: 0,
+                total_value_net: 0
+            };
+
+            // Aktualizuj tekst na mapie
+            const textElement = document.getElementById(`text-${voivodeship}`);
+            if (textElement) {
+                textElement.textContent = this.formatVolume(data.total_volume);
+            }
+
+            // Aktualizuj kolor
+            const pathElement = document.getElementById(voivodeship);
+            if (pathElement) {
+                const colorLevel = this.getColorLevel(data.total_volume);
+
+                // Usuń poprzednie klasy kolorów
+                for (let i = 1; i <= 5; i++) {
+                    pathElement.classList.remove(`level-${i}`);
+                }
+
+                // Dodaj nową klasę koloru
+                pathElement.classList.add(`level-${colorLevel}`);
+            }
+        });
+    }
+
+    /**
+     * Obliczanie przedziałów kolorów
+     */
+    calculateColorRanges() {
+        // Znajdź maksymalną wartość
+        const volumes = this.voivodeships.map(v =>
+            (this.currentData[v] && this.currentData[v].total_volume) || 0
+        );
+
+        const maxVolume = Math.max(...volumes);
+        const rangeSize = maxVolume / 5;
+
+        this.colorRanges = [];
+        for (let i = 0; i < 5; i++) {
+            const min = i * rangeSize;
+            const max = (i + 1) * rangeSize;
+            this.colorRanges.push({ min, max });
+        }
+
+        console.log('[VoivodeshipsManager] Przedziały kolorów:', this.colorRanges);
+    }
+
+    /**
+     * Określenie poziomu koloru dla danej wartości
+     */
+    getColorLevel(volume) {
+        if (!this.colorRanges || this.colorRanges.length === 0) return 1;
+
+        for (let i = 0; i < this.colorRanges.length; i++) {
+            const range = this.colorRanges[i];
+            if (volume >= range.min && (volume <= range.max || i === this.colorRanges.length - 1)) {
+                return i + 1;
+            }
+        }
+        return 1;
+    }
+
+    /**
+     * Aktualizacja tabeli - DODAJ SORTOWANIE
+     */
+    updateTable() {
+        // Przekonwertuj dane na tablicę z nazwami województw
+        const voivodeshipsArray = this.voivodeships.map(voivodeship => {
+            const data = this.currentData[voivodeship] || {
+                production_volume: 0,
+                ready_volume: 0,
+                total_volume: 0,
+                production_value_net: 0,
+                ready_value_net: 0,
+                total_value_net: 0
+            };
+
+            return {
+                id: voivodeship,
+                name: this.voivodeshipNames[voivodeship] || voivodeship,
+                ...data
+            };
+        });
+
+        // NOWE: Sortuj według total_volume (malejąco)
+        voivodeshipsArray.sort((a, b) => b.total_volume - a.total_volume);
+
+        // Renderuj posortowane wiersze
+        voivodeshipsArray.forEach(voivodeshipData => {
+            const row = document.querySelector(`tr[data-voivodeship="${voivodeshipData.id}"]`);
+            if (!row) return;
+
+            // Aktualizuj komórki
+            const productionVolumeCell = row.querySelector('.production-volume');
+            const readyVolumeCell = row.querySelector('.ready-volume');
+            const totalVolumeCell = row.querySelector('.total-volume');
+            const productionValueCell = row.querySelector('.production-value');
+            const readyValueCell = row.querySelector('.ready-value');
+            const totalValueCell = row.querySelector('.total-value');
+
+            if (productionVolumeCell) {
+                productionVolumeCell.textContent = this.formatVolume(voivodeshipData.production_volume);
+            }
+            if (readyVolumeCell) {
+                readyVolumeCell.textContent = this.formatVolume(voivodeshipData.ready_volume);
+            }
+            if (totalVolumeCell) {
+                totalVolumeCell.textContent = this.formatVolume(voivodeshipData.total_volume);
+            }
+            if (productionValueCell) {
+                productionValueCell.textContent = this.formatCurrency(voivodeshipData.production_value_net);
+            }
+            if (readyValueCell) {
+                readyValueCell.textContent = this.formatCurrency(voivodeshipData.ready_value_net);
+            }
+            if (totalValueCell) {
+                totalValueCell.textContent = this.formatCurrency(voivodeshipData.total_value_net);
+            }
+
+            // NOWE: Przenies wiersz w tabeli według nowej kolejności
+            const tableBody = document.getElementById('voivodeshipsTableBody');
+            if (tableBody) {
+                tableBody.appendChild(row);
+            }
+        });
+    }
+
+    /**
+     * Aktualizacja legendy
+     */
+    updateLegend() {
+        if (!this.colorRanges || this.colorRanges.length === 0) return;
+
+        this.colorRanges.forEach((range, index) => {
+            const legendElement = this.legendRanges[index + 1];
+            if (legendElement) {
+                const min = Math.round(range.min * 10) / 10;
+                const max = Math.round(range.max * 10) / 10;
+
+                if (index === this.colorRanges.length - 1) {
+                    legendElement.textContent = `${min}+`;
+                } else {
+                    legendElement.textContent = `${min}-${max}`;
+                }
+            }
+        });
+    }
+
+    /**
+     * Event handler - hover nad województwem
+     */
+    onVoivodeshipHover(event, voivodeship) {
+        const data = this.currentData[voivodeship] || {
+            total_volume: 0,
+            production_volume: 0,
+            ready_volume: 0
+        };
+
+        const name = this.voivodeshipNames[voivodeship] || voivodeship;
+
+        this.tooltip.innerHTML = `
+            <strong>${name}</strong><br>
+            W produkcji: ${this.formatVolume(data.production_volume)}<br>
+            Wyprodukowane: ${this.formatVolume(data.ready_volume)}<br>
+            <strong>Łącznie: ${this.formatVolume(data.total_volume)}</strong>
+        `;
+
+        this.tooltip.classList.add('show');
+        this.onVoivodeshipMouseMove(event, voivodeship);
+    }
+
+    /**
+     * Event handler - ruch myszy nad województwem
+     */
+    onVoivodeshipMouseMove(event, voivodeship) {
+        if (!this.tooltip.classList.contains('show')) return;
+
+        this.tooltip.style.left = (event.pageX + 10) + 'px';
+        this.tooltip.style.top = (event.pageY - 10) + 'px';
+    }
+
+    /**
+     * Event handler - opuszczenie województwa
+     */
+    onVoivodeshipLeave() {
+        this.tooltip.classList.remove('show');
+    }
+
+    /**
+     * Event handler - kliknięcie w województwo
+     */
+    onVoivodeshipClick(voivodeship) {
+        console.log('[VoivodeshipsManager] Kliknięto w województwo:', voivodeship);
+
+        // Podświetl wiersz w tabeli
+        const row = document.querySelector(`tr[data-voivodeship="${voivodeship}"]`);
+        if (row) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            row.style.backgroundColor = '#fff3e0';
+
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+            }, 2000);
+        }
+    }
+
+    /**
+     * Formatowanie objętości
+     */
+    formatVolume(volume) {
+        if (volume === null || volume === undefined) return '0.0000 m³';
+        return parseFloat(volume).toFixed(4) + ' m³';
+    }
+
+    /**
+     * Formatowanie waluty
+     */
+    formatCurrency(value) {
+        if (value === null || value === undefined) return '0.00 PLN';
+        return parseFloat(value).toLocaleString('pl-PL', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }) + ' PLN';
+    }
+
+    /**
+     * Pokazanie błędu
+     */
+    showError(message) {
+        // Utwórz lepszy komunikat błędu
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'voivodeships-error';
+        errorDiv.innerHTML = `
+        <div style="
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-left: 4px solid #f39c12;
+            padding: 15px 20px;
+            margin: 20px;
+            border-radius: 8px;
+            color: #856404;
+        ">
+            <strong>⚠️ Błąd:</strong> ${message}
+            <button onclick="this.parentElement.parentElement.remove()" style="
+                float: right;
+                background: none;
+                border: none;
+                font-size: 18px;
+                cursor: pointer;
+                color: #856404;
+                padding: 0 5px;
+            ">×</button>
+        </div>
+    `;
+
+        // Wstaw na górę modala
+        const modalBody = document.querySelector('.voivodeships-modal-body');
+        if (modalBody) {
+            modalBody.insertBefore(errorDiv, modalBody.firstChild);
+
+            // Automatycznie usuń po 10 sekundach
+            setTimeout(() => {
+                if (errorDiv.parentElement) {
+                    errorDiv.remove();
+                }
+            }, 10000);
+        }
+    }
+}
+
+function openVoivodeshipsModal() {
+    if (window.voivodeshipsManager) {
+        window.voivodeshipsManager.openModal();
+    } else {
+        console.error('VoivodeshipsManager nie jest zainicjalizowany');
+    }
 }
 
 // Export dla global scope

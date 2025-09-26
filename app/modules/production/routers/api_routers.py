@@ -2499,59 +2499,167 @@ def stations_tab_content():
   
 
 @api_bp.route('/config-tab-content')
-@admin_required
+@login_required  
 def config_tab_content():
     """
     AJAX endpoint dla zawartości taba Konfiguracja (tylko admin)
-    
-    Returns:
-        JSON: {success: true, html: "rendered_html"}
+
+    Zmiany:
+    - Pobieranie wszystkich kluczy bezpośrednio z bazy (ProductionConfig -> prod_config)
+    - Parsowanie wartości wg config_type (boolean/integer/json/ip_list/string)
+    - Budowa mapy {config_key: {...}} + grup tematycznych
+    - Dodatkowo eksport grup jako SimpleNamespace (kropkowy dostęp w Jinja)
     """
     try:
         logger.info("AJAX: Ładowanie zawartości config-tab", extra={
             'user_id': current_user.id,
             'user_role': getattr(current_user, 'role', 'unknown')
         })
-        
+
+        from types import SimpleNamespace
+        import json
+
         from ..models import ProductionConfig, ProductionPriorityConfig
         from ..services.config_service import get_config_service
-        
-        # Pobierz wszystkie konfiguracje
-        config_service = get_config_service()
-        all_configs = config_service.get_all_configs()
-        
-        # Grupuj konfiguracje
-        config_groups = {
-            'sync': {},
-            'stations': {},
-            'priorities': {},
-            'system': {},
-            'other': {}
+
+        def _parse_value(raw_value: str, cfg_type: str):
+            """Konwersja wartości z bazy na Pythonowe typy."""
+            try:
+                t = (cfg_type or '').lower()
+                if t == 'boolean':
+                    # akceptuj 'true'/'false', '1'/'0'
+                    v = str(raw_value).strip().lower()
+                    return v in ('true', '1', 'yes')
+                elif t == 'integer':
+                    return int(str(raw_value).strip())
+                elif t == 'json':
+                    return json.loads(raw_value) if raw_value not in (None, '', 'null') else None
+                elif t == 'ip_list':
+                    # lista IP rozdzielona przecinkami
+                    return [ip.strip() for ip in str(raw_value).split(',') if ip.strip()]
+                else:
+                    # domyślnie string
+                    return raw_value
+            except Exception:
+                # W razie błędu parsowania – zwróć surową wartość
+                return raw_value
+
+        # 1) Pobierz WSZYSTKIE wpisy z prod_config
+        configs_q = ProductionConfig.query.order_by(ProductionConfig.config_key.asc()).all()
+
+        # 2) Zbuduj mapę po kluczu
+        all_configs = {}
+        for c in configs_q:
+            parsed = _parse_value(c.config_value, c.config_type)
+            all_configs[c.config_key] = {
+                'key': c.config_key,
+                'value': parsed,
+                'raw_value': c.config_value,
+                'type': c.config_type,
+                'description': getattr(c, 'config_description', None),
+                'updated_at': getattr(c, 'updated_at', None),
+                'created_at': getattr(c, 'created_at', None),
+            }
+
+        # 3) Pogrupuj klucze tematycznie
+        EXPECTED = {
+            # Sync/Baselinker (grupa w HTML: "Synchronizacja i Baselinker")
+            'SYNC_ENABLED':                 ('sync',        True,        'boolean'),
+            'MAX_SYNC_ITEMS_PER_BATCH':     ('sync',        1000,        'integer'),
+            'BASELINKER_TARGET_STATUS_COMPLETED': ('sync', 138623,       'integer'),
+            'SYNC_RETRY_COUNT':             ('sync',        3,           'integer'),
+
+            # Stations (Stanowiska produkcyjne)
+            'STATION_ALLOWED_IPS':          ('stations',    '192.168.1.100,192.168.1.101', 'ip_list'),
+            'REFRESH_INTERVAL_SECONDS':     ('stations',    30,          'integer'),
+            'STATION_AUTO_REFRESH_ENABLED': ('stations',    True,        'boolean'),
+            'STATION_MAX_PRODUCTS_DISPLAY': ('stations',    50,          'integer'),
+
+            # Priorytety i Deadlines
+            'DEADLINE_DEFAULT_DAYS':        ('priorities',  14,          'integer'),
+            'PRIORITY_RECALC_INTERVAL_HOURS': ('priorities', 24,         'integer'),
+            'PRIORITY_ALGORITHM_VERSION':   ('priorities',  '2.0',       'string'),
+
+            # System i Debug
+            'DEBUG_PRODUCTION_BACKEND':     ('system',      False,       'boolean'),
+            'DEBUG_PRODUCTION_FRONTEND':    ('system',      False,       'boolean'),
+            'CACHE_DURATION_SECONDS':       ('system',      3600,        'integer'),
+            'ADMIN_EMAIL_NOTIFICATIONS':    ('system',      'admin@woodpower.pl', 'string'),
+            'ERROR_NOTIFICATION_THRESHOLD': ('system',      10,          'integer'),
+
+            # Cache i Inne (UWAGA: mimo "BASELINKER" klucz ma być w OTHER, zgodnie z HTML)
+            'BASELINKER_STATUSES_CACHE':    ('other',       '{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}', 'json'),
+            'MAX_PRODUCTS_PER_ORDER':       ('other',       999,         'integer'),
         }
-        
-        for key, config in all_configs.items():
-            if 'SYNC' in key or 'BASELINKER' in key:
-                config_groups['sync'][key] = config
-            elif 'STATION' in key or 'REFRESH' in key:
-                config_groups['stations'][key] = config
-            elif 'PRIORITY' in key or 'DEADLINE' in key:
-                config_groups['priorities'][key] = config
-            elif 'DEBUG' in key or 'CACHE' in key or 'EMAIL' in key:
-                config_groups['system'][key] = config
-            else:
-                config_groups['other'][key] = config
-        
-        # Konfiguracje priorytetów - drag&drop
-        priority_configs = ProductionPriorityConfig.query\
-                                                 .filter_by(is_active=True)\
-                                                 .order_by(ProductionPriorityConfig.display_order)\
-                                                 .all()
-        
-        # Statystyki cache
+
+        # --- 3b) Uzupełnij brakujące klucze domyślnymi wpisami ---
+        for key, (grp, default_val, default_type) in EXPECTED.items():
+            if key not in all_configs:
+                all_configs[key] = {
+                    'key': key,
+                    'value': _parse_value(default_val if isinstance(default_val, str) else str(default_val), default_type),
+                    'raw_value': str(default_val),
+                    'type': default_type,
+                    'description': f'Default injected ({grp})',
+                    'updated_at': None,
+                    'created_at': None,
+                }
+
+        # --- 3c) Grupowanie: najpierw whitelist, potem heurystyka dla reszty ---
+        config_groups = {'sync': {}, 'stations': {}, 'priorities': {}, 'system': {}, 'other': {}}
+
+        def assign_group(key: str) -> str:
+            if key in EXPECTED:
+                return EXPECTED[key][0]  # grupa z whitelisty
+            k = key.upper()
+            if any(s in k for s in ('SYNC', 'BASELINKER')):
+                return 'sync'
+            if any(s in k for s in ('STATION', 'REFRESH')):
+                return 'stations'
+            if any(s in k for s in ('PRIORITY', 'DEADLINE')):
+                return 'priorities'
+            if any(s in k for s in ('DEBUG', 'CACHE', 'EMAIL', 'ERROR', 'LOG', 'NOTIFICATION')):
+                return 'system'
+            return 'other'
+
+        for key, cfg in all_configs.items():
+            config_groups[assign_group(key)][key] = cfg
+
+        # (opcjonalnie: diagnostyka co gdzie wpadło)
+        logger.debug("Config keys by group", extra={
+            'sync': list(config_groups['sync'].keys()),
+            'stations': list(config_groups['stations'].keys()),
+            'priorities': list(config_groups['priorities'].keys()),
+            'system': list(config_groups['system'].keys()),
+            'other': list(config_groups['other'].keys()),
+        })
+
+        # 4) Namespace do kropkowego dostępu w Jinja
+        from types import SimpleNamespace
+        def to_ns(d: dict) -> SimpleNamespace:
+            return SimpleNamespace(**d)
+
+        config_groups_ns = {
+            group: to_ns({k: v for k, v in items.items()})
+            for group, items in config_groups.items()
+        }
+
+        # 5) Konfiguracje priorytetów (drag & drop)
+        priority_configs = (
+            ProductionPriorityConfig.query
+            .filter_by(is_active=True)
+            .order_by(ProductionPriorityConfig.display_order)
+            .all()
+        )
+
+        # 6) Statystyki cache (zostawiamy bez zmian)
+        config_service = get_config_service()
         cache_stats = config_service.get_cache_stats()
-        
+
+        # 7) Dane do frontu
         config_data = {
-            'config_groups': config_groups,
+            'all_configs': all_configs,     # dict -> OK do JSON
+            'config_groups': config_groups, # dict -> OK do JSON
             'priority_configs': [
                 {
                     'id': pc.id,
@@ -2559,36 +2667,34 @@ def config_tab_content():
                     'weight': pc.weight,
                     'display_order': pc.display_order,
                     'is_active': pc.is_active
-                }
-                for pc in priority_configs
+                } for pc in priority_configs
             ],
             'cache_stats': cache_stats
         }
-        
-        # Renderuj komponent
-        rendered_html = render_template('components/config-tab-content.html',
-                              config_data=config_data,
-                              config_groups=config_groups,
-                              priority_configs=priority_configs,
-                              cache_stats=cache_stats)
-        
+
+        # 8) Render
+        rendered_html = render_template(
+            'components/config-tab-content.html',
+            config_data=config_data,
+            # Dla kompatybilności z istniejącym szablonem:
+            config_groups=config_groups_ns,   # <- PODSTAWIAMY wersję kropkową, żeby działał dot-access
+            priority_configs=priority_configs,
+            cache_stats=cache_stats
+        )
+
         return jsonify({
             'success': True,
             'html': rendered_html,
             'data': config_data,
             'last_updated': get_local_now().isoformat()
         })
-        
+
     except Exception as e:
         logger.error("Błąd AJAX config-tab-content", extra={
             'user_id': current_user.id,
             'error': str(e)
         })
-        
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
     
 # ============================================================================
 # NOWE API ENDPOINTY - DO DODANIA

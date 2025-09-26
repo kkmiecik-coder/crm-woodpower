@@ -3854,3 +3854,408 @@ def _sync_selected_orders_with_volume_analysis(service, order_ids, orders_data):
             'success': False,
             'error': f'Krytyczny błąd synchronizacji: {str(e)}'
         }
+
+
+@reports_bp.route('/api/map-statistics', methods=['GET'])
+@login_required
+def api_map_statistics():
+    """
+    API endpoint dla danych mapy województw
+    Zwraca statystyki produkcji pogrupowane według województw
+    """
+    try:
+        user_email = session.get('user_email', 'Nieznany użytkownik')
+        reports_logger.info("Żądanie danych mapy województw", user_email=user_email)
+        
+        # Pobierz filtry z URL (opcjonalnie)
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # Parsuj daty jeśli podane
+        date_from = None
+        date_to = None
+        
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            except ValueError:
+                reports_logger.warning("Nieprawidłowy format date_from", 
+                                     date_from=date_from_str, user_email=user_email)
+        
+        if date_to_str:
+            try:
+                date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            except ValueError:
+                reports_logger.warning("Nieprawidłowy format date_to", 
+                                     date_to=date_to_str, user_email=user_email)
+        
+        # Pobierz dane z bazy
+        query = BaselinkerReportOrder.get_filtered_orders(
+            date_from=date_from,
+            date_to=date_to
+        )
+        
+        orders = query.all()
+        
+        reports_logger.info("Pobrano zamówienia dla mapy", 
+                          count=len(orders), 
+                          user_email=user_email,
+                          date_from=date_from.isoformat() if date_from else "wszystkie",
+                          date_to=date_to.isoformat() if date_to else "wszystkie")
+        
+        # Statusy dla grupowania
+        IN_PRODUCTION_STATUSES = [155824, 138619, 148830, 148831, 148832]  # W produkcji
+        READY_STATUSES = [138620, 138623, 149777]  # Wyprodukowane
+        
+        # Inicjalizuj dane dla wszystkich 16 województw
+        voivodeships_data = {}
+        all_voivodeships = [
+            'dolnośląskie', 'kujawsko-pomorskie', 'lubelskie', 'lubuskie',
+            'łódzkie', 'małopolskie', 'mazowieckie', 'opolskie',
+            'podkarpackie', 'podlaskie', 'pomorskie', 'śląskie',
+            'świętokrzyskie', 'warmińsko-mazurskie', 'wielkopolskie',
+            'zachodniopomorskie'
+        ]
+        
+        # Inicjalizuj wszystkie województwa z zerami
+        for voivodeship in all_voivodeships:
+            voivodeships_data[voivodeship] = {
+                'production_volume': 0.0,
+                'ready_volume': 0.0,
+                'total_volume': 0.0,
+                'production_value_net': 0.0,
+                'ready_value_net': 0.0,
+                'total_value_net': 0.0,
+                'orders_count': 0
+            }
+        
+        # Mapowanie nazw województw do kluczy (normalizacja)
+        voivodeship_mapping = {
+            'dolnośląskie': 'dolnośląskie',
+            'dolnoslaskie': 'dolnośląskie',
+            'kujawsko-pomorskie': 'kujawsko-pomorskie',
+            'kujawsko pomorskie': 'kujawsko-pomorskie',
+            'lubelskie': 'lubelskie',
+            'lubuskie': 'lubuskie', 
+            'łódzkie': 'łódzkie',
+            'lódzkie': 'łódzkie',
+            'lodzkie': 'łódzkie',
+            'małopolskie': 'małopolskie',
+            'malopolskie': 'małopolskie',
+            'mazowieckie': 'mazowieckie',
+            'opolskie': 'opolskie',
+            'podkarpackie': 'podkarpackie',
+            'podlaskie': 'podlaskie',
+            'pomorskie': 'pomorskie',
+            'śląskie': 'śląskie',
+            'slaskie': 'śląskie',
+            'sląskie': 'śląskie',
+            'świętokrzyskie': 'świętokrzyskie',
+            'swietokrzyskie': 'świętokrzyskie',
+            'świętokrzyskie': 'świętokrzyskie',
+            'warmińsko-mazurskie': 'warmińsko-mazurskie',
+            'warminsko-mazurskie': 'warmińsko-mazurskie',
+            'warmińsko mazurskie': 'warmińsko-mazurskie',
+            'wielkopolskie': 'wielkopolskie',
+            'zachodniopomorskie': 'zachodniopomorskie'
+        }
+        
+        # Grupuj dane według województw
+        for order in orders:
+            delivery_state = order.delivery_state
+            if not delivery_state:
+                continue
+                
+            # Normalizuj nazwę województwa
+            state_normalized = delivery_state.lower().strip()
+            voivodeship_key = voivodeship_mapping.get(state_normalized)
+            
+            if not voivodeship_key:
+                reports_logger.debug("Nieznane województwo", 
+                                   delivery_state=delivery_state,
+                                   user_email=user_email)
+                continue
+            
+            # Pobierz wartości
+            volume = float(order.total_volume or 0)
+            value_net = float(order.value_net or 0)
+            status_id = order.baselinker_status_id
+            
+            # Zwiększ licznik zamówień
+            voivodeships_data[voivodeship_key]['orders_count'] += 1
+            
+            # Klasyfikuj według statusu
+            if status_id in IN_PRODUCTION_STATUSES:
+                voivodeships_data[voivodeship_key]['production_volume'] += volume
+                voivodeships_data[voivodeship_key]['production_value_net'] += value_net
+            elif status_id in READY_STATUSES:
+                voivodeships_data[voivodeship_key]['ready_volume'] += volume
+                voivodeships_data[voivodeship_key]['ready_value_net'] += value_net
+        
+        # Oblicz łączne wartości
+        for voivodeship_key in voivodeships_data:
+            data = voivodeships_data[voivodeship_key]
+            data['total_volume'] = data['production_volume'] + data['ready_volume']
+            data['total_value_net'] = data['production_value_net'] + data['ready_value_net']
+        
+        # Mapowanie kluczy dla frontendu (z polskich do angielskich ID)
+        frontend_mapping = {
+            'dolnośląskie': 'dolnoslaskie',
+            'kujawsko-pomorskie': 'kujawsko-pomorskie', 
+            'lubelskie': 'lubelskie',
+            'lubuskie': 'lubuskie',
+            'łódzkie': 'lodzkie',
+            'małopolskie': 'malopolskie',
+            'mazowieckie': 'mazowieckie',
+            'opolskie': 'opolskie',
+            'podkarpackie': 'podkarpackie',
+            'podlaskie': 'podlaskie',
+            'pomorskie': 'pomorskie',
+            'śląskie': 'slaskie',
+            'świętokrzyskie': 'swietokrzyskie',
+            'warmińsko-mazurskie': 'warminsko-mazurskie',
+            'wielkopolskie': 'wielkopolskie',
+            'zachodniopomorskie': 'zachodniopomorskie'
+        }
+        
+        # Przekonwertuj klucze dla frontendu
+        frontend_data = {}
+        for polish_key, data in voivodeships_data.items():
+            frontend_key = frontend_mapping.get(polish_key, polish_key)
+            frontend_data[frontend_key] = data
+        
+        # Oblicz statystyki ogólne
+        total_production_volume = sum(data['production_volume'] for data in voivodeships_data.values())
+        total_ready_volume = sum(data['ready_volume'] for data in voivodeships_data.values())
+        total_volume = sum(data['total_volume'] for data in voivodeships_data.values())
+        total_orders = sum(data['orders_count'] for data in voivodeships_data.values())
+        
+        result = {
+            'status': 'success',
+            'data': frontend_data,
+            'summary': {
+                'total_production_volume': total_production_volume,
+                'total_ready_volume': total_ready_volume,
+                'total_volume': total_volume,
+                'total_orders': total_orders,
+                'processed_orders': len(orders),
+                'date_from': date_from.isoformat() if date_from else None,
+                'date_to': date_to.isoformat() if date_to else None
+            }
+        }
+        
+        reports_logger.info("Zwrócono dane mapy", 
+                          summary=result['summary'],
+                          user_email=user_email)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        reports_logger.error("Błąd API map-statistics", 
+                           error=str(e), 
+                           user_email=session.get('user_email', 'Nieznany'))
+        return jsonify({
+            'status': 'error',
+            'message': 'Błąd podczas pobierania danych mapy',
+            'error': str(e)
+        }), 500
+    """
+    API endpoint dla danych mapy województw
+    Zwraca statystyki produkcji pogrupowane według województw
+    """
+    try:
+        user_email = session.get('user_email', 'Nieznany użytkownik')
+        reports_logger.info("Żądanie danych mapy województw", user_email=user_email)
+        
+        # Pobierz filtry z URL (opcjonalnie)
+        date_from_str = request.args.get('date_from')
+        date_to_str = request.args.get('date_to')
+        
+        # Parsuj daty jeśli podane
+        date_from = None
+        date_to = None
+        
+        if date_from_str:
+            try:
+                date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            except ValueError:
+                reports_logger.warning("Nieprawidłowy format date_from", 
+                                     date_from=date_from_str, user_email=user_email)
+        
+        if date_to_str:
+            try:
+                date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            except ValueError:
+                reports_logger.warning("Nieprawidłowy format date_to", 
+                                     date_to=date_to_str, user_email=user_email)
+        
+        # Pobierz dane z bazy
+        query = BaselinkerReportOrder.get_filtered_orders(
+            date_from=date_from,
+            date_to=date_to
+        )
+        
+        orders = query.all()
+        
+        reports_logger.info("Pobrano zamówienia dla mapy", 
+                          count=len(orders), 
+                          user_email=user_email,
+                          date_from=date_from.isoformat() if date_from else "wszystkie",
+                          date_to=date_to.isoformat() if date_to else "wszystkie")
+        
+        # Statusy dla grupowania
+        IN_PRODUCTION_STATUSES = [155824, 138619, 148830, 148831, 148832]  # W produkcji
+        READY_STATUSES = [138620, 138623, 149777]  # Wyprodukowane
+        
+        # Inicjalizuj dane dla wszystkich 16 województw
+        voivodeships_data = {}
+        all_voivodeships = [
+            'dolnośląskie', 'kujawsko-pomorskie', 'lubelskie', 'lubuskie',
+            'łódzkie', 'małopolskie', 'mazowieckie', 'opolskie',
+            'podkarpackie', 'podlaskie', 'pomorskie', 'śląskie',
+            'świętokrzyskie', 'warmińsko-mazurskie', 'wielkopolskie',
+            'zachodniopomorskie'
+        ]
+        
+        # Inicjalizuj wszystkie województwa z zerami
+        for voivodeship in all_voivodeships:
+            voivodeships_data[voivodeship] = {
+                'production_volume': 0.0,
+                'ready_volume': 0.0,
+                'total_volume': 0.0,
+                'production_value_net': 0.0,
+                'ready_value_net': 0.0,
+                'total_value_net': 0.0,
+                'orders_count': 0
+            }
+        
+        # Mapowanie nazw województw do kluczy (normalizacja)
+        voivodeship_mapping = {
+            'dolnośląskie': 'dolnośląskie',
+            'dolnoslaskie': 'dolnośląskie',
+            'kujawsko-pomorskie': 'kujawsko-pomorskie',
+            'kujawsko pomorskie': 'kujawsko-pomorskie',
+            'lubelskie': 'lubelskie',
+            'lubuskie': 'lubuskie', 
+            'łódzkie': 'łódzkie',
+            'lódzkie': 'łódzkie',
+            'lodzkie': 'łódzkie',
+            'małopolskie': 'małopolskie',
+            'malopolskie': 'małopolskie',
+            'mazowieckie': 'mazowieckie',
+            'opolskie': 'opolskie',
+            'podkarpackie': 'podkarpackie',
+            'podlaskie': 'podlaskie',
+            'pomorskie': 'pomorskie',
+            'śląskie': 'śląskie',
+            'slaskie': 'śląskie',
+            'sląskie': 'śląskie',
+            'świętokrzyskie': 'świętokrzyskie',
+            'swietokrzyskie': 'świętokrzyskie',
+            'świętokrzyskie': 'świętokrzyskie',
+            'warmińsko-mazurskie': 'warmińsko-mazurskie',
+            'warminsko-mazurskie': 'warmińsko-mazurskie',
+            'warmińsko mazurskie': 'warmińsko-mazurskie',
+            'wielkopolskie': 'wielkopolskie',
+            'zachodniopomorskie': 'zachodniopomorskie'
+        }
+        
+        # Grupuj dane według województw
+        for order in orders:
+            delivery_state = order.delivery_state
+            if not delivery_state:
+                continue
+                
+            # Normalizuj nazwę województwa
+            state_normalized = delivery_state.lower().strip()
+            voivodeship_key = voivodeship_mapping.get(state_normalized)
+            
+            if not voivodeship_key:
+                reports_logger.debug("Nieznane województwo", 
+                                   delivery_state=delivery_state,
+                                   user_email=user_email)
+                continue
+            
+            # Pobierz wartości
+            volume = float(order.total_volume or 0)
+            value_net = float(order.value_net or 0)
+            status_id = order.baselinker_status_id
+            
+            # Zwiększ licznik zamówień
+            voivodeships_data[voivodeship_key]['orders_count'] += 1
+            
+            # Klasyfikuj według statusu
+            if status_id in IN_PRODUCTION_STATUSES:
+                voivodeships_data[voivodeship_key]['production_volume'] += volume
+                voivodeships_data[voivodeship_key]['production_value_net'] += value_net
+            elif status_id in READY_STATUSES:
+                voivodeships_data[voivodeship_key]['ready_volume'] += volume
+                voivodeships_data[voivodeship_key]['ready_value_net'] += value_net
+        
+        # Oblicz łączne wartości
+        for voivodeship_key in voivodeships_data:
+            data = voivodeships_data[voivodeship_key]
+            data['total_volume'] = data['production_volume'] + data['ready_volume']
+            data['total_value_net'] = data['production_value_net'] + data['ready_value_net']
+        
+        # Mapowanie kluczy dla frontendu (z polskich do angielskich ID)
+        frontend_mapping = {
+            'dolnośląskie': 'dolnoslaskie',
+            'kujawsko-pomorskie': 'kujawsko-pomorskie', 
+            'lubelskie': 'lubelskie',
+            'lubuskie': 'lubuskie',
+            'łódzkie': 'lodzkie',
+            'małopolskie': 'malopolskie',
+            'mazowieckie': 'mazowieckie',
+            'opolskie': 'opolskie',
+            'podkarpackie': 'podkarpackie',
+            'podlaskie': 'podlaskie',
+            'pomorskie': 'pomorskie',
+            'śląskie': 'slaskie',
+            'świętokrzyskie': 'swietokrzyskie',
+            'warmińsko-mazurskie': 'warminsko-mazurskie',
+            'wielkopolskie': 'wielkopolskie',
+            'zachodniopomorskie': 'zachodniopomorskie'
+        }
+        
+        # Przekonwertuj klucze dla frontendu
+        frontend_data = {}
+        for polish_key, data in voivodeships_data.items():
+            frontend_key = frontend_mapping.get(polish_key, polish_key)
+            frontend_data[frontend_key] = data
+        
+        # Oblicz statystyki ogólne
+        total_production_volume = sum(data['production_volume'] for data in voivodeships_data.values())
+        total_ready_volume = sum(data['ready_volume'] for data in voivodeships_data.values())
+        total_volume = sum(data['total_volume'] for data in voivodeships_data.values())
+        total_orders = sum(data['orders_count'] for data in voivodeships_data.values())
+        
+        result = {
+            'status': 'success',
+            'data': frontend_data,
+            'summary': {
+                'total_production_volume': total_production_volume,
+                'total_ready_volume': total_ready_volume,
+                'total_volume': total_volume,
+                'total_orders': total_orders,
+                'processed_orders': len(orders),
+                'date_from': date_from.isoformat() if date_from else None,
+                'date_to': date_to.isoformat() if date_to else None
+            }
+        }
+        
+        reports_logger.info("Zwrócono dane mapy", 
+                          summary=result['summary'],
+                          user_email=user_email)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        reports_logger.error("Błąd API map-statistics", 
+                           error=str(e), 
+                           user_email=session.get('user_email', 'Nieznany'))
+        return jsonify({
+            'status': 'error',
+            'message': 'Błąd podczas pobierania danych mapy',
+            'error': str(e)
+        }), 500

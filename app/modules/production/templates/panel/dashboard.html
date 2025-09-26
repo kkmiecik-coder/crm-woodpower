@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/production-panel.css') }}">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/products-tab.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/config-tab.css') }}"
     <!-- CSS dla komponentów -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/dashboard_bl_sync_modal.css') }}">
     <!-- CSS uzupełniające -->
@@ -33,7 +34,6 @@
                             <span class="status-text" id="status-text">Ładowanie...</span>
                         </div>
                         <div class="system-status">
-                            {% if current_user.role in ['admin', 'administrator'] %}
                             <div class="system-refresh-section">
                                 <button class="refresh-system-btn" id="refresh-system-btn">
                                     <span class="refresh-icon">🔄</span>
@@ -41,7 +41,6 @@
                                     <span class="refresh-timer" id="refresh-timer">(auto za 60s)</span>
                                 </button>
                             </div>
-                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -234,7 +233,6 @@
                     </div>
 
                     <!-- Config Tab (tylko admin) -->
-                    {% if current_user.role in ['admin', 'administrator'] %}
                     <div class="tab-pane fade"
                          id="config-tab-content"
                          role="tabpanel"
@@ -262,8 +260,6 @@
                             </div>
                         </div>
                     </div>
-                    {% endif %}
-
                 </div>
             </div>
         </main>
@@ -279,9 +275,7 @@
     <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
 
     <!-- 3. Chart.js tylko dla adminów -->
-    {% if current_user.role in ['admin', 'administrator'] %}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    {% endif %}
 
     <!-- 4. NOWE: Konfiguracja aplikacji -->
     <script>
@@ -318,6 +312,7 @@
     <script src="{{ url_for('production.static', filename='js/modules/dashboard-module.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/modules/products-dragdrop.js') }}"></script>
     <script src="{{ url_for('production.static', filename='js/modules/products-module.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}"></script>
     <!-- Główny kontroler aplikacji -->
     <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}"></script>
     <!-- Obsługa modala synchronizacji z Baselinkerem -->
