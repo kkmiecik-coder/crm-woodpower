@@ -2400,9 +2400,10 @@
 
 .prod_list-header {
     display: grid;
-    grid-template-columns: 50px 40px 80px 1fr 140px 100px 100px 120px 100px 120px;
+    grid-template-columns: 50px 30px 75px 1fr 140px 100px 100px 120px 100px 120px;
     gap: 16px;
     padding: 12px 16px;
+    padding-left: 35px;
     background: #f1f5f9;
     border-radius: 8px;
     font-weight: 600;
