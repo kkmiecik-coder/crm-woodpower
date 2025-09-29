@@ -16,14 +16,15 @@ Wszystkie interfejsy są:
 - Responsive design dla tabletów
 
 Autor: Konrad Kmiecik
-Wersja: 1.2 (Finalna - z zabezpieczeniami)
-Data: 2025-01-08
+Wersja: 1.3 (Poprawki pod nowy model priority_rank)
+Data: 2025-01-29
 """
 
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash
 from datetime import datetime, date, timedelta
 from modules.logging import get_structured_logger
 from extensions import db
+import traceback
 
 # Utworzenie Blueprint dla interfejsów stanowisk
 station_bp = Blueprint('production_stations', __name__)
@@ -76,14 +77,14 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
     Args:
         station_code (str): Kod stanowiska
         limit (int): Limit produktów
-        sort_by (str): Sposób sortowania
+        sort_by (str): Sposób sortowania (priority|deadline|created_at)
         
     Returns:
         List[Dict]: Lista produktów z dodatkowymi informacjami
     """
     try:
         from ..models import ProductionItem
-        from sqlalchemy import desc, asc
+        from sqlalchemy import asc, desc
         
         # Mapowanie statusów na stanowiska
         status_map = {
@@ -93,6 +94,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
         }
         
         if station_code not in status_map:
+            logger.warning("Nieprawidłowy kod stanowiska", extra={'station_code': station_code})
             return []
         
         # Query podstawowy
@@ -100,7 +102,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
             current_status=status_map[station_code]
         )
         
-        # Sortowanie
+        # Sortowanie - POPRAWIONE POD NOWY MODEL (priority_rank)
         if sort_by == 'priority':
             query = query.order_by(asc(ProductionItem.priority_rank))
         elif sort_by == 'deadline':
@@ -115,24 +117,33 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
         
         # Przygotowanie danych z dodatkowymi informacjami
         products_data = []
+        today = date.today()
+        
         for product in products:
-            # Obliczenie koloru priorytetu
-            if product.priority_score >= 200:
+            # POPRAWKA: priority_rank zamiast priority_score
+            priority_rank = product.priority_rank if product.priority_rank else 999
+            
+            # Obliczenie koloru priorytetu NA PODSTAWIE RANGI (niższy rank = wyższy priorytet)
+            if priority_rank <= 10:
                 priority_color = 'critical'
                 priority_class = 'priority-critical'
-            elif product.priority_score >= 150:
+                priority_label = 'Najwyższy'
+            elif priority_rank <= 50:
                 priority_color = 'high'
                 priority_class = 'priority-high'
-            elif product.priority_score >= 100:
+                priority_label = 'Wysoki'
+            elif priority_rank <= 100:
                 priority_color = 'normal'
                 priority_class = 'priority-normal'
+                priority_label = 'Normalny'
             else:
                 priority_color = 'low'
                 priority_class = 'priority-low'
+                priority_label = 'Niski'
             
             # Obliczenie koloru deadline
             if product.deadline_date:
-                days_diff = (product.deadline_date - date.today()).days
+                days_diff = (product.deadline_date - today).days
                 if days_diff < 0:
                     deadline_color = 'overdue'
                     deadline_class = 'deadline-overdue'
@@ -152,36 +163,63 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
             # Formatowanie wymiarów
             dimensions_text = ''
             if all([product.parsed_length_cm, product.parsed_width_cm, product.parsed_thickness_cm]):
-                dimensions_text = f"{product.parsed_length_cm}×{product.parsed_width_cm}×{product.parsed_thickness_cm}"
+                dimensions_text = f"{product.parsed_length_cm}×{product.parsed_width_cm}×{product.parsed_thickness_cm} cm"
+            
+            # POPRAWKA: Bezpieczne pobieranie volume_m3
+            try:
+                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+            except (TypeError, ValueError):
+                volume_m3 = 0.0
+            
+            # POPRAWKA: Bezpieczne pobieranie total_value_net
+            try:
+                total_value = float(product.total_value_net) if product.total_value_net else 0.0
+            except (TypeError, ValueError):
+                total_value = 0.0
             
             # Przygotowanie danych produktu
             product_data = {
+                # Podstawowe ID
                 'id': product.short_product_id,
                 'internal_order': product.internal_order_number,
                 'original_name': product.original_product_name,
-                'priority_score': product.priority_score,
-                'priority_level': product.priority_level,
+                
+                # POPRAWKA: priority_rank zamiast priority_score/priority_level
+                'priority_rank': priority_rank,
+                'priority_label': priority_label,
                 'priority_color': priority_color,
                 'priority_class': priority_class,
+                
+                # Deadline
                 'deadline_date': product.deadline_date,
                 'days_until_deadline': product.days_until_deadline,
                 'is_overdue': product.is_overdue,
                 'deadline_color': deadline_color,
                 'deadline_class': deadline_class,
-                'volume_m3': product.volume_m3,
-                'total_value_net': product.total_value_net,
+                
+                # Dane finansowe i techniczne
+                'volume_m3': volume_m3,
+                'total_value_net': total_value,
                 'created_at': product.created_at,
+                'payment_date': product.payment_date,
+                
+                # Specyfikacja produktu
                 'wood_species': product.parsed_wood_species,
                 'technology': product.parsed_technology,
                 'wood_class': product.parsed_wood_class,
                 'dimensions': dimensions_text,
                 'finish_state': product.parsed_finish_state,
+                'thickness_group': product.thickness_group,
+                
+                # Klient
+                'client_name': product.client_name,
+                
                 # Formatowane teksty dla UI
                 'display_name': _format_product_display_name(product),
-                'display_priority': f"{product.priority_score} ({product.priority_level})",
+                'display_priority': f"#{priority_rank} - {priority_label}",
                 'display_deadline': _format_deadline_display(product),
-                'display_value': f"{product.total_value_net:.2f} PLN" if product.total_value_net else "—",
-                'display_volume': f"{product.volume_m3:.3f} m³" if product.volume_m3 else "—"
+                'display_value': f"{total_value:.2f} PLN" if total_value > 0 else "—",
+                'display_volume': f"{volume_m3:.3f} m³" if volume_m3 > 0 else "—"
             }
             
             products_data.append(product_data)
@@ -197,7 +235,8 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
     except Exception as e:
         logger.error("Błąd pobierania produktów dla stanowiska", extra={
             'station_code': station_code,
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         })
         return []
 
@@ -223,17 +262,17 @@ def _format_product_display_name(product):
         parts.append(f"Klasa {product.parsed_wood_class}")
     
     if all([product.parsed_length_cm, product.parsed_width_cm, product.parsed_thickness_cm]):
-        dimensions = f"{product.parsed_length_cm}×{product.parsed_width_cm}×{product.parsed_thickness_cm}"
+        dimensions = f"{product.parsed_length_cm}×{product.parsed_width_cm}×{product.parsed_thickness_cm} cm"
         parts.append(dimensions)
     
-    if product.parsed_finish_state and product.parsed_finish_state != 'surowe':
+    if product.parsed_finish_state and product.parsed_finish_state.lower() != 'surowe':
         parts.append(product.parsed_finish_state.title())
     
     if parts:
         return " | ".join(parts)
     else:
         # Fallback do oryginalnej nazwy (skróconej)
-        original = product.original_product_name
+        original = product.original_product_name or "Brak nazwy"
         if len(original) > 60:
             return original[:57] + "..."
         return original
@@ -251,18 +290,22 @@ def _format_deadline_display(product):
     if not product.deadline_date:
         return "Brak terminu"
     
-    days_diff = (product.deadline_date - date.today()).days
-    
-    if days_diff < 0:
-        return f"Opóźnione o {abs(days_diff)} dni"
-    elif days_diff == 0:
-        return "Dziś!"
-    elif days_diff == 1:
-        return "Jutro"
-    elif days_diff <= 7:
-        return f"Za {days_diff} dni"
-    else:
-        return product.deadline_date.strftime("%d.%m.%Y")
+    try:
+        days_diff = (product.deadline_date - date.today()).days
+        
+        if days_diff < 0:
+            return f"Opóźnione o {abs(days_diff)} dni"
+        elif days_diff == 0:
+            return "Dziś!"
+        elif days_diff == 1:
+            return "Jutro"
+        elif days_diff <= 7:
+            return f"Za {days_diff} dni"
+        else:
+            return product.deadline_date.strftime("%d.%m.%Y")
+    except Exception as e:
+        logger.warning("Błąd formatowania deadline", extra={'error': str(e)})
+        return "Błąd daty"
 
 def get_station_summary():
     """
@@ -275,12 +318,12 @@ def get_station_summary():
         from ..models import ProductionItem
         from sqlalchemy import func
         
-        # Query dla wszystkich statusów jednocześnie
+        # Query dla wszystkich statusów jednocześnie - POPRAWKA: priority_rank zamiast priority_score
         summary_data = db.session.query(
             ProductionItem.current_status,
             func.count(ProductionItem.id).label('count'),
             func.sum(ProductionItem.volume_m3).label('volume'),
-            func.avg(ProductionItem.priority_score).label('avg_priority')
+            func.avg(ProductionItem.priority_rank).label('avg_rank')
         ).filter(
             ProductionItem.current_status.in_([
                 'czeka_na_wyciecie',
@@ -310,18 +353,18 @@ def get_station_summary():
                 'name': station_name,
                 'count': 0,
                 'volume_m3': 0.0,
-                'avg_priority': 100.0,
+                'avg_priority_rank': 999,
                 'status_class': 'station-empty'
             }
         
         # Wypełnienie danymi
-        for status, count, volume, avg_priority in summary_data:
+        for status, count, volume, avg_rank in summary_data:
             station_code = status_to_station.get(status)
             if station_code:
                 summary[station_code].update({
                     'count': count,
                     'volume_m3': float(volume or 0),
-                    'avg_priority': float(avg_priority or 100)
+                    'avg_priority_rank': round(float(avg_rank or 999), 1)
                 })
                 
                 # Określenie klasy CSS na podstawie liczby zadań
@@ -339,9 +382,9 @@ def get_station_summary():
     except Exception as e:
         logger.error("Błąd pobierania podsumowania stanowisk", extra={'error': str(e)})
         return {
-            'cutting': {'name': 'Wycinanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority': 100.0, 'status_class': 'station-empty'},
-            'assembly': {'name': 'Składanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority': 100.0, 'status_class': 'station-empty'},
-            'packaging': {'name': 'Pakowanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority': 100.0, 'status_class': 'station-empty'}
+            'cutting': {'name': 'Wycinanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
+            'assembly': {'name': 'Składanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'},
+            'packaging': {'name': 'Pakowanie', 'count': 0, 'volume_m3': 0.0, 'avg_priority_rank': 999, 'status_class': 'station-empty'}
         }
 
 # ============================================================================
@@ -426,20 +469,20 @@ def cutting_station():
         # Konfiguracja interfejsu
         config = get_station_config()
         
-        # Statystyki stanowiska
+        # Statystyki stanowiska - POPRAWKA: priority_rank zamiast priority_score
         total_products = len(products)
-        high_priority_count = sum(1 for p in products if p['priority_score'] >= 150)
+        high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products if p['is_overdue'])
         
         station_stats = {
             'total_products': total_products,
             'high_priority_count': high_priority_count,
             'overdue_count': overdue_count,
-            'avg_priority': sum(p['priority_score'] for p in products) / len(products) if products else 0
+            'avg_priority_rank': sum(p['priority_rank'] for p in products) / len(products) if products else 999
         }
         
         return render_template(
-            'production/cutting.html',
+            'stations/cutting.html',
             products=products,
             station_code='cutting',
             station_name='Wycinanie',
@@ -458,7 +501,7 @@ def cutting_station():
         })
         
         return render_template(
-            'production/error.html',
+            'stations/error.html',
             error_message="Błąd ładowania stanowiska wycinania",
             error_details=str(e),
             back_url=url_for('production_stations.station_select')
@@ -496,20 +539,20 @@ def assembly_station():
         # Konfiguracja interfejsu
         config = get_station_config()
         
-        # Statystyki stanowiska
+        # Statystyki stanowiska - POPRAWKA: priority_rank zamiast priority_score
         total_products = len(products)
-        high_priority_count = sum(1 for p in products if p['priority_score'] >= 150)
+        high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products if p['is_overdue'])
         
         station_stats = {
             'total_products': total_products,
             'high_priority_count': high_priority_count,
             'overdue_count': overdue_count,
-            'avg_priority': sum(p['priority_score'] for p in products) / len(products) if products else 0
+            'avg_priority_rank': sum(p['priority_rank'] for p in products) / len(products) if products else 999
         }
         
         return render_template(
-            'production/assembly.html',
+            'stations/assembly.html',
             products=products,
             station_code='assembly',
             station_name='Składanie',
@@ -528,7 +571,7 @@ def assembly_station():
         })
         
         return render_template(
-            'production/error.html',
+            'stations/error.html',
             error_message="Błąd ładowania stanowiska składania",
             error_details=str(e),
             back_url=url_for('production_stations.station_select')
@@ -554,7 +597,7 @@ def packaging_station():
     try:
         sort_by = request.args.get('sort', 'priority')
         limit = min(int(request.args.get('limit', 50)), 100)
-        view_mode = request.args.get('view', 'list')  # pakowanie domyślnie lista
+        view_mode = request.args.get('view', 'list')
         
         logger.info("Dostęp do stanowiska pakowania", extra={
             'client_ip': request.remote_addr,
@@ -577,7 +620,7 @@ def packaging_station():
                     'total_products': 0,
                     'total_volume': 0,
                     'total_value': 0,
-                    'highest_priority': 0,
+                    'best_priority_rank': 999,  # POPRAWKA: niższy = lepszy
                     'earliest_deadline': None,
                     'has_overdue': False
                 }
@@ -587,7 +630,7 @@ def packaging_station():
             order['total_products'] += 1
             order['total_volume'] += product['volume_m3'] or 0
             order['total_value'] += product['total_value_net'] or 0
-            order['highest_priority'] = max(order['highest_priority'], product['priority_score'])
+            order['best_priority_rank'] = min(order['best_priority_rank'], product['priority_rank'])
             
             if product['deadline_date']:
                 if order['earliest_deadline'] is None or product['deadline_date'] < order['earliest_deadline']:
@@ -596,9 +639,9 @@ def packaging_station():
             if product['is_overdue']:
                 order['has_overdue'] = True
         
-        # Sortowanie grup zamówień
+        # Sortowanie grup zamówień - POPRAWKA: dla priority sortuj po best_priority_rank ASC
         if sort_by == 'priority':
-            orders_list = sorted(orders_grouped.values(), key=lambda x: x['highest_priority'], reverse=True)
+            orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
         elif sort_by == 'deadline':
             orders_list = sorted(orders_grouped.values(), 
                                key=lambda x: x['earliest_deadline'] or date.max)
@@ -608,10 +651,10 @@ def packaging_station():
         # Konfiguracja interfejsu
         config = get_station_config()
         
-        # Statystyki stanowiska
+        # Statystyki stanowiska - POPRAWKA: priority_rank zamiast priority_score
         total_products = len(products)
         total_orders = len(orders_grouped)
-        high_priority_count = sum(1 for p in products if p['priority_score'] >= 150)
+        high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products if p['is_overdue'])
         
         station_stats = {
@@ -619,11 +662,11 @@ def packaging_station():
             'total_orders': total_orders,
             'high_priority_count': high_priority_count,
             'overdue_count': overdue_count,
-            'avg_priority': sum(p['priority_score'] for p in products) / len(products) if products else 0
+            'avg_priority_rank': sum(p['priority_rank'] for p in products) / len(products) if products else 999
         }
         
         return render_template(
-            'production/packaging.html',
+            'stations/packaging.html',
             products=products,
             orders_grouped=orders_list,
             station_code='packaging',
@@ -644,7 +687,7 @@ def packaging_station():
         })
         
         return render_template(
-            'production/error.html',
+            'stations/error.html',
             error_message="Błąd ładowania stanowiska pakowania",
             error_details=str(e),
             back_url=url_for('production_stations.station_select')
@@ -682,9 +725,9 @@ def ajax_get_products(station_code):
         # Pobranie produktów
         products = get_products_for_station(station_code, limit, sort_by)
         
-        # Statystyki
+        # Statystyki - POPRAWKA: priority_rank zamiast priority_score
         total_products = len(products)
-        high_priority_count = sum(1 for p in products if p['priority_score'] >= 150)
+        high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
         overdue_count = sum(1 for p in products if p['is_overdue'])
         
         result = {
@@ -695,7 +738,7 @@ def ajax_get_products(station_code):
                     'total_products': total_products,
                     'high_priority_count': high_priority_count,
                     'overdue_count': overdue_count,
-                    'avg_priority': sum(p['priority_score'] for p in products) / len(products) if products else 0
+                    'avg_priority_rank': sum(p['priority_rank'] for p in products) / len(products) if products else 999
                 },
                 'last_updated': datetime.utcnow().isoformat(),
                 'station_code': station_code,
@@ -812,7 +855,7 @@ def station_access_denied(error):
     })
     
     return render_template(
-        'panel/errors.html',
+        'stations/access_denied.html',
         error_message="Dostęp zabroniony",
         error_details="Twój adres IP nie jest autoryzowany do dostępu do stanowisk produkcyjnych.",
         client_ip=request.remote_addr
@@ -828,7 +871,7 @@ def station_server_error(error):
     })
     
     return render_template(
-        'panel/errors.html',
+        'stations/error.html',
         error_message="Błąd systemu",
         error_details="Wystąpił nieoczekiwany błąd. Spróbuj odświeżyć stronę.",
         back_url=url_for('production_stations.station_select')
@@ -865,8 +908,8 @@ def add_station_headers(response):
         response = apply_common_headers(response)
         
         # Dodatkowe nagłówki dla interfejsów stanowisk
-        response.headers['X-Station-Interface'] = '1.2.0'
-        response.headers['X-Robots-Tag'] = 'noindex, nofollow'  # Nie indeksuj interfejsów stanowisk
+        response.headers['X-Station-Interface'] = '1.3.0'
+        response.headers['X-Robots-Tag'] = 'noindex, nofollow'
         
         # Cache control dla interfejsów (nie cache'uj)
         if request.endpoint and 'ajax' not in request.endpoint:
@@ -897,7 +940,7 @@ def inject_station_context():
         context = {
             'current_time': datetime.utcnow(),
             'current_date': date.today(),
-            'station_version': '1.2.0',
+            'station_version': '1.3.0',
             'client_ip': request.remote_addr,
         }
         
@@ -937,7 +980,7 @@ def inject_station_context():
         return {
             'current_time': datetime.utcnow(),
             'current_date': date.today(),
-            'station_version': '1.2.0',
+            'station_version': '1.3.0',
             'client_ip': request.remote_addr or 'unknown'
         }
 
@@ -946,24 +989,28 @@ def inject_station_context():
 # ============================================================================
 
 @station_bp.app_template_filter('format_priority')
-def format_priority_filter(priority_score):
+def format_priority_filter(priority_rank):
     """
     Template filter dla formatowania priorytetu
+    POPRAWKA: bazuje na priority_rank (niższy = lepszy)
     
     Args:
-        priority_score (int): Wynik priorytetu
+        priority_rank (int): Ranga priorytetu
         
     Returns:
         str: Sformatowany priorytet
     """
-    if priority_score >= 200:
-        return f"🔴 {priority_score} (Krytyczny)"
-    elif priority_score >= 150:
-        return f"🟠 {priority_score} (Wysoki)"
-    elif priority_score >= 100:
-        return f"🟡 {priority_score} (Normalny)"
+    if not priority_rank:
+        priority_rank = 999
+        
+    if priority_rank <= 10:
+        return f"🔴 #{priority_rank} (Krytyczny)"
+    elif priority_rank <= 50:
+        return f"🟠 #{priority_rank} (Wysoki)"
+    elif priority_rank <= 100:
+        return f"🟡 #{priority_rank} (Normalny)"
     else:
-        return f"🟢 {priority_score} (Niski)"
+        return f"🟢 #{priority_rank} (Niski)"
 
 @station_bp.app_template_filter('format_deadline')
 def format_deadline_filter(deadline_date):
@@ -1062,29 +1109,10 @@ def truncate_smart_filter(text, length=50):
     truncated = text[:length]
     last_space = truncated.rfind(' ')
     
-    if last_space > length * 0.75:  # Jeśli ostatnia spacja jest blisko końca
+    if last_space > length * 0.75:
         return truncated[:last_space] + "..."
     else:
         return truncated + "..."
-
-@station_bp.app_template_filter('highlight_search')
-def highlight_search_filter(text, search_term):
-    """
-    Template filter dla podświetlania wyszukiwanych fraz
-    
-    Args:
-        text (str): Tekst do podświetlenia
-        search_term (str): Fraza do podświetlenia
-        
-    Returns:
-        str: Tekst z podświetleniem HTML
-    """
-    if not text or not search_term:
-        return text
-    
-    import re
-    pattern = re.compile(re.escape(search_term), re.IGNORECASE)
-    return pattern.sub(f'<mark class="highlight">{search_term}</mark>', text)
 
 # ============================================================================
 # DEBUGGING I DEVELOPMENT HELPERS
@@ -1138,6 +1166,8 @@ def debug_station_info():
 
 logger.info("Zainicjalizowano Station routers dla modułu production", extra={
     'blueprint_name': station_bp.name,
+    'version': '1.3.0',
     'protected_by_ip': True,
-    'tablet_optimized': True
+    'tablet_optimized': True,
+    'priority_system': 'priority_rank'
 })
