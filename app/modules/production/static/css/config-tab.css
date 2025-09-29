@@ -417,11 +417,19 @@
 }
 
 /* =================================== */
+<<<<<<< Updated upstream
 /* SAVE BAR - POPRAWIONA WERSJA      */
 /* =================================== */
 .config-save-bar {
     position: fixed;
     bottom: -200px;
+=======
+/* SAVE BAR                           */
+/* =================================== */
+.config-save-bar {
+    position: fixed;
+    bottom: 7%;
+>>>>>>> Stashed changes
     left: 15%;
     right: 10%;
     border-radius: 16px;
@@ -430,6 +438,7 @@
     padding: 1rem 0;
     z-index: 997;
     box-shadow: 0 5px 10px rgba(0, 0, 0, 0.1);
+<<<<<<< Updated upstream
     transition: bottom 0.3s ease;
 }
 
@@ -446,6 +455,16 @@
         color: var(--woodpower-orange);
     }
 
+=======
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+}
+
+.config-save-bar.has-changes {
+    transform: translateY(0);
+}
+
+>>>>>>> Stashed changes
 .save-bar-content {
     max-width: 1200px;
     margin: 0 auto;
@@ -504,6 +523,7 @@
     transition: all 0.2s ease;
 }
 
+<<<<<<< Updated upstream
     .btn-save-changes:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 20px rgba(237, 107, 36, 0.3);
@@ -517,6 +537,21 @@
         transform: none;
         box-shadow: none;
     }
+=======
+.btn-save-changes:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(237, 107, 36, 0.3);
+    color: white;
+    background: linear-gradient(135deg, var(--woodpower-orange-light), var(--woodpower-orange));
+}
+
+.btn-save-changes:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+>>>>>>> Stashed changes
 
 .btn-discard {
     background: white;
@@ -528,6 +563,7 @@
     transition: all 0.2s ease;
 }
 
+<<<<<<< Updated upstream
     .btn-discard:hover {
         border-color: #dc3545;
         color: #dc3545;
@@ -555,6 +591,11 @@
         width: 100%;
         justify-content: center;
     }
+=======
+.btn-discard:hover {
+    border-color: #dc3545;
+    color: #dc3545;
+>>>>>>> Stashed changes
 }
 
 /* =================================== */
