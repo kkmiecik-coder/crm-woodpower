@@ -26,6 +26,7 @@ from flask import Blueprint, request, jsonify, current_app, render_template, ren
 from flask_login import login_required, current_user
 from functools import wraps
 from modules.logging import get_structured_logger
+from typing import Dict, Any
 from extensions import db
 from sqlalchemy import and_, or_, text, func, distinct
 import traceback
@@ -2458,7 +2459,7 @@ def stations_tab_content():
                     {
                         'short_id': p.short_product_id,
                         'product_name': p.original_product_name[:50] + '...' if len(p.original_product_name or '') > 50 else (p.original_product_name or ''),
-                        'priority_score': p.priority_score,
+                        'priority_rank': p.priority_rank,
                         'deadline_date': p.deadline_date.isoformat() if p.deadline_date else None,
                         'days_remaining': (p.deadline_date - today).days if p.deadline_date else 0,  # DODANO: days_remaining
                         'volume_m3': float(p.volume_m3 or 0),
@@ -2495,7 +2496,6 @@ def stations_tab_content():
             'success': False,
             'error': str(e)
         }), 500
-
   
 
 @api_bp.route('/config-tab-content')
@@ -2695,11 +2695,6 @@ def config_tab_content():
             'error': str(e)
         })
         return jsonify({'success': False, 'error': str(e)}), 500
-    
-# ============================================================================
-# NOWE API ENDPOINTY - DO DODANIA
-# ============================================================================
-# Te endpointy należy DODAĆ do pliku: app/modules/production/routers/api_routes.py
 
 # 1. BULK OPERATIONS ENDPOINT
 @api_bp.route('/products/bulk-action', methods=['POST'])
@@ -2813,119 +2808,6 @@ def bulk_action():
         return jsonify({
             'success': False,
             'error': f'Błąd serwera: {str(e)}'
-        }), 500
-
-
-# 2. SZCZEGÓŁY PRODUKTU ENDPOINT
-@api_bp.route('/products/<int:product_id>/details', methods=['GET'])
-@login_required
-def product_details(product_id):
-    """
-    GET /production/api/products/<id>/details
-    
-    Zwraca szczegółowe informacje o produkcie dla modala
-    
-    Returns: JSON z kompletnymi danymi produktu
-    """
-    try:
-        from ..models import ProductionItem
-        
-        product = ProductionItem.query.get_or_404(product_id)
-        
-        # Pobierz historię statusów (jeśli tabela istnieje)
-        status_history = []
-        try:
-            # Z database_structure.md widzę że nie ma tabeli prod_status_history w obecnej strukturze
-            # Dodajemy placeholder dla przyszłej implementacji
-            status_history = [
-                {
-                    'status': product.current_status,
-                    'changed_at': product.created_at.isoformat() if product.created_at else None,
-                    'station': 'System',
-                    'notes': 'Utworzono w systemie'
-                }
-            ]
-        except:
-            pass
-        
-        # Oblicz metryki czasu (jeśli dostępne)
-        time_metrics = {}
-        if hasattr(product, 'cutting_started_at') and product.cutting_started_at:
-            time_metrics['cutting_duration'] = calculate_duration(product.cutting_started_at, product.cutting_completed_at)
-        if hasattr(product, 'assembly_started_at') and product.assembly_started_at:
-            time_metrics['assembly_duration'] = calculate_duration(product.assembly_started_at, product.assembly_completed_at)
-        if hasattr(product, 'packaging_started_at') and product.packaging_started_at:
-            time_metrics['packaging_duration'] = calculate_duration(product.packaging_started_at, product.packaging_completed_at)
-        
-        # Oblicz dni do deadline
-        days_to_deadline = None
-        if product.deadline_date:
-            days_to_deadline = (product.deadline_date - datetime.now().date()).days
-        
-        # Przygotuj kompletne dane
-        product_data = {
-            'id': product.id,
-            'short_product_id': product.short_product_id,
-            'internal_order_number': product.internal_order_number,
-            'baselinker_order_id': product.baselinker_order_id,
-            'original_product_name': product.original_product_name,
-            'current_status': product.current_status,
-            'priority_score': product.priority_score,
-            'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None,
-            'days_to_deadline': days_to_deadline,
-            'created_at': product.created_at.isoformat() if product.created_at else None,
-            
-            # Dane parsowane
-            'parsed_data': {
-                'wood_species': product.parsed_wood_species,
-                'technology': product.parsed_technology,
-                'wood_class': product.parsed_wood_class,
-                'length_cm': float(product.parsed_length_cm) if product.parsed_length_cm else None,
-                'width_cm': float(product.parsed_width_cm) if product.parsed_width_cm else None,
-                'thickness_cm': float(product.parsed_thickness_cm) if product.parsed_thickness_cm else None,
-                'finish_state': product.parsed_finish_state,
-                'volume_m3': float(product.volume_m3) if product.volume_m3 else None,
-                'dimensions': f"{product.parsed_length_cm or 0}×{product.parsed_width_cm or 0}×{product.parsed_thickness_cm or 0}cm"
-            },
-            
-            # Dane finansowe
-            'financial_data': {
-                'unit_price_net': float(product.unit_price_net) if product.unit_price_net else None,
-                'total_value_net': float(product.total_value_net) if product.total_value_net else None
-            },
-            
-            # Historia statusów
-            'status_history': status_history,
-            
-            # Metryki czasu
-            'time_metrics': time_metrics,
-            
-            # Status flags
-            'is_overdue': days_to_deadline is not None and days_to_deadline < 0,
-            'is_urgent': days_to_deadline is not None and days_to_deadline <= 2,
-            'is_high_priority': priority_rank is not None and priority_rank <= 10  # ← Top 10 = wysoki priorytet
-        }
-        
-        logger.info("Pobrano szczegóły produktu", extra={
-            'user_id': current_user.id,
-            'product_id': product_id,
-            'product_short_id': product.short_product_id
-        })
-        
-        return jsonify({
-            'success': True,
-            'product': product_data
-        })
-        
-    except Exception as e:
-        logger.error("Błąd pobierania szczegółów produktu", extra={
-            'user_id': current_user.id if current_user.is_authenticated else None,
-            'product_id': product_id,
-            'error': str(e)
-        })
-        return jsonify({
-            'success': False,
-            'error': f'Błąd pobierania szczegółów: {str(e)}'
         }), 500
 
 
@@ -5067,4 +4949,393 @@ def get_priority_statistics():
         return jsonify({
             'success': False,
             'error': str(e)
+        }), 500
+    
+@api_bp.route('/update-configs', methods=['POST'])
+@login_required
+def update_configs():
+    """
+    POST /production/api/update-configs
+    
+    Batch update konfiguracji systemu produkcyjnego
+    
+    Body JSON:
+    {
+        "configs": {
+            "SYNC_ENABLED": true,
+            "MAX_SYNC_ITEMS_PER_BATCH": 1000,
+            "STATION_ALLOWED_IPS": "192.168.1.100,192.168.1.101"
+        }
+    }
+    
+    Returns:
+        JSON: Status operacji z szczegółami
+    """
+    try:
+        # Sprawdź nagłówki CSRF
+        if not request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'success': False,
+                'error': 'Invalid request headers'
+            }), 400
+        
+        # Pobierz dane z requestu
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych JSON w requestcie'
+            }), 400
+        
+        configs_dict = data.get('configs', {})
+        if not configs_dict:
+            return jsonify({
+                'success': False,
+                'error': 'Brak konfiguracji do aktualizacji'
+            }), 400
+        
+        # Walidacja - sprawdź czy są to dozwolone klucze konfiguracji
+        allowed_config_keys = {
+            'SYNC_ENABLED', 'MAX_SYNC_ITEMS_PER_BATCH', 'BASELINKER_TARGET_STATUS_COMPLETED',
+            'BASELINKER_SOURCE_STATUS_PAID', 'BASELINKER_TARGET_STATUS_PRODUCTION', 'SYNC_RETRY_COUNT',
+            'STATION_ALLOWED_IPS', 'REFRESH_INTERVAL_SECONDS', 'STATION_AUTO_REFRESH_ENABLED',
+            'STATION_SHOW_DETAILED_INFO', 'STATION_MAX_PRODUCTS_DISPLAY', 'DEADLINE_DEFAULT_DAYS',
+            'PRIORITY_RECALC_INTERVAL_HOURS', 'PRIORITY_ALGORITHM_VERSION', 'DEBUG_PRODUCTION_BACKEND',
+            'DEBUG_PRODUCTION_FRONTEND', 'CACHE_DURATION_SECONDS', 'ADMIN_EMAIL_NOTIFICATIONS',
+            'ERROR_NOTIFICATION_THRESHOLD', 'BASELINKER_STATUSES_CACHE', 'MAX_PRODUCTS_PER_ORDER',
+            'STATION_IP_CACHE_DURATION_MINUTES', 'STATION_CUTTING_PRIORITY_SORT',
+            'STATION_ASSEMBLY_PRIORITY_SORT', 'STATION_PACKAGING_PRIORITY_SORT'
+        }
+        
+        invalid_keys = set(configs_dict.keys()) - allowed_config_keys
+        if invalid_keys:
+            return jsonify({
+                'success': False,
+                'error': f'Niepozwolone klucze konfiguracji: {", ".join(invalid_keys)}'
+            }), 400
+        
+        logger.info("Rozpoczęto batch update konfiguracji", extra={
+            'user_id': current_user.id,
+            'configs_count': len(configs_dict),
+            'config_keys': list(configs_dict.keys())
+        })
+        
+        # Pobierz serwis konfiguracji
+        from ..services.config_service import get_config_service
+        config_service = get_config_service()
+        
+        # Walidacja przed zapisem
+        validation_result = config_service.validate_config_batch(configs_dict)
+        
+        if validation_result['invalid']:
+            logger.warning("Walidacja konfiguracji nie powiodła się", extra={
+                'user_id': current_user.id,
+                'invalid_configs': validation_result['invalid']
+            })
+            
+            return jsonify({
+                'success': False,
+                'error': 'Błędy walidacji konfiguracji',
+                'validation_errors': validation_result['invalid']
+            }), 400
+        
+        # Wykonaj batch update
+        update_result = config_service.update_multiple_configs(
+            configs_dict=configs_dict,
+            user_id=current_user.id
+        )
+        
+        if not update_result['success']:
+            return jsonify({
+                'success': False,
+                'error': update_result.get('error', 'Nieznany błąd aktualizacji')
+            }), 500
+        
+        logger.info("Batch update konfiguracji zakończony pomyślnie", extra={
+            'user_id': current_user.id,
+            'total_changes': update_result['total_changes'],
+            'updated_count': len(update_result['updated']),
+            'failed_count': len(update_result['failed'])
+        })
+        
+        # Zwróć wynik
+        response_data = {
+            'success': True,
+            'message': f"Zaktualizowano {update_result['total_changes']} konfiguracji",
+            'updated': update_result['updated'],
+            'failed': update_result['failed'],
+            'total_changes': update_result['total_changes'],
+            'warnings': validation_result.get('warnings', []),
+            'updated_at': get_local_now().isoformat()
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error("Błąd endpointu update-configs", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/clear-cache', methods=['POST'])
+@login_required  
+def clear_cache():
+    """
+    POST /production/api/clear-cache
+    
+    Czyści cache konfiguracji systemu produkcyjnego
+    
+    Returns:
+        JSON: Status operacji
+    """
+    try:
+        # Sprawdź nagłówki CSRF
+        if not request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'success': False,
+                'error': 'Invalid request headers'
+            }), 400
+        
+        logger.info("Rozpoczęto czyszczenie cache konfiguracji", extra={
+            'user_id': current_user.id
+        })
+        
+        # Pobierz serwis konfiguracji
+        from ..services.config_service import get_config_service
+        config_service = get_config_service()
+        
+        # Pobierz statystyki przed czyszczeniem
+        stats_before = config_service.get_cache_stats()
+        
+        # Wyczyść cache
+        clear_result = config_service.clear_all_cache(user_id=current_user.id)
+        
+        if not clear_result['success']:
+            return jsonify({
+                'success': False,
+                'error': clear_result.get('error', 'Nieznany błąd czyszczenia cache')
+            }), 500
+        
+        logger.info("Cache konfiguracji wyczyszczony pomyślnie", extra={
+            'user_id': current_user.id,
+            'keys_cleared': clear_result['keys_cleared']
+        })
+        
+        # Pobierz nowe statystyki
+        stats_after = config_service.get_cache_stats()
+        
+        return jsonify({
+            'success': True,
+            'message': f"Cache wyczyszczony - usunięto {clear_result['keys_cleared']} kluczy",
+            'keys_cleared': clear_result['keys_cleared'],
+            'cleared_at': clear_result['cleared_at'],
+            'stats_before': stats_before,
+            'stats_after': stats_after
+        })
+        
+    except Exception as e:
+        logger.error("Błąd endpointu clear-cache", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/reset-configs', methods=['POST'])
+@login_required
+def reset_configs():
+    """
+    POST /production/api/reset-configs
+    
+    Przywraca wszystkie konfiguracje do wartości domyślnych
+    
+    Returns:
+        JSON: Status operacji
+    """
+    try:
+        # Sprawdź nagłówki CSRF
+        if not request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'success': False,
+                'error': 'Invalid request headers'
+            }), 400
+        
+        logger.warning("Rozpoczęto reset konfiguracji do domyślnych", extra={
+            'user_id': current_user.id
+        })
+        
+        # Pobierz serwis konfiguracji  
+        from ..services.config_service import get_config_service
+        config_service = get_config_service()
+        
+        # Wykonaj reset
+        reset_result = config_service.reset_to_defaults(user_id=current_user.id)
+        
+        if not reset_result['success']:
+            return jsonify({
+                'success': False,
+                'error': reset_result.get('error', 'Nieznany błąd resetu')
+            }), 500
+        
+        logger.warning("Reset konfiguracji zakończony", extra={
+            'user_id': current_user.id,
+            'reset_count': reset_result['reset_count'],
+            'failed_count': len(reset_result['failed'])
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f"Zresetowano {reset_result['reset_count']} konfiguracji do wartości domyślnych",
+            'reset_count': reset_result['reset_count'],
+            'failed': reset_result['failed']
+        })
+        
+    except Exception as e:
+        logger.error("Błąd endpointu reset-configs", extra={
+            'user_id': current_user.id,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/validate-config', methods=['POST'])
+@login_required
+def validate_config():
+    """
+    POST /production/api/validate-config
+    
+    Waliduje konfigurację bez zapisywania
+    
+    Body JSON:
+    {
+        "key": "STATION_ALLOWED_IPS", 
+        "value": "192.168.1.100,192.168.1.101",
+        "type": "ip_list"
+    }
+    
+    Returns:
+        JSON: Wynik walidacji
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Brak danych JSON'
+            }), 400
+        
+        config_key = data.get('key')
+        config_value = data.get('value')
+        config_type = data.get('type', 'string')
+        
+        if not config_key or config_value is None:
+            return jsonify({
+                'success': False,
+                'error': 'Wymagane pola: key, value'
+            }), 400
+        
+        # Pobierz serwis konfiguracji
+        from ..services.config_service import get_config_service
+        config_service = get_config_service()
+        
+        # Waliduj pojedynczą konfigurację
+        validation_result = config_service.validate_config_batch({config_key: config_value})
+        
+        if validation_result['invalid']:
+            return jsonify({
+                'success': False,
+                'valid': False,
+                'errors': validation_result['invalid']
+            })
+        
+        return jsonify({
+            'success': True,
+            'valid': True,
+            'validated_value': validation_result['valid'][0]['serialized'] if validation_result['valid'] else config_value,
+            'detected_type': validation_result['valid'][0]['type'] if validation_result['valid'] else config_type
+        })
+        
+    except Exception as e:
+        logger.error("Błąd walidacji konfiguracji", extra={
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': f'Błąd walidacji: {str(e)}'
+        }), 500
+
+
+@api_bp.route('/config-info/<config_key>')
+@login_required
+def get_config_info(config_key: str):
+    """
+    GET /production/api/config-info/<config_key>
+    
+    Pobiera szczegółowe informacje o konfiguracji
+    
+    Returns:
+        JSON: Informacje o konfiguracji
+    """
+    try:
+        from ..models import ProductionConfig
+        from ..services.config_service import get_config_service
+        
+        config_service = get_config_service()
+        
+        # Pobierz konfigurację z bazy
+        config = ProductionConfig.query.filter_by(config_key=config_key).first()
+        
+        if not config:
+            return jsonify({
+                'success': False,
+                'error': 'Konfiguracja nie została znaleziona'
+            }), 404
+        
+        # Pobierz wartość domyślną
+        default_value = config_service._default_values.get(config_key, 'Brak')
+        
+        # Sprawdź czy wartość jest w cache
+        cached_value = config_service._get_config_value(config_key)
+        is_cached = cached_value is not None
+        
+        return jsonify({
+            'success': True,
+            'config': {
+                'key': config.config_key,
+                'value': config.config_value,
+                'parsed_value': config.parsed_value,
+                'type': config.config_type,
+                'description': config.config_description,
+                'default_value': default_value,
+                'is_cached': is_cached,
+                'updated_by': config.updated_by,
+                'updated_at': config.updated_at.isoformat() if config.updated_at else None,
+                'created_at': config.created_at.isoformat() if config.created_at else None
+            }
+        })
+        
+    except Exception as e:
+        logger.error("Błąd pobierania info o konfiguracji", extra={
+            'config_key': config_key,
+            'error': str(e)
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': f'Błąd serwera: {str(e)}'
         }), 500

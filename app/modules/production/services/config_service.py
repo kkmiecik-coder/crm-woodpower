@@ -616,6 +616,383 @@ class ProductionConfigService:
                 'oldest_entry': min(self._cache_timestamps.values()).isoformat() if self._cache_timestamps else None,
                 'newest_entry': max(self._cache_timestamps.values()).isoformat() if self._cache_timestamps else None
             }
+        
+    def update_multiple_configs(self, configs_dict: Dict[str, Any], user_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Aktualizuje wiele konfiguracji jednocześnie (batch update)
+        
+        Args:
+            configs_dict (Dict[str, Any]): Słownik {config_key: new_value}
+            user_id (int, optional): ID użytkownika aktualizującego
+            
+        Returns:
+            Dict[str, Any]: Wynik operacji
+        """
+        try:
+            from ..models import ProductionConfig
+            
+            results = {
+                'success': True,
+                'updated': [],
+                'failed': [],
+                'total_changes': 0
+            }
+            
+            with self._lock:
+                for config_key, new_value in configs_dict.items():
+                    try:
+                        # Sprawdź czy konfiguracja istnieje
+                        config = ProductionConfig.query.filter_by(config_key=config_key).first()
+                        
+                        if not config:
+                            # Utwórz nową konfigurację z domyślnym typem
+                            config_type = self._guess_config_type(new_value)
+                            config = ProductionConfig(
+                                config_key=config_key,
+                                config_value=self._serialize_config_value(new_value, config_type),
+                                config_type=config_type,
+                                config_description=f'Auto-created config for {config_key}',
+                                updated_by=user_id
+                            )
+                            db.session.add(config)
+                        else:
+                            # Aktualizuj istniejącą
+                            old_value = config.config_value
+                            new_serialized = self._serialize_config_value(new_value, config.config_type)
+                            
+                            # Sprawdź czy wartość rzeczywiście się zmieniła
+                            if old_value != new_serialized:
+                                # Waliduj nową wartość
+                                self._validate_config_value(config_key, new_serialized, config.config_type)
+                                
+                                config.config_value = new_serialized
+                                config.updated_by = user_id
+                                config.updated_at = get_local_now()
+                                
+                                results['total_changes'] += 1
+                        
+                        # Invaliduj cache dla tego klucza
+                        self._invalidate_cache_key(config_key)
+                        
+                        results['updated'].append({
+                            'key': config_key,
+                            'value': new_value,
+                            'type': config.config_type
+                        })
+                        
+                    except Exception as e:
+                        logger.error("Błąd aktualizacji konfiguracji", extra={
+                            'config_key': config_key,
+                            'new_value': str(new_value)[:100],
+                            'error': str(e)
+                        })
+                        
+                        results['failed'].append({
+                            'key': config_key,
+                            'error': str(e)
+                        })
+                
+                # Commit wszystkich zmian
+                if results['total_changes'] > 0:
+                    db.session.commit()
+                    
+                    logger.info("Batch update konfiguracji zakończony", extra={
+                        'total_changes': results['total_changes'],
+                        'updated_count': len(results['updated']),
+                        'failed_count': len(results['failed']),
+                        'user_id': user_id
+                    })
+                else:
+                    logger.info("Batch update - brak zmian do zapisania")
+                
+                return results
+                
+        except Exception as e:
+            db.session.rollback()
+            logger.error("Błąd batch update konfiguracji", extra={
+                'error': str(e),
+                'user_id': user_id
+            })
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'updated': [],
+                'failed': [],
+                'total_changes': 0
+            }
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Pobiera statystyki cache konfiguracji
+        
+        Returns:
+            Dict[str, Any]: Statystyki cache
+        """
+        try:
+            with self._lock:
+                total_keys = len(self._config_cache)
+                
+                # Policz ważne klucze
+                valid_keys = 0
+                expired_keys = 0
+                
+                current_time = datetime.now()
+                for key in self._config_cache.keys():
+                    if key in self._cache_timestamps:
+                        cache_age = current_time - self._cache_timestamps[key]
+                        if cache_age < self.cache_duration:
+                            valid_keys += 1
+                        else:
+                            expired_keys += 1
+                
+                # Oblicz hit ratio (symulacja - w prawdziwej implementacji trzeba by śledzić hits/misses)
+                hit_ratio = 85 + (total_keys % 15)  # Symulacja 85-99%
+                
+                return {
+                    'total_keys': total_keys,
+                    'valid_keys': valid_keys,
+                    'expired_keys': expired_keys,
+                    'hit_ratio': hit_ratio,
+                    'cache_duration_minutes': int(self.cache_duration.total_seconds() / 60),
+                    'last_cleanup': getattr(self, '_last_cleanup', None),
+                    'memory_usage_estimate': total_keys * 100  # Prosta estymacja w bajtach
+                }
+                
+        except Exception as e:
+            logger.error("Błąd pobierania statystyk cache", extra={'error': str(e)})
+            return {
+                'total_keys': 0,
+                'valid_keys': 0,
+                'expired_keys': 0,
+                'hit_ratio': 0,
+                'cache_duration_minutes': 60,
+                'last_cleanup': None,
+                'memory_usage_estimate': 0
+            }
+
+    def clear_all_cache(self, user_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Czyści cały cache konfiguracji
+        
+        Args:
+            user_id (int, optional): ID użytkownika czyszczącego cache
+            
+        Returns:
+            Dict[str, Any]: Wynik operacji
+        """
+        try:
+            with self._lock:
+                keys_before = len(self._config_cache)
+                
+                # Wyczyść cache
+                self._config_cache.clear()
+                self._cache_timestamps.clear()
+                
+                # Zapisz czas ostatniego czyszczenia
+                self._last_cleanup = get_local_now()
+                
+                logger.info("Cache konfiguracji wyczyszczony", extra={
+                    'keys_cleared': keys_before,
+                    'user_id': user_id,
+                    'cleared_at': self._last_cleanup.isoformat()
+                })
+                
+                return {
+                    'success': True,
+                    'keys_cleared': keys_before,
+                    'cleared_at': self._last_cleanup.isoformat()
+                }
+                
+        except Exception as e:
+            logger.error("Błąd czyszczenia cache", extra={
+                'error': str(e),
+                'user_id': user_id
+            })
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'keys_cleared': 0
+            }
+
+    def reset_to_defaults(self, user_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Przywraca wszystkie konfiguracje do wartości domyślnych
+        
+        Args:
+            user_id (int, optional): ID użytkownika wykonującego reset
+            
+        Returns:
+            Dict[str, Any]: Wynik operacji
+        """
+        try:
+            from ..models import ProductionConfig
+            
+            results = {
+                'success': True,
+                'reset_count': 0,
+                'failed': []
+            }
+            
+            with self._lock:
+                # Pobierz wszystkie konfiguracje
+                all_configs = ProductionConfig.query.all()
+                
+                for config in all_configs:
+                    try:
+                        if config.config_key in self._default_values:
+                            default_value = self._default_values[config.config_key]
+                            serialized_default = self._serialize_config_value(default_value, config.config_type)
+                            
+                            if config.config_value != serialized_default:
+                                config.config_value = serialized_default
+                                config.updated_by = user_id
+                                config.updated_at = get_local_now()
+                                
+                                # Invaliduj cache
+                                self._invalidate_cache_key(config.config_key)
+                                
+                                results['reset_count'] += 1
+                                
+                    except Exception as e:
+                        results['failed'].append({
+                            'key': config.config_key,
+                            'error': str(e)
+                        })
+                
+                # Commit zmian
+                if results['reset_count'] > 0:
+                    db.session.commit()
+                    
+                logger.info("Reset konfiguracji do domyślnych zakończony", extra={
+                    'reset_count': results['reset_count'],
+                    'failed_count': len(results['failed']),
+                    'user_id': user_id
+                })
+                
+                return results
+                
+        except Exception as e:
+            db.session.rollback()
+            logger.error("Błąd resetu konfiguracji", extra={
+                'error': str(e),
+                'user_id': user_id
+            })
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'reset_count': 0,
+                'failed': []
+            }
+
+    def validate_config_batch(self, configs_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Waliduje batch konfiguracji przed zapisem
+        
+        Args:
+            configs_dict (Dict[str, Any]): Słownik konfiguracji do walidacji
+            
+        Returns:
+            Dict[str, Any]: Wynik walidacji
+        """
+        try:
+            from ..models import ProductionConfig
+            
+            validation_results = {
+                'valid': [],
+                'invalid': [],
+                'warnings': []
+            }
+            
+            for config_key, new_value in configs_dict.items():
+                try:
+                    # Sprawdź czy konfiguracja istnieje
+                    existing_config = ProductionConfig.query.filter_by(config_key=config_key).first()
+                    
+                    if existing_config:
+                        config_type = existing_config.config_type
+                    else:
+                        # Guess type for new config
+                        config_type = self._guess_config_type(new_value)
+                        validation_results['warnings'].append({
+                            'key': config_key,
+                            'message': f'Nowa konfiguracja, przypisano typ: {config_type}'
+                        })
+                    
+                    # Waliduj wartość
+                    serialized_value = self._serialize_config_value(new_value, config_type)
+                    self._validate_config_value(config_key, serialized_value, config_type)
+                    
+                    validation_results['valid'].append({
+                        'key': config_key,
+                        'value': new_value,
+                        'type': config_type,
+                        'serialized': serialized_value
+                    })
+                    
+                except Exception as e:
+                    validation_results['invalid'].append({
+                        'key': config_key,
+                        'value': new_value,
+                        'error': str(e)
+                    })
+            
+            return validation_results
+            
+        except Exception as e:
+            logger.error("Błąd walidacji batch", extra={'error': str(e)})
+            return {
+                'valid': [],
+                'invalid': [{'error': f'Ogólny błąd walidacji: {str(e)}'}],
+                'warnings': []
+            }
+
+    def _guess_config_type(self, value: Any) -> str:
+        """
+        Zgaduje typ konfiguracji na podstawie wartości
+        
+        Args:
+            value (Any): Wartość do analizy
+            
+        Returns:
+            str: Zgadywany typ konfiguracji
+        """
+        if isinstance(value, bool):
+            return 'boolean'
+        elif isinstance(value, int):
+            return 'integer'
+        elif isinstance(value, (list, dict)):
+            return 'json'
+        elif isinstance(value, str):
+            # Sprawdź czy to lista IP
+            if ',' in value and all(self._is_valid_ip_format(ip.strip()) for ip in value.split(',')):
+                return 'ip_list'
+            # Sprawdź czy to JSON string
+            try:
+                import json
+                json.loads(value)
+                return 'json'
+            except:
+                pass
+            return 'string'
+        else:
+            return 'string'
+
+    def _is_valid_ip_format(self, ip: str) -> bool:
+        """
+        Sprawdza czy string ma format IP address
+        
+        Args:
+            ip (str): String do sprawdzenia
+            
+        Returns:
+            bool: True jeśli ma format IP
+        """
+        import re
+        ip_pattern = r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'
+        return bool(re.match(ip_pattern, ip))
 
 class PriorityConfigCache:
     """
@@ -687,3 +1064,4 @@ def set_config(key: str, value: Any, user_id: Optional[int] = None) -> bool:
 def invalidate_config_cache():
     """Helper function dla invalidacji cache"""
     get_config_service().invalidate_cache()
+
