@@ -1,9 +1,10 @@
 /**
  * Config Module - Moduł zarządzania konfiguracją
  * static/js/config-module.js
+ * WERSJA 2.0 - Z POPRAWKAMI ŚLEDZENIA ZMIAN
  * 
  * Zarządza interfejsem konfiguracji systemu produkcyjnego:
- * - Śledzenie zmian konfiguracji
+ * - Śledzenie zmian konfiguracji z porównaniem do oryginału
  * - Zarządzanie listą IP
  * - Walidacja danych
  * - Zapisywanie zmian
@@ -15,6 +16,12 @@ class ConfigModule {
         this.pendingChanges = {};
         this.changesCount = 0;
         this.isInitialized = false;
+
+        // KLUCZOWE: Przechowywanie oryginalnych wartości z bazy danych
+        this.originalValues = {};
+
+        // Debug mode
+        this.debug = true;
 
         // Wartości domyślne dla konfiguracji
         this.defaultValues = {
@@ -45,7 +52,7 @@ class ConfigModule {
             'STATION_PACKAGING_PRIORITY_SORT': 'priority_rank'
         };
 
-        console.log('[ConfigModule] Instance created');
+        console.log('[ConfigModule v2.0] Instance created');
     }
 
     /**
@@ -57,24 +64,127 @@ class ConfigModule {
             return;
         }
 
-        console.log('[ConfigModule] Initializing...');
+        console.log('[ConfigModule] Initializing v2.0...');
 
         try {
-            // Inicjalizacja podstawowych komponentów
+            // Inicjalizacja podstawowych komponentów (bez ładowania wartości!)
             this.initIPManagement();
             this.initJSONValidation();
             this.initSwitchLabels();
             this.initEventListeners();
 
-            // Reset stanu
+            // Reset stanu - upewnij się że bar jest ukryty na start
             this.resetPendingChanges();
+            this.hideSaveBar();
+
+            // NIE ŁADUJEMY tutaj originalValues!
+            // To będzie zrobione ręcznie przez production-app-loader.js po załadowaniu AJAX
 
             this.isInitialized = true;
-            console.log('[ConfigModule] Initialized successfully');
+            console.log('[ConfigModule] ✅ Initialized successfully (waiting for DOM to load original values)');
 
         } catch (error) {
-            console.error('[ConfigModule] Initialization failed:', error);
+            console.error('[ConfigModule] ❌ Initialization failed:', error);
         }
+    }
+
+    /**
+     * PUBLICZNA METODA: Ładowanie oryginalnych wartości
+     * WYWOŁANA RĘCZNIE przez production-app-loader.js PO załadowaniu AJAX contentu
+     */
+    loadOriginalValuesFromDOM() {
+        console.log('[ConfigModule] 📥 loadOriginalValuesFromDOM() called by external trigger');
+        this.loadOriginalValues();
+    }
+
+    /**
+     * KLUCZOWE: Ładowanie oryginalnych wartości z DOM
+     * WYWOŁANE Z OPÓŹNIENIEM po załadowaniu HTML przez AJAX
+     */
+    loadOriginalValues() {
+        console.log('[ConfigModule] 📥 Scheduling loadOriginalValues...');
+
+        // Czekaj aż DOM będzie gotowy (content ładowany przez AJAX)
+        const attemptLoad = (retryCount = 0) => {
+            console.log(`[ConfigModule] Attempt ${retryCount + 1} to load original values...`);
+
+            // Mapowanie pól formularza na klucze konfiguracji
+            const fieldMappings = {
+                'sync_enabled': 'SYNC_ENABLED',
+                'max_sync_items': 'MAX_SYNC_ITEMS_PER_BATCH',
+                'baselinker_completed': 'BASELINKER_TARGET_STATUS_COMPLETED',
+                // 'baselinker_paid': 'BASELINKER_SOURCE_STATUS_PAID', // NIE ISTNIEJE W HTML
+                // 'baselinker_production': 'BASELINKER_TARGET_STATUS_PRODUCTION', // NIE ISTNIEJE W HTML
+                'sync_retry': 'SYNC_RETRY_COUNT',
+                'refresh_interval': 'REFRESH_INTERVAL_SECONDS',
+                'station_auto_refresh': 'STATION_AUTO_REFRESH_ENABLED',
+                // 'station_show_details': 'STATION_SHOW_DETAILED_INFO', // NIE ISTNIEJE W HTML
+                'station_max_products': 'STATION_MAX_PRODUCTS_DISPLAY',
+                'deadline_days': 'DEADLINE_DEFAULT_DAYS',
+                'priority_recalc': 'PRIORITY_RECALC_INTERVAL_HOURS',
+                'priority_version': 'PRIORITY_ALGORITHM_VERSION',
+                'debug_backend': 'DEBUG_PRODUCTION_BACKEND',
+                'debug_frontend': 'DEBUG_PRODUCTION_FRONTEND',
+                'cache_duration': 'CACHE_DURATION_SECONDS',
+                'admin_email': 'ADMIN_EMAIL_NOTIFICATIONS',
+                'error_threshold': 'ERROR_NOTIFICATION_THRESHOLD',
+                'baselinker_cache': 'BASELINKER_STATUSES_CACHE',
+                'max_products_order': 'MAX_PRODUCTS_PER_ORDER'
+            };
+
+            let foundCount = 0;
+
+            // Pobierz wartości ze wszystkich pól formularza
+            for (const [fieldId, configKey] of Object.entries(fieldMappings)) {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    foundCount++;
+                    if (field.type === 'checkbox') {
+                        this.originalValues[configKey] = field.checked;
+                    } else {
+                        this.originalValues[configKey] = field.value;
+                    }
+
+                    if (this.debug) {
+                        console.log(`[ConfigModule] 📌 Loaded ${configKey}:`, this.originalValues[configKey], `(from #${fieldId})`);
+                    }
+                } else {
+                    if (this.debug) {
+                        console.warn(`[ConfigModule] ⚠️ Field not found: #${fieldId} for ${configKey}`);
+                    }
+                }
+            }
+
+            // Specjalne traktowanie dla STATION_ALLOWED_IPS
+            const ipList = this.getCurrentIPList();
+            if (ipList.length > 0) {
+                this.originalValues['STATION_ALLOWED_IPS'] = ipList.join(',');
+                foundCount++;
+            }
+
+            console.log(`[ConfigModule] Found ${foundCount} / ${Object.keys(fieldMappings).length} fields`);
+
+            // Jeśli nie znaleziono żadnych pól i mamy retry, spróbuj ponownie
+            if (foundCount === 0 && retryCount < 5) {
+                console.warn(`[ConfigModule] ⚠️ NO FIELDS FOUND! Retry ${retryCount + 1}/5 in 200ms...`);
+                setTimeout(() => attemptLoad(retryCount + 1), 200);
+                return;
+            }
+
+            // Sukces lub max retry
+            if (foundCount > 0) {
+                console.log(`[ConfigModule] ✅ Original values loaded successfully: ${Object.keys(this.originalValues).length} configs`);
+                if (this.debug) {
+                    console.log('[ConfigModule] 🔍 DEBUG: All original values:', this.originalValues);
+                }
+            } else {
+                console.error('[ConfigModule] ❌ FAILED to load original values after 5 attempts!');
+                console.error('[ConfigModule] DOM might not contain config fields. Check if config-tab-content.html loaded correctly.');
+            }
+        };
+
+        // Rozpocznij ładowanie z małym opóźnieniem
+        setTimeout(() => attemptLoad(0), 150);
     }
 
     /**
@@ -152,18 +262,88 @@ class ConfigModule {
     }
 
     /**
-     * Śledzenie zmian konfiguracji
+     * KLUCZOWE: Śledzenie zmian konfiguracji z porównaniem do oryginału
      */
     configChanged(key, value) {
-        console.log('[ConfigModule] Configuration changed:', key, '=', value);
+        console.log('═══════════════════════════════════════════');
+        console.log('[ConfigModule] 🔄 Configuration change detected');
+        console.log('Key:', key);
+        console.log('New value:', value, 'Type:', typeof value);
 
-        this.pendingChanges[key] = value;
+        // Pobierz oryginalną wartość
+        const originalValue = this.originalValues[key];
+        console.log('Original value:', originalValue, 'Type:', typeof originalValue);
+
+        // Normalizacja wartości do porównania
+        const normalizedValue = this.normalizeValue(value);
+        const normalizedOriginal = this.normalizeValue(originalValue);
+
+        console.log('After normalization:');
+        console.log('  New:', normalizedValue, 'Type:', typeof normalizedValue);
+        console.log('  Original:', normalizedOriginal, 'Type:', typeof normalizedOriginal);
+        console.log('  Are equal?', normalizedValue === normalizedOriginal);
+
+        // Sprawdź czy wartość wróciła do oryginału
+        if (normalizedValue === normalizedOriginal) {
+            // Usuń z pending changes jeśli istnieje
+            if (this.pendingChanges.hasOwnProperty(key)) {
+                delete this.pendingChanges[key];
+                console.log('✅ Value returned to original → REMOVED from pending changes');
+            } else {
+                console.log('ℹ️  Value equals original → NOT in pending changes');
+            }
+            // Usuń highlight z pola
+            this.removeFieldHighlight(key);
+        } else {
+            // Wartość się różni od oryginału, dodaj do pending changes
+            this.pendingChanges[key] = value;
+            console.log('📝 Value differs from original → ADDED to pending changes');
+            // Dodaj highlight do pola
+            this.addFieldHighlight(key);
+        }
+
+        // Przelicz liczbę zmian
         this.changesCount = Object.keys(this.pendingChanges).length;
+        console.log('📊 Total pending changes:', this.changesCount);
+        console.log('Pending changes:', Object.keys(this.pendingChanges));
+        console.log('═══════════════════════════════════════════');
 
+        // Aktualizuj UI
         this.updateChangesIndicator();
+    }
 
-        // Pokazuj save bar jeśli są zmiany
-        this.showSaveBar(this.changesCount > 0);
+    /**
+     * KLUCZOWE: Normalizacja wartości do porównania
+     */
+    normalizeValue(value) {
+        // Obsługa null/undefined
+        if (value === null || value === undefined) {
+            return '';
+        }
+
+        // Boolean - zwróć bez zmian
+        if (typeof value === 'boolean') {
+            return value;
+        }
+
+        // Konwersja do string i trim
+        const strValue = String(value).trim();
+
+        // Próba konwersji na number jeśli wygląda na liczbę
+        if (/^\d+$/.test(strValue)) {
+            return parseInt(strValue, 10);
+        }
+
+        // Próba konwersji na float jeśli ma kropkę
+        if (/^\d+\.\d+$/.test(strValue)) {
+            return parseFloat(strValue);
+        }
+
+        // Próba konwersji na boolean jeśli wygląda na boolean
+        if (strValue.toLowerCase() === 'true') return true;
+        if (strValue.toLowerCase() === 'false') return false;
+
+        return strValue;
     }
 
     /**
@@ -173,22 +353,28 @@ class ConfigModule {
         const saveBar = document.getElementById('config-save-bar');
         const changesCountEl = document.getElementById('changes-count');
 
+        console.log('[ConfigModule] 🎨 Updating UI indicator');
+        console.log('Changes count:', this.changesCount);
+
         if (this.changesCount > 0) {
+            console.log('→ Showing save bar');
             if (saveBar) saveBar.classList.add('has-changes');
             if (changesCountEl) changesCountEl.textContent = this.changesCount;
         } else {
+            console.log('→ Hiding save bar');
             if (saveBar) saveBar.classList.remove('has-changes');
             if (changesCountEl) changesCountEl.textContent = '0';
         }
     }
 
     /**
-     * Pokazanie/ukrycie paska zapisywania
+     * Ukrycie paska zapisywania (force)
      */
-    showSaveBar(show) {
+    hideSaveBar() {
         const saveBar = document.getElementById('config-save-bar');
         if (saveBar) {
-            saveBar.style.display = show ? 'block' : 'none';
+            saveBar.classList.remove('has-changes');
+            console.log('[ConfigModule] Save bar hidden');
         }
     }
 
@@ -201,7 +387,7 @@ class ConfigModule {
             return;
         }
 
-        console.log('[ConfigModule] Saving changes:', this.pendingChanges);
+        console.log('[ConfigModule] 💾 Saving changes:', this.pendingChanges);
 
         const saveBtn = document.getElementById('btn-save');
         const originalText = saveBtn ? saveBtn.innerHTML : '';
@@ -232,18 +418,23 @@ class ConfigModule {
             }
 
             if (result.success) {
-                console.log('[ConfigModule] Changes saved successfully');
+                console.log('[ConfigModule] ✅ Changes saved successfully');
                 this.showToast('Konfiguracja zapisana pomyślnie!', 'success');
 
-                // Wyczyść pending changes
+                // NOWE: Zaktualizuj oryginalne wartości po pomyślnym zapisie
+                Object.assign(this.originalValues, this.pendingChanges);
+                console.log('[ConfigModule] 📝 Original values updated after save');
+
+                // Wyczyść pending changes i usuń highlighty
                 this.resetPendingChanges();
+                this.hideSaveBar();
 
             } else {
                 throw new Error(result.error || 'Nieznany błąd');
             }
 
         } catch (error) {
-            console.error('[ConfigModule] Error saving changes:', error);
+            console.error('[ConfigModule] ❌ Error saving changes:', error);
             this.showToast(`Błąd zapisywania: ${error.message}`, 'error');
         } finally {
             // Przywróć przycisk
@@ -261,11 +452,53 @@ class ConfigModule {
         if (this.changesCount === 0) return;
 
         if (confirm('Czy na pewno chcesz anulować wszystkie niezapisane zmiany?')) {
-            console.log('[ConfigModule] Discarding changes');
+            console.log('[ConfigModule] 🔄 Discarding changes - restoring original values');
 
-            // Przeładuj stronę aby przywrócić oryginalne wartości
-            window.location.reload();
+            // Przywróć każdą wartość z originalValues
+            for (const [configKey, originalValue] of Object.entries(this.originalValues)) {
+                this.restoreFieldValue(configKey, originalValue);
+            }
+
+            // Wyczyść pending changes i usuń highlighty
+            this.resetPendingChanges();
+            this.hideSaveBar();
+
+            this.showToast('Anulowano wszystkie zmiany', 'info');
         }
+    }
+
+    /**
+     * Przywrócenie oryginalnej wartości do pola formularza
+     */
+    restoreFieldValue(configKey, originalValue) {
+        const fieldId = this.getFieldIdFromConfigKey(configKey);
+        if (!fieldId) return;
+
+        // Specjalna obsługa dla IP
+        if (configKey === 'STATION_ALLOWED_IPS') {
+            this.resetIPList(originalValue);
+            return;
+        }
+
+        const field = document.getElementById(fieldId);
+        if (!field) {
+            console.warn(`[ConfigModule] Field not found for restore: ${fieldId}`);
+            return;
+        }
+
+        // Przywróć wartość w zależności od typu pola
+        if (field.type === 'checkbox') {
+            field.checked = Boolean(originalValue);
+            this.updateSwitchLabel(field);
+        } else {
+            field.value = originalValue;
+            // Walidacja JSON jeśli to textarea z JSON
+            if (field.classList.contains('json-editor')) {
+                this.validateJSON(field);
+            }
+        }
+
+        console.log(`[ConfigModule] Restored ${configKey} to:`, originalValue);
     }
 
     /**
@@ -279,7 +512,7 @@ class ConfigModule {
         const defaultValue = this.defaultValues[key];
 
         if (defaultValue !== undefined) {
-            console.log(`[ConfigModule] Resetting ${key} to default:`, defaultValue);
+            console.log(`[ConfigModule] 🔄 Resetting ${key} to default:`, defaultValue);
 
             // Aktualizuj pole formularza
             this.updateFormField(key, defaultValue);
@@ -301,9 +534,12 @@ class ConfigModule {
             'SYNC_ENABLED': 'sync_enabled',
             'MAX_SYNC_ITEMS_PER_BATCH': 'max_sync_items',
             'BASELINKER_TARGET_STATUS_COMPLETED': 'baselinker_completed',
+            'BASELINKER_SOURCE_STATUS_PAID': 'baselinker_paid',
+            'BASELINKER_TARGET_STATUS_PRODUCTION': 'baselinker_production',
             'SYNC_RETRY_COUNT': 'sync_retry',
             'REFRESH_INTERVAL_SECONDS': 'refresh_interval',
             'STATION_AUTO_REFRESH_ENABLED': 'station_auto_refresh',
+            'STATION_SHOW_DETAILED_INFO': 'station_show_details',
             'STATION_MAX_PRODUCTS_DISPLAY': 'station_max_products',
             'DEADLINE_DEFAULT_DAYS': 'deadline_days',
             'PRIORITY_RECALC_INTERVAL_HOURS': 'priority_recalc',
@@ -342,7 +578,89 @@ class ConfigModule {
         this.pendingChanges = {};
         this.changesCount = 0;
         this.updateChangesIndicator();
-        this.showSaveBar(false);
+        // Usuń wszystkie highlighty
+        this.removeAllHighlights();
+    }
+
+    // ========================================================================
+    // VISUAL FEEDBACK - HIGHLIGHTING
+    // ========================================================================
+
+    /**
+     * Dodanie pomarańczowego obrysu do zmienionego pola
+     */
+    addFieldHighlight(configKey) {
+        const fieldId = this.getFieldIdFromConfigKey(configKey);
+        if (!fieldId) return;
+
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+
+        // Znajdź rodzica .config-item
+        const configItem = field.closest('.config-item');
+        if (configItem) {
+            configItem.classList.add('config-item-changed');
+            console.log(`[ConfigModule] 🎨 Added highlight to ${configKey}`);
+        }
+    }
+
+    /**
+     * Usunięcie pomarańczowego obrysu ze zmienionego pola
+     */
+    removeFieldHighlight(configKey) {
+        const fieldId = this.getFieldIdFromConfigKey(configKey);
+        if (!fieldId) return;
+
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+
+        // Znajdź rodzica .config-item
+        const configItem = field.closest('.config-item');
+        if (configItem) {
+            configItem.classList.remove('config-item-changed');
+            console.log(`[ConfigModule] 🎨 Removed highlight from ${configKey}`);
+        }
+    }
+
+    /**
+     * Usunięcie wszystkich highlightów (np. po zapisie)
+     */
+    removeAllHighlights() {
+        const allHighlighted = document.querySelectorAll('.config-item-changed');
+        allHighlighted.forEach(item => {
+            item.classList.remove('config-item-changed');
+        });
+        if (allHighlighted.length > 0) {
+            console.log(`[ConfigModule] 🎨 Removed all highlights (${allHighlighted.length} items)`);
+        }
+    }
+
+    /**
+     * Pomocnicza metoda: mapowanie configKey → fieldId
+     */
+    getFieldIdFromConfigKey(configKey) {
+        const reverseMapping = {
+            'SYNC_ENABLED': 'sync_enabled',
+            'MAX_SYNC_ITEMS_PER_BATCH': 'max_sync_items',
+            'BASELINKER_TARGET_STATUS_COMPLETED': 'baselinker_completed',
+            'SYNC_RETRY_COUNT': 'sync_retry',
+            'REFRESH_INTERVAL_SECONDS': 'refresh_interval',
+            'STATION_AUTO_REFRESH_ENABLED': 'station_auto_refresh',
+            'STATION_MAX_PRODUCTS_DISPLAY': 'station_max_products',
+            'DEADLINE_DEFAULT_DAYS': 'deadline_days',
+            'PRIORITY_RECALC_INTERVAL_HOURS': 'priority_recalc',
+            'PRIORITY_ALGORITHM_VERSION': 'priority_version',
+            'DEBUG_PRODUCTION_BACKEND': 'debug_backend',
+            'DEBUG_PRODUCTION_FRONTEND': 'debug_frontend',
+            'CACHE_DURATION_SECONDS': 'cache_duration',
+            'ADMIN_EMAIL_NOTIFICATIONS': 'admin_email',
+            'ERROR_NOTIFICATION_THRESHOLD': 'error_threshold',
+            'BASELINKER_STATUSES_CACHE': 'baselinker_cache',
+            'MAX_PRODUCTS_PER_ORDER': 'max_products_order',
+            'STATION_ALLOWED_IPS': 'ip-list-items' // specjalny case
+        };
+
+        return reverseMapping[configKey];
     }
 
     // ========================================================================
@@ -414,12 +732,11 @@ class ConfigModule {
         ipItem.className = 'ip-item';
         ipItem.innerHTML = `
             <span class="ip-address">${ip}</span>
-            <div class="ip-item-actions">
-                <button class="btn btn-outline-danger btn-sm" onclick="window.configModule.removeIP('${ip}')" title="Usuń IP">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
+            <button class="btn btn-sm btn-danger" onclick="window.configModule.removeIP('${ip}')">
+                <i class="fas fa-times"></i>
+            </button>
         `;
+
         container.appendChild(ipItem);
     }
 
@@ -427,7 +744,10 @@ class ConfigModule {
      * Usunięcie IP z DOM
      */
     removeIPFromList(ip) {
-        const items = document.querySelectorAll('.ip-item');
+        const container = document.getElementById('ip-list-items');
+        if (!container) return;
+
+        const items = container.querySelectorAll('.ip-item');
         items.forEach(item => {
             const ipSpan = item.querySelector('.ip-address');
             if (ipSpan && ipSpan.textContent === ip) {
@@ -440,8 +760,11 @@ class ConfigModule {
      * Pobranie aktualnej listy IP
      */
     getCurrentIPList() {
-        const items = document.querySelectorAll('.ip-address');
-        return Array.from(items).map(item => item.textContent);
+        const container = document.getElementById('ip-list-items');
+        if (!container) return [];
+
+        const ipSpans = container.querySelectorAll('.ip-address');
+        return Array.from(ipSpans).map(span => span.textContent.trim());
     }
 
     /**
@@ -466,13 +789,19 @@ class ConfigModule {
     }
 
     /**
-     * Walidacja input IP
+     * Walidacja IP input
      */
     validateIPInput(input) {
-        if (input.value && !this.isValidIP(input.value)) {
-            input.classList.add('is-invalid');
-        } else {
+        const ip = input.value.trim();
+        if (!ip) {
             input.classList.remove('is-invalid');
+            return;
+        }
+
+        if (this.isValidIP(ip)) {
+            input.classList.remove('is-invalid');
+        } else {
+            input.classList.add('is-invalid');
         }
     }
 
@@ -484,8 +813,15 @@ class ConfigModule {
      * Walidacja JSON
      */
     validateJSON(textarea) {
+        const value = textarea.value.trim();
+
+        if (!value) {
+            textarea.classList.remove('json-valid', 'json-invalid');
+            return;
+        }
+
         try {
-            JSON.parse(textarea.value);
+            JSON.parse(value);
             textarea.classList.remove('json-invalid');
             textarea.classList.add('json-valid');
         } catch (e) {
@@ -499,18 +835,18 @@ class ConfigModule {
     // ========================================================================
 
     /**
-     * Aktualizacja etykiet switch
+     * Aktualizacja etykiety switch
      */
     updateSwitchLabel(checkbox) {
-        const label = checkbox.parentElement.querySelector('.form-check-label span');
-        if (label) {
-            if (checkbox.checked) {
-                label.textContent = 'Włączone';
-                label.className = 'text-success fw-bold';
-            } else {
-                label.textContent = 'Wyłączone';
-                label.className = 'text-muted';
-            }
+        const label = checkbox.closest('.form-check').querySelector('.form-check-label span');
+        if (!label) return;
+
+        if (checkbox.checked) {
+            label.textContent = 'Włączone';
+            label.className = 'text-success fw-bold';
+        } else {
+            label.textContent = 'Wyłączone';
+            label.className = 'text-muted';
         }
     }
 
@@ -522,11 +858,11 @@ class ConfigModule {
      * Czyszczenie cache
      */
     async clearCache() {
-        if (!confirm('Czy na pewno chcesz wyczyścić cache systemu?')) {
+        if (!confirm('Czy na pewno chcesz wyczyścić cache? To spowoduje ponowne załadowanie wszystkich danych.')) {
             return;
         }
 
-        console.log('[ConfigModule] Clearing cache');
+        console.log('[ConfigModule] Clearing cache...');
 
         try {
             const response = await fetch('/production/api/clear-cache', {
@@ -540,16 +876,11 @@ class ConfigModule {
             const result = await response.json();
 
             if (result.success) {
-                this.showToast('Cache został wyczyszczony pomyślnie', 'success');
-
-                // Odśwież statystyki cache
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
+                this.showToast('Cache wyczyszczony pomyślnie!', 'success');
+                setTimeout(() => window.location.reload(), 1000);
             } else {
-                throw new Error(result.error || 'Nieznany błąd');
+                throw new Error(result.error || 'Błąd czyszczenia cache');
             }
-
         } catch (error) {
             console.error('[ConfigModule] Error clearing cache:', error);
             this.showToast(`Błąd czyszczenia cache: ${error.message}`, 'error');
@@ -557,25 +888,25 @@ class ConfigModule {
     }
 
     // ========================================================================
-    // TOAST NOTIFICATIONS
+    // TOAST SYSTEM
     // ========================================================================
 
     /**
-     * Pokazanie toast notification
+     * Wyświetlenie toast notification
      */
     showToast(message, type = 'info') {
         const alertClass = {
             'success': 'alert-success',
             'error': 'alert-danger',
-            'info': 'alert-info',
-            'warning': 'alert-warning'
+            'warning': 'alert-warning',
+            'info': 'alert-info'
         }[type] || 'alert-info';
 
         const icon = {
             'success': 'fa-check-circle',
-            'error': 'fa-exclamation-triangle',
-            'info': 'fa-info-circle',
-            'warning': 'fa-exclamation-triangle'
+            'error': 'fa-times-circle',
+            'warning': 'fa-exclamation-triangle',
+            'info': 'fa-info-circle'
         }[type] || 'fa-info-circle';
 
         const toast = document.createElement('div');
@@ -607,6 +938,7 @@ class ConfigModule {
     cleanup() {
         this.isInitialized = false;
         this.resetPendingChanges();
+        this.originalValues = {};
 
         console.log('[ConfigModule] Cleaned up');
     }
@@ -616,10 +948,11 @@ class ConfigModule {
 // GLOBAL FUNCTIONS - dla kompatybilności z HTML onclick
 // ============================================================================
 
-// Globalne funkcje wywoływane z HTML
 window.configChanged = function (key, value) {
     if (window.configModule) {
         window.configModule.configChanged(key, value);
+    } else {
+        console.error('[ConfigModule] Global configModule not found!');
     }
 };
 
@@ -669,7 +1002,6 @@ window.discardChanges = function () {
 // AUTO-INITIALIZATION
 // ============================================================================
 
-// Automatyczna inicjalizacja gdy DOM jest gotowy
 function initConfigModule() {
     if (typeof window.configModule !== 'undefined') {
         console.log('[ConfigModule] Already exists, cleaning up...');
@@ -682,6 +1014,8 @@ function initConfigModule() {
     const configContainer = document.querySelector('.config-container');
     if (configContainer) {
         window.configModule.init();
+    } else {
+        console.log('[ConfigModule] Config container not found, skipping init');
     }
 }
 
@@ -692,4 +1026,4 @@ if (document.readyState === 'loading') {
     initConfigModule();
 }
 
-console.log('[ConfigModule] Script loaded');
+console.log('[ConfigModule v2.0] Script loaded - with enhanced debugging');

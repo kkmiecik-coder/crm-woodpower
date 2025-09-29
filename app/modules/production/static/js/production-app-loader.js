@@ -406,7 +406,6 @@ class ProductionApp {
     async loadConfigTab() {
         console.log('[ProductionApp] Loading config tab...');
 
-        // Admin only
         if (!this.config.user || !this.config.user.isAdmin) {
             throw new Error('Brak uprawnień administratora');
         }
@@ -417,14 +416,21 @@ class ProductionApp {
             if (response.success) {
                 const wrapper = document.getElementById('config-tab-wrapper');
                 const loading = document.getElementById('config-tab-loading');
-                
+
                 if (wrapper) {
                     wrapper.innerHTML = response.html;
                     wrapper.style.display = 'block';
                 }
-                
+
                 if (loading) {
                     loading.style.display = 'none';
+                }
+
+                if (window.configModule) {
+                    console.log('[ProductionApp] Triggering loadOriginalValuesFromDOM...');
+                    window.configModule.loadOriginalValuesFromDOM();
+                } else {
+                    console.error('[ProductionApp] configModule not found!');
                 }
             } else {
                 throw new Error(response.error || 'Failed to load config');

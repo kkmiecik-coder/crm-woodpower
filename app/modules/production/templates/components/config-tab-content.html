@@ -138,7 +138,7 @@
                                     <input type="number" class="form-control" id="max_sync_items" 
                                            value="{{ config_groups.sync.MAX_SYNC_ITEMS_PER_BATCH.value|default(1000) }}" 
                                            min="1" max="5000" 
-                                           onchange="configChanged('MAX_SYNC_ITEMS_PER_BATCH', this.value)">
+                                           oninput="configChanged('MAX_SYNC_ITEMS_PER_BATCH', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('MAX_SYNC_ITEMS_PER_BATCH')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -178,7 +178,7 @@
                                     <input type="number" class="form-control" id="baselinker_completed" 
                                            value="{{ config_groups.sync.BASELINKER_TARGET_STATUS_COMPLETED.value|default(138623) }}" 
                                            min="1" 
-                                           onchange="configChanged('BASELINKER_TARGET_STATUS_COMPLETED', this.value)">
+                                           oninput="configChanged('BASELINKER_TARGET_STATUS_COMPLETED', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('BASELINKER_TARGET_STATUS_COMPLETED')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -216,7 +216,7 @@
                             <div class="config-control-wrapper">
                                 <div class="config-control">
                                     <input type="number" class="form-control" id="sync_retry" value="3" min="0" max="10" 
-                                           onchange="configChanged('SYNC_RETRY_COUNT', this.value)">
+                                           oninput="configChanged('SYNC_RETRY_COUNT', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('SYNC_RETRY_COUNT')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -361,7 +361,7 @@
                                     <input type="number" class="form-control" id="refresh_interval" 
                                            value="{{ config_groups.stations.REFRESH_INTERVAL_SECONDS.value|default(30) }}" 
                                            min="5" max="300" 
-                                           onchange="configChanged('REFRESH_INTERVAL_SECONDS', this.value)">
+                                           oninput="configChanged('REFRESH_INTERVAL_SECONDS', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('REFRESH_INTERVAL_SECONDS')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -447,7 +447,7 @@
                                     <input type="number" class="form-control" id="station_max_products" 
                                            value="{{ config_groups.stations.STATION_MAX_PRODUCTS_DISPLAY.value|default(50) }}" 
                                            min="5" max="500" 
-                                           onchange="configChanged('STATION_MAX_PRODUCTS_DISPLAY', this.value)">
+                                           oninput="configChanged('STATION_MAX_PRODUCTS_DISPLAY', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('STATION_MAX_PRODUCTS_DISPLAY')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -504,7 +504,7 @@
                                     <input type="number" class="form-control" id="deadline_days" 
                                            value="{{ config_groups.priorities.DEADLINE_DEFAULT_DAYS.value|default(14) }}" 
                                            min="1" max="90" 
-                                           onchange="configChanged('DEADLINE_DEFAULT_DAYS', this.value)">
+                                           oninput="configChanged('DEADLINE_DEFAULT_DAYS', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('DEADLINE_DEFAULT_DAYS')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -544,7 +544,7 @@
                                     <input type="number" class="form-control" id="priority_recalc" 
                                            value="{{ config_groups.priorities.PRIORITY_RECALC_INTERVAL_HOURS.value|default(24) }}" 
                                            min="1" max="168" 
-                                           onchange="configChanged('PRIORITY_RECALC_INTERVAL_HOURS', this.value)">
+                                           oninput="configChanged('PRIORITY_RECALC_INTERVAL_HOURS', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('PRIORITY_RECALC_INTERVAL_HOURS')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -732,7 +732,7 @@
                                     <input type="number" class="form-control" id="cache_duration" 
                                            value="{{ config_groups.system.CACHE_DURATION_SECONDS.value|default(3600) }}" 
                                            min="60" max="86400" 
-                                           onchange="configChanged('CACHE_DURATION_SECONDS', this.value)">
+                                           oninput="configChanged('CACHE_DURATION_SECONDS', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('CACHE_DURATION_SECONDS')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -771,7 +771,7 @@
                                 <div class="config-control">
                                     <input type="email" class="form-control" id="admin_email" 
                                            value="{{ config_groups.system.ADMIN_EMAIL_NOTIFICATIONS.value|default('admin@woodpower.pl') }}" 
-                                           onchange="configChanged('ADMIN_EMAIL_NOTIFICATIONS', this.value)">
+                                           oninput="configChanged('ADMIN_EMAIL_NOTIFICATIONS', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('ADMIN_EMAIL_NOTIFICATIONS')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -811,7 +811,7 @@
                                     <input type="number" class="form-control" id="error_threshold" 
                                            value="{{ config_groups.system.ERROR_NOTIFICATION_THRESHOLD.value|default(10) }}" 
                                            min="1" max="100" 
-                                           onchange="configChanged('ERROR_NOTIFICATION_THRESHOLD', this.value)">
+                                           oninput="configChanged('ERROR_NOTIFICATION_THRESHOLD', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('ERROR_NOTIFICATION_THRESHOLD')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
@@ -870,9 +870,9 @@
                                             <i class="fas fa-code"></i>
                                             JSON Editor
                                         </div>
-                                        <textarea class="form-control json-editor" id="baselinker_cache" rows="6" 
-                                                  onchange="configChanged('BASELINKER_STATUSES_CACHE', this.value)" 
-                                                  onblur="validateJSON(this)">{{ config_groups.other.BASELINKER_STATUSES_CACHE.value|default('{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}')|e }}</textarea>
+                                        <textarea class="form-control json-editor" id="baselinker_cache" rows="6"
+                                                  oninput="configChanged('BASELINKER_STATUSES_CACHE', this.value); validateJSON(this);">
+                                                  {{ config_groups.other.BASELINKER_STATUSES_CACHE.value|default('{"id": 105112, "name": "Nowe - opłacone", "color": "ffffff"}')|e }}</textarea>
                                     </div>
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('BASELINKER_STATUSES_CACHE')" title="Przywróć domyślne">
@@ -913,7 +913,7 @@
                                     <input type="number" class="form-control" id="max_products_order" 
                                            value="{{ config_groups.other.MAX_PRODUCTS_PER_ORDER.value|default(999) }}" 
                                            min="1" max="9999" 
-                                           onchange="configChanged('MAX_PRODUCTS_PER_ORDER', this.value)">
+                                           oninput="configChanged('MAX_PRODUCTS_PER_ORDER', this.value)">
                                 </div>
                                 <button class="config-reset-btn" onclick="resetToDefault('MAX_PRODUCTS_PER_ORDER')" title="Przywróć domyślne">
                                     <i class="fas fa-undo"></i>
