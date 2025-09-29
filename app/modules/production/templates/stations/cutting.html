@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>{{ page_title }} - WoodPower CRM</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-root.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-cutting.css') }}">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
+</head>
+<body>
+    <!-- HEADER -->
+    <header class="station-header">
+        <div class="header">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}" class="station-logo" alt="WoodPower">
+            <h1 class="station-title">Stanowisko wycinania</h1>
+            <div class="refresh-timer">
+                Odświeżanie: <span id="last-refresh">0s temu</span>
+            </div>
+            {% if config.debug_frontend %}
+            <button class="debug-btn" id="debug-toggle">Debug</button>
+            {% endif %}
+        </div>
+    </header>
+
+    <!-- STATS BAR -->
+    <div class="stats-bar">
+        <div class="stat-item">
+            <span class="stat-icon">📊</span>
+            <span class="stat-value" id="total-products">{{ station_stats.total_products }}</span>
+            <span class="stat-label">produktów</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-icon">📦</span>
+            <span class="stat-value" id="total-volume">{{ "%.4f"|format(products|map(attribute='volume_m3')|sum) }}</span>
+            <span class="stat-label">m³</span>
+        </div>
+
+        <div class="stat-item stat-critical">
+            <span class="stat-icon">🔴</span>
+            <span class="stat-value" id="critical-count">{{ station_stats.high_priority_count }}</span>
+            <span class="stat-label">pilnych</span>
+        </div>
+
+        <div class="stat-item stat-overdue">
+            <span class="stat-icon">⚠️</span>
+            <span class="stat-value" id="overdue-count">{{ station_stats.overdue_count }}</span>
+            <span class="stat-label">opóźnionych</span>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <main class="station-content">
+        {% if products|length == 0 %}
+        <!-- EMPTY STATE -->
+        <div class="empty-state">
+            <div class="empty-state-icon">✅</div>
+            <h2>Brak produktów do wycięcia</h2>
+            <p>Świetna robota! Wszystkie produkty zostały przetworzone.</p>
+        </div>
+        {% else %}
+        <!-- PRODUCTS GRID -->
+        <div class="products-grid" id="products-grid">
+            {% for product in products %}
+            <div class="product-card"
+                 data-product-id="{{ product.id }}"
+                 data-priority-rank="{{ product.priority_rank }}"
+                 data-species="{{ product.wood_species or '' }}"
+                 data-technology="{{ product.technology or '' }}"
+                 data-wood-class="{{ product.wood_class or '' }}">
+
+                <!-- CARD HEADER -->
+                <div class="card-header">
+                    <div class="priority-badge {{ product.priority_class }}">
+                        #{{ product.priority_rank }} {{ product.priority_label }}
+                    </div>
+                    <div class="product-id">ID: {{ product.id }}</div>
+                </div>
+
+                <!-- CARD BODY -->
+                <div class="card-body">
+                    <!-- Nazwa produktu (mała czcionka) -->
+                    <div class="product-name">{{ product.original_name }}</div>
+
+                    <!-- Wymiary (duży badge) -->
+                    <div class="dimensions-badge-large">
+                        {{ product.dimensions }}
+                    </div>
+
+                    <!-- Parametry (małe badges) -->
+                    <div class="product-badges">
+                        {% if product.wood_species %}
+                        <span class="badge badge-species" data-badge="species">{{ product.wood_species }}</span>
+                        {% endif %}
+                        {% if product.technology %}
+                        <span class="badge badge-technology" data-badge="technology">{{ product.technology }}</span>
+                        {% endif %}
+                        {% if product.wood_class %}
+                        <span class="badge badge-class" data-badge="wood_class">{{ product.wood_class }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- CARD FOOTER -->
+                <div class="card-footer">
+                    <div class="footer-info">
+                        <span class="deadline-info">📅 {{ product.display_deadline }}</span>
+                        <span class="volume-info">{{ "%.4f"|format(product.volume_m3) }} m³</span>
+                    </div>
+                </div>
+
+                <!-- CARD ACTION -->
+                <div class="card-action">
+                    <button class="btn btn-complete" data-action="complete">
+                        ZAKOŃCZ
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- Hidden data for JavaScript -->
+    <script type="application/json" id="station-config">
+        {
+            "stationCode": "{{ station_code }}",
+            "refreshInterval": {{ config.refresh_interval }},
+            "autoRefreshEnabled": {{ 'true' if config.auto_refresh_enabled else 'false' }},
+            "debugMode": {{ 'true' if config.debug_frontend else 'false' }},
+            "apiBaseUrl": "/production/api",
+            "ajaxBaseUrl": "/production/stations/ajax"
+        }
+    </script>
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-cutting.js') }}"></script>
+</body>
+</html>

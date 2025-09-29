@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>{{ page_title }} - WoodPower CRM</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-root.css') }}">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations/station-packaging.css') }}">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/favicon.png') }}">
+</head>
+<body>
+    <!-- HEADER -->
+    <header class="station-header">
+        <div class="header-left">
+            <img src="{{ url_for('static', filename='images/logo.svg') }}" class="station-logo" alt="WoodPower">
+            <h1 class="station-title">Stanowisko Pakowania</h1>
+        </div>
+
+        <div class="header-right">
+            <div class="refresh-timer">
+                Odświeżanie: <span id="last-refresh">0s temu</span>
+            </div>
+            {% if config.debug_frontend %}
+            <button class="debug-btn" id="debug-toggle">Debug</button>
+            {% endif %}
+        </div>
+    </header>
+
+    <!-- STATS BAR -->
+    <div class="stats-bar">
+        <div class="stat-item">
+            <span class="stat-icon">📊</span>
+            <span class="stat-value" id="total-orders">{{ station_stats.total_orders }}</span>
+            <span class="stat-label">zamówień</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-icon">📦</span>
+            <span class="stat-value" id="total-volume">{{ "%.4f"|format(products|map(attribute='volume_m3')|sum) }}</span>
+            <span class="stat-label">m³</span>
+        </div>
+
+        <div class="stat-item stat-critical">
+            <span class="stat-icon">🔴</span>
+            <span class="stat-value" id="critical-count">{{ station_stats.high_priority_count }}</span>
+            <span class="stat-label">pilnych</span>
+        </div>
+
+        <div class="stat-item stat-overdue">
+            <span class="stat-icon">⚠️</span>
+            <span class="stat-value" id="overdue-count">{{ station_stats.overdue_count }}</span>
+            <span class="stat-label">opóźnionych</span>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <main class="station-content">
+        {% if orders_grouped|length == 0 %}
+        <!-- EMPTY STATE -->
+        <div class="empty-state">
+            <div class="empty-state-icon">✅</div>
+            <h2>Brak zamówień do zapakowania</h2>
+            <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
+        </div>
+        {% else %}
+        <!-- ORDERS LIST (pionowo, jedna kolumna) -->
+        <div class="orders-list" id="orders-list">
+            {% for order in orders_grouped %}
+            <div class="order-card"
+                 data-order-number="{{ order.order_number }}"
+                 data-priority-rank="{{ order.best_priority_rank }}"
+                 data-total-products="{{ order.total_products }}">
+
+                <!-- HEADER WIERSZ 1 -->
+                <div class="order-header-row-1">
+                    <span class="order-number">Zamówienie: {{ order.order_number }}</span>
+                    <span class="priority-badge {{ order.priority_class }}">
+                        #{{ order.best_priority_rank }} {{ order.priority_label }}
+                    </span>
+                    <span class="deadline-info">📅 {{ order.display_deadline }}</span>
+                </div>
+
+                <!-- HEADER WIERSZ 2 -->
+                <div class="order-header-row-2">
+                    <span class="summary-products">RAZEM: {{ order.total_products }} {% if order.total_products == 1 %}produkt{% elif order.total_products < 5 %}produkty{% else %}produktów{% endif %}</span>
+                    <span class="summary-volume">{{ "%.4f"|format(order.total_volume) }} m³</span>
+                </div>
+
+                <!-- BODY - SPLIT -->
+                <div class="order-body">
+                    <!-- LEFT: Przycisk SPAKOWANE -->
+                    <div class="order-action">
+                        <button class="btn btn-package"
+                                data-action="package"
+                                data-order="{{ order.order_number }}"
+                                disabled>
+                            SPAKOWANE
+                        </button>
+                    </div>
+
+                    <!-- RIGHT: Lista produktów -->
+                    <div class="products-list">
+                        {% for product in order.products %}
+                        <div class="product-row {% if product.current_status != 'czeka_na_pakowanie' %}product-not-ready{% endif %}"
+                             data-product-id="{{ product.id }}"
+                             data-status="{{ product.current_status }}">
+
+                            <!-- Checkbox -->
+                            <div class="product-checkbox">
+                                <input type="checkbox"
+                                       class="product-check"
+                                       id="check-{{ product.id }}"
+                                       data-product-id="{{ product.id }}"
+                                       {% if product.current_status !='czeka_na_pakowanie' %}disabled{% endif %}>
+                                <label for="check-{{ product.id }}"></label>
+                            </div>
+
+                            <!-- Dane produktu -->
+                            <div class="product-info">
+                                <div class="product-main">
+                                    <span class="product-id">{{ product.id }}</span>
+                                    <span class="product-name">{{ product.original_name }}</span>
+                                    <span class="product-volume">{{ "%.4f"|format(product.volume_m3) }} m³</span>
+                                </div>
+
+                                {% if product.current_status != 'czeka_na_pakowanie' %}
+                                <div class="product-status-info">
+                                    Produkt w:
+                                    {% if product.current_status == 'czeka_na_wyciecie' %}Wycinaniu
+                                    {% elif product.current_status == 'czeka_na_skladanie' %}Składaniu
+                                    {% else %}{{ product.current_status }}
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- Hidden data for JavaScript -->
+    <script type="application/json" id="station-config">
+        {
+            "stationCode": "packaging",
+            "refreshInterval": {{ config.refresh_interval }},
+            "autoRefreshEnabled": {{ 'true' if config.auto_refresh_enabled else 'false' }},
+            "debugMode": {{ 'true' if config.debug_frontend else 'false' }},
+            "apiBaseUrl": "/production/api",
+            "ajaxBaseUrl": "/production/stations/ajax"
+        }
+    </script>
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('production.static', filename='js/stations/station-common.js') }}"></script>
+    <script src="{{ url_for('production.static', filename='js/stations/station-packaging.js') }}"></script>
+</body>
+</html>

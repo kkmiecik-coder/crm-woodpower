@@ -183,6 +183,7 @@ def get_products_for_station(station_code, limit=50, sort_by='priority'):
                 'id': product.short_product_id,
                 'internal_order': product.internal_order_number,
                 'original_name': product.original_product_name,
+                'current_status': product.current_status,
                 
                 # POPRAWKA: priority_rank zamiast priority_score/priority_level
                 'priority_rank': priority_rank,
@@ -586,6 +587,8 @@ def packaging_station():
     """
     Interfejs stanowiska pakowania
     
+    ZMIANA: Pokazuje CAŁE zamówienia jeśli choć 1 produkt jest w statusie czeka_na_pakowanie
+    
     Query params:
         sort: priority|deadline|created_at (default: priority)
         limit: max liczba produktów (default: 50)
@@ -595,6 +598,9 @@ def packaging_station():
         HTML: Interfejs stanowiska pakowania
     """
     try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+        
         sort_by = request.args.get('sort', 'priority')
         limit = min(int(request.args.get('limit', 50)), 100)
         view_mode = request.args.get('view', 'list')
@@ -606,10 +612,130 @@ def packaging_station():
             'view_mode': view_mode
         })
         
-        # Pobranie produktów
-        products = get_products_for_station('packaging', limit, sort_by)
+        # NOWA LOGIKA: Znajdź zamówienia które mają choć 1 produkt do pakowania
+        orders_with_packaging = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_pakowanie'
+        ).distinct().all()
         
-        # Grupowanie produktów po zamówieniach (dla pakowania)
+        order_numbers = [order[0] for order in orders_with_packaging if order[0]]
+        
+        if not order_numbers:
+            products = []
+        else:
+            # Pobierz WSZYSTKIE produkty z tych zamówień (niezależnie od statusu)
+            query = ProductionItem.query.filter(
+                ProductionItem.internal_order_number.in_(order_numbers)
+            )
+            
+            # Sortowanie
+            if sort_by == 'priority':
+                query = query.order_by(asc(ProductionItem.priority_rank))
+            elif sort_by == 'deadline':
+                query = query.order_by(asc(ProductionItem.deadline_date))
+            else:
+                query = query.order_by(asc(ProductionItem.created_at))
+            
+            products_db = query.all()
+            
+            # Przygotuj dane produktów (używając tej samej logiki co get_products_for_station)
+            products = []
+            today = date.today()
+            
+            for product in products_db:
+                priority_rank = product.priority_rank if product.priority_rank else 999
+                
+                # Kolor priorytetu
+                if priority_rank <= 10:
+                    priority_label = 'Najwyższy'
+                    priority_color = '#dc3545'
+                    priority_class = 'priority-critical'
+                elif priority_rank <= 50:
+                    priority_label = 'Wysoki'
+                    priority_color = '#fd7e14'
+                    priority_class = 'priority-high'
+                elif priority_rank <= 100:
+                    priority_label = 'Normalny'
+                    priority_color = '#ffc107'
+                    priority_class = 'priority-normal'
+                else:
+                    priority_label = 'Niski'
+                    priority_color = '#28a745'
+                    priority_class = 'priority-low'
+                
+                # Deadline
+                if product.deadline_date:
+                    days_diff = (product.deadline_date - today).days
+                    if days_diff < 0:
+                        display_deadline = f"{abs(days_diff)} dni temu"
+                        deadline_color = '#dc3545'
+                        deadline_class = 'deadline-overdue'
+                    elif days_diff == 0:
+                        display_deadline = "Dziś!"
+                        deadline_color = '#dc3545'
+                        deadline_class = 'deadline-today'
+                    elif days_diff == 1:
+                        display_deadline = "Jutro"
+                        deadline_color = '#fd7e14'
+                        deadline_class = 'deadline-tomorrow'
+                    elif days_diff <= 7:
+                        display_deadline = f"Za {days_diff} dni"
+                        deadline_color = '#ffc107'
+                        deadline_class = 'deadline-week'
+                    else:
+                        display_deadline = product.deadline_date.strftime("%d.%m.%Y")
+                        deadline_color = '#28a745'
+                        deadline_class = 'deadline-normal'
+                else:
+                    display_deadline = "Brak"
+                    deadline_color = '#6c757d'
+                    deadline_class = 'deadline-none'
+                
+                # Wymiary
+                dimensions_parts = []
+                if product.parsed_length_cm:
+                    dimensions_parts.append(str(int(product.parsed_length_cm)))
+                if product.parsed_width_cm:
+                    dimensions_parts.append(str(int(product.parsed_width_cm)))
+                if product.parsed_thickness_cm:
+                    dimensions_parts.append(str(int(product.parsed_thickness_cm)))
+                dimensions_text = '×'.join(dimensions_parts) + ' cm' if dimensions_parts else 'Brak wymiarów'
+                
+                volume_m3 = float(product.volume_m3) if product.volume_m3 else 0.0
+                total_value = float(product.total_value_net) if product.total_value_net else 0.0
+                
+                product_data = {
+                    'id': product.short_product_id,
+                    'internal_order': product.internal_order_number,
+                    'original_name': product.original_product_name,
+                    'current_status': product.current_status,  # KLUCZOWE!
+                    'priority_rank': priority_rank,
+                    'priority_label': priority_label,
+                    'priority_color': priority_color,
+                    'priority_class': priority_class,
+                    'deadline_date': product.deadline_date,
+                    'days_until_deadline': product.days_until_deadline,
+                    'is_overdue': product.is_overdue,
+                    'deadline_color': deadline_color,
+                    'deadline_class': deadline_class,
+                    'volume_m3': volume_m3,
+                    'total_value_net': total_value,
+                    'created_at': product.created_at,
+                    'payment_date': product.payment_date,
+                    'wood_species': product.parsed_wood_species,
+                    'technology': product.parsed_technology,
+                    'wood_class': product.parsed_wood_class,
+                    'dimensions': dimensions_text,
+                    'finish_state': product.parsed_finish_state,
+                    'thickness_group': product.thickness_group,
+                    'client_name': product.client_name,
+                    'display_deadline': display_deadline,
+                }
+                
+                products.append(product_data)
+        
+        # Grupowanie produktów po zamówieniach
         orders_grouped = {}
         for product in products:
             order_number = product['internal_order']
@@ -620,9 +746,12 @@ def packaging_station():
                     'total_products': 0,
                     'total_volume': 0,
                     'total_value': 0,
-                    'best_priority_rank': 999,  # POPRAWKA: niższy = lepszy
+                    'best_priority_rank': 999,
                     'earliest_deadline': None,
-                    'has_overdue': False
+                    'has_overdue': False,
+                    'priority_label': 'Niski',
+                    'priority_class': 'priority-low',
+                    'display_deadline': 'Brak'
                 }
             
             order = orders_grouped[order_number]
@@ -630,16 +759,23 @@ def packaging_station():
             order['total_products'] += 1
             order['total_volume'] += product['volume_m3'] or 0
             order['total_value'] += product['total_value_net'] or 0
-            order['best_priority_rank'] = min(order['best_priority_rank'], product['priority_rank'])
             
+            # Najlepszy priorytet z zamówienia
+            if product['priority_rank'] < order['best_priority_rank']:
+                order['best_priority_rank'] = product['priority_rank']
+                order['priority_label'] = product['priority_label']
+                order['priority_class'] = product['priority_class']
+            
+            # Najwcześniejszy deadline
             if product['deadline_date']:
                 if order['earliest_deadline'] is None or product['deadline_date'] < order['earliest_deadline']:
                     order['earliest_deadline'] = product['deadline_date']
+                    order['display_deadline'] = product['display_deadline']
             
             if product['is_overdue']:
                 order['has_overdue'] = True
         
-        # Sortowanie grup zamówień - POPRAWKA: dla priority sortuj po best_priority_rank ASC
+        # Sortowanie grup zamówień
         if sort_by == 'priority':
             orders_list = sorted(orders_grouped.values(), key=lambda x: x['best_priority_rank'])
         elif sort_by == 'deadline':
@@ -651,7 +787,7 @@ def packaging_station():
         # Konfiguracja interfejsu
         config = get_station_config()
         
-        # Statystyki stanowiska - POPRAWKA: priority_rank zamiast priority_score
+        # Statystyki stanowiska
         total_products = len(products)
         total_orders = len(orders_grouped)
         high_priority_count = sum(1 for p in products if p['priority_rank'] <= 50)
@@ -690,7 +826,7 @@ def packaging_station():
             'stations/error.html',
             error_message="Błąd ładowania stanowiska pakowania",
             error_details=str(e),
-            back_url=url_for('production_stations.station_select')
+            back_url=url_for('production.production_stations.station_select')
         ), 500
 
 # ============================================================================

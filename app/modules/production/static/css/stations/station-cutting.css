@@ -1,0 +1,551 @@
+/* station-cutting.css - Style dla stanowiska wycinania */
+
+/* ========================================
+   STATION HEADER
+   ======================================== */
+.station-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: var(--header-height);
+    padding: 0 var(--spacing-lg);
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header {
+    display: flex;
+    flex: 1;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.station-logo {
+    height: 40px;
+    width: auto;
+}
+
+.station-title {
+    font-size: var(--font-size-xxl);
+    font-weight: var(--font-weight-bold);
+    color: var(--woodpower-primary);
+    margin: 0;
+}
+
+.refresh-timer {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    padding: var(--spacing-xs) var(--spacing-md);
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius-pill);
+}
+
+    .refresh-timer #last-refresh {
+        font-weight: var(--font-weight-semibold);
+        color: var(--text-primary);
+    }
+
+.debug-btn {
+    padding: var(--spacing-xs) var(--spacing-md);
+    background: var(--bg-dark);
+    color: var(--text-light);
+    border-radius: var(--border-radius-sm);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    transition: background var(--transition-fast);
+}
+
+    .debug-btn:hover {
+        background: #23272b;
+    }
+
+/* ========================================
+   STATS BAR
+   ======================================== */
+.stats-bar {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    height: var(--stats-bar-height);
+    padding: 0 var(--spacing-lg);
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: var(--header-height);
+    z-index: 99;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.stat-icon {
+    font-size: var(--font-size-xl);
+}
+
+.stat-value {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--text-primary);
+}
+
+.stat-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    text-transform: lowercase;
+}
+
+.stat-item.stat-critical .stat-value {
+    color: var(--priority-critical);
+}
+
+.stat-item.stat-overdue .stat-value {
+    color: var(--priority-high);
+}
+
+/* ========================================
+   MAIN CONTENT
+   ======================================== */
+.station-content {
+    padding: var(--spacing-lg);
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    min-height: calc(100vh - var(--header-height) - var(--stats-bar-height));
+}
+
+/* ========================================
+   PRODUCTS GRID
+   ======================================== */
+.products-grid {
+    display: grid;
+    gap: var(--grid-gap-desktop);
+    grid-template-columns: repeat(3, 1fr);
+}
+
+/* Responsywność Grid */
+@media (min-width: 768px) and (max-width: 1199px) {
+    .products-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--grid-gap-tablet);
+    }
+}
+
+@media (max-width: 767px) {
+    .products-grid {
+        grid-template-columns: 1fr;
+        gap: var(--grid-gap-mobile);
+    }
+}
+
+/* ========================================
+   PRODUCT CARD
+   ======================================== */
+.product-card {
+    display: flex;
+    flex-direction: column;
+    min-height: var(--card-min-height);
+    background: var(--bg-primary);
+    border: var(--card-border-width) solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--transition-base), transform var(--transition-base);
+    overflow: hidden;
+}
+
+    .product-card:hover {
+        box-shadow: var(--shadow-md);
+        transform: translateY(-2px);
+    }
+
+    /* Card w trakcie countdown */
+    .product-card.processing {
+        opacity: 0.7;
+        /* NIE blokuj pointer-events na całej karcie - tylko na przycisku complete */
+    }
+
+    /* Card podczas usuwania */
+    .product-card.removing {
+        animation: fadeOut var(--animation-duration-base) ease-out forwards;
+    }
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+}
+
+/* ========================================
+   CARD HEADER
+   ======================================== */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.priority-badge {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--border-radius-md);
+    color: var(--text-light);
+}
+
+    /* Priority colors */
+    .priority-badge.priority-critical {
+        background: var(--priority-critical);
+    }
+
+    .priority-badge.priority-high {
+        background: var(--priority-high);
+    }
+
+    .priority-badge.priority-normal {
+        background: var(--priority-normal);
+        color: var(--text-primary);
+    }
+
+    .priority-badge.priority-low {
+        background: var(--priority-low);
+    }
+
+.product-id {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    font-family: var(--font-family-mono);
+}
+
+/* ========================================
+   CARD BODY
+   ======================================== */
+.card-body {
+    flex: 1;
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.product-name {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    line-height: var(--line-height-normal);
+    margin-bottom: var(--spacing-xs);
+}
+
+/* Wymiary - DUŻY BADGE */
+.dimensions-badge-large {
+    display: inline-block;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--woodpower-primary);
+    color: var(--text-light);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    border-radius: var(--border-radius-md);
+    text-align: center;
+    letter-spacing: 0.5px;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Parametry - MAŁE BADGES */
+.product-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+
+.badge {
+    display: inline-block;
+    padding: var(--spacing-xs) var(--spacing-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    border-radius: var(--border-radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.badge-species {
+    background: #fff3cd;
+    border-color: #ffc107;
+    color: #856404;
+}
+
+.badge-technology {
+    background: #d1ecf1;
+    border-color: #17a2b8;
+    color: #0c5460;
+}
+
+.badge-class {
+    background: #d4edda;
+    border-color: #28a745;
+    color: #155724;
+}
+
+/* ========================================
+   CARD FOOTER
+   ======================================== */
+.card-footer {
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+}
+
+.footer-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.deadline-info {
+    font-weight: var(--font-weight-semibold);
+}
+
+.volume-info {
+    font-family: var(--font-family-mono);
+}
+
+/* ========================================
+   CARD ACTION
+   ======================================== */
+.card-action {
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+/* ========================================
+   BUTTONS (3 STANY)
+   ======================================== */
+.btn {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+    padding: var(--spacing-md) var(--spacing-lg);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    border-radius: var(--border-radius-md);
+    transition: all var(--transition-base);
+    cursor: pointer;
+    border: none;
+    outline: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+}
+
+/* STAN 1: Początkowy - ZAKOŃCZ (niebieski) */
+.btn-complete {
+    background: var(--btn-complete);
+    color: var(--text-light);
+    box-shadow: var(--shadow-sm);
+}
+
+    .btn-complete:active {
+        background: var(--btn-complete-hover);
+        transform: scale(0.98);
+    }
+
+    /* STAN 2: Countdown - KOŃCZENIE... (pomarańczowy) */
+    .btn-complete.processing {
+        background: var(--btn-processing);
+        color: var(--text-light);
+        cursor: not-allowed;
+        pointer-events: none; /* Blokuj kliknięcia podczas countdown */
+    }
+
+        .btn-complete.processing:active {
+            background: var(--btn-processing);
+            transform: none;
+        }
+
+    /* STAN 3: Sukces - ZAKOŃCZONO ✓ (zielony) */
+    .btn-complete.success {
+        background: var(--btn-success);
+        color: var(--text-light);
+        animation: successPulse var(--animation-duration-slow) ease-in-out;
+    }
+
+@keyframes successPulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+/* Przycisk ANULUJ */
+.btn-cancel {
+    background: var(--btn-cancel);
+    color: var(--text-light);
+    box-shadow: var(--shadow-xs);
+    pointer-events: auto; /* ZAWSZE klikalny, nawet gdy karta ma processing */
+    position: relative; /* Zapewnia prawidłowy z-index */
+    z-index: 10; /* Nad innymi elementami */
+}
+
+    .btn-cancel:active {
+        background: var(--btn-cancel-hover);
+        transform: scale(0.98);
+    }
+
+/* Spinner dla countdown */
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: var(--border-radius-round);
+    border-top-color: var(--text-light);
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ========================================
+   EMPTY STATE
+   ======================================== */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    text-align: center;
+    padding: var(--spacing-xxl);
+}
+
+.empty-state-icon {
+    font-size: 80px;
+    margin-bottom: var(--spacing-lg);
+}
+
+.empty-state h2 {
+    font-size: var(--font-size-xxl);
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+}
+
+.empty-state p {
+    font-size: var(--font-size-lg);
+    color: var(--text-secondary);
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================== */
+
+/* Tablet pionowo */
+@media (max-width: 1199px) {
+    .station-title {
+        font-size: var(--font-size-xl);
+    }
+
+    .stats-bar {
+        flex-wrap: wrap;
+        height: auto;
+        padding: var(--spacing-md);
+        gap: var(--spacing-md);
+    }
+
+    .stat-item {
+        flex: 1 1 calc(50% - var(--spacing-md));
+    }
+}
+
+/* Mobile */
+@media (max-width: 767px) {
+    .station-header {
+        flex-direction: column;
+        height: auto;
+        padding: var(--spacing-md);
+        gap: var(--spacing-sm);
+    }
+
+    .header-left,
+    .header-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .station-logo {
+        height: 30px;
+    }
+
+    .station-title {
+        font-size: var(--font-size-lg);
+    }
+
+    .stats-bar {
+        padding: var(--spacing-sm);
+    }
+
+    .stat-item {
+        flex: 1 1 calc(50% - var(--spacing-sm));
+    }
+
+    .station-content {
+        padding: var(--spacing-md);
+    }
+}
+
+/* ========================================
+   TOUCH OPTIMIZATIONS
+   ======================================== */
+@media (hover: none) and (pointer: coarse) {
+    /* Usunięcie hover effects na urządzeniach dotykowych */
+    .product-card:hover {
+        transform: none;
+    }
+
+    /* Większe targetyy dla lepszej ergonomii */
+    .btn {
+        min-height: var(--touch-target-comfortable);
+    }
+
+        /* Feedback dla touch */
+        .btn:active {
+            opacity: 0.8;
+        }
+}
+
+/* ========================================
+   DARK MODE (opcjonalnie, dla przyszłości)
+   ======================================== */
+@media (prefers-color-scheme: dark) {
+    /* Zakomentowane - do implementacji w przyszłości */
+    /* body {
+    background: var(--bg-dark);
+    color: var(--text-light);
+  } */
+}
