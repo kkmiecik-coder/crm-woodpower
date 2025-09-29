@@ -1,16 +1,10 @@
 /**
  * Config Module - Moduł zarządzania konfiguracją
  * static/js/config-module.js
-<<<<<<< Updated upstream
  * WERSJA 2.0 - Z POPRAWKAMI ŚLEDZENIA ZMIAN
  * 
  * Zarządza interfejsem konfiguracji systemu produkcyjnego:
  * - Śledzenie zmian konfiguracji z porównaniem do oryginału
-=======
- * 
- * Zarządza interfejsem konfiguracji systemu produkcyjnego:
- * - Śledzenie zmian konfiguracji
->>>>>>> Stashed changes
  * - Zarządzanie listą IP
  * - Walidacja danych
  * - Zapisywanie zmian
@@ -23,15 +17,12 @@ class ConfigModule {
         this.changesCount = 0;
         this.isInitialized = false;
 
-<<<<<<< Updated upstream
         // KLUCZOWE: Przechowywanie oryginalnych wartości z bazy danych
         this.originalValues = {};
 
         // Debug mode
         this.debug = true;
 
-=======
->>>>>>> Stashed changes
         // Wartości domyślne dla konfiguracji
         this.defaultValues = {
             'SYNC_ENABLED': true,
@@ -61,11 +52,7 @@ class ConfigModule {
             'STATION_PACKAGING_PRIORITY_SORT': 'priority_rank'
         };
 
-<<<<<<< Updated upstream
         console.log('[ConfigModule v2.0] Instance created');
-=======
-        console.log('[ConfigModule] Instance created');
->>>>>>> Stashed changes
     }
 
     /**
@@ -77,23 +64,15 @@ class ConfigModule {
             return;
         }
 
-<<<<<<< Updated upstream
         console.log('[ConfigModule] Initializing v2.0...');
 
         try {
             // Inicjalizacja podstawowych komponentów (bez ładowania wartości!)
-=======
-        console.log('[ConfigModule] Initializing...');
-
-        try {
-            // Inicjalizacja podstawowych komponentów
->>>>>>> Stashed changes
             this.initIPManagement();
             this.initJSONValidation();
             this.initSwitchLabels();
             this.initEventListeners();
 
-<<<<<<< Updated upstream
             // Reset stanu - upewnij się że bar jest ukryty na start
             this.resetPendingChanges();
             this.hideSaveBar();
@@ -106,21 +85,10 @@ class ConfigModule {
 
         } catch (error) {
             console.error('[ConfigModule] ❌ Initialization failed:', error);
-=======
-            // Reset stanu
-            this.resetPendingChanges();
-
-            this.isInitialized = true;
-            console.log('[ConfigModule] Initialized successfully');
-
-        } catch (error) {
-            console.error('[ConfigModule] Initialization failed:', error);
->>>>>>> Stashed changes
         }
     }
 
     /**
-<<<<<<< Updated upstream
      * PUBLICZNA METODA: Ładowanie oryginalnych wartości
      * WYWOŁANA RĘCZNIE przez production-app-loader.js PO załadowaniu AJAX contentu
      */
@@ -220,8 +188,6 @@ class ConfigModule {
     }
 
     /**
-=======
->>>>>>> Stashed changes
      * Inicjalizacja event listeners
      */
     initEventListeners() {
@@ -296,7 +262,6 @@ class ConfigModule {
     }
 
     /**
-<<<<<<< Updated upstream
      * KLUCZOWE: Śledzenie zmian konfiguracji z porównaniem do oryginału
      */
     configChanged(key, value) {
@@ -379,20 +344,6 @@ class ConfigModule {
         if (strValue.toLowerCase() === 'false') return false;
 
         return strValue;
-=======
-     * Śledzenie zmian konfiguracji
-     */
-    configChanged(key, value) {
-        console.log('[ConfigModule] Configuration changed:', key, '=', value);
-
-        this.pendingChanges[key] = value;
-        this.changesCount = Object.keys(this.pendingChanges).length;
-
-        this.updateChangesIndicator();
-
-        // Pokazuj save bar jeśli są zmiany
-        this.showSaveBar(this.changesCount > 0);
->>>>>>> Stashed changes
     }
 
     /**
@@ -402,7 +353,6 @@ class ConfigModule {
         const saveBar = document.getElementById('config-save-bar');
         const changesCountEl = document.getElementById('changes-count');
 
-<<<<<<< Updated upstream
         console.log('[ConfigModule] 🎨 Updating UI indicator');
         console.log('Changes count:', this.changesCount);
 
@@ -412,19 +362,12 @@ class ConfigModule {
             if (changesCountEl) changesCountEl.textContent = this.changesCount;
         } else {
             console.log('→ Hiding save bar');
-=======
-        if (this.changesCount > 0) {
-            if (saveBar) saveBar.classList.add('has-changes');
-            if (changesCountEl) changesCountEl.textContent = this.changesCount;
-        } else {
->>>>>>> Stashed changes
             if (saveBar) saveBar.classList.remove('has-changes');
             if (changesCountEl) changesCountEl.textContent = '0';
         }
     }
 
     /**
-<<<<<<< Updated upstream
      * Ukrycie paska zapisywania (force)
      */
     hideSaveBar() {
@@ -432,14 +375,6 @@ class ConfigModule {
         if (saveBar) {
             saveBar.classList.remove('has-changes');
             console.log('[ConfigModule] Save bar hidden');
-=======
-     * Pokazanie/ukrycie paska zapisywania
-     */
-    showSaveBar(show) {
-        const saveBar = document.getElementById('config-save-bar');
-        if (saveBar) {
-            saveBar.style.display = show ? 'block' : 'none';
->>>>>>> Stashed changes
         }
     }
 
@@ -452,11 +387,7 @@ class ConfigModule {
             return;
         }
 
-<<<<<<< Updated upstream
         console.log('[ConfigModule] 💾 Saving changes:', this.pendingChanges);
-=======
-        console.log('[ConfigModule] Saving changes:', this.pendingChanges);
->>>>>>> Stashed changes
 
         const saveBtn = document.getElementById('btn-save');
         const originalText = saveBtn ? saveBtn.innerHTML : '';
@@ -487,7 +418,6 @@ class ConfigModule {
             }
 
             if (result.success) {
-<<<<<<< Updated upstream
                 console.log('[ConfigModule] ✅ Changes saved successfully');
                 this.showToast('Konfiguracja zapisana pomyślnie!', 'success');
 
@@ -498,24 +428,13 @@ class ConfigModule {
                 // Wyczyść pending changes i usuń highlighty
                 this.resetPendingChanges();
                 this.hideSaveBar();
-=======
-                console.log('[ConfigModule] Changes saved successfully');
-                this.showToast('Konfiguracja zapisana pomyślnie!', 'success');
-
-                // Wyczyść pending changes
-                this.resetPendingChanges();
->>>>>>> Stashed changes
 
             } else {
                 throw new Error(result.error || 'Nieznany błąd');
             }
 
         } catch (error) {
-<<<<<<< Updated upstream
             console.error('[ConfigModule] ❌ Error saving changes:', error);
-=======
-            console.error('[ConfigModule] Error saving changes:', error);
->>>>>>> Stashed changes
             this.showToast(`Błąd zapisywania: ${error.message}`, 'error');
         } finally {
             // Przywróć przycisk
@@ -533,7 +452,6 @@ class ConfigModule {
         if (this.changesCount === 0) return;
 
         if (confirm('Czy na pewno chcesz anulować wszystkie niezapisane zmiany?')) {
-<<<<<<< Updated upstream
             console.log('[ConfigModule] 🔄 Discarding changes - restoring original values');
 
             // Przywróć każdą wartość z originalValues
@@ -546,17 +464,10 @@ class ConfigModule {
             this.hideSaveBar();
 
             this.showToast('Anulowano wszystkie zmiany', 'info');
-=======
-            console.log('[ConfigModule] Discarding changes');
-
-            // Przeładuj stronę aby przywrócić oryginalne wartości
-            window.location.reload();
->>>>>>> Stashed changes
         }
     }
 
     /**
-<<<<<<< Updated upstream
      * Przywrócenie oryginalnej wartości do pola formularza
      */
     restoreFieldValue(configKey, originalValue) {
@@ -591,8 +502,6 @@ class ConfigModule {
     }
 
     /**
-=======
->>>>>>> Stashed changes
      * Reset do wartości domyślnych
      */
     resetToDefault(key) {
@@ -603,11 +512,7 @@ class ConfigModule {
         const defaultValue = this.defaultValues[key];
 
         if (defaultValue !== undefined) {
-<<<<<<< Updated upstream
             console.log(`[ConfigModule] 🔄 Resetting ${key} to default:`, defaultValue);
-=======
-            console.log(`[ConfigModule] Resetting ${key} to default:`, defaultValue);
->>>>>>> Stashed changes
 
             // Aktualizuj pole formularza
             this.updateFormField(key, defaultValue);
@@ -629,18 +534,12 @@ class ConfigModule {
             'SYNC_ENABLED': 'sync_enabled',
             'MAX_SYNC_ITEMS_PER_BATCH': 'max_sync_items',
             'BASELINKER_TARGET_STATUS_COMPLETED': 'baselinker_completed',
-<<<<<<< Updated upstream
             'BASELINKER_SOURCE_STATUS_PAID': 'baselinker_paid',
             'BASELINKER_TARGET_STATUS_PRODUCTION': 'baselinker_production',
             'SYNC_RETRY_COUNT': 'sync_retry',
             'REFRESH_INTERVAL_SECONDS': 'refresh_interval',
             'STATION_AUTO_REFRESH_ENABLED': 'station_auto_refresh',
             'STATION_SHOW_DETAILED_INFO': 'station_show_details',
-=======
-            'SYNC_RETRY_COUNT': 'sync_retry',
-            'REFRESH_INTERVAL_SECONDS': 'refresh_interval',
-            'STATION_AUTO_REFRESH_ENABLED': 'station_auto_refresh',
->>>>>>> Stashed changes
             'STATION_MAX_PRODUCTS_DISPLAY': 'station_max_products',
             'DEADLINE_DEFAULT_DAYS': 'deadline_days',
             'PRIORITY_RECALC_INTERVAL_HOURS': 'priority_recalc',
@@ -679,7 +578,6 @@ class ConfigModule {
         this.pendingChanges = {};
         this.changesCount = 0;
         this.updateChangesIndicator();
-<<<<<<< Updated upstream
         // Usuń wszystkie highlighty
         this.removeAllHighlights();
     }
@@ -763,9 +661,6 @@ class ConfigModule {
         };
 
         return reverseMapping[configKey];
-=======
-        this.showSaveBar(false);
->>>>>>> Stashed changes
     }
 
     // ========================================================================
@@ -837,20 +732,11 @@ class ConfigModule {
         ipItem.className = 'ip-item';
         ipItem.innerHTML = `
             <span class="ip-address">${ip}</span>
-<<<<<<< Updated upstream
             <button class="btn btn-sm btn-danger" onclick="window.configModule.removeIP('${ip}')">
                 <i class="fas fa-times"></i>
             </button>
         `;
 
-=======
-            <div class="ip-item-actions">
-                <button class="btn btn-outline-danger btn-sm" onclick="window.configModule.removeIP('${ip}')" title="Usuń IP">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        `;
->>>>>>> Stashed changes
         container.appendChild(ipItem);
     }
 
@@ -858,14 +744,10 @@ class ConfigModule {
      * Usunięcie IP z DOM
      */
     removeIPFromList(ip) {
-<<<<<<< Updated upstream
         const container = document.getElementById('ip-list-items');
         if (!container) return;
 
         const items = container.querySelectorAll('.ip-item');
-=======
-        const items = document.querySelectorAll('.ip-item');
->>>>>>> Stashed changes
         items.forEach(item => {
             const ipSpan = item.querySelector('.ip-address');
             if (ipSpan && ipSpan.textContent === ip) {
@@ -878,16 +760,11 @@ class ConfigModule {
      * Pobranie aktualnej listy IP
      */
     getCurrentIPList() {
-<<<<<<< Updated upstream
         const container = document.getElementById('ip-list-items');
         if (!container) return [];
 
         const ipSpans = container.querySelectorAll('.ip-address');
         return Array.from(ipSpans).map(span => span.textContent.trim());
-=======
-        const items = document.querySelectorAll('.ip-address');
-        return Array.from(items).map(item => item.textContent);
->>>>>>> Stashed changes
     }
 
     /**
@@ -912,7 +789,6 @@ class ConfigModule {
     }
 
     /**
-<<<<<<< Updated upstream
      * Walidacja IP input
      */
     validateIPInput(input) {
@@ -926,15 +802,6 @@ class ConfigModule {
             input.classList.remove('is-invalid');
         } else {
             input.classList.add('is-invalid');
-=======
-     * Walidacja input IP
-     */
-    validateIPInput(input) {
-        if (input.value && !this.isValidIP(input.value)) {
-            input.classList.add('is-invalid');
-        } else {
-            input.classList.remove('is-invalid');
->>>>>>> Stashed changes
         }
     }
 
@@ -946,7 +813,6 @@ class ConfigModule {
      * Walidacja JSON
      */
     validateJSON(textarea) {
-<<<<<<< Updated upstream
         const value = textarea.value.trim();
 
         if (!value) {
@@ -956,10 +822,6 @@ class ConfigModule {
 
         try {
             JSON.parse(value);
-=======
-        try {
-            JSON.parse(textarea.value);
->>>>>>> Stashed changes
             textarea.classList.remove('json-invalid');
             textarea.classList.add('json-valid');
         } catch (e) {
@@ -973,7 +835,6 @@ class ConfigModule {
     // ========================================================================
 
     /**
-<<<<<<< Updated upstream
      * Aktualizacja etykiety switch
      */
     updateSwitchLabel(checkbox) {
@@ -986,20 +847,6 @@ class ConfigModule {
         } else {
             label.textContent = 'Wyłączone';
             label.className = 'text-muted';
-=======
-     * Aktualizacja etykiet switch
-     */
-    updateSwitchLabel(checkbox) {
-        const label = checkbox.parentElement.querySelector('.form-check-label span');
-        if (label) {
-            if (checkbox.checked) {
-                label.textContent = 'Włączone';
-                label.className = 'text-success fw-bold';
-            } else {
-                label.textContent = 'Wyłączone';
-                label.className = 'text-muted';
-            }
->>>>>>> Stashed changes
         }
     }
 
@@ -1011,19 +858,11 @@ class ConfigModule {
      * Czyszczenie cache
      */
     async clearCache() {
-<<<<<<< Updated upstream
         if (!confirm('Czy na pewno chcesz wyczyścić cache? To spowoduje ponowne załadowanie wszystkich danych.')) {
             return;
         }
 
         console.log('[ConfigModule] Clearing cache...');
-=======
-        if (!confirm('Czy na pewno chcesz wyczyścić cache systemu?')) {
-            return;
-        }
-
-        console.log('[ConfigModule] Clearing cache');
->>>>>>> Stashed changes
 
         try {
             const response = await fetch('/production/api/clear-cache', {
@@ -1037,24 +876,11 @@ class ConfigModule {
             const result = await response.json();
 
             if (result.success) {
-<<<<<<< Updated upstream
                 this.showToast('Cache wyczyszczony pomyślnie!', 'success');
                 setTimeout(() => window.location.reload(), 1000);
             } else {
                 throw new Error(result.error || 'Błąd czyszczenia cache');
             }
-=======
-                this.showToast('Cache został wyczyszczony pomyślnie', 'success');
-
-                // Odśwież statystyki cache
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-            } else {
-                throw new Error(result.error || 'Nieznany błąd');
-            }
-
->>>>>>> Stashed changes
         } catch (error) {
             console.error('[ConfigModule] Error clearing cache:', error);
             this.showToast(`Błąd czyszczenia cache: ${error.message}`, 'error');
@@ -1062,44 +888,25 @@ class ConfigModule {
     }
 
     // ========================================================================
-<<<<<<< Updated upstream
     // TOAST SYSTEM
     // ========================================================================
 
     /**
      * Wyświetlenie toast notification
-=======
-    // TOAST NOTIFICATIONS
-    // ========================================================================
-
-    /**
-     * Pokazanie toast notification
->>>>>>> Stashed changes
      */
     showToast(message, type = 'info') {
         const alertClass = {
             'success': 'alert-success',
             'error': 'alert-danger',
-<<<<<<< Updated upstream
             'warning': 'alert-warning',
             'info': 'alert-info'
-=======
-            'info': 'alert-info',
-            'warning': 'alert-warning'
->>>>>>> Stashed changes
         }[type] || 'alert-info';
 
         const icon = {
             'success': 'fa-check-circle',
-<<<<<<< Updated upstream
             'error': 'fa-times-circle',
             'warning': 'fa-exclamation-triangle',
             'info': 'fa-info-circle'
-=======
-            'error': 'fa-exclamation-triangle',
-            'info': 'fa-info-circle',
-            'warning': 'fa-exclamation-triangle'
->>>>>>> Stashed changes
         }[type] || 'fa-info-circle';
 
         const toast = document.createElement('div');
@@ -1131,10 +938,7 @@ class ConfigModule {
     cleanup() {
         this.isInitialized = false;
         this.resetPendingChanges();
-<<<<<<< Updated upstream
         this.originalValues = {};
-=======
->>>>>>> Stashed changes
 
         console.log('[ConfigModule] Cleaned up');
     }
@@ -1144,18 +948,11 @@ class ConfigModule {
 // GLOBAL FUNCTIONS - dla kompatybilności z HTML onclick
 // ============================================================================
 
-<<<<<<< Updated upstream
 window.configChanged = function (key, value) {
     if (window.configModule) {
         window.configModule.configChanged(key, value);
     } else {
         console.error('[ConfigModule] Global configModule not found!');
-=======
-// Globalne funkcje wywoływane z HTML
-window.configChanged = function (key, value) {
-    if (window.configModule) {
-        window.configModule.configChanged(key, value);
->>>>>>> Stashed changes
     }
 };
 
@@ -1205,10 +1002,6 @@ window.discardChanges = function () {
 // AUTO-INITIALIZATION
 // ============================================================================
 
-<<<<<<< Updated upstream
-=======
-// Automatyczna inicjalizacja gdy DOM jest gotowy
->>>>>>> Stashed changes
 function initConfigModule() {
     if (typeof window.configModule !== 'undefined') {
         console.log('[ConfigModule] Already exists, cleaning up...');
@@ -1221,11 +1014,8 @@ function initConfigModule() {
     const configContainer = document.querySelector('.config-container');
     if (configContainer) {
         window.configModule.init();
-<<<<<<< Updated upstream
     } else {
         console.log('[ConfigModule] Config container not found, skipping init');
-=======
->>>>>>> Stashed changes
     }
 }
 
@@ -1236,8 +1026,4 @@ if (document.readyState === 'loading') {
     initConfigModule();
 }
 
-<<<<<<< Updated upstream
 console.log('[ConfigModule v2.0] Script loaded - with enhanced debugging');
-=======
-console.log('[ConfigModule] Script loaded');
->>>>>>> Stashed changes
