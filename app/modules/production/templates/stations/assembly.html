@@ -58,23 +58,24 @@
 
     <!-- MAIN CONTENT -->
     <main class="station-content">
-        {% if products|length == 0 %}
-        <!-- EMPTY STATE -->
-        <div class="empty-state">
-            <div class="empty-state-icon">✅</div>
-            <h2>Brak produktów do złożenia</h2>
-            <p>Świetna robota! Wszystkie produkty zostały przetworzone.</p>
-        </div>
-        {% else %}
-        <!-- PRODUCTS GRID -->
+        <!-- PRODUCTS GRID - ZAWSZE W DOM -->
         <div class="products-grid" id="products-grid">
+            {% if products|length == 0 %}
+            <!-- EMPTY STATE - WEWNĄTRZ GRIDA -->
+            <div class="empty-state">
+                <div class="empty-state-icon">✅</div>
+                <h2>Brak produktów do składania</h2>
+                <p>Świetna robota! Wszystkie produkty zostały przetworzone.</p>
+            </div>
+            {% else %}
+            <!-- PRODUCT CARDS -->
             {% for product in products %}
             <div class="product-card"
-                 data-product-id="{{ product.id }}"
-                 data-priority-rank="{{ product.priority_rank }}"
-                 data-species="{{ product.wood_species or '' }}"
-                 data-technology="{{ product.technology or '' }}"
-                 data-wood-class="{{ product.wood_class or '' }}">
+                data-product-id="{{ product.id }}"
+                data-priority-rank="{{ product.priority_rank }}"
+                data-species="{{ product.wood_species or '' }}"
+                data-technology="{{ product.technology or '' }}"
+                data-wood-class="{{ product.wood_class or '' }}">
 
                 <!-- CARD HEADER -->
                 <div class="card-header">
@@ -124,8 +125,8 @@
                 </div>
             </div>
             {% endfor %}
+            {% endif %}
         </div>
-        {% endif %}
     </main>
 
     <!-- Hidden data for JavaScript -->

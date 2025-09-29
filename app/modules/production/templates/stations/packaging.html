@@ -61,21 +61,22 @@
 
     <!-- MAIN CONTENT -->
     <main class="station-content">
-        {% if orders_grouped|length == 0 %}
-        <!-- EMPTY STATE -->
-        <div class="empty-state">
-            <div class="empty-state-icon">✅</div>
-            <h2>Brak zamówień do zapakowania</h2>
-            <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
-        </div>
-        {% else %}
-        <!-- ORDERS LIST (pionowo, jedna kolumna) -->
+        <!-- ORDERS LIST - ZAWSZE W DOM -->
         <div class="orders-list" id="orders-list">
+            {% if orders_grouped|length == 0 %}
+            <!-- EMPTY STATE - WEWNĄTRZ LISTY -->
+            <div class="empty-state">
+                <div class="empty-state-icon">✅</div>
+                <h2>Brak zamówień do zapakowania</h2>
+                <p>Świetna robota! Wszystkie zamówienia zostały spakowane.</p>
+            </div>
+            {% else %}
+            <!-- ORDER CARDS -->
             {% for order in orders_grouped %}
             <div class="order-card"
-                 data-order-number="{{ order.order_number }}"
-                 data-priority-rank="{{ order.best_priority_rank }}"
-                 data-total-products="{{ order.total_products }}">
+                data-order-number="{{ order.order_number }}"
+                data-priority-rank="{{ order.best_priority_rank }}"
+                data-total-products="{{ order.total_products }}">
 
                 <!-- HEADER WIERSZ 1 -->
                 <div class="order-header-row-1">
@@ -98,8 +99,7 @@
                     <div class="order-action">
                         <button class="btn btn-package"
                                 data-action="package"
-                                data-order="{{ order.order_number }}"
-                                disabled>
+                                data-order="{{ order.order_number }}">
                             SPAKOWANE
                         </button>
                     </div>
@@ -108,16 +108,16 @@
                     <div class="products-list">
                         {% for product in order.products %}
                         <div class="product-row {% if product.current_status != 'czeka_na_pakowanie' %}product-not-ready{% endif %}"
-                             data-product-id="{{ product.id }}"
-                             data-status="{{ product.current_status }}">
+                            data-product-id="{{ product.id }}"
+                            data-status="{{ product.current_status }}">
 
                             <!-- Checkbox -->
                             <div class="product-checkbox">
                                 <input type="checkbox"
-                                       class="product-check"
-                                       id="check-{{ product.id }}"
-                                       data-product-id="{{ product.id }}"
-                                       {% if product.current_status !='czeka_na_pakowanie' %}disabled{% endif %}>
+                                    class="product-check"
+                                    id="check-{{ product.id }}"
+                                    data-product-id="{{ product.id }}"
+                                    {% if product.current_status != 'czeka_na_pakowanie' %}disabled{% endif %}>
                                 <label for="check-{{ product.id }}"></label>
                             </div>
 
@@ -128,16 +128,6 @@
                                     <span class="product-name">{{ product.original_name }}</span>
                                     <span class="product-volume">{{ "%.4f"|format(product.volume_m3) }} m³</span>
                                 </div>
-
-                                {% if product.current_status != 'czeka_na_pakowanie' %}
-                                <div class="product-status-info">
-                                    Produkt w:
-                                    {% if product.current_status == 'czeka_na_wyciecie' %}Wycinaniu
-                                    {% elif product.current_status == 'czeka_na_skladanie' %}Składaniu
-                                    {% else %}{{ product.current_status }}
-                                    {% endif %}
-                                </div>
-                                {% endif %}
                             </div>
                         </div>
                         {% endfor %}
@@ -145,8 +135,8 @@
                 </div>
             </div>
             {% endfor %}
+            {% endif %}
         </div>
-        {% endif %}
     </main>
 
     <!-- Hidden data for JavaScript -->

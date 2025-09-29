@@ -70,26 +70,45 @@ async function autoRefreshCallback() {
     window.STATION_STATE.isRefreshing = true;
 
     try {
-        const stationCode = window.STATION_STATE.config.stationCode;
-        console.log(`[Packaging] Fetching products for station: ${stationCode}`);
+        const config = window.STATION_STATE.config;
+        
+        // ✅ ZMIANA: Używamy nowego endpointu dla zamówień
+        const url = `${config.ajaxBaseUrl}/orders/packaging?sort=priority`;
+        
+        console.log(`[Packaging] Fetching orders from: ${url}`);
 
-        const data = await window.StationCommon.fetchProducts(stationCode, 'priority');
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
 
-        if (!data || !data.products) {
-            throw new Error('Invalid response data');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        console.log(`[Packaging] Received ${data.products.length} products`);
+        const result = await response.json();
 
-        // Update stats bar (count orders, not products)
-        if (data.stats) {
-            updatePackagingStats(data);
+        if (!result.success) {
+            throw new Error(result.error || 'Unknown error');
         }
 
-        // Update last refresh time
+        const data = result.data;
+
+        console.log(`[Packaging] Received ${data.orders.length} orders with ${data.stats.total_products} products`);
+
+        // ✅ KROK 1: Smart merge zamówień (NOWA FUNKCJA)
+        smartMergeOrders(data.orders);
+
+        // ✅ KROK 2: Aktualizuj statystyki
+        updatePackagingStats(data);
+
+        // ✅ KROK 3: Aktualizuj czas ostatniego odświeżenia
         window.StationCommon.updateLastRefreshTime();
 
         console.log('[Packaging] Auto-refresh completed successfully');
+        
     } catch (error) {
         console.error('[Packaging] Auto-refresh failed:', error);
         window.StationCommon.showError(`Błąd odświeżania: ${error.message}`);
@@ -99,29 +118,314 @@ async function autoRefreshCallback() {
 }
 
 /**
- * Update packaging-specific stats (orders, not products)
+ * Update packaging-specific stats (orders, not products) - POPRAWIONA WERSJA
+ * @param {Object} data - Data object from API with orders and stats
  */
 function updatePackagingStats(data) {
-    // Group products by order to count orders
-    const orderNumbers = new Set();
-    data.products.forEach(product => {
-        if (product.internal_order_number) {
-            orderNumbers.add(product.internal_order_number);
-        }
-    });
-
-    const totalOrders = orderNumbers.size;
-    const totalVolume = data.products.reduce((sum, p) => sum + (p.volume_m3 || 0), 0);
+    // Statystyki przychodzą gotowe z backendu
+    const stats = data.stats;
 
     const totalElement = document.getElementById('total-orders');
     const volumeElement = document.getElementById('total-volume');
     const criticalElement = document.getElementById('critical-count');
     const overdueElement = document.getElementById('overdue-count');
 
-    if (totalElement) totalElement.textContent = totalOrders;
-    if (volumeElement) volumeElement.textContent = totalVolume.toFixed(4);
-    if (criticalElement) criticalElement.textContent = data.stats.high_priority_count || 0;
-    if (overdueElement) overdueElement.textContent = data.stats.overdue_count || 0;
+    if (totalElement) totalElement.textContent = stats.total_orders || 0;
+    if (volumeElement) volumeElement.textContent = (stats.total_volume || 0).toFixed(4);
+    if (criticalElement) criticalElement.textContent = stats.high_priority_count || 0;
+    if (overdueElement) overdueElement.textContent = stats.overdue_count || 0;
+
+    console.log('[Packaging] Stats updated:', {
+        orders: stats.total_orders,
+        products: stats.total_products,
+        volume: stats.total_volume,
+        critical: stats.high_priority_count,
+        overdue: stats.overdue_count
+    });
+}
+
+/**
+ * Smart merge algorithm dla zamówień packaging
+ * Dodaje TYLKO nowe zamówienia, aktualizuje istniejące (bez ruszania zamówień in-progress)
+ * 
+ * @param {Array} newOrders - Świeże zamówienia z API
+ */
+function smartMergeOrders(newOrders) {
+    const ordersList = document.getElementById('orders-list');
+    
+    if (!ordersList) {
+        console.warn('[Packaging] Orders list not found in DOM');
+        return;
+    }
+
+    // Pobierz istniejące karty zamówień
+    const existingCards = Array.from(ordersList.querySelectorAll('.order-card'));
+    const existingOrderNumbers = existingCards.map(card => card.dataset.orderNumber);
+
+    console.log(`[Packaging] Smart merge: ${existingOrderNumbers.length} existing, ${newOrders.length} new orders`);
+
+    // ✅ Ukryj empty state jeśli dodajemy nowe zamówienia
+    if (newOrders.length > 0) {
+        const emptyState = ordersList.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.style.display = 'none';
+            console.log('[Packaging] Hidden empty state');
+        }
+    }
+
+    // KROK 1: Znajdź NOWE zamówienia (których nie ma w DOM)
+    const toAdd = newOrders.filter(order => !existingOrderNumbers.includes(order.order_number));
+
+    // KROK 2: Dodaj nowe karty zamówień
+    toAdd.forEach(order => {
+        const cardHTML = createOrderCard(order);
+        ordersList.insertAdjacentHTML('beforeend', cardHTML);
+
+        // Attach event listeners do nowej karty
+        const newCard = ordersList.querySelector(`[data-order-number="${order.order_number}"]`);
+        if (newCard) {
+            attachOrderCardListeners(newCard);
+            console.log(`[Packaging] Added new order card: ${order.order_number}`);
+        }
+    });
+
+    // KROK 3: Aktualizuj istniejące zamówienia (priorytet + produkty!)
+    newOrders.forEach(newOrder => {
+        const existingCard = ordersList.querySelector(`[data-order-number="${newOrder.order_number}"]`);
+
+        if (!existingCard) return;
+
+        // NIE RUSZAJ zamówień w trakcie countdown
+        if (existingCard.dataset.inProgress === 'true') {
+            console.log(`[Packaging] Skipping order in progress: ${newOrder.order_number}`);
+            return;
+        }
+
+        // ✅ NOWE: Aktualizuj produkty w zamówieniu
+        updateOrderProducts(existingCard, newOrder);
+
+        // Sprawdź czy zmienił się priorytet
+        const currentRank = parseInt(existingCard.dataset.priorityRank);
+        const newRank = newOrder.best_priority_rank;
+
+        if (currentRank !== newRank) {
+            console.log(`[Packaging] Updating priority: ${newOrder.order_number} ${currentRank} -> ${newRank}`);
+            updateOrderPriority(existingCard, newOrder);
+        }
+    });
+
+    // KROK 4: Usuń zamówienia które już nie istnieją
+    const newOrderNumbers = newOrders.map(o => o.order_number);
+    existingCards.forEach(card => {
+        const orderNumber = card.dataset.orderNumber;
+        
+        // NIE USUWAJ zamówień w trakcie countdown
+        if (card.dataset.inProgress === 'true') {
+            return;
+        }
+
+        if (!newOrderNumbers.includes(orderNumber)) {
+            console.log(`[Packaging] Removing order no longer in list: ${orderNumber}`);
+            card.classList.add('removing');
+            setTimeout(() => card.remove(), 300);
+        }
+    });
+
+    // ✅ Pokaż empty state jeśli nie ma zamówień
+    if (newOrders.length === 0 && existingCards.length > 0) {
+        const emptyState = ordersList.querySelector('.empty-state');
+        if (emptyState) {
+            existingCards.forEach(card => {
+                if (card.dataset.inProgress !== 'true') {
+                    card.remove();
+                }
+            });
+            emptyState.style.display = 'block';
+            console.log('[Packaging] Showed empty state - no orders');
+        }
+    }
+
+    // Toast dla nowych zamówień
+    if (toAdd.length > 0) {
+        window.StationCommon.showInfo(`Dodano ${toAdd.length} ${toAdd.length === 1 ? 'nowe zamówienie' : 'nowych zamówień'}`);
+    }
+}
+
+/**
+ * Tworzy HTML dla karty zamówienia
+ * @param {Object} order - Dane zamówienia
+ * @returns {string} HTML string
+ */
+function createOrderCard(order) {
+    // Generuj HTML dla produktów
+    const productsHTML = order.products.map(product => {
+        const isNotReady = product.current_status !== 'czeka_na_pakowanie';
+        const disabledAttr = isNotReady ? 'disabled' : '';
+        const notReadyClass = isNotReady ? 'product-not-ready' : '';
+
+        return `
+            <div class="product-row ${notReadyClass}" 
+                 data-product-id="${product.id}"
+                 data-status="${product.current_status}">
+                
+                <div class="product-checkbox">
+                    <input type="checkbox"
+                           class="product-check"
+                           id="check-${product.id}"
+                           data-product-id="${product.id}"
+                           ${disabledAttr}>
+                    <label for="check-${product.id}"></label>
+                </div>
+
+                <div class="product-info">
+                    <div class="product-main">
+                        <span class="product-id">${product.id}</span>
+                        <span class="product-name">${product.original_name}</span>
+                        <span class="product-volume">${product.volume_m3.toFixed(4)} m³</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Sprawdź czy wszystkie produkty są gotowe
+    const allReady = order.products.every(p => p.current_status === 'czeka_na_pakowanie');
+    const btnDisabled = allReady ? '' : 'disabled';
+
+    return `
+        <div class="order-card"
+             data-order-number="${order.order_number}"
+             data-priority-rank="${order.best_priority_rank}"
+             data-total-products="${order.total_products}">
+
+            <!-- HEADER WIERSZ 1 -->
+            <div class="order-header-row-1">
+                <span class="order-number">Zamówienie: ${order.order_number}</span>
+                <span class="priority-badge ${order.priority_class}">
+                    #${order.best_priority_rank} ${order.priority_label}
+                </span>
+                <span class="deadline-info">📅 ${order.display_deadline}</span>
+            </div>
+
+            <!-- HEADER WIERSZ 2 -->
+            <div class="order-header-row-2">
+                <span class="summary-products">RAZEM: ${order.total_products} ${order.total_products === 1 ? 'produkt' : order.total_products < 5 ? 'produkty' : 'produktów'}</span>
+                <span class="summary-volume">${order.total_volume.toFixed(4)} m³</span>
+            </div>
+
+            <!-- BODY - SPLIT -->
+            <div class="order-body">
+                <!-- LEFT: Przycisk SPAKOWANE -->
+                <div class="order-action">
+                    <button class="btn btn-package"
+                            data-action="package"
+                            data-order="${order.order_number}"
+                            ${btnDisabled}>
+                        SPAKOWANE
+                    </button>
+                </div>
+
+                <!-- RIGHT: Lista produktów -->
+                <div class="products-list">
+                    ${productsHTML}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Aktualizuje produkty w istniejącej karcie zamówienia
+ * @param {HTMLElement} card - Karta zamówienia
+ * @param {Object} order - Nowe dane zamówienia z API
+ */
+function updateOrderProducts(card, order) {
+    const productsList = card.querySelector('.products-list');
+    if (!productsList) return;
+
+    order.products.forEach(newProduct => {
+        const existingRow = productsList.querySelector(`[data-product-id="${newProduct.id}"]`);
+        
+        if (!existingRow) {
+            // Produkt nie istnieje - dodaj nowy wiersz
+            const newRowHTML = `
+                <div class="product-row ${newProduct.current_status !== 'czeka_na_pakowanie' ? 'product-not-ready' : ''}" 
+                     data-product-id="${newProduct.id}"
+                     data-status="${newProduct.current_status}">
+                    
+                    <div class="product-checkbox">
+                        <input type="checkbox"
+                               class="product-check"
+                               id="check-${newProduct.id}"
+                               data-product-id="${newProduct.id}"
+                               ${newProduct.current_status !== 'czeka_na_pakowanie' ? 'disabled' : ''}>
+                        <label for="check-${newProduct.id}"></label>
+                    </div>
+
+                    <div class="product-info">
+                        <div class="product-main">
+                            <span class="product-id">${newProduct.id}</span>
+                            <span class="product-name">${newProduct.original_name}</span>
+                            <span class="product-volume">${newProduct.volume_m3.toFixed(4)} m³</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            productsList.insertAdjacentHTML('beforeend', newRowHTML);
+            console.log(`[Packaging] Added new product to order: ${newProduct.id}`);
+            return;
+        }
+
+        // Produkt istnieje - zaktualizuj status
+        const currentStatus = existingRow.dataset.status;
+        if (currentStatus !== newProduct.current_status) {
+            existingRow.dataset.status = newProduct.current_status;
+            
+            const checkbox = existingRow.querySelector('.product-check');
+            
+            if (newProduct.current_status === 'czeka_na_pakowanie') {
+                // Odblokuj checkbox
+                existingRow.classList.remove('product-not-ready');
+                if (checkbox) {
+                    checkbox.removeAttribute('disabled');
+                    checkbox.disabled = false;
+                }
+                console.log(`[Packaging] Enabled product: ${newProduct.id}`);
+            } else {
+                // Zablokuj checkbox
+                existingRow.classList.add('product-not-ready');
+                if (checkbox) {
+                    checkbox.setAttribute('disabled', 'disabled');
+                    checkbox.disabled = true;
+                    checkbox.checked = false;
+                }
+                console.log(`[Packaging] Disabled product: ${newProduct.id}`);
+            }
+            
+            // Przelicz stan przycisku SPAKOWANE
+            const packageBtn = card.querySelector('.btn-package');
+            if (packageBtn) {
+                updatePackageButtonState(card, productsList.querySelectorAll('.product-check'), packageBtn);
+            }
+        }
+    });
+}
+
+/**
+ * Aktualizuje priorytet w istniejącej karcie zamówienia
+ * @param {HTMLElement} card - Karta zamówienia
+ * @param {Object} order - Nowe dane zamówienia
+ */
+function updateOrderPriority(card, order) {
+    // Aktualizuj badge priorytetu
+    const priorityBadge = card.querySelector('.priority-badge');
+    if (priorityBadge) {
+        priorityBadge.className = `priority-badge ${order.priority_class}`;
+        priorityBadge.textContent = `#${order.best_priority_rank} ${order.priority_label}`;
+    }
+
+    // Aktualizuj dataset
+    card.dataset.priorityRank = order.best_priority_rank;
 }
 
 /**

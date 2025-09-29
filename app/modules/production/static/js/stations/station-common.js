@@ -41,7 +41,7 @@ function loadStationConfig() {
             autoRefreshEnabled: true,
             debugMode: false,
             apiBaseUrl: '/production/api',
-            ajaxBaseUrl: '/production/ajax'
+            ajaxBaseUrl: '/production/stations/ajax'
         };
         window.STATION_STATE.config = fallbackConfig;
         return fallbackConfig;
@@ -212,6 +212,7 @@ function startRefreshCountdownTimer() {
  */
 function smartMergeProducts(newProducts) {
     const grid = document.getElementById('products-grid');
+    
     if (!grid) {
         console.warn('[Station] Products grid not found');
         return;
@@ -225,6 +226,15 @@ function smartMergeProducts(newProducts) {
 
     // Find NEW products (not in DOM)
     const toAdd = newProducts.filter(p => !existingIds.includes(p.id));
+
+    // ✅ DODANE: Ukryj empty state jeśli dodajemy nowe karty
+    if (toAdd.length > 0) {
+        const emptyState = grid.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.style.display = 'none';
+            console.log('[Station] Hidden empty state');
+        }
+    }
 
     // Add new cards
     toAdd.forEach(product => {
@@ -256,6 +266,17 @@ function smartMergeProducts(newProducts) {
             }
         }
     });
+
+    // ✅ DODANE: Pokaż empty state jeśli usunięto wszystkie karty
+    if (newProducts.length === 0 && existingCards.length > 0) {
+        const emptyState = grid.querySelector('.empty-state');
+        if (emptyState) {
+            // Usuń wszystkie karty produktów
+            existingCards.forEach(card => card.remove());
+            emptyState.style.display = 'block';
+            console.log('[Station] Showed empty state - no products');
+        }
+    }
 
     if (toAdd.length > 0) {
         console.log(`[Station] Added ${toAdd.length} new cards`);
@@ -396,13 +417,25 @@ function updateStatsBar(stats, products = null) {
 
     if (totalElement) totalElement.textContent = stats.total_products || 0;
 
-    // Calculate total_volume from products if not in stats
+    // ✅ POPRAWKA: Zawsze licz volume z kart w DOM (rzeczywisty stan)
     if (volumeElement) {
-        let totalVolume = stats.total_volume || 0;
-        if (!stats.total_volume && products && products.length > 0) {
-            totalVolume = products.reduce((sum, p) => sum + (p.volume_m3 || 0), 0);
-        }
+        const cardsInDOM = document.querySelectorAll('.product-card');
+        let totalVolume = 0;
+        
+        cardsInDOM.forEach(card => {
+            const volumeSpan = card.querySelector('.volume-info');
+            if (volumeSpan) {
+                // Wyciągnij liczbę z tekstu "0.0264 m³"
+                const volumeText = volumeSpan.textContent.trim();
+                const volumeMatch = volumeText.match(/[\d.]+/);
+                if (volumeMatch) {
+                    totalVolume += parseFloat(volumeMatch[0]);
+                }
+            }
+        });
+        
         volumeElement.textContent = totalVolume.toFixed(4);
+        console.log(`[Station] Calculated volume from ${cardsInDOM.length} cards: ${totalVolume.toFixed(4)} m³`);
     }
 
     if (criticalElement) criticalElement.textContent = stats.high_priority_count || 0;

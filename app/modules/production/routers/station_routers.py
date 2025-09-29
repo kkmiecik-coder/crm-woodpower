@@ -934,6 +934,212 @@ def ajax_station_summary():
             'success': False,
             'error': str(e)
         }), 500
+    
+@station_bp.route('/ajax/orders/packaging')
+def ajax_get_orders_packaging():
+    """
+    AJAX endpoint dla odświeżania ZAMÓWIEŃ na stanowisku pakowania
+    
+    RÓŻNICA od ajax_get_products:
+    - Zwraca ZAMÓWIENIA (grouped) zamiast płaskiej listy produktów
+    - Struktura identyczna z initial server-side render
+    
+    Query params:
+        sort: priority|deadline|created_at (default: priority)
+        limit: max liczba produktów (default: 50)
+        
+    Returns:
+        JSON: {
+            success: bool,
+            data: {
+                orders: [...],  # Pogrupowane zamówienia
+                stats: {...}    # Statystyki
+            }
+        }
+    """
+    try:
+        from ..models import ProductionItem
+        from sqlalchemy import asc, desc
+        
+        sort_by = request.args.get('sort', 'priority')
+        limit = min(int(request.args.get('limit', 50)), 100)
+        
+        logger.debug("AJAX: Pobieranie zamówień packaging", extra={
+            'sort_by': sort_by,
+            'limit': limit,
+            'client_ip': request.remote_addr
+        })
+        
+        # KROK 1: Znajdź zamówienia które mają choć 1 produkt do pakowania
+        orders_with_packaging = db.session.query(
+            ProductionItem.internal_order_number
+        ).filter(
+            ProductionItem.current_status == 'czeka_na_pakowanie'
+        ).distinct().all()
+        
+        order_numbers = [order[0] for order in orders_with_packaging]
+        
+        if not order_numbers:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'orders': [],
+                    'stats': {
+                        'total_orders': 0,
+                        'total_products': 0,
+                        'high_priority_count': 0,
+                        'overdue_count': 0,
+                        'total_volume': 0
+                    }
+                }
+            }), 200
+        
+        # KROK 2: Pobierz WSZYSTKIE produkty z tych zamówień
+        query = ProductionItem.query.filter(
+            ProductionItem.internal_order_number.in_(order_numbers)
+        )
+        
+        # Sortowanie
+        if sort_by == 'priority':
+            query = query.order_by(asc(ProductionItem.priority_rank))
+        elif sort_by == 'deadline':
+            query = query.order_by(asc(ProductionItem.deadline_date))
+        elif sort_by == 'created_at':
+            query = query.order_by(asc(ProductionItem.created_at))
+        
+        products = query.limit(limit).all()
+        
+        # KROK 3: Grupowanie produktów po zamówieniach
+        orders_grouped = {}
+        today = date.today()
+        
+        for product in products:
+            order_num = product.internal_order_number
+            
+            if order_num not in orders_grouped:
+                orders_grouped[order_num] = {
+                    'order_number': order_num,
+                    'products': [],
+                    'total_products': 0,
+                    'ready_count': 0,
+                    'not_ready_count': 0,
+                    'total_volume': 0,
+                    'best_priority_rank': 999,
+                    'worst_deadline': None
+                }
+            
+            # Dodaj produkt do zamówienia
+            product_data = {
+                'id': product.short_product_id,
+                'original_name': product.original_product_name or 'Brak nazwy',
+                'volume_m3': float(product.volume_m3 or 0),
+                'current_status': product.current_status,
+                'priority_rank': product.priority_rank or 999,
+                'deadline_date': product.deadline_date.isoformat() if product.deadline_date else None
+            }
+            
+            orders_grouped[order_num]['products'].append(product_data)
+            orders_grouped[order_num]['total_products'] += 1
+            orders_grouped[order_num]['total_volume'] += float(product.volume_m3 or 0)
+            
+            # Liczniki gotowości
+            if product.current_status == 'czeka_na_pakowanie':
+                orders_grouped[order_num]['ready_count'] += 1
+            else:
+                orders_grouped[order_num]['not_ready_count'] += 1
+            
+            # Najlepszy priorytet w zamówieniu
+            if product.priority_rank and product.priority_rank < orders_grouped[order_num]['best_priority_rank']:
+                orders_grouped[order_num]['best_priority_rank'] = product.priority_rank
+            
+            # Najgorszy deadline w zamówieniu
+            if product.deadline_date:
+                if orders_grouped[order_num]['worst_deadline'] is None:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+                elif product.deadline_date > orders_grouped[order_num]['worst_deadline']:
+                    orders_grouped[order_num]['worst_deadline'] = product.deadline_date
+        
+        # KROK 4: Dodaj informacje wyświetlania do każdego zamówienia
+        for order_num, order_data in orders_grouped.items():
+            # Priority class i label
+            rank = order_data['best_priority_rank']
+            if rank <= 10:
+                order_data['priority_class'] = 'priority-critical'
+                order_data['priority_label'] = 'KRYTYCZNY'
+            elif rank <= 50:
+                order_data['priority_class'] = 'priority-high'
+                order_data['priority_label'] = 'WYSOKI'
+            elif rank <= 100:
+                order_data['priority_class'] = 'priority-normal'
+                order_data['priority_label'] = 'NORMALNY'
+            else:
+                order_data['priority_class'] = 'priority-low'
+                order_data['priority_label'] = 'NISKI'
+            
+            # Display deadline
+            deadline = order_data['worst_deadline']
+            if deadline:
+                days_diff = (deadline - today).days
+                if days_diff < 0:
+                    order_data['display_deadline'] = f"Opóźnione o {abs(days_diff)} dni"
+                elif days_diff == 0:
+                    order_data['display_deadline'] = "Dziś!"
+                elif days_diff == 1:
+                    order_data['display_deadline'] = "Jutro"
+                else:
+                    order_data['display_deadline'] = f"Za {days_diff} dni"
+            else:
+                order_data['display_deadline'] = "Brak terminu"
+            
+            # Konwertuj deadline na string dla JSON
+            if order_data['worst_deadline']:
+                order_data['worst_deadline'] = order_data['worst_deadline'].isoformat()
+        
+        # KROK 5: Sortowanie zamówień
+        orders_list = list(orders_grouped.values())
+        if sort_by == 'priority':
+            orders_list.sort(key=lambda x: x['best_priority_rank'])
+        elif sort_by == 'deadline':
+            orders_list.sort(key=lambda x: x['worst_deadline'] or '9999-12-31')
+        
+        # KROK 6: Statystyki
+        high_priority_count = sum(1 for order in orders_list if order['best_priority_rank'] <= 50)
+        overdue_count = sum(1 for order in orders_list 
+                           if order['worst_deadline'] and order['worst_deadline'] < today.isoformat())
+        total_volume = sum(order['total_volume'] for order in orders_list)
+        total_products = sum(order['ready_count'] for order in orders_list)
+        
+        stats = {
+            'total_orders': len(orders_list),
+            'total_products': total_products,
+            'high_priority_count': high_priority_count,
+            'overdue_count': overdue_count,
+            'total_volume': round(total_volume, 4)
+        }
+        
+        logger.debug("AJAX: Zwracam zamówienia packaging", extra={
+            'orders_count': len(orders_list),
+            'total_products': stats['total_products']
+        })
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'orders': orders_list,
+                'stats': stats
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error("Błąd AJAX orders packaging", extra={
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+        
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 # ============================================================================
 # UTILITY ROUTERS
