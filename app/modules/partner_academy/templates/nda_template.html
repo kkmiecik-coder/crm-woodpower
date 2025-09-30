@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #ED6B24;
+            padding-bottom: 20px;
+        }
+
+        .logo {
+            font-size: 24pt;
+            font-weight: bold;
+            color: #ED6B24;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            font-size: 16pt;
+            color: #1F2020;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+
+        h2 {
+            font-size: 14pt;
+            color: #1F2020;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        .section {
+            margin-bottom: 20px;
+        }
+
+        .signature-box {
+            margin-top: 50px;
+            border: 1px solid #ccc;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+
+        .signature-line {
+            margin-top: 40px;
+            border-top: 1px solid #333;
+            width: 300px;
+            padding-top: 5px;
+            font-size: 10pt;
+        }
+
+        .footer {
+            margin-top: 50px;
+            font-size: 9pt;
+            color: #666;
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+        }
+
+        .highlight {
+            background-color: #FFF4E6;
+            padding: 2px 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">WoodPower</div>
+        <div>Wood Power Sp. z o.o.</div>
+        <div>Bachórz 14N, 36-068 Bachórz</div>
+        <div>NIP: 8133787635</div>
+    </div>
+
+    <h1>UMOWA O ZACHOWANIU POUFNOŚCI (NDA)</h1>
+    <h2>Non-Disclosure Agreement</h2>
+
+    <div class="section">
+        <p><strong>Niniejsza umowa zawarta w dniu:</strong> {{ current_date }}</p>
+        <p><strong>Pomiędzy:</strong></p>
+        <ul>
+            <li><strong>Wood Power Sp. z o.o.</strong>, Bachórz 14N, 36-068 Bachórz, NIP: 8133787635 (dalej: "Ujawniający")</li>
+            <li><strong class="highlight">{{ first_name }} {{ last_name }}</strong>, {{ city }}, {{ locality }}, email: {{ email }}, tel: {{ phone }} (dalej: "Przyjmujący")</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>§1 Przedmiot umowy</h2>
+        <p>1. Ujawniający zamierza ujawnić Przyjmującemu informacje poufne dotyczące działalności gospodarczej, produktów, procesów biznesowych, strategii marketingowej oraz struktury cenowej w związku z procesem rekrutacji do programu partnerskiego WoodPower PartnerAcademy.</p>
+        <p>2. Przyjmujący zobowiązuje się do zachowania w tajemnicy wszelkich informacji poufnych otrzymanych od Ujawniającego.</p>
+    </div>
+
+    <div class="section">
+        <h2>§2 Definicja informacji poufnych</h2>
+        <p>Informacjami poufnymi są w szczególności:</p>
+        <ul>
+            <li>Cenniki produktów i polityka marż handlowych</li>
+            <li>Lista klientów i partnerów biznesowych</li>
+            <li>Procesy produkcyjne i technologie</li>
+            <li>Strategie marketingowe i sprzedażowe</li>
+            <li>Dokumentacja techniczna i szkoleniowa</li>
+            <li>Wszelkie inne informacje oznaczone jako "poufne"</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>§3 Zobowiązania Przyjmującego</h2>
+        <p>Przyjmujący zobowiązuje się do:</p>
+        <ol>
+            <li>Nieujawniania informacji poufnych osobom trzecim bez pisemnej zgody Ujawniającego</li>
+            <li>Wykorzystywania informacji poufnych wyłącznie w celu oceny możliwości współpracy z WoodPower</li>
+            <li>Zabezpieczenia informacji poufnych przed dostępem osób nieuprawnionych</li>
+            <li>Niezwłocznego poinformowania Ujawniającego o jakimkolwiek naruszeniu poufności</li>
+        </ol>
+    </div>
+
+    <div class="section">
+        <h2>§4 Wyłączenia</h2>
+        <p>Zobowiązanie do zachowania poufności nie dotyczy informacji, które:</p>
+        <ul>
+            <li>Są publicznie dostępne w chwili ich ujawnienia</li>
+            <li>Zostały legalnie pozyskane z innych źródeł</li>
+            <li>Muszą być ujawnione na mocy przepisów prawa</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>§5 Okres obowiązywania</h2>
+        <p>Niniejsza umowa obowiązuje przez okres <strong>3 lat</strong> od daty jej podpisania.</p>
+    </div>
+
+    <div class="section">
+        <h2>§6 Kary umowne</h2>
+        <p>W przypadku naruszenia zobowiązań wynikających z niniejszej umowy, Przyjmujący zobowiązany jest do zapłaty kary umownej w wysokości <strong>10 000 PLN</strong> na rzecz Ujawniającego, bez uszczerbku dla prawa dochodzenia odszkodowania przewyższającego wysokość kary umownej.</p>
+    </div>
+
+    <div class="section">
+        <h2>§7 Postanowienia końcowe</h2>
+        <p>1. W sprawach nieuregulowanych niniejszą umową zastosowanie mają przepisy Kodeksu cywilnego.</p>
+        <p>2. Spory wynikające z niniejszej umowy będą rozstrzygane przez sąd właściwy dla siedziby Ujawniającego.</p>
+        <p>3. Wszelkie zmiany niniejszej umowy wymagają formy pisemnej pod rygorem nieważności.</p>
+    </div>
+
+    <div class="signature-box">
+        <p><strong>OŚWIADCZAM, ŻE:</strong></p>
+        <ul>
+            <li>Przeczytałem/am i zrozumiałem/am treść niniejszej umowy</li>
+            <li>Zobowiązuję się do przestrzegania wszystkich postanowień</li>
+            <li>Podaję prawdziwe dane osobowe</li>
+        </ul>
+
+        <div style="margin-top: 40px;">
+            <table width="100%" style="border-collapse: collapse;">
+                <tr>
+                    <td style="width: 50%; padding-right: 20px;">
+                        <div class="signature-line">
+                            Data i podpis Przyjmującego
+                        </div>
+                        <div style="margin-top: 10px; font-size: 10pt;">
+                            {{ first_name }} {{ last_name }}
+                        </div>
+                    </td>
+                    <td style="width: 50%; padding-left: 20px;">
+                        <div class="signature-line">
+                            Pieczęć i podpis Ujawniającego
+                        </div>
+                        <div style="margin-top: 10px; font-size: 10pt;">
+                            Wood Power Sp. z o.o.
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
