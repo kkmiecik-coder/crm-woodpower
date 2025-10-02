@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PartnerAcademy - Dołącz do nas</title>
-    <link rel="stylesheet" href="{{ url_for('partner_academy.static', filename='css/common.css') }}">
+    <title>Partner Academy - Dołącz do nas</title>
     <link rel="stylesheet" href="{{ url_for('partner_academy.static', filename='css/recruitment.css') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,495 +12,461 @@
 </head>
 <body>
     <div class="container">
-        <!-- Progress Bar -->
-        <div class="progress-bar" id="progressBar">
-            <div class="progress-step active" data-step="1">
-                <div class="step-number">1</div>
-                <div class="step-label">Początek</div>
+        <!-- Progress Bar - Desktop -->
+        <div class="progress-bar-desktop">
+            <div class="progress-track">
+                <div class="progress-fill" id="progressFill"></div>
             </div>
-            <div class="progress-step" data-step="2">
-                <div class="step-number">2</div>
-                <div class="step-label">Kim jesteśmy</div>
-            </div>
-            <div class="progress-step" data-step="3">
-                <div class="step-number">3</div>
-                <div class="step-label">Korzyści</div>
-            </div>
-            <div class="progress-step" data-step="4">
-                <div class="step-number">4</div>
-                <div class="step-label">Produkty</div>
-            </div>
-            <div class="progress-step" data-step="5">
-                <div class="step-number">5</div>
-                <div class="step-label">Zespół</div>
-            </div>
-            <div class="progress-step" data-step="6">
-                <div class="step-number">6</div>
-                <div class="step-label">Co dalej</div>
-            </div>
-            <div class="progress-step" data-step="7">
-                <div class="step-number">7</div>
-                <div class="step-label">Formularz</div>
-            </div>
-            <div class="progress-step" data-step="8">
-                <div class="step-number">8</div>
-                <div class="step-label">Wyślij</div>
-            </div>
-        </div>
-
-        <!-- Step 1: Welcome -->
-        <div class="step-content active" data-step="1">
-            <div class="hero-section">
-                <div class="logo-container">
-                    <img src="{{ url_for('static', filename='images/logo.svg') }}"
-                         alt="WoodPower Logo"
-                         class="hero-logo">
-                    <p class="brand-subtitle">PartnerAcademy</p>
+            <div class="progress-steps-list">
+                <div class="progress-step active" data-step="1" onclick="goToStep(1)">
+                    <div class="step-indicator">1</div>
+                    <div class="step-label">Początek</div>
                 </div>
-                <h2 class="hero-title">Dołącz do zespołu<br>przedstawicieli handlowych</h2>
-                <p class="hero-subtitle">Zostań partnerem WoodPower i rozwijaj swój biznes z nam.</p>
-                <button class="btn-primary btn-large" onclick="nextStep()">Rozpocznij</button>
+                <div class="progress-step" data-step="2" onclick="goToStep(2)">
+                    <div class="step-indicator">2</div>
+                    <div class="step-label">Proces</div>
+                </div>
+                <div class="progress-step" data-step="3" onclick="goToStep(3)">
+                    <div class="step-indicator">3</div>
+                    <div class="step-label">Kim jesteśmy</div>
+                </div>
+                <div class="progress-step" data-step="4" onclick="goToStep(4)">
+                    <div class="step-indicator">4</div>
+                    <div class="step-label">Korzyści</div>
+                </div>
+                <div class="progress-step" data-step="5" onclick="goToStep(5)">
+                    <div class="step-indicator">5</div>
+                    <div class="step-label">Produkty</div>
+                </div>
+                <div class="progress-step" data-step="6" onclick="goToStep(6)">
+                    <div class="step-indicator">6</div>
+                    <div class="step-label">Zespół</div>
+                </div>
+                <div class="progress-step" data-step="7" onclick="goToStep(7)">
+                    <div class="step-indicator">7</div>
+                    <div class="step-label">Formularz</div>
+                </div>
             </div>
         </div>
 
-        <!-- Step 2: About Us -->
-        <div class="step-content" data-step="2">
-            <h2 class="section-title">Kim jesteśmy</h2>
-            <div class="stats-grid">
-                <div class="stat-box">
-                    <div class="stat-number" data-count="30">0</div>
-                    <div class="stat-label">Lat na rynku</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number" data-count="17">0</div>
-                    <div class="stat-label">Partnerów w Polsce</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number" data-count="4500">0</div>
-                    <div class="stat-label">Zadowolonych klientów</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Co najmniej</div>
-                    <div class="stat-number" data-count="150">0</div>
-                    <div class="stat-label">zamówień miesięcznie</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-label">Ponad</div>
-                    <div class="stat-number" data-count="20000">0</div>
-                    <div class="stat-label">produktów w ofercie</div>
-                </div>
-            </div>
-            <div class="content-text">
-                <p>
-                    WoodPower to miejsce, gdzie tradycja spotyka się z nowoczesnością. Nasza firma powstała na fundamencie wieloletniego doświadczenia w przetwórstwie drewna, zdobywanego przez dekady. Nasze korzenie sięgają głęboko w przeszłość, łącząc to, co najlepsze w rzemiośle drzewnym, z nowoczesnymi technologiami. Dzięki temu tworzymy produkty, które charakteryzują się wyjątkową trwałością, estetyką oraz najwyższą jakością wykonania.
-                </p>
-                <p>
-                    Współpracujemy z siecią partnerów, którym oferujemy kompleksowe wsparcie: od szkoleń produktowych, przez marketing, aż po obsługę posprzedażową i teraz to właśnie Ty możesz stać się jednym z nich!
-                </p>
-            </div>
-            <div class="navigation-buttons">
-                <button class="btn-secondary" onclick="prevStep()">Wstecz</button>
-                <button class="btn-primary" onclick="nextStep()">Dalej</button>
-            </div>
+        <!-- Progress Bar - Mobile -->
+        <div class="progress-bar-mobile">
+            <div class="mobile-progress-track" id="mobileProgressTrack"></div>
         </div>
 
-        <!-- Step 3: Benefits -->
-        <div class="step-content" data-step="3">
-            <h2 class="section-title">Dlaczego warto zostać partnerem</h2>
-            <div class="benefits-list">
-                <div class="benefit-item">
-                    <div class="benefit-icon">💰</div>
-                    <div class="benefit-content">
-                        <h3>Atrakcyjne marże</h3>
-                        <p>Konkurencyjne ceny hurtowe z możliwością negocjacji rabatów wolumenowych. Im więcej sprzedajesz, tym lepsze warunki.</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="benefit-icon">📚</div>
-                    <div class="benefit-content">
-                        <h3>Kompleksowe szkolenia</h3>
-                        <p>Platforma e-learningowa + spotkania stacjonarne. Certyfikat po ukończeniu. Stały dostęp do materiałów technicznych.</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="benefit-icon">📢</div>
-                    <div class="benefit-content">
-                        <h3>Wsparcie marketingowe</h3>
-                        <p>Gotowe materiały reklamowe, próbki produktów, udział w targach. Widoczność na stronie woodpower.pl w wyszukiwarce partnerów.</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="benefit-icon">🚚</div>
-                    <div class="benefit-content">
-                        <h3>Logistyka pod klucz</h3>
-                        <p>Szybka realizacja zamówień, elastyczne terminy dostaw, profesjonalna obsługa reklamacji. Własny transport + kurierzy.</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="benefit-icon">💻</div>
-                    <div class="benefit-content">
-                        <h3>Zaawansowane CRM</h3>
-                        <p>Dostęp do systemu do tworzenia wycen online, śledzenia zamówień, zarządzania klientami. Integracja z Baselinker.</p>
-                    </div>
-                </div>
-                <div class="benefit-item">
-                    <div class="benefit-icon">🤝</div>
-                    <div class="benefit-content">
-                        <h3>Dedykowany opiekun</h3>
-                        <p>Każdy partner ma przypisanego opiekuna biznesowego. Wsparcie techniczne, handlowe i operacyjne na co dzień.</p>
-                    </div>
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+            <!-- Step 1: Hero -->
+            <div class="step-content active" data-step="1">
+                <div class="hero">
+                    <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="WoodPower Logo" class="hero-logo">
+                    <h1 class="hero-title">Zostań<span class="highlight"> przedstawicielem handlowym</span></h1>
+                    <p class="hero-subtitle">Dołącz do grona profesjonalistów i rozwijaj biznes z najlepszymi produktami drewnianymi na rynku</p>
                 </div>
             </div>
-            <div class="navigation-buttons">
-                <button class="btn-secondary" onclick="prevStep()">Wstecz</button>
-                <button class="btn-primary" onclick="nextStep()">Dalej</button>
-            </div>
-        </div>
 
-        <!-- Step 4: Products -->
-        <div class="step-content" data-step="4">
-            <h2 class="section-title">Co oferujemy</h2>
-            <div class="products-grid">
-                <div class="product-card">
-                    <div class="product-icon">🪵</div>
-                    <h3>Deski podłogowe</h3>
-                    <p>Masywne deski z dębu, jesionu i buka. Różne klasy, grubości i wykończenia. Idealny produkt dla klientów ceniących trwałość.</p>
-                </div>
-                <div class="product-card">
-                    <div class="product-icon">🪜</div>
-                    <h3>Schody drewniane</h3>
-                    <p>Kompleksowe rozwiązania schodowe: stopnie, podstopnice, balustrady. Produkcja na wymiar z możliwością montażu.</p>
-                </div>
-                <div class="product-card">
-                    <div class="product-icon">🏗️</div>
-                    <h3>Elementy konstrukcyjne</h3>
-                    <p>Belki, kantówki, łaty. Drewno konstrukcyjne certyfikowane, idealne do budownictwa i stolarki.</p>
-                </div>
-                <div class="product-card">
-                    <div class="product-icon">🎨</div>
-                    <h3>Wykończenia premium</h3>
-                    <p>Oleje, lakiery, bejce. Produkty najwyższej jakości od renomowanych producentów. Pełne wsparcie techniczne.</p>
-                </div>
-            </div>
-            <div class="navigation-buttons">
-                <button class="btn-secondary" onclick="prevStep()">Wstecz</button>
-                <button class="btn-primary" onclick="nextStep()">Dalej</button>
-            </div>
-        </div>
-
-        <!-- Step 5: Team -->
-        <div class="step-content" data-step="5">
-            <h2 class="section-title">Dołącz do zespołu profesjonalistów</h2>
-            <div class="content-text">
-                <p>Zespół WoodPower to grupa pasjonatów drewna i budownictwa. Łączymy tradycyjne rzemiosło z nowoczesnymi technologiami produkcji.</p>
-                <p>Nasza filozofia opiera się na trzech filarach:</p>
-            </div>
-            <div class="pillars-grid">
-                <div class="pillar-card">
-                    <div class="pillar-icon">🌳</div>
-                    <h3>Jakość</h3>
-                    <p>Surowiec z certyfikowanych tartaków, kontrola na każdym etapie produkcji, tylko najwyższej klasy drewno.</p>
-                </div>
-                <div class="pillar-card">
-                    <div class="pillar-icon">⚡</div>
-                    <h3>Szybkość</h3>
-                    <p>Realizacja standardowych zamówień w 48h, produkcja na wymiar w 7-10 dni, stały monitoring dostępności.</p>
-                </div>
-                <div class="pillar-card">
-                    <div class="pillar-icon">💚</div>
-                    <h3>Partnerstwo</h3>
-                    <p>Traktujemy partnerów jak członków rodziny. Transparentność, uczciwość, długoterminowe relacje.</p>
-                </div>
-            </div>
-            <div class="navigation-buttons">
-                <button class="btn-secondary" onclick="prevStep()">Wstecz</button>
-                <button class="btn-primary" onclick="nextStep()">Dalej</button>
-            </div>
-        </div>
-
-        <!-- Step 6: Process -->
-        <div class="step-content" data-step="6">
-            <h2 class="section-title">Jak wygląda proces rekrutacji</h2>
-            <div class="timeline">
-                <div class="timeline-item">
-                    <div class="timeline-number">1</div>
-                    <div class="timeline-content">
-                        <h3>Wypełnij formularz</h3>
-                        <p>Podaj podstawowe dane i podpisz umowę NDA (Umowa o zachowaniu poufności) - zajmie to 5 minut.</p>
+            <!-- Step 2: Proces Rekrutacji -->
+            <div class="step-content" data-step="2">
+                <h2 class="section-title">Proces rekrutacji</h2>
+                <p class="section-subtitle">Jak wygląda droga do zostania przedstawicielem handlowym</p>
+                <div class="timeline">
+                    <div class="timeline-item">
+                        <div class="timeline-number">1</div>
+                        <div class="timeline-content">
+                            <h3>Wypełnij formularz</h3>
+                            <p>Podaj podstawowe dane i podpisz umowę NDA (Umowa o zachowaniu poufności) - zajmie to 5 minut.</p>
+                        </div>
                     </div>
-                </div>
-                <div class="timeline-item">
-                    <div class="timeline-number">2</div>
-                    <div class="timeline-content">
-                        <h3>Rozmowa kwalifikacyjna</h3>
-                        <p>Skontaktujemy się telefonicznie lub mailowo w ciągu 48h. Omówimy Twoje doświadczenie i oczekiwania.</p>
+                    <div class="timeline-item">
+                        <div class="timeline-number">2</div>
+                        <div class="timeline-content">
+                            <h3>Rozmowa online</h3>
+                            <p>Po poprawnej weryfikacji pierwszego etapu, wyślemy Ci link do spotkania online, na którym przedstawimy szczegóły.</p>
+                        </div>
                     </div>
-                </div>
-                <div class="timeline-item">
-                    <div class="timeline-number">3</div>
-                    <div class="timeline-content">
-                        <h3>Szkolenie online</h3>
-                        <p>Dostęp do platformy e-learningowej: 11 modułów + quizy. Ukończenie zajmuje około 2-3 godzin.</p>
+                    <div class="timeline-item">
+                        <div class="timeline-number">3</div>
+                        <div class="timeline-content">
+                            <h3>Umowa</h3>
+                            <p>Po pozytywnej rozmowie przygotujemy i podpiszemy umowę określającą warunki naszej współpracy.</p>
+                        </div>
                     </div>
-                </div>
-                <div class="timeline-item">
-                    <div class="timeline-number">4</div>
-                    <div class="timeline-content">
-                        <h3>Certyfikat i start</h3>
-                        <p>Po pozytywnym ukończeniu szkoleń otrzymujesz certyfikat i pełny dostęp do systemu CRM.</p>
+                    <div class="timeline-item">
+                        <div class="timeline-number">4</div>
+                        <div class="timeline-content">
+                            <h3>Szkolenie e-learning</h3>
+                            <p>Dostęp do platformy e-learningowej: 11 modułów + quizy. Ukończenie zajmuje około godziny.</p>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="cta-box">
-                <h3>Gotowy na następny krok?</h3>
-                <p>Wypełnij formularz aplikacyjny i podpisz umowę NDA</p>
-            </div>
-            <div class="navigation-buttons">
-                <button class="btn-secondary" onclick="prevStep()">Wstecz</button>
-                <button class="btn-primary" onclick="nextStep()">Przejdź do formularza</button>
-            </div>
-        </div>
-
-        <!-- Step 7: Form -->
-        <!-- Step 7: Form & Upload -->
-        <div class="step-content" data-step="7">
-            <h2 class="section-title">Formularz aplikacyjny</h2>
-            <p class="positive-intro">🎉 Jesteś o krok od dołączenia do najlepszego zespołu!</p>
-
-            <form id="applicationForm">
-                <!-- Dane osobowe -->
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="first_name">Imię *</label>
-                        <input type="text" id="first_name" name="first_name" required>
-                        <span class="error-message" id="error_first_name"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="last_name">Nazwisko *</label>
-                        <input type="text" id="last_name" name="last_name" required>
-                        <span class="error-message" id="error_last_name"></span>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="email">Email *</label>
-                        <input type="email" id="email" name="email" required>
-                        <span class="error-message" id="error_email"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="phone">Telefon *</label>
-                        <input type="tel" id="phone" name="phone" required placeholder="np. 690 002 109">
-                        <span class="error-message" id="error_phone"></span>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="city">Miasto *</label>
-                        <input type="text" id="city" name="city" required>
-                        <span class="error-message" id="error_city"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="locality">Miejscowość *</label>
-                        <input type="text" id="locality" name="locality" required>
-                        <span class="error-message" id="error_locality"></span>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="experience_level">Doświadczenie w branży</label>
-                    <select id="experience_level" name="experience_level">
-                        <option value="">Wybierz...</option>
-                        <option value="brak">Brak doświadczenia</option>
-                        <option value="1-2 lata">1-2 lata</option>
-                        <option value="3-5 lat">3-5 lat</option>
-                        <option value="5+ lat">Powyżej 5 lat</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="about_text">Dlaczego chcesz zostać partnerem WoodPower?</label>
-                    <textarea id="about_text" name="about_text" rows="4" placeholder="Opcjonalnie - opowiedz nam o sobie i swoich planach..."></textarea>
-                </div>
-
-                <div class="form-group checkbox-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="data_processing_consent" name="data_processing_consent" required>
-                        <span>Akceptuję <a href="#" onclick="showPrivacyModal(); return false;">politykę prywatności</a> i wyrażam zgodę na przetwarzanie moich danych osobowych *</span>
-                    </label>
-                </div>
-
-                <!-- Divider -->
-                <div class="form-divider"></div>
-
-                <!-- NDA Section -->
-                <h3 class="subsection-title">Umowa NDA</h3>
-
-                <div class="nda-actions">
-                    <button type="button" class="btn-secondary" onclick="generateNDA()">
-                        📄 Pobierz umowę NDA
-                    </button>
-
-                    <div class="upload-zone-inline" id="uploadZoneInline">
-                        <input type="file" id="ndaFile" accept=".pdf,.jpg,.jpeg,.png,.docx,.odt" style="display:none;">
-                        <div class="upload-content">
-                            <span class="upload-icon-small">📎</span>
-                            <span class="upload-text-small">Załącz podpisaną umowę</span>
+                    <div class="timeline-item">
+                        <div class="timeline-number">5</div>
+                        <div class="timeline-content">
+                            <h3>Certyfikat i start</h3>
+                            <p>Po pomyślnym ukończeniu szkoleń otrzymujesz certyfikat i pełny dostęp do naszego systemu CRM WoodPower, który będziesz wykorzystywał do składania zamówień.</p>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div id="filePreview" class="file-preview-inline" style="display:none;">
-                    <div class="file-info-inline">
-                        <span class="file-name" id="fileName"></span>
-                        <span class="file-size" id="fileSize"></span>
+            <!-- Step 3: Kim jesteśmy -->
+            <div class="step-content" data-step="3">
+                <h2 class="section-title">Kim jesteśmy</h2>
+                <p class="section-subtitle">Poznaj naszą fabrykę i zespół</p>
+                <div class="about-section">
+                    <div class="about-row">
+                        <div class="about-text">
+                            <h3>Polska firma z Podkarpacia</h3>
+                            <p>WoodPower to dumnie polska firma z sercem w Podkarpackim. Nasza firma powstała na fundamencie wieloletniego doświadczenia w przetwórstwie drewna, zdobywanego przez dekady. Nasze korzenie sięgają głęboko w przeszłość, łącząc to, co najlepsze w rzemiośle drzewnym, z nowoczesnymi technologiami. Dzięki temu tworzymy produkty, które charakteryzują się wyjątkową trwałością, estetyką oraz najwyższą jakością wykonania.</p>
+                        </div>
+                        <div class="about-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/factory/1.jpg') }}" alt="Widok zakładu z lotu ptaka">
+                        </div>
                     </div>
-                    <button type="button" class="btn-link-small" onclick="removeFile()">Usuń</button>
+                    <div class="about-row reverse">
+                        <div class="about-text">
+                            <h3>Nowoczesna produkcja</h3>
+                            <p>Nasza fabryka wyposażona jest w najnowocześniejsze maszyny, które gwarantują najwyższą precyzję i jakość wykonania każdego produktu. Inwestujemy w technologię, aby dostarczać produkty spełniające najwyższe standardy.</p>
+                        </div>
+                        <div class="about-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/factory/2.jpg') }}" alt="Rozcinanie klejonki">
+                        </div>
+                    </div>
+                    <div class="about-row">
+                        <div class="about-text">
+                            <h3>Doświadczony zespół</h3>
+                            <p>Za sukcesem WoodPower stoi zespół pasjonatów z wieloletnim doświadczeniem w branży drzewnej. Każdy element jest starannie wykonywany przez wykwalifikowanych specjalistów, którzy dbają o każdy szczegół.</p>
+                        </div>
+                        <div class="about-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/factory/3.jpg') }}" alt="Widok z środka zakładu produkcyjnego">
+                        </div>
+                    </div>
+                    <div class="about-row reverse">
+                        <div class="about-text">
+                            <h3>Kontrola jakości</h3>
+                            <p>Każdy produkt przechodzi przez rygorystyczne testy jakości przed opuszczeniem zakładu. Dbamy o to, aby nasze wyroby spełniały oczekiwania nawet najbardziej wymagających klientów.</p>
+                        </div>
+                        <div class="about-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/factory/4.jpg') }}" alt="Fabryka WoodPower - widok 3">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Korzyści -->
+            <div class="step-content" data-step="4">
+                <h2 class="section-title">Korzyści</h2>
+                <p class="section-subtitle">Dlaczego warto zostać przedstawicielem handlowym</p>
+
+                <div class="commission-highlight">
+                    <h3>💰 Atrakcyjne prowizje od sprzedaży</h3>
+                    <p>Oferujemy jeden z najwyższych systemów prowizyjnych na rynku. Im więcej sprzedajesz, tym więcej zarabiasz. Twój sukces to nasz wspólny cel - dlatego stawiamy na przejrzyste i motywujące zasady wynagradzania.</p>
                 </div>
 
-            </form>
+                <div class="benefits-grid">
+                    <div class="benefit-card">
+                        <div class="benefit-icon">🎓</div>
+                        <h3>Szkolenia</h3>
+                        <p>Pełne wsparcie merytoryczne i dostęp do profesjonalnych szkoleń produktowych</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">📊</div>
+                        <h3>System CRM</h3>
+                        <p>Nowoczesne narzędzia do zarządzania klientami i procesami sprzedaży</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">🤝</div>
+                        <h3>Wsparcie</h3>
+                        <p>Dedykowany opiekun i pomoc na każdym etapie współpracy</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">📦</div>
+                        <h3>Jakość</h3>
+                        <p>Produkty najwyższej jakości z gwarancją i terminową realizacją</p>
+                    </div>
+                </div>
+            </div>
 
-            <div class="navigation-buttons-inline">
-                <button class="btn-icon-back" onclick="prevStep()" title="Wstecz">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M19 12H5M12 19l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button class="btn-primary btn-block" id="continueBtn" onclick="proceedToSummary()" disabled>
-                    Przejdź do podsumowania
-                </button>
+            <!-- Step 5: Produkty -->
+            <div class="step-content" data-step="5">
+                <h2 class="section-title">Produkty</h2>
+                <p class="section-subtitle">Poznaj nasze produkty premium, które możesz oferować swoim klientom</p>
+
+                <div class="products-grid">
+                    <a href="{{ url_for('partner_academy.static', filename='media/documents/Oferta_schody_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/products/schody.jpg') }}" alt="Schody drewniane">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Schody</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="{{ url_for('partner_academy.static', filename='media/documents/Oferta_blaty_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/products/blaty.jpg') }}" alt="Blaty drewniane">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Blaty</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="{{ url_for('partner_academy.static', filename='media/documents/Oferta_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/products/parapety.jpg') }}" alt="Parapety drewniane">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Parapety</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="{{ url_for('partner_academy.static', filename='media/documents/Oferta_woodpower.pdf') }}" target="_blank" class="product-tile">
+                        <div class="product-image">
+                            <img src="{{ url_for('partner_academy.static', filename='media/images/products/wszystko.jpg') }}" alt="Wszystkie produkty">
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">Wszystkie produkty</div>
+                            <div class="product-cta">
+                                <span>Poznaj szczegóły</span>
+                                <span>→</span>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Step 6: Zespół -->
+            <div class="step-content" data-step="6">
+                <h2 class="section-title">Zespół</h2>
+                <p class="section-subtitle">Dołącz do zespołu profesjonalistów - nasze wartości</p>
+
+                <div class="values-grid">
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Jakość</h3>
+                        <p>Najwyższa jakość produktów z polskiego surowca potwierdzona zadowoleniem klientów</p>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Personalizacja</h3>
+                        <p>Każdy produkt dostosowany do indywidualnych potrzeb i wymiarów klienta</p>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Czas realizacji</h3>
+                        <p>Terminowa realizacja zamówień i pełna transparentność procesu produkcji</p>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-number">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <h3>Partnerstwo</h3>
+                        <p>Długoterminowe relacje oparte na zaufaniu i wzajemnym sukcesie</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 7: Formularz -->
+            <div class="step-content" data-step="7">
+                <h2 class="section-title">Formularz aplikacyjny</h2>
+                <p class="section-subtitle">Wypełnij formularz i dołącz do nas już dziś!</p>
+
+                <div class="form-container">
+                    <div class="form-info-box">
+                        <p><strong>ℹ️ Informacja:</strong> Dane z tego formularza są niezbędne do przygotowania umowy NDA oraz dalszego procesu rekrutacji.</p>
+                    </div>
+
+                    <form id="applicationForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="first_name">Imię *</label>
+                                <input type="text" id="first_name" name="first_name" required>
+                                <span class="error-message" id="error_first_name"></span>
+                            </div>
+                            <div class="form-group">
+                                <label for="last_name">Nazwisko *</label>
+                                <input type="text" id="last_name" name="last_name" required>
+                                <span class="error-message" id="error_last_name"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="email">Email *</label>
+                                <input type="email" id="email" name="email" required>
+                                <span class="error-message" id="error_email"></span>
+                            </div>
+                            <div class="form-group">
+                                <label for="phone">Telefon *</label>
+                                <input type="tel" id="phone" name="phone" required placeholder="np. +48 123 456 789">
+                                <span class="error-message" id="error_phone"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="city">Miasto *</label>
+                                <input type="text" id="city" name="city" required>
+                                <span class="error-message" id="error_city"></span>
+                            </div>
+                            <div class="form-group">
+                                <label for="locality">Miejscowość *</label>
+                                <input type="text" id="locality" name="locality" required>
+                                <span class="error-message" id="error_locality"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: var(--spacing-md);">
+                            <label for="pesel">PESEL *</label>
+                            <input type="text" id="pesel" name="pesel" required maxlength="11" placeholder="11 cyfr">
+                            <span class="error-message" id="error_pesel"></span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="about_text">Dlaczego chcesz zostać przedstawicielem handlowym? <span style="color: grey; font-weight: 400; margin-left: 4px;"> (opcjonalnie)</span></label>
+                            <textarea id="about_text" name="about_text" placeholder="Opowiedz nam o sobie..."></textarea>
+                        </div>
+
+                        <!-- Toggle B2B / Umowa zlecenie -->
+                        <div class="form-toggle">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="is_b2b" name="is_b2b" onchange="toggleB2BFields()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="toggle-label">Chcę rozliczać się jako firma (B2B)</span>
+                        </div>
+
+                        <!-- B2B Fields (hidden by default) -->
+                        <div class="b2b-fields" id="b2bFields">
+                            <h4>Dane firmy</h4>
+                            <div class="form-group">
+                                <label for="company_name">Nazwa firmy *</label>
+                                <input type="text" id="company_name" name="company_name">
+                                <span class="error-message" id="error_company_name"></span>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="nip">NIP *</label>
+                                    <input type="text" id="nip" name="nip" maxlength="10" placeholder="10 cyfr">
+                                    <span class="error-message" id="error_nip"></span>
+                                </div>
+                                <div class="form-group">
+                                    <label for="regon">REGON</label>
+                                    <input type="text" id="regon" name="regon" maxlength="14">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="company_address">Adres firmy *</label>
+                                <input type="text" id="company_address" name="company_address" placeholder="Ulica, numer">
+                                <span class="error-message" id="error_company_address"></span>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="company_city">Miasto *</label>
+                                    <input type="text" id="company_city" name="company_city">
+                                    <span class="error-message" id="error_company_city"></span>
+                                </div>
+                                <div class="form-group">
+                                    <label for="company_postal_code">Kod pocztowy *</label>
+                                    <input type="text" id="company_postal_code" name="company_postal_code" placeholder="00-000">
+                                    <span class="error-message" id="error_company_postal_code"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="consent-label">
+                                <input type="checkbox" name="data_processing_consent" id="data_processing_consent" required>
+                                <span>Wyrażam zgodę na przetwarzanie danych osobowych. <a href="#" onclick="showPrivacyModal(); return false;">Polityka prywatności</a> *</span>
+                            </label>
+                        </div>
+
+                        <div class="nda-section">
+                            <h3>📄 Umowa NDA</h3>
+                            <p style="color: var(--text-gray); margin-bottom: var(--spacing-md);">Wygeneruj i podpisz umowę o zachowaniu poufności, a następnie załącz poniżej.</p>
+
+                            <div class="nda-actions">
+                                <button type="button" class="btn-generate-nda" onclick="generateNDA()">Generuj PDF z umową NDA</button>
+
+                                <div class="file-upload-area" id="fileUploadArea" onclick="document.getElementById('ndaFile').click()">
+                                    <p>📎 Kliknij lub przeciągnij podpisaną umowę NDA</p>
+                                    <p style="font-size: var(--font-size-sm); color: var(--text-light); margin-top: var(--spacing-xs);">PDF, JPG, PNG, DOCX, ODT (max 5MB)</p>
+                                </div>
+                            </div>
+
+                            <input type="file" id="ndaFile" style="display: none;" accept=".pdf,.jpg,.jpeg,.png,.docx,.odt">
+                            <div id="filePreview" style="display: none; margin-top: var(--spacing-md); padding: var(--spacing-sm); background-color: var(--bg-light); border-radius: var(--border-radius);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <span id="fileName" style="font-weight: 600; color: var(--text-dark);"></span>
+                                        <span id="fileSize" style="font-size: var(--font-size-sm); color: var(--text-gray); margin-left: var(--spacing-xs);"></span>
+                                    </div>
+                                    <button type="button" onclick="removeFile()" style="background: transparent; border: none; color: var(--error); cursor: pointer; font-weight: 600;">Usuń</button>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
 
-        <!-- Step 8: Summary & Submit -->
-        <div class="step-content" data-step="8">
-            <h2 class="section-title">Podsumowanie aplikacji</h2>
-            <p class="summary-intro">Sprawdź poprawność danych przed wysłaniem</p>
-
-            <div class="summary-container">
-                <div class="summary-section">
-                    <h3>Dane osobowe</h3>
-                    <div class="summary-grid">
-                        <div class="summary-item">
-                            <span class="summary-label">Imię i nazwisko:</span>
-                            <span class="summary-value" id="summary_name"></span>
-                        </div>
-                        <div class="summary-item">
-                            <span class="summary-label">Email:</span>
-                            <span class="summary-value" id="summary_email"></span>
-                        </div>
-                        <div class="summary-item">
-                            <span class="summary-label">Telefon:</span>
-                            <span class="summary-value" id="summary_phone"></span>
-                        </div>
-                        <div class="summary-item">
-                            <span class="summary-label">Lokalizacja:</span>
-                            <span class="summary-value" id="summary_location"></span>
-                        </div>
-                        <div class="summary-item" id="summary_experience_container" style="display:none;">
-                            <span class="summary-label">Doświadczenie:</span>
-                            <span class="summary-value" id="summary_experience"></span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="summary-section" id="summary_about_container" style="display:none;">
-                    <h3>Dlaczego chcę zostać partnerem</h3>
-                    <p class="summary-about" id="summary_about"></p>
-                </div>
-
-                <div class="summary-section">
-                    <h3>Załączniki</h3>
-                    <div class="summary-file">
-                        <span class="file-icon">📄</span>
-                        <div class="file-details">
-                            <span class="file-name-display" id="summary_filename"></span>
-                            <span class="file-size-display" id="summary_filesize"></span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="summary-section">
-                    <h3>Zgody</h3>
-                    <div class="summary-consent">
-                        <span class="consent-icon">✓</span>
-                        <span>Zgoda na przetwarzanie danych osobowych</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="edit-notice">
-                <p>Zauważyłeś błąd? Kliknij przycisk poniżej aby wrócić do formularza</p>
-            </div>
-
-            <div class="navigation-buttons-inline">
-                <button class="btn-icon-back" onclick="prevStep()" title="Wstecz do edycji">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M19 12H5M12 19l-7-7 7-7" />
-                    </svg>
-                </button>
-                <button class="btn-primary btn-block" id="submitBtn" onclick="submitApplication()">
-                    Wyślij aplikację
-                </button>
-            </div>
-        </div>
-
-        <!-- Step 9: Success (hidden initially) -->
-        <div class="step-content" data-step="9" style="display:none;">
-            <div class="success-container">
-                <div class="success-icon-large">
-                    <svg width="100" height="100" viewBox="0 0 100 100" fill="none">
-                        <circle cx="50" cy="50" r="50" fill="#2ECC71" />
-                        <path d="M30 50L43 63L70 36" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                </div>
-
-                <h2 class="section-title">Aplikacja wysłana pomyślnie!</h2>
-
-                <div class="success-content-box">
-                    <p class="success-main-text">Dziękujemy za zainteresowanie współpracą z WoodPower.</p>
-
-                    <div class="info-highlight">
-                        <p><strong>📧 Skontaktujemy się z Tobą w ciągu 48 godzin</strong></p>
-                        <p class="success-subtext">Sprawdź swoją skrzynkę email - wysłaliśmy potwierdzenie.</p>
-                    </div>
-
-                    <div class="next-steps-box">
-                        <h3>Co dalej?</h3>
-                        <ul>
-                            <li>Nasz zespół przeanalizuje Twoją aplikację</li>
-                            <li>Skontaktujemy się z Tobą telefonicznie lub mailowo</li>
-                            <li>Umówimy rozmowę kwalifikacyjną</li>
-                            <li>Po pozytywnej weryfikacji otrzymasz dostęp do platformy szkoleniowej</li>
-                        </ul>
-                    </div>
-
-                    <div class="contact-box">
-                        <p><strong>Pytania?</strong></p>
-                        <p>📞 <a href="tel:+48690002109">+48 690 002 109</a></p>
-                        <p>✉️ <a href="mailto:biuro@woodpower.pl">biuro@woodpower.pl</a></p>
-                        <p class="hours-text">Jesteśmy dostępni od poniedziałku do piątku w godzinach 8:00-16:00</p>
-                    </div>
-                </div>
-            </div>
+        <!-- Navigation Buttons (below content box) -->
+        <div class="navigation-buttons" id="navButtons">
+            <button class="btn-back" onclick="prevStep()" id="btnBack" style="display: none;">←</button>
+            <button class="btn-primary" onclick="nextStep()" id="btnNext">Rozpocznij</button>
         </div>
     </div>
 
-    <!-- Privacy Modal (hidden) -->
-    <div id="privacyModal" class="modal" style="display:none;">
+    <!-- Privacy Modal -->
+    <div id="privacyModal" class="modal">
         <div class="modal-content">
             <span class="modal-close" onclick="closePrivacyModal()">&times;</span>
             <h2>Polityka prywatności</h2>
             <div class="modal-body">
-                <p>Wood Power Spółka z ograniczoną odpowiedzialnością przetwarza Twoje dane osobowe zgodnie z RODO.</p>
                 <p><strong>Administrator danych:</strong> Wood Power Sp. z o.o., Bachórz 14N, 36-068 Bachórz</p>
-                <p><strong>Cel przetwarzania:</strong> Rekrutacja partnerów handlowych</p>
-                <p><strong>Podstawa prawna:</strong> Zgoda (art. 6 ust. 1 lit. a RODO)</p>
-                <p><strong>Twoje prawa:</strong> Dostęp, sprostowanie, usunięcie, ograniczenie przetwarzania, przenoszenie danych, wycofanie zgody.</p>
-                <p>Pełna treść polityki prywatności dostępna na: <a href="https://woodpower.pl" target="_blank">woodpower.pl</a></p>
+                <p><strong>Cel przetwarzania:</strong> Rekrutacja przedstawicieli handlowych oraz realizacja umowy</p>
+                <p><strong>Podstawa prawna:</strong> Zgoda (art. 6 ust. 1 lit. a RODO) oraz wykonanie umowy (art. 6 ust. 1 lit. b RODO)</p>
+                <p><strong>Odbiorcy danych:</strong> Podmioty świadczące usługi IT, firmy kurierskie (w zakresie dostarczania dokumentów)</p>
+                <p><strong>Okres przechowywania:</strong> Dane będą przechowywane przez okres niezbędny do realizacji celów przetwarzania, a następnie przez okres wynikający z przepisów prawa</p>
+                <p><strong>Twoje prawa:</strong></p>
+                <ul>
+                    <li>Prawo dostępu do swoich danych osobowych</li>
+                    <li>Prawo do sprostowania danych</li>
+                    <li>Prawo do usunięcia danych</li>
+                    <li>Prawo do ograniczenia przetwarzania</li>
+                    <li>Prawo do przenoszenia danych</li>
+                    <li>Prawo do wycofania zgody w dowolnym momencie</li>
+                    <li>Prawo do wniesienia skargi do organu nadzorczego (UODO)</li>
+                </ul>
+                <p><strong>Kontakt w sprawach danych osobowych:</strong> biuro@woodpower.pl</p>
+                <p>Podanie danych jest dobrowolne, jednak niezbędne do wzięcia udziału w procesie rekrutacji.</p>
             </div>
-            <button class="btn-primary" onclick="closePrivacyModal()">Rozumiem</button>
+            <button class="btn-primary" onclick="closePrivacyModal()" style="margin-top: var(--spacing-md);">Rozumiem</button>
         </div>
     </div>
 

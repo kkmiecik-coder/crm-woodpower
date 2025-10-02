@@ -1,250 +1,419 @@
 // ============================================================================
-// PARTNER ACADEMY - RECRUITMENT JAVASCRIPT
-// Multi-step wizard, form validation, file upload, AJAX submission
+// RECRUITMENT.JS - Partner Academy Recruitment Logic
 // ============================================================================
 
-// ============================================================================
-// STATE MANAGEMENT
-// ============================================================================
-
+// Globalne zmienne
 let currentStep = 1;
-const totalSteps = 8;
-let formData = {};
+const totalSteps = 7;
+const stepLabels = [
+    'Początek',
+    'Proces',
+    'Kim jesteśmy',
+    'Korzyści',
+    'Produkty',
+    'Zespół',
+    'Formularz'
+];
+
 let uploadedFile = null;
+let formData = {};
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+document.addEventListener('DOMContentLoaded', function () {
+    updateProgress();
+    updateNavigationButtons();
+    renderMobileProgress();
+    setupFileUpload();
+    setupFormValidation();
+});
 
 // ============================================================================
 // STEP NAVIGATION
 // ============================================================================
 
 function nextStep() {
-    if (validateCurrentStep()) {
-        if (currentStep < totalSteps) {
-            hideStep(currentStep);
-            currentStep++;
-            showStep(currentStep);
-            updateProgressBar();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
+    // Jeśli jesteśmy na ostatnim kroku (formularz), wywołaj submitForm
+    if (currentStep === totalSteps) {
+        submitForm();
+        return;
+    }
+
+    if (currentStep < totalSteps) {
+        const oldStep = currentStep;
+        currentStep++;
+        transitionStep(oldStep, currentStep, 'next');
     }
 }
 
 function prevStep() {
     if (currentStep > 1) {
-        hideStep(currentStep);
+        const oldStep = currentStep;
         currentStep--;
-        showStep(currentStep);
-        updateProgressBar();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        transitionStep(oldStep, currentStep, 'prev');
     }
 }
 
 function goToStep(step) {
-    if (step >= 1 && step <= totalSteps) {
-        hideStep(currentStep);
+    if (step !== currentStep && step >= 1 && step <= totalSteps) {
+        const oldStep = currentStep;
         currentStep = step;
-        showStep(currentStep);
-        updateProgressBar();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const direction = step > oldStep ? 'next' : 'prev';
+        transitionStep(oldStep, currentStep, direction);
     }
 }
 
-function showStep(step) {
-    const stepElement = document.querySelector(`.step-content[data-step="${step}"]`);
-    if (stepElement) {
-        stepElement.classList.add('active');
-        stepElement.style.display = 'block'; // Dodaj to
+function transitionStep(oldStep, newStep, direction) {
+    const oldContent = document.querySelector(`.step-content[data-step="${oldStep}"]`);
+    const newContent = document.querySelector(`.step-content[data-step="${newStep}"]`);
 
-        // Animuj statystyki jeśli step 2
-        if (step === 2) {
-            animateStats();
+    if (!oldContent || !newContent) return;
+
+    // Usuń poprzednie klasy animacji
+    oldContent.classList.remove('slide-in-left', 'slide-in-right', 'slide-out-left', 'slide-out-right');
+    newContent.classList.remove('slide-in-left', 'slide-in-right', 'slide-out-left', 'slide-out-right');
+
+    // Dodaj animację wyjścia
+    if (direction === 'next') {
+        oldContent.classList.add('slide-out-left');
+    } else {
+        oldContent.classList.add('slide-out-right');
+    }
+
+    setTimeout(() => {
+        oldContent.classList.remove('active', 'slide-out-left', 'slide-out-right');
+
+        // Dodaj animację wejścia
+        if (direction === 'next') {
+            newContent.classList.add('slide-in-right');
+        } else {
+            newContent.classList.add('slide-in-left');
         }
+
+        newContent.classList.add('active');
+        updateProgress();
+        updateNavigationButtons();
+        renderMobileProgress();
+
+        // Scroll do góry
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 500);
+}
+
+function updateNavigationButtons() {
+    const btnBack = document.getElementById('btnBack');
+    const btnNext = document.getElementById('btnNext');
+
+    if (!btnBack || !btnNext) return;
+
+    if (currentStep === 1) {
+        btnBack.style.display = 'none';
+        btnNext.textContent = 'Rozpocznij';
+    } else if (currentStep === totalSteps) {
+        btnBack.style.display = 'flex';
+        btnNext.textContent = 'Wyślij aplikację';
+    } else {
+        btnBack.style.display = 'flex';
+        btnNext.textContent = 'Następny krok';
     }
 }
 
-function hideStep(step) {
-    const stepElement = document.querySelector(`.step-content[data-step="${step}"]`);
-    if (stepElement) {
-        stepElement.classList.remove('active');
-        stepElement.style.display = 'none'; // Dodaj to
-    }
-}
-
-function updateProgressBar() {
+function updateProgress() {
     const steps = document.querySelectorAll('.progress-step');
+    const progressFill = document.getElementById('progressFill');
+
+    if (!progressFill) return;
+
     steps.forEach((step, index) => {
         const stepNumber = index + 1;
+        step.classList.remove('active', 'completed');
 
-        if (stepNumber < currentStep) {
-            step.classList.add('completed');
-            step.classList.remove('active');
-        } else if (stepNumber === currentStep) {
+        if (stepNumber === currentStep) {
             step.classList.add('active');
-            step.classList.remove('completed');
-        } else {
-            step.classList.remove('completed', 'active');
+        } else if (stepNumber < currentStep) {
+            step.classList.add('completed');
         }
+    });
+
+    const progressPercentage = ((currentStep - 1) / (totalSteps - 1)) * 100;
+    progressFill.style.width = `${progressPercentage}%`;
+}
+
+function renderMobileProgress() {
+    const track = document.getElementById('mobileProgressTrack');
+    if (!track) return;
+
+    track.innerHTML = '';
+
+    const steps = [currentStep - 1, currentStep, currentStep + 1].filter(s => s >= 1 && s <= totalSteps);
+
+    steps.forEach(stepNum => {
+        const stepDiv = document.createElement('div');
+        stepDiv.className = 'mobile-step';
+
+        if (stepNum < currentStep) {
+            stepDiv.classList.add('prev');
+        } else if (stepNum === currentStep) {
+            stepDiv.classList.add('current');
+        } else {
+            stepDiv.classList.add('next');
+        }
+
+        stepDiv.innerHTML = `
+            <div class="mobile-step-number">Krok ${stepNum} z ${totalSteps}</div>
+            <div class="mobile-step-label">${stepLabels[stepNum - 1]}</div>
+        `;
+
+        track.appendChild(stepDiv);
     });
 }
 
 // ============================================================================
-// VALIDATION
+// FORM VALIDATION
 // ============================================================================
 
-function validateCurrentStep() {
-    // Step 7: Walidacja nie jest potrzebna (tylko sprawdza przycisk)
-    // Step 8: Nie ma dodatkowej walidacji (już wszystko sprawdzone)
+function setupFormValidation() {
+    const form = document.getElementById('applicationForm');
+    if (!form) return;
+
+    // Walidacja w czasie rzeczywistym dla każdego pola
+    const fields = form.querySelectorAll('input, textarea, select');
+    fields.forEach(field => {
+        field.addEventListener('blur', function () {
+            validateField(this);
+        });
+
+        field.addEventListener('input', function () {
+            // Usuń błąd podczas wpisywania
+            const errorSpan = document.getElementById(`error_${this.id}`);
+            if (errorSpan) {
+                errorSpan.textContent = '';
+                errorSpan.style.display = 'none';
+            }
+            this.classList.remove('error');
+        });
+    });
+}
+
+function validateField(field) {
+    const fieldName = field.name;
+    const fieldValue = field.value.trim();
+    const errorSpan = document.getElementById(`error_${field.id}`);
+
+    if (!errorSpan) return true;
+
+    // Wyczyść poprzedni błąd
+    errorSpan.textContent = '';
+    errorSpan.style.display = 'none';
+    field.classList.remove('error');
+
+    // Sprawdź czy pole jest wymagane i puste
+    if (field.hasAttribute('required') && !fieldValue) {
+        errorSpan.textContent = 'To pole jest wymagane';
+        errorSpan.style.display = 'block';
+        field.classList.add('error');
+        return false;
+    }
+
+    // Walidacja email
+    if (field.type === 'email' && fieldValue) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(fieldValue)) {
+            errorSpan.textContent = 'Nieprawidłowy format email';
+            errorSpan.style.display = 'block';
+            field.classList.add('error');
+            return false;
+        }
+    }
+
+    // Walidacja telefonu
+    if (field.id === 'phone' && fieldValue) {
+        const phoneRegex = /^[\d\s\+\-\(\)]+$/;
+        if (!phoneRegex.test(fieldValue) || fieldValue.replace(/\D/g, '').length < 9) {
+            errorSpan.textContent = 'Nieprawidłowy numer telefonu';
+            errorSpan.style.display = 'block';
+            field.classList.add('error');
+            return false;
+        }
+    }
+
+    // Walidacja PESEL
+    if (field.id === 'pesel' && fieldValue) {
+        if (!/^\d{11}$/.test(fieldValue)) {
+            errorSpan.textContent = 'PESEL musi zawierać 11 cyfr';
+            errorSpan.style.display = 'block';
+            field.classList.add('error');
+            return false;
+        }
+    }
+
+    // Walidacja NIP
+    if (field.id === 'nip' && fieldValue) {
+        if (!/^\d{10}$/.test(fieldValue)) {
+            errorSpan.textContent = 'NIP musi zawierać 10 cyfr';
+            errorSpan.style.display = 'block';
+            field.classList.add('error');
+            return false;
+        }
+    }
+
+    // Walidacja kodu pocztowego
+    if (field.id === 'company_postal_code' && fieldValue) {
+        if (!/^\d{2}-\d{3}$/.test(fieldValue)) {
+            errorSpan.textContent = 'Format: 00-000';
+            errorSpan.style.display = 'block';
+            field.classList.add('error');
+            return false;
+        }
+    }
+
     return true;
 }
 
 function validateForm() {
     const form = document.getElementById('applicationForm');
+    if (!form) return false;
+
     let isValid = true;
+    const fields = form.querySelectorAll('input[required], textarea[required], select[required]');
 
-    // Wyczyść poprzednie błędy
-    document.querySelectorAll('.error-message').forEach(el => el.textContent = '');
-    document.querySelectorAll('input, select, textarea').forEach(el => el.classList.remove('error'));
+    fields.forEach(field => {
+        // Pomiń pola B2B jeśli B2B nie jest zaznaczone
+        const isB2B = document.getElementById('is_b2b')?.checked;
+        if (!isB2B && field.closest('.b2b-fields')) {
+            return;
+        }
 
-    // Pola wymagane
-    const requiredFields = {
-        'first_name': 'Imię jest wymagane',
-        'last_name': 'Nazwisko jest wymagane',
-        'email': 'Email jest wymagany',
-        'phone': 'Telefon jest wymagany',
-        'city': 'Miasto jest wymagane',
-        'locality': 'Miejscowość jest wymagana'
-    };
-
-    // Sprawdź wymagane pola
-    Object.keys(requiredFields).forEach(fieldName => {
-        const field = form.elements[fieldName];
-        if (!field.value.trim()) {
-            showError(fieldName, requiredFields[fieldName]);
+        if (!validateField(field)) {
             isValid = false;
         }
     });
 
-    // Walidacja email
-    const email = form.elements['email'].value;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (email && !emailRegex.test(email)) {
-        showError('email', 'Nieprawidłowy format adresu email');
-        isValid = false;
-    }
-
-    // Walidacja telefonu (polski format)
-    const phone = form.elements['phone'].value;
-    const phoneClean = phone.replace(/[\s\-()]/g, '');
-    const phoneRegex = /^(\+?48)?[0-9]{9}$/;
-    if (phone && !phoneRegex.test(phoneClean)) {
-        showError('phone', 'Nieprawidłowy format numeru telefonu (wymagane 9 cyfr)');
-        isValid = false;
-    }
-
-    // Zgoda RODO (wymagana)
-    const consent = form.elements['data_processing_consent'];
-    if (!consent.checked) {
-        alert('Zgoda na przetwarzanie danych osobowych jest wymagana');
+    // Sprawdź zgodę na przetwarzanie danych
+    const consentCheckbox = document.getElementById('data_processing_consent');
+    if (consentCheckbox && !consentCheckbox.checked) {
+        alert('Musisz wyrazić zgodę na przetwarzanie danych osobowych');
         isValid = false;
     }
 
     return isValid;
 }
 
-function showError(fieldName, message) {
-    const errorElement = document.getElementById(`error_${fieldName}`);
-    const fieldElement = document.getElementById(fieldName);
+// ============================================================================
+// B2B TOGGLE
+// ============================================================================
 
-    if (errorElement) {
-        errorElement.textContent = message;
-    }
-    if (fieldElement) {
-        fieldElement.classList.add('error');
+function toggleB2BFields() {
+    const checkbox = document.getElementById('is_b2b');
+    const b2bFields = document.getElementById('b2bFields');
+
+    if (!checkbox || !b2bFields) return;
+
+    const b2bInputs = b2bFields.querySelectorAll('input');
+
+    if (checkbox.checked) {
+        b2bFields.classList.add('active');
+        b2bInputs.forEach(input => {
+            if (input.id !== 'regon') { // REGON jest opcjonalny
+                input.required = true;
+            }
+        });
+    } else {
+        b2bFields.classList.remove('active');
+        b2bInputs.forEach(input => {
+            input.required = false;
+            input.value = '';
+            // Usuń błędy
+            const errorSpan = document.getElementById(`error_${input.id}`);
+            if (errorSpan) errorSpan.textContent = '';
+            input.classList.remove('error');
+        });
     }
 }
 
 // ============================================================================
-// REAL-TIME VALIDATION
+// FILE UPLOAD
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', function () {
-    const form = document.getElementById('applicationForm');
+function setupFileUpload() {
+    const uploadArea = document.getElementById('fileUploadArea');
+    const fileInput = document.getElementById('ndaFile');
 
-    if (form) {
-        // Walidacja real-time na blur
-        const inputs = form.querySelectorAll('input[required], input[type="email"], input[type="tel"]');
+    if (!uploadArea || !fileInput) return;
 
-        inputs.forEach(input => {
-            input.addEventListener('blur', function () {
-                validateFieldRealtime(this);
-            });
-
-            // Usuń błąd gdy użytkownik zaczyna pisać
-            input.addEventListener('input', function () {
-                const errorElement = document.getElementById(`error_${this.name}`);
-                if (errorElement) {
-                    errorElement.textContent = '';
-                }
-                this.classList.remove('error');
-            });
-        });
-    }
-});
-
-async function validateFieldRealtime(field) {
-    const fieldName = field.name;
-    const value = field.value.trim();
-
-    if (!value) return; // Nie waliduj pustych pól (tylko required przy submit)
-
-    try {
-        const response = await fetch('/partner-academy/api/application/validate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                field: fieldName,
-                value: value
-            })
-        });
-
-        const result = await response.json();
-
-        if (!result.valid && result.message) {
-            showError(fieldName, result.message);
+    fileInput.addEventListener('change', function (e) {
+        if (e.target.files.length > 0) {
+            handleFile(e.target.files[0]);
         }
-    } catch (error) {
-        console.error('Validation error:', error);
-    }
-}
+    });
 
-// ============================================================================
-// ANIMATIONS
-// ============================================================================
+    uploadArea.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
 
-function animateStats() {
-    const stats = document.querySelectorAll('.stat-number');
-    stats.forEach(stat => {
-        const target = parseInt(stat.getAttribute('data-count'));
-        animateValue(stat, 0, target, 2000);
+    uploadArea.addEventListener('dragleave', function (e) {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', function (e) {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+
+        if (e.dataTransfer.files.length > 0) {
+            handleFile(e.dataTransfer.files[0]);
+        }
     });
 }
 
-function animateValue(element, start, end, duration) {
-    let startTimestamp = null;
+function handleFile(file) {
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    const allowedTypes = [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.oasis.opendocument.text'
+    ];
 
-    const step = (timestamp) => {
-        if (!startTimestamp) startTimestamp = timestamp;
-        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-        const current = Math.floor(progress * (end - start) + start);
-        element.textContent = current.toLocaleString('pl-PL');
+    if (file.size > maxSize) {
+        alert(`Plik jest za duży (${(file.size / 1024 / 1024).toFixed(1)} MB). Maksymalny rozmiar to 5 MB.`);
+        return;
+    }
 
-        if (progress < 1) {
-            window.requestAnimationFrame(step);
-        }
-    };
+    if (!allowedTypes.includes(file.type)) {
+        alert('Niedozwolony typ pliku. Akceptowane formaty: PDF, JPG, PNG, DOCX, ODT');
+        return;
+    }
 
-    window.requestAnimationFrame(step);
+    uploadedFile = file;
+
+    // Pokaż preview
+    const uploadArea = document.getElementById('fileUploadArea');
+    const filePreview = document.getElementById('filePreview');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+
+    if (!uploadArea || !filePreview || !fileName || !fileSize) return;
+
+    uploadArea.style.display = 'none';
+    filePreview.style.display = 'block';
+    fileName.textContent = file.name;
+    fileSize.textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+}
+
+function removeFile() {
+    uploadedFile = null;
+    const fileInput = document.getElementById('ndaFile');
+    const uploadArea = document.getElementById('fileUploadArea');
+    const filePreview = document.getElementById('filePreview');
+
+    if (fileInput) fileInput.value = '';
+    if (uploadArea) uploadArea.style.display = 'block';
+    if (filePreview) filePreview.style.display = 'none';
 }
 
 // ============================================================================
@@ -254,6 +423,7 @@ function animateValue(element, start, end, duration) {
 async function generateNDA() {
     // Waliduj formularz najpierw
     if (!validateForm()) {
+        alert('Proszę poprawnie wypełnić wszystkie wymagane pola formularza przed wygenerowaniem NDA');
         return;
     }
 
@@ -267,9 +437,8 @@ async function generateNDA() {
     });
 
     // Zapisz dane globalnie
-    window.applicationFormData = data;
+    formData = data;
 
-    // Znajdź przycisk w nowym layoucie
     const button = event.target;
     const originalText = button.textContent;
     button.textContent = 'Generowanie PDF...';
@@ -297,7 +466,8 @@ async function generateNDA() {
 
             alert('PDF został pobrany. Proszę podpisać i załączyć powyżej.');
         } else {
-            alert('Wystąpił błąd podczas generowania PDF. Spróbuj ponownie.');
+            const errorData = await response.json();
+            alert(errorData.error || 'Wystąpił błąd podczas generowania PDF. Spróbuj ponownie.');
         }
     } catch (error) {
         console.error('Error:', error);
@@ -309,203 +479,79 @@ async function generateNDA() {
 }
 
 // ============================================================================
-// FILE UPLOAD - INLINE VERSION
-// ============================================================================
-
-function handleFileUpload(file) {
-    // Walidacja client-side
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    const allowedTypes = [
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.oasis.opendocument.text'
-    ];
-
-    if (file.size > maxSize) {
-        alert(`Plik jest za duży (${(file.size / 1024 / 1024).toFixed(1)} MB). Maksymalny rozmiar to 5 MB.`);
-        return;
-    }
-
-    if (!allowedTypes.includes(file.type)) {
-        alert('Niedozwolony typ pliku. Akceptowane formaty: PDF, JPG, PNG, DOCX, ODT');
-        return;
-    }
-
-    uploadedFile = file;
-
-    // Pokaż preview inline
-    const previewContainer = document.getElementById('filePreview');
-    const fileName = document.getElementById('fileName');
-    const fileSize = document.getElementById('fileSize');
-
-    fileName.textContent = file.name;
-    fileSize.textContent = `${(file.size / 1024).toFixed(1)} KB`;
-
-    previewContainer.style.display = 'flex';
-
-    // Sprawdź czy można kontynuować
-    checkCanContinue();
-}
-
-function removeFile() {
-    uploadedFile = null;
-    document.getElementById('filePreview').style.display = 'none';
-    document.getElementById('ndaFile').value = '';
-    checkCanContinue();
-}
-
-// ============================================================================
-// PROCEED TO SUMMARY (Step 7 → Step 8)
-// ============================================================================
-
-function proceedToSummary() {
-    if (!validateForm()) {
-        return;
-    }
-
-    if (!uploadedFile) {
-        alert('Proszę załączyć podpisaną umowę NDA');
-        return;
-    }
-
-    // Zapisz dane
-    const form = document.getElementById('applicationForm');
-    const formDataObj = new FormData(form);
-
-    const data = {};
-    formDataObj.forEach((value, key) => {
-        data[key] = value;
-    });
-
-    window.applicationFormData = data;
-
-    // Wypełnij podsumowanie
-    fillSummary(data);
-
-    // Przejdź do kroku 8
-    nextStep();
-}
-
-// ============================================================================
-// FILL SUMMARY (Step 8)
-// ============================================================================
-
-function fillSummary(data) {
-    // Dane osobowe
-    document.getElementById('summary_name').textContent = `${data.first_name} ${data.last_name}`;
-    document.getElementById('summary_email').textContent = data.email;
-    document.getElementById('summary_phone').textContent = data.phone;
-    document.getElementById('summary_location').textContent = `${data.city}, ${data.locality}`;
-
-    // Doświadczenie (jeśli wybrane)
-    if (data.experience_level) {
-        document.getElementById('summary_experience').textContent = data.experience_level;
-        document.getElementById('summary_experience_container').style.display = 'flex';
-    } else {
-        document.getElementById('summary_experience_container').style.display = 'none';
-    }
-
-    // O sobie (jeśli wypełnione)
-    if (data.about_text && data.about_text.trim()) {
-        document.getElementById('summary_about').textContent = data.about_text;
-        document.getElementById('summary_about_container').style.display = 'block';
-    } else {
-        document.getElementById('summary_about_container').style.display = 'none';
-    }
-
-    // Plik
-    if (uploadedFile) {
-        document.getElementById('summary_filename').textContent = uploadedFile.name;
-        document.getElementById('summary_filesize').textContent = `${(uploadedFile.size / 1024).toFixed(1)} KB`;
-    }
-}
-
-// ============================================================================
-// CHECK CAN CONTINUE (Enable/Disable Button)
-// ============================================================================
-
-function checkCanContinue() {
-    const form = document.getElementById('applicationForm');
-    const continueBtn = document.getElementById('continueBtn');
-
-    if (!form || !continueBtn) return;
-
-    const requiredFields = ['first_name', 'last_name', 'email', 'phone', 'city', 'locality'];
-    const allFilled = requiredFields.every(field => form.elements[field]?.value.trim());
-    const consentChecked = form.elements['data_processing_consent']?.checked;
-    const fileAttached = !!uploadedFile;
-
-    continueBtn.disabled = !(allFilled && consentChecked && fileAttached);
-}
-
-// ============================================================================
 // FORM SUBMISSION
 // ============================================================================
 
-async function submitApplication() {
+async function submitForm() {
+    // Walidacja formularza
+    if (!validateForm()) {
+        alert('Proszę poprawnie wypełnić wszystkie wymagane pola');
+        return;
+    }
+
+    // Sprawdź czy plik NDA został załączony
     if (!uploadedFile) {
         alert('Proszę załączyć podpisaną umowę NDA');
         return;
     }
 
-    // Pokaż loading
-    const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Wysyłanie...';
+    const form = document.getElementById('applicationForm');
+    const submitButton = document.getElementById('btnNext');
 
     // Przygotuj FormData
-    const formData = new FormData();
+    const formDataToSend = new FormData(form);
+    formDataToSend.append('nda_file', uploadedFile);
 
-    // Dodaj dane z formularza
-    const data = window.applicationFormData || {};
-    Object.keys(data).forEach(key => {
-        // SKIP checkbox - dodamy go osobno
-        if (key !== 'data_processing_consent') {
-            formData.append(key, data[key]);
-        }
-    });
-
-    // WAŻNE: Dodaj checkbox jawnie jako 'true'
-    const form = document.getElementById('applicationForm');
-    const consentChecked = form.elements['data_processing_consent']?.checked;
-    formData.append('data_processing_consent', consentChecked ? 'true' : 'false');
-
-    // Dodaj plik
-    formData.append('nda_file', uploadedFile);
+    // Ustaw stan przycisku
+    const originalText = submitButton.textContent;
+    submitButton.textContent = 'Wysyłanie...';
+    submitButton.disabled = true;
 
     try {
         const response = await fetch('/partner-academy/api/application/submit', {
             method: 'POST',
-            body: formData
+            body: formDataToSend
         });
 
         const result = await response.json();
 
-        if (result.success) {
-            // Przejdź do Step 9 (success)
-            hideStep(currentStep);
-            currentStep = 9;
-            showStep(currentStep);
-            updateProgressBar();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (response.ok && result.success) {
+            // Sukces - pokazz komunikat i przekieruj lub zresetuj
+            alert('Aplikacja została wysłana pomyślnie! Skontaktujemy się z Tobą w ciągu 48 godzin.');
+
+            // Opcjonalnie: przekieruj na stronę podziękowania
+            // window.location.href = '/partner-academy/thank-you';
+
+            // Lub zresetuj formularz i wróć do kroku 1
+            form.reset();
+            uploadedFile = null;
+            removeFile();
+            currentStep = 1;
+            goToStep(1);
+
         } else {
-            // Pokaż szczegółowe błędy jeśli są
+            // Błąd walidacji lub inny błąd
+            alert(result.error || 'Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
+
+            // Jeśli są szczegółowe błędy walidacji, pokaż je
             if (result.errors) {
-                const errorMessages = Object.values(result.errors).join('\n');
-                alert(errorMessages);
-            } else {
-                alert(result.message || 'Wystąpił błąd podczas wysyłania aplikacji');
+                Object.keys(result.errors).forEach(fieldName => {
+                    const errorSpan = document.getElementById(`error_${fieldName}`);
+                    const field = document.getElementById(fieldName);
+                    if (errorSpan && field) {
+                        errorSpan.textContent = result.errors[fieldName];
+                        errorSpan.style.display = 'block';
+                        field.classList.add('error');
+                    }
+                });
             }
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Wyślij aplikację';
         }
     } catch (error) {
         console.error('Error:', error);
-        alert('Wystąpił błąd podczas wysyłania aplikacji. Spróbuj ponownie.');
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Wyślij aplikację';
+        alert('Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
+    } finally {
+        submitButton.textContent = originalText;
+        submitButton.disabled = false;
     }
 }
 
@@ -515,70 +561,45 @@ async function submitApplication() {
 
 function showPrivacyModal() {
     const modal = document.getElementById('privacyModal');
-    modal.style.display = 'flex';
+    if (modal) {
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
 }
 
 function closePrivacyModal() {
     const modal = document.getElementById('privacyModal');
-    modal.style.display = 'none';
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = 'auto';
+    }
 }
 
-// Zamknij modal klikając poza nim
-window.addEventListener('click', function (event) {
+// Zamknij modal po kliknięciu w tło
+window.onclick = function (event) {
     const modal = document.getElementById('privacyModal');
     if (event.target === modal) {
         closePrivacyModal();
     }
-});
+}
 
 // ============================================================================
-// INITIALIZATION
+// KEYBOARD NAVIGATION
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', function () {
-    // Ustaw pierwszy krok jako aktywny
-    updateProgressBar();
-
-    // Dodaj listenery do formularza
-    const form = document.getElementById('applicationForm');
-
-    if (form) {
-        form.addEventListener('input', checkCanContinue);
-        form.addEventListener('change', checkCanContinue);
+document.addEventListener('keydown', function (e) {
+    // Nie reaguj jeśli użytkownik pisze w polu
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
     }
 
-    // Upload zone inline
-    const uploadZoneInline = document.getElementById('uploadZoneInline');
-    const fileInput = document.getElementById('ndaFile');
-
-    if (uploadZoneInline && fileInput) {
-        uploadZoneInline.addEventListener('click', () => fileInput.click());
-
-        uploadZoneInline.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadZoneInline.classList.add('drag-over');
-        });
-
-        uploadZoneInline.addEventListener('dragleave', () => {
-            uploadZoneInline.classList.remove('drag-over');
-        });
-
-        uploadZoneInline.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadZoneInline.classList.remove('drag-over');
-
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFileUpload(files[0]);
-            }
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                handleFileUpload(e.target.files[0]);
-            }
-        });
+    // Strzałka w prawo lub Enter - następny krok
+    if (e.key === 'ArrowRight' || e.key === 'Enter') {
+        nextStep();
     }
 
-    console.log('PartnerAcademy Recruitment initialized');
+    // Strzałka w lewo - poprzedni krok
+    if (e.key === 'ArrowLeft') {
+        prevStep();
+    }
 });

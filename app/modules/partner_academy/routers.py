@@ -9,14 +9,26 @@ Element 1: Recruitment
 - GET /partner-academy/ - strona rekrutacyjna
 - POST /partner-academy/api/application/validate - walidacja pola
 - POST /partner-academy/api/application/submit - wysłanie aplikacji
-- POST /partner-academy/api/application/generate-nda - generowanie PDF (opcjonalne)
+- POST /partner-academy/api/application/generate-nda - generowanie PDF
+- POST /partner-academy/api/application/check-email - sprawdzenie email
 
 Element 2: Learning Platform
 - GET /partner-academy/learning - platforma e-learningowa
+- POST /partner-academy/api/session/init - inicjalizacja sesji
 - POST /partner-academy/api/progress/load - ładowanie progressu
 - POST /partner-academy/api/progress/update - aktualizacja progressu
 - POST /partner-academy/api/time/sync - synchronizacja czasu
 - POST /partner-academy/api/quiz/validate - walidacja quizu
+
+Admin Panel:
+- GET /partner-academy/admin/ - panel administracyjny
+- GET /partner-academy/admin/api/stats - statystyki
+- GET /partner-academy/admin/api/applications - lista aplikacji z filtrowaniem
+- GET /partner-academy/admin/api/application/<id> - szczegóły aplikacji
+- POST /partner-academy/admin/api/application/<id>/status - zmiana statusu
+- POST /partner-academy/admin/api/application/<id>/note - dodanie notatki
+- GET /partner-academy/admin/api/learning-sessions/<session_id> - szczegóły sesji
+- GET /partner-academy/admin/api/export - eksport do XLSX
 
 Autor: Development Team
 Data: 2025-09-30
@@ -36,10 +48,12 @@ from datetime import datetime
 from sqlalchemy import func, or_, desc
 import json
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
 from functools import wraps
 
+
 def login_required(func):
+    """Dekorator wymagający zalogowania dla panelu admina"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         user_email = session.get('user_email')
@@ -48,6 +62,7 @@ def login_required(func):
             return redirect(url_for('login'))
         return func(*args, **kwargs)
     return wrapper
+
 
 # ============================================================================
 # ELEMENT 1: RECRUITMENT - VIEWS
@@ -73,6 +88,291 @@ def learning():
 # API ENDPOINTS - ELEMENT 1: RECRUITMENT
 # ============================================================================
 
+@partner_academy_bp.route('/api/application/validate', methods=['POST'])
+def validate_application_field():
+    """
+    Walidacja pojedynczego pola formularza (AJAX)
+    
+    Request JSON:
+    {
+        "field_name": "email",
+        "field_value": "test@example.com"
+    }
+    
+    Response:
+    {
+        "success": true,
+        "valid": true,
+        "error": null
+    }
+    """
+    try:
+        data = request.get_json()
+        field_name = data.get('field_name')
+        field_value = data.get('field_value')
+        
+        if not field_name:
+            return jsonify({
+                'success': False,
+                'error': 'Brak nazwy pola'
+            }), 400
+        
+        # Waliduj pojedyncze pole
+        temp_form_data = {field_name: field_value}
+        is_valid, errors = validate_application_data(temp_form_data)
+        
+        field_error = errors.get(field_name)
+        
+        return jsonify({
+            'success': True,
+            'valid': field_error is None,
+            'error': field_error
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Validation error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Błąd walidacji'
+        }), 500
+
+
+@partner_academy_bp.route('/api/application/submit', methods=['POST'])
+def submit_application():
+    """
+    Wysłanie kompletnego formularza aplikacyjnego z plikiem NDA
+    
+    Request (multipart/form-data):
+    - Wszystkie pola formularza
+    - nda_file: plik NDA
+    
+    Response:
+    {
+        "success": true,
+        "message": "Aplikacja została wysłana",
+        "application_id": 123
+    }
+    """
+    try:
+        # Pobierz dane z formularza
+        form_data = request.form.to_dict()
+        
+        # Pobierz plik NDA
+        nda_file = request.files.get('nda_file')
+        
+        current_app.logger.info(f"Received application from: {form_data.get('email')}")
+        
+        # ========================================================================
+        # WALIDACJA DANYCH FORMULARZA
+        # ========================================================================
+        
+        is_valid, errors = validate_application_data(form_data)
+        
+        if not is_valid:
+            current_app.logger.warning(f"Validation errors: {errors}")
+            return jsonify({
+                'success': False,
+                'error': 'Błędy walidacji formularza',
+                'errors': errors
+            }), 400
+        
+        # ========================================================================
+        # WALIDACJA PLIKU NDA
+        # ========================================================================
+        
+        file_valid, file_error = validate_file(nda_file)
+        
+        if not file_valid:
+            current_app.logger.warning(f"File validation error: {file_error}")
+            return jsonify({
+                'success': False,
+                'error': file_error
+            }), 400
+        
+        # ========================================================================
+        # SPRAWDŹ CZY EMAIL JUŻ ISTNIEJE
+        # ========================================================================
+        
+        existing_application = ApplicationService.get_application_by_email(
+            form_data['email']
+        )
+        
+        if existing_application:
+            current_app.logger.warning(
+                f"Duplicate application attempt: {form_data['email']}"
+            )
+            return jsonify({
+                'success': False,
+                'error': 'Aplikacja z tym adresem email już istnieje'
+            }), 400
+        
+        # ========================================================================
+        # UTWÓRZ APLIKACJĘ
+        # ========================================================================
+        
+        # Pobierz IP i user agent
+        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if ip_address and ',' in ip_address:
+            ip_address = ip_address.split(',')[0].strip()
+        
+        user_agent = request.headers.get('User-Agent', '')
+        
+        # Utwórz aplikację w bazie
+        application = ApplicationService.create_application(
+            form_data=form_data,
+            file=nda_file,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        
+        current_app.logger.info(
+            f"Application created successfully: ID={application.id}, Email={application.email}"
+        )
+        
+        # ========================================================================
+        # WYSYŁKA EMAILI
+        # ========================================================================
+        
+        try:
+            # Email do kandydata
+            EmailService.send_application_confirmation(application)
+            
+            # Email do admina
+            EmailService.send_admin_notification(application)
+            
+        except Exception as email_error:
+            current_app.logger.error(f"Email sending failed: {str(email_error)}")
+            # Nie przerywamy procesu jeśli email się nie wyśle
+        
+        # ========================================================================
+        # RESPONSE
+        # ========================================================================
+        
+        return jsonify({
+            'success': True,
+            'message': 'Aplikacja została wysłana pomyślnie',
+            'application_id': application.id
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Application submission error: {str(e)}", exc_info=True)
+        
+        return jsonify({
+            'success': False,
+            'error': 'Wystąpił błąd podczas przetwarzania aplikacji. Spróbuj ponownie.'
+        }), 500
+
+
+@partner_academy_bp.route('/api/application/generate-nda', methods=['POST'])
+def generate_nda():
+    """
+    Generowanie PDF z umową NDA na podstawie danych z formularza
+    
+    Request JSON:
+    {
+        "first_name": "Jan",
+        "last_name": "Kowalski",
+        "email": "jan@example.com",
+        "city": "Warszawa",
+        ... (wszystkie dane formularza)
+    }
+    
+    Response:
+    - PDF file (application/pdf)
+    """
+    try:
+        data = request.get_json()
+        
+        # Waliduj podstawowe dane
+        required_fields = ['first_name', 'last_name', 'email', 'city', 'pesel']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        
+        if missing_fields:
+            return jsonify({
+                'success': False,
+                'error': f'Brak wymaganych pól: {", ".join(missing_fields)}'
+            }), 400
+        
+        current_app.logger.info(f"Generating NDA for: {data.get('email')}")
+        
+        # Generuj PDF - zwróci surowe bajty
+        pdf_bytes = generate_nda_pdf(data)
+        
+        if not pdf_bytes:
+            return jsonify({
+                'success': False,
+                'error': 'Nie udało się wygenerować PDF'
+            }), 500
+        
+        # Przygotuj nazwę pliku
+        filename = f"NDA_{data['last_name']}_{data['first_name']}.pdf"
+        
+        current_app.logger.info(f"NDA generated successfully: {filename}")
+        
+        # Zwróć PDF używając Response z surowymi bajtami
+        from flask import Response
+        return Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+        )
+        
+    except Exception as e:
+        current_app.logger.error(f"NDA generation error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': 'Wystąpił błąd podczas generowania PDF'
+        }), 500
+
+
+@partner_academy_bp.route('/api/application/check-email', methods=['POST'])
+def check_email_exists():
+    """
+    Sprawdź czy email już istnieje w bazie (pomocnicze API)
+    
+    Request JSON:
+    {
+        "email": "test@example.com"
+    }
+    
+    Response:
+    {
+        "success": true,
+        "exists": false
+    }
+    """
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        
+        if not email:
+            return jsonify({
+                'success': False,
+                'error': 'Brak adresu email'
+            }), 400
+        
+        existing = ApplicationService.get_application_by_email(email)
+        
+        return jsonify({
+            'success': True,
+            'exists': existing is not None
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Email check error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Błąd sprawdzania email'
+        }), 500
+
+
+# ============================================================================
+# API ENDPOINTS - ELEMENT 2: LEARNING PLATFORM
+# ============================================================================
+
 @partner_academy_bp.route('/api/session/init', methods=['POST'])
 def init_session():
     """Inicjalizacja sesji - znajdź istniejącą po IP lub utwórz nową"""
@@ -90,495 +390,128 @@ def init_session():
             'session_id': session_id,
             'ip_address': ip_address
         }), 200
-        
-    except Exception as e:
-        current_app.logger.error(f"[API] Błąd inicjalizacji sesji: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'success': False,
-            'error': 'Błąd inicjalizacji sesji'
-        }), 500
-
-@partner_academy_bp.route('/api/application/validate', methods=['POST'])
-@rate_limit(limit=20, per_hour=True)
-def validate_application():
-    """
-    Walidacja pojedynczego pola formularza w czasie rzeczywistym
-    
-    Request JSON:
-    {
-        "field": "email",
-        "value": "jan@example.com"
-    }
-    
-    Response:
-    {
-        "valid": true,
-        "message": ""
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'valid': False,
-                'message': 'Brak danych'
-            }), 400
-        
-        field = data.get('field')
-        value = data.get('value')
-        
-        if not field:
-            return jsonify({
-                'valid': False,
-                'message': 'Brak nazwy pola'
-            }), 400
-        
-        # Walidacja partial (tylko podane pole)
-        validation_result = validate_application_data({field: value}, partial=True)
-        
-        if validation_result['valid']:
-            return jsonify({
-                'valid': True,
-                'message': ''
-            }), 200
-        else:
-            # Zwróć błąd dla tego konkretnego pola
-            error_message = validation_result['errors'].get(field, 'Nieprawidłowa wartość')
-            return jsonify({
-                'valid': False,
-                'message': error_message
-            }), 200
     
     except Exception as e:
-        current_app.logger.error(f"[API] Błąd walidacji pola: {e}")
-        return jsonify({
-            'valid': False,
-            'message': 'Błąd serwera'
-        }), 500
-
-
-@partner_academy_bp.route('/api/application/submit', methods=['POST'])
-@rate_limit(limit=5, per_hour=True)  # Niższy limit dla submit
-def submit_application():
-    """
-    Wysłanie kompletnej aplikacji z plikiem NDA
-    
-    Request (multipart/form-data):
-    - first_name, last_name, email, phone, city, locality
-    - experience_level, about_text
-    - data_processing_consent, marketing_consent
-    - nda_file (file)
-    
-    Response:
-    {
-        "success": true,
-        "message": "Aplikacja została wysłana pomyślnie",
-        "application_id": 123
-    }
-    """
-    try:
-        # Zbierz dane z formularza
-        form_data = {
-            'first_name': request.form.get('first_name'),
-            'last_name': request.form.get('last_name'),
-            'email': request.form.get('email'),
-            'phone': request.form.get('phone'),
-            'city': request.form.get('city'),
-            'locality': request.form.get('locality'),
-            'experience_level': request.form.get('experience_level'),
-            'about_text': request.form.get('about_text'),
-            'data_processing_consent': request.form.get('data_processing_consent') == 'true'
-        }
-        
-        # Walidacja danych formularza (pełna)
-        validation_result = validate_application_data(form_data, partial=False)
-        
-        if not validation_result['valid']:
-            return jsonify({
-                'success': False,
-                'errors': validation_result['errors']
-            }), 400
-        
-        # Sprawdź czy email już istnieje
-        existing = ApplicationService.get_application_by_email(form_data['email'])
-        if existing:
-            return jsonify({
-                'success': False,
-                'message': 'Aplikacja z tym adresem email została już wysłana'
-            }), 400
-        
-        # Walidacja pliku
-        if 'nda_file' not in request.files:
-            return jsonify({
-                'success': False,
-                'message': 'Brak załączonego pliku NDA'
-            }), 400
-        
-        file = request.files['nda_file']
-        file_validation = validate_file(file)
-        
-        if not file_validation['valid']:
-            return jsonify({
-                'success': False,
-                'message': file_validation['message']
-            }), 400
-        
-        # Zapisz aplikację
-        application = ApplicationService.create_application(
-            form_data=form_data,
-            file=file,
-            ip_address=request.remote_addr,
-            user_agent=request.user_agent.string
-        )
-        
-        # Wyślij emaile
-        try:
-            EmailService.send_application_emails(application)
-        except Exception as e:
-            current_app.logger.error(f"[API] Błąd wysyłki emaili: {e}")
-            # Nie przerywaj - aplikacja jest zapisana, emaile można wysłać później
-        
-        return jsonify({
-            'success': True,
-            'message': 'Aplikacja została wysłana pomyślnie! Skontaktujemy się z Tobą w ciągu 48 godzin.',
-            'application_id': application.id
-        }), 200
-    
-    except Exception as e:
-        current_app.logger.error(f"[API] Błąd submit aplikacji: {e}")
-        db.session.rollback()
+        current_app.logger.error(f"Session init error: {str(e)}")
         return jsonify({
             'success': False,
-            'message': 'Wystąpił błąd podczas wysyłania aplikacji. Spróbuj ponownie.'
+            'message': 'Błąd inicjalizacji sesji'
         }), 500
 
-
-@partner_academy_bp.route('/api/application/generate-nda', methods=['POST'])
-@rate_limit(limit=10, per_hour=True)
-def generate_nda():
-    """Generowanie PDF z NDA"""
-    import sys
-    import traceback
-    import tempfile
-    import os
-    from flask import send_file
-    
-    temp_file = None
-    
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': 'Brak danych'
-            }), 400
-        
-        print(f"[NDA] Generowanie PDF dla: {data.get('email')}", file=sys.stderr)
-        
-        # Generuj PDF
-        pdf_bytes = generate_nda_pdf(data)
-        
-        print(f"[NDA] PDF wygenerowany, rozmiar: {len(pdf_bytes)} bytes", file=sys.stderr)
-        
-        # Nazwa pliku
-        filename = f"NDA_{data.get('last_name', 'Document')}_{data.get('first_name', '')}.pdf"
-        
-        # FIX: Zapisz do tymczasowego pliku zamiast BytesIO
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-        temp_file.write(pdf_bytes)
-        temp_file.close()
-        
-        print(f"[NDA] Zapisano do tymczasowego pliku: {temp_file.name}", file=sys.stderr)
-        
-        # Zwróć plik z dysku
-        response = send_file(
-            temp_file.name,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=filename
-        )
-        
-        # Usuń tymczasowy plik po wysłaniu (Flask zadba o to automatycznie)
-        @response.call_on_close
-        def cleanup():
-            try:
-                os.unlink(temp_file.name)
-                print(f"[NDA] Usunięto tymczasowy plik: {temp_file.name}", file=sys.stderr)
-            except Exception as e:
-                print(f"[NDA] Nie można usunąć pliku tymczasowego: {e}", file=sys.stderr)
-        
-        return response
-    
-    except ImportError as e:
-        error_msg = f"WeasyPrint nie jest zainstalowany: {str(e)}"
-        print(f"[NDA ERROR] {error_msg}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        
-        # Cleanup w przypadku błędu
-        if temp_file and os.path.exists(temp_file.name):
-            os.unlink(temp_file.name)
-        
-        return jsonify({
-            'success': False,
-            'message': 'Generowanie PDF wymaga dodatkowych bibliotek.'
-        }), 500
-    
-    except Exception as e:
-        error_msg = f"Błąd generowania PDF: {str(e)}"
-        print(f"[NDA ERROR] {error_msg}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        
-        # Cleanup w przypadku błędu
-        if temp_file and os.path.exists(temp_file.name):
-            os.unlink(temp_file.name)
-        
-        return jsonify({
-            'success': False,
-            'message': f'Błąd generowania PDF: {str(e)}'
-        }), 500
-
-
-# ============================================================================
-# API ENDPOINTS - ELEMENT 2: LEARNING PLATFORM
-# ============================================================================
 
 @partner_academy_bp.route('/api/progress/load', methods=['POST'])
 def load_progress():
-    """
-    Ładowanie progressu użytkownika na platformie
-    
-    Request JSON:
-    {
-        "session_id": "abc123..."
-    }
-    
-    Response:
-    {
-        "success": true,
-        "data": {
-            "current_step": "1.2",
-            "completed_steps": ["1.1"],
-            "locked_steps": ["1.3", "1.4", ...],
-            "total_time_spent": 300,
-            ...
-        }
-    }
-    """
+    """Ładowanie zapisanego progressu użytkownika"""
     try:
         data = request.get_json()
+        session_id = data.get('session_id')
         
-        if not data or not data.get('session_id'):
+        if not session_id:
             return jsonify({
                 'success': False,
                 'message': 'Brak session_id'
             }), 400
         
-        session_id = data['session_id']
-        
-        # Pobierz lub utwórz sesję
-        session = LearningService.get_or_create_session(
-            session_id=session_id,
-            ip_address=request.remote_addr,
-            user_agent=request.user_agent.string
-        )
+        progress = LearningService.load_progress(session_id)
         
         return jsonify({
             'success': True,
-            'data': session.to_dict()
+            'progress': progress
         }), 200
     
     except Exception as e:
-        current_app.logger.error(f"[API] Błąd load progress: {e}")
+        current_app.logger.error(f"Load progress error: {str(e)}")
         return jsonify({
             'success': False,
-            'message': 'Błąd serwera'
+            'message': 'Błąd ładowania progressu'
         }), 500
 
 
 @partner_academy_bp.route('/api/progress/update', methods=['POST'])
 def update_progress():
-    """
-    Aktualizacja progressu użytkownika
-    
-    Request JSON:
-    {
-        "session_id": "abc123...",
-        "action": "complete_step",
-        "completed_step": "1.1"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "data": { ... }
-    }
-    """
+    """Aktualizacja progressu użytkownika"""
     try:
         data = request.get_json()
+        session_id = data.get('session_id')
+        current_step = data.get('current_step')
+        completed_steps = data.get('completed_steps', [])
+        quiz_results = data.get('quiz_results')
         
-        if not data or not data.get('session_id'):
-            return jsonify({
-                'success': False,
-                'message': 'Brak session_id'
-            }), 400
-        
-        session_id = data['session_id']
-        action = data.get('action', 'navigate')
-        completed_step = data.get('completed_step')
-        
-        # Aktualizuj progress
-        session = LearningService.update_progress(
-            session_id=session_id,
-            action=action,
-            completed_step=completed_step
-        )
-        
-        if not session:
-            return jsonify({
-                'success': False,
-                'message': 'Sesja nie istnieje'
-            }), 404
-        
-        return jsonify({
-            'success': True,
-            'data': session.to_dict()
-        }), 200
-    
-    except Exception as e:
-        current_app.logger.error(f"[API] Błąd update progress: {e}")
-        return jsonify({
-            'success': False,
-            'message': 'Błąd serwera'
-        }), 500
-
-
-@partner_academy_bp.route('/api/time/sync', methods=['POST'])
-def sync_time():
-    """
-    Synchronizacja czasu spędzonego na platformie
-    
-    Request JSON:
-    {
-        "session_id": "abc123...",
-        "step": "1.1",
-        "time_increment": 10
-    }
-    
-    Response:
-    {
-        "success": true,
-        "total_time": 310
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        if not data or not data.get('session_id'):
-            return jsonify({
-                'success': False,
-                'message': 'Brak session_id'
-            }), 400
-        
-        session_id = data['session_id']
-        step = data.get('step', '1.1')
-        time_increment = int(data.get('time_increment', 0))
-        
-        # Aktualizuj czas
-        LearningService.update_time_spent(
-            session_id=session_id,
-            step=step,
-            time_increment=time_increment
-        )
-        
-        # Pobierz zaktualizowaną sesję
-        from modules.partner_academy.models import PartnerLearningSession
-        session = PartnerLearningSession.query.filter_by(session_id=session_id).first()
-        
-        return jsonify({
-            'success': True,
-            'total_time': session.total_time_spent if session else 0
-        }), 200
-    
-    except Exception as e:
-        current_app.logger.error(f"[API] Błąd sync time: {e}")
-        return jsonify({
-            'success': False,
-            'message': 'Błąd serwera'
-        }), 500
-
-
-@partner_academy_bp.route('/api/quiz/validate', methods=['POST'])
-def validate_quiz():
-    """
-    Walidacja odpowiedzi quizu
-    
-    Request JSON:
-    {
-        "session_id": "abc123...",
-        "step": "1.1",
-        "answers": {
-            "q1": "B",
-            "q2": ["A", "C", "D"],
-            "q3": "C"
-        }
-    }
-    
-    Response:
-    {
-        "success": true,
-        "all_correct": false,
-        "results": {
-            "q1": false,
-            "q2": true,
-            "q3": true
-        }
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        if not data or not data.get('session_id') or not data.get('step'):
+        if not session_id or not current_step:
             return jsonify({
                 'success': False,
                 'message': 'Brak wymaganych danych'
             }), 400
         
-        session_id = data['session_id']
-        step = data['step']
-        answers = data.get('answers', {})
+        LearningService.update_progress(
+            session_id=session_id,
+            current_step=current_step,
+            completed_steps=completed_steps,
+            quiz_results=quiz_results
+        )
         
-        # Pobierz prawidłowe odpowiedzi
-        correct_answers = get_quiz_answers(step)
+        return jsonify({
+            'success': True,
+            'message': 'Progress zapisany'
+        }), 200
+    
+    except Exception as e:
+        current_app.logger.error(f"Update progress error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Błąd aktualizacji progressu'
+        }), 500
+
+
+@partner_academy_bp.route('/api/time/sync', methods=['POST'])
+def sync_time():
+    """Synchronizacja czasu spędzonego w aplikacji"""
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        time_spent = data.get('time_spent')
+        step_time_tracking = data.get('step_time_tracking')
         
-        if not correct_answers:
+        if not session_id or time_spent is None:
             return jsonify({
                 'success': False,
-                'message': 'Brak quizu dla tego kroku'
+                'message': 'Brak wymaganych danych'
             }), 400
         
-        # Waliduj odpowiedzi
-        validation = validate_quiz_answers(step, answers, correct_answers)
+        LearningService.sync_time(
+            session_id=session_id,
+            time_spent=time_spent,
+            step_time_tracking=step_time_tracking
+        )
         
-        # Zapisz wynik
-        if validation['all_correct']:
-            # Pobierz aktualną liczbę prób
-            from modules.partner_academy.models import PartnerLearningSession
-            session = PartnerLearningSession.query.filter_by(session_id=session_id).first()
-            
-            if session:
-                quiz_results = session.quiz_results or {}
-                attempts = quiz_results.get(step, {}).get('attempts', 0) + 1
-                
-                LearningService.save_quiz_result(
-                    session_id=session_id,
-                    step=step,
-                    attempts=attempts,
-                    is_correct=True
-                )
+        return jsonify({
+            'success': True,
+            'message': 'Czas zsynchronizowany'
+        }), 200
+    
+    except Exception as e:
+        current_app.logger.error(f"Sync time error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': 'Błąd synchronizacji czasu'
+        }), 500
+
+
+@partner_academy_bp.route('/api/quiz/validate', methods=['POST'])
+def validate_quiz():
+    """Walidacja odpowiedzi w quizie"""
+    try:
+        data = request.get_json()
+        step = data.get('step')
+        answers = data.get('answers')
+        
+        if not step or not answers:
+            return jsonify({
+                'success': False,
+                'message': 'Brak wymaganych danych'
+            }), 400
+        
+        validation = validate_quiz_answers(step, answers)
         
         return jsonify({
             'success': True,
@@ -587,12 +520,16 @@ def validate_quiz():
         }), 200
     
     except Exception as e:
-        current_app.logger.error(f"[API] Błąd validate quiz: {e}")
+        current_app.logger.error(f"Validate quiz error: {str(e)}")
         return jsonify({
             'success': False,
-            'message': 'Błąd serwera'
+            'message': 'Błąd walidacji quizu'
         }), 500
 
+
+# ============================================================================
+# ADMIN PANEL - VIEWS
+# ============================================================================
 
 @partner_academy_bp.route('/admin/')
 @login_required
@@ -601,6 +538,10 @@ def admin_dashboard():
     return render_template('admin.html')
 
 
+# ============================================================================
+# ADMIN PANEL - API ENDPOINTS
+# ============================================================================
+
 @partner_academy_bp.route('/admin/api/stats')
 @login_required
 def get_admin_stats():
@@ -608,20 +549,32 @@ def get_admin_stats():
     try:
         total_applications = PartnerApplication.query.count()
         pending_count = PartnerApplication.query.filter_by(status='pending').count()
+        contacted_count = PartnerApplication.query.filter_by(status='contacted').count()
         accepted_count = PartnerApplication.query.filter_by(status='accepted').count()
+        rejected_count = PartnerApplication.query.filter_by(status='rejected').count()
+        
         in_progress_count = PartnerLearningSession.query.filter(
             PartnerLearningSession.current_step != '3.1'
         ).count()
         completed_count = PartnerLearningSession.query.filter_by(current_step='3.1').count()
+        
         avg_time = db.session.query(func.avg(PartnerLearningSession.total_time_spent)).scalar() or 0
         avg_time_hours = round(avg_time / 3600, 1)
+        
+        # Statystyki B2B
+        b2b_count = PartnerApplication.query.filter_by(is_b2b=True).count()
+        b2c_count = PartnerApplication.query.filter_by(is_b2b=False).count()
         
         return jsonify({
             'success': True,
             'data': {
                 'total_applications': total_applications,
                 'pending_count': pending_count,
+                'contacted_count': contacted_count,
                 'accepted_count': accepted_count,
+                'rejected_count': rejected_count,
+                'b2b_count': b2b_count,
+                'b2c_count': b2c_count,
                 'in_progress_count': in_progress_count,
                 'completed_count': completed_count,
                 'avg_time_hours': avg_time_hours
@@ -641,12 +594,21 @@ def get_admin_applications():
         per_page = request.args.get('per_page', 20, type=int)
         status_filter = request.args.get('status', '')
         search = request.args.get('search', '')
+        is_b2b = request.args.get('is_b2b', '')
         
         query = PartnerApplication.query
         
+        # Filtrowanie po statusie
         if status_filter:
             query = query.filter_by(status=status_filter)
         
+        # Filtrowanie B2B/B2C
+        if is_b2b == 'true':
+            query = query.filter_by(is_b2b=True)
+        elif is_b2b == 'false':
+            query = query.filter_by(is_b2b=False)
+        
+        # Wyszukiwanie
         if search:
             pattern = f'%{search}%'
             query = query.filter(
@@ -654,51 +616,22 @@ def get_admin_applications():
                     PartnerApplication.first_name.ilike(pattern),
                     PartnerApplication.last_name.ilike(pattern),
                     PartnerApplication.email.ilike(pattern),
-                    PartnerApplication.phone.ilike(pattern)
+                    PartnerApplication.phone.ilike(pattern),
+                    PartnerApplication.company_name.ilike(pattern),
+                    PartnerApplication.nip.ilike(pattern)
                 )
             )
         
-        query = query.order_by(desc(PartnerApplication.created_at))
-        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        # Paginacja
+        pagination = query.order_by(desc(PartnerApplication.created_at)).paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False
+        )
         
-        applications = [{
-            'id': app.id,
-            'created_at': app.created_at.strftime('%Y-%m-%d %H:%M'),
-            'first_name': app.first_name,
-            'last_name': app.last_name,
-            'email': app.email,
-            'phone': app.phone,
-            'status': app.status
-        } for app in pagination.items]
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'applications': applications,
-                'pagination': {
-                    'page': pagination.page,
-                    'per_page': pagination.per_page,
-                    'total': pagination.total,
-                    'pages': pagination.pages
-                }
-            }
-        }), 200
-    except Exception as e:
-        current_app.logger.error(f"Admin applications error: {str(e)}")
-        return jsonify({'success': False, 'message': 'Błąd pobierania aplikacji'}), 500
-
-
-@partner_academy_bp.route('/admin/api/applications/<int:app_id>')
-@login_required
-def get_admin_application_details(app_id):
-    """Szczegóły aplikacji"""
-    try:
-        app = PartnerApplication.query.get_or_404(app_id)
-        notes = json.loads(app.notes) if app.notes else []
-        
-        return jsonify({
-            'success': True,
-            'data': {
+        applications = []
+        for app in pagination.items:
+            app_data = {
                 'id': app.id,
                 'first_name': app.first_name,
                 'last_name': app.last_name,
@@ -706,67 +639,154 @@ def get_admin_application_details(app_id):
                 'phone': app.phone,
                 'city': app.city,
                 'locality': app.locality,
-                'experience_level': app.experience_level or 'Nie podano',
-                'about_text': app.about_text or '',
-                'data_processing_consent': app.data_processing_consent,
-                'nda_filename': app.nda_filename,
-                'nda_filesize': app.nda_filesize,
                 'status': app.status,
-                'notes': notes,
-                'created_at': app.created_at.strftime('%Y-%m-%d %H:%M'),
-                'ip_address': app.ip_address
+                'is_b2b': app.is_b2b,
+                'created_at': app.created_at.strftime('%Y-%m-%d %H:%M') if app.created_at else None,
+                'has_nda_file': bool(app.nda_filepath)
+            }
+            
+            # Dodaj dane B2B jeśli istnieją
+            if app.is_b2b:
+                app_data['company_name'] = app.company_name
+                app_data['nip'] = app.nip
+            
+            applications.append(app_data)
+        
+        return jsonify({
+            'success': True,
+            'data': applications,
+            'pagination': {
+                'page': pagination.page,
+                'per_page': pagination.per_page,
+                'total': pagination.total,
+                'pages': pagination.pages
             }
         }), 200
+        
     except Exception as e:
-        current_app.logger.error(f"Admin app details error: {str(e)}")
-        return jsonify({'success': False, 'message': 'Błąd pobierania szczegółów'}), 500
+        current_app.logger.error(f"Admin applications list error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania listy aplikacji'}), 500
 
 
-@partner_academy_bp.route('/admin/api/applications/<int:app_id>/status', methods=['POST'])
+@partner_academy_bp.route('/admin/api/application/<int:application_id>')
 @login_required
-def update_admin_application_status(app_id):
+def get_admin_application_detail(application_id):
+    """Szczegóły pojedynczej aplikacji - wszystkie dane"""
+    try:
+        app = PartnerApplication.query.get_or_404(application_id)
+        
+        # Podstawowe dane
+        detail = {
+            'id': app.id,
+            'first_name': app.first_name,
+            'last_name': app.last_name,
+            'email': app.email,
+            'phone': app.phone,
+            'city': app.city,
+            'locality': app.locality,
+            'pesel': app.pesel,
+            'about_text': app.about_text,
+            'status': app.status,
+            'is_b2b': app.is_b2b,
+            'data_processing_consent': app.data_processing_consent,
+            'created_at': app.created_at.strftime('%Y-%m-%d %H:%M:%S') if app.created_at else None,
+            'updated_at': app.updated_at.strftime('%Y-%m-%d %H:%M:%S') if app.updated_at else None,
+            'ip_address': app.ip_address,
+            'user_agent': app.user_agent,
+            'notes': json.loads(app.notes) if app.notes else []
+        }
+        
+        # Dane NDA
+        if app.nda_filepath:
+            detail['nda'] = {
+                'filename': app.nda_filename,
+                'filesize': app.nda_filesize,
+                'mime_type': app.nda_mime_type,
+                'download_url': url_for('partner_academy.download_nda', application_id=app.id)
+            }
+        
+        # Dane B2B
+        if app.is_b2b:
+            detail['company'] = {
+                'company_name': app.company_name,
+                'nip': app.nip,
+                'regon': app.regon,
+                'company_address': app.company_address,
+                'company_city': app.company_city,
+                'company_postal_code': app.company_postal_code
+            }
+        
+        return jsonify({
+            'success': True,
+            'data': detail
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Admin application detail error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania szczegółów aplikacji'}), 500
+
+
+@partner_academy_bp.route('/admin/api/application/<int:application_id>/status', methods=['POST'])
+@login_required
+def update_application_status(application_id):
     """Zmiana statusu aplikacji"""
     try:
         data = request.get_json()
         new_status = data.get('status')
+        notes = data.get('notes')
         
-        if new_status not in ['pending', 'contacted', 'accepted', 'rejected']:
-            return jsonify({'success': False, 'message': 'Nieprawidłowy status'}), 400
+        if not new_status:
+            return jsonify({'success': False, 'message': 'Brak nowego statusu'}), 400
         
-        app = PartnerApplication.query.get_or_404(app_id)
-        app.status = new_status
-        app.updated_at = datetime.utcnow()
-        db.session.commit()
+        application = ApplicationService.update_application_status(
+            application_id=application_id,
+            new_status=new_status,
+            notes=notes
+        )
         
-        return jsonify({'success': True, 'message': 'Status zaktualizowany'}), 200
+        # Wyślij email do kandydata o zmianie statusu
+        try:
+            EmailService.send_status_update(application, new_status)
+        except Exception as email_error:
+            current_app.logger.error(f"Email sending failed: {str(email_error)}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Status zaktualizowany',
+            'new_status': application.status
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Admin status update error: {str(e)}")
         return jsonify({'success': False, 'message': 'Błąd aktualizacji statusu'}), 500
 
 
-@partner_academy_bp.route('/admin/api/applications/<int:app_id>/notes', methods=['POST'])
+@partner_academy_bp.route('/admin/api/application/<int:application_id>/note', methods=['POST'])
 @login_required
-def add_admin_application_note(app_id):
-    """Dodanie notatki"""
+def add_application_note(application_id):
+    """Dodanie notatki do aplikacji"""
     try:
         data = request.get_json()
-        note_text = data.get('text', '').strip()
+        note_text = data.get('note')
         
         if not note_text:
-            return jsonify({'success': False, 'message': 'Treść notatki jest wymagana'}), 400
+            return jsonify({'success': False, 'message': 'Brak treści notatki'}), 400
         
-        app = PartnerApplication.query.get_or_404(app_id)
-        notes = json.loads(app.notes) if app.notes else []
+        app = PartnerApplication.query.get_or_404(application_id)
         
+        # Dodaj notatkę
+        current_notes = json.loads(app.notes) if app.notes else []
         new_note = {
             'timestamp': datetime.utcnow().isoformat(),
-            'author': 'admin',
+            'author': session.get('user_email', 'admin'),
             'text': note_text
         }
-        notes.insert(0, new_note)
+        current_notes.append(new_note)
         
-        app.notes = json.dumps(notes)
+        app.notes = json.dumps(current_notes)
         app.updated_at = datetime.utcnow()
         db.session.commit()
         
@@ -777,23 +797,46 @@ def add_admin_application_note(app_id):
         return jsonify({'success': False, 'message': 'Błąd dodawania notatki'}), 500
 
 
+@partner_academy_bp.route('/admin/api/application/<int:application_id>/nda')
+@login_required
+def download_nda(application_id):
+    """Pobieranie pliku NDA"""
+    try:
+        filepath = ApplicationService.get_nda_file_path(application_id)
+        
+        if not filepath or not os.path.exists(filepath):
+            return jsonify({'success': False, 'message': 'Plik NDA nie istnieje'}), 404
+        
+        return send_file(
+            filepath,
+            as_attachment=True,
+            download_name=os.path.basename(filepath)
+        )
+        
+    except Exception as e:
+        current_app.logger.error(f"NDA download error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania pliku'}), 500
+
+
 @partner_academy_bp.route('/admin/api/learning-sessions/<session_id>')
 @login_required
 def get_admin_learning_session(session_id):
     """Szczegóły postępu w szkoleniu"""
     try:
-        session = PartnerLearningSession.query.filter_by(session_id=session_id).first_or_404()
+        session_obj = PartnerLearningSession.query.filter_by(session_id=session_id).first_or_404()
         
         return jsonify({
             'success': True,
             'data': {
-                'session_id': session.session_id,
-                'current_step': session.current_step,
-                'completed_steps': session.completed_steps or [],
-                'quiz_results': session.quiz_results or {},
-                'total_time_spent': session.total_time_spent,
-                'total_hours': round(session.total_time_spent / 3600, 2),
-                'last_accessed_at': session.last_accessed_at.strftime('%Y-%m-%d %H:%M')
+                'session_id': session_obj.session_id,
+                'current_step': session_obj.current_step,
+                'completed_steps': session_obj.completed_steps or [],
+                'quiz_results': session_obj.quiz_results or {},
+                'total_time_spent': session_obj.total_time_spent,
+                'total_hours': round(session_obj.total_time_spent / 3600, 2),
+                'is_completed': session_obj.is_completed,
+                'completed_at': session_obj.completed_at.strftime('%Y-%m-%d %H:%M') if session_obj.completed_at else None,
+                'last_accessed_at': session_obj.last_accessed_at.strftime('%Y-%m-%d %H:%M') if session_obj.last_accessed_at else None
             }
         }), 200
     except Exception as e:
@@ -804,14 +847,22 @@ def get_admin_learning_session(session_id):
 @partner_academy_bp.route('/admin/api/export')
 @login_required
 def export_admin_applications():
-    """Eksport do XLSX"""
+    """Eksport aplikacji do XLSX z wszystkimi polami"""
     try:
         status_filter = request.args.get('status', '')
         search = request.args.get('search', '')
+        is_b2b = request.args.get('is_b2b', '')
         
         query = PartnerApplication.query
+        
         if status_filter:
             query = query.filter_by(status=status_filter)
+        
+        if is_b2b == 'true':
+            query = query.filter_by(is_b2b=True)
+        elif is_b2b == 'false':
+            query = query.filter_by(is_b2b=False)
+        
         if search:
             pattern = f'%{search}%'
             query = query.filter(
@@ -824,66 +875,84 @@ def export_admin_applications():
         
         applications = query.order_by(desc(PartnerApplication.created_at)).all()
         
+        # Utwórz workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Aplikacje"
         
-        headers = ['ID', 'Data', 'Imię', 'Nazwisko', 'Email', 'Telefon', 
-                   'Miasto', 'Miejscowość', 'Doświadczenie', 'Status']
-        ws.append(headers)
+        # Nagłówki
+        headers = [
+            'ID', 'Imię', 'Nazwisko', 'Email', 'Telefon', 
+            'Miasto', 'Miejscowość', 'PESEL', 
+            'Status', 'Typ', 'Data utworzenia',
+            'Firma', 'NIP', 'REGON', 'Adres firmy', 'Miasto firmy', 'Kod pocztowy',
+            'O sobie', 'IP', 'Ma NDA'
+        ]
         
-        for cell in ws[1]:
-            cell.fill = PatternFill(start_color="ED6B24", end_color="ED6B24", fill_type="solid")
-            cell.font = Font(bold=True, color="FFFFFF")
+        # Stylowanie nagłówków
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="ED6B24", end_color="ED6B24", fill_type="solid")
         
-        for app in applications:
-            ws.append([
-                app.id,
-                app.created_at.strftime('%Y-%m-%d %H:%M'),
-                app.first_name,
-                app.last_name,
-                app.email,
-                app.phone,
-                app.city,
-                app.locality,
-                app.experience_level or '',
-                app.status
-            ])
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center', vertical='center')
         
+        # Dane
+        for row_num, app in enumerate(applications, 2):
+            ws.cell(row=row_num, column=1, value=app.id)
+            ws.cell(row=row_num, column=2, value=app.first_name)
+            ws.cell(row=row_num, column=3, value=app.last_name)
+            ws.cell(row=row_num, column=4, value=app.email)
+            ws.cell(row=row_num, column=5, value=app.phone)
+            ws.cell(row=row_num, column=6, value=app.city)
+            ws.cell(row=row_num, column=7, value=app.locality)
+            ws.cell(row=row_num, column=8, value=app.pesel)
+            ws.cell(row=row_num, column=9, value=app.status)
+            ws.cell(row=row_num, column=10, value='B2B' if app.is_b2b else 'B2C')
+            ws.cell(row=row_num, column=11, value=app.created_at.strftime('%Y-%m-%d %H:%M') if app.created_at else '')
+            
+            # Dane B2B
+            ws.cell(row=row_num, column=12, value=app.company_name if app.is_b2b else '')
+            ws.cell(row=row_num, column=13, value=app.nip if app.is_b2b else '')
+            ws.cell(row=row_num, column=14, value=app.regon if app.is_b2b else '')
+            ws.cell(row=row_num, column=15, value=app.company_address if app.is_b2b else '')
+            ws.cell(row=row_num, column=16, value=app.company_city if app.is_b2b else '')
+            ws.cell(row=row_num, column=17, value=app.company_postal_code if app.is_b2b else '')
+            
+            ws.cell(row=row_num, column=18, value=app.about_text or '')
+            ws.cell(row=row_num, column=19, value=app.ip_address or '')
+            ws.cell(row=row_num, column=20, value='Tak' if app.nda_filepath else 'Nie')
+        
+        # Autosize kolumn
         for column in ws.columns:
-            max_length = max(len(str(cell.value)) for cell in column)
-            ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 50)
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(cell.value)
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
         
-        # Zapisz do pliku tymczasowego
-        filename = f'aplikacje_{datetime.now().strftime("%Y-%m-%d")}.xlsx'
-        filepath = os.path.join('/tmp', filename)
-        wb.save(filepath)
+        # Zapisz do bufora
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
         
-        # Wyślij plik
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'aplikacje_partner_academy_{timestamp}.xlsx'
+        
         return send_file(
-            filepath,
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
-            download_name=filename,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            download_name=filename
         )
-    except Exception as e:
-        current_app.logger.error(f"Admin export error: {str(e)}")
-        return jsonify({'success': False, 'message': 'Błąd eksportu'}), 500
-
-@partner_academy_bp.route('/admin/api/applications/<int:app_id>/nda')
-@login_required
-def download_nda(app_id):
-    """Pobierz/wyświetl plik NDA"""
-    try:
-        app = PartnerApplication.query.get_or_404(app_id)
-        if not app.nda_filepath or not os.path.exists(app.nda_filepath):
-            return jsonify({'success': False, 'message': 'Plik nie istnieje'}), 404
         
-        return send_file(
-            app.nda_filepath,
-            mimetype=app.nda_mime_type,
-            as_attachment=False  # False = wyświetl w przeglądarce
-        )
     except Exception as e:
-        current_app.logger.error(f"Download NDA error: {str(e)}")
-        return jsonify({'success': False, 'message': 'Błąd pobierania pliku'}), 500
+        current_app.logger.error(f"Export error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd eksportu'}), 500

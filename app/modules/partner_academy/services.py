@@ -22,6 +22,7 @@ from extensions import db, mail
 from modules.partner_academy.models import PartnerApplication, PartnerLearningSession
 from datetime import datetime
 import magic
+import uuid
 
 
 class ApplicationService:
@@ -41,7 +42,21 @@ class ApplicationService:
     
     @classmethod
     def create_application(cls, form_data, file, ip_address, user_agent):
-        """Utworzenie nowej aplikacji rekrutacyjnej z plikiem NDA"""
+        """
+        Utworzenie nowej aplikacji rekrutacyjnej z plikiem NDA
+        
+        Args:
+            form_data (dict): Dane z formularza
+            file (FileStorage): Plik NDA
+            ip_address (str): Adres IP użytkownika
+            user_agent (str): User agent przeglądarki
+            
+        Returns:
+            PartnerApplication: Utworzona aplikacja
+            
+        Raises:
+            ValueError: Błędy walidacji
+        """
         
         # Zapisz plik na dysku
         filename = secure_filename(file.filename)
@@ -58,362 +73,367 @@ class ApplicationService:
         filesize = os.path.getsize(filepath)
         mime_type = magic.from_file(filepath, mime=True)
         
-        # Utwórz rekord w bazie - POPRAWIONE NAZWY KOLUMN
-        application = PartnerApplication(
-            first_name=form_data['first_name'],
-            last_name=form_data['last_name'],
-            email=form_data['email'],
-            phone=form_data['phone'],
-            city=form_data['city'],
-            locality=form_data['locality'],
-            experience_level=form_data.get('experience_level'),
-            about_text=form_data.get('about_text'),
-            data_processing_consent=form_data['data_processing_consent'],
-            nda_filename=filename,
-            nda_filepath=filepath,  # ← POPRAWIONE
-            nda_filesize=filesize,
-            nda_mime_type=mime_type,
-            status='pending',
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
+        # Przygotuj dane podstawowe
+        application_data = {
+            'first_name': form_data['first_name'],
+            'last_name': form_data['last_name'],
+            'email': form_data['email'],
+            'phone': form_data['phone'],
+            'city': form_data['city'],
+            'locality': form_data['locality'],
+            'pesel': form_data['pesel'],
+            'about_text': form_data.get('about_text', ''),
+            'data_processing_consent': form_data.get('data_processing_consent', 'off') == 'on',
+            'nda_filename': unique_filename,
+            'nda_filepath': filepath,
+            'nda_filesize': filesize,
+            'nda_mime_type': mime_type,
+            'ip_address': ip_address,
+            'user_agent': user_agent,
+            'status': 'pending'
+        }
         
-        db.session.add(application)
+        # Obsługa danych B2B
+        is_b2b = form_data.get('is_b2b', 'off') == 'on'
+        application_data['is_b2b'] = is_b2b
+        
+        if is_b2b:
+            application_data.update({
+                'company_name': form_data.get('company_name', ''),
+                'nip': form_data.get('nip', ''),
+                'regon': form_data.get('regon', ''),
+                'company_address': form_data.get('company_address', ''),
+                'company_city': form_data.get('company_city', ''),
+                'company_postal_code': form_data.get('company_postal_code', '')
+            })
+        
+        # Utwórz rekord w bazie
+        application = PartnerApplication(**application_data)
+        
+        try:
+            db.session.add(application)
+            db.session.commit()
+            
+            current_app.logger.info(
+                f"Utworzono aplikację: {application.email} (ID: {application.id})"
+            )
+            
+            return application
+            
+        except Exception as e:
+            db.session.rollback()
+            # Usuń plik jeśli nie udało się zapisać do bazy
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            raise e
+    
+    @classmethod
+    def get_application_by_id(cls, application_id):
+        """Pobierz aplikację po ID"""
+        return PartnerApplication.query.get(application_id)
+    
+    @classmethod
+    def get_application_by_email(cls, email):
+        """Pobierz aplikację po email"""
+        return PartnerApplication.query.filter_by(email=email).first()
+    
+    @classmethod
+    def update_application_status(cls, application_id, new_status, notes=None):
+        """
+        Aktualizacja statusu aplikacji
+        
+        Args:
+            application_id (int): ID aplikacji
+            new_status (str): Nowy status (pending, contacted, rejected, accepted)
+            notes (str, optional): Notatka do dodania
+        """
+        application = cls.get_application_by_id(application_id)
+        
+        if not application:
+            raise ValueError(f"Aplikacja o ID {application_id} nie istnieje")
+        
+        # Sprawdź czy status jest prawidłowy
+        valid_statuses = ['pending', 'contacted', 'rejected', 'accepted']
+        if new_status not in valid_statuses:
+            raise ValueError(f"Nieprawidłowy status: {new_status}")
+        
+        application.status = new_status
+        application.updated_at = datetime.utcnow()
+        
+        # Dodaj notatkę jeśli została przekazana
+        if notes:
+            import json
+            current_notes = json.loads(application.notes) if application.notes else []
+            current_notes.append({
+                'timestamp': datetime.utcnow().isoformat(),
+                'author': 'system',
+                'text': notes
+            })
+            application.notes = json.dumps(current_notes)
+        
         db.session.commit()
+        
+        current_app.logger.info(
+            f"Zaktualizowano status aplikacji {application_id}: {new_status}"
+        )
         
         return application
     
     @classmethod
-    def get_application_by_email(cls, email):
-        """Znajdź aplikację po emailu"""
-        return PartnerApplication.query.filter_by(email=email).first()
-    
-    @classmethod
-    def update_status(cls, application_id, new_status):
-        """Zmień status aplikacji"""
-        application = PartnerApplication.query.get(application_id)
-        if application:
-            application.status = new_status
-            application.updated_at = datetime.utcnow()
-            db.session.commit()
-            return True
-        return False
+    def get_nda_file_path(cls, application_id):
+        """Pobierz ścieżkę do pliku NDA"""
+        application = cls.get_application_by_id(application_id)
+        if application and application.nda_filepath:
+            return application.nda_filepath
+        return None
 
 
 class EmailService:
-    """Serwis do wysyłania emaili"""
+    """Serwis wysyłki emaili"""
     
     @staticmethod
-    def _load_email_config():
-        """Ładuje konfigurację emaili z pliku JSON"""
-        import json
+    def send_application_confirmation(application):
+        """
+        Wyślij email potwierdzający otrzymanie aplikacji
         
+        Args:
+            application (PartnerApplication): Aplikacja rekrutacyjna
+        """
         try:
-            config_path = os.path.join(
-                current_app.root_path,
-                'modules',
-                'partner_academy',
-                'config',
-                'mail_addresses.json'
-            )
-            
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            
-            return config
-            
-        except FileNotFoundError:
-            current_app.logger.error("[EmailService] Brak pliku mail_addresses.json")
-            return {
-                'notification_emails': ['admin@woodpower.pl'],
-                'confirmation_emails': []
-            }
-        except json.JSONDecodeError as e:
-            current_app.logger.error(f"[EmailService] Błąd parsowania JSON: {e}")
-            return {
-                'notification_emails': ['admin@woodpower.pl'],
-                'confirmation_emails': []
-            }
-    
-    @staticmethod
-    def send_confirmation_email(application: PartnerApplication):
-        """Wysyła email potwierdzający do kandydata + kopie"""
-        try:
-            config = EmailService._load_email_config()
-            recipient_email = application.email
-            cc_emails = config.get('confirmation_emails', [])
-            
             msg = Message(
-                'Potwierdzenie aplikacji - WoodPower PartnerAcademy',
-                sender=current_app.config.get('MAIL_USERNAME'),
-                recipients=[recipient_email],
-                cc=cc_emails if cc_emails else None
+                subject='Potwierdzenie otrzymania aplikacji - WoodPower Partner Academy',
+                sender=current_app.config.get('MAIL_DEFAULT_SENDER'),
+                recipients=[application.email]
             )
             
+            # Renderuj template email
             msg.html = render_template(
-                'emails/application_received.html',
-                first_name=application.first_name,
-                last_name=application.last_name
-            )
-            
-            mail.send(msg)
-            
-            current_app.logger.info(
-                f"[EmailService] Wysłano potwierdzenie do {recipient_email}"
-                + (f" (cc: {', '.join(cc_emails)})" if cc_emails else "")
-            )
-            
-        except Exception as e:
-            current_app.logger.error(f"[EmailService] Błąd wysyłania potwierdzenia: {e}")
-            raise
-    
-    @staticmethod
-    def send_notification_email(application: PartnerApplication):
-        """Wysyła powiadomienie o nowej aplikacji do managementu (z załącznikiem NDA)"""
-        try:
-            config = EmailService._load_email_config()
-            management_emails = config.get('notification_emails', ['admin@woodpower.pl'])
-        
-            msg = Message(
-                f'Nowa aplikacja partnera: {application.first_name} {application.last_name}',
-                sender=current_app.config.get('MAIL_USERNAME'),
-                recipients=management_emails
-            )
-        
-            msg.html = render_template(
-                'emails/application_notification.html',
+                'emails/application_confirmation.html',
                 application=application
             )
-        
-            # Załącz plik NDA
-            if application.nda_filepath and os.path.exists(application.nda_filepath):
-                try:
-                    with open(application.nda_filepath, 'rb') as f:
-                        file_content = f.read()
-                
-                    # Określ MIME type
-                    mime_type = 'application/pdf'
-                    if application.nda_filename.lower().endswith('.pdf'):
-                        mime_type = 'application/pdf'
-                    elif application.nda_filename.lower().endswith(('.jpg', '.jpeg')):
-                        mime_type = 'image/jpeg'
-                    elif application.nda_filename.lower().endswith('.png'):
-                        mime_type = 'image/png'
-                    elif application.nda_filename.lower().endswith('.docx'):
-                        mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                    elif application.nda_filename.lower().endswith('.odt'):
-                        mime_type = 'application/vnd.oasis.opendocument.text'
-                
-                    msg.attach(
-                        application.nda_filename,
-                        mime_type,
-                        file_content
-                    )
-                
-                    current_app.logger.info(f"[EmailService] Załączono plik: {application.nda_filename}")
-                
-                except Exception as e:
-                    current_app.logger.error(f"[EmailService] Błąd załączania pliku: {e}")
-        
+            
             mail.send(msg)
-        
+            
             current_app.logger.info(
-                f"[EmailService] Wysłano powiadomienie do {', '.join(management_emails)}"
+                f"Wysłano email potwierdzający do: {application.email}"
             )
-        
+            
         except Exception as e:
-            current_app.logger.error(f"[EmailService] Błąd wysyłania powiadomienia: {e}")
-            raise
+            current_app.logger.error(
+                f"Błąd wysyłki emaila do {application.email}: {str(e)}"
+            )
     
     @staticmethod
-    def send_application_emails(application: PartnerApplication):
-        """Wysyła wszystkie emaile po złożeniu aplikacji"""
+    def send_admin_notification(application):
+        """
+        Wyślij notyfikację do admina o nowej aplikacji
+        
+        Args:
+            application (PartnerApplication): Aplikacja rekrutacyjna
+        """
         try:
-            EmailService.send_confirmation_email(application)
-            EmailService.send_notification_email(application)
+            admin_email = current_app.config.get('ADMIN_EMAIL')
+            if not admin_email:
+                return
+            
+            msg = Message(
+                subject=f'Nowa aplikacja: {application.first_name} {application.last_name}',
+                sender=current_app.config.get('MAIL_DEFAULT_SENDER'),
+                recipients=[admin_email]
+            )
+            
+            msg.html = render_template(
+                'emails/admin_notification.html',
+                application=application
+            )
+            
+            mail.send(msg)
+            
+            current_app.logger.info(
+                f"Wysłano notyfikację do admina o aplikacji: {application.id}"
+            )
+            
         except Exception as e:
-            current_app.logger.error(f"[EmailService] Błąd wysyłania emaili: {e}")
+            current_app.logger.error(
+                f"Błąd wysyłki notyfikacji do admina: {str(e)}"
+            )
+    
+    @staticmethod
+    def send_status_update(application, new_status):
+        """
+        Wyślij email o zmianie statusu aplikacji
+        
+        Args:
+            application (PartnerApplication): Aplikacja
+            new_status (str): Nowy status
+        """
+        try:
+            status_messages = {
+                'contacted': 'Skontaktujemy się z Tobą wkrótce',
+                'accepted': 'Twoja aplikacja została zaakceptowana!',
+                'rejected': 'Informacja o Twojej aplikacji'
+            }
+            
+            subject = f'WoodPower Partner Academy - {status_messages.get(new_status, "Aktualizacja statusu")}'
+            
+            msg = Message(
+                subject=subject,
+                sender=current_app.config.get('MAIL_DEFAULT_SENDER'),
+                recipients=[application.email]
+            )
+            
+            msg.html = render_template(
+                f'emails/status_{new_status}.html',
+                application=application
+            )
+            
+            mail.send(msg)
+            
+            current_app.logger.info(
+                f"Wysłano email o zmianie statusu do: {application.email} ({new_status})"
+            )
+            
+        except Exception as e:
+            current_app.logger.error(
+                f"Błąd wysyłki emaila o statusie: {str(e)}"
+            )
 
 
 class LearningService:
-    """Serwis zarządzania sesjami e-learningowymi"""
+    """Serwis zarządzania postępem szkoleniowym"""
     
-    @classmethod
-    def get_or_create_session(cls, session_id, ip_address, user_agent):
-        """Pobierz istniejącą sesję lub utwórz nową"""
-        session = PartnerLearningSession.query.filter_by(session_id=session_id).first()
+    @staticmethod
+    def find_or_create_session_by_ip(ip_address):
+        """
+        Znajdź istniejącą sesję po IP lub utwórz nową
         
-        if not session:
-            session = PartnerLearningSession(
-                session_id=session_id,
-                current_step='1.1',
-                completed_steps=[],
-                locked_steps=['1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'],
-                quiz_results={},
-                total_time_spent=0,
-                step_times={},
-                ip_address=ip_address,
-                user_agent=user_agent
-            )
-            db.session.add(session)
-            db.session.commit()
-            current_app.logger.info(f"[LearningService] Utworzono nową sesję: {session_id}")
-        else:
-            session.last_accessed_at = datetime.utcnow()
-            db.session.commit()
-        
-        return session
-    
-    @classmethod
-    def update_progress(cls, session_id, action, completed_step=None):
-        """Aktualizacja postępu w szkoleniu"""
-        session = PartnerLearningSession.query.filter_by(session_id=session_id).first()
-        
-        if not session:
-            return None
-        
-        if action == 'complete_step' and completed_step:
-            completed = session.completed_steps or []
-            if completed_step not in completed:
-                completed.append(completed_step)
-                session.completed_steps = completed
-                
-                next_step = cls._get_next_step(completed_step)
-                if next_step:
-                    locked = session.locked_steps or []
-                    if next_step in locked:
-                        locked.remove(next_step)
-                        session.locked_steps = locked
-                
-                session.current_step = next_step or completed_step
-        
-        session.last_accessed_at = datetime.utcnow()
-        db.session.commit()
-        
-        return session
-    
-    @classmethod
-    def save_quiz_result(cls, session_id, step, attempts, is_correct):
-        """Zapisz wynik quizu"""
-        session = PartnerLearningSession.query.filter_by(session_id=session_id).first()
-        
-        if session:
-            results = session.quiz_results or {}
-            results[step] = {
-                'attempts': attempts,
-                'correct': is_correct,
-                'timestamp': datetime.utcnow().isoformat()
-            }
-            session.quiz_results = results
-            db.session.commit()
-    
-    @classmethod
-    def update_time_spent(cls, session_id, step, time_increment):
-        """Aktualizuj czas spędzony na platformie"""
-        session = PartnerLearningSession.query.filter_by(session_id=session_id).first()
-        
-        if session:
-            session.total_time_spent += time_increment
+        Args:
+            ip_address (str): Adres IP użytkownika
             
-            step_times = session.step_times or {}
-            step_times[step] = step_times.get(step, 0) + time_increment
-            session.step_times = step_times
-            
-            session.last_accessed_at = datetime.utcnow()
-            db.session.commit()
-    
-    @staticmethod
-    def _get_next_step(current_step):
-        """Zwróć następny krok w sekwencji"""
-        steps = ['1.1', '1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1']
-        try:
-            current_index = steps.index(current_step)
-            if current_index < len(steps) - 1:
-                return steps[current_index + 1]
-            return None
-        except ValueError:
-            return None
-        
-    @staticmethod
-    def find_or_create_session_by_ip(ip_address: str):
-        """
-        Znajdź istniejącą sesję dla danego IP lub utwórz nową.
-        Wyszukuje sesję utworzoną w ciągu ostatnich 24h.
-        """
-        from datetime import datetime, timedelta
-        from models import LearningSession
-        
-        # Sprawdź czy istnieje aktywna sesja dla tego IP (ostatnie 24h)
-        cutoff_time = datetime.utcnow() - timedelta(hours=24)
-        
-        existing_session = LearningSession.query.filter(
-            LearningSession.ip_address == ip_address,
-            LearningSession.created_at >= cutoff_time
-        ).order_by(LearningSession.created_at.desc()).first()
-        
-        if existing_session:
-            current_app.logger.info(f"Znaleziono istniejącą sesję dla IP {ip_address}: {existing_session.session_id}")
-            return existing_session
-        
-        # Utwórz nową sesję
-        import uuid
-        session_id = f"session_{uuid.uuid4().hex[:16]}"
-        
-        new_session = LearningSession(
-            session_id=session_id,
-            ip_address=ip_address,
-            current_step='1.1',
-            completed_steps=[],
-            total_time_spent=0
-        )
-        
-        db.session.add(new_session)
-        db.session.commit()
-        
-        current_app.logger.info(f"Utworzono nową sesję dla IP {ip_address}: {session_id}")
-        return new_session
-    
-    @staticmethod
-    def find_or_create_session_by_ip(ip_address: str) -> str:
-        """
-        Znajdź istniejącą sesję dla danego IP lub utwórz nową.
-        Wyszukuje sesję utworzoną w ciągu ostatnich 24h.
-        
         Returns:
             str: session_id
         """
-        from datetime import datetime, timedelta
-        from modules.partner_academy.utils import generate_session_id
-        
-        # Sprawdź czy istnieje aktywna sesja dla tego IP (ostatnie 24h)
-        cutoff_time = datetime.utcnow() - timedelta(hours=24)
+        # Szukaj aktywnej sesji z tego IP (ostatnie 24h)
+        from datetime import timedelta
+        yesterday = datetime.utcnow() - timedelta(days=1)
         
         existing_session = PartnerLearningSession.query.filter(
             PartnerLearningSession.ip_address == ip_address,
-            PartnerLearningSession.created_at >= cutoff_time
-        ).order_by(PartnerLearningSession.created_at.desc()).first()
+            PartnerLearningSession.last_accessed_at >= yesterday
+        ).first()
         
         if existing_session:
-            current_app.logger.info(f"Znaleziono istniejącą sesję dla IP {ip_address}: {existing_session.session_id}")
             return existing_session.session_id
         
         # Utwórz nową sesję
-        new_session_id = generate_session_id()
-        
+        session_id = str(uuid.uuid4())
         new_session = PartnerLearningSession(
-            session_id=new_session_id,
+            session_id=session_id,
             ip_address=ip_address,
-            current_step='1.1',
-            completed_steps=[],
-            locked_steps=['1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'],
-            total_time_spent=0,
-            step_times={}
+            current_step='1.1'
         )
         
         db.session.add(new_session)
         db.session.commit()
         
-        current_app.logger.info(f"Utworzono nową sesję dla IP {ip_address}: {new_session_id}")
-        return new_session_id
+        current_app.logger.info(f"Utworzono nową sesję: {session_id}")
+        
+        return session_id
     
-# End of services.py
+    @staticmethod
+    def get_session(session_id):
+        """Pobierz sesję po ID"""
+        return PartnerLearningSession.query.filter_by(session_id=session_id).first()
+    
+    @staticmethod
+    def load_progress(session_id):
+        """
+        Załaduj progress użytkownika
+        
+        Args:
+            session_id (str): ID sesji
+            
+        Returns:
+            dict: Progress data
+        """
+        session = LearningService.get_session(session_id)
+        
+        if not session:
+            return {
+                'current_step': '1.1',
+                'completed_steps': [],
+                'quiz_results': {},
+                'total_time_spent': 0
+            }
+        
+        return {
+            'current_step': session.current_step,
+            'completed_steps': session.completed_steps or [],
+            'quiz_results': session.quiz_results or {},
+            'total_time_spent': session.total_time_spent
+        }
+    
+    @staticmethod
+    def update_progress(session_id, current_step, completed_steps, quiz_results=None):
+        """
+        Aktualizuj progress użytkownika
+        
+        Args:
+            session_id (str): ID sesji
+            current_step (str): Aktualny krok
+            completed_steps (list): Lista ukończonych kroków
+            quiz_results (dict, optional): Wyniki quizów
+        """
+        session = LearningService.get_session(session_id)
+        
+        if not session:
+            raise ValueError(f"Sesja {session_id} nie istnieje")
+        
+        session.current_step = current_step
+        session.completed_steps = completed_steps
+        
+        if quiz_results:
+            current_results = session.quiz_results or {}
+            current_results.update(quiz_results)
+            session.quiz_results = current_results
+        
+        session.last_accessed_at = datetime.utcnow()
+        
+        # Sprawdź czy szkolenie zostało ukończone
+        if current_step == '3.1' and not session.is_completed:
+            session.is_completed = True
+            session.completed_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        current_app.logger.info(
+            f"Zaktualizowano progress sesji {session_id}: krok {current_step}"
+        )
+    
+    @staticmethod
+    def sync_time(session_id, time_spent, step_time_tracking=None):
+        """
+        Synchronizuj czas spędzony w sesji
+        
+        Args:
+            session_id (str): ID sesji
+            time_spent (int): Czas w sekundach
+            step_time_tracking (dict, optional): Czas na poszczególnych krokach
+        """
+        session = LearningService.get_session(session_id)
+        
+        if not session:
+            raise ValueError(f"Sesja {session_id} nie istnieje")
+        
+        session.total_time_spent = time_spent
+        
+        if step_time_tracking:
+            session.step_time_tracking = step_time_tracking
+        
+        session.last_accessed_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        current_app.logger.info(
+            f"Zsynchronizowano czas sesji {session_id}: {time_spent}s"
+        )
