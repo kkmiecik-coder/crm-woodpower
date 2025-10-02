@@ -402,9 +402,57 @@
                                     <textarea id="about_text" name="about_text" placeholder="Opowiedz nam o sobie..." style="min-height: 120px;"></textarea>
                                 </div>
 
+                                <!-- B2B FIELDS -->
+                                <div class="b2b-fields" id="b2bFields" style="display: none;">
+                                    <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 16px; font-weight: 600;">Dane firmy</h4>
+                                    
+                                    <div class="form-group">
+                                        <label for="company_name">Nazwa firmy *</label>
+                                        <input type="text" id="company_name" name="company_name">
+                                        <span class="error-message" id="error_company_name"></span>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="nip">NIP *</label>
+                                            <input type="text" id="nip" name="nip" maxlength="10" placeholder="10 cyfr">
+                                            <span class="error-message" id="error_nip"></span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="regon">REGON</label>
+                                            <input type="text" id="regon" name="regon" maxlength="14" placeholder="9 lub 14 cyfr">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="company_address">Adres firmy *</label>
+                                        <input type="text" id="company_address" name="company_address" placeholder="Ulica, numer">
+                                        <span class="error-message" id="error_company_address"></span>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="company_city">Miasto *</label>
+                                            <input type="text" id="company_city" name="company_city">
+                                            <span class="error-message" id="error_company_city"></span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="company_postal_code">Kod pocztowy *</label>
+                                            <input type="text" id="company_postal_code" name="company_postal_code" placeholder="00-000" maxlength="6">
+                                            <span class="error-message" id="error_company_postal_code"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- RIGHT COLUMN - Forma współpracy + NDA -->
+                            <div class="form-column-right">
+                                
                                 <!-- FORMA WSPÓŁPRACY -->
                                 <div class="form-group">
-                                    <label style="display: block; margin-bottom: 16px; font-size: 16px; font-weight: 600; color: #1F2020;">
+                                    <label style="display: block; font-size: 16px; font-weight: 600; color: #1F2020;">
                                         Wybierz formę współpracy *
                                     </label>
                                 </div>
@@ -430,51 +478,6 @@
                                         <div class="card-checkmark-compact">✓</div>
                                     </label>
                                 </div>
-
-                                <!-- B2B FIELDS -->
-                                <div class="b2b-fields" id="b2bFields" style="display: none;">
-                                    <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 16px; font-weight: 600;">Dane firmy</h4>
-                                    
-                                    <div class="form-group">
-                                        <label for="company_name">Nazwa firmy *</label>
-                                        <input type="text" id="company_name" name="company_name">
-                                        <span class="error-message" id="error_company_name"></span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="nip">NIP *</label>
-                                        <input type="text" id="nip" name="nip" maxlength="10" placeholder="10 cyfr">
-                                        <span class="error-message" id="error_nip"></span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="regon">REGON</label>
-                                        <input type="text" id="regon" name="regon" maxlength="14" placeholder="9 lub 14 cyfr">
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="company_address">Adres firmy *</label>
-                                        <input type="text" id="company_address" name="company_address" placeholder="Ulica, numer">
-                                        <span class="error-message" id="error_company_address"></span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="company_city">Miasto *</label>
-                                        <input type="text" id="company_city" name="company_city">
-                                        <span class="error-message" id="error_company_city"></span>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="company_postal_code">Kod pocztowy *</label>
-                                        <input type="text" id="company_postal_code" name="company_postal_code" placeholder="00-000" maxlength="6">
-                                        <span class="error-message" id="error_company_postal_code"></span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- RIGHT COLUMN - Forma współpracy + NDA -->
-                            <div class="form-column-right">
-                                
 
                                 <!-- NDA SECTION -->
                                 <div class="form-group">
@@ -524,7 +527,7 @@
                                 </div>
 
                                 <!-- SUBMIT BUTTON -->
-                                <div style="margin-top: 32px;">
+                                <div>
                                     <button type="button" class="btn-submit-form" onclick="submitForm()">
                                         Wyślij aplikację
                                     </button>
