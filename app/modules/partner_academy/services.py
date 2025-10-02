@@ -80,7 +80,8 @@ class ApplicationService:
             'email': form_data['email'],
             'phone': form_data['phone'],
             'city': form_data['city'],
-            'locality': form_data['locality'],
+            'address': form_data['address'],  # ZMIENIONE z locality
+            'postal_code': form_data['postal_code'],  # DODANE
             'pesel': form_data['pesel'],
             'about_text': form_data.get('about_text', ''),
             'data_processing_consent': form_data.get('data_processing_consent', 'off') == 'on',
@@ -94,7 +95,8 @@ class ApplicationService:
         }
         
         # Obsługa danych B2B
-        is_b2b = form_data.get('is_b2b', 'off') == 'on'
+        # ZMIENIONE: sprawdzamy cooperation_type zamiast is_b2b
+        is_b2b = form_data.get('cooperation_type') == 'b2b'
         application_data['is_b2b'] = is_b2b
         
         if is_b2b:

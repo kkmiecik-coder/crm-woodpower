@@ -37,7 +37,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
 function setupCooperationCardSelector() {
     const radioButtons = document.querySelectorAll('input[name="cooperation_type"]');
-    const cards = document.querySelectorAll('.cooperation-card');
+    // FIX: Zmieniono selektor z '.cooperation-card' na '.cooperation-card-compact'
+    const cards = document.querySelectorAll('.cooperation-card-compact');
     const b2bFields = document.getElementById('b2bFields');
     
     if (!radioButtons.length || !b2bFields) return;
@@ -47,8 +48,8 @@ function setupCooperationCardSelector() {
             // Usuń active z wszystkich kart
             cards.forEach(card => card.classList.remove('active'));
             
-            // Dodaj active do wybranej karty
-            const selectedCard = this.closest('.cooperation-card');
+            // FIX: Zmieniono selektor z '.cooperation-card' na '.cooperation-card-compact'
+            const selectedCard = this.closest('.cooperation-card-compact');
             if (selectedCard) {
                 selectedCard.classList.add('active');
             }
@@ -195,18 +196,26 @@ function transitionStep(oldStep, newStep, direction) {
     }, 500);
 }
 
+// Zaktualizowana funkcja updateNavigationButtons()
 function updateNavigationButtons() {
     const btnBack = document.getElementById('btnBack');
     const btnNext = document.getElementById('btnNext');
+    const navButtons = document.getElementById('navButtons');
 
-    if (!btnBack || !btnNext) return;
+    if (!btnBack || !btnNext || !navButtons) return;
 
+    // NOWA LOGIKA: Ukryj cały kontener nawigacji na kroku 7 (formularz)
+    if (currentStep === totalSteps) {
+        navButtons.style.display = 'none';
+        return; // Wyjdź z funkcji, reszta nie jest potrzebna
+    } else {
+        navButtons.style.display = 'flex'; // Pokaż nawigację na innych krokach
+    }
+
+    // Logika dla kroków 1-6
     if (currentStep === 1) {
         btnBack.style.display = 'none';
         btnNext.textContent = 'Rozpocznij';
-    } else if (currentStep === totalSteps) {
-        btnBack.style.display = 'flex';
-        btnNext.textContent = 'Wyślij aplikację';
     } else {
         btnBack.style.display = 'flex';
         btnNext.textContent = 'Następny krok';

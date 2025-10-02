@@ -12,6 +12,7 @@ Utils:
 
 Autor: Development Team
 Data: 2025-09-30
+Ostatnia aktualizacja: 2025-10-02 - Aktualizacja generate_nda_pdf dla address i postal_code
 """
 
 from functools import wraps
@@ -34,6 +35,11 @@ def rate_limit(max_requests=5, window=60):
     Args:
         max_requests (int): Maksymalna liczba requestów
         window (int): Okno czasowe w sekundach
+    
+    Usage:
+        @rate_limit(max_requests=10, window=60)
+        def my_endpoint():
+            ...
     """
     def decorator(f):
         @wraps(f)
@@ -76,21 +82,32 @@ def rate_limit(max_requests=5, window=60):
 # QUIZ ANSWERS
 # ============================================================================
 
-def get_quiz_answers(step):
+def get_quiz_answers(step=None):
     """
-    Pobierz prawidłowe odpowiedzi dla danego quizu
+    Pobierz prawidłowe odpowiedzi dla danego quizu lub wszystkich quizów
     
     Args:
-        step (str): Identyfikator kroku (np. 'M1', 'M2')
+        step (str, optional): Identyfikator kroku (np. 'M1', 'M2'). 
+                             Jeśli None, zwraca wszystkie odpowiedzi.
         
     Returns:
-        dict: Słownik z prawidłowymi odpowiedziami {question_id: correct_answer}
+        dict: Słownik z prawidłowymi odpowiedziami
+              Jeśli step podany: {question_id: correct_answer}
+              Jeśli step None: {step_id: {question_id: correct_answer}}
+    
+    Example:
+        >>> get_quiz_answers('M1')
+        {'q1': 'b', 'q2': 'a', 'q3': 'c'}
+        
+        >>> get_quiz_answers()
+        {'M1': {'q1': 'b', 'q2': 'a'}, 'M2': {'q1': 'a', 'q2': 'c'}}
     """
     
-    # Przykładowe odpowiedzi - dostosuj do rzeczywistych pytań
+    # Wszystkie odpowiedzi do quizów
+    # UWAGA: To są przykładowe odpowiedzi - zastąp je rzeczywistymi
     quiz_answers = {
         'M1': {
-            'q1': 'b',
+            'q1': 'b',  # Przykładowa odpowiedź
             'q2': 'a',
             'q3': 'c',
             'q4': 'b',
@@ -102,11 +119,15 @@ def get_quiz_answers(step):
             'q3': 'b',
             'q4': 'a',
             'q5': 'c'
-        }
-        # Dodaj więcej quizów według potrzeb
+        },
+        # Dodaj więcej quizów według potrzeb:
+        # 'M3': {...},
+        # 'FINAL': {...}
     }
     
-    return quiz_answers.get(step, {})
+    if step:
+        return quiz_answers.get(step, {})
+    return quiz_answers
 
 
 # ============================================================================
@@ -119,13 +140,33 @@ def generate_nda_pdf(data):
     
     Args:
         data (dict): Dane z formularza zawierające:
+            Dane osobowe:
             - first_name, last_name, email, phone
-            - city, locality, pesel
-            - is_b2b (opcjonalnie 'on')
-            - company_name, nip, company_address, company_city, company_postal_code (jeśli B2B)
+            - city, address, postal_code, pesel
+            
+            Dane B2B (opcjonalnie):
+            - cooperation_type: 'b2b' lub 'contract'
+            - company_name, nip, regon
+            - company_address, company_city, company_postal_code
             
     Returns:
-        bytes: PDF jako bytes (surowe bajty, nie BytesIO)
+        bytes: PDF jako surowe bajty
+        
+    Raises:
+        Exception: Gdy WeasyPrint nie jest zainstalowany lub wystąpi błąd generowania
+    
+    Example:
+        >>> data = {
+        ...     'first_name': 'Jan',
+        ...     'last_name': 'Kowalski',
+        ...     'email': 'jan@example.com',
+        ...     'city': 'Warszawa',
+        ...     'address': 'ul. Przykładowa 10',
+        ...     'postal_code': '00-001',
+        ...     'pesel': '12345678901',
+        ...     'cooperation_type': 'contract'
+        ... }
+        >>> pdf_bytes = generate_nda_pdf(data)
     """
     try:
         from weasyprint import HTML
@@ -135,19 +176,35 @@ def generate_nda_pdf(data):
         # Dodaj bieżącą datę do danych
         data['current_date'] = datetime.now().strftime('%d.%m.%Y')
         
-        # Sprawdź czy to B2B
-        is_b2b = data.get('is_b2b') == 'on'
+        # Sprawdź czy to B2B (ZAKTUALIZOWANE)
+        is_b2b = data.get('cooperation_type') == 'b2b'
         data['is_b2b_bool'] = is_b2b
         
         # Przygotuj ścieżki do obrazów (bezwzględne, rzeczywiste ścieżki na dysku)
         app_root = os.path.abspath(current_app.root_path)
         
-        logo_path = os.path.abspath(os.path.join(app_root, 'static', 'images', 'logo.png'))
-        sign_path = os.path.abspath(os.path.join(app_root, 'modules', 'partner_academy', 'static', 'media', 'images', 'sign.png'))
+        # Ścieżki do logo i podpisu
+        logo_path = os.path.abspath(
+            os.path.join(app_root, 'static', 'images', 'logo.png')
+        )
+        sign_path = os.path.abspath(
+            os.path.join(
+                app_root, 
+                'modules', 
+                'partner_academy', 
+                'static', 
+                'media', 
+                'images', 
+                'sign.png'
+            )
+        )
         
-        # Debug - sprawdź czy pliki istnieją
-        current_app.logger.info(f"Logo path: {logo_path}, exists: {os.path.exists(logo_path)}")
-        current_app.logger.info(f"Sign path: {sign_path}, exists: {os.path.exists(sign_path)}")
+        # Jeśli pliki nie istnieją, użyj placeholder lub pomiń
+        if not os.path.exists(logo_path):
+            logo_path = None
+        
+        if not os.path.exists(sign_path):
+            sign_path = None
         
         # Dodaj ścieżki do danych dla template
         data['logo_path'] = logo_path
@@ -163,13 +220,21 @@ def generate_nda_pdf(data):
         html = HTML(string=html_content, base_url=app_root)
         pdf_bytes = html.write_pdf()
         
-        # Zwróć surowe bajty zamiast BytesIO
+        current_app.logger.info(f"NDA PDF generated successfully for {data.get('email')}")
+        
+        # Zwróć surowe bajty
         return pdf_bytes
         
-    except ImportError:
-        raise Exception("WeasyPrint nie jest zainstalowane. Użyj: pip install WeasyPrint")
+    except ImportError as e:
+        error_msg = "WeasyPrint nie jest zainstalowane. Użyj: pip install WeasyPrint"
+        current_app.logger.error(error_msg)
+        raise Exception(error_msg)
+        
     except Exception as e:
         current_app.logger.error(f"Error generating NDA PDF: {str(e)}")
         import traceback
-        traceback.print_exc()
-        return None
+        current_app.logger.error(traceback.format_exc())
+        raise
+
+
+# Koniec pliku utils.py

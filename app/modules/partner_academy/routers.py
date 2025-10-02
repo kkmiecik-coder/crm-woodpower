@@ -638,7 +638,8 @@ def get_admin_applications():
                 'email': app.email,
                 'phone': app.phone,
                 'city': app.city,
-                'locality': app.locality,
+                'address': app.address,  # ZMIENIONE z locality
+                'postal_code': app.postal_code,  # DODANE
                 'status': app.status,
                 'is_b2b': app.is_b2b,
                 'created_at': app.created_at.strftime('%Y-%m-%d %H:%M') if app.created_at else None,
@@ -683,7 +684,8 @@ def get_admin_application_detail(application_id):
             'email': app.email,
             'phone': app.phone,
             'city': app.city,
-            'locality': app.locality,
+            'address': app.address,  # ZMIENIONE z locality
+            'postal_code': app.postal_code,  # DODANE
             'pesel': app.pesel,
             'about_text': app.about_text,
             'status': app.status,
@@ -883,9 +885,9 @@ def export_admin_applications():
         # Nagłówki
         headers = [
             'ID', 'Imię', 'Nazwisko', 'Email', 'Telefon', 
-            'Miasto', 'Miejscowość', 'PESEL', 
+            'Miasto', 'Adres', 'Kod pocztowy', 'PESEL',  # ZMIENIONE: Adres + dodany Kod pocztowy
             'Status', 'Typ', 'Data utworzenia',
-            'Firma', 'NIP', 'REGON', 'Adres firmy', 'Miasto firmy', 'Kod pocztowy',
+            'Firma', 'NIP', 'REGON', 'Adres firmy', 'Miasto firmy', 'Kod pocztowy firmy',  # ZMIENIONE: doprecyzowano
             'O sobie', 'IP', 'Ma NDA'
         ]
         
@@ -907,23 +909,24 @@ def export_admin_applications():
             ws.cell(row=row_num, column=4, value=app.email)
             ws.cell(row=row_num, column=5, value=app.phone)
             ws.cell(row=row_num, column=6, value=app.city)
-            ws.cell(row=row_num, column=7, value=app.locality)
-            ws.cell(row=row_num, column=8, value=app.pesel)
-            ws.cell(row=row_num, column=9, value=app.status)
-            ws.cell(row=row_num, column=10, value='B2B' if app.is_b2b else 'B2C')
-            ws.cell(row=row_num, column=11, value=app.created_at.strftime('%Y-%m-%d %H:%M') if app.created_at else '')
+            ws.cell(row=row_num, column=7, value=app.address)  # ZMIENIONE z locality
+            ws.cell(row=row_num, column=8, value=app.postal_code)  # DODANE
+            ws.cell(row=row_num, column=9, value=app.pesel)  # PRZESUNIĘTE
+            ws.cell(row=row_num, column=10, value=app.status)  # PRZESUNIĘTE
+            ws.cell(row=row_num, column=11, value='B2B' if app.is_b2b else 'B2C')  # PRZESUNIĘTE
+            ws.cell(row=row_num, column=12, value=app.created_at.strftime('%Y-%m-%d %H:%M') if app.created_at else '')  # PRZESUNIĘTE
             
-            # Dane B2B
-            ws.cell(row=row_num, column=12, value=app.company_name if app.is_b2b else '')
-            ws.cell(row=row_num, column=13, value=app.nip if app.is_b2b else '')
-            ws.cell(row=row_num, column=14, value=app.regon if app.is_b2b else '')
-            ws.cell(row=row_num, column=15, value=app.company_address if app.is_b2b else '')
-            ws.cell(row=row_num, column=16, value=app.company_city if app.is_b2b else '')
-            ws.cell(row=row_num, column=17, value=app.company_postal_code if app.is_b2b else '')
+            # Dane B2B - wszystkie kolumny przesunięte o 1
+            ws.cell(row=row_num, column=13, value=app.company_name if app.is_b2b else '')
+            ws.cell(row=row_num, column=14, value=app.nip if app.is_b2b else '')
+            ws.cell(row=row_num, column=15, value=app.regon if app.is_b2b else '')
+            ws.cell(row=row_num, column=16, value=app.company_address if app.is_b2b else '')
+            ws.cell(row=row_num, column=17, value=app.company_city if app.is_b2b else '')
+            ws.cell(row=row_num, column=18, value=app.company_postal_code if app.is_b2b else '')
             
-            ws.cell(row=row_num, column=18, value=app.about_text or '')
-            ws.cell(row=row_num, column=19, value=app.ip_address or '')
-            ws.cell(row=row_num, column=20, value='Tak' if app.nda_filepath else 'Nie')
+            ws.cell(row=row_num, column=19, value=app.about_text or '')
+            ws.cell(row=row_num, column=20, value=app.ip_address or '')
+            ws.cell(row=row_num, column=21, value='Tak' if app.nda_filepath else 'Nie')
         
         # Autosize kolumn
         for column in ws.columns:

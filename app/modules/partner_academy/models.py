@@ -11,6 +11,7 @@ Tabele:
 
 Autor: Development Team
 Data: 2025-09-30
+Ostatnia aktualizacja: 2025-10-02 - Dodanie postal_code
 """
 
 from extensions import db
@@ -39,7 +40,8 @@ class PartnerApplication(db.Model):
     email = db.Column(db.String(255), nullable=False, unique=True, index=True, comment='Email kontaktowy')
     phone = db.Column(db.String(20), nullable=False, comment='Numer telefonu')
     city = db.Column(db.String(100), nullable=False, comment='Miasto')
-    locality = db.Column(db.String(100), nullable=False, comment='Miejscowość')
+    locality = db.Column(db.String(255), nullable=False, comment='Miejscowość/Adres (ulica i numer)')
+    postal_code = db.Column(db.String(6), nullable=False, comment='Kod pocztowy kandydata (format: 00-000)')  # NOWE POLE
     pesel = db.Column(db.String(11), nullable=False, comment='PESEL kandydata')
     
     # ============================================================================
@@ -124,6 +126,7 @@ class PartnerApplication(db.Model):
             'phone': self.phone,
             'city': self.city,
             'locality': self.locality,
+            'postal_code': self.postal_code,  # NOWE POLE
             'pesel': self.pesel,
             'about_text': self.about_text,
             'is_b2b': self.is_b2b,
@@ -160,110 +163,29 @@ class PartnerLearningSession(db.Model):
     """
     __tablename__ = 'partner_learning_sessions'
     
-    # ============================================================================
     # PRIMARY KEY
-    # ============================================================================
     id = db.Column(db.Integer, primary_key=True)
     
-    # ============================================================================
-    # IDENTYFIKACJA SESJI
-    # ============================================================================
-    session_id = db.Column(
-        db.String(64), 
-        nullable=False, 
-        unique=True, 
-        index=True,
-        comment='Unikalny identyfikator sesji (z localStorage)'
-    )
+    # DANE SESJI
+    email = db.Column(db.String(255), nullable=False, index=True, comment='Email uczestnika')
+    pin_code = db.Column(db.String(4), nullable=False, comment='4-cyfrowy PIN do logowania')
+    current_step = db.Column(db.String(10), default='1.1', comment='Aktualny krok (np. 1.1, M1, 3.1)')
     
-    # ============================================================================
     # PROGRESS TRACKING
-    # ============================================================================
-    current_step = db.Column(
-        db.String(10), 
-        nullable=False, 
-        default='1.1',
-        index=True,
-        comment='Aktualny krok: 1.1, 1.2, M1, 2.1, etc.'
-    )
+    completed_steps = db.Column(JSON, default=list, comment='Lista ukończonych kroków')
+    locked_steps = db.Column(JSON, default=list, comment='Lista zablokowanych kroków')
     
-    completed_steps = db.Column(
-        JSON,
-        default=list,
-        comment='Lista ukończonych kroków: ["1.1", "1.2", "M1"]'
-    )
+    # QUIZ RESULTS
+    quiz_results = db.Column(JSON, default=dict, comment='Wyniki quizów: {M1: {attempts: 2, passed: true}}')
     
-    quiz_results = db.Column(
-        JSON,
-        default=dict,
-        comment='Wyniki quizów: {"M1": {"correct": 4, "total": 5, "percentage": 80}}'
-    )
-    
-    # ============================================================================
     # TIME TRACKING
-    # ============================================================================
-    total_time_spent = db.Column(
-        db.Integer, 
-        default=0,
-        comment='Łączny czas spędzony w sekundach'
-    )
+    total_time_spent = db.Column(db.Integer, default=0, comment='Całkowity czas spędzony w sekundach')
+    step_times = db.Column(JSON, default=dict, comment='Czasy spędzone na krokach: {1.1: 300, 1.2: 450}')
+    last_activity_at = db.Column(db.DateTime, comment='Ostatnia aktywność')
     
-    step_time_tracking = db.Column(
-        JSON,
-        default=dict,
-        comment='Czas na każdym kroku: {"1.1": 120, "1.2": 180}'
-    )
-    
-    # ============================================================================
     # METADATA
-    # ============================================================================
-    created_at = db.Column(
-        db.DateTime, 
-        default=datetime.utcnow,
-        nullable=False,
-        comment='Data rozpoczęcia sesji'
-    )
-    
-    last_accessed_at = db.Column(
-        db.DateTime, 
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        comment='Ostatnia aktywność'
-    )
-    
-    ip_address = db.Column(db.String(45), comment='Adres IP użytkownika')
-    user_agent = db.Column(db.Text, comment='User agent przeglądarki')
-    
-    # ============================================================================
-    # COMPLETION STATUS
-    # ============================================================================
-    is_completed = db.Column(
-        db.Boolean,
-        default=False,
-        index=True,
-        comment='Czy szkolenie zostało ukończone'
-    )
-    
-    completed_at = db.Column(
-        db.DateTime,
-        comment='Data ukończenia szkolenia'
-    )
-    
-    def to_dict(self):
-        """Konwersja do słownika (dla JSON API)"""
-        return {
-            'id': self.id,
-            'session_id': self.session_id,
-            'current_step': self.current_step,
-            'completed_steps': self.completed_steps or [],
-            'quiz_results': self.quiz_results or {},
-            'total_time_spent': self.total_time_spent,
-            'total_hours': round(self.total_time_spent / 3600, 2),
-            'is_completed': self.is_completed,
-            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'last_accessed_at': self.last_accessed_at.isoformat() if self.last_accessed_at else None
-        }
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, comment='Data utworzenia sesji')
+    completed_at = db.Column(db.DateTime, comment='Data ukończenia szkolenia')
     
     def __repr__(self):
-        return f'<PartnerLearningSession {self.session_id} - Step {self.current_step}>'
+        return f'<PartnerLearningSession {self.email} - Step {self.current_step}>'

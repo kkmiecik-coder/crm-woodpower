@@ -12,6 +12,7 @@ Validators:
 
 Autor: Development Team
 Data: 2025-09-30
+Ostatnia aktualizacja: 2025-10-02 - Zmiana locality na address, dodanie postal_code, zmiana cooperation_type
 """
 
 import re
@@ -81,13 +82,21 @@ def validate_application_data(form_data):
     elif len(form_data['city']) > 100:
         errors['city'] = 'Nazwa miasta może mieć maksymalnie 100 znaków'
     
-    # Miejscowość
-    if not form_data.get('locality'):
-        errors['locality'] = 'Miejscowość jest wymagana'
-    elif len(form_data['locality']) < 2:
-        errors['locality'] = 'Nazwa miejscowości musi mieć minimum 2 znaki'
-    elif len(form_data['locality']) > 100:
-        errors['locality'] = 'Nazwa miejscowości może mieć maksymalnie 100 znaków'
+    # Adres (ZMIENIONE Z locality)
+    if not form_data.get('address'):
+        errors['address'] = 'Adres jest wymagany'
+    elif len(form_data['address']) < 5:
+        errors['address'] = 'Adres musi mieć minimum 5 znaków'
+    elif len(form_data['address']) > 255:
+        errors['address'] = 'Adres może mieć maksymalnie 255 znaków'
+    
+    # Kod pocztowy (NOWE POLE)
+    if not form_data.get('postal_code'):
+        errors['postal_code'] = 'Kod pocztowy jest wymagany'
+    else:
+        postal_code = form_data['postal_code']
+        if not re.match(r'^\d{2}-\d{3}$', postal_code):
+            errors['postal_code'] = 'Kod pocztowy musi być w formacie 00-000'
     
     # PESEL
     if not form_data.get('pesel'):
@@ -111,10 +120,11 @@ def validate_application_data(form_data):
             errors['about_text'] = 'Tekst może mieć maksymalnie 5000 znaków'
     
     # ============================================================================
-    # DANE B2B (WALIDOWANE TYLKO JEŚLI is_b2b=True)
+    # DANE B2B (WALIDOWANE TYLKO JEŚLI cooperation_type = 'b2b')
+    # ZMIENIONE: sprawdzamy cooperation_type zamiast is_b2b
     # ============================================================================
     
-    is_b2b = form_data.get('is_b2b', 'off') == 'on'
+    is_b2b = form_data.get('cooperation_type') == 'b2b'
     
     if is_b2b:
         # Nazwa firmy
@@ -163,8 +173,8 @@ def validate_application_data(form_data):
         if not form_data.get('company_postal_code'):
             errors['company_postal_code'] = 'Kod pocztowy firmy jest wymagany dla rozliczenia B2B'
         else:
-            postal_code = form_data['company_postal_code']
-            if not re.match(r'^\d{2}-\d{3}$', postal_code):
+            company_postal_code = form_data['company_postal_code']
+            if not re.match(r'^\d{2}-\d{3}$', company_postal_code):
                 errors['company_postal_code'] = 'Kod pocztowy musi być w formacie 00-000'
     
     # ============================================================================
@@ -271,73 +281,53 @@ def validate_file(file):
         size_mb = file_size / (1024 * 1024)
         return False, f'Plik jest za duży ({size_mb:.1f}MB). Maksymalny rozmiar to 5MB'
     
-    if file_size == 0:
-        return False, 'Plik jest pusty'
-    
-    # Sprawdź MIME type (wymaga python-magic)
-    try:
-        import magic
-        file.seek(0)
-        mime_type = magic.from_buffer(file.read(2048), mime=True)
-        file.seek(0)
-        
-        allowed_mime_types = {
-            'application/pdf',
-            'image/jpeg',
-            'image/png',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/vnd.oasis.opendocument.text'
-        }
-        
-        if mime_type not in allowed_mime_types:
-            return False, f'Nieprawidłowy typ pliku: {mime_type}'
-            
-    except ImportError:
-        # Jeśli python-magic nie jest zainstalowany, pomiń tę walidację
-        pass
-    except Exception as e:
-        return False, f'Błąd podczas sprawdzania typu pliku: {str(e)}'
-    
     return True, None
 
 
-def validate_quiz_answers(step, answers):
+def validate_quiz_answers(step_id, answers):
     """
     Walidacja odpowiedzi w quizie
     
     Args:
-        step (str): Identyfikator kroku (np. 'M1', 'M2')
-        answers (dict): Odpowiedzi użytkownika {question_id: answer}
+        step_id (str): ID kroku (np. 'M1', 'M2')
+        answers (dict): Słownik odpowiedzi {question_id: answer}
         
     Returns:
-        dict: Wyniki walidacji {
+        dict: {
             'all_correct': bool,
-            'results': {question_id: {'correct': bool, 'user_answer': str, 'correct_answer': str}}
+            'results': {question_id: bool}
         }
     """
     from modules.partner_academy.utils import get_quiz_answers
     
-    correct_answers = get_quiz_answers(step)
+    correct_answers = get_quiz_answers()
     
-    if not correct_answers:
+    if step_id not in correct_answers:
         return {
             'all_correct': False,
-            'results': {},
-            'error': f'Brak pytań dla kroku {step}'
+            'results': {}
         }
     
+    quiz_correct_answers = correct_answers[step_id]
     results = {}
     all_correct = True
     
-    for question_id, correct_answer in correct_answers.items():
+    for question_id, correct_answer in quiz_correct_answers.items():
         user_answer = answers.get(question_id)
-        is_correct = user_answer == correct_answer
         
-        results[question_id] = {
-            'correct': is_correct,
-            'user_answer': user_answer,
-            'correct_answer': correct_answer
-        }
+        # Porównaj odpowiedzi
+        if isinstance(correct_answer, list):
+            # Multiple choice - porównaj tablice
+            is_correct = (
+                isinstance(user_answer, list) and
+                len(correct_answer) == len(user_answer) and
+                all(ans in user_answer for ans in correct_answer)
+            )
+        else:
+            # Single choice
+            is_correct = user_answer == correct_answer
+        
+        results[question_id] = is_correct
         
         if not is_correct:
             all_correct = False
