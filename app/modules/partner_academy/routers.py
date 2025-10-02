@@ -22,14 +22,32 @@ Autor: Development Team
 Data: 2025-09-30
 """
 
-from flask import render_template, request, jsonify, current_app, send_file
+from flask import render_template, request, jsonify, current_app, send_file, session, redirect, url_for, flash
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.services import ApplicationService, EmailService, LearningService
 from modules.partner_academy.validators import validate_application_data, validate_file, validate_quiz_answers
 from modules.partner_academy.utils import rate_limit, get_quiz_answers, generate_nda_pdf
 from extensions import db
+from modules.partner_academy.models import PartnerApplication, PartnerLearningSession
 import io
+import os
+from datetime import datetime
 
+from sqlalchemy import func, or_, desc
+import json
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from functools import wraps
+
+def login_required(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        user_email = session.get('user_email')
+        if not user_email:
+            flash("Twoja sesja wygasła. Zaloguj się ponownie.", "info")
+            return redirect(url_for('login'))
+        return func(*args, **kwargs)
+    return wrapper
 
 # ============================================================================
 # ELEMENT 1: RECRUITMENT - VIEWS
@@ -54,6 +72,33 @@ def learning():
 # ============================================================================
 # API ENDPOINTS - ELEMENT 1: RECRUITMENT
 # ============================================================================
+
+@partner_academy_bp.route('/api/session/init', methods=['POST'])
+def init_session():
+    """Inicjalizacja sesji - znajdź istniejącą po IP lub utwórz nową"""
+    try:
+        # Pobierz IP użytkownika
+        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if ip_address and ',' in ip_address:
+            ip_address = ip_address.split(',')[0].strip()
+        
+        # Znajdź lub utwórz sesję
+        session_id = LearningService.find_or_create_session_by_ip(ip_address)
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'ip_address': ip_address
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"[API] Błąd inicjalizacji sesji: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': 'Błąd inicjalizacji sesji'
+        }), 500
 
 @partner_academy_bp.route('/api/application/validate', methods=['POST'])
 @rate_limit(limit=20, per_hour=True)
@@ -547,3 +592,298 @@ def validate_quiz():
             'success': False,
             'message': 'Błąd serwera'
         }), 500
+
+
+@partner_academy_bp.route('/admin/')
+@login_required
+def admin_dashboard():
+    """Strona główna panelu admina"""
+    return render_template('admin.html')
+
+
+@partner_academy_bp.route('/admin/api/stats')
+@login_required
+def get_admin_stats():
+    """Statystyki dla dashboard"""
+    try:
+        total_applications = PartnerApplication.query.count()
+        pending_count = PartnerApplication.query.filter_by(status='pending').count()
+        accepted_count = PartnerApplication.query.filter_by(status='accepted').count()
+        in_progress_count = PartnerLearningSession.query.filter(
+            PartnerLearningSession.current_step != '3.1'
+        ).count()
+        completed_count = PartnerLearningSession.query.filter_by(current_step='3.1').count()
+        avg_time = db.session.query(func.avg(PartnerLearningSession.total_time_spent)).scalar() or 0
+        avg_time_hours = round(avg_time / 3600, 1)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'total_applications': total_applications,
+                'pending_count': pending_count,
+                'accepted_count': accepted_count,
+                'in_progress_count': in_progress_count,
+                'completed_count': completed_count,
+                'avg_time_hours': avg_time_hours
+            }
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Admin stats error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania statystyk'}), 500
+
+
+@partner_academy_bp.route('/admin/api/applications')
+@login_required
+def get_admin_applications():
+    """Lista aplikacji z filtrowaniem i paginacją"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        status_filter = request.args.get('status', '')
+        search = request.args.get('search', '')
+        
+        query = PartnerApplication.query
+        
+        if status_filter:
+            query = query.filter_by(status=status_filter)
+        
+        if search:
+            pattern = f'%{search}%'
+            query = query.filter(
+                or_(
+                    PartnerApplication.first_name.ilike(pattern),
+                    PartnerApplication.last_name.ilike(pattern),
+                    PartnerApplication.email.ilike(pattern),
+                    PartnerApplication.phone.ilike(pattern)
+                )
+            )
+        
+        query = query.order_by(desc(PartnerApplication.created_at))
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        
+        applications = [{
+            'id': app.id,
+            'created_at': app.created_at.strftime('%Y-%m-%d %H:%M'),
+            'first_name': app.first_name,
+            'last_name': app.last_name,
+            'email': app.email,
+            'phone': app.phone,
+            'status': app.status
+        } for app in pagination.items]
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'applications': applications,
+                'pagination': {
+                    'page': pagination.page,
+                    'per_page': pagination.per_page,
+                    'total': pagination.total,
+                    'pages': pagination.pages
+                }
+            }
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Admin applications error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania aplikacji'}), 500
+
+
+@partner_academy_bp.route('/admin/api/applications/<int:app_id>')
+@login_required
+def get_admin_application_details(app_id):
+    """Szczegóły aplikacji"""
+    try:
+        app = PartnerApplication.query.get_or_404(app_id)
+        notes = json.loads(app.notes) if app.notes else []
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'id': app.id,
+                'first_name': app.first_name,
+                'last_name': app.last_name,
+                'email': app.email,
+                'phone': app.phone,
+                'city': app.city,
+                'locality': app.locality,
+                'experience_level': app.experience_level or 'Nie podano',
+                'about_text': app.about_text or '',
+                'data_processing_consent': app.data_processing_consent,
+                'nda_filename': app.nda_filename,
+                'nda_filesize': app.nda_filesize,
+                'status': app.status,
+                'notes': notes,
+                'created_at': app.created_at.strftime('%Y-%m-%d %H:%M'),
+                'ip_address': app.ip_address
+            }
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Admin app details error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania szczegółów'}), 500
+
+
+@partner_academy_bp.route('/admin/api/applications/<int:app_id>/status', methods=['POST'])
+@login_required
+def update_admin_application_status(app_id):
+    """Zmiana statusu aplikacji"""
+    try:
+        data = request.get_json()
+        new_status = data.get('status')
+        
+        if new_status not in ['pending', 'contacted', 'accepted', 'rejected']:
+            return jsonify({'success': False, 'message': 'Nieprawidłowy status'}), 400
+        
+        app = PartnerApplication.query.get_or_404(app_id)
+        app.status = new_status
+        app.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Status zaktualizowany'}), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Admin status update error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd aktualizacji statusu'}), 500
+
+
+@partner_academy_bp.route('/admin/api/applications/<int:app_id>/notes', methods=['POST'])
+@login_required
+def add_admin_application_note(app_id):
+    """Dodanie notatki"""
+    try:
+        data = request.get_json()
+        note_text = data.get('text', '').strip()
+        
+        if not note_text:
+            return jsonify({'success': False, 'message': 'Treść notatki jest wymagana'}), 400
+        
+        app = PartnerApplication.query.get_or_404(app_id)
+        notes = json.loads(app.notes) if app.notes else []
+        
+        new_note = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'author': 'admin',
+            'text': note_text
+        }
+        notes.insert(0, new_note)
+        
+        app.notes = json.dumps(notes)
+        app.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Notatka dodana', 'note': new_note}), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Admin note add error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd dodawania notatki'}), 500
+
+
+@partner_academy_bp.route('/admin/api/learning-sessions/<session_id>')
+@login_required
+def get_admin_learning_session(session_id):
+    """Szczegóły postępu w szkoleniu"""
+    try:
+        session = PartnerLearningSession.query.filter_by(session_id=session_id).first_or_404()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'session_id': session.session_id,
+                'current_step': session.current_step,
+                'completed_steps': session.completed_steps or [],
+                'quiz_results': session.quiz_results or {},
+                'total_time_spent': session.total_time_spent,
+                'total_hours': round(session.total_time_spent / 3600, 2),
+                'last_accessed_at': session.last_accessed_at.strftime('%Y-%m-%d %H:%M')
+            }
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Admin session error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania postępu'}), 500
+
+
+@partner_academy_bp.route('/admin/api/export')
+@login_required
+def export_admin_applications():
+    """Eksport do XLSX"""
+    try:
+        status_filter = request.args.get('status', '')
+        search = request.args.get('search', '')
+        
+        query = PartnerApplication.query
+        if status_filter:
+            query = query.filter_by(status=status_filter)
+        if search:
+            pattern = f'%{search}%'
+            query = query.filter(
+                or_(
+                    PartnerApplication.first_name.ilike(pattern),
+                    PartnerApplication.last_name.ilike(pattern),
+                    PartnerApplication.email.ilike(pattern)
+                )
+            )
+        
+        applications = query.order_by(desc(PartnerApplication.created_at)).all()
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Aplikacje"
+        
+        headers = ['ID', 'Data', 'Imię', 'Nazwisko', 'Email', 'Telefon', 
+                   'Miasto', 'Miejscowość', 'Doświadczenie', 'Status']
+        ws.append(headers)
+        
+        for cell in ws[1]:
+            cell.fill = PatternFill(start_color="ED6B24", end_color="ED6B24", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")
+        
+        for app in applications:
+            ws.append([
+                app.id,
+                app.created_at.strftime('%Y-%m-%d %H:%M'),
+                app.first_name,
+                app.last_name,
+                app.email,
+                app.phone,
+                app.city,
+                app.locality,
+                app.experience_level or '',
+                app.status
+            ])
+        
+        for column in ws.columns:
+            max_length = max(len(str(cell.value)) for cell in column)
+            ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 50)
+        
+        # Zapisz do pliku tymczasowego
+        filename = f'aplikacje_{datetime.now().strftime("%Y-%m-%d")}.xlsx'
+        filepath = os.path.join('/tmp', filename)
+        wb.save(filepath)
+        
+        # Wyślij plik
+        return send_file(
+            filepath,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        current_app.logger.error(f"Admin export error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd eksportu'}), 500
+
+@partner_academy_bp.route('/admin/api/applications/<int:app_id>/nda')
+@login_required
+def download_nda(app_id):
+    """Pobierz/wyświetl plik NDA"""
+    try:
+        app = PartnerApplication.query.get_or_404(app_id)
+        if not app.nda_filepath or not os.path.exists(app.nda_filepath):
+            return jsonify({'success': False, 'message': 'Plik nie istnieje'}), 404
+        
+        return send_file(
+            app.nda_filepath,
+            mimetype=app.nda_mime_type,
+            as_attachment=False  # False = wyświetl w przeglądarce
+        )
+    except Exception as e:
+        current_app.logger.error(f"Download NDA error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Błąd pobierania pliku'}), 500

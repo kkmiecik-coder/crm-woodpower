@@ -10,6 +10,7 @@
 const LearningPlatform = {
     // Session
     sessionId: null,
+    userIp: null,
     isAuthenticated: false,
     
     // Progress
@@ -30,9 +31,10 @@ const LearningPlatform = {
     
     // Constants
     CORRECT_PIN: '3846',
+    ALL_STEPS: ['1.1', '1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'],
     TOTAL_STEPS: 11,
     
-    // Quiz answers (prawdziwe odpowiedzi - można przenieść do osobnego pliku)
+    // Quiz answers (będą załadowane z backendu lub zdefiniowane tutaj)
     correctAnswers: {
         'M1': {
             'q1': 'B',
@@ -40,7 +42,7 @@ const LearningPlatform = {
             'q3': 'B'
         },
         'M2': {
-            // Tutaj dodasz odpowiedzi dla M2
+            // Pytania do M2 - do uzupełnienia
         }
     }
 };
@@ -52,214 +54,159 @@ const LearningPlatform = {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('[Learning] Inicjalizacja platformy...');
     
-    // Sprawdź czy PIN już został zweryfikowany
-    checkPINAuthentication();
-    
-    // Jeśli nie, pokaż PIN gate
-    if (!LearningPlatform.isAuthenticated) {
-        showPINGate();
-    } else {
-        // Załaduj sesję i pokaż platformę
-        initializePlatform();
-    }
+    // Zawsze pokazuj PIN gate na początku
+    showPINGate();
+    initPINInputs();
 });
 
 // ============================================================================
 // PIN AUTHENTICATION
 // ============================================================================
 
-function checkPINAuthentication() {
-    // Sprawdź localStorage
-    const authenticated = localStorage.getItem('learning_pin_authenticated');
-    const timestamp = localStorage.getItem('learning_pin_timestamp');
+function showPINGate() {
+    document.getElementById('pinGateOverlay').style.display = 'flex';
+    document.getElementById('learningContainer').style.display = 'none';
     
-    if (authenticated === 'true' && timestamp) {
-        // Sprawdź czy sesja nie wygasła (24h)
-        const now = Date.now();
-        const elapsed = now - parseInt(timestamp);
-        const hours = elapsed / (1000 * 60 * 60);
-        
-        if (hours < 24) {
-            LearningPlatform.isAuthenticated = true;
-            return true;
-        } else {
-            // Sesja wygasła
-            localStorage.removeItem('learning_pin_authenticated');
-            localStorage.removeItem('learning_pin_timestamp');
-        }
-    }
-    
-    return false;
+    // Focus na pierwszym polu
+    setTimeout(() => {
+        document.getElementById('pin1').focus();
+    }, 300);
 }
 
-function showPINGate() {
-    const pinOverlay = document.getElementById('pinGateOverlay');
-    const pinForm = document.getElementById('pinForm');
-    const pinInputs = document.querySelectorAll('.pin-digit');
+function hidePINGate() {
+    const overlay = document.getElementById('pinGateOverlay');
+    overlay.classList.add('fade-out');
     
-    if (!pinOverlay || !pinForm) return;
+    setTimeout(() => {
+        overlay.style.display = 'none';
+        document.getElementById('learningContainer').style.display = 'block';
+    }, 500);
+}
+
+function initPINInputs() {
+    const inputs = document.querySelectorAll('.pin-digit');
     
-    pinOverlay.style.display = 'flex';
-    
-    // Auto-focus pierwszy input
-    pinInputs[0].focus();
-    
-    // Obsługa wpisywania cyfr
-    pinInputs.forEach((input, index) => {
-        // Tylko cyfry + auto-focus
+    inputs.forEach((input, index) => {
+        // Obsługa wpisywania
         input.addEventListener('input', function(e) {
             const value = e.target.value;
             
-            // Usuń wszystko co nie jest cyfrą
+            // Akceptuj tylko cyfry
             if (!/^\d$/.test(value)) {
                 e.target.value = '';
                 return;
             }
             
-            // Oznacz jako filled
+            // Oznacz jako wypełnione
             e.target.classList.add('filled');
             
-            // Auto-focus następny input
-            if (value && index < pinInputs.length - 1) {
-                pinInputs[index + 1].focus();
-                pinInputs[index + 1].select(); // ← DODAJ to dla pewności
+            // Automatyczne przejście do następnego pola
+            if (value && index < inputs.length - 1) {
+                inputs[index + 1].focus();
+                inputs[index + 1].select();
             }
             
-            // Jeśli ostatni input - automatycznie sprawdź PIN
-            if (index === pinInputs.length - 1 && value) {
-                setTimeout(() => validatePIN(), 300);
+            // Jeśli wszystkie pola wypełnione, waliduj PIN
+            if (index === inputs.length - 1 && value) {
+                setTimeout(() => validatePIN(), 200);
             }
         });
         
-        // Backspace - cofnij do poprzedniego
+        // Obsługa usuwania (Backspace)
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Backspace') {
-                if (!e.target.value && index > 0) {
-                    // Jeśli pusty, cofnij focus
-                    pinInputs[index - 1].focus();
-                    pinInputs[index - 1].value = '';
-                    pinInputs[index - 1].classList.remove('filled');
-                } else {
-                    // Jeśli ma wartość, usuń ją
-                    e.target.value = '';
-                    e.target.classList.remove('filled');
-                }
-            }
-            
-            // Arrow keys navigation
-            if (e.key === 'ArrowLeft' && index > 0) {
-                e.preventDefault();
-                pinInputs[index - 1].focus();
-                pinInputs[index - 1].select();
-            }
-            
-            if (e.key === 'ArrowRight' && index < pinInputs.length - 1) {
-                e.preventDefault();
-                pinInputs[index + 1].focus();
-                pinInputs[index + 1].select();
+            if (e.key === 'Backspace' && !e.target.value && index > 0) {
+                inputs[index - 1].focus();
+                inputs[index - 1].select();
             }
         });
         
-        // Focus - zaznacz zawartość
-        input.addEventListener('focus', function() {
-            this.select();
-        });
-        
-        // Paste - wklej cały PIN
+        // Obsługa wklejania całego PIN-u
         input.addEventListener('paste', function(e) {
             e.preventDefault();
-            const pastedData = e.clipboardData.getData('text').trim();
+            const pastedData = e.clipboardData.getData('text');
             
             if (/^\d{4}$/.test(pastedData)) {
-                pinInputs.forEach((inp, i) => {
-                    inp.value = pastedData[i];
-                    inp.classList.add('filled');
+                pastedData.split('').forEach((digit, i) => {
+                    if (inputs[i]) {
+                        inputs[i].value = digit;
+                        inputs[i].classList.add('filled');
+                    }
                 });
-                pinInputs[3].focus(); // Focus ostatni
-                setTimeout(() => validatePIN(), 300);
+                
+                inputs[3].focus();
+                setTimeout(() => validatePIN(), 200);
             }
         });
-    });
-    
-    // Submit form
-    const pinSubmitBtn = document.getElementById('pinSubmit');
-    if (pinSubmitBtn) {
-        pinSubmitBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            validatePIN();
+        
+        // Auto-select przy focus
+        input.addEventListener('focus', function(e) {
+            e.target.select();
         });
-    }
+    });
 }
 
 function validatePIN() {
-    const pinInputs = document.querySelectorAll('.pin-digit');
-    const pinError = document.getElementById('pinError');
+    const inputs = document.querySelectorAll('.pin-digit');
+    const enteredPIN = Array.from(inputs).map(input => input.value).join('');
     
-    // Zbierz PIN
-    let enteredPIN = '';
-    pinInputs.forEach(input => {
-        enteredPIN += input.value;
-    });
+    console.log('[Learning] Walidacja PIN:', enteredPIN);
     
-    // Walidacja
     if (enteredPIN.length !== 4) {
-        showPINError('Wprowadź wszystkie 4 cyfry');
         return;
     }
     
     if (enteredPIN === LearningPlatform.CORRECT_PIN) {
-        // Prawidłowy PIN
-        pinError.style.display = 'none';
-        pinInputs.forEach(input => {
-            input.classList.remove('error');
-            input.classList.add('filled');
+        // PIN poprawny - zielone obramówki
+        inputs.forEach(input => {
+            input.classList.remove('error', 'filled');
+            input.classList.add('success');
+            input.disabled = true;
         });
         
-        // Zapisz w localStorage
-        localStorage.setItem('learning_pin_authenticated', 'true');
-        localStorage.setItem('learning_pin_timestamp', Date.now().toString());
+        // Ukryj komunikat błędu jeśli był widoczny
+        document.getElementById('pinError').classList.remove('show');
         
         LearningPlatform.isAuthenticated = true;
         
-        // Animacja success i przejście do platformy
+        console.log('[Learning] PIN poprawny! Ukrywanie overlaya...');
+        
+        // Ukryj overlay po 1 sekundzie
         setTimeout(() => {
             hidePINGate();
             initializePlatform();
-        }, 500);
+        }, 1000);
         
     } else {
-        // Błędny PIN
-        showPINError('Nieprawidłowy kod PIN. Spróbuj ponownie.');
+        // PIN niepoprawny - czerwone obramówki i animacja shake
+        const pinInputsContainer = document.getElementById('pinInputs');
+        const errorMessage = document.getElementById('pinError');
         
-        pinInputs.forEach(input => {
+        inputs.forEach(input => {
+            input.classList.remove('success', 'filled');
             input.classList.add('error');
-            input.value = '';
-            input.classList.remove('filled');
         });
         
-        // Focus pierwszy input
+        // Pokaż komunikat błędu
+        errorMessage.classList.add('show');
+        
+        // Animacja shake
+        pinInputsContainer.classList.add('shake');
+        
+        console.log('[Learning] PIN niepoprawny!');
+        
+        // Usuń animację shake i wyczyść pola po 500ms
         setTimeout(() => {
-            pinInputs.forEach(input => input.classList.remove('error'));
-            pinInputs[0].focus();
-        }, 600);
-    }
-}
-
-function showPINError(message) {
-    const pinError = document.getElementById('pinError');
-    if (pinError) {
-        pinError.textContent = message;
-        pinError.style.display = 'block';
-    }
-}
-
-function hidePINGate() {
-    const pinOverlay = document.getElementById('pinGateOverlay');
-    if (pinOverlay) {
-        pinOverlay.style.opacity = '0';
-        setTimeout(() => {
-            pinOverlay.style.display = 'none';
-        }, 300);
+            pinInputsContainer.classList.remove('shake');
+            
+            inputs.forEach(input => {
+                input.value = '';
+                input.classList.remove('error', 'filled');
+                input.disabled = false;
+            });
+            
+            // Focus na pierwszym polu
+            inputs[0].focus();
+        }, 500);
     }
 }
 
@@ -267,56 +214,97 @@ function hidePINGate() {
 // PLATFORM INITIALIZATION
 // ============================================================================
 
-function initializePlatform() {
-    console.log('[Learning] Inicjalizacja platformy...');
+async function initializePlatform() {
+    console.log('[Learning] Inicjalizacja platformy szkoleniowej...');
     
-    // Pokaż platformę
-    const platform = document.getElementById('learningPlatform');
-    if (platform) {
-        platform.style.display = 'block';
-    }
+    // Pobierz IP użytkownika i znajdź/utwórz sesję
+    await initializeSession();
     
-    // Generuj lub pobierz session_id
-    LearningPlatform.sessionId = getOrCreateSessionId();
+    // Załaduj progress z localStorage lub backendu
+    loadProgressFromLocalStorage();
+    await loadProgressFromBackend();
     
-    // Załaduj progress z backendu
-    loadProgress();
-    
-    // Inicjalizuj event listeners
-    initEventListeners();
-    
-    // Pokaż pierwszy krok
-    showStep(LearningPlatform.currentStep);
+    // Inicjalizuj quizy
+    initQuizzes();
     
     // Aktualizuj UI
     updateProgressUI();
-    updateNavigationUI();
+    updateSidebarUI();
     
-    console.log('[Learning] Platforma zainicjalizowana');
+    console.log('[Learning] Platforma gotowa!');
 }
 
-function getOrCreateSessionId() {
-    let sessionId = localStorage.getItem('learning_session_id');
-    
-    if (!sessionId) {
-        // Generuj nowy session_id
-        sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('learning_session_id', sessionId);
-        console.log('[Learning] Utworzono nową sesję:', sessionId);
-    } else {
-        console.log('[Learning] Wczytano sesję:', sessionId);
+async function initializeSession() {
+    try {
+        // Wywołaj backend aby uzyskać/utworzyć sesję na podstawie IP
+        const response = await fetch('/partner-academy/api/session/init', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            LearningPlatform.sessionId = data.session_id;
+            LearningPlatform.userIp = data.ip_address;
+            
+            console.log('[Learning] Sesja zainicjalizowana:', LearningPlatform.sessionId);
+            console.log('[Learning] IP użytkownika:', LearningPlatform.userIp);
+        }
+    } catch (error) {
+        console.error('[Learning] Błąd inicjalizacji sesji:', error);
+        // Fallback - generuj lokalny ID
+        LearningPlatform.sessionId = generateSessionId();
     }
-    
-    return sessionId;
+}
+
+function generateSessionId() {
+    return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
 // ============================================================================
 // PROGRESS MANAGEMENT
 // ============================================================================
 
-async function loadProgress() {
-    showLoading(true);
-    
+function loadProgressFromLocalStorage() {
+    try {
+        const savedProgress = localStorage.getItem('learning_progress');
+        if (savedProgress) {
+            const progress = JSON.parse(savedProgress);
+            
+            LearningPlatform.currentStep = progress.currentStep || '1.1';
+            LearningPlatform.completedSteps = progress.completedSteps || [];
+            LearningPlatform.totalTimeSpent = progress.totalTimeSpent || 0;
+            LearningPlatform.quizAttempts = progress.quizAttempts || { 'M1': 0, 'M2': 0 };
+            
+            updateLockedSteps();
+            
+            console.log('[Learning] Progress załadowany z localStorage:', progress);
+        }
+    } catch (error) {
+        console.error('[Learning] Błąd ładowania progressu z localStorage:', error);
+    }
+}
+
+function saveProgressToLocalStorage() {
+    try {
+        const progress = {
+            currentStep: LearningPlatform.currentStep,
+            completedSteps: LearningPlatform.completedSteps,
+            totalTimeSpent: LearningPlatform.totalTimeSpent,
+            quizAttempts: LearningPlatform.quizAttempts,
+            lastUpdate: Date.now()
+        };
+        
+        localStorage.setItem('learning_progress', JSON.stringify(progress));
+        console.log('[Learning] Progress zapisany w localStorage');
+    } catch (error) {
+        console.error('[Learning] Błąd zapisywania progressu do localStorage:', error);
+    }
+}
+
+async function loadProgressFromBackend() {
     try {
         const response = await fetch('/partner-academy/api/progress/load', {
             method: 'POST',
@@ -328,34 +316,32 @@ async function loadProgress() {
             })
         });
         
-        const result = await response.json();
-        
-        if (result.success && result.data) {
-            // Załaduj stan z backendu
-            LearningPlatform.currentStep = result.data.current_step || '1.1';
-            LearningPlatform.completedSteps = result.data.completed_steps || [];
-            LearningPlatform.lockedSteps = result.data.locked_steps || [];
-            LearningPlatform.quizResults = result.data.quiz_results || {};
-            LearningPlatform.totalTimeSpent = result.data.total_time_spent || 0;
-            LearningPlatform.stepTimes = result.data.step_times || {};
+        if (response.ok) {
+            const data = await response.json();
             
-            console.log('[Learning] Progress załadowany:', result.data);
-            
-            // Aktualizuj UI
-            updateProgressUI();
-            updateNavigationUI();
-            showStep(LearningPlatform.currentStep);
+            if (data.progress) {
+                // Backend ma priorytet nad localStorage
+                LearningPlatform.currentStep = data.progress.current_step || LearningPlatform.currentStep;
+                LearningPlatform.completedSteps = data.progress.completed_steps || LearningPlatform.completedSteps;
+                LearningPlatform.totalTimeSpent = data.progress.total_time || LearningPlatform.totalTimeSpent;
+                
+                // Zapisz zaktualizowany progress w localStorage
+                saveProgressToLocalStorage();
+                updateLockedSteps();
+                
+                console.log('[Learning] Progress załadowany z backendu:', data.progress);
+            }
         }
-        
     } catch (error) {
-        console.error('[Learning] Błąd ładowania progressu:', error);
-        // Kontynuuj z domyślnymi wartościami
-    } finally {
-        showLoading(false);
+        console.error('[Learning] Błąd ładowania progressu z backendu:', error);
     }
 }
 
-async function saveProgress(action, completedStep = null) {
+async function saveProgress(action, stepId) {
+    // Zapisz lokalnie natychmiast
+    saveProgressToLocalStorage();
+    
+    // Wyślij do backendu
     try {
         const response = await fetch('/partner-academy/api/progress/update', {
             method: 'POST',
@@ -365,411 +351,348 @@ async function saveProgress(action, completedStep = null) {
             body: JSON.stringify({
                 session_id: LearningPlatform.sessionId,
                 action: action,
-                completed_step: completedStep
+                completed_step: stepId  // Backend oczekuje 'completed_step' nie 'step_id'
             })
         });
         
-        const result = await response.json();
-        
-        if (result.success && result.data) {
-            // Aktualizuj lokalny stan
-            LearningPlatform.currentStep = result.data.current_step;
-            LearningPlatform.completedSteps = result.data.completed_steps;
-            LearningPlatform.lockedSteps = result.data.locked_steps;
-            
-            console.log('[Learning] Progress zapisany');
-            return true;
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+                console.log('[Learning] Progress zapisany w backendzie:', action, stepId);
+            }
         }
-        
-        return false;
-        
     } catch (error) {
-        console.error('[Learning] Błąd zapisu progressu:', error);
-        return false;
+        console.error('[Learning] Błąd zapisywania progressu w backendzie:', error);
     }
+}
+
+function updateLockedSteps() {
+    // Odblokuj wszystkie kroki do ostatniego ukończonego + 1
+    const lastCompletedIndex = LearningPlatform.ALL_STEPS.findIndex(
+        step => !LearningPlatform.completedSteps.includes(step)
+    );
+    
+    if (lastCompletedIndex !== -1) {
+        LearningPlatform.lockedSteps = LearningPlatform.ALL_STEPS.slice(lastCompletedIndex + 1);
+    } else {
+        LearningPlatform.lockedSteps = [];
+    }
+}
+
+function updateProgressUI() {
+    const completedCount = LearningPlatform.completedSteps.length;
+    const progressPercent = (completedCount / LearningPlatform.TOTAL_STEPS) * 100;
+    
+    // Aktualizuj progress bar
+    document.getElementById('progressValue').textContent = `${completedCount}/${LearningPlatform.TOTAL_STEPS}`;
+    document.getElementById('progressFill').style.width = `${progressPercent}%`;
+}
+
+function updateSidebarUI() {
+    const stepItems = document.querySelectorAll('.step-item');
+    
+    stepItems.forEach(item => {
+        const stepId = item.getAttribute('data-step');
+        const statusSpan = item.querySelector('.step-status');
+        
+        // Usuń wszystkie klasy
+        item.classList.remove('active', 'completed', 'locked');
+        
+        // Dodaj odpowiednią klasę
+        if (stepId === LearningPlatform.currentStep) {
+            item.classList.add('active');
+            statusSpan.textContent = '';
+        } else if (LearningPlatform.completedSteps.includes(stepId)) {
+            item.classList.add('completed');
+            statusSpan.textContent = '✓';
+        } else if (LearningPlatform.lockedSteps.includes(stepId)) {
+            item.classList.add('locked');
+            statusSpan.textContent = '🔒';
+        } else {
+            // Odblokowany ale nie ukończony
+            statusSpan.textContent = '';
+        }
+    });
 }
 
 // ============================================================================
 // STEP NAVIGATION
 // ============================================================================
 
-function showStep(stepId) {
+function goToStep(stepId) {
+    // Sprawdź czy krok jest zablokowany
+    if (LearningPlatform.lockedSteps.includes(stepId)) {
+        alert('Musisz ukończyć poprzednie kroki, aby odblokować ten krok.');
+        return;
+    }
+    
     // Ukryj wszystkie kroki
-    document.querySelectorAll('.step-container').forEach(container => {
-        container.classList.remove('active');
+    document.querySelectorAll('.step-content').forEach(step => {
+        step.classList.remove('active');
     });
     
     // Pokaż wybrany krok
-    const stepContainer = document.querySelector(`.step-container[data-step="${stepId}"]`);
-    if (stepContainer) {
-        stepContainer.classList.add('active');
+    const targetStep = document.querySelector(`.step-content[data-step="${stepId}"]`);
+    if (targetStep) {
+        targetStep.classList.add('active');
         LearningPlatform.currentStep = stepId;
         
-        // Scroll na górę
+        // Aktualizuj UI
+        updateSidebarUI();
+        
+        // Zapisz progress
+        saveProgress('navigate', stepId);
+        
+        // Scroll to top
         window.scrollTo({ top: 0, behavior: 'smooth' });
         
-        // Aktualizuj UI
-        updateNavigationUI();
-        updateProgressUI();
-        
-        console.log('[Learning] Pokazano krok:', stepId);
+        console.log('[Learning] Przejście do kroku:', stepId);
     }
 }
 
 function nextStep() {
-    const allSteps = ['1.1', '1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'];
-    const currentIndex = allSteps.indexOf(LearningPlatform.currentStep);
+    const currentIndex = LearningPlatform.ALL_STEPS.indexOf(LearningPlatform.currentStep);
     
-    if (currentIndex < allSteps.length - 1) {
-        const nextStepId = allSteps[currentIndex + 1];
+    if (currentIndex < LearningPlatform.ALL_STEPS.length - 1) {
+        const nextStepId = LearningPlatform.ALL_STEPS[currentIndex + 1];
         
-        // Sprawdź czy następny krok jest odblokowany
-        if (!LearningPlatform.lockedSteps.includes(nextStepId)) {
-            showStep(nextStepId);
-        } else {
-            alert('Musisz ukończyć obecny krok, aby przejść dalej');
+        // Oznacz obecny krok jako ukończony
+        if (!LearningPlatform.completedSteps.includes(LearningPlatform.currentStep)) {
+            completeStep(LearningPlatform.currentStep);
         }
+        
+        // Przejdź do następnego
+        goToStep(nextStepId);
     }
 }
 
 function prevStep() {
-    const allSteps = ['1.1', '1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'];
-    const currentIndex = allSteps.indexOf(LearningPlatform.currentStep);
+    const currentIndex = LearningPlatform.ALL_STEPS.indexOf(LearningPlatform.currentStep);
     
     if (currentIndex > 0) {
-        const prevStepId = allSteps[currentIndex - 1];
-        showStep(prevStepId);
+        const prevStepId = LearningPlatform.ALL_STEPS[currentIndex - 1];
+        goToStep(prevStepId);
     }
 }
 
 function completeStep(stepId) {
-    // Oznacz jako ukończony
     if (!LearningPlatform.completedSteps.includes(stepId)) {
         LearningPlatform.completedSteps.push(stepId);
-    }
-    
-    // Odblokuj następny krok
-    const allSteps = ['1.1', '1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'];
-    const currentIndex = allSteps.indexOf(stepId);
-    
-    if (currentIndex < allSteps.length - 1) {
-        const nextStepId = allSteps[currentIndex + 1];
-        const lockedIndex = LearningPlatform.lockedSteps.indexOf(nextStepId);
         
-        if (lockedIndex > -1) {
-            LearningPlatform.lockedSteps.splice(lockedIndex, 1);
-        }
+        // Odblokuj następny krok
+        updateLockedSteps();
+        
+        // Zapisz w backendzie
+        saveProgress('complete_step', stepId);
+        
+        // Aktualizuj UI
+        updateProgressUI();
+        updateSidebarUI();
+        
+        console.log('[Learning] Krok ukończony:', stepId);
     }
-    
-    // Zapisz w backendzie
-    saveProgress('complete_step', stepId);
-    
-    // Aktualizuj UI
-    updateProgressUI();
-    updateNavigationUI();
-    
-    console.log('[Learning] Ukończono krok:', stepId);
 }
 
 // ============================================================================
-// QUIZ HANDLING
+// QUIZ MANAGEMENT
 // ============================================================================
 
-function submitQuiz(quizId) {
-    const quizContainer = document.getElementById(`quiz${quizId}`);
-    if (!quizContainer) return;
+function initQuizzes() {
+    // Quiz M1 - przykładowe pytania
+    const quizM1Data = [
+        {
+            id: 'q1',
+            question: 'Jakie jest główne zadanie partnera WoodPower?',
+            type: 'single',
+            options: [
+                { value: 'A', label: 'Produkcja pelletu' },
+                { value: 'B', label: 'Sprzedaż i promocja produktów' },
+                { value: 'C', label: 'Transport towarów' },
+                { value: 'D', label: 'Serwis techniczny' }
+            ]
+        },
+        {
+            id: 'q2',
+            question: 'Które produkty oferuje WoodPower? (zaznacz wszystkie)',
+            type: 'multiple',
+            options: [
+                { value: 'A', label: 'Pellet drzewny' },
+                { value: 'B', label: 'Węgiel' },
+                { value: 'C', label: 'Brykiet' },
+                { value: 'D', label: 'Drewno opałowe' }
+            ]
+        },
+        {
+            id: 'q3',
+            question: 'Jaki jest minimalny okres współpracy?',
+            type: 'single',
+            options: [
+                { value: 'A', label: '3 miesiące' },
+                { value: 'B', label: '12 miesięcy' },
+                { value: 'C', label: '24 miesiące' },
+                { value: 'D', label: 'Bez zobowiązań' }
+            ]
+        }
+    ];
     
-    // Zbierz odpowiedzi
-    const answers = {};
-    const questions = quizContainer.querySelectorAll('.quiz-question');
+    renderQuiz('M1', quizM1Data);
+}
+
+function renderQuiz(quizId, questions) {
+    const container = document.getElementById(`quiz${quizId}`);
+    if (!container) return;
     
-    questions.forEach(question => {
-        const questionId = question.dataset.question;
-        const radioInputs = question.querySelectorAll('input[type="radio"]:checked');
-        const checkboxInputs = question.querySelectorAll('input[type="checkbox"]:checked');
+    let html = '';
+    
+    questions.forEach((q, index) => {
+        html += `
+            <div class="quiz-question" data-question="${q.id}">
+                <div class="question-header">
+                    <div class="question-number">${index + 1}</div>
+                    <div class="question-text">${q.question}</div>
+                </div>
+                <div class="question-options">
+        `;
         
-        if (radioInputs.length > 0) {
+        q.options.forEach(option => {
+            if (q.type === 'single') {
+                html += `
+                    <label class="quiz-option">
+                        <input type="radio" name="${quizId}_${q.id}" value="${option.value}" class="option-radio">
+                        <span class="option-label">${option.label}</span>
+                    </label>
+                `;
+            } else {
+                html += `
+                    <label class="quiz-option">
+                        <input type="checkbox" name="${quizId}_${q.id}" value="${option.value}" class="option-checkbox">
+                        <span class="option-label">${option.label}</span>
+                    </label>
+                `;
+            }
+        });
+        
+        html += `
+                </div>
+                <div class="question-feedback"></div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+    
+    // Obsługa kliknięć na opcje
+    container.querySelectorAll('.quiz-option').forEach(option => {
+        option.addEventListener('click', function() {
+            this.classList.toggle('selected');
+        });
+    });
+}
+
+function submitQuiz(quizId) {
+    console.log('[Learning] Sprawdzanie quizu:', quizId);
+    
+    const container = document.getElementById(`quiz${quizId}`);
+    const questions = container.querySelectorAll('.quiz-question');
+    let allCorrect = true;
+    
+    questions.forEach(questionDiv => {
+        const questionId = questionDiv.getAttribute('data-question');
+        const correctAnswer = LearningPlatform.correctAnswers[quizId][questionId];
+        const feedbackDiv = questionDiv.querySelector('.question-feedback');
+        
+        // Pobierz wybrane odpowiedzi
+        let selectedAnswers;
+        const radioInput = questionDiv.querySelector('input[type="radio"]:checked');
+        
+        if (radioInput) {
             // Single choice
-            answers[questionId] = radioInputs[0].value;
-        } else if (checkboxInputs.length > 0) {
+            selectedAnswers = radioInput.value;
+        } else {
             // Multiple choice
-            answers[questionId] = Array.from(checkboxInputs).map(inp => inp.value);
+            const checkboxes = questionDiv.querySelectorAll('input[type="checkbox"]:checked');
+            selectedAnswers = Array.from(checkboxes).map(cb => cb.value);
+        }
+        
+        // Sprawdź poprawność
+        let isCorrect = false;
+        
+        if (Array.isArray(correctAnswer)) {
+            // Multiple choice - porównaj tablice
+            isCorrect = correctAnswer.length === selectedAnswers.length &&
+                       correctAnswer.every(ans => selectedAnswers.includes(ans));
+        } else {
+            // Single choice
+            isCorrect = selectedAnswers === correctAnswer;
+        }
+        
+        // Pokaż feedback
+        if (isCorrect) {
+            feedbackDiv.textContent = '✓ Poprawna odpowiedź!';
+            feedbackDiv.className = 'question-feedback show correct';
+        } else {
+            feedbackDiv.textContent = '✗ Niepoprawna odpowiedź. Spróbuj ponownie.';
+            feedbackDiv.className = 'question-feedback show incorrect';
+            allCorrect = false;
         }
     });
     
     // Zwiększ licznik prób
     LearningPlatform.quizAttempts[quizId]++;
-    updateQuizAttempts(quizId);
-    
-    // Waliduj odpowiedzi
-    const correctAnswers = LearningPlatform.correctAnswers[quizId];
-    let allCorrect = true;
-    const results = {};
-    
-    Object.keys(correctAnswers).forEach(questionId => {
-        const userAnswer = answers[questionId];
-        const correctAnswer = correctAnswers[questionId];
-        
-        let isCorrect = false;
-        
-        if (Array.isArray(correctAnswer)) {
-            // Multiple choice - porównaj tablice
-            isCorrect = JSON.stringify(userAnswer?.sort()) === JSON.stringify(correctAnswer.sort());
-        } else {
-            // Single choice
-            isCorrect = userAnswer === correctAnswer;
-        }
-        
-        results[questionId] = isCorrect;
-        
-        if (!isCorrect) {
-            allCorrect = false;
-        }
-        
-        // Pokaż feedback
-        showQuestionFeedback(quizId, questionId, isCorrect);
-    });
     
     if (allCorrect) {
-        // Quiz zaliczony
+        // Quiz zaliczony!
+        LearningPlatform.quizResults[quizId] = {
+            passed: true,
+            attempts: LearningPlatform.quizAttempts[quizId],
+            timestamp: Date.now()
+        };
+        
+        // Pokaż komunikat sukcesu
         setTimeout(() => {
             showQuizSuccess(quizId);
             completeStep(quizId);
         }, 1000);
+        
+        console.log('[Learning] Quiz zaliczony!', quizId);
     } else {
-        // Spróbuj ponownie
-        alert('Niektóre odpowiedzi są nieprawidłowe. Spróbuj ponownie!');
-    }
-}
-
-function showQuestionFeedback(quizId, questionId, isCorrect) {
-    const question = document.querySelector(`#quiz${quizId} .quiz-question[data-question="${questionId}"]`);
-    if (!question) return;
-    
-    const feedback = question.querySelector('.question-feedback');
-    const options = question.querySelectorAll('.quiz-option');
-    
-    // Oznacz opcje jako correct/incorrect
-    options.forEach(option => {
-        option.classList.remove('correct', 'incorrect');
-        const input = option.querySelector('input');
-        
-        if (input.checked) {
-            if (isCorrect) {
-                option.classList.add('correct');
-            } else {
-                option.classList.add('incorrect');
-            }
-        }
-    });
-    
-    // Pokaż feedback message
-    if (feedback) {
-        feedback.classList.add('show');
-        feedback.classList.remove('correct', 'incorrect');
-        
-        if (isCorrect) {
-            feedback.classList.add('correct');
-            feedback.textContent = '✓ Prawidłowa odpowiedź!';
-        } else {
-            feedback.classList.add('incorrect');
-            feedback.textContent = '✗ Nieprawidłowa odpowiedź. Spróbuj ponownie.';
-        }
+        console.log('[Learning] Quiz niezaliczony. Próba:', LearningPlatform.quizAttempts[quizId]);
     }
 }
 
 function showQuizSuccess(quizId) {
-    const quizContainer = document.getElementById(`quiz${quizId}`);
-    if (!quizContainer) return;
+    const container = document.getElementById(`quiz${quizId}`);
     
-    const quizResult = quizContainer.querySelector('.quiz-result');
-    if (quizResult) {
-        quizResult.style.display = 'block';
-        
-        // Scroll do result
-        quizResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-}
-
-function updateQuizAttempts(quizId) {
-    const attemptsCount = document.getElementById('attemptsCount');
-    if (attemptsCount) {
-        attemptsCount.textContent = LearningPlatform.quizAttempts[quizId];
-    }
-}
-
-// ============================================================================
-// UI UPDATES
-// ============================================================================
-
-function updateProgressUI() {
-    // Progress bar
-    const progressFill = document.getElementById('globalProgressFill');
-    const progressText = document.getElementById('globalProgressText');
-    const stepsCounter = document.getElementById('stepsCounter');
+    const successHtml = `
+        <div class="quiz-result">
+            <div class="result-icon">🎉</div>
+            <h3>Gratulacje!</h3>
+            <p>Zaliczyłeś quiz z wynikiem 100%. Możesz przejść do kolejnego modułu.</p>
+            <button class="btn-primary" onclick="nextStep()">
+                Przejdź dalej
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+            </button>
+        </div>
+    `;
     
-    const percentage = Math.round((LearningPlatform.completedSteps.length / LearningPlatform.TOTAL_STEPS) * 100);
-    
-    if (progressFill) {
-        progressFill.style.width = percentage + '%';
-    }
-    
-    if (progressText) {
-        progressText.textContent = percentage + '%';
-    }
-    
-    if (stepsCounter) {
-        stepsCounter.textContent = `${LearningPlatform.completedSteps.length}/${LearningPlatform.TOTAL_STEPS} kroków`;
-    }
-    
-    // Sidebar items
-    document.querySelectorAll('.step-item').forEach(item => {
-        const stepId = item.dataset.step;
-        
-        // Remove all classes
-        item.classList.remove('active', 'completed', 'locked');
-        
-        // Add appropriate class
-        if (stepId === LearningPlatform.currentStep) {
-            item.classList.add('active');
-        } else if (LearningPlatform.completedSteps.includes(stepId)) {
-            item.classList.add('completed');
-            item.querySelector('.step-status').textContent = '✓';
-        } else if (LearningPlatform.lockedSteps.includes(stepId)) {
-            item.classList.add('locked');
-        }
-    });
-}
-
-function updateNavigationUI() {
-    const prevBtn = document.getElementById('prevBtn');
-    const nextBtn = document.getElementById('nextBtn');
-    
-    const allSteps = ['1.1', '1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'];
-    const currentIndex = allSteps.indexOf(LearningPlatform.currentStep);
-    
-    // Prev button
-    if (prevBtn) {
-        prevBtn.disabled = currentIndex === 0;
-    }
-    
-    // Next button
-    if (nextBtn) {
-        const isLastStep = currentIndex === allSteps.length - 1;
-        nextBtn.disabled = isLastStep;
-        
-        if (isLastStep) {
-            nextBtn.textContent = 'Ukończono';
-        }
-    }
-}
-
-function updateTimeSpent() {
-    const timeElement = document.getElementById('totalTimeSpent');
-    if (!timeElement) return;
-    
-    const minutes = Math.floor(LearningPlatform.totalTimeSpent / 60);
-    timeElement.textContent = minutes + ' min';
+    container.innerHTML = successHtml;
 }
 
 // ============================================================================
-// EVENT LISTENERS
+// CERTIFICATE DOWNLOAD
 // ============================================================================
 
-function initEventListeners() {
-    // Navigation buttons
-    const prevBtn = document.getElementById('prevBtn');
-    const nextBtn = document.getElementById('nextBtn');
+function downloadCertificate() {
+    console.log('[Learning] Pobieranie certyfikatu...');
     
-    if (prevBtn) {
-        prevBtn.addEventListener('click', prevStep);
-    }
-    
-    if (nextBtn) {
-        nextBtn.addEventListener('click', () => {
-            completeStep(LearningPlatform.currentStep);
-            nextStep();
-        });
-    }
-    
-    // Sidebar navigation
-    document.querySelectorAll('.step-item').forEach(item => {
-        item.addEventListener('click', function() {
-            const stepId = this.dataset.step;
-            
-            // Sprawdź czy krok jest odblokowany
-            if (!this.classList.contains('locked')) {
-                showStep(stepId);
-            }
-        });
-    });
-    
-    // Menu toggle (mobile)
-    const menuToggle = document.getElementById('menuToggle');
-    const sidebar = document.getElementById('learningSidebar');
-    const closeSidebar = document.getElementById('closeSidebar');
-    
-    if (menuToggle && sidebar) {
-        menuToggle.addEventListener('click', () => {
-            sidebar.classList.add('open');
-        });
-    }
-    
-    if (closeSidebar && sidebar) {
-        closeSidebar.addEventListener('click', () => {
-            sidebar.classList.remove('open');
-        });
-    }
-    
-    // Quiz submit buttons
-    const submitQuizM1 = document.getElementById('submitQuizBtn');
-    if (submitQuizM1) {
-        submitQuizM1.addEventListener('click', () => submitQuiz('M1'));
-    }
-    
-    // Continue after quiz
-    const continueAfterQuiz = document.getElementById('continueAfterQuiz');
-    if (continueAfterQuiz) {
-        continueAfterQuiz.addEventListener('click', nextStep);
-    }
-    
-    // Certificate download
-    const downloadCertificate = document.getElementById('downloadCertificate');
-    if (downloadCertificate) {
-        downloadCertificate.addEventListener('click', () => {
-            alert('Funkcja pobierania certyfikatu będzie dostępna wkrótce!');
-        });
-    }
-    
-    // Review content
-    const reviewContent = document.getElementById('reviewContent');
-    if (reviewContent) {
-        reviewContent.addEventListener('click', () => {
-            showStep('1.1');
-        });
-    }
+    // TODO: Implementacja pobierania certyfikatu z backendu
+    alert('Funkcja pobierania certyfikatu zostanie wkrótce dodana!');
 }
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
-function showLoading(show) {
-    const loadingOverlay = document.getElementById('loadingOverlay');
-    if (loadingOverlay) {
-        if (show) {
-            loadingOverlay.classList.add('active');
-        } else {
-            loadingOverlay.classList.remove('active');
-        }
-    }
-}
-
-// ============================================================================
-// EXPORT (jeśli używasz modułów)
-// ============================================================================
-
-window.LearningPlatform = LearningPlatform;
-window.showStep = showStep;
-window.completeStep = completeStep;
-window.submitQuiz = submitQuiz;
+console.log('[Learning] learning.js załadowany');

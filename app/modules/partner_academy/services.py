@@ -28,7 +28,7 @@ class ApplicationService:
     """Serwis zarządzania aplikacjami rekrutacyjnymi"""
     
     # Konfiguracja uploadów
-    UPLOAD_FOLDER = 'app/modules/partner_academy/static/media/uploads/'
+    UPLOAD_FOLDER = 'modules/partner_academy/static/media/nda_users/'
     ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'docx', 'odt'}
     ALLOWED_MIME_TYPES = {
         'application/pdf',
@@ -333,3 +333,87 @@ class LearningService:
             return None
         except ValueError:
             return None
+        
+    @staticmethod
+    def find_or_create_session_by_ip(ip_address: str):
+        """
+        Znajdź istniejącą sesję dla danego IP lub utwórz nową.
+        Wyszukuje sesję utworzoną w ciągu ostatnich 24h.
+        """
+        from datetime import datetime, timedelta
+        from models import LearningSession
+        
+        # Sprawdź czy istnieje aktywna sesja dla tego IP (ostatnie 24h)
+        cutoff_time = datetime.utcnow() - timedelta(hours=24)
+        
+        existing_session = LearningSession.query.filter(
+            LearningSession.ip_address == ip_address,
+            LearningSession.created_at >= cutoff_time
+        ).order_by(LearningSession.created_at.desc()).first()
+        
+        if existing_session:
+            current_app.logger.info(f"Znaleziono istniejącą sesję dla IP {ip_address}: {existing_session.session_id}")
+            return existing_session
+        
+        # Utwórz nową sesję
+        import uuid
+        session_id = f"session_{uuid.uuid4().hex[:16]}"
+        
+        new_session = LearningSession(
+            session_id=session_id,
+            ip_address=ip_address,
+            current_step='1.1',
+            completed_steps=[],
+            total_time_spent=0
+        )
+        
+        db.session.add(new_session)
+        db.session.commit()
+        
+        current_app.logger.info(f"Utworzono nową sesję dla IP {ip_address}: {session_id}")
+        return new_session
+    
+    @staticmethod
+    def find_or_create_session_by_ip(ip_address: str) -> str:
+        """
+        Znajdź istniejącą sesję dla danego IP lub utwórz nową.
+        Wyszukuje sesję utworzoną w ciągu ostatnich 24h.
+        
+        Returns:
+            str: session_id
+        """
+        from datetime import datetime, timedelta
+        from modules.partner_academy.utils import generate_session_id
+        
+        # Sprawdź czy istnieje aktywna sesja dla tego IP (ostatnie 24h)
+        cutoff_time = datetime.utcnow() - timedelta(hours=24)
+        
+        existing_session = PartnerLearningSession.query.filter(
+            PartnerLearningSession.ip_address == ip_address,
+            PartnerLearningSession.created_at >= cutoff_time
+        ).order_by(PartnerLearningSession.created_at.desc()).first()
+        
+        if existing_session:
+            current_app.logger.info(f"Znaleziono istniejącą sesję dla IP {ip_address}: {existing_session.session_id}")
+            return existing_session.session_id
+        
+        # Utwórz nową sesję
+        new_session_id = generate_session_id()
+        
+        new_session = PartnerLearningSession(
+            session_id=new_session_id,
+            ip_address=ip_address,
+            current_step='1.1',
+            completed_steps=[],
+            locked_steps=['1.2', '1.3', '1.4', 'M1', '2.1', '2.2', '2.3', '2.4', 'M2', '3.1'],
+            total_time_spent=0,
+            step_times={}
+        )
+        
+        db.session.add(new_session)
+        db.session.commit()
+        
+        current_app.logger.info(f"Utworzono nową sesję dla IP {ip_address}: {new_session_id}")
+        return new_session_id
+    
+# End of services.py

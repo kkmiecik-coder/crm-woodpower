@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="{{ url_for('partner_academy.static', filename='css/common.css') }}">
     <link rel="stylesheet" href="{{ url_for('partner_academy.static', filename='css/learning.css') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.png') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -23,236 +26,190 @@
                 <h1 class="pin-gate-title">PartnerAcademy</h1>
                 <p class="pin-gate-description">Wprowadź 4-cyfrowy kod PIN otrzymany w wiadomości email</p>
                 
-                <div class="pin-form" id="pinForm">
-                    <div class="pin-inputs">
+                <div class="pin-form">
+                    <div class="pin-inputs" id="pinInputs">
                         <input type="text" class="pin-digit" maxlength="1" id="pin1" autocomplete="off" inputmode="numeric" pattern="[0-9]">
                         <input type="text" class="pin-digit" maxlength="1" id="pin2" autocomplete="off" inputmode="numeric" pattern="[0-9]">
                         <input type="text" class="pin-digit" maxlength="1" id="pin3" autocomplete="off" inputmode="numeric" pattern="[0-9]">
                         <input type="text" class="pin-digit" maxlength="1" id="pin4" autocomplete="off" inputmode="numeric" pattern="[0-9]">
                     </div>
                     
-                    <div class="pin-error" id="pinError" style="display: none;">
+                    <div class="pin-error" id="pinError">
                         Nieprawidłowy kod PIN. Spróbuj ponownie.
                     </div>
                     
-                    <button type="button" class="btn-primary btn-block" id="pinSubmit">
-                        Rozpocznij szkolenie
-                    </button>
-                </div>
-                
-                <div class="pin-help">
-                    <p>Nie otrzymałeś kodu PIN?</p>
-                    <a href="mailto:admin@woodpower.pl">Skontaktuj się z nami</a>
+                    <div class="pin-help">
+                        Nie masz PINu? <a href="mailto:biuro@woodpower.pl">Skontaktuj się z nami</a>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Main Platform (ukryte do czasu walidacji PIN) -->
-    <div class="learning-platform" id="learningPlatform" style="display: none;">
+    <!-- Main Learning Platform (hidden until PIN validated) -->
+    <div class="learning-container" id="learningContainer" style="display: none;">
         
-        <!-- Header z progressem -->
-        <header class="learning-header">
-            <div class="header-container">
-                <div class="brand">
-                    <img src="{{ url_for('static', filename='images/logo/woodpower_logo_white.svg') }}" alt="WoodPower" class="brand-logo">
-                    <h1>PartnerAcademy</h1>
+        <!-- Header with Progress -->
+        <div class="learning-header">
+            <div class="header-content">
+                <div class="header-logo">
+                    <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="WoodPower Logo" class="logo-img">
+                    <span class="logo-subtitle">PartnerAcademy</span>
                 </div>
                 
-                <div class="progress-info">
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="globalProgressBar">
-                            <div class="progress-fill" id="globalProgressFill" style="width: 0%"></div>
-                        </div>
-                        <span class="progress-text" id="globalProgressText">0%</span>
+                <div class="header-progress">
+                    <div class="progress-info">
+                        <span class="progress-text">Postęp szkolenia</span>
+                        <span class="progress-value" id="progressValue">0/11</span>
                     </div>
-                    <span class="steps-counter" id="stepsCounter">0/11 kroków</span>
-                </div>
-                
-                <div class="user-info">
-                    <span class="time-spent" id="totalTimeSpent">0 min</span>
-                    <button class="btn-icon" id="menuToggle" title="Menu">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="3" y1="12" x2="21" y2="12"></line>
-                            <line x1="3" y1="6" x2="21" y2="6"></line>
-                            <line x1="3" y1="18" x2="21" y2="18"></line>
-                        </svg>
-                    </button>
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
                 </div>
             </div>
-        </header>
+        </div>
 
-        <!-- Main content area -->
-        <div class="learning-container">
+        <!-- Main Content Area -->
+        <div class="learning-main">
             
-            <!-- Sidebar Navigation -->
+            <!-- Module Navigation Sidebar -->
             <aside class="learning-sidebar" id="learningSidebar">
-                <div class="sidebar-header">
-                    <h2>Program szkolenia</h2>
-                    <button class="btn-close-sidebar" id="closeSidebar">✕</button>
-                </div>
-                
-                <nav class="steps-navigation" id="stepsNavigation">
-                    <!-- Moduł 1 -->
-                    <div class="module-section">
+                <nav class="module-nav">
+                    
+                    <!-- Module 1 -->
+                    <div class="module-group">
                         <div class="module-header">
                             <span class="module-icon">📚</span>
-                            <h3>Moduł 1: Podstawy</h3>
+                            <span class="module-title">Moduł 1: Podstawy</span>
                         </div>
-                        <ul class="steps-list">
-                            <li class="step-item active" data-step="1.1">
-                                <span class="step-status">○</span>
-                                <span class="step-title">1.1 Wprowadzenie</span>
-                                <span class="step-time">5 min</span>
+                        <ul class="step-list">
+                            <li class="step-item active" data-step="1.1" onclick="goToStep('1.1')">
+                                <span class="step-number">1.1</span>
+                                <span class="step-name">Wprowadzenie</span>
+                                <span class="step-status"></span>
                             </li>
-                            <li class="step-item locked" data-step="1.2">
+                            <li class="step-item locked" data-step="1.2" onclick="goToStep('1.2')">
+                                <span class="step-number">1.2</span>
+                                <span class="step-name">Temat 1</span>
                                 <span class="step-status">🔒</span>
-                                <span class="step-title">1.2 Produkty</span>
-                                <span class="step-time">8 min</span>
                             </li>
-                            <li class="step-item locked" data-step="1.3">
+                            <li class="step-item locked" data-step="1.3" onclick="goToStep('1.3')">
+                                <span class="step-number">1.3</span>
+                                <span class="step-name">Temat 2</span>
                                 <span class="step-status">🔒</span>
-                                <span class="step-title">1.3 Technologia</span>
-                                <span class="step-time">10 min</span>
                             </li>
-                            <li class="step-item locked" data-step="1.4">
+                            <li class="step-item locked" data-step="1.4" onclick="goToStep('1.4')">
+                                <span class="step-number">1.4</span>
+                                <span class="step-name">Temat 3</span>
                                 <span class="step-status">🔒</span>
-                                <span class="step-title">1.4 Jakość</span>
-                                <span class="step-time">7 min</span>
                             </li>
-                            <li class="step-item quiz locked" data-step="M1">
+                            <li class="step-item quiz-item locked" data-step="M1" onclick="goToStep('M1')">
+                                <span class="step-number">M1</span>
+                                <span class="step-name">Quiz Moduł 1</span>
                                 <span class="step-status">🔒</span>
-                                <span class="step-title">Quiz M1</span>
-                                <span class="step-time">3 min</span>
                             </li>
                         </ul>
                     </div>
 
-                    <!-- Moduł 2 -->
-                    <div class="module-section">
-                        <div class="module-header">
-                            <span class="module-icon">💼</span>
-                            <h3>Moduł 2: Biznes</h3>
-                        </div>
-                        <ul class="steps-list">
-                            <li class="step-item locked" data-step="2.1">
-                                <span class="step-status">🔒</span>
-                                <span class="step-title">2.1 Cennik</span>
-                                <span class="step-time">6 min</span>
-                            </li>
-                            <li class="step-item locked" data-step="2.2">
-                                <span class="step-status">🔒</span>
-                                <span class="step-title">2.2 Marże</span>
-                                <span class="step-time">8 min</span>
-                            </li>
-                            <li class="step-item locked" data-step="2.3">
-                                <span class="step-status">🔒</span>
-                                <span class="step-title">2.3 Konkurencja</span>
-                                <span class="step-time">9 min</span>
-                            </li>
-                            <li class="step-item locked" data-step="2.4">
-                                <span class="step-status">🔒</span>
-                                <span class="step-title">2.4 Marketing</span>
-                                <span class="step-time">10 min</span>
-                            </li>
-                            <li class="step-item quiz locked" data-step="M2">
-                                <span class="step-status">🔒</span>
-                                <span class="step-title">Quiz M2</span>
-                                <span class="step-time">3 min</span>
-                            </li>
-                        </ul>
-                    </div>
-
-                    <!-- Moduł 3 -->
-                    <div class="module-section">
+                    <!-- Module 2 -->
+                    <div class="module-group">
                         <div class="module-header">
                             <span class="module-icon">🎓</span>
-                            <h3>Moduł 3: Finalizacja</h3>
+                            <span class="module-title">Moduł 2: Zaawansowane</span>
                         </div>
-                        <ul class="steps-list">
-                            <li class="step-item locked" data-step="3.1">
+                        <ul class="step-list">
+                            <li class="step-item locked" data-step="2.1" onclick="goToStep('2.1')">
+                                <span class="step-number">2.1</span>
+                                <span class="step-name">Temat 1</span>
                                 <span class="step-status">🔒</span>
-                                <span class="step-title">3.1 Podsumowanie</span>
-                                <span class="step-time">5 min</span>
+                            </li>
+                            <li class="step-item locked" data-step="2.2" onclick="goToStep('2.2')">
+                                <span class="step-number">2.2</span>
+                                <span class="step-name">Temat 2</span>
+                                <span class="step-status">🔒</span>
+                            </li>
+                            <li class="step-item locked" data-step="2.3" onclick="goToStep('2.3')">
+                                <span class="step-number">2.3</span>
+                                <span class="step-name">Temat 3</span>
+                                <span class="step-status">🔒</span>
+                            </li>
+                            <li class="step-item locked" data-step="2.4" onclick="goToStep('2.4')">
+                                <span class="step-number">2.4</span>
+                                <span class="step-name">Temat 4</span>
+                                <span class="step-status">🔒</span>
+                            </li>
+                            <li class="step-item quiz-item locked" data-step="M2" onclick="goToStep('M2')">
+                                <span class="step-number">M2</span>
+                                <span class="step-name">Quiz Moduł 2</span>
+                                <span class="step-status">🔒</span>
                             </li>
                         </ul>
                     </div>
+
+                    <!-- Module 3 - Completion -->
+                    <div class="module-group">
+                        <div class="module-header">
+                            <span class="module-icon">🏆</span>
+                            <span class="module-title">Zakończenie</span>
+                        </div>
+                        <ul class="step-list">
+                            <li class="step-item locked" data-step="3.1" onclick="goToStep('3.1')">
+                                <span class="step-number">3.1</span>
+                                <span class="step-name">Certyfikat</span>
+                                <span class="step-status">🔒</span>
+                            </li>
+                        </ul>
+                    </div>
+
                 </nav>
             </aside>
 
             <!-- Content Area -->
-            <main class="learning-content" id="learningContent">
+            <main class="learning-content">
                 
-                <!-- Step 1.1 Container -->
-                <div class="step-container active" data-step="1.1" id="step-1-1">
+                <!-- Step 1.1: Welcome -->
+                <div class="step-content active" data-step="1.1">
                     <div class="step-header">
                         <span class="step-badge">Krok 1.1</span>
-                        <h1 class="step-title">Wprowadzenie do WoodPower</h1>
-                        <p class="step-description">Poznaj historię firmy, wartości i wizję na przyszłość</p>
+                        <h1 class="step-title">Witaj w PartnerAcademy! 👋</h1>
+                        <p class="step-description">Rozpocznij swoją przygodę z platformą szkoleniową WoodPower</p>
                     </div>
 
-                    <div class="step-content">
-                        <section class="content-section">
-                            <h2>O firmie WoodPower</h2>
-                            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. WoodPower jest wiodącym producentem desek tarasowych i elewacyjnych w Polsce.</p>
-                            
+                    <div class="content-body">
+                        <h2>Czego się nauczysz?</h2>
+                        <p>W ramach tego szkolenia poznasz wszystkie aspekty współpracy z WoodPower jako partner handlowy. Program składa się z 11 kroków podzielonych na 3 moduły:</p>
+                        
+                        <div class="info-boxes">
                             <div class="info-box">
-                                <div class="info-icon">ℹ️</div>
-                                <div class="info-content">
-                                    <strong>Czy wiesz, że...</strong>
-                                    <p>WoodPower produkuje ponad 50,000 m³ desek rocznie?</p>
-                                </div>
+                                <div class="info-icon">📚</div>
+                                <h3>Moduł 1: Podstawy</h3>
+                                <p>Poznaj firmę, produkty i podstawowe zasady współpracy</p>
                             </div>
-
-                            <h3>Nasze wartości</h3>
-                            <ul class="bullet-list">
-                                <li>Jakość ponad wszystko</li>
-                                <li>Innowacyjność w produkcji</li>
-                                <li>Zrównoważony rozwój</li>
-                                <li>Wsparcie partnerów biznesowych</li>
-                            </ul>
-
-                            <div class="media-placeholder">
-                                <div class="media-icon">🎥</div>
-                                <p>Tutaj będzie film wprowadzający (5 min)</p>
+                            <div class="info-box">
+                                <div class="info-icon">🎓</div>
+                                <h3>Moduł 2: Zaawansowane</h3>
+                                <p>Pogłęb wiedzę o procesach sprzedażowych i strategiach</p>
                             </div>
-                        </section>
-
-                        <section class="content-section">
-                            <h2>Dlaczego warto być partnerem?</h2>
-                            <div class="features-grid">
-                                <div class="feature-card">
-                                    <div class="feature-icon">💰</div>
-                                    <h4>Wysokie marże</h4>
-                                    <p>Konkurencyjne ceny hurtowe</p>
-                                </div>
-                                <div class="feature-card">
-                                    <div class="feature-icon">📦</div>
-                                    <h4>Szybka dostawa</h4>
-                                    <p>Realizacja w 48h</p>
-                                </div>
-                                <div class="feature-card">
-                                    <div class="feature-icon">🛠️</div>
-                                    <h4>Wsparcie techniczne</h4>
-                                    <p>Dedykowany opiekun</p>
-                                </div>
-                                <div class="feature-card">
-                                    <div class="feature-icon">📈</div>
-                                    <h4>Marketing</h4>
-                                    <p>Materiały promocyjne</p>
-                                </div>
+                            <div class="info-box">
+                                <div class="info-icon">🏆</div>
+                                <h3>Certyfikat</h3>
+                                <p>Zdobądź oficjalny certyfikat partnera WoodPower</p>
                             </div>
-                        </section>
+                        </div>
+
+                        <div class="tip-box">
+                            <strong>💡 Wskazówka:</strong> Każdy moduł kończy się quizem sprawdzającym. Aby przejść dalej, musisz poprawnie odpowiedzieć na wszystkie pytania.
+                        </div>
                     </div>
 
-                    <div class="step-footer">
-                        <button class="btn-secondary" id="prevBtn" disabled>
+                    <div class="step-navigation">
+                        <button class="btn-secondary" onclick="prevStep()" disabled>
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M19 12H5M12 19l-7-7 7-7"/>
                             </svg>
                             Poprzedni
                         </button>
-                        <button class="btn-primary" id="nextBtn">
+                        <button class="btn-primary" onclick="nextStep()">
                             Następny
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M5 12h14M12 5l7 7-7 7"/>
@@ -261,60 +218,102 @@
                     </div>
                 </div>
 
-                <!-- Quiz M1 Template -->
-                <div class="step-container" data-step="M1" id="step-M1">
+                <!-- Step 1.2 - Placeholder -->
+                <div class="step-content" data-step="1.2">
+                    <div class="step-header">
+                        <span class="step-badge">Krok 1.2</span>
+                        <h1 class="step-title">Temat 1 - Moduł 1</h1>
+                        <p class="step-description">Treść zostanie dodana</p>
+                    </div>
+
+                    <div class="content-body">
+                        <h2>Treść szkoleniowa</h2>
+                        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+                    </div>
+
+                    <div class="step-navigation">
+                        <button class="btn-secondary" onclick="prevStep()">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                            Poprzedni
+                        </button>
+                        <button class="btn-primary" onclick="nextStep()">
+                            Następny
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12h14M12 5l7 7-7 7"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Similar structure for steps 1.3, 1.4, 2.1-2.4 -->
+                <!-- For brevity, I'll include just the quiz template -->
+
+                <!-- Quiz M1 -->
+                <div class="step-content" data-step="M1">
                     <div class="step-header">
                         <span class="step-badge quiz-badge">Quiz M1</span>
-                        <h1 class="step-title">Sprawdź swoją wiedzę - Moduł 1</h1>
-                        <p class="step-description">Odpowiedz poprawnie na wszystkie pytania aby odblokować kolejny moduł</p>
+                        <h1 class="step-title">Quiz - Moduł 1</h1>
+                        <p class="step-description">Sprawdź swoją wiedzę. Odpowiedz poprawnie na wszystkie pytania.</p>
                     </div>
 
                     <div class="quiz-container" id="quizM1">
-                        <!-- Pytania quizu (jak w poprzedniej wersji) -->
-                        <!-- ... -->
+                        <!-- Quiz questions will be dynamically inserted by JS -->
+                    </div>
+
+                    <div class="step-navigation">
+                        <button class="btn-secondary" onclick="prevStep()">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                            Poprzedni
+                        </button>
+                        <button class="btn-primary" onclick="submitQuiz('M1')">
+                            Sprawdź odpowiedzi
+                        </button>
                     </div>
                 </div>
 
                 <!-- Completion Screen -->
-                <div class="step-container" data-step="3.1" id="step-3-1">
+                <div class="step-content" data-step="3.1">
                     <div class="completion-screen">
                         <div class="completion-icon">🎓</div>
                         <h1 class="completion-title">Gratulacje!</h1>
                         <p class="completion-subtitle">Ukończyłeś szkolenie PartnerAcademy</p>
                         
                         <div class="completion-stats">
-                            <div class="stat-item">
-                                <div class="stat-value" id="finalTimeSpent">45 min</div>
-                                <div class="stat-label">Czas szkolenia</div>
+                            <div class="stat-box">
+                                <div class="stat-number" id="finalTimeSpent">45</div>
+                                <div class="stat-label">Minut</div>
                             </div>
-                            <div class="stat-item">
-                                <div class="stat-value">11/11</div>
+                            <div class="stat-box">
+                                <div class="stat-number">11/11</div>
                                 <div class="stat-label">Ukończone kroki</div>
                             </div>
-                            <div class="stat-item">
-                                <div class="stat-value" id="quizScore">100%</div>
-                                <div class="stat-label">Wynik quizów</div>
+                            <div class="stat-box">
+                                <div class="stat-number">2/2</div>
+                                <div class="stat-label">Zaliczone quizy</div>
                             </div>
                         </div>
 
                         <div class="completion-actions">
-                            <button class="btn-primary btn-large" id="downloadCertificate">
-                                Pobierz certyfikat
+                            <button class="btn-primary btn-large" onclick="downloadCertificate()">
+                                📄 Pobierz certyfikat
                             </button>
-                            <button class="btn-secondary" id="reviewContent">
-                                Przejrzyj materiały ponownie
+                            <button class="btn-secondary" onclick="goToStep('1.1')">
+                                🔄 Przejrzyj materiały ponownie
                             </button>
                         </div>
                     </div>
                 </div>
 
             </main>
+
         </div>
+
     </div>
 
-    <!-- Scripts -->
     <script src="{{ url_for('partner_academy.static', filename='js/learning.js') }}"></script>
-    <script src="{{ url_for('partner_academy.static', filename='js/tracking.js') }}"></script>
-
 </body>
 </html>

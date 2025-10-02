@@ -15,8 +15,7 @@ Data: 2025-09-30
 
 from extensions import db
 from datetime import datetime
-from sqlalchemy import JSON
-
+from sqlalchemy import JSON, Text
 
 class PartnerApplication(db.Model):
     """
@@ -69,6 +68,16 @@ class PartnerApplication(db.Model):
     nda_filesize = db.Column(db.Integer, comment='Rozmiar pliku w bajtach')
     nda_mime_type = db.Column(db.String(100), comment='Typ MIME pliku')
     
+    
+    # ============================================================================
+    # NOTATKI ADMINA (NOWE)
+    # ============================================================================
+    notes = db.Column(
+        Text,
+        default='[]',
+        comment='Notatki admina w formacie JSON [{timestamp, author, text}]'
+    )
+
     # ============================================================================
     # STATUS APLIKACJI
     # ============================================================================
@@ -111,6 +120,7 @@ class PartnerApplication(db.Model):
             'experience_level': self.experience_level,
             'status': self.status,
             'has_nda_file': bool(self.nda_filepath),
+            'notes': self.notes or [],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

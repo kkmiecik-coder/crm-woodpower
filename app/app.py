@@ -28,6 +28,9 @@ from modules.dashboard.models import ChangelogEntry, ChangelogItem, UserSession
 from modules.production import production_bp
 from modules.production.routers import register_production_routers
 from modules.dashboard.services.user_activity_service import UserActivityService
+from modules.partner_academy import partner_academy_bp
+from modules.partner_academy.models import PartnerApplication, PartnerLearningSession
+
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
 
@@ -207,6 +210,7 @@ def create_app():
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
     register_production_routers(production_bp)
     app.register_blueprint(production_bp, url_prefix='/production')
+    app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
 
     @app.before_request
     def extend_session():
@@ -283,7 +287,7 @@ def create_app():
         
             # Sprawdź czy sesja nie jest zbyt stara (ponad 24h)
             from datetime import datetime, timedelta
-            if user_session.last_activity_at < datetime.utcnow() - timedelta(hours=24):
+            if user_session.last_activity_at < get_local_now() - timedelta(hours=24):
                 current_app.logger.info(f"[Security] Sesja wygasła dla user_id={user_id}")
                 user_session.force_logout()
                 session.clear()
@@ -336,7 +340,7 @@ def create_app():
             if success:
                 return jsonify({
                     'success': True,
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': get_local_now().isoformat()
                 })
             else:
                 return jsonify({

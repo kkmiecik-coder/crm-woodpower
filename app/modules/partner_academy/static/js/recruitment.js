@@ -52,10 +52,11 @@ function showStep(step) {
     const stepElement = document.querySelector(`.step-content[data-step="${step}"]`);
     if (stepElement) {
         stepElement.classList.add('active');
+        stepElement.style.display = 'block'; // Dodaj to
 
-        // Animuj statystyki na step 2
+        // Animuj statystyki jeśli step 2
         if (step === 2) {
-            setTimeout(() => animateStats(), 100);
+            animateStats();
         }
     }
 }
@@ -64,6 +65,7 @@ function hideStep(step) {
     const stepElement = document.querySelector(`.step-content[data-step="${step}"]`);
     if (stepElement) {
         stepElement.classList.remove('active');
+        stepElement.style.display = 'none'; // Dodaj to
     }
 }
 
@@ -482,12 +484,11 @@ async function submitApplication() {
         const result = await response.json();
 
         if (result.success) {
-            // Ukryj wszystkie kroki i progress bar
-            document.querySelectorAll('.step-content').forEach(el => el.style.display = 'none');
-            document.getElementById('progressBar').style.display = 'none';
-
-            // Pokaż success message
-            document.getElementById('successMessage').style.display = 'block';
+            // Przejdź do Step 9 (success)
+            hideStep(currentStep);
+            currentStep = 9;
+            showStep(currentStep);
+            updateProgressBar();
             window.scrollTo({ top: 0, behavior: 'smooth' });
         } else {
             // Pokaż szczegółowe błędy jeśli są

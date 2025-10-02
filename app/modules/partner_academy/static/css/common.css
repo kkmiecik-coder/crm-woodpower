@@ -159,7 +159,7 @@ a {
 .btn-secondary {
     background-color: var(--bg-white);
     color: var(--text-dark);
-    border: 2px solid var(--border-color);
+    border: 2px solid var(--primary-color);
 }
 
     .btn-secondary:hover {

@@ -1,558 +1,561 @@
 // ============================================================================
-// PARTNER ACADEMY - TRACKING & ANALYTICS
-// Time tracking, event logging, session monitoring, analytics
+// PARTNER ACADEMY - TIME TRACKER & ANALYTICS
+// Śledzenie czasu, eventów użytkownika, heartbeat synchronizacja
 // ============================================================================
 
 // ============================================================================
-// TRACKING STATE
+// TRACKER STATE
 // ============================================================================
 
-const Tracking = {
+const TimeTracker = {
+    // Tracking state
+    isTracking: false,
+    isPageVisible: true,
+    
     // Time tracking
     sessionStartTime: null,
     currentStepStartTime: null,
     lastHeartbeat: null,
-    heartbeatInterval: null,
     
-    // Visibility tracking
-    isPageVisible: true,
-    lastVisibilityChange: null,
+    // Counters
+    totalTimeSpent: 0,
+    currentStepTime: 0,
     
-    // Event buffer (offline support)
+    // Event buffer
     eventBuffer: [],
-    isOnline: true,
+    maxBufferSize: 50,
     
-    // Configuration
-    HEARTBEAT_INTERVAL: 10000, // 10 sekund
-    SYNC_RETRY_DELAY: 5000,    // 5 sekund
-    MAX_BUFFER_SIZE: 100,
+    // Intervals
+    heartbeatInterval: null,
+    heartbeatFrequency: 10000, // 10 sekund
     
-    // Statistics
-    stats: {
-        totalClicks: 0,
-        totalScrolls: 0,
-        videoPlays: 0,
-        quizAttempts: 0
-    }
+    // Scroll tracking
+    maxScrollDepth: 0,
+    scrollMilestones: [25, 50, 75, 100],
+    reachedMilestones: [],
+    
+    // Network status
+    isOnline: navigator.onLine,
+    offlineBuffer: []
 };
 
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', function() {
-    // Czekaj aż LearningPlatform będzie gotowy
-    if (typeof LearningPlatform !== 'undefined' && LearningPlatform.isAuthenticated) {
-        initTracking();
-    } else {
-        // Sprawdź co sekundę czy platforma jest gotowa
-        const checkInterval = setInterval(() => {
-            if (typeof LearningPlatform !== 'undefined' && LearningPlatform.isAuthenticated) {
-                clearInterval(checkInterval);
-                initTracking();
-            }
-        }, 1000);
-    }
-});
-
-function initTracking() {
-    console.log('[Tracking] Inicjalizacja trackingu...');
+function initTimeTracker() {
+    console.log('[Tracker] Inicjalizacja time trackera...');
     
     // Ustaw czas rozpoczęcia sesji
-    Tracking.sessionStartTime = Date.now();
-    Tracking.currentStepStartTime = Date.now();
+    TimeTracker.sessionStartTime = Date.now();
+    TimeTracker.currentStepStartTime = Date.now();
+    TimeTracker.lastHeartbeat = Date.now();
     
-    // Visibility API
-    initVisibilityTracking();
+    // Załaduj zapisane eventy z localStorage
+    loadEventBuffer();
     
-    // Event listeners
-    initEventTracking();
+    // Uruchom tracking
+    startTracking();
     
-    // Heartbeat (sync czasu co 10s)
+    // Ustaw event listeners
+    setupEventListeners();
+    
+    // Uruchom heartbeat
     startHeartbeat();
     
-    // Network status monitoring
-    initNetworkMonitoring();
+    console.log('[Tracker] Time tracker uruchomiony');
+}
+
+// ============================================================================
+// EVENT LISTENERS
+// ============================================================================
+
+function setupEventListeners() {
+    // Visibility API - pause gdy karta ukryta
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     // Scroll tracking
-    initScrollTracking();
+    window.addEventListener('scroll', handleScroll, { passive: true });
     
-    // Przed opuszczeniem strony - ostatni sync
+    // Click tracking
+    document.addEventListener('click', handleClick);
+    
+    // Network status
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    // Before unload - zapisz dane przed zamknięciem
     window.addEventListener('beforeunload', handleBeforeUnload);
     
-    console.log('[Tracking] Tracking zainicjalizowany');
-}
-
-// ============================================================================
-// TIME TRACKING
-// ============================================================================
-
-function startHeartbeat() {
-    // Pierwszy heartbeat natychmiast
-    sendHeartbeat();
-    
-    // Następne co 10 sekund
-    Tracking.heartbeatInterval = setInterval(() => {
-        if (Tracking.isPageVisible) {
-            sendHeartbeat();
-        }
-    }, Tracking.HEARTBEAT_INTERVAL);
-}
-
-function stopHeartbeat() {
-    if (Tracking.heartbeatInterval) {
-        clearInterval(Tracking.heartbeatInterval);
-        Tracking.heartbeatInterval = null;
-    }
-}
-
-async function sendHeartbeat() {
-    if (!LearningPlatform.sessionId) return;
-    
-    const now = Date.now();
-    const timeIncrement = Tracking.lastHeartbeat 
-        ? Math.floor((now - Tracking.lastHeartbeat) / 1000) 
-        : Math.floor((now - Tracking.sessionStartTime) / 1000);
-    
-    Tracking.lastHeartbeat = now;
-    
-    // Aktualizuj lokalny czas
-    LearningPlatform.totalTimeSpent += timeIncrement;
-    
-    // Aktualizuj UI
-    if (typeof updateTimeSpent === 'function') {
-        updateTimeSpent();
-    }
-    
-    // Wyślij do backendu
-    try {
-        const response = await fetch('/partner-academy/api/time/sync', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                session_id: LearningPlatform.sessionId,
-                step: LearningPlatform.currentStep,
-                time_increment: timeIncrement
-            })
-        });
-        
-        if (response.ok) {
-            const result = await response.json();
-            console.log('[Tracking] Heartbeat wysłany:', timeIncrement + 's');
-            
-            // Wyślij buforowane eventy jeśli są
-            if (Tracking.eventBuffer.length > 0) {
-                await flushEventBuffer();
-            }
-        }
-        
-    } catch (error) {
-        console.error('[Tracking] Błąd heartbeat:', error);
-        // Zapisz w buforze jeśli offline
-        addToEventBuffer('heartbeat', { time_increment: timeIncrement });
-    }
-}
-
-function calculateStepTime(stepId) {
-    const now = Date.now();
-    const timeSpent = Math.floor((now - Tracking.currentStepStartTime) / 1000);
-    
-    // Zapisz czas dla kroku
-    if (!LearningPlatform.stepTimes[stepId]) {
-        LearningPlatform.stepTimes[stepId] = 0;
-    }
-    LearningPlatform.stepTimes[stepId] += timeSpent;
-    
-    // Zresetuj timer dla nowego kroku
-    Tracking.currentStepStartTime = now;
-    
-    console.log('[Tracking] Czas na kroku', stepId + ':', timeSpent + 's');
-    
-    return timeSpent;
-}
-
-// ============================================================================
-// VISIBILITY TRACKING (Page Visibility API)
-// ============================================================================
-
-function initVisibilityTracking() {
-    let hidden, visibilityChange;
-    
-    if (typeof document.hidden !== 'undefined') {
-        hidden = 'hidden';
-        visibilityChange = 'visibilitychange';
-    } else if (typeof document.webkitHidden !== 'undefined') {
-        hidden = 'webkitHidden';
-        visibilityChange = 'webkitvisibilitychange';
-    }
-    
-    if (typeof document[hidden] !== 'undefined') {
-        document.addEventListener(visibilityChange, handleVisibilityChange, false);
-    }
+    // Step changes - będzie wywoływane z learning.js
+    // Można podpiąć customowy event
+    document.addEventListener('stepChanged', handleStepChange);
 }
 
 function handleVisibilityChange() {
-    const now = Date.now();
-    
     if (document.hidden) {
-        // Użytkownik opuścił kartę
-        Tracking.isPageVisible = false;
-        Tracking.lastVisibilityChange = now;
+        // Karta ukryta - pauzuj tracking
+        TimeTracker.isPageVisible = false;
+        pauseTracking();
         
-        console.log('[Tracking] Karta ukryta - pause tracking');
-        
-        // Wyślij ostatni heartbeat przed pauzą
-        sendHeartbeat();
-        
-        // Loguj event
         logEvent('page_hidden', {
-            step: LearningPlatform.currentStep
+            total_time: TimeTracker.totalTimeSpent,
+            step_time: TimeTracker.currentStepTime
         });
         
+        console.log('[Tracker] Karta ukryta - tracking zatrzymany');
     } else {
-        // Użytkownik wrócił do karty
-        Tracking.isPageVisible = true;
+        // Karta widoczna - wznów tracking
+        TimeTracker.isPageVisible = true;
+        resumeTracking();
         
-        const awayTime = now - Tracking.lastVisibilityChange;
-        const awayMinutes = Math.floor(awayTime / 60000);
+        logEvent('page_visible', {});
         
-        console.log('[Tracking] Karta widoczna - resume tracking (away:', awayMinutes + 'min)');
-        
-        // Loguj event
-        logEvent('page_visible', {
-            step: LearningPlatform.currentStep,
-            away_time_seconds: Math.floor(awayTime / 1000)
-        });
-        
-        // Zresetuj timer kroku (nie liczymy czasu gdy karta ukryta)
-        Tracking.currentStepStartTime = now;
-        Tracking.lastHeartbeat = now;
+        console.log('[Tracker] Karta widoczna - tracking wznowiony');
     }
 }
 
-// ============================================================================
-// EVENT TRACKING
-// ============================================================================
-
-function initEventTracking() {
-    // Navigation clicks
-    document.addEventListener('click', handleClick, true);
+function handleScroll() {
+    // Oblicz scroll depth
+    const windowHeight = window.innerHeight;
+    const documentHeight = document.documentElement.scrollHeight;
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     
-    // Step changes
-    if (typeof LearningPlatform !== 'undefined') {
-        const originalShowStep = window.showStep;
-        window.showStep = function(stepId) {
-            // Oblicz czas poprzedniego kroku
-            calculateStepTime(LearningPlatform.currentStep);
+    const scrollPercent = Math.round((scrollTop / (documentHeight - windowHeight)) * 100);
+    
+    // Aktualizuj max scroll depth
+    if (scrollPercent > TimeTracker.maxScrollDepth) {
+        TimeTracker.maxScrollDepth = scrollPercent;
+    }
+    
+    // Sprawdź milestones (25%, 50%, 75%, 100%)
+    TimeTracker.scrollMilestones.forEach(milestone => {
+        if (scrollPercent >= milestone && !TimeTracker.reachedMilestones.includes(milestone)) {
+            TimeTracker.reachedMilestones.push(milestone);
             
-            // Loguj zmianę kroku
-            logEvent('step_change', {
-                from_step: LearningPlatform.currentStep,
-                to_step: stepId
+            logEvent('scroll_milestone', {
+                milestone: milestone,
+                step: LearningPlatform.currentStep
             });
             
-            // Wywołaj oryginalną funkcję
-            if (originalShowStep) {
-                originalShowStep(stepId);
-            }
-        };
-        
-        // Step completion
-        const originalCompleteStep = window.completeStep;
-        window.completeStep = function(stepId) {
-            logEvent('step_completed', {
-                step: stepId,
-                time_spent: LearningPlatform.stepTimes[stepId] || 0
-            });
-            
-            if (originalCompleteStep) {
-                originalCompleteStep(stepId);
-            }
-        };
-        
-        // Quiz submission
-        const originalSubmitQuiz = window.submitQuiz;
-        window.submitQuiz = function(quizId) {
-            Tracking.stats.quizAttempts++;
-            
-            logEvent('quiz_attempt', {
-                quiz_id: quizId,
-                attempt_number: LearningPlatform.quizAttempts[quizId] + 1
-            });
-            
-            if (originalSubmitQuiz) {
-                originalSubmitQuiz(quizId);
-            }
-        };
-    }
-}
-
-function handleClick(event) {
-    const target = event.target;
-    
-    // Sidebar navigation
-    if (target.closest('.step-item')) {
-        const stepItem = target.closest('.step-item');
-        const stepId = stepItem.dataset.step;
-        
-        logEvent('sidebar_click', {
-            step: stepId,
-            is_locked: stepItem.classList.contains('locked')
-        });
-        
-        Tracking.stats.totalClicks++;
-    }
-    
-    // Navigation buttons
-    if (target.id === 'nextBtn' || target.closest('#nextBtn')) {
-        logEvent('next_button_click', {
-            current_step: LearningPlatform.currentStep
-        });
-        Tracking.stats.totalClicks++;
-    }
-    
-    if (target.id === 'prevBtn' || target.closest('#prevBtn')) {
-        logEvent('prev_button_click', {
-            current_step: LearningPlatform.currentStep
-        });
-        Tracking.stats.totalClicks++;
-    }
-    
-    // Quiz answers
-    if (target.closest('.quiz-option')) {
-        logEvent('quiz_answer_click', {
-            question: target.closest('.quiz-question')?.dataset.question,
-            step: LearningPlatform.currentStep
-        });
-    }
-}
-
-// ============================================================================
-// SCROLL TRACKING
-// ============================================================================
-
-function initScrollTracking() {
-    let scrollTimeout;
-    let maxScrollDepth = 0;
-    
-    window.addEventListener('scroll', function() {
-        clearTimeout(scrollTimeout);
-        
-        scrollTimeout = setTimeout(() => {
-            const scrollPercentage = Math.round(
-                (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100
-            );
-            
-            if (scrollPercentage > maxScrollDepth) {
-                maxScrollDepth = scrollPercentage;
-                
-                // Loguj co 25%
-                if (scrollPercentage >= 25 && scrollPercentage < 50 && maxScrollDepth < 50) {
-                    logEvent('scroll_depth', { depth: '25%', step: LearningPlatform.currentStep });
-                } else if (scrollPercentage >= 50 && scrollPercentage < 75 && maxScrollDepth < 75) {
-                    logEvent('scroll_depth', { depth: '50%', step: LearningPlatform.currentStep });
-                } else if (scrollPercentage >= 75 && scrollPercentage < 100 && maxScrollDepth < 100) {
-                    logEvent('scroll_depth', { depth: '75%', step: LearningPlatform.currentStep });
-                } else if (scrollPercentage >= 100) {
-                    logEvent('scroll_depth', { depth: '100%', step: LearningPlatform.currentStep });
-                }
-            }
-            
-            Tracking.stats.totalScrolls++;
-        }, 200);
+            console.log('[Tracker] Scroll milestone:', milestone + '%');
+        }
     });
+}
+
+function handleClick(e) {
+    // Trackuj kliknięcia w ważne elementy
+    const target = e.target;
+    
+    let elementType = 'other';
+    let elementData = {};
+    
+    if (target.classList.contains('btn-primary') || target.classList.contains('btn-secondary')) {
+        elementType = 'button';
+        elementData.text = target.textContent.trim();
+    } else if (target.classList.contains('step-item')) {
+        elementType = 'sidebar_navigation';
+        elementData.target_step = target.getAttribute('data-step');
+    } else if (target.classList.contains('quiz-option')) {
+        elementType = 'quiz_option';
+        elementData.quiz_id = target.closest('.quiz-container')?.id;
+    }
+    
+    if (elementType !== 'other') {
+        logEvent('click', {
+            element_type: elementType,
+            ...elementData
+        });
+    }
+}
+
+function handleStepChange(e) {
+    const newStep = e.detail.stepId;
+    const timeSpent = Date.now() - TimeTracker.currentStepStartTime;
+    
+    logEvent('step_change', {
+        from_step: LearningPlatform.currentStep,
+        to_step: newStep,
+        time_spent: timeSpent
+    });
+    
+    // Reset czasu dla nowego kroku
+    TimeTracker.currentStepTime = 0;
+    TimeTracker.currentStepStartTime = Date.now();
+    TimeTracker.maxScrollDepth = 0;
+    TimeTracker.reachedMilestones = [];
+    
+    console.log('[Tracker] Zmiana kroku:', LearningPlatform.currentStep, '→', newStep);
+}
+
+function handleOnline() {
+    TimeTracker.isOnline = true;
+    
+    logEvent('online', {});
+    
+    // Wyślij buforowane eventy
+    if (TimeTracker.offlineBuffer.length > 0) {
+        console.log('[Tracker] Online - wysyłanie buforowanych eventów:', TimeTracker.offlineBuffer.length);
+        flushOfflineBuffer();
+    }
+}
+
+function handleOffline() {
+    TimeTracker.isOnline = false;
+    
+    logEvent('offline', {});
+    
+    console.log('[Tracker] Offline - eventy będą buforowane');
+}
+
+function handleBeforeUnload(e) {
+    // Zapisz dane przed zamknięciem strony
+    pauseTracking();
+    
+    // Synchronizuj czas
+    syncTimeSpent(true);
+    
+    // Zapisz buffer w localStorage
+    saveEventBuffer();
+    
+    logEvent('session_end', {
+        total_time: TimeTracker.totalTimeSpent,
+        completed_steps: LearningPlatform.completedSteps.length
+    });
+    
+    console.log('[Tracker] Session end - dane zapisane');
+}
+
+// ============================================================================
+// TRACKING CONTROL
+// ============================================================================
+
+function startTracking() {
+    if (TimeTracker.isTracking) return;
+    
+    TimeTracker.isTracking = true;
+    TimeTracker.sessionStartTime = Date.now();
+    TimeTracker.currentStepStartTime = Date.now();
+    
+    logEvent('session_start', {
+        step: LearningPlatform.currentStep
+    });
+    
+    console.log('[Tracker] Tracking rozpoczęty');
+}
+
+function pauseTracking() {
+    if (!TimeTracker.isTracking) return;
+    
+    // Oblicz czas od ostatniego heartbeat
+    const now = Date.now();
+    const timeSinceLastHeartbeat = now - TimeTracker.lastHeartbeat;
+    
+    TimeTracker.totalTimeSpent += timeSinceLastHeartbeat;
+    TimeTracker.currentStepTime += timeSinceLastHeartbeat;
+    
+    TimeTracker.isTracking = false;
+    
+    // Zatrzymaj heartbeat
+    if (TimeTracker.heartbeatInterval) {
+        clearInterval(TimeTracker.heartbeatInterval);
+        TimeTracker.heartbeatInterval = null;
+    }
+    
+    console.log('[Tracker] Tracking zatrzymany. Całkowity czas:', Math.round(TimeTracker.totalTimeSpent / 1000) + 's');
+}
+
+function resumeTracking() {
+    if (TimeTracker.isTracking) return;
+    
+    TimeTracker.isTracking = true;
+    TimeTracker.lastHeartbeat = Date.now();
+    
+    // Wznów heartbeat
+    startHeartbeat();
+    
+    console.log('[Tracker] Tracking wznowiony');
+}
+
+// ============================================================================
+// HEARTBEAT - SYNCHRONIZACJA CO 10s
+// ============================================================================
+
+function startHeartbeat() {
+    // Wyczyść poprzedni interval jeśli istnieje
+    if (TimeTracker.heartbeatInterval) {
+        clearInterval(TimeTracker.heartbeatInterval);
+    }
+    
+    // Uruchom nowy heartbeat
+    TimeTracker.heartbeatInterval = setInterval(() => {
+        if (TimeTracker.isTracking && TimeTracker.isPageVisible) {
+            heartbeat();
+        }
+    }, TimeTracker.heartbeatFrequency);
+    
+    console.log('[Tracker] Heartbeat uruchomiony (co 10s)');
+}
+
+function heartbeat() {
+    const now = Date.now();
+    const timeSinceLastHeartbeat = now - TimeTracker.lastHeartbeat;
+    
+    // Aktualizuj czasy
+    TimeTracker.totalTimeSpent += timeSinceLastHeartbeat;
+    TimeTracker.currentStepTime += timeSinceLastHeartbeat;
+    TimeTracker.lastHeartbeat = now;
+    
+    // Synchronizuj z backendem
+    syncTimeSpent(false);
+    
+    console.log('[Tracker] Heartbeat - czas:', Math.round(TimeTracker.totalTimeSpent / 1000) + 's');
+}
+
+// ============================================================================
+// TIME SYNCHRONIZATION WITH BACKEND
+// ============================================================================
+
+async function syncTimeSpent(isBeforeUnload = false) {
+    const data = {
+        session_id: LearningPlatform.sessionId,
+        total_time: Math.round(TimeTracker.totalTimeSpent / 1000), // sekundy
+        current_step: LearningPlatform.currentStep,
+        step_time: Math.round(TimeTracker.currentStepTime / 1000),
+        timestamp: Date.now()
+    };
+    
+    try {
+        if (isBeforeUnload) {
+            // Użyj sendBeacon dla synchronicznego wysłania przy zamykaniu
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            navigator.sendBeacon('/partner-academy/api/time/sync', blob);
+        } else {
+            // Normalny fetch
+            const response = await fetch('/partner-academy/api/time/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                console.log('[Tracker] Czas zsynchronizowany z backendem');
+            }
+        }
+    } catch (error) {
+        console.error('[Tracker] Błąd synchronizacji czasu:', error);
+        
+        // Dodaj do offline buffer
+        if (!TimeTracker.isOnline) {
+            TimeTracker.offlineBuffer.push({
+                type: 'time_sync',
+                data: data,
+                timestamp: Date.now()
+            });
+        }
+    }
 }
 
 // ============================================================================
 // EVENT LOGGING
 // ============================================================================
 
-function logEvent(eventType, data = {}) {
+function logEvent(eventType, eventData) {
     const event = {
         type: eventType,
-        timestamp: Date.now(),
-        session_id: LearningPlatform.sessionId,
         step: LearningPlatform.currentStep,
-        data: data
+        data: eventData,
+        timestamp: Date.now(),
+        session_id: LearningPlatform.sessionId
     };
     
-    console.log('[Tracking] Event:', eventType, data);
+    // Dodaj do buffera
+    TimeTracker.eventBuffer.push(event);
     
-    // Zapisz lokalnie
-    saveEventToLocalStorage(event);
+    // Ogranicz rozmiar buffera
+    if (TimeTracker.eventBuffer.length > TimeTracker.maxBufferSize) {
+        TimeTracker.eventBuffer.shift();
+    }
     
-    // Wyślij do backendu (lub buforuj jeśli offline)
-    if (Tracking.isOnline) {
-        sendEventToBackend(event);
-    } else {
-        addToEventBuffer(eventType, data);
-    }
-}
-
-function saveEventToLocalStorage(event) {
-    try {
-        const events = JSON.parse(localStorage.getItem('learning_events') || '[]');
-        events.push(event);
-        
-        // Zachowaj tylko ostatnie 50 eventów
-        if (events.length > 50) {
-            events.splice(0, events.length - 50);
-        }
-        
-        localStorage.setItem('learning_events', JSON.stringify(events));
-    } catch (error) {
-        console.error('[Tracking] Błąd zapisu do localStorage:', error);
-    }
+    // Zapisz w localStorage
+    saveEventBuffer();
+    
+    // Wyślij do backendu (opcjonalnie - można zbierać i wysyłać okresowo)
+    sendEventToBackend(event);
 }
 
 async function sendEventToBackend(event) {
-    // Opcjonalnie - możesz stworzyć dedykowany endpoint do logowania eventów
-    // Na razie pomijamy, żeby nie zaśmiecać backendu
-    // W produkcji możesz wysyłać do Google Analytics, Mixpanel, etc.
+    // Nie wysyłaj jeśli offline
+    if (!TimeTracker.isOnline) {
+        TimeTracker.offlineBuffer.push({
+            type: 'event',
+            data: event,
+            timestamp: Date.now()
+        });
+        return;
+    }
     
-    // Przykład:
-    /*
     try {
-        await fetch('/partner-academy/api/analytics/event', {
+        await fetch('/partner-academy/api/events/log', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify(event)
         });
     } catch (error) {
-        console.error('[Tracking] Błąd wysyłki eventu:', error);
-    }
-    */
-}
-
-// ============================================================================
-// OFFLINE SUPPORT
-// ============================================================================
-
-function initNetworkMonitoring() {
-    Tracking.isOnline = navigator.onLine;
-    
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-}
-
-function handleOnline() {
-    console.log('[Tracking] Połączenie przywrócone');
-    Tracking.isOnline = true;
-    
-    // Wyślij buforowane eventy
-    flushEventBuffer();
-}
-
-function handleOffline() {
-    console.log('[Tracking] Brak połączenia - tryb offline');
-    Tracking.isOnline = false;
-}
-
-function addToEventBuffer(eventType, data) {
-    const event = {
-        type: eventType,
-        timestamp: Date.now(),
-        session_id: LearningPlatform.sessionId,
-        step: LearningPlatform.currentStep,
-        data: data
-    };
-    
-    Tracking.eventBuffer.push(event);
-    
-    // Ogranicz rozmiar bufora
-    if (Tracking.eventBuffer.length > Tracking.MAX_BUFFER_SIZE) {
-        Tracking.eventBuffer.shift();
-    }
-    
-    console.log('[Tracking] Event dodany do bufora:', eventType, '(bufor:', Tracking.eventBuffer.length + ')');
-}
-
-async function flushEventBuffer() {
-    if (Tracking.eventBuffer.length === 0) return;
-    
-    console.log('[Tracking] Wysyłanie buforowanych eventów:', Tracking.eventBuffer.length);
-    
-    const eventsToSend = [...Tracking.eventBuffer];
-    Tracking.eventBuffer = [];
-    
-    // Tutaj możesz wysłać wszystkie eventy jednym request
-    // Na razie tylko logujemy
-    console.log('[Tracking] Bufor wyczyszczony');
-    
-    // Przykład batch send:
-    /*
-    try {
-        await fetch('/partner-academy/api/analytics/batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ events: eventsToSend })
+        console.error('[Tracker] Błąd wysyłania eventu:', error);
+        
+        // Dodaj do offline buffer
+        TimeTracker.offlineBuffer.push({
+            type: 'event',
+            data: event,
+            timestamp: Date.now()
         });
-    } catch (error) {
-        // Przywróć do bufora jeśli nie udało się wysłać
-        Tracking.eventBuffer = [...eventsToSend, ...Tracking.eventBuffer];
     }
-    */
 }
 
 // ============================================================================
-// CLEANUP
+// OFFLINE BUFFER MANAGEMENT
 // ============================================================================
 
-function handleBeforeUnload() {
-    // Ostatni heartbeat
-    if (Tracking.isPageVisible) {
-        sendHeartbeat();
+async function flushOfflineBuffer() {
+    if (TimeTracker.offlineBuffer.length === 0) return;
+    
+    console.log('[Tracker] Wysyłanie buforowanych danych:', TimeTracker.offlineBuffer.length);
+    
+    const buffer = [...TimeTracker.offlineBuffer];
+    TimeTracker.offlineBuffer = [];
+    
+    try {
+        const response = await fetch('/partner-academy/api/events/bulk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                session_id: LearningPlatform.sessionId,
+                events: buffer
+            })
+        });
+        
+        if (response.ok) {
+            console.log('[Tracker] Buforowane dane wysłane pomyślnie');
+        } else {
+            // Przywróć buffer jeśli nie udało się wysłać
+            TimeTracker.offlineBuffer = buffer;
+        }
+    } catch (error) {
+        console.error('[Tracker] Błąd wysyłania bufora:', error);
+        // Przywróć buffer
+        TimeTracker.offlineBuffer = buffer;
     }
-    
-    // Loguj opuszczenie
-    logEvent('session_end', {
-        total_time: LearningPlatform.totalTimeSpent,
-        completed_steps: LearningPlatform.completedSteps.length,
-        current_step: LearningPlatform.currentStep
+}
+
+// ============================================================================
+// LOCALSTORAGE PERSISTENCE
+// ============================================================================
+
+function saveEventBuffer() {
+    try {
+        localStorage.setItem('learning_events', JSON.stringify(TimeTracker.eventBuffer));
+    } catch (error) {
+        console.error('[Tracker] Błąd zapisywania eventów do localStorage:', error);
+    }
+}
+
+function loadEventBuffer() {
+    try {
+        const saved = localStorage.getItem('learning_events');
+        if (saved) {
+            TimeTracker.eventBuffer = JSON.parse(saved);
+            console.log('[Tracker] Załadowano eventy z localStorage:', TimeTracker.eventBuffer.length);
+        }
+    } catch (error) {
+        console.error('[Tracker] Błąd ładowania eventów z localStorage:', error);
+        TimeTracker.eventBuffer = [];
+    }
+}
+
+// ============================================================================
+// PUBLIC API - CUSTOM EVENTS
+// ============================================================================
+
+// Eksportowane funkcje dla learning.js
+
+function trackQuizAttempt(quizId, success, attempts) {
+    logEvent('quiz_attempt', {
+        quiz_id: quizId,
+        success: success,
+        attempts: attempts
     });
-    
-    // Stop heartbeat
-    stopHeartbeat();
-    
-    console.log('[Tracking] Sesja zakończona');
+}
+
+function trackStepCompletion(stepId, timeSpent) {
+    logEvent('step_completion', {
+        step_id: stepId,
+        time_spent: timeSpent
+    });
+}
+
+function trackCertificateDownload() {
+    logEvent('certificate_download', {
+        completed_steps: LearningPlatform.completedSteps.length,
+        total_time: TimeTracker.totalTimeSpent
+    });
 }
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
-function getTrackingStats() {
+function getFormattedTime(milliseconds) {
+    const seconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) {
+        return `${hours}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${seconds % 60}s`;
+    } else {
+        return `${seconds}s`;
+    }
+}
+
+function getTrackerStats() {
     return {
-        ...Tracking.stats,
-        totalTime: LearningPlatform.totalTimeSpent,
-        completedSteps: LearningPlatform.completedSteps.length,
-        currentStep: LearningPlatform.currentStep,
-        sessionDuration: Date.now() - Tracking.sessionStartTime
+        total_time: TimeTracker.totalTimeSpent,
+        total_time_formatted: getFormattedTime(TimeTracker.totalTimeSpent),
+        current_step_time: TimeTracker.currentStepTime,
+        current_step_time_formatted: getFormattedTime(TimeTracker.currentStepTime),
+        events_logged: TimeTracker.eventBuffer.length,
+        max_scroll_depth: TimeTracker.maxScrollDepth,
+        is_tracking: TimeTracker.isTracking,
+        is_online: TimeTracker.isOnline
     };
 }
 
-function resetTracking() {
-    Tracking.stats = {
-        totalClicks: 0,
-        totalScrolls: 0,
-        videoPlays: 0,
-        quizAttempts: 0
-    };
-    
-    Tracking.eventBuffer = [];
-    
-    console.log('[Tracking] Stats zresetowane');
-}
-
 // ============================================================================
-// EXPORT
+// AUTO-INIT AFTER PLATFORM LOADS
 // ============================================================================
 
-window.Tracking = Tracking;
-window.logEvent = logEvent;
-window.getTrackingStats = getTrackingStats;
-window.resetTracking = resetTracking;
+// Inicjalizuj tracker gdy platforma jest gotowa
+document.addEventListener('DOMContentLoaded', function() {
+    // Poczekaj aż learning.js zainicjalizuje platformę
+    const checkPlatformReady = setInterval(() => {
+        if (LearningPlatform.isAuthenticated) {
+            clearInterval(checkPlatformReady);
+            initTimeTracker();
+        }
+    }, 500);
+    
+    // Timeout po 10 sekundach
+    setTimeout(() => {
+        clearInterval(checkPlatformReady);
+    }, 10000);
+});
 
-console.log('[Tracking] Moduł tracking załadowany');
+console.log('[Tracker] time_tracker.js załadowany');

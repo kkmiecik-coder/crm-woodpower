@@ -579,10 +579,16 @@
     color: var(--text-gray);
 }
 
+.success-icon-large {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: var(--spacing-lg);
+}
+
 /* ============================================================================
    NAVIGATION BUTTONS
    ============================================================================ */
-
 .navigation-buttons {
     display: flex;
     justify-content: space-between;
