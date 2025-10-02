@@ -148,11 +148,6 @@ def get_system_status():
             'message': 'Połączenie aktywne',
             'last_sync': 'przed chwilą'
         },
-        'scheduler': {
-            'status': 'ok',
-            'message': 'Działanie normalne', 
-            'pending_jobs': 0
-        },
         'email': {
             'status': 'ok',
             'message': 'Serwis dostępny',

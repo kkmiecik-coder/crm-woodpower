@@ -4,6 +4,7 @@ import json
 import sys
 import pkgutil
 import importlib
+import click
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
@@ -11,7 +12,6 @@ from functools import wraps
 from flask_mail import Mail, Message
 from jinja2 import ChoiceLoader, FileSystemLoader
 from extensions import db, mail
-import threading
 from sqlalchemy import desc
 from modules.calculator import calculator_bp
 from modules.calculator.models import User, Invitation, Price, Multiplier
@@ -33,28 +33,9 @@ from modules.partner_academy.models import PartnerApplication, PartnerLearningSe
 
 from flask_login import login_user, logout_user  # DODANE importy
 from sqlalchemy.exc import ResourceClosedError, OperationalError
+from flask.cli import with_appcontext
 
 os.environ['PYTHONIOENCODING'] = 'utf-8:replace'
-from modules.scheduler import scheduler_bp
-try:
-    from modules.scheduler.scheduler_service import init_scheduler, get_scheduler_status
-    from modules.scheduler.jobs.quote_reminders import get_quote_reminders_stats
-    SCHEDULER_AVAILABLE = True
-except ImportError as e:
-    print(f"[WARNING] Scheduler niedostępny: {e}", file=sys.stderr)
-    SCHEDULER_AVAILABLE = False
-    init_scheduler = lambda app: None
-    get_scheduler_status = lambda: {'running': False, 'jobs': []}
-    get_quote_reminders_stats = lambda: {
-        'sent_last_30_days': 0, 
-        'failed_last_30_days': 0, 
-        'pending_reminders': 0, 
-        'success_rate': 0
-    }
-
-_scheduler_lock = threading.Lock()
-_scheduler_initialized = False
-
 
 # Domyślne metadane modułów (etykieta i ikona)
 DEFAULT_MODULE_METADATA = {
@@ -91,35 +72,6 @@ def discover_module_metadata(app):
 
     return metadata
 
-
-def initialize_scheduler_safely(app):
-    """
-    Thread-safe inicjalizacja schedulera - wywoływana tylko raz
-    """
-    global _scheduler_initialized
-    
-    if not SCHEDULER_AVAILABLE:
-        print("[Scheduler] Scheduler niedostępny - pomijam inicjalizację", file=sys.stderr)
-        return
-    
-    # Double-checked locking pattern
-    if not _scheduler_initialized:
-        with _scheduler_lock:
-            if not _scheduler_initialized:
-                try:
-                    print(f"[Scheduler] Inicjalizacja schedulera w procesie PID: {os.getpid()}", file=sys.stderr)
-                    init_scheduler(app)
-                    _scheduler_initialized = True
-                    print("[Scheduler] ✅ Scheduler zainicjalizowany pomyślnie", file=sys.stderr)
-                except Exception as e:
-                    print(f"[Scheduler] ❌ Błąd inicjalizacji schedulera: {e}", file=sys.stderr)
-                    import traceback
-                    traceback.print_exc(file=sys.stderr)
-            else:
-                print("[Scheduler] Scheduler już zainicjalizowany - pomijam", file=sys.stderr)
-    else:
-        print("[Scheduler] Scheduler już zainicjalizowany - pomijam", file=sys.stderr)
-
 def create_admin():
     """Tworzy użytkownika admina, jeśli nie istnieje."""
     admin_email = "admin@woodpower.pl"
@@ -134,6 +86,19 @@ def create_admin():
         )
         db.session.add(new_admin)
         db.session.commit()
+
+def register_cli_commands(app):
+    """Rejestruje komendy Flask CLI."""
+
+    @app.cli.command("setup-db")
+    @with_appcontext
+    def setup_db_command():
+        """Tworzy schemat bazy danych i konto administratora."""
+        click.echo("[setup-db] Tworzę schemat bazy danych…")
+        db.create_all()
+        click.echo("[setup-db] Sprawdzam konto administratora…")
+        create_admin()
+        click.echo("[setup-db] Gotowe.")
 
 # Funkcje do generowania i weryfikacji tokena resetującego hasło
 def generate_reset_token(email, secret_key, salt='password-reset-salt'):
@@ -166,10 +131,13 @@ def create_app():
     else:
         config_data = {
             "DEBUG": True,
-            "DATABASE_URI": "sqlite:///kalkulator_web.db"
+            "DATABASE_URI": "sqlite:///kalkulator_web.db",
+            "RUN_DB_SETUP": False
         }
         app.config.update(config_data)
         print("Nie znaleziono app/config/core.json – użyto wartości domyślnych", file=sys.stderr)
+
+    app.config.setdefault('RUN_DB_SETUP', False)
 
     # Dodajemy ustawienia utrzymujące połączenie z bazą:
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
@@ -184,6 +152,7 @@ def create_app():
     # Inicjalizacja Flask-Mail oraz bazy danych itp.
     from extensions import init_extensions
     init_extensions(app)
+    register_cli_commands(app)
 
     if hasattr(app, 'login_manager'):
         print("✅ LoginManager zainicjalizowany poprawnie", file=sys.stderr)
@@ -191,8 +160,10 @@ def create_app():
         print("❌ LoginManager nie został zainicjalizowany", file=sys.stderr)
     
     with app.app_context():
-        db.create_all()
-        create_admin()
+        if app.config.get('RUN_DB_SETUP'):
+            print("[DB_SETUP] RUN_DB_SETUP włączone - tworzę schemat bazy i konto admina", file=sys.stderr)
+            db.create_all()
+            create_admin()
         # Odkrywanie dostępnych modułów i ich metadanych
         app.config['MODULE_METADATA'] = discover_module_metadata(app)
 
@@ -206,7 +177,6 @@ def create_app():
     app.register_blueprint(logging_bp, url_prefix='/logging')
     app.register_blueprint(preview3d_ar_bp)
     app.register_blueprint(reports_bp, url_prefix='/reports')
-    app.register_blueprint(scheduler_bp, url_prefix='/scheduler')
     app.register_blueprint(dashboard_bp, url_prefix='/dashboard')
     register_production_routers(production_bp)
     app.register_blueprint(production_bp, url_prefix='/production')
@@ -592,47 +562,10 @@ def create_app():
             all_prices = Price.query.order_by(Price.species, Price.wood_class).all()
             multipliers = Multiplier.query.all()
         
-            # DODAJ DANE SCHEDULERA
-            try:
-                from modules.scheduler.scheduler_service import get_scheduler_status
-                from modules.scheduler.jobs.quote_reminders import get_quote_reminders_stats
-                from modules.scheduler.models import EmailLog, EmailSchedule, SchedulerConfig
-                from datetime import datetime, timedelta
-            
-                # Pobierz dane schedulera
-                scheduler_status = get_scheduler_status()
-                quote_stats = get_quote_reminders_stats()
-                recent_logs = EmailLog.query.order_by(EmailLog.sent_at.desc()).limit(10).all()
-            
-                # Konfiguracje
-                configs = {}
-                config_records = SchedulerConfig.query.all()
-                for config in config_records:
-                    configs[config.key] = config.value
-            
-                # Statystyki
-                pending_emails = EmailSchedule.query.filter_by(status='pending').count()
-            
-            
-            except Exception as e:
-                print(f"[Settings] Błąd ładowania danych schedulera: {e}", file=sys.stderr)
-                # Ustaw wartości domyślne jeśli scheduler nie działa
-                scheduler_status = {'running': False, 'jobs': []}
-                quote_stats = {'sent_last_30_days': 0, 'failed_last_30_days': 0}
-                recent_logs = []
-                configs = {}
-                pending_emails = 0
-        
             return render_template("settings_page/admin_settings.html",
                                    users_list=all_users,
                                    prices=all_prices,
-                                   multipliers=multipliers,
-                                   # DODAJ DANE SCHEDULERA DO TEMPLATE
-                                   scheduler_status=scheduler_status,
-                                   quote_stats=quote_stats,
-                                   recent_logs=recent_logs,
-                                   configs=configs,
-                                   pending_emails=pending_emails)
+                                   multipliers=multipliers)
         else:
             return render_template("settings_page/user_settings.html")
 
@@ -1359,10 +1292,6 @@ def create_app():
 
     if wycena_routes:
         app_logger.debug("Wycena routes registered", routes_count=len(wycena_routes))
-
-    # Inicjalizacja schedulera (na końcu po wszystkich konfiguracjach)
-    if not app.config.get('TESTING', False):
-        initialize_scheduler_safely(app)
 
     return app
 
