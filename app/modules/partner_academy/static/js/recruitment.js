@@ -23,12 +23,105 @@ let formData = {};
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', function () {
+    setupCooperationCardSelector();
     updateProgress();
     updateNavigationButtons();
     renderMobileProgress();
     setupFileUpload();
     setupFormValidation();
 });
+
+// ============================================================================
+// COOPERATION TYPE CARD SELECTOR
+// ============================================================================
+
+function setupCooperationCardSelector() {
+    const radioButtons = document.querySelectorAll('input[name="cooperation_type"]');
+    const cards = document.querySelectorAll('.cooperation-card');
+    const b2bFields = document.getElementById('b2bFields');
+    
+    if (!radioButtons.length || !b2bFields) return;
+    
+    radioButtons.forEach(radio => {
+        radio.addEventListener('change', function() {
+            // Usuń active z wszystkich kart
+            cards.forEach(card => card.classList.remove('active'));
+            
+            // Dodaj active do wybranej karty
+            const selectedCard = this.closest('.cooperation-card');
+            if (selectedCard) {
+                selectedCard.classList.add('active');
+            }
+            
+            // Pokaż/ukryj pola B2B
+            if (this.value === 'b2b') {
+                b2bFields.style.display = 'block';
+                // Animacja
+                setTimeout(() => {
+                    b2bFields.classList.add('show');
+                }, 10);
+                
+                // Ustaw required dla pól B2B
+                setB2BFieldsRequired(true);
+            } else {
+                b2bFields.classList.remove('show');
+                setTimeout(() => {
+                    b2bFields.style.display = 'none';
+                }, 400);
+                
+                // Usuń required z pól B2B i wyczyść błędy
+                setB2BFieldsRequired(false);
+                clearB2BFieldsErrors();
+            }
+        });
+    });
+    
+    // Kliknięcie w całą kartę zaznacza radio
+    cards.forEach(card => {
+        card.addEventListener('click', function(e) {
+            if (e.target.type !== 'radio') {
+                const radio = this.querySelector('input[type="radio"]');
+                if (radio) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event('change'));
+                }
+            }
+        });
+    });
+}
+
+function setB2BFieldsRequired(required) {
+    const b2bInputs = ['company_name', 'nip', 'company_address', 'company_city', 'company_postal_code'];
+    
+    b2bInputs.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            if (required) {
+                field.setAttribute('required', 'required');
+            } else {
+                field.removeAttribute('required');
+                field.value = ''; // Wyczyść wartość
+            }
+        }
+    });
+}
+
+function clearB2BFieldsErrors() {
+    const b2bInputs = ['company_name', 'nip', 'regon', 'company_address', 'company_city', 'company_postal_code'];
+    
+    b2bInputs.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        const errorSpan = document.getElementById(`error_${fieldId}`);
+        
+        if (field) {
+            field.classList.remove('error');
+        }
+        if (errorSpan) {
+            errorSpan.textContent = '';
+            errorSpan.style.display = 'none';
+        }
+    });
+}
 
 // ============================================================================
 // STEP NAVIGATION
@@ -198,7 +291,6 @@ function setupFormValidation() {
 }
 
 function validateField(field) {
-    const fieldName = field.name;
     const fieldValue = field.value.trim();
     const errorSpan = document.getElementById(`error_${field.id}`);
 
@@ -249,9 +341,20 @@ function validateField(field) {
         }
     }
 
+    // Walidacja kodu pocztowego (osobisty)
+    if (field.id === 'postal_code' && fieldValue) {
+        if (!/^\d{2}-\d{3}$/.test(fieldValue)) {
+            errorSpan.textContent = 'Format: 00-000';
+            errorSpan.style.display = 'block';
+            field.classList.add('error');
+            return false;
+        }
+    }
+
     // Walidacja NIP
     if (field.id === 'nip' && fieldValue) {
-        if (!/^\d{10}$/.test(fieldValue)) {
+        const nipClean = fieldValue.replace(/\D/g, '');
+        if (!/^\d{10}$/.test(nipClean)) {
             errorSpan.textContent = 'NIP musi zawierać 10 cyfr';
             errorSpan.style.display = 'block';
             field.classList.add('error');
@@ -259,7 +362,7 @@ function validateField(field) {
         }
     }
 
-    // Walidacja kodu pocztowego
+    // Walidacja kodu pocztowego firmy
     if (field.id === 'company_postal_code' && fieldValue) {
         if (!/^\d{2}-\d{3}$/.test(fieldValue)) {
             errorSpan.textContent = 'Format: 00-000';
@@ -277,21 +380,15 @@ function validateForm() {
     if (!form) return false;
 
     let isValid = true;
-    const fields = form.querySelectorAll('input[required], textarea[required], select[required]');
+    const fields = form.querySelectorAll('input[required], textarea[required]');
 
     fields.forEach(field => {
-        // Pomiń pola B2B jeśli B2B nie jest zaznaczone
-        const isB2B = document.getElementById('is_b2b')?.checked;
-        if (!isB2B && field.closest('.b2b-fields')) {
-            return;
-        }
-
         if (!validateField(field)) {
             isValid = false;
         }
     });
 
-    // Sprawdź zgodę na przetwarzanie danych
+    // Sprawdź zgodę RODO
     const consentCheckbox = document.getElementById('data_processing_consent');
     if (consentCheckbox && !consentCheckbox.checked) {
         alert('Musisz wyrazić zgodę na przetwarzanie danych osobowych');
@@ -299,38 +396,6 @@ function validateForm() {
     }
 
     return isValid;
-}
-
-// ============================================================================
-// B2B TOGGLE
-// ============================================================================
-
-function toggleB2BFields() {
-    const checkbox = document.getElementById('is_b2b');
-    const b2bFields = document.getElementById('b2bFields');
-
-    if (!checkbox || !b2bFields) return;
-
-    const b2bInputs = b2bFields.querySelectorAll('input');
-
-    if (checkbox.checked) {
-        b2bFields.classList.add('active');
-        b2bInputs.forEach(input => {
-            if (input.id !== 'regon') { // REGON jest opcjonalny
-                input.required = true;
-            }
-        });
-    } else {
-        b2bFields.classList.remove('active');
-        b2bInputs.forEach(input => {
-            input.required = false;
-            input.value = '';
-            // Usuń błędy
-            const errorSpan = document.getElementById(`error_${input.id}`);
-            if (errorSpan) errorSpan.textContent = '';
-            input.classList.remove('error');
-        });
-    }
 }
 
 // ============================================================================
@@ -403,6 +468,12 @@ function handleFile(file) {
     filePreview.style.display = 'block';
     fileName.textContent = file.name;
     fileSize.textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+}
+
+function handleFileSelect(event) {
+    if (event.target.files.length > 0) {
+        handleFile(event.target.files[0]);
+    }
 }
 
 function removeFile() {
@@ -516,7 +587,7 @@ async function submitForm() {
         const result = await response.json();
 
         if (response.ok && result.success) {
-            // Sukces - pokazz komunikat i przekieruj lub zresetuj
+            // Sukces - pokaż komunikat i przekieruj lub zresetuj
             alert('Aplikacja została wysłana pomyślnie! Skontaktujemy się z Tobą w ciągu 48 godzin.');
 
             // Opcjonalnie: przekieruj na stronę podziękowania
