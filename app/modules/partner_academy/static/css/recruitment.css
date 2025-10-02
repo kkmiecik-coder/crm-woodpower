@@ -1056,7 +1056,6 @@ body {
     font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--text-dark);
-    margin-bottom: 4px;
     align-content: center;
 }
 
