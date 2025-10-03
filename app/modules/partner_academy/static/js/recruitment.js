@@ -397,6 +397,19 @@ function validateForm() {
         }
     });
 
+    // NOWE: Walidacja pól B2B jeśli wybrano B2B
+    const cooperationType = document.querySelector('input[name="cooperation_type"]:checked');
+    if (cooperationType && cooperationType.value === 'b2b') {
+        // Sprawdź czy pola B2B są wypełnione
+        const b2bFields = ['company_name', 'nip', 'company_address', 'company_city', 'company_postal_code'];
+        b2bFields.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field && !validateField(field)) {
+                isValid = false;
+            }
+        });
+    }
+
     // Sprawdź zgodę RODO
     const consentCheckbox = document.getElementById('data_processing_consent');
     if (consentCheckbox && !consentCheckbox.checked) {
@@ -576,16 +589,33 @@ async function submitForm() {
     }
 
     const form = document.getElementById('applicationForm');
-    const submitButton = document.getElementById('btnNext');
+    
+    // POPRAWKA: Znajdź przycisk submit (może być różne ID)
+    const submitButton = document.querySelector('.btn-submit-form') || document.getElementById('btnNext');
+    
+    if (!submitButton) {
+        console.error('Submit button not found!');
+        alert('Błąd: nie znaleziono przycisku wysyłania');
+        return;
+    }
 
     // Przygotuj FormData
     const formDataToSend = new FormData(form);
     formDataToSend.append('nda_file', uploadedFile);
 
-    // Ustaw stan przycisku
-    const originalText = submitButton.textContent;
-    submitButton.textContent = 'Wysyłanie...';
+    // Zapisz oryginalny HTML przycisku
+    const originalHTML = submitButton.innerHTML;
+
+    // ANIMACJA PRZYCISKU - Spinning Border
+    submitButton.innerHTML = `
+        <span style="display: inline-flex; align-items: center; gap: 10px;">
+            <div style="width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+            Wysyłanie...
+        </span>
+    `;
     submitButton.disabled = true;
+    submitButton.style.opacity = '0.7';
+    submitButton.style.cursor = 'not-allowed';
 
     try {
         const response = await fetch('/partner-academy/api/application/submit', {
@@ -593,27 +623,94 @@ async function submitForm() {
             body: formDataToSend
         });
 
+        const contentType = response.headers.get('content-type');
+        
+        // Jeśli nie JSON (np. firewall zwrócił HTML), pokaż błąd
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('Serwer zwrócił nieprawidłową odpowiedź. Spróbuj ponownie za chwilę.');
+        }
+
         const result = await response.json();
 
         if (response.ok && result.success) {
-            // Sukces - pokaż komunikat i przekieruj lub zresetuj
-            alert('Aplikacja została wysłana pomyślnie! Skontaktujemy się z Tobą w ciągu 48 godzin.');
-
-            // Opcjonalnie: przekieruj na stronę podziękowania
-            // window.location.href = '/partner-academy/thank-you';
-
-            // Lub zresetuj formularz i wróć do kroku 1
-            form.reset();
-            uploadedFile = null;
-            removeFile();
-            currentStep = 1;
-            goToStep(1);
-
+            // SUKCES - pokaż ekran potwierdzenia
+            const userEmail = form.querySelector('#email').value;
+            const step7Content = document.querySelector('.step-content[data-step="7"]');
+            
+            if (step7Content) {
+                step7Content.style.transition = 'opacity 0.5s ease-out';
+                step7Content.style.opacity = '0';
+                
+                setTimeout(() => {
+                    step7Content.innerHTML = `
+                        <div style="text-align: center; padding: 60px 20px; max-width: 800px; margin: 0 auto;">
+                            <div style="margin-bottom: 30px; animation: scaleIn 0.6s ease-out;">
+                                <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <circle cx="60" cy="60" r="55" stroke="#2ECC71" stroke-width="6" fill="none"/>
+                                    <path d="M35 62L52 79L85 41" stroke="#2ECC71" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            
+                            <h2 style="color: var(--primary-color); font-size: 32px; margin-bottom: 20px; font-weight: 600;">
+                                Dziękujemy za aplikację!
+                            </h2>
+                            
+                            <p style="font-size: 18px; color: var(--text-secondary); margin-bottom: 30px; line-height: 1.6;">
+                                Twoja aplikacja została pomyślnie wysłana. Wkrótce skontaktujemy się z Tobą w celu omówienia dalszych kroków.
+                            </p>
+                            
+                            <div style="background: #F8F9FA; border-radius: 12px; padding: 30px; margin-bottom: 30px; border: 2px solid #E0E0E0;">
+                                <p style="font-size: 16px; color: var(--text-primary); margin-bottom: 15px; font-weight: 500;">
+                                    Email potwierdzający został wysłany na:
+                                </p>
+                                <p style="font-size: 20px; color: var(--primary-color); font-weight: 600; margin-bottom: 20px;">
+                                    ${userEmail}
+                                </p>
+                                <div style="background: #FFF3CD; border-left: 4px solid #FFC107; padding: 15px; border-radius: 4px; text-align: left;">
+                                    <p style="font-size: 14px; color: #856404; margin: 0; line-height: 1.5;">
+                                        <strong>⚠️ Ważne:</strong> Jeśli nie widzisz wiadomości w skrzynce odbiorczej, sprawdź folder <strong>SPAM/Wiadomości-śmieci</strong>.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <style>
+                            @keyframes scaleIn {
+                                0% { transform: scale(0); opacity: 0; }
+                                50% { transform: scale(1.1); }
+                                100% { transform: scale(1); opacity: 1; }
+                            }
+                        </style>
+                    `;
+                    
+                    step7Content.style.opacity = '1';
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }, 500);
+            }
+            
         } else {
-            // Błąd walidacji lub inny błąd
-            alert(result.error || 'Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
+            // BŁĄD - pokaż komunikat
+            
+            // Duplikat emaila - pokaż przy polu
+            if (result.error && result.error.includes('email już istnieje')) {
+                const emailField = document.getElementById('email');
+                const errorSpan = document.getElementById('error_email');
+                
+                if (emailField && errorSpan) {
+                    errorSpan.textContent = result.error;
+                    errorSpan.style.display = 'block';
+                    emailField.classList.add('error');
+                    emailField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    // Fallback na alert jeśli elementy nie istnieją
+                    alert(result.error);
+                }
+            } else {
+                // Inny błąd - pokaż alert
+                alert(result.error || 'Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
+            }
 
-            // Jeśli są szczegółowe błędy walidacji, pokaż je
+            // Błędy walidacji pól
             if (result.errors) {
                 Object.keys(result.errors).forEach(fieldName => {
                     const errorSpan = document.getElementById(`error_${fieldName}`);
@@ -628,10 +725,13 @@ async function submitForm() {
         }
     } catch (error) {
         console.error('Error:', error);
-        alert('Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
+        alert(error.message || 'Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
     } finally {
-        submitButton.textContent = originalText;
+        // Przywróć przycisk
+        submitButton.innerHTML = originalHTML;
         submitButton.disabled = false;
+        submitButton.style.opacity = '1';
+        submitButton.style.cursor = 'pointer';
     }
 }
 

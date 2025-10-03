@@ -479,6 +479,14 @@
                                     </label>
                                 </div>
 
+                                <!-- ZGODA -->
+                                <div class="form-group" style="margin-top: 24px;">
+                                    <label class="consent-label">
+                                        <input type="checkbox" name="data_processing_consent" id="data_processing_consent" required>
+                                        <span>Wyrażam zgodę na przetwarzanie danych osobowych zgodnie z RODO *</span>
+                                    </label>
+                                </div>
+
                                 <!-- NDA SECTION -->
                                 <div class="form-group">
                                     <h4 style="margin-bottom: 16px; color: var(--text-primary); font-size: 16px; font-weight: 600;">Umowa NDA</h4>
@@ -518,17 +526,9 @@
                                     </div>
                                 </div>
 
-                                <!-- ZGODA -->
-                                <div class="form-group" style="margin-top: 24px;">
-                                    <label class="consent-label">
-                                        <input type="checkbox" name="data_processing_consent" id="data_processing_consent" required>
-                                        <span>Wyrażam zgodę na przetwarzanie danych osobowych zgodnie z RODO *</span>
-                                    </label>
-                                </div>
-
                                 <!-- SUBMIT BUTTON -->
                                 <div>
-                                    <button type="button" class="btn-submit-form" onclick="submitForm()">
+                                    <button type="button" class="btn-submit-form" id="submitButton" onclick="submitForm()">
                                         Wyślij aplikację
                                     </button>
                                 </div>

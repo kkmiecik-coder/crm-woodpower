@@ -11,7 +11,7 @@ Tabele:
 
 Autor: Development Team
 Data: 2025-09-30
-Ostatnia aktualizacja: 2025-10-02 - Dodanie postal_code
+Ostatnia aktualizacja: 2025-10-02 - Poprawka nazwy kolumny adress -> address
 """
 
 from extensions import db
@@ -40,8 +40,8 @@ class PartnerApplication(db.Model):
     email = db.Column(db.String(255), nullable=False, unique=True, index=True, comment='Email kontaktowy')
     phone = db.Column(db.String(20), nullable=False, comment='Numer telefonu')
     city = db.Column(db.String(100), nullable=False, comment='Miasto')
-    locality = db.Column(db.String(255), nullable=False, comment='Miejscowość/Adres (ulica i numer)')
-    postal_code = db.Column(db.String(6), nullable=False, comment='Kod pocztowy kandydata (format: 00-000)')  # NOWE POLE
+    address = db.Column(db.String(255), nullable=False, comment='Adres (ulica i numer)')  # POPRAWIONO: adress -> address
+    postal_code = db.Column(db.String(6), nullable=False, comment='Kod pocztowy kandydata (format: 00-000)')
     pesel = db.Column(db.String(11), nullable=False, comment='PESEL kandydata')
     
     # ============================================================================
@@ -125,8 +125,8 @@ class PartnerApplication(db.Model):
             'email': self.email,
             'phone': self.phone,
             'city': self.city,
-            'locality': self.locality,
-            'postal_code': self.postal_code,  # NOWE POLE
+            'address': self.address,  # POPRAWIONO: locality -> address
+            'postal_code': self.postal_code,
             'pesel': self.pesel,
             'about_text': self.about_text,
             'is_b2b': self.is_b2b,
