@@ -171,8 +171,7 @@ class PartnerLearningSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     
     # DANE SESJI
-    email = db.Column(db.String(255), nullable=False, index=True, comment='Email uczestnika')
-    pin_code = db.Column(db.String(4), nullable=False, comment='4-cyfrowy PIN do logowania')
+    session_id = db.Column(db.String(64), nullable=False, unique=True, index=True, comment='Unikalny identyfikator sesji')
     current_step = db.Column(db.String(10), default='1.1', comment='Aktualny krok (np. 1.1, M1, 3.1)')
     
     # PROGRESS TRACKING
@@ -192,4 +191,4 @@ class PartnerLearningSession(db.Model):
     completed_at = db.Column(db.DateTime, comment='Data ukończenia szkolenia')
     
     def __repr__(self):
-        return f'<PartnerLearningSession {self.email} - Step {self.current_step}>'
+        return f'<PartnerLearningSession {self.session_id} - Step {self.current_step}>'
