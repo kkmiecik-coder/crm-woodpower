@@ -43,6 +43,8 @@ class PartnerApplication(db.Model):
     address = db.Column(db.String(255), nullable=False, comment='Adres (ulica i numer)')  # POPRAWIONO: adress -> address
     postal_code = db.Column(db.String(6), nullable=False, comment='Kod pocztowy kandydata (format: 00-000)')
     pesel = db.Column(db.String(11), nullable=False, comment='PESEL kandydata')
+    voivodeship = db.Column(db.String(50), nullable=False, comment='Województwo działalności')
+    business_location = db.Column(db.String(100), nullable=False, comment='Miejscowość działalności')
     
     # ============================================================================
     # DODATKOWE INFORMACJE
@@ -128,6 +130,8 @@ class PartnerApplication(db.Model):
             'address': self.address,  # POPRAWIONO: locality -> address
             'postal_code': self.postal_code,
             'pesel': self.pesel,
+            'voivodeship': self.voivodeship,
+            'business_location': self.business_location,
             'about_text': self.about_text,
             'is_b2b': self.is_b2b,
             'status': self.status,

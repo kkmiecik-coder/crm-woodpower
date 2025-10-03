@@ -81,9 +81,11 @@ class ApplicationService:
             'email': form_data['email'],
             'phone': form_data['phone'],
             'city': form_data['city'],
-            'address': form_data['address'],  # ZMIENIONE z locality
-            'postal_code': form_data['postal_code'],  # DODANE
+            'address': form_data['address'],
+            'postal_code': form_data['postal_code'],
             'pesel': form_data['pesel'],
+            'voivodeship': form_data['voivodeship'],
+            'business_location': form_data['business_location'],
             'about_text': form_data.get('about_text', ''),
             'data_processing_consent': form_data.get('data_processing_consent', 'off') == 'on',
             'nda_filename': unique_filename,

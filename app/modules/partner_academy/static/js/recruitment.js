@@ -4,13 +4,13 @@
 
 // Globalne zmienne
 let currentStep = 1;
-const totalSteps = 7;
+const totalSteps = 7; // POZOSTAJE 7
 const stepLabels = [
-    'Początek',
-    'Proces',
+    'Rekrutacja',
     'Kim jesteśmy',
     'Korzyści',
     'Produkty',
+    'Nasi klienci',
     'Zespół',
     'Formularz'
 ];
@@ -382,6 +382,16 @@ function validateField(field) {
         }
     }
 
+    // Walidacja select (województwo)
+    if (field.tagName === 'SELECT') {
+        if (field.hasAttribute('required') && (!fieldValue || fieldValue === '')) {
+            errorSpan.textContent = 'To pole jest wymagane';
+            errorSpan.style.display = 'block';
+            field.classList.add('error');
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -390,7 +400,7 @@ function validateForm() {
     if (!form) return false;
 
     let isValid = true;
-    const fields = form.querySelectorAll('input[required], textarea[required]');
+    const fields = form.querySelectorAll('input[required], textarea[required], select[required]');
 
     fields.forEach(field => {
         if (!validateField(field)) {

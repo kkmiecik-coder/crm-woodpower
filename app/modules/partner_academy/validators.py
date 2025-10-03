@@ -109,6 +109,25 @@ def validate_application_data(form_data):
             # Walidacja sumy kontrolnej PESEL
             if not _validate_pesel_checksum(pesel):
                 errors['pesel'] = 'Nieprawidłowy numer PESEL (błędna suma kontrolna)'
+
+    # WOJEWÓDZTWO - NOWE
+    if not form_data.get('voivodeship'):
+        errors['voivodeship'] = 'Województwo jest wymagane'
+    elif form_data['voivodeship'] not in [
+        'dolnośląskie', 'kujawsko-pomorskie', 'lubelskie', 'lubuskie',
+        'łódzkie', 'małopolskie', 'mazowieckie', 'opolskie',
+        'podkarpackie', 'podlaskie', 'pomorskie', 'śląskie',
+        'świętokrzyskie', 'warmińsko-mazurskie', 'wielkopolskie', 'zachodniopomorskie'
+    ]:
+        errors['voivodeship'] = 'Nieprawidłowe województwo'
+
+    # MIEJSCOWOŚĆ DZIAŁALNOŚCI - NOWE
+    if not form_data.get('business_location'):
+        errors['business_location'] = 'Miejscowość działalności jest wymagana'
+    elif len(form_data['business_location']) < 2:
+        errors['business_location'] = 'Miejscowość musi mieć minimum 2 znaki'
+    elif len(form_data['business_location']) > 100:
+        errors['business_location'] = 'Miejscowość może mieć maksymalnie 100 znaków'
     
     # ============================================================================
     # DANE OPCJONALNE

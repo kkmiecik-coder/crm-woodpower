@@ -409,7 +409,6 @@ body {
    ============================================================================ */
 .hero {
     text-align: center;
-    padding: var(--spacing-xl) 0;
 }
 
 .hero-logo {
@@ -455,7 +454,7 @@ body {
     justify-content: space-between;
     gap: var(--spacing-md);
     position: relative;
-    padding: var(--spacing-xl) 0;
+    padding-top: var(--spacing-lg);
 }
 
 .timeline-item {
@@ -590,7 +589,6 @@ body {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: var(--spacing-lg);
-    margin-bottom: var(--spacing-xl);
 }
 
 .about-feature-box {
@@ -890,7 +888,6 @@ body {
 /* Compact cooperation cards - horizontal layout */
 .cooperation-cards-compact {
     display: flex;
-    flex-direction: column;
     gap: 12px;
     margin-bottom: 24px;
 }
@@ -915,7 +912,6 @@ body {
 
 .cooperation-card-compact.active {
     border-color: var(--accent-orange);
-    background: linear-gradient(135deg, #FFF5EE 0%, #FFFFFF 100%);
     box-shadow: 0 3px 10px rgba(237, 107, 36, 0.15);
 }
 
@@ -1200,7 +1196,6 @@ body {
 .b2b-fields.show {
     max-height: 1000px;
     opacity: 1;
-    margin-top: 24px;
 }
 
 .b2b-fields h4 {
@@ -1366,6 +1361,18 @@ body {
     color: var(--text-dark);
     font-weight: 600;
 }
+
+.consent-label .rodo-link {
+    color: var(--accent-orange);
+    text-decoration: underline;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+    .consent-label .rodo-link:hover {
+        color: #e65c00;
+        text-decoration: none;
+    }
 
 /* ============================================================================
    RESPONSIVE
@@ -1629,4 +1636,108 @@ body {
     /* Error state */
     .btn-generate-nda.error {
         background: #E74C3C !important;
+    }
+
+/* Clients Grid */
+.clients-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+    margin-top: 40px;
+}
+
+.client-card {
+    background: white;
+    border: 2px solid #f0f0f0;
+    border-radius: 16px;
+    padding: 32px 24px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+    .client-card:hover {
+        border-color: var(--accent-orange);
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    }
+
+.client-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.client-card h3 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.client-card p {
+    font-size: 14px;
+    color: #666;
+    line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+    .clients-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .client-card {
+        padding: 24px 20px;
+    }
+}
+
+/* Select styling */
+select {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: 'Poppins', sans-serif;
+    color: var(--text-primary);
+    background-color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    padding-right: 40px;
+}
+
+    select:hover {
+        border-color: #bbb;
+    }
+
+    select:focus {
+        outline: none;
+        border-color: var(--accent-orange);
+        box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+    }
+
+    select.error {
+        border-color: #ff4444;
+        background-color: #fff5f5;
+    }
+
+    select option {
+        padding: 12px;
+        font-size: 14px;
+    }
+
+        select option:first-child {
+            color: #999;
+        }
+
+    /* Placeholder style for select */
+    select:invalid {
+        color: #999;
+    }
+
+    select:valid {
+        color: var(--text-primary);
     }
