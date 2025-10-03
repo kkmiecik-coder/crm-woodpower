@@ -458,17 +458,6 @@ body {
     padding: var(--spacing-xl) 0;
 }
 
-.timeline-horizontal::before {
-    content: '';
-    position: absolute;
-    top: 30px;
-    left: 60px;
-    right: 60px;
-    height: 4px;
-    background-color: var(--border-color);
-    z-index: 0;
-}
-
 .timeline-item {
     flex: 1;
     display: flex;
@@ -1562,3 +1551,82 @@ body {
         height: 48px;
     }
 }
+
+/* ============================================================================
+   NDA GENERATION BUTTON STATES & ANIMATIONS
+   ============================================================================ */
+
+/* Spinner animation */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* Slide down animation dla komunikatu błędu */
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.nda-error-message {
+    animation: slideDown 0.3s ease;
+}
+
+/* Enhanced button states */
+.btn-generate-nda {
+    display: inline-block;
+    padding: 14px 28px;
+    background: var(--accent-orange);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+    .btn-generate-nda:hover:not(:disabled) {
+        background: #D65A1F;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(237, 107, 36, 0.3);
+    }
+
+    .btn-generate-nda:disabled {
+        opacity: 0.9;
+        transform: none;
+    }
+
+    /* Success state */
+    .btn-generate-nda.success {
+        background: #2ECC71 !important;
+    }
+
+    /* Error state */
+    .btn-generate-nda.error {
+        background: #E74C3C !important;
+    }

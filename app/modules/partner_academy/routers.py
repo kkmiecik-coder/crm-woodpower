@@ -34,7 +34,7 @@ Autor: Development Team
 Data: 2025-09-30
 """
 
-from flask import render_template, request, jsonify, current_app, send_file, session, redirect, url_for, flash
+from flask import render_template, request, jsonify, current_app, send_file, session, redirect, url_for, flash, make_response
 from modules.partner_academy import partner_academy_bp
 from modules.partner_academy.services import ApplicationService, EmailService, LearningService
 from modules.partner_academy.validators import validate_application_data, validate_file, validate_quiz_answers
@@ -51,6 +51,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from functools import wraps
 
+def json_response(data, status=200):
+    """Helper do tworzenia JSON response z właściwym Content-Type"""
+    response = make_response(jsonify(data), status)
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
 
 def login_required(func):
     """Dekorator wymagający zalogowania dla panelu admina"""
@@ -167,14 +172,13 @@ def submit_application():
         # ========================================================================
         
         is_valid, errors = validate_application_data(form_data)
-        
+
         if not is_valid:
             current_app.logger.warning(f"Validation errors: {errors}")
-            return jsonify({
+            return json_response({
                 'success': False,
-                'error': 'Błędy walidacji formularza',
                 'errors': errors
-            }), 400
+            }, 400)
         
         # ========================================================================
         # WALIDACJA PLIKU NDA
@@ -184,10 +188,10 @@ def submit_application():
         
         if not file_valid:
             current_app.logger.warning(f"File validation error: {file_error}")
-            return jsonify({
+            return json_response({
                 'success': False,
                 'error': file_error
-            }), 400
+            }, 400)
         
         # ========================================================================
         # SPRAWDŹ CZY EMAIL JUŻ ISTNIEJE
@@ -201,10 +205,10 @@ def submit_application():
             current_app.logger.warning(
                 f"Duplicate application attempt: {form_data['email']}"
             )
-            return jsonify({
+            return json_response({
                 'success': False,
                 'error': 'Aplikacja z tym adresem email już istnieje'
-            }), 400
+            }, 400)
         
         # ========================================================================
         # UTWÓRZ APLIKACJĘ
@@ -248,20 +252,20 @@ def submit_application():
         # RESPONSE
         # ========================================================================
         
-        return jsonify({
+        return json_response({
             'success': True,
             'message': 'Aplikacja została wysłana pomyślnie',
             'application_id': application.id
-        }), 201
+        }, 201)
         
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Application submission error: {str(e)}", exc_info=True)
         
-        return jsonify({
+        return json_response({
             'success': False,
             'error': 'Wystąpił błąd podczas przetwarzania aplikacji. Spróbuj ponownie.'
-        }), 500
+        }, 500)
 
 
 @partner_academy_bp.route('/api/application/generate-nda', methods=['POST'])

@@ -23,6 +23,7 @@ from modules.partner_academy.models import PartnerApplication, PartnerLearningSe
 from datetime import datetime
 import magic
 import uuid
+import json
 
 
 class ApplicationService:
@@ -194,6 +195,20 @@ class EmailService:
     """Serwis wysyłki emaili"""
     
     @staticmethod
+    def _load_mail_addresses():
+        """Wczytaj adresy email z pliku konfiguracyjnego"""
+        try:
+            # Ścieżka relatywna od services.py
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.join(current_dir, 'config', 'mail_addresses.json')
+        
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            current_app.logger.error(f"Błąd wczytywania mail_addresses.json: {str(e)}")
+            return {"notification_emails": [], "confirmation_emails": []}
+    
+    @staticmethod
     def send_application_confirmation(application):
         """
         Wyślij email potwierdzający otrzymanie aplikacji
@@ -202,16 +217,24 @@ class EmailService:
             application (PartnerApplication): Aplikacja rekrutacyjna
         """
         try:
+            sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+            
             msg = Message(
-                subject='Potwierdzenie otrzymania aplikacji - WoodPower Partner Academy',
-                sender=current_app.config.get('MAIL_DEFAULT_SENDER'),
+                subject='Potwierdzenie otrzymania aplikacji - WoodPower PartnerAcademy',
+                sender=sender,
                 recipients=[application.email]
             )
             
-            # Renderuj template email
             msg.html = render_template(
-                'emails/application_confirmation.html',
-                application=application
+                'emails/application_received.html',
+                first_name=application.first_name,
+                last_name=application.last_name,
+                email=application.email,
+                phone=application.phone,
+                city=application.city,
+                address=application.address,
+                is_b2b=application.is_b2b,
+                company_name=application.company_name if application.is_b2b else None
             )
             
             mail.send(msg)
@@ -224,6 +247,7 @@ class EmailService:
             current_app.logger.error(
                 f"Błąd wysyłki emaila do {application.email}: {str(e)}"
             )
+            raise
     
     @staticmethod
     def send_admin_notification(application):
@@ -234,31 +258,90 @@ class EmailService:
             application (PartnerApplication): Aplikacja rekrutacyjna
         """
         try:
-            admin_email = current_app.config.get('ADMIN_EMAIL')
-            if not admin_email:
+            # Wczytaj adresy z pliku konfiguracyjnego
+            mail_config = EmailService._load_mail_addresses()
+            notification_emails = mail_config.get('notification_emails', [])
+            
+            if not notification_emails:
+                current_app.logger.warning("Brak adresów w notification_emails w mail_addresses.json")
                 return
             
+            sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+            
             msg = Message(
-                subject=f'Nowa aplikacja: {application.first_name} {application.last_name}',
-                sender=current_app.config.get('MAIL_DEFAULT_SENDER'),
-                recipients=[admin_email]
+                subject=f'🎯 Nowa aplikacja: {application.first_name} {application.last_name}',
+                sender=sender,
+                recipients=notification_emails  # Lista adresów z pliku JSON
             )
             
             msg.html = render_template(
-                'emails/admin_notification.html',
+                'emails/application_notification.html',
                 application=application
             )
+            
+            # Dodaj załącznik NDA jeśli istnieje
+            if application.nda_filepath and os.path.exists(application.nda_filepath):
+                with open(application.nda_filepath, 'rb') as f:
+                    msg.attach(
+                        application.nda_filename,
+                        "application/pdf",
+                        f.read()
+                    )
             
             mail.send(msg)
             
             current_app.logger.info(
-                f"Wysłano notyfikację do admina o aplikacji: {application.id}"
+                f"Wysłano notyfikację do {len(notification_emails)} adresów o aplikacji: {application.id}"
             )
             
         except Exception as e:
             current_app.logger.error(
                 f"Błąd wysyłki notyfikacji do admina: {str(e)}"
             )
+            raise
+    
+    @staticmethod
+    def send_status_update(application, new_status):
+        """
+        Wyślij email o zmianie statusu aplikacji
+        
+        Args:
+            application (PartnerApplication): Aplikacja
+            new_status (str): Nowy status
+        """
+        try:
+            status_messages = {
+                'contacted': 'Skontaktujemy się z Tobą wkrótce',
+                'accepted': 'Twoja aplikacja została zaakceptowana!',
+                'rejected': 'Informacja o Twojej aplikacji'
+            }
+            
+            subject = f'WoodPower PartnerAcademy - {status_messages.get(new_status, "Aktualizacja statusu")}'
+            
+            sender = current_app.config.get('MAIL_DEFAULT_SENDER') or current_app.config.get('MAIL_USERNAME')
+            
+            msg = Message(
+                subject=subject,
+                sender=sender,
+                recipients=[application.email]
+            )
+            
+            msg.html = render_template(
+                f'emails/status_{new_status}.html',
+                application=application
+            )
+            
+            mail.send(msg)
+            
+            current_app.logger.info(
+                f"Wysłano email o zmianie statusu do: {application.email} ({new_status})"
+            )
+            
+        except Exception as e:
+            current_app.logger.error(
+                f"Błąd wysyłki emaila o statusie: {str(e)}"
+            )
+            raise
     
     @staticmethod
     def send_status_update(application, new_status):
@@ -299,6 +382,7 @@ class EmailService:
             current_app.logger.error(
                 f"Błąd wysyłki emaila o statusie: {str(e)}"
             )
+            raise
 
 
 class LearningService:

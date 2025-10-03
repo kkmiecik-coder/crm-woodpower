@@ -173,26 +173,13 @@ def generate_nda_pdf(data):
         from flask import render_template, current_app
         import os
         
-        # DEBUGOWANIE - Loguj otrzymane dane
-        current_app.logger.info("=== GENERATE_NDA_PDF DEBUG ===")
-        current_app.logger.info(f"Received data keys: {list(data.keys())}")
-        current_app.logger.info(f"first_name: {data.get('first_name')}")
-        current_app.logger.info(f"last_name: {data.get('last_name')}")
-        current_app.logger.info(f"city: {data.get('city')}")
-        current_app.logger.info(f"address: {data.get('address')}")
-        current_app.logger.info(f"postal_code: {data.get('postal_code')}")
-        current_app.logger.info(f"pesel: {data.get('pesel')}")
-        current_app.logger.info(f"cooperation_type: {data.get('cooperation_type')}")
-        
         # Dodaj bieżącą datę do danych
         data['current_date'] = datetime.now().strftime('%d.%m.%Y')
         
         # Sprawdź czy to B2B
         is_b2b = data.get('cooperation_type') == 'b2b'
         data['is_b2b_bool'] = is_b2b
-        
-        current_app.logger.info(f"is_b2b_bool: {is_b2b}")
-        
+                
         # Przygotuj ścieżki do obrazów (bezwzględne, rzeczywiste ścieżki na dysku)
         app_root = os.path.abspath(current_app.root_path)
         
@@ -214,19 +201,14 @@ def generate_nda_pdf(data):
         
         # Jeśli pliki nie istnieją, użyj placeholder lub pomiń
         if not os.path.exists(logo_path):
-            current_app.logger.warning(f"Logo not found: {logo_path}")
             logo_path = None
         
         if not os.path.exists(sign_path):
-            current_app.logger.warning(f"Signature not found: {sign_path}")
             sign_path = None
         
         # Dodaj ścieżki do danych dla template
         data['logo_path'] = logo_path
         data['sign_path'] = sign_path
-        
-        # DEBUGOWANIE - Loguj wszystkie dane przed renderowaniem
-        current_app.logger.info(f"Final data passed to template: {data}")
         
         # Renderuj HTML template z danymi
         html_content = render_template(
@@ -243,9 +225,6 @@ def generate_nda_pdf(data):
         # Generuj PDF z HTML - zwróć surowe bajty
         html = HTML(string=html_content, base_url=app_root)
         pdf_bytes = html.write_pdf()
-        
-        current_app.logger.info(f"NDA PDF generated successfully for {data.get('email')}")
-        current_app.logger.info("=== END GENERATE_NDA_PDF DEBUG ===")
         
         # Zwróć surowe bajty
         return pdf_bytes

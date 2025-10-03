@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', function () {
     renderMobileProgress();
     setupFileUpload();
     setupFormValidation();
+    setupErrorClearing();
 });
 
 // ============================================================================
@@ -421,6 +422,79 @@ function validateForm() {
 }
 
 // ============================================================================
+// ERROR DISPLAY HELPERS
+// ============================================================================
+
+function showFieldError(fieldName, errorMessage) {
+    const input = document.querySelector(`[name="${fieldName}"]`);
+    if (!input) return;
+
+    // Dodaj klasę error do inputa
+    input.classList.add('error');
+
+    // Znajdź lub stwórz kontener na błąd
+    const formGroup = input.closest('.form-group');
+    if (!formGroup) return;
+
+    let errorDiv = formGroup.querySelector('.error-message');
+    if (!errorDiv) {
+        errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        formGroup.appendChild(errorDiv);
+    }
+
+    errorDiv.textContent = errorMessage;
+    errorDiv.style.display = 'block';
+}
+
+function clearFieldError(fieldName) {
+    const input = document.querySelector(`[name="${fieldName}"]`);
+    if (!input) return;
+
+    input.classList.remove('error');
+
+    const formGroup = input.closest('.form-group');
+    if (!formGroup) return;
+
+    const errorDiv = formGroup.querySelector('.error-message');
+    if (errorDiv) {
+        errorDiv.style.display = 'none';
+        errorDiv.textContent = '';
+    }
+}
+
+function clearAllErrors() {
+    // Usuń wszystkie klasy error z inputów
+    document.querySelectorAll('.error').forEach(el => el.classList.remove('error'));
+
+    // Ukryj wszystkie error-message
+    document.querySelectorAll('.error-message').forEach(el => {
+        el.style.display = 'none';
+        el.textContent = '';
+    });
+}
+
+function setupErrorClearing() {
+    const form = document.getElementById('applicationForm');
+    if (!form) return;
+
+    const inputs = form.querySelectorAll('input, select, textarea');
+    inputs.forEach(input => {
+        input.addEventListener('input', function () {
+            if (this.name) {
+                clearFieldError(this.name);
+            }
+        });
+
+        input.addEventListener('change', function () {
+            if (this.name) {
+                clearFieldError(this.name);
+            }
+        });
+    });
+}
+
+// ============================================================================
 // FILE UPLOAD
 // ============================================================================
 
@@ -533,9 +607,24 @@ async function generateNDA() {
     formData = data;
 
     const button = event.target;
-    const originalText = button.textContent;
-    button.textContent = 'Generowanie PDF...';
+    const originalHTML = button.innerHTML;
+    const originalBg = button.style.backgroundColor;
+
+    // Dodaj spinner i zmień tekst
+    button.innerHTML = `
+        <span style="display: inline-flex; align-items: center; gap: 8px;">
+            <span class="spinner"></span>
+            Generowanie PDF...
+        </span>
+    `;
     button.disabled = true;
+    button.style.cursor = 'wait';
+
+    // Ukryj komunikat błędu jeśli istnieje
+    const existingError = button.parentElement.querySelector('.nda-error-message');
+    if (existingError) {
+        existingError.remove();
+    }
 
     try {
         const response = await fetch('/partner-academy/api/application/generate-nda', {
@@ -557,17 +646,65 @@ async function generateNDA() {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            alert('PDF został pobrany. Proszę podpisać i załączyć powyżej.');
+            // Status sukcesu
+            button.style.backgroundColor = '#2ECC71';
+            button.style.transition = 'all 0.3s ease';
+            button.innerHTML = `
+                <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    ✓ Wygenerowano
+                </span>
+            `;
+
+            // Przywróć oryginalny stan po 3 sekundach
+            setTimeout(() => {
+                button.innerHTML = originalHTML;
+                button.style.backgroundColor = originalBg;
+                button.disabled = false;
+                button.style.cursor = 'pointer';
+            }, 3000);
+
         } else {
             const errorData = await response.json();
-            alert(errorData.error || 'Wystąpił błąd podczas generowania PDF. Spróbuj ponownie.');
+            throw new Error(errorData.error || 'Wystąpił błąd podczas generowania PDF');
         }
     } catch (error) {
         console.error('Error:', error);
-        alert('Wystąpił błąd podczas generowania PDF. Spróbuj ponownie.');
-    } finally {
-        button.textContent = originalText;
-        button.disabled = false;
+
+        // Status błędu
+        button.style.backgroundColor = '#E74C3C';
+        button.style.transition = 'all 0.3s ease';
+        button.innerHTML = `
+            <span style="display: inline-flex; align-items: center; gap: 8px;">
+                ⚠ Błąd generowania
+            </span>
+        `;
+
+        // Dodaj komunikat pod przyciskiem
+        const errorMessage = document.createElement('p');
+        errorMessage.className = 'nda-error-message';
+        errorMessage.style.cssText = `
+            color: #E74C3C;
+            font-size: 13px;
+            margin-top: 12px;
+            padding: 12px;
+            background: #FEE;
+            border-radius: 6px;
+            border-left: 3px solid #E74C3C;
+            animation: slideDown 0.3s ease;
+        `;
+        errorMessage.textContent = 'Wystąpił błąd podczas generowania PDF. Prosimy o kontakt z nami.';
+        button.parentElement.appendChild(errorMessage);
+
+        // Przywróć oryginalny stan po 5 sekundach
+        setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.style.backgroundColor = originalBg;
+            button.disabled = false;
+            button.style.cursor = 'pointer';
+            if (errorMessage.parentElement) {
+                errorMessage.remove();
+            }
+        }, 5000);
     }
 }
 
@@ -576,6 +713,9 @@ async function generateNDA() {
 // ============================================================================
 
 async function submitForm() {
+    // Wyczyść poprzednie błędy
+    clearAllErrors();
+
     // Walidacja formularza
     if (!validateForm()) {
         alert('Proszę poprawnie wypełnić wszystkie wymagane pola');
@@ -589,10 +729,9 @@ async function submitForm() {
     }
 
     const form = document.getElementById('applicationForm');
-    
-    // POPRAWKA: Znajdź przycisk submit (może być różne ID)
+
     const submitButton = document.querySelector('.btn-submit-form') || document.getElementById('btnNext');
-    
+
     if (!submitButton) {
         console.error('Submit button not found!');
         alert('Błąd: nie znaleziono przycisku wysyłania');
@@ -624,8 +763,7 @@ async function submitForm() {
         });
 
         const contentType = response.headers.get('content-type');
-        
-        // Jeśli nie JSON (np. firewall zwrócił HTML), pokaż błąd
+
         if (!contentType || !contentType.includes('application/json')) {
             throw new Error('Serwer zwrócił nieprawidłową odpowiedź. Spróbuj ponownie za chwilę.');
         }
@@ -636,11 +774,11 @@ async function submitForm() {
             // SUKCES - pokaż ekran potwierdzenia
             const userEmail = form.querySelector('#email').value;
             const step7Content = document.querySelector('.step-content[data-step="7"]');
-            
+
             if (step7Content) {
                 step7Content.style.transition = 'opacity 0.5s ease-out';
                 step7Content.style.opacity = '0';
-                
+
                 setTimeout(() => {
                     step7Content.innerHTML = `
                         <div style="text-align: center; padding: 60px 20px; max-width: 800px; margin: 0 auto;">
@@ -682,45 +820,45 @@ async function submitForm() {
                             }
                         </style>
                     `;
-                    
+
                     step7Content.style.opacity = '1';
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 }, 500);
             }
-            
+
         } else {
-            // BŁĄD - pokaż komunikat
-            
-            // Duplikat emaila - pokaż przy polu
-            if (result.error && result.error.includes('email już istnieje')) {
+            // BŁĄD WALIDACJI - wyświetl błędy pod polami
+            if (result.errors) {
+                // Wyświetl błędy pod konkretnymi polami
+                Object.keys(result.errors).forEach(fieldName => {
+                    showFieldError(fieldName, result.errors[fieldName]);
+                });
+
+                // Przewiń do pierwszego błędu
+                const firstErrorField = document.querySelector('.error');
+                if (firstErrorField) {
+                    firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+
+                alert('Proszę poprawić zaznaczone pola formularza');
+            }
+            // Duplikat emaila
+            else if (result.error && result.error.includes('email już istnieje')) {
                 const emailField = document.getElementById('email');
                 const errorSpan = document.getElementById('error_email');
-                
+
                 if (emailField && errorSpan) {
                     errorSpan.textContent = result.error;
                     errorSpan.style.display = 'block';
                     emailField.classList.add('error');
                     emailField.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 } else {
-                    // Fallback na alert jeśli elementy nie istnieją
                     alert(result.error);
                 }
-            } else {
-                // Inny błąd - pokaż alert
-                alert(result.error || 'Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
             }
-
-            // Błędy walidacji pól
-            if (result.errors) {
-                Object.keys(result.errors).forEach(fieldName => {
-                    const errorSpan = document.getElementById(`error_${fieldName}`);
-                    const field = document.getElementById(fieldName);
-                    if (errorSpan && field) {
-                        errorSpan.textContent = result.errors[fieldName];
-                        errorSpan.style.display = 'block';
-                        field.classList.add('error');
-                    }
-                });
+            // Inny błąd ogólny
+            else {
+                alert(result.error || 'Wystąpił błąd podczas wysyłania formularza. Spróbuj ponownie.');
             }
         }
     } catch (error) {
